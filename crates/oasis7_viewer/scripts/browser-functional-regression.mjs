@@ -10,9 +10,9 @@
 // or chain, and it never installs a controller in the release bundle.
 import { createServer } from "node:http";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
 import { fileFingerprint as fingerprintRegularFile, readRegularFile } from "./viewer-static-files.mjs";
@@ -146,6 +146,32 @@ function assert(condition, message, details = undefined) {
     const suffix = details === undefined ? "" : `\n${JSON.stringify(details, null, 2)}`;
     throw new Error(`${message}${suffix}`);
   }
+}
+
+let nextDriverId = 0;
+
+export function resolveRunnerConcurrency(env = process.env, parallelism = availableParallelism()) {
+  const configured = Number.parseInt(env.OASIS7_BFR_CONCURRENCY || "", 10);
+  if (Number.isInteger(configured) && configured >= 1) return Math.min(configured, 8);
+  return Math.max(1, Math.min(4, parallelism));
+}
+
+export async function runBoundedConcurrency(items, concurrency, worker) {
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error(`concurrency must be a positive integer, got ${concurrency}`);
+  }
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) return;
+      results[current] = await worker(items[current], current);
+    }
+  }));
+  return results;
 }
 
 function runBlocking(command, args, options = {}) {
@@ -599,26 +625,41 @@ function createBrowserDriver({ sessionPrefix, headed, outDir }) {
   // deep task worktree path can exceed the platform socket-name budget, so
   // keep the run-scoped socket directory at a short root path. Prefer the
   // short /tmp root when it exists; macOS TMPDIR is far too long.
+  const driverId = ++nextDriverId;
   const shortRoot = existsSync("/tmp") ? "/tmp" : (process.env.TMPDIR || tmpdir());
-  const socketDir = process.env.AGENT_BROWSER_SOCKET_DIR || join(shortRoot, "oasis7-bfr-sockets");
+  const ownsSocketDir = !process.env.AGENT_BROWSER_SOCKET_DIR;
+  const socketDir = process.env.AGENT_BROWSER_SOCKET_DIR || join(shortRoot, `o7-bfr-${process.pid}`, String(driverId));
   mkdirSync(socketDir, { recursive: true });
-  const session = `${sessionPrefix}-${process.pid}`.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 40);
+  const sessionSuffix = `${process.pid}-${driverId}`;
+  const cleanPrefix = String(sessionPrefix).replace(/[^A-Za-z0-9._-]/g, "-").slice(0, Math.max(8, 39 - sessionSuffix.length));
+  const session = `${cleanPrefix}-${sessionSuffix}`;
+  let closedViaAsync = false;
+  const cleanupOwnedSocketDir = () => {
+    if (ownsSocketDir) {
+      try { rmSync(socketDir, { recursive: true, force: true }); } catch {}
+    }
+  };
   const lifecycle = createOwnedSessionLifecycle({
     command: binary,
     session,
-    spawnSyncImpl: (command, args, options = {}) => spawnSync(command, args, {
-      ...options,
-      env: { ...process.env, AGENT_BROWSER_SOCKET_DIR: socketDir, ...(options.env || {}) },
-    }),
+    spawnSyncImpl: (command, args, options = {}) => {
+      if (closedViaAsync) return { status: 0 };
+      const result = spawnSync(command, args, {
+        ...options,
+        env: { ...process.env, AGENT_BROWSER_SOCKET_DIR: socketDir, ...(options.env || {}) },
+      });
+      cleanupOwnedSocketDir();
+      return result;
+    },
   });
   const baseArgs = ["--session", session, ...(headed ? ["--headed"] : []), "--allowed-domains", "127.0.0.1"];
 
   // These must stay async: the fixture HTTP server runs in this process, so a
   // blocking spawn while the browser opens the page would deadlock the page
   // fetch.
-  function run(args, options = {}) {
+  function runRaw(rawArgs, options = {}) {
     return new Promise((resolveRun, rejectRun) => {
-      const child = spawn(binary, [...baseArgs, ...args], {
+      const child = spawn(binary, rawArgs, {
         env: { ...process.env, AGENT_BROWSER_SOCKET_DIR: socketDir, ...(options.env || {}) },
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -626,7 +667,7 @@ function createBrowserDriver({ sessionPrefix, headed, outDir }) {
       let stderr = "";
       const timer = setTimeout(() => {
         child.kill("SIGTERM");
-        rejectRun(new Error(`agent-browser ${args[0]} timed out after ${options.timeout || 30_000}ms`));
+        rejectRun(new Error(`agent-browser ${rawArgs[0]} timed out after ${options.timeout || 30_000}ms`));
       }, options.timeout || 30_000);
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
@@ -640,6 +681,10 @@ function createBrowserDriver({ sessionPrefix, headed, outDir }) {
       if (options.input !== undefined) child.stdin.end(options.input);
       else child.stdin.end();
     });
+  }
+
+  function run(args, options = {}) {
+    return runRaw([...baseArgs, ...args], options);
   }
 
   async function runJson(args, options = {}) {
@@ -662,23 +707,38 @@ function createBrowserDriver({ sessionPrefix, headed, outDir }) {
     return path;
   }
 
-  function closeWithVerification(timeoutMs = 4000) {
-    lifecycle.close();
+  async function issueAsyncClose() {
+    if (!closedViaAsync) {
+      try {
+        await runRaw(["--session", session, "close"], { timeout: 10_000 });
+      } catch {
+        // Cleanup must not mask the original scenario failure.
+      }
+      closedViaAsync = true;
+      lifecycle.close();
+    }
+  }
+
+  async function closeAsync() {
+    await issueAsyncClose();
+    cleanupOwnedSocketDir();
+  }
+
+  async function closeWithVerification(timeoutMs = 4000) {
+    await issueAsyncClose();
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const listed = spawnSync(binary, ["session", "list", "--json"], {
-        encoding: "utf8",
-        env: { ...process.env, AGENT_BROWSER_SOCKET_DIR: socketDir },
-        timeout: 5000,
-      });
       try {
+        const listed = await runRaw(["session", "list", "--json"], { timeout: 5000 });
         const sessions = JSON.parse(listed.stdout || "{}")?.data?.sessions || [];
-        if (!sessions.includes(session)) return { closed: true, session };
+        if (!sessions.includes(session)) {
+          cleanupOwnedSocketDir();
+          return { closed: true, session };
+        }
       } catch (_) {
         // Keep polling; a transient parse failure is not proof of cleanup.
       }
-      const wait = new Int32Array(new SharedArrayBuffer(4));
-      Atomics.wait(wait, 0, 0, 200);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     }
     return { closed: false, session, error: "owned browser session was still listed after close" };
   }
@@ -691,7 +751,7 @@ function createBrowserDriver({ sessionPrefix, headed, outDir }) {
   // session to clear before opening. Pre-open close races the agent-browser
   // daemon socket on 0.37.x and produces "Failed to connect"; keep cleanup on
   // exit and skip the unnecessary pre-open close.
-  return { binary, session, run, runJson, evalJson, screenshot, close, closeWithVerification, prepare() {} };
+  return { binary, session, run, runJson, evalJson, screenshot, close, closeAsync, closeWithVerification, prepare() {} };
 }
 
 export function resolveBrowserBinary(candidate) {
@@ -1873,7 +1933,7 @@ export function describeArtifacts(written) {
   });
 }
 
-async function runCase({ caseId, viewportName, options, port, summary }) {
+async function runCase({ caseId, viewportName, options, port }) {
   const outDir = options.outDir;
   const viewport = EXPECTED_VIEWPORTS[viewportName];
   const driver = createBrowserDriver({ sessionPrefix: `bfr-${caseId}-${viewportName}`, headed: options.headed, outDir });
@@ -1989,7 +2049,7 @@ async function runCase({ caseId, viewportName, options, port, summary }) {
     try {
       if (options.chromeTrace) await driver.run(["trace", "stop", join(artifacts.dir, "chrome-trace.json")]);
       record.browserSession = driver.session;
-      record.cleanup = driver.closeWithVerification();
+      record.cleanup = await driver.closeWithVerification();
       if (!record.cleanup.closed) throw new Error(record.cleanup.error);
     } catch (error) {
       record.cleanup = { ...(record.cleanup || {}), closed: false, error: String(error) };
@@ -1998,119 +2058,123 @@ async function runCase({ caseId, viewportName, options, port, summary }) {
     }
     record.finishedAt = new Date().toISOString();
   }
-  summary.cases.push(record);
   return record;
 }
 
 // ---- self checks --------------------------------------------------------
 
-async function runSelfChecks({ outDir, serverUrl, options }) {
-  const checks = [];
-  const check = async (name, fn) => {
-    try { await fn(); checks.push({ name, status: "passed" }); }
-    catch (error) { checks.push({ name, status: "failed", failure: String(error && error.message ? error.message : error) }); }
-  };
+async function runSelfChecks({ outDir, serverUrl, options, concurrency = 1 }) {
   const expectFailure = async (fn, label) => {
     let failed = false;
     try { await fn(); } catch { failed = true; }
     if (!failed) throw new Error(`${label} was accepted but must fail`);
   };
-  await check("empty-case-selection", () => expectFailure(async () => selectCases([]), "empty case selection"));
-  await check("unknown-case-id", () => expectFailure(async () => selectCases(["p99-not-a-case"]), "unknown case id"));
-  await check("duplicate-case-selection", () => expectFailure(async () => selectCases(["p01-loading", "p01-loading"]), "duplicate case selection"));
-  await check("duplicate-viewport-selection", () => expectFailure(async () => selectViewports(["desktop", "desktop"]), "duplicate viewport selection"));
-  await check("missing-browser-binary", () => expectFailure(async () => resolveBrowserBinary("/nonexistent/agent-browser-for-bfr"), "missing browser binary"));
-  await check("host-deliver-propagates-barrier-failure", () => expectFailure(async () => {
-    const fakeDriver = {
-      evalJson: async (source) => {
-        assert(String(source).includes("window.__BFR__.deliver("), "host deliver must await the page-side delivery promise");
-        return { ok: false, error: "no open fixture websocket" };
-      },
-    };
-    await deliver(fakeDriver, { type: "snapshot", snapshot: {} });
-  }, "host delivery with an unsettled barrier"));
-  await check("artifact-write-failure", async () => {
-    const path = join(outDir, "self-check", "directory-as-file");
-    mkdirSync(path, { recursive: true });
-    await expectFailure(async () => writeFileSync(path, "x"), "writing an artifact over a directory");
-  });
-  await check("timeout-surfaces-as-failure", async () => {
-    const driver = createBrowserDriver({ sessionPrefix: `bfr-timeout-${Date.now()}`, headed: options.headed, outDir });
-    try {
-      driver.prepare();
-      await driver.runJson(["set", "viewport", "800", "600"]);
-      await driver.runJson(["open", caseUrl(serverUrl.port, { hash: "#viewer-details-panel" })]);
-      await driver.evalJson(`window.__BFR__.nextOutbound(0, { type: "prompt_control" }, 250).then((value) => JSON.stringify(value))`).then((result) => {
-        if (result.ok) throw new Error("timeout probe unexpectedly observed a prompt request");
-      });
-    } finally {
-      driver.close();
-    }
-  });
-  await check("delivery-barrier-times-out-without-open-socket", async () => {
-    const driver = createBrowserDriver({ sessionPrefix: `bfr-deliver-timeout-${Date.now()}`, headed: options.headed, outDir });
-    try {
-      driver.prepare();
-      await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
-      await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
-      const result = await driver.evalJson(deliveryProbeSource({ type: "snapshot", snapshot: {} }, 300));
-      assert(result.ok === false, "delivery without an open fixture socket was reported as delivered", result);
-      assert(/no open fixture websocket/.test(result.error || ""), "delivery timeout did not surface the socket deadline", result);
-    } finally {
-      driver.close();
-    }
-  });
-  await check("old-socket-delivery-requires-a-known-fixture-socket", async () => {
-    const driver = createBrowserDriver({ sessionPrefix: `bfr-unknown-socket-${Date.now()}`, headed: options.headed, outDir });
-    try {
-      driver.prepare();
-      await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
-      await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
-      const result = await driver.evalJson(`JSON.stringify(window.__BFR__.deliverToSocket(9999, { type: "snapshot", snapshot: {} }))`);
-      assert(result.ok === false, "an unknown fixture socket was reported as delivered", result);
-      assert(/unknown fixture socket/.test(result.reason || ""), "unknown socket delivery did not surface its reason", result);
-    } finally {
-      driver.close();
-    }
-  });
-  await check("remount-lifecycle-requires-explicit-test-api", async () => {
-    const driver = createBrowserDriver({ sessionPrefix: `bfr-remount-guard-${Date.now()}`, headed: options.headed, outDir });
-    try {
-      driver.prepare();
-      await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?connect=0&hosted_bootstrap=0&locale=en`]);
-      const observed = await driver.evalJson(`(() => JSON.stringify({
-        remountApi: typeof window.__BFR_REMOUNT__,
-        viewerShell: Boolean(document.querySelector(".viewer-shell")),
-      }))()`);
-      assert(observed.remountApi === "undefined", "the remount lifecycle leak is exposed without test_api=1", observed);
-      assert(observed.viewerShell === true, "the no-test-api page did not mount the real viewer", observed);
-    } finally {
-      driver.close();
-    }
-  });
-  await check("delivery-barrier-settles-after-page-delivery", async () => {
-    const driver = createBrowserDriver({ sessionPrefix: `bfr-deliver-settles-${Date.now()}`, headed: options.headed, outDir });
-    try {
-      driver.prepare();
-      await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
-      await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
-      const probe = await driver.evalJson(`(() => {
-        new WebSocket(window.__BFR__.endpoint);
-        return ${deliveryProbeSource({ type: "bfr-self-check-delivery" }, 3000)}.then((raw) => {
-          const settled = JSON.parse(raw);
-          const delivered = window.__BFR__.delivered;
-          return JSON.stringify({
-            settled,
-            total: delivered.length,
-            lastType: delivered[delivered.length - 1]?.message?.type || null,
-          });
+  const checkSpecs = [
+    ["empty-case-selection", () => expectFailure(async () => selectCases([]), "empty case selection")],
+    ["unknown-case-id", () => expectFailure(async () => selectCases(["p99-not-a-case"]), "unknown case id")],
+    ["duplicate-case-selection", () => expectFailure(async () => selectCases(["p01-loading", "p01-loading"]), "duplicate case selection")],
+    ["duplicate-viewport-selection", () => expectFailure(async () => selectViewports(["desktop", "desktop"]), "duplicate viewport selection")],
+    ["missing-browser-binary", () => expectFailure(async () => resolveBrowserBinary("/nonexistent/agent-browser-for-bfr"), "missing browser binary")],
+    ["host-deliver-propagates-barrier-failure", () => expectFailure(async () => {
+      const fakeDriver = {
+        evalJson: async (source) => {
+          assert(String(source).includes("window.__BFR__.deliver("), "host deliver must await the page-side delivery promise");
+          return { ok: false, error: "no open fixture websocket" };
+        },
+      };
+      await deliver(fakeDriver, { type: "snapshot", snapshot: {} });
+    }, "host delivery with an unsettled barrier")],
+    ["artifact-write-failure", async () => {
+      const path = join(outDir, "self-check", "directory-as-file");
+      mkdirSync(path, { recursive: true });
+      await expectFailure(async () => writeFileSync(path, "x"), "writing an artifact over a directory");
+    }],
+    ["timeout-surfaces-as-failure", async () => {
+      const driver = createBrowserDriver({ sessionPrefix: `bfr-timeout-${Date.now()}`, headed: options.headed, outDir });
+      try {
+        driver.prepare();
+        await driver.runJson(["set", "viewport", "800", "600"]);
+        await driver.runJson(["open", caseUrl(serverUrl.port, { hash: "#viewer-details-panel" })]);
+        await driver.evalJson(`window.__BFR__.nextOutbound(0, { type: "prompt_control" }, 250).then((value) => JSON.stringify(value))`).then((result) => {
+          if (result.ok) throw new Error("timeout probe unexpectedly observed a prompt request");
         });
-      })()`);
-      assert(probe.settled.ok === true, "delivery with an open fixture socket did not settle", probe);
-      assert(probe.total >= 1, "delivery settled before the message was recorded", probe);
-      assert(probe.lastType === "bfr-self-check-delivery", "delivery settled before the message reached the fixture socket", probe);
-    } finally {
-      driver.close();
+      } finally {
+        await driver.closeAsync();
+      }
+    }],
+    ["delivery-barrier-times-out-without-open-socket", async () => {
+      const driver = createBrowserDriver({ sessionPrefix: `bfr-deliver-timeout-${Date.now()}`, headed: options.headed, outDir });
+      try {
+        driver.prepare();
+        await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
+        await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
+        const result = await driver.evalJson(deliveryProbeSource({ type: "snapshot", snapshot: {} }, 300));
+        assert(result.ok === false, "delivery without an open fixture socket was reported as delivered", result);
+        assert(/no open fixture websocket/.test(result.error || ""), "delivery timeout did not surface the socket deadline", result);
+      } finally {
+        await driver.closeAsync();
+      }
+    }],
+    ["old-socket-delivery-requires-a-known-fixture-socket", async () => {
+      const driver = createBrowserDriver({ sessionPrefix: `bfr-unknown-socket-${Date.now()}`, headed: options.headed, outDir });
+      try {
+        driver.prepare();
+        await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
+        await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
+        const result = await driver.evalJson(`JSON.stringify(window.__BFR__.deliverToSocket(9999, { type: "snapshot", snapshot: {} }))`);
+        assert(result.ok === false, "an unknown fixture socket was reported as delivered", result);
+        assert(/unknown fixture socket/.test(result.reason || ""), "unknown socket delivery did not surface its reason", result);
+      } finally {
+        await driver.closeAsync();
+      }
+    }],
+    ["remount-lifecycle-requires-explicit-test-api", async () => {
+      const driver = createBrowserDriver({ sessionPrefix: `bfr-remount-guard-${Date.now()}`, headed: options.headed, outDir });
+      try {
+        driver.prepare();
+        await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?connect=0&hosted_bootstrap=0&locale=en`]);
+        const observed = await driver.evalJson(`(() => JSON.stringify({
+          remountApi: typeof window.__BFR_REMOUNT__,
+          viewerShell: Boolean(document.querySelector(".viewer-shell")),
+        }))()`);
+        assert(observed.remountApi === "undefined", "the remount lifecycle leak is exposed without test_api=1", observed);
+        assert(observed.viewerShell === true, "the no-test-api page did not mount the real viewer", observed);
+      } finally {
+        await driver.closeAsync();
+      }
+    }],
+    ["delivery-barrier-settles-after-page-delivery", async () => {
+      const driver = createBrowserDriver({ sessionPrefix: `bfr-deliver-settles-${Date.now()}`, headed: options.headed, outDir });
+      try {
+        driver.prepare();
+        await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
+        await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
+        const probe = await driver.evalJson(`(() => {
+          new WebSocket(window.__BFR__.endpoint);
+          return ${deliveryProbeSource({ type: "bfr-self-check-delivery" }, 3000)}.then((raw) => {
+            const settled = JSON.parse(raw);
+            const delivered = window.__BFR__.delivered;
+            return JSON.stringify({
+              settled,
+              total: delivered.length,
+              lastType: delivered[delivered.length - 1]?.message?.type || null,
+            });
+          });
+        })()`);
+        assert(probe.settled.ok === true, "delivery with an open fixture socket did not settle", probe);
+        assert(probe.total >= 1, "delivery settled before the message was recorded", probe);
+        assert(probe.lastType === "bfr-self-check-delivery", "delivery settled before the message reached the fixture socket", probe);
+      } finally {
+        await driver.closeAsync();
+      }
+    }],
+  ];
+  const checks = await runBoundedConcurrency(checkSpecs, concurrency, async ([name, fn]) => {
+    try {
+      await fn();
+      return { name, status: "passed" };
+    } catch (error) {
+      return { name, status: "failed", failure: String(error && error.message ? error.message : error) };
     }
   });
   const failed = checks.filter((entry) => entry.status !== "passed");
@@ -2122,19 +2186,40 @@ async function runSelfChecks({ outDir, serverUrl, options }) {
 
 // ---- build and summary --------------------------------------------------
 
-function buildBundles(outDir) {
-  const logs = [];
-  for (const [name, args] of [
+async function buildBundles(outDir) {
+  const localViteBin = resolve(viewerRoot, "node_modules/.bin/vite");
+  const useDirectVite = releasePaths.local || existsSync(localViteBin);
+  const specs = [
     ["visual-test", ["vite", "build", "--mode", "visual-test", "--config", "vite.software-safe.config.mjs"]],
     ["release", ["vite", "build", "--config", "vite.software-safe.config.mjs"]],
-  ]) {
-    const command = releasePaths.local ? resolve(viewerRoot, "node_modules/.bin/vite") : "npx";
-    const result = spawnSync(command, releasePaths.local ? args.slice(1) : args,
-      { cwd: viewerRoot, encoding: "utf8", timeout: 300_000 });
-    logs.push({ name, status: result.status, stdout: result.stdout || "", stderr: result.stderr || "" });
-    if (result.status !== 0) {
-      writeFileSync(join(outDir, `build-${name}.log`), `${result.stdout || ""}${result.stderr || ""}`);
-      throw new Error(`viewer ${name} bundle build failed; see build-${name}.log`);
+  ];
+  const logs = await Promise.all(specs.map(([name, args]) => new Promise((resolveBuild) => {
+    const command = useDirectVite ? localViteBin : "npx";
+    const commandArgs = useDirectVite ? args.slice(1) : args;
+    const child = spawn(command, commandArgs, { cwd: viewerRoot, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      stderr += "\nbundle build timed out after 300000ms\n";
+    }, 300_000);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolveBuild({ name, status: 1, stdout, stderr: `${stderr}${String(error)}` });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolveBuild({ name, status: code, stdout, stderr });
+    });
+  })));
+  for (const entry of logs) {
+    if (entry.status !== 0) {
+      writeFileSync(join(outDir, `build-${entry.name}.log`), `${entry.stdout}${entry.stderr}`);
+      throw new Error(`viewer ${entry.name} bundle build failed; see build-${entry.name}.log`);
     }
   }
   writeFileSync(join(outDir, "build.log"), logs.map((entry) => `## ${entry.name}\n${entry.stdout}${entry.stderr}`).join("\n"));
@@ -2173,9 +2258,10 @@ function writeSummary(outDir, summary) {
 // ---- main ---------------------------------------------------------------
 
 async function main() {
+  const concurrency = resolveRunnerConcurrency();
   // Each case owns a short-lived browser session with its own cleanup signal
-  // hooks; this runner can execute a dozen in one process.
-  process.setMaxListeners(64);
+  // hooks; this runner executes up to 32 isolated sessions across the run.
+  process.setMaxListeners(Math.max(128, concurrency * 16));
   let options;
   try {
     options = parseArgs(process.argv.slice(2));
@@ -2222,6 +2308,8 @@ async function main() {
   };
   let serverHandle = null;
   let releaseHandle = null;
+  const shortRoot = existsSync("/tmp") ? "/tmp" : (process.env.TMPDIR || tmpdir());
+  const ownedSocketRoot = process.env.AGENT_BROWSER_SOCKET_DIR ? null : join(shortRoot, `o7-bfr-${process.pid}`);
   try {
     const browserBinary = process.env.AGENT_BROWSER_BIN || "agent-browser";
     const version = spawnSync(browserBinary, ["--version"], { encoding: "utf8" });
@@ -2240,6 +2328,7 @@ async function main() {
       arch: process.arch,
       bundleProfile: "visual-test",
       chromeTraceEnabled: options.chromeTrace,
+      concurrency,
       gitHead,
       gitDirty,
       replacementBoundaries: {
@@ -2253,7 +2342,7 @@ async function main() {
       productionModules: PRODUCTION_MODULES.map(fileFingerprint),
     };
     if (!options.skipBuild) {
-      summary.build = buildBundles(options.outDir);
+      summary.build = await buildBundles(options.outDir);
     }
     assert(existsSync(visualTestBundlePath), `missing visual-test bundle at ${visualTestBundlePath}`);
     assert(existsSync(releaseBundlePath), `missing release bundle at ${releaseBundlePath}`);
@@ -2265,33 +2354,51 @@ async function main() {
     releaseHandle = await createFixtureServer({ releaseOnly: true });
     summary.environment.fixtureServerPort = serverHandle.port;
     summary.environment.releaseProbePort = releaseHandle.port;
-    summary.releaseProbe = await runReleaseProbe({ releasePort: releaseHandle.port, options });
-    summary.failures.push(...summary.releaseProbe.failures.map((failure) => ({ caseId: "release-probe", viewport: { name: "desktop" }, failure })));
-    if (options.selfCheck) {
-      const selfCheck = await runSelfChecks({ outDir: options.outDir, serverUrl: serverHandle, options });
-      summary.selfCheck = selfCheck;
-      summary.failures.push(...selfCheck.checks.filter((entry) => entry.status !== "passed").map((entry) => ({ caseId: "self-check", viewport: { name: "n/a" }, failure: `${entry.name}: ${entry.failure || ""}` })));
-    } else {
-      summary.selfCheck = await runSelfChecks({ outDir: options.outDir, serverUrl: serverHandle, options });
-      summary.failures.push(...summary.selfCheck.checks.filter((entry) => entry.status !== "passed").map((entry) => ({ caseId: "self-check", viewport: { name: "n/a" }, failure: `${entry.name}: ${entry.failure || ""}` })));
-      for (const viewportName of options.viewports) {
-        for (const caseId of options.cases) {
-          const caseServer = await createFixtureServer();
-          try {
-            const record = await runCase({ caseId, viewportName, options, port: caseServer.port, summary });
-            record.fixturePort = caseServer.port;
-            if (record.status !== "passed") summary.failures.push({ caseId, viewport: record.viewport, failure: record.failure });
-          } finally {
-            caseServer.server.close();
-          }
+    const [releaseProbe, selfCheck] = concurrency > 1
+      ? await Promise.all([
+          runReleaseProbe({ releasePort: releaseHandle.port, options }),
+          runSelfChecks({ outDir: options.outDir, serverUrl: serverHandle, options, concurrency: concurrency - 1 }),
+        ])
+      : [
+          await runReleaseProbe({ releasePort: releaseHandle.port, options }),
+          await runSelfChecks({ outDir: options.outDir, serverUrl: serverHandle, options, concurrency: 1 }),
+        ];
+    summary.releaseProbe = releaseProbe;
+    summary.failures.push(...releaseProbe.failures.map((failure) => ({ caseId: "release-probe", viewport: { name: "desktop" }, failure })));
+    summary.selfCheck = selfCheck;
+    summary.failures.push(...selfCheck.checks.filter((entry) => entry.status !== "passed").map((entry) => ({ caseId: "self-check", viewport: { name: "n/a" }, failure: `${entry.name}: ${entry.failure || ""}` })));
+    if (!options.selfCheck) {
+      const caseTasks = options.viewports.flatMap((viewportName) =>
+        options.cases.map((caseId) => ({ viewportName, caseId })),
+      );
+      const records = await runBoundedConcurrency(caseTasks, concurrency, async ({ viewportName, caseId }) => {
+        const caseServer = await createFixtureServer();
+        try {
+          const record = await runCase({ caseId, viewportName, options, port: caseServer.port });
+          record.fixturePort = caseServer.port;
+          return record;
+        } finally {
+          caseServer.server.closeAllConnections?.();
+          await new Promise((resolveClose) => caseServer.server.close(() => resolveClose()));
+        }
+      });
+      for (const record of records) {
+        summary.cases.push(record);
+        if (record.status !== "passed") {
+          summary.failures.push({ caseId: record.caseId, viewport: record.viewport, failure: record.failure });
         }
       }
     }
   } catch (error) {
     summary.failures.push({ caseId: "runner", viewport: { name: "n/a" }, failure: String(error && error.stack ? error.stack : error) });
   } finally {
+    serverHandle?.server?.closeAllConnections?.();
+    releaseHandle?.server?.closeAllConnections?.();
     serverHandle?.server?.close();
     releaseHandle?.server?.close();
+    if (ownedSocketRoot) {
+      try { rmSync(ownedSocketRoot, { recursive: true, force: true }); } catch {}
+    }
   }
   const executed = summary.cases.length;
   const uniqueCases = [...new Set(options.cases)];
@@ -2346,7 +2453,7 @@ async function runReleaseProbe({ releasePort, options }) {
   } catch (error) {
     failures.push(String(error && error.stack ? error.stack : error));
   } finally {
-    driver.close();
+    await driver.closeAsync();
   }
   return { status: failures.length === 0 ? "passed" : "failed", observed, failures };
 }

@@ -15,6 +15,8 @@ import {
   deliveryProbeSource,
   fileFingerprint,
   resolveBrowserBinary,
+  resolveRunnerConcurrency,
+  runBoundedConcurrency,
   selectCases,
   selectViewports,
   waitForBrowserState,
@@ -346,4 +348,45 @@ test("browser lookup distinguishes an unset PATH from empty and relative entries
   }).trim();
   assert.ok(["/usr/bin/sh", "/bin/sh"].includes(resolved));
   assert.equal(fs.existsSync(join(root, "unexpected-execution")), false);
+});
+
+test("runner concurrency bounds defaults and explicit overrides safely", () => {
+  assert.equal(resolveRunnerConcurrency({}, 1), 1);
+  assert.equal(resolveRunnerConcurrency({}, 4), 4);
+  assert.equal(resolveRunnerConcurrency({}, 16), 4);
+  assert.equal(resolveRunnerConcurrency({ OASIS7_BFR_CONCURRENCY: "3" }, 16), 3);
+  assert.equal(resolveRunnerConcurrency({ OASIS7_BFR_CONCURRENCY: "99" }, 2), 8);
+  assert.equal(resolveRunnerConcurrency({ OASIS7_BFR_CONCURRENCY: "0" }, 4), 4);
+  assert.equal(resolveRunnerConcurrency({ OASIS7_BFR_CONCURRENCY: "invalid" }, 2), 2);
+});
+
+test("bounded concurrency preserves deterministic input order and caps active workers", async () => {
+  const items = [45, 5, 30, 10, 20, 1];
+  let active = 0;
+  let peakActive = 0;
+  const completedOrder = [];
+  const results = await runBoundedConcurrency(items, 3, async (delayMs, index) => {
+    active += 1;
+    peakActive = Math.max(peakActive, active);
+    try {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs));
+      completedOrder.push(index);
+      return `slot-${index}:${delayMs}`;
+    } finally {
+      active -= 1;
+    }
+  });
+  assert.equal(peakActive, 3);
+  assert.equal(active, 0);
+  assert.notDeepEqual(completedOrder, [0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(results, items.map((delayMs, index) => `slot-${index}:${delayMs}`));
+  assert.deepEqual(await runBoundedConcurrency([], 4, async () => "unused"), []);
+  await assert.rejects(runBoundedConcurrency([1], 0, async () => 1), /positive integer/);
+  await assert.rejects(
+    runBoundedConcurrency([1, 2, 3], 2, async (value) => {
+      if (value === 2) throw new Error("worker boom");
+      return value;
+    }),
+    /worker boom/,
+  );
 });
