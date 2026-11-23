@@ -473,7 +473,7 @@ fn llm_config_uses_default_model_when_unset() {
 
 #[test]
 fn llm_config_blank_prompt_uses_canonical_harness_default() {
-    for blank in ["", "  \\t  "] {
+    for blank in ["", "  \t  "] {
         let mut vars = BTreeMap::new();
         vars.insert(
             ENV_LLM_BASE_URL.to_string(),
