@@ -1,0 +1,120 @@
+name: Hosted Login stage transport diagnostic
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-hosted-login-stage-probe-base]
+    paths: [.github/workflows/hosted-login-stage-probe.yml]
+
+permissions:
+  contents: read
+cache-mode: read
+
+env:
+  PACKAGE_SOURCE: f9e20eea6d09b495cd96261786009281b94e53cc
+
+jobs:
+  produce:
+    if: github.head_ref == 'codex/engineering-hosted-login-stage-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      native-id: ${{ steps.native.outputs.artifact-id }}
+      viewer-id: ${{ steps.viewer.outputs.artifact-id }}
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PACKAGE_SOURCE }}
+          persist-credentials: false
+      - name: Generate both exact-source envelopes with the package fixture
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(id -u)" = 1001
+          test "$(git rev-parse HEAD)" = "$PACKAGE_SOURCE"
+          python3 - <<'PY'
+          import importlib.util
+          import os
+          from pathlib import Path
+          import shutil
+
+          spec = importlib.util.spec_from_file_location("hosted_package_fixture", "scripts/ci-hosted-login-package.test.py")
+          fixture = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(fixture)
+          fixture.SOURCE = os.environ["PACKAGE_SOURCE"]
+          case = fixture.PackageTest()
+          try:
+              case.setUp()
+              shutil.copytree(case.root / "hosted-native", Path("output/hosted-login-stage"))
+              shutil.copytree(case.root / "hosted-viewer", Path("output/viewer-envelope"))
+          finally:
+              case.doCleanups()
+          PY
+          test -s output/hosted-login-stage/stage.tar.gz
+          test -s output/hosted-login-stage/stage.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: native
+        with:
+          name: native-transport-fixture
+          path: output/hosted-login-stage/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - name: Put Viewer fixture at the same production-relative upload path
+        run: |
+          mv output/hosted-login-stage output/native-envelope
+          mv output/viewer-envelope output/hosted-login-stage
+          test -s output/hosted-login-stage/stage.tar.gz
+          test -s output/hosted-login-stage/stage.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: viewer
+        with:
+          name: viewer-transport-fixture
+          path: output/hosted-login-stage/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  verify:
+    needs: produce
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - *checkout
+      - name: Verify source and immutable producer IDs
+        shell: bash
+        env:
+          NATIVE_ID: ${{ needs.produce.outputs.native-id }}
+          VIEWER_ID: ${{ needs.produce.outputs.viewer-id }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$PACKAGE_SOURCE"
+          [[ "$NATIVE_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$VIEWER_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$NATIVE_ID" != "$VIEWER_ID"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.produce.outputs.native-id }}
+          path: ${{ runner.temp }}/hosted-native
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.produce.outputs.viewer-id }}
+          path: ${{ runner.temp }}/hosted-viewer
+      - name: Verify exact archive roots and assemble with the production verifier
+        shell: bash
+        run: |
+          python3 scripts/ci-hosted-login-package.py assemble "$RUNNER_TEMP" "$PACKAGE_SOURCE" release
+          test -s "$RUNNER_TEMP/hosted-login/web/.oasis7-viewer-dist-manifest.json"
+          test -s "$RUNNER_TEMP/hosted-login/web/pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm"
+          echo 'Verified two root-relative files in each real envelope, exact source, seal and original package layout.'
