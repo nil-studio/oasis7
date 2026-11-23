@@ -202,7 +202,22 @@ jobs:
           )
           (
             cd crates/oasis7_client_launcher
-            env -u NO_COLOR trunk build --release --dist ../../output/testnet-packages/web-launcher-dist
+            # Trunk 0.21.14 locks Cargo builds but its separate metadata command needs an adapter.
+            real_cargo="$(command -v cargo)"
+            cargo_adapter="$(mktemp "$RUNNER_TEMP/oasis7-trunk-cargo.XXXXXX")"
+            trap 'rm -f "$cargo_adapter"' EXIT
+            cat > "$cargo_adapter" <<'CARGO_ADAPTER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [[ "${1:-}" == metadata ]]; then
+            set -- "$@" --locked
+          fi
+          unset CARGO
+          exec "$OASIS7_TRUNK_CARGO" "$@"
+          CARGO_ADAPTER
+            chmod 700 "$cargo_adapter"
+            CARGO="$cargo_adapter" OASIS7_TRUNK_CARGO="$real_cargo" \
+              env -u NO_COLOR trunk build --release --locked --dist ../../output/testnet-packages/web-launcher-dist
           )
       - name: Upload web dist artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
