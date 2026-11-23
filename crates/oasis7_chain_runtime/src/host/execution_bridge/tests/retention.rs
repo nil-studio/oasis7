@@ -87,7 +87,7 @@ fn execution_checkpoint_cadence_trims_old_manifests_and_clears_record_refs() {
 fn bridge_committed_heights_persists_sparse_checkpoint_at_default_interval() {
     let dir = temp_dir("execution-bridge-default-checkpoint");
     let store = LocalCasStore::new(dir.join("store"));
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     let mut sandbox = FixedSandbox::succeed(ModuleOutput {
         new_state: None,
         effects: Vec::new(),
@@ -330,7 +330,7 @@ fn execution_bridge_retention_maintenance_fails_for_missing_required_refs() {
 fn bridge_committed_heights_sweeps_archive_refs_outside_default_hot_window() {
     let dir = temp_dir("execution-bridge-default-retention-sweep");
     let store = LocalCasStore::new(dir.join("store"));
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     let mut sandbox = FixedSandbox::succeed(ModuleOutput {
         new_state: None,
         effects: Vec::new(),
@@ -952,7 +952,7 @@ fn retention_reconciliation_is_marker_driven_across_restart() {
         records_dir.clone(),
         storage_root.clone(),
         state.clone(),
-        oasis7::runtime_host::world::new(),
+        oasis7_runtime_host::world::new(),
         Box::new(FixedSandbox::succeed(ModuleOutput {
             new_state: None,
             effects: Vec::new(),
@@ -978,7 +978,7 @@ fn retention_reconciliation_is_marker_driven_across_restart() {
         records_dir,
         storage_root,
         state,
-        oasis7::runtime_host::world::new(),
+        oasis7_runtime_host::world::new(),
         Box::new(FixedSandbox::succeed(ModuleOutput {
             new_state: None,
             effects: Vec::new(),

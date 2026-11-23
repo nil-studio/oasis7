@@ -38,7 +38,7 @@ fn provision_rollback_fixture(world_dir: &std::path::Path, manifest_path: &std::
     const ON_CALL: &str = "1111111111111111111111111111111111111111111111111111111111111111";
     const GOVERNANCE: &str = "2222222222222222222222222222222222222222222222222222222222222222";
     let mut world =
-        oasis7::runtime_host::world::load_from_dir(world_dir).expect("load fixture world");
+        oasis7_runtime_host::world::load_from_dir(world_dir).expect("load fixture world");
     let _ = std::fs::remove_dir_all(world_dir.join(".distfs-state"));
     world
         .set_rollback_authority_registry(rollback_registry(ON_CALL, GOVERNANCE))
@@ -75,7 +75,7 @@ fn write_world_and_manifest() -> (PathBuf, PathBuf) {
     let world_dir = root.join("world");
     let manifest_path = root.join("public_manifest.json");
     std::fs::create_dir_all(&world_dir).expect("create world dir");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
             slot_id: "governance.finality.v1".to_string(),
@@ -265,7 +265,7 @@ fn audit_report_accepts_manifest_specific_liveops_threshold() {
     let world_dir = root.join("world");
     let manifest_path = root.join("public_manifest.json");
     std::fs::create_dir_all(&world_dir).expect("create world dir");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
             slot_id: "governance.finality.v1".to_string(),
@@ -434,7 +434,7 @@ fn audit_report_reads_effective_finality_registry_after_validator_activation() {
     let world_dir = root.join("world");
     let manifest_path = root.join("public_manifest.json");
     std::fs::create_dir_all(&world_dir).expect("create world dir");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_execution_policy(GovernanceExecutionPolicy {
             epoch_length_ticks: 10,
@@ -562,7 +562,7 @@ fn strict_manifest_audit_requires_exact_rollback_authority_registry_match() {
     const DRIFTED_GOVERNANCE: &str =
         "3333333333333333333333333333333333333333333333333333333333333333";
     let (world_dir, manifest_path) = write_world_and_manifest();
-    let mut world = oasis7::runtime_host::world::load_from_dir(world_dir.as_path())
+    let mut world = oasis7_runtime_host::world::load_from_dir(world_dir.as_path())
         .expect("load fixture world");
     world
         .set_rollback_authority_registry(rollback_registry(ON_CALL, GOVERNANCE))
