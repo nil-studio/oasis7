@@ -352,7 +352,7 @@ fn material_pin_digest(
             ),
             parent_result_root: origin.parent_result_tree.root()?,
             parent_projection_root:
-                oasis7::world_service::formal_projection::commitments_for_world(world)?.root()?,
+                oasis7_world_service::formal_projection::commitments_for_world(world)?.root()?,
             closed_material_digest: super::super::closed_material_digest(
                 &origin.parent_record,
                 material,
