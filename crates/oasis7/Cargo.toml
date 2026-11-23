@@ -8,6 +8,11 @@ license = "MIT"
 [lib]
 path = "src/lib.rs"
 
+[[test]]
+name = "incremental_full_scales"
+path = "tests/incremental_full_scales.rs"
+required-features = ["test_tier_full"]
+
 [dependencies]
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_simulator = { path = "../oasis7_simulator" }

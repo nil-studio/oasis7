@@ -1,5 +1,4 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
-use oasis7_world_state::AgentState;
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget, PageStoreError,
 };
@@ -13,6 +12,7 @@ use oasis7_runtime::{
     incremental_agent_subtree::*, incremental_field_member::SemanticKeyBudget,
     incremental_field_read::WorldFieldReadContextV1,
 };
+use oasis7_world_state::AgentState;
 #[allow(dead_code)]
 #[path = "support/incremental_inventory_fixture.rs"]
 mod fixture;
