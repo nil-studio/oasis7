@@ -41,10 +41,26 @@ pub(crate) fn plan_resource_delta(
 /// A single *already aggregated* rule-fee scope within a larger root commit.
 /// Do not stage independent plans computed against the same base for one key:
 /// the caller must aggregate all applicable rules before invoking this owner.
-pub(crate) struct StagedRuleFeeSettlement {
-    pub general: ResourceDelta,
-    pub with_distance: ResourceDelta,
+pub(crate) struct StagedRuleFeeSettlement<'a> {
+    pub general: &'a ResourceDelta,
+    pub with_distance: &'a ResourceDelta,
     pub disposition: RuleActionDisposition,
+}
+
+impl StagedRuleFeeSettlement<'_> {
+    /// The existing live Runtime consumer and the Stage 1 root share the same
+    /// selected original cost, with no fee clone, re-encoding or second owner.
+    pub(crate) fn plan_checked(
+        &self,
+        balances: &BTreeMap<ResourceKind, i64>,
+    ) -> Result<Vec<(ResourceKind, i64)>, WorldError> {
+        let quote = AuthoritativeDebit.quote(RuleSettlementInput {
+            general: self.general,
+            with_distance: self.with_distance,
+            disposition: self.disposition,
+        });
+        plan_resource_delta(balances, quote.selected)
+    }
 }
 
 /// The Stage 3 balance assignments; no live allocations, fallible arithmetic,
@@ -62,7 +78,7 @@ impl SubsystemDelta for PreparedRuleFeeDelta {
     }
 }
 
-impl StagedTransition for StagedRuleFeeSettlement {
+impl StagedTransition for StagedRuleFeeSettlement<'_> {
     type Delta = PreparedRuleFeeDelta;
 
     fn prepare(
@@ -71,8 +87,8 @@ impl StagedTransition for StagedRuleFeeSettlement {
         _ctx: &TransitionContext,
     ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
         let quote = AuthoritativeDebit.quote(RuleSettlementInput {
-            general: &self.general,
-            with_distance: &self.with_distance,
+            general: self.general,
+            with_distance: self.with_distance,
             disposition: self.disposition,
         });
         let balances = &view.state().resources;
@@ -86,7 +102,7 @@ impl StagedTransition for StagedRuleFeeSettlement {
                 },
             ));
         }
-        let planned = plan_resource_delta(balances, quote.selected)?;
+        let planned = self.plan_checked(balances)?;
         Ok(PreparedStagedCommit::new(
             view.base_head().clone(),
             None,
