@@ -1,5 +1,8 @@
 //! The actual Runtime/CLI drives the native TCP protocol. Only the independent
 //! transaction backend is a software fixture, as in the ordinary Node tests.
+//! CLI dispatch runs in this test process; the independently recreated reader
+//! and native loopback TCP service are not separate shipping binary processes.
+use super::super::super::super::formal_header::ArchivedOriginalSourceReaderV1;
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
@@ -134,59 +137,36 @@ impl BftSignerBackendV3 for FreshBackend {
     }
 }
 
-type VerifiedReader = Arc<
-    Mutex<
-        Option<(
-            Arc<BftPrivateRetentionAdmissionInputV1>,
-            BftFirstReservationPriceV1,
-        )>,
-    >,
->;
+type VerifiedReader = Arc<Mutex<Option<ArchivedOriginalSourceReaderV1>>>;
 struct ArchiveOriginalReader(VerifiedReader);
 impl BftFirstReserveSourceV1 for ArchiveOriginalReader {
     fn read_authorized_original(
         &self,
         reference: &BftPrivateRetentionAdmissionInputRefV1,
-        _deadline: Instant,
+        deadline: Instant,
     ) -> Result<BftAuthorizedOriginalReserveInputV1, BftSignerErrorV3> {
-        let pair = self.0.lock().unwrap();
-        let (input, _) = pair
+        self.0
+            .lock()
+            .unwrap()
             .as_ref()
-            .ok_or_else(|| BftSignerErrorV3("test reader denied".into()))?;
-        if input.descriptor()? != *reference {
-            return Err(BftSignerErrorV3(
-                "test reader permitted a different original".into(),
-            ));
-        }
-        Ok(BftAuthorizedOriginalReserveInputV1 {
-            input: input.clone(),
-            transport_hold: Box::new(()),
-        })
+            .ok_or_else(|| BftSignerErrorV3("test reader denied".into()))?
+            .read_authorized_original(reference, deadline)
     }
 
     fn verify_actual_first_price(
         &self,
-        _: &BftSignerBindingV3,
-        _: &BftPrivateRetentionCreationMarkerV1,
-        _: &BftSignerStateV3,
+        binding: &BftSignerBindingV3,
+        marker: &BftPrivateRetentionCreationMarkerV1,
+        covered: &BftSignerStateV3,
         input: &BftPrivateRetentionAdmissionInputV1,
-        _deadline: Instant,
+        deadline: Instant,
     ) -> Result<BftFirstReservationPriceV1, BftSignerErrorV3> {
-        let pair = self.0.lock().unwrap();
-        let (verified, price) = pair
+        self.0
+            .lock()
+            .unwrap()
             .as_ref()
-            .ok_or_else(|| BftSignerErrorV3("test price denied".into()))?;
-        if verified.as_ref() != input {
-            return Err(BftSignerErrorV3(
-                "test Runtime verified a different exact input".into(),
-            ));
-        }
-        Ok(BftFirstReservationPriceV1 {
-            publication_bytes: price.publication_bytes,
-            private_pin_bytes: price.private_pin_bytes,
-            original_selection_bytes: price.original_selection_bytes,
-            retained_h_dependencies: price.retained_h_dependencies.clone(),
-        })
+            .ok_or_else(|| BftSignerErrorV3("test verifier denied".into()))?
+            .verify_actual_first_price(binding, marker, covered, input, deadline)
     }
 }
 
@@ -194,13 +174,23 @@ impl BftFirstReserveSourceV1 for ArchiveOriginalReader {
 fn wire3_node_cli_durably_activates_original_covered_source_and_rejects_namespace_replacement() {
     thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
-        .spawn(activation_case)
+        .spawn(|| activation_case(false))
         .unwrap()
         .join()
         .unwrap();
 }
 
-fn activation_case() {
+#[test]
+fn wire3_node_original_received_archive_cold_verifier_and_reserve_wal_recovery() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| activation_case(true))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+fn activation_case(received: bool) {
     let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
     let root = Scratch::new();
     let store = cas(root.path());
@@ -387,6 +377,13 @@ fn activation_case() {
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
     let action_bytes = super::super::execution_tests::private_actions();
     let actions = write("first-actions.cbor", &action_bytes);
+    let package = received.then(|| super::node_multivalue_tests::package(&h, 41));
+    let package_path = package.as_ref().map(|package| {
+        write(
+            "received-package.cbor",
+            &oasis7_node::encode_bft_v3_private_candidate_package(package).unwrap(),
+        )
+    });
     let archive_root = Scratch::new();
     let archive_store = cas(archive_root.path());
     let archive = LocalBftSuccessorArchiveStoreV1::new(archive_store.clone()).unwrap();
@@ -404,11 +401,15 @@ fn activation_case() {
             "node",
             "--config",
             node_path.to_str().unwrap(),
-            "--archive-first-private-source-input",
+            if received {
+                "--archive-first-received-private-source-input"
+            } else {
+                "--archive-first-private-source-input"
+            },
             "--source-config",
             source_path.to_str().unwrap(),
-            "--actions",
-            actions.to_str().unwrap(),
+            if received { "--package" } else { "--actions" },
+            package_path.as_ref().unwrap_or(&actions).to_str().unwrap(),
         ]
         .into_iter(),
     )
@@ -424,20 +425,109 @@ fn activation_case() {
         false,
     )
     .unwrap();
-    let (source, pin, replayed, first_bytes) = recovered_ledger
-        .archive_first_original_local(&archive, &binding, &attestor, &marker, action_bytes)
-        .unwrap();
-    let (cold_result, price) = pin
-        .verify_first_price(
-            &recovered_ledger,
-            &archive
-                .load_original_admission_input(&pin.reference)
-                .unwrap(),
-            &source,
-            &marker,
-            &marker.digest().unwrap(),
+    let (source, pin, replayed, first_bytes) = if let Some(package) = &package {
+        let mut bad = package.clone();
+        bad.dependency_nodes.push(("ee".repeat(32), vec![0]));
+        assert!(
+            recovered_ledger
+                .archive_first_original_received(&archive, &binding, &attestor, &marker, &bad)
+                .is_err()
+        );
+        let mut missing = package.clone();
+        assert!(missing.dependency_nodes.pop().is_some());
+        let missing = oasis7_node::decode_bft_v3_private_candidate_package(
+            &oasis7_node::encode_bft_v3_private_candidate_package(&missing).unwrap(),
         )
         .unwrap();
+        assert_eq!(
+            recovered_ledger
+                .archive_first_original_received(&archive, &binding, &attestor, &marker, &missing,)
+                .err()
+                .unwrap(),
+            "original Received dependency closure differs from actual transition"
+        );
+        let mut lied = package.clone();
+        lied.candidate.public_value.execution_commitment.result_root = "ad".repeat(32);
+        lied.candidate.public_value.header.execution_commitment_hash = lied
+            .candidate
+            .public_value
+            .execution_commitment
+            .digest()
+            .unwrap();
+        lied.candidate.public_value.validate_binding().unwrap();
+        let lied = oasis7_node::decode_bft_v3_private_candidate_package(
+            &oasis7_node::encode_bft_v3_private_candidate_package(&lied).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            recovered_ledger
+                .archive_first_original_received(&archive, &binding, &attestor, &marker, &lied,)
+                .err()
+                .unwrap()
+                .contains("actual qualified H")
+        );
+        recovered_ledger
+            .archive_first_original_received(&archive, &binding, &attestor, &marker, package)
+    } else {
+        recovered_ledger.archive_first_original_local(
+            &archive,
+            &binding,
+            &attestor,
+            &marker,
+            action_bytes,
+        )
+    }
+    .unwrap();
+    let original_source = recovered_ledger
+        .archive_first_original_source(&archive, &binding, &attestor, &marker, &source)
+        .unwrap();
+    let cold_reader = || {
+        ArchivedOriginalSourceReaderV1::new(
+            Arc::new(
+                LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(
+                    archive_store.root().to_path_buf(),
+                ))
+                .unwrap(),
+            ),
+            original_source.clone(),
+            h.anchor.clone(),
+            h.target.clone(),
+            binding.clone(),
+            attestor.clone(),
+            pin.clone(),
+        )
+    };
+    let reader = cold_reader();
+    let deadline = Instant::now() + Duration::from_secs(120);
+    assert!(
+        reader
+            .read_authorized_original(&pin.reference, Instant::now())
+            .is_err()
+    );
+    let mut wrong_ref = pin.reference.clone();
+    wrong_ref.key.header_id = "cc".repeat(32);
+    assert!(
+        reader
+            .read_authorized_original(&wrong_ref, deadline)
+            .is_err()
+    );
+    let held = reader
+        .read_authorized_original(&pin.reference, deadline)
+        .unwrap();
+    assert!(
+        reader
+            .read_authorized_original(&pin.reference, deadline)
+            .is_err()
+    );
+    let (cold_result, price) = reader.verify(&held.input).unwrap();
+    let mut stale = snapshot.lock().unwrap().state.clone();
+    stale.revision += 1;
+    assert!(
+        reader
+            .verify_actual_first_price(&binding, &marker, &stale, &held.input, deadline)
+            .is_err()
+    );
+    assert_eq!(price.original_selection_bytes > 0, received);
     assert_eq!(
         serde_json::to_value(replayed).unwrap(),
         serde_json::to_value(cold_result).unwrap()
@@ -445,6 +535,131 @@ fn activation_case() {
     let original = archive
         .load_original_admission_input(&pin.reference)
         .unwrap();
+    drop(held);
+    assert!(
+        reader
+            .verify(&original)
+            .err()
+            .unwrap()
+            .contains("hold was released")
+    );
+    let held = reader
+        .read_authorized_original(&pin.reference, deadline)
+        .unwrap();
+    let manifest: serde_json::Value = serde_cbor::from_slice(
+        &archive
+            .load_object(&original_source.manifest, 1024 * 1024)
+            .unwrap(),
+    )
+    .unwrap();
+    let mut objects = vec![original_source.manifest.digest.clone()];
+    for role in [
+        "h_material",
+        "ledger_origin",
+        "private_origin",
+        "activation_capsule",
+    ] {
+        objects.push(manifest[role]["digest"].as_str().unwrap().to_owned());
+    }
+    let dependencies = manifest["dependencies"].as_array().unwrap();
+    assert!(!dependencies.is_empty());
+    let cold_dependency = dependencies.iter().find(|node| {
+        let digest = node["digest"].as_str().unwrap();
+        !original
+            .objects
+            .iter()
+            .any(|object| object.reference.digest == digest)
+    });
+    assert!(
+        cold_dependency.is_some(),
+        "both candidate kinds must leave a cold H branch for the source archive"
+    );
+    let cold_digest = cold_dependency.unwrap()["digest"].as_str().unwrap();
+    if let Some(package) = &package {
+        let mut extra = package.clone();
+        extra.dependency_nodes.push((
+            cold_digest.to_owned(),
+            fs::read(
+                archive_store
+                    .blobs_dir()
+                    .join(format!("{cold_digest}.blob")),
+            )
+            .unwrap(),
+        ));
+        extra.dependency_nodes.sort_by(|a, b| a.0.cmp(&b.0));
+        let extra = oasis7_node::decode_bft_v3_private_candidate_package(
+            &oasis7_node::encode_bft_v3_private_candidate_package(&extra).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            recovered_ledger
+                .archive_first_original_received(&archive, &binding, &attestor, &marker, &extra)
+                .err()
+                .unwrap(),
+            "original Received dependency closure differs from actual transition"
+        );
+    }
+    objects.push(cold_digest.to_owned());
+    for digest in objects {
+        let path = archive_store.blobs_dir().join(format!("{digest}.blob"));
+        let exact = fs::read(&path).unwrap();
+        let permissions = fs::metadata(&path).unwrap().permissions();
+        fs::remove_file(&path).unwrap();
+        assert!(
+            reader.verify(&held.input).is_err(),
+            "missing original object {digest}"
+        );
+        fs::write(&path, b"corrupt original bytes").unwrap();
+        assert!(
+            reader.verify(&held.input).is_err(),
+            "corrupt original object {digest}"
+        );
+        fs::write(&path, exact).unwrap();
+        fs::set_permissions(&path, permissions).unwrap();
+    }
+    reader.verify(&held.input).unwrap();
+    drop(held);
+    let original_path = archive_store
+        .blobs_dir()
+        .join(format!("{}.blob", pin.reference.object.digest));
+    let original_disk = fs::read(&original_path).unwrap();
+    fs::write(&original_path, b"damaged original admission input").unwrap();
+    assert!(
+        reader
+            .read_authorized_original(&pin.reference, deadline)
+            .is_err()
+    );
+    fs::write(&original_path, original_disk).unwrap();
+    let recovered_hold = reader
+        .read_authorized_original(&pin.reference, deadline)
+        .unwrap();
+    reader.verify(&recovered_hold.input).unwrap();
+    drop(recovered_hold);
+    let mut repriced = original.clone();
+    repriced.publication_reservation_bytes += 1;
+    let mut repriced_pin = pin.clone();
+    repriced_pin.reference = repriced.descriptor().unwrap();
+    archive
+        .persist_original_admission_input(&repriced_pin.reference, &repriced)
+        .unwrap();
+    let repriced_reader = ArchivedOriginalSourceReaderV1::new(
+        Arc::new(
+            LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(
+                archive_store.root().to_path_buf(),
+            ))
+            .unwrap(),
+        ),
+        original_source.clone(),
+        h.anchor.clone(),
+        h.target.clone(),
+        binding.clone(),
+        attestor.clone(),
+        repriced_pin.clone(),
+    );
+    let repriced_hold = repriced_reader
+        .read_authorized_original(&repriced_pin.reference, deadline)
+        .unwrap();
+    assert!(repriced_reader.verify(&repriced_hold.input).is_err());
     assert_eq!(original.publication_reservation_bytes, first_bytes);
     let data = original
         .objects
@@ -453,7 +668,7 @@ fn activation_case() {
         .unwrap();
     let candidate_bytes = data.bytes.clone();
     let data: serde_json::Value = serde_cbor::from_slice(&candidate_bytes).unwrap();
-    assert_eq!(data["schema_version"], 9);
+    assert_eq!(data["schema_version"], if received { 10 } else { 9 });
     assert_eq!(data["protected_source_origin_ref"], blake3_hex(&bytes));
     assert!(fs::read_dir(&dir).unwrap().all(|entry| {
         !entry
@@ -463,13 +678,67 @@ fn activation_case() {
             .starts_with("candidate")
     }));
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
-    let pending_path = dir.join(format!("candidate-{:020}.cbor", original.key.height));
+    let pending_path = if received {
+        dir.join(format!(
+            "candidate-{:020}-{}.cbor",
+            original.key.height, original.key.header_id
+        ))
+    } else {
+        dir.join(format!("candidate-{:020}.cbor", original.key.height))
+    };
     drop(recovered_ledger);
     let reserve_options = serde_json::json!({
         "schema_version":1, "creation_identity":creation, "attestor":attestor,
         "archive_directory": archive_store.root(),
         "reserve_input": { "source": source, "candidate": pin },
+        "original_source": original_source,
     });
+    write(
+        "source.json",
+        &serde_json::to_vec(&reserve_options).unwrap(),
+    );
+    let mut cold_config = node_value.clone();
+    for field in [
+        "handoff_material_path",
+        "cas_directory",
+        "records_directory",
+        "replication_directory",
+    ] {
+        cold_config[field] = serde_json::json!(root.path().join(format!("absent-{field}")));
+    }
+    write("node.json", &serde_json::to_vec(&cold_config).unwrap());
+    run("--verify-first-private-source-archive").unwrap();
+    let mut unreachable = cold_config.clone();
+    for field in [
+        "handoff_material_path",
+        "cas_directory",
+        "records_directory",
+        "replication_directory",
+    ] {
+        let path = PathBuf::from("/dev/null").join(format!("old-{field}"));
+        assert_eq!(
+            fs::canonicalize(&path).unwrap_err().kind(),
+            std::io::ErrorKind::NotADirectory
+        );
+        unreachable[field] = serde_json::json!(path);
+    }
+    write("node.json", &serde_json::to_vec(&unreachable).unwrap());
+    run("--verify-first-private-source-archive").unwrap();
+    let mut aliased_archive = cold_config.clone();
+    aliased_archive["cas_directory"] =
+        serde_json::json!(archive_store.root().join("..").join("cas"));
+    write("node.json", &serde_json::to_vec(&aliased_archive).unwrap());
+    assert!(
+        run("--verify-first-private-source-archive")
+            .unwrap_err()
+            .contains("disjoint")
+    );
+    write("node.json", &serde_json::to_vec(&cold_config).unwrap());
+    let mut denied = reserve_options.clone();
+    denied["attestor"]["provider_public_key"] = serde_json::json!("ff".repeat(32));
+    write("source.json", &serde_json::to_vec(&denied).unwrap());
+    assert!(run("--verify-first-private-source-archive").is_err());
+    write("node.json", &serde_json::to_vec(&node_value).unwrap());
     let mut wrong_pin = reserve_options.clone();
     wrong_pin["reserve_input"]["candidate"]["original_private_origin_digest"] =
         serde_json::json!("f1".repeat(32));
@@ -488,7 +757,7 @@ fn activation_case() {
     assert!(session("--reserve-first-private-source-input", &mut node_value).is_err());
     assert!(!pending_path.exists());
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
-    *verified_reader.lock().unwrap() = Some((Arc::new(original), price));
+    *verified_reader.lock().unwrap() = Some(cold_reader());
     FormalBftHeaderLedgerExecutionV3::inject_covered_source_reservation_cut();
     let cut = session("--reserve-first-private-source-input", &mut node_value).unwrap_err();
     assert!(cut.contains("injected cut after covered original reservation"));
