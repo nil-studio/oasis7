@@ -3430,6 +3430,88 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertEqual(sum(len(shard) for shard in shards), len(all_ids))
         self.assertEqual(sorted(item for shard in shards for item in shard), all_ids)
 
+    def test_doc_checker_and_compile_metrics_contracts_use_parallel_pool(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        names = (
+            'run_parallel_contract_commands',
+            'run_doc_checker_contract_tests',
+            'run_procedural_doc_contract',
+            'run_system_design_traceability_tests',
+            'run_compile_metrics_contract_tests',
+        )
+        functions = '\n'.join(re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+                              for name in names)
+        with tempfile.TemporaryDirectory() as temporary:
+            active_dir = Path(temporary) / 'active'
+            active_dir.mkdir()
+            max_seen = Path(temporary) / 'max_seen'
+            setup = (
+                'set -euo pipefail\n'
+                'repo_root="."\n'
+                f'run() {{\n'
+                f'  local marker="{active_dir}/$$.$BASHPID"\n'
+                f'  : >"$marker"\n'
+                f'  local count\n'
+                f'  count=$(ls -1 "{active_dir}" | wc -l)\n'
+                f'  printf "%s\\n" "$count" >>"{max_seen}"\n'
+                f'  sleep 0.05\n'
+                f'  rm -f "$marker"\n'
+                f'  echo "OUT:$*"\n'
+                f'  echo "ERR:$*" >&2\n'
+                f'  if [[ -n "${{FAIL_TEST:-}}" && "$*" == *"$FAIL_TEST"* ]]; then return 41; fi\n'
+                f'}}\n'
+            )
+            ok_doc = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_doc_checker_contract_tests\n'],
+                text=True, capture_output=True,
+                env=dict(os.environ, OASIS7_DOC_CHECKER_CONTRACT_JOBS='4', OASIS7_LOCAL_CHECK='0', FAIL_TEST=''),
+            )
+            self.assertEqual(ok_doc.returncode, 0, ok_doc.stderr)
+            doc_peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
+            self.assertGreaterEqual(max(doc_peaks), 2)
+            for script in (
+                'doc-governance-check.test.sh',
+                'product-doc-governance-check.test.py',
+                'product-doc-content-check.test.py',
+                'system-design-traceability-check.test.py',
+                'resolve-product-doc-ci-range.test.py',
+            ):
+                self.assertIn(script, ok_doc.stdout)
+                self.assertIn(script, ok_doc.stderr)
+
+            failed_doc = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_doc_checker_contract_tests\necho never\n'],
+                text=True, capture_output=True,
+                env=dict(os.environ, OASIS7_DOC_CHECKER_CONTRACT_JOBS='4', OASIS7_LOCAL_CHECK='0',
+                         FAIL_TEST='doc-core-content-check.test.py'),
+            )
+            self.assertEqual(failed_doc.returncode, 41, failed_doc.stdout + failed_doc.stderr)
+            self.assertNotIn('never', failed_doc.stdout)
+
+            max_seen.write_text('')
+            ok_metrics = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_compile_metrics_contract_tests\n'],
+                text=True, capture_output=True,
+                env=dict(os.environ, OASIS7_COMPILE_METRICS_CONTRACT_JOBS='3', OASIS7_LOCAL_CHECK='0', FAIL_TEST=''),
+            )
+            self.assertEqual(ok_metrics.returncode, 0, ok_metrics.stderr)
+            metrics_peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
+            self.assertGreaterEqual(max(metrics_peaks), 2)
+            for script in ('ci-compile-metrics-contract.test.sh', 'ci-ecs-build-metrics.test.py', 'ci-ecs-cache.test.py'):
+                self.assertIn(script, ok_metrics.stdout)
+
+            max_seen.write_text('')
+            serial = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_doc_checker_contract_tests\nrun_compile_metrics_contract_tests\n'],
+                text=True, capture_output=True,
+                env={k: v for k, v in dict(os.environ, OASIS7_LOCAL_CHECK='1', FAIL_TEST='').items()
+                     if k not in ('OASIS7_DOC_CHECKER_CONTRACT_JOBS', 'OASIS7_COMPILE_METRICS_CONTRACT_JOBS')},
+            )
+            self.assertEqual(serial.returncode, 0, serial.stderr)
+            serial_peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
+            self.assertEqual(max(serial_peaks), 1)
+            self.assertIn('ci-python-control-contracts.py local-contract', serial.stdout)
+
     def test_local_public_testnet_build_uses_selected_repo_in_dev_and_ci(self):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)

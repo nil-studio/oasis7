@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 from doc_content_warnings import report_findings, report_classified_findings
 from dataclasses import dataclass
+from functools import lru_cache
 import html
+import os
 from pathlib import Path
 import re
 import sys
@@ -92,6 +94,7 @@ ANCHOR_RE = re.compile(r"<a\s+[^>]*\bid\s*=\s*[\"']([^\"']+)[\"'][^>]*>", re.IGN
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
+@lru_cache(maxsize=256)
 def without_html_comments(text: str) -> str:
     """Match product-content's fragment parser while preserving line numbers."""
     def preserve_newlines(match: re.Match[str]) -> str:
@@ -100,19 +103,24 @@ def without_html_comments(text: str) -> str:
     return HTML_COMMENT_RE.sub(preserve_newlines, text)
 
 
-def visible_lines(text: str) -> list[tuple[int, str]]:
-    """Return line-numbered prose, excluding comments and Markdown code blocks."""
+@lru_cache(maxsize=256)
+def _visible_lines_cached(text: str) -> tuple[tuple[int, str], ...]:
     text = without_html_comments(text)
     excluded_lines = {
         number
         for block in parse_markdown_blocks(text)
         for number in range(block.start_line, block.end_line + 1)
     }
-    return [
+    return tuple(
         (number, line)
         for number, line in enumerate(text.splitlines(), start=1)
         if number not in excluded_lines
-    ]
+    )
+
+
+def visible_lines(text: str) -> list[tuple[int, str]]:
+    """Return line-numbered prose, excluding comments and Markdown code blocks."""
+    return list(_visible_lines_cached(text))
 
 
 def actual_anchor_occurrences(text: str) -> list[tuple[str, int]]:
@@ -145,56 +153,118 @@ def github_heading_slug(value: str) -> str:
     return re.sub(r"\s+", "-", value)
 
 
-def fragment_exists(text: str, fragment: str) -> bool:
-    """Apply the same explicit-anchor and GitHub-heading semantics as content checks."""
-    return fragment.strip().lower() in fragment_ids(text)
-
-
-def fragment_ids(text: str) -> set[str]:
-    """Build the target's navigable fragment set once per product document."""
+@lru_cache(maxsize=256)
+def _fragment_ids_cached(text: str) -> frozenset[str]:
     fragments = {
         anchor.strip().lower()
         for anchor, _number in actual_anchor_occurrences(text)
     }
-    visible = "\n".join(line for _, line in visible_lines(text))
-    for line in visible.splitlines():
+    for _, line in _visible_lines_cached(text):
         match = re.match(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$", line)
         if match:
             fragments.add(github_heading_slug(match.group(1)))
-    return fragments
+    return frozenset(fragments)
+
+
+def fragment_exists(text: str, fragment: str) -> bool:
+    """Apply the same explicit-anchor and GitHub-heading semantics as content checks."""
+    return fragment.strip().lower() in _fragment_ids_cached(text)
+
+
+def fragment_ids(text: str) -> set[str]:
+    """Build the target's navigable fragment set once per product document."""
+    return set(_fragment_ids_cached(text))
+
+
+class _TargetResolver:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.root_str = os.fspath(root)
+        self.root_real = os.path.realpath(self.root_str)
+        self.root_is_real = self.root_str == self.root_real
+        self.root_prefix = self.root_real if self.root_real.endswith(os.sep) else self.root_real + os.sep
+        self.rel_cache: dict[tuple[str, str], tuple[str, str] | None] = {}
+        self.targets_cache: dict[tuple[str, str], frozenset[str]] = {}
+
+    def resolve_relative(self, parent_str: str, target: str) -> tuple[str, str] | None:
+        key = (parent_str, target)
+        if key in self.rel_cache:
+            return self.rel_cache[key]
+        resolved_str = os.path.realpath(os.path.join(parent_str, target))
+        if self.root_is_real:
+            if resolved_str == self.root_real:
+                rel = "."
+            elif resolved_str.startswith(self.root_prefix):
+                rel = resolved_str[len(self.root_prefix):]
+                if os.sep != "/":
+                    rel = rel.replace(os.sep, "/")
+            else:
+                self.rel_cache[key] = None
+                return None
+        else:
+            try:
+                rel = Path(resolved_str).relative_to(self.root).as_posix()
+            except ValueError:
+                self.rel_cache[key] = None
+                return None
+        result = (resolved_str, rel)
+        self.rel_cache[key] = result
+        return result
+
+
+_ACTIVE_RESOLVER: _TargetResolver | None = None
+
+
+def _resolver_for(root: Path) -> _TargetResolver:
+    if _ACTIVE_RESOLVER is not None and _ACTIVE_RESOLVER.root == root:
+        return _ACTIVE_RESOLVER
+    return _TargetResolver(root)
 
 
 def validate_product_fragments(root: Path, errors: list[str]) -> None:
     """Validate local fragments across product docs, without scanning other doc trees."""
+    resolver = _resolver_for(root)
     product_root = root / "doc/product"
-    fragments_by_path: dict[Path, set[str]] = {}
+    fragments_by_path: dict[str, frozenset[str]] = {}
+    file_exists_cache: dict[str, bool] = {}
     for source in sorted(product_root.glob("**/*.md")):
         if not source.is_file():
             continue
+        source_str = os.fspath(source)
+        parent_str = os.fspath(source.parent)
         source_relative = source.relative_to(root).as_posix()
         source_text = source.read_text(encoding="utf-8")
         for link in parse_markdown_links(source_text):
             target, fragment = split_link_target(link.target)
             if not fragment or is_external_link_target(target):
                 continue
-            target_path = source if not target else (source.parent / target).resolve()
-            try:
-                target_relative = target_path.relative_to(root)
-            except ValueError:
-                continue
+            if not target:
+                target_str = source_str
+                target_relative = source_relative
+            else:
+                resolved = resolver.resolve_relative(parent_str, target)
+                if resolved is None:
+                    continue
+                target_str, target_relative = resolved
             # Structural inventory checks report missing paths; this pass only
             # adds the fragment contract when the local target is readable.
-            if not target_path.is_file():
+            exists = file_exists_cache.get(target_str)
+            if exists is None:
+                exists = os.path.isfile(target_str)
+                file_exists_cache[target_str] = exists
+            if not exists:
                 continue
-            if target_path not in fragments_by_path:
-                fragments_by_path[target_path] = fragment_ids(
-                    target_path.read_text(encoding="utf-8")
+            target_fragments = fragments_by_path.get(target_str)
+            if target_fragments is None:
+                target_fragments = _fragment_ids_cached(
+                    Path(target_str).read_text(encoding="utf-8")
                 )
-            if fragment.strip().lower() not in fragments_by_path[target_path]:
+                fragments_by_path[target_str] = target_fragments
+            if fragment.strip().lower() not in target_fragments:
                 fail(
                     errors,
                     "invalid-fragment",
-                    f"{source_relative}:{link.line}: {target_relative.as_posix()}#{fragment}",
+                    f"{source_relative}:{link.line}: {target_relative}#{fragment}",
                 )
 
 
@@ -233,16 +303,22 @@ def fail(errors: list[str], code: str, detail: str) -> None:
 
 def markdown_targets(root: Path, source: Path, text: str) -> set[str]:
     """Resolve repository targets from actual CommonMark link nodes."""
+    resolver = _resolver_for(root)
+    parent_str = os.fspath(source.parent)
+    cache_key = (parent_str, text)
+    cached = resolver.targets_cache.get(cache_key)
+    if cached is not None:
+        return set(cached)
     targets: set[str] = set()
     for link in parse_markdown_links(text):
         target = link.target.split("#", 1)[0].strip()
         if not target or "://" in target:
             continue
-        resolved = (source.parent / target).resolve()
-        try:
-            targets.add(resolved.relative_to(root).as_posix())
-        except ValueError:
-            continue
+        resolved = resolver.resolve_relative(parent_str, target)
+        if resolved is not None:
+            targets.add(resolved[1])
+    frozen = frozenset(targets)
+    resolver.targets_cache[cache_key] = frozen
     return targets
 
 
@@ -252,7 +328,7 @@ def markdown_targets_outside_fenced_code(root: Path, source: Path, text: str) ->
 
 
 def declared_pair_targets(root: Path, source: Path, text: str, label: str) -> tuple[bool, set[str]]:
-    lines = [line for _number, line in visible_lines(text)
+    lines = [line for _number, line in _visible_lines_cached(text)
              if re.match(rf"^\s*(?:[-+*]\s*)?{label}\s*[:：]", line)]
     return bool(lines), markdown_targets(root, source, "\n".join(lines))
 
@@ -268,10 +344,11 @@ def topic_targets_for_section(
     )
     if not section:
         return set()
+    module_rel = module_path.relative_to(root).as_posix()
     return {
         target
         for target in markdown_targets(root, module_path, section.group(1))
-        if target.endswith(".prd.md") and target != module_path.relative_to(root).as_posix()
+        if target.endswith(".prd.md") and target != module_rel
     }
 
 
@@ -299,6 +376,16 @@ def classified_topic_targets(root: Path, module_path: Path, text: str) -> tuple[
 
 
 def check(root: Path) -> list[str]:
+    global _ACTIVE_RESOLVER
+    previous_resolver = _ACTIVE_RESOLVER
+    _ACTIVE_RESOLVER = _TargetResolver(root)
+    try:
+        return _check_impl(root)
+    finally:
+        _ACTIVE_RESOLVER = previous_resolver
+
+
+def _check_impl(root: Path) -> list[str]:
     errors: list[str] = []
     retired_ledgers = sorted(
         path.relative_to(root).as_posix()
