@@ -758,7 +758,7 @@ fn retained_recovery_e3_completes_original_frozen_tail_from_external_e1_pin() {
         let recovery3 = history::verify_recovery_step(&step3, &anchor, Some(&recovery2))
             .unwrap()
             .recovery;
-    
+
         let audience = ProjectionAudienceV1::public();
         let mut record = anchor.head().record().clone();
         record.kind = FormalRecordKindV1::Execution;
@@ -813,7 +813,8 @@ fn retained_recovery_e3_completes_original_frozen_tail_from_external_e1_pin() {
             replica: final_receipt(EndpointRole::Replica, 25),
         };
         let verified_decision =
-            verify_formal_decision(&decision, original, Some(anchor.head()), Some(&recovery3)).unwrap();
+            verify_formal_decision(&decision, original, Some(anchor.head()), Some(&recovery3))
+                .unwrap();
         let complete_receipt = |role, key_id| {
             let body = verified_decision.complete_receipt_body(role).unwrap();
             FormalProofCompleteReceiptV1 {
@@ -827,7 +828,7 @@ fn retained_recovery_e3_completes_original_frozen_tail_from_external_e1_pin() {
             primary_complete: complete_receipt(EndpointRole::Primary, 24),
             replica_complete: complete_receipt(EndpointRole::Replica, 25),
         };
-    
+
         let binding = view.runtime_binding.as_ref().unwrap();
         let header = view.formal_commit_header.as_ref().unwrap();
         let era = header.event_id_era;
