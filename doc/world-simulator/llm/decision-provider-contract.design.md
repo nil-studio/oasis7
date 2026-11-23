@@ -257,7 +257,7 @@ retry/reconnect/restore/replay neither double-charge nor create replay credit.
 
 对应 [builtin 默认 prompt PRD](decision-provider-contract.prd.md#builtin-default-system-prompt)。本次保留现有策略，修正 PRD 把短样例误写成 fallback 的说法。
 
-默认值的两个现存位置为 `crates/oasis7/src/simulator/llm_defaults.rs` 与 `crates/oasis7/src/simulator/llm_agent.rs` 的 `DEFAULT_LLM_SYSTEM_PROMPT`；两者须与 PRD 独立文本一致。`LlmAgentConfig::from_env_with` 处理空值 fallback，TOML 读取沿原有效配置优先级，`effective_system_prompt` 再应用 runtime override，`PromptAssembler` 消费最终 `base_system_prompt`。
+默认值的单一真源为 `crates/oasis7_agent_harness/src/llm_defaults.rs` 中的 `DEFAULT_LLM_SYSTEM_PROMPT`，模型标识还会从 `oasis7_agent_api::DEFAULT_LLM_MODEL` 复用；`crates/oasis7/src/simulator/llm_agent.rs` 只消费上述配置，不再维护重复默认值。默认 prompt 仍须与 PRD 独立文本一致。`LlmAgentConfig::from_env_with` 处理空值 fallback，TOML 读取沿原有效配置优先级，`effective_system_prompt` 再应用 runtime override，`PromptAssembler` 消费最终 `base_system_prompt`。
 
 检查默认值时分别捕获 env-only、合法 TOML 省略/空白字段且无其他有效配置来源的实际请求；检查覆盖时提供不同的 TOML/env/runtime 文本，并验证当前优先级及清除 runtime override 后回到解析配置。不能只测常量相等而绕开 assembler，也不能用 config.example 中显式短句证明默认值。复用离线 capture fixture 即可，不需要模型凭据或付费请求。这个文档决定不修改 prompt profile、ProviderBacked 配置或 local bridge 的独立 prompt，也不代签输入完整性和最终预算验收。
 
