@@ -159,7 +159,7 @@ fn staged_fee_overflow_preserves_original_checked_arithmetic_and_all_balances() 
 
     let plan = plan_resource_delta(
         &BTreeMap::from([(ResourceKind::Data, i64::MAX)]),
-        &transition.general,
+        transition.general,
     );
     assert!(matches!(
         plan,
