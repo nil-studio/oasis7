@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_runtime_host = { path = "../oasis7_runtime_host" }
 oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_world_service = { path = "../oasis7_world_service", default-features = false }
 oasis7_client_api = { path = "../oasis7_client_api" }
