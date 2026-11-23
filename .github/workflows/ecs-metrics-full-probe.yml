@@ -1,0 +1,100 @@
+name: ECS full compile measurement diagnostic
+
+on:
+  pull_request:
+    branches: [codex/engineering-ecs-metrics-full-probe-base]
+    paths: [.github/workflows/ecs-metrics-full-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+  actions: read
+cache-mode: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUST_TOOLCHAIN: 1.96.0
+  MEASUREMENT_CURRENT_SHA: b19bc1cb4cc9589fe15e027ceb70bad9fb1e5976
+  MEASUREMENT_BASELINE_SHA: bde21a4a0a07d2f2145fec0ea11ee011dac8663d
+
+jobs:
+  build-metrics:
+    if: github.head_ref == 'codex/engineering-ecs-metrics-full-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    cache-mode: read
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.MEASUREMENT_CURRENT_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Verify exact selected current revision
+        run: test "$(git rev-parse HEAD)" = "$MEASUREMENT_CURRENT_SHA"
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-ecs-build-metrics-mold
+      - name: Resolve explicit measurement baseline
+        id: baseline
+        shell: bash
+        env:
+          BASELINE_REF: ${{ env.MEASUREMENT_BASELINE_SHA }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$BASELINE_REF" || "$BASELINE_REF" == -* ]]; then
+            echo '::error::measure_builds requires an explicit measurement_baseline'
+            exit 2
+          fi
+          git fetch --no-tags --depth=1 origin -- "$BASELINE_REF"
+          printf 'sha=%s\n' "$(git rev-parse --verify 'FETCH_HEAD^{commit}')" >> "$GITHUB_OUTPUT"
+      - name: Verify the preinstalled measurement toolchain and system libraries
+        run: |
+          set -euo pipefail
+          test "$(id -u)" = 1001
+          cargo +"$RUST_TOOLCHAIN" --version
+          test "$(rustc --version)" = "$(rustc +"$RUST_TOOLCHAIN" --version)"
+          python3 -c 'import tomllib'
+          pkg-config --exists x11 xi xcursor xrandr xinerama alsa libudev
+          report=$(mktemp "$RUNNER_TEMP/ecs-time-preflight.XXXXXX")
+          trap 'rm -- "$report"' EXIT
+          LC_ALL=C /usr/bin/time -v -o "$report" /usr/bin/true
+          grep -Eq 'Maximum resident set size \(kbytes\): [0-9]+$' "$report"
+      - name: Measure full native build and Viewer source change
+        shell: bash
+        env:
+          BASELINE_SHA: ${{ steps.baseline.outputs.sha }}
+          CARGO_BUILD_JOBS: '2'
+          CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+        run: |
+          set -euo pipefail
+          test "$BASELINE_SHA" = "$MEASUREMENT_BASELINE_SHA"
+          printf 'controller=%s current=%s baseline=%s\n' "$GITHUB_WORKFLOW_SHA" "$MEASUREMENT_CURRENT_SHA" "$BASELINE_SHA"
+          python3 scripts/ci-ecs-build-metrics.py \
+            --baseline-ref "$BASELINE_SHA" --current-ref "$MEASUREMENT_CURRENT_SHA" \
+            --jobs "$CARGO_BUILD_JOBS" --work-dir "$RUNNER_TEMP" \
+            --out-dir "$RUNNER_TEMP/ecs-build-metrics"
+      - name: Upload controlled build measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecs-build-metrics
+          path: ${{ runner.temp }}/ecs-build-metrics/
+          if-no-files-found: warn
