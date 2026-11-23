@@ -83,7 +83,7 @@ producer 内容或 build 入口变化、输出未登记、路径逃逸及其他�
 
 Trace refs: O7-REQ-4e7f2e0d-9147-43d9-a593-00a8db9b21df；承接[未登记路径门禁](ci-tiered-execution.prd.md#ci-unknown-inputs)。
 
-选择器完成 Git/Cargo 与显式规则匹配后收集全部未登记路径，抛出独立的 `UnknownInputsError`，不被现有“输入不确定则全量”的捕获分支吞掉。CLI 返回非零并以转义 JSON 路径列表报告补登记提示，不写成功 plan 或 GitHub 组输出；共享控制输入视为已登记的全量规则，不能因没有 Cargo owner 误判为未知。混合变更中的已知全量输入及 `--add-group` 均不能覆盖未登记路径失败。
+选择器完成 Git/Cargo 与显式规则匹配后收集全部未登记路径，抛出独立的 `UnknownInputsError`，不被现有“输入不确定则全量”的捕获分支吞掉。唯一受控桥接仅限 `main-fast` 历史区间回溯（`range_base` 为 `policy_sha` 的严格祖先）：当差异路径在 `range_base` 中存在、在 `range_base..policy_sha` 第一父历史中由提交 `D` 删除且已由授权该删除的父基线 `D^1:scripts/ci-required-scope.json` 显式登记归属，同时在 `policy_sha`、`source_sha` 与 `tested_sha` 三棵树中均已完全删除（即主线先完成合规删除、随后在 `main-fast` 尚未产出新绿色基线前退役对应规则），选择器按 `D^1` 的历史规则补入对应验证组（若历史组名已不在当前 `groups` 中则回退 `scope=full`）；凡仍在 `policy_sha`、`source_sha` 或 `tested_sha` 任一树中存在的路径（含本轮 `policy_sha..source_sha` 新删路径、重命名新端及所有 PR/本地输入）继续严格抛出 `UnknownInputsError`。CLI 返回非零并以转义 JSON 路径列表报告补登记提示，不写成功 plan 或 GitHub 组输出；共享控制输入视为已登记的全量规则，不能因没有 Cargo owner 误判为未知。混合变更中的已知全量输入及 `--add-group` 均不能覆盖未登记路径失败。
 
 所有重任务沿既有 `select` 成功条件启动；`formal-process` 在 `select` 非成功或实际选中 Formal 时保留 `always` 执行（`select` 成功且未选中时直接在 job 层 skipped），最终 `required-gate` 始终保留 `always`。最终 gate 在下载规划产物前先确认 `select` 成功，失败时立即给出范围规划诊断，因此不依赖失败路径上未上传的 artifact。trusted baseline 来源保持不变；新独立目录先通过规则/验证入口登记 PR，再提交使用该目录的功能 PR。新增测试使用真实 Git diff/CLI 验证未知新增、删除、重命名两端、混合全量输入、无成功输出及失败汇总；已登记路径、共享输入和图解析全量回退保留正例。
 
