@@ -5002,6 +5002,9 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             expr = condition
             for token, value in {'always()': True, 'cancelled()': False,
                     'github.event_name': event, 'github.event.pull_request.draft': draft,
+                    'github.event.action': 'opened', 'github.event.label.name': '',
+                    'github.event.pull_request.head.repo.full_name': 'nil-studio/oasis7',
+                    'github.repository': 'nil-studio/oasis7',
                     'inputs.run_mode': mode,
                     'needs.periodic-admission.result': admission,
                     'needs.periodic-admission.outputs.run_full': full}.items():
