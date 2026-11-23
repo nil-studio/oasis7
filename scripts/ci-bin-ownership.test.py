@@ -29,28 +29,67 @@ def manifest(package):
 
 class Ownership(unittest.TestCase):
     def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
-        """Do not accidentally select the generic three-argument admission API."""
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
         root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
         for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
             source = (root / relative).read_text()
             self.assertIn('use oasis7_world_service::*;', source, relative)
-            self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', source, relative)
-            self.assertNotIn('use oasis7::world_service::gameplay;', source, relative)
             self.assertNotIn('use oasis7::world_service::*;', source, relative)
             self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
             self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
         old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
-        native_owner = (ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs').read_text()
-        self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
-        self.assertNotIn('pub fn authenticated_action(', old_bridge)
-        self.assertIn('pub fn authenticated_action(', native_owner)
-        self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
-        self.assertIn('crate::gameplay_actions::build_runtime_action_from_gameplay_request', native_owner)
-        self.assertNotIn('oasis7::', native_owner)
-        self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
-        assert 'oasis7_runtime_host::gameplay_service::authenticated_action' in (
-            ROOT / 'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/qa_conformance/legacy_nonce.rs'
-        ).read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
 
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
