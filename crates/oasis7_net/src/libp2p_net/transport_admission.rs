@@ -340,94 +340,119 @@ impl TransportAdmissionGate {
 
         let mut seen = HashSet::new();
         let mut opts_dialable = Vec::new();
-        let mut has_conflicting_peer_addr = false;
+        let mut opts_has_conflicting_peer_addr = false;
         for addr in opts_addresses {
             if state.is_listened_addr(addr) || !seen.insert(addr.clone()) {
                 continue;
             }
             match peer.map_or_else(|| Ok(addr.clone()), |p| addr.clone().with_p2p(p)) {
                 Ok(dial_addr) => opts_dialable.push(dial_addr),
-                Err(_) => has_conflicting_peer_addr = true,
+                Err(_) => opts_has_conflicting_peer_addr = true,
             }
         }
 
-        let mut aug_candidates = Vec::new();
-        for addr in augmented_addresses {
-            if state.is_listened_addr(&addr) || !seen.insert(addr.clone()) {
-                continue;
+        // `DialOpts::unknown_peer_id()` always sets `extend_addresses_through_behaviour = false`.
+        let aug_candidates = if let Some(p) = peer {
+            let mut list = Vec::new();
+            for addr in augmented_addresses {
+                if state.is_listened_addr(&addr) || !seen.insert(addr.clone()) {
+                    continue;
+                }
+                let resolved = addr.clone().with_p2p(p);
+                list.push((addr, resolved));
             }
-            let resolved = peer.map_or_else(|| Ok(addr.clone()), |p| addr.clone().with_p2p(p));
-            if resolved.is_err() {
-                has_conflicting_peer_addr = true;
-            }
-            aug_candidates.push((addr, resolved));
-        }
+            list
+        } else {
+            Vec::new()
+        };
 
         let Some(mut admit) = state.outbound_admit.take() else {
             return Ok(Vec::new());
         };
         let result = (|| {
             let mut staged = VecDeque::new();
-            let mut any_opts_admitted = false;
             let mut last_denied: Option<ConnectionDenied> = None;
 
-            for dial_addr in opts_dialable {
-                match admit(id, peer, &dial_addr).and_then(TransportAdmission::check) {
-                    Ok(admission) => {
-                        any_opts_admitted = true;
-                        staged.push_back((dial_addr, Ok(admission)));
-                    }
-                    Err(denied) => {
-                        last_denied = Some(denied);
-                        staged.push_back((dial_addr, Err(())));
+            if !opts_dialable.is_empty() || opts_has_conflicting_peer_addr || peer.is_none() {
+                // `DialOpts` with explicit addresses defaults `extend_addresses_through_behaviour`
+                // to `false` (causing `Swarm::dial` to discard `augmented_addresses`). Never
+                // pre-reserve `aug_candidates` here; if `extend_addresses_through_behaviour` was
+                // explicitly enabled, `BudgetedTransport::dial` admits passthrough addresses on demand.
+                let mut any_opts_admitted = false;
+                for dial_addr in opts_dialable {
+                    match admit(id, peer, &dial_addr).and_then(TransportAdmission::check) {
+                        Ok(admission) => {
+                            any_opts_admitted = true;
+                            staged.push_back((dial_addr, Ok(admission)));
+                        }
+                        Err(denied) => {
+                            last_denied = Some(denied);
+                            staged.push_back((dial_addr, Err(())));
+                        }
                     }
                 }
-            }
 
-            if any_opts_admitted {
-                // Keep `augmented` unreserved until `BudgetedTransport::dial` actually sees it,
-                // because `DialOpts::extend_addresses_through_behaviour` may be false.
-                let passthrough = aug_candidates.into_iter().map(|(raw, _)| raw).collect();
-                state.outbound_session = Some(OutboundDialSession {
-                    connection_id: id,
-                    peer_id: peer,
-                    staged,
-                });
+                if !any_opts_admitted
+                    && !opts_has_conflicting_peer_addr
+                    && let Some(denied) = last_denied
+                {
+                    return Err(denied);
+                }
+
+                let passthrough: Vec<Multiaddr> =
+                    aug_candidates.into_iter().map(|(raw, _)| raw).collect();
+                if !staged.is_empty() || !passthrough.is_empty() {
+                    state.outbound_session = Some(OutboundDialSession {
+                        connection_id: id,
+                        peer_id: peer,
+                        staged,
+                    });
+                }
                 return Ok(passthrough);
             }
 
-            // Either `opts_dialable` was empty, or every `opts_dialable` entry was denied.
-            let mut filtered_augmented = Vec::new();
+            // `opts` carried no non-listened addresses for a known `peer` (e.g. `DialOpts::peer_id(p).build()`).
+            let mut any_aug_admitted = false;
+            let mut aug_has_conflicting_peer_addr = false;
+            let mut all_aug_raw = Vec::new();
             for (raw_addr, resolved) in aug_candidates {
                 match resolved {
                     Ok(dial_addr) => {
                         match admit(id, peer, &dial_addr).and_then(TransportAdmission::check) {
                             Ok(admission) => {
+                                any_aug_admitted = true;
                                 staged.push_back((dial_addr, Ok(admission)));
-                                filtered_augmented.push(raw_addr);
+                                all_aug_raw.push(raw_addr);
                             }
                             Err(denied) => {
                                 last_denied = Some(denied);
+                                staged.push_back((dial_addr, Err(())));
+                                all_aug_raw.push(raw_addr);
                             }
                         }
                     }
-                    Err(_) => filtered_augmented.push(raw_addr),
+                    Err(_) => {
+                        aug_has_conflicting_peer_addr = true;
+                        all_aug_raw.push(raw_addr);
+                    }
                 }
             }
 
-            if filtered_augmented.is_empty()
-                && !has_conflicting_peer_addr
+            if !any_aug_admitted
+                && !aug_has_conflicting_peer_addr
                 && let Some(denied) = last_denied
             {
                 return Err(denied);
             }
 
-            state.outbound_session = Some(OutboundDialSession {
-                connection_id: id,
-                peer_id: peer,
-                staged,
-            });
-            Ok(filtered_augmented)
+            if !staged.is_empty() {
+                state.outbound_session = Some(OutboundDialSession {
+                    connection_id: id,
+                    peer_id: peer,
+                    staged,
+                });
+            }
+            Ok(all_aug_raw)
         })();
         state.outbound_admit = Some(admit);
         result
@@ -464,9 +489,8 @@ where
     }
 
     fn remove_listener(&mut self, id: ListenerId) -> bool {
-        if let Ok(mut state) = self.gate.0.lock() {
-            state.listened_addrs.remove(&id);
-        }
+        // Defer removing `id` from `GateState::listened_addrs` until `TransportEvent::ListenerClosed`
+        // so the set stays synchronized with `Swarm::listened_addrs`.
         self.inner.remove_listener(id)
     }
 
@@ -1012,5 +1036,86 @@ mod tests {
             take_retryable_transport_path(&mut pending, peer, connection_id, &dial_err).is_none()
         );
         assert!(!pending.contains_key(&peer));
+    }
+
+    #[test]
+    fn explicit_opts_denial_and_conflicting_peer_addrs_never_pre_reserve_augmented_candidates() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct LivePermit(Arc<AtomicUsize>);
+        impl Drop for LivePermit {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+
+        let live_permits = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&live_permits);
+        let peer = PeerId::random();
+        let other_peer = PeerId::random();
+        let denied_raw: Multiaddr = "/ip4/127.0.0.1/tcp/4101".parse().unwrap();
+        let denied_dial = denied_raw.clone().with_p2p(peer).unwrap();
+        let aug_raw: Multiaddr = "/ip4/127.0.0.1/tcp/4102".parse().unwrap();
+        let conflicting: Multiaddr = format!("/ip4/127.0.0.1/tcp/4103/p2p/{other_peer}")
+            .parse()
+            .unwrap();
+
+        let denied_target = denied_dial.clone();
+        let gate = TransportAdmissionGate::outbound_only(move |_, _, addr| {
+            if addr == &denied_target {
+                return Err(ConnectionDenied::new(io::Error::other("denied opts")));
+            }
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(LivePermit(Arc::clone(&counter))))
+        });
+
+        // 1. Explicit `opts` denied while `augmented` has an admissible candidate:
+        //    must return synchronous `Err(ConnectionDenied)` without reserving `aug_raw`.
+        let id_denied = DialOpts::peer_id(peer)
+            .addresses(vec![denied_raw.clone()])
+            .build()
+            .connection_id();
+        assert!(
+            gate.handle_pending_outbound(
+                id_denied,
+                Some(peer),
+                &[denied_raw],
+                vec![aug_raw.clone()]
+            )
+            .is_err()
+        );
+        assert_eq!(live_permits.load(Ordering::SeqCst), 0);
+        assert!(gate.0.lock().unwrap().outbound_session.is_none());
+
+        // 2. Explicit `opts` has only a conflicting `/p2p/<other>` multiaddr while `augmented`
+        //    has an admissible candidate: must NOT pre-reserve `aug_raw`.
+        let id_conflict = DialOpts::peer_id(peer)
+            .addresses(vec![conflicting.clone()])
+            .build()
+            .connection_id();
+        let passthrough = gate
+            .handle_pending_outbound(
+                id_conflict,
+                Some(peer),
+                &[conflicting],
+                vec![aug_raw.clone()],
+            )
+            .unwrap();
+        assert_eq!(passthrough, vec![aug_raw.clone()]);
+        assert_eq!(live_permits.load(Ordering::SeqCst), 0);
+
+        // 3. Unknown-peer dial (`peer = None`) never reserves or forwards `augmented`.
+        let unknown_addr: Multiaddr = "/ip4/127.0.0.1/tcp/4104".parse().unwrap();
+        let id_unknown = DialOpts::unknown_peer_id()
+            .address(unknown_addr.clone())
+            .build()
+            .connection_id();
+        let unknown_aug = gate
+            .handle_pending_outbound(id_unknown, None, &[unknown_addr], vec![aug_raw])
+            .unwrap();
+        assert!(unknown_aug.is_empty());
+        assert_eq!(live_permits.load(Ordering::SeqCst), 1);
+        gate.clear_outbound_session();
+        assert_eq!(live_permits.load(Ordering::SeqCst), 0);
     }
 }

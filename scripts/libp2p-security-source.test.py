@@ -88,7 +88,7 @@ class NetworkSourceContract(unittest.TestCase):
             self.assertEqual(len(watcher), 1)
             self.assertNotIn("source", watcher[0])
 
-    def test_swarm_snapshot_matches_transport_admission_patch(self):
+    def test_swarm_snapshot_matches_upstream_sources(self):
         vendor = ROOT / "vendor-libp2p-swarm-0.48.0"
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
         actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
