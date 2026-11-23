@@ -3802,11 +3802,57 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_pr_auxiliary_workflows_scope_triggers_and_skip_drafts(self):
         ci_base = (ROOT / '.github/workflows/ci-base-images.yml').read_text()
         ci_base_pr = ci_base.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
-        self.assertNotIn('.github/workflows/rust.yml', ci_base_pr)
+        ci_base_jobs = workflow_jobs(ci_base)
+        rust_path = '.github/workflows/rust.yml'
+        pr_paths = re.findall(r'^      - (.+)$', ci_base_pr, re.M)
+        expected_paths = {
+            'docker/ci-base/**',
+            'scripts/ci-browser-tools/package.json',
+            'scripts/ci-browser-tools/package-lock.json',
+            '.github/workflows/ci-base-images.yml',
+        }
+        # The trusted baseline must cover both rollout stages without permitting an unfiltered build.
+        if rust_path in pr_paths:
+            expected_paths.add(rust_path)
+            self.assertIn("if: github.event_name == 'pull_request' && !github.event.pull_request.draft", ci_base_jobs['plan'])
+            self.assertIn('persist-credentials: false', ci_base_jobs['plan'])
+            self.assertIn('ref: ${{ github.sha }}', ci_base_jobs['plan'])
+            self.assertIn('TESTED_SHA: ${{ github.sha }}', ci_base_jobs['plan'])
+            self.assertIn('SOURCE_SHA: ${{ github.event.pull_request.head.sha }}', ci_base_jobs['plan'])
+            self.assertIn('--print-verified-pr-base "$TESTED_SHA" "$SOURCE_SHA"', ci_base_jobs['plan'])
+            self.assertIn('plan-candidate.sh "$base_sha"', ci_base_jobs['plan'])
+            self.assertIn('base_sha: ${{ steps.select.outputs.base_sha }}', ci_base_jobs['plan'])
+            self.assertIn('tested_sha: ${{ steps.select.outputs.tested_sha }}', ci_base_jobs['plan'])
+            self.assertIn("ref: ${{ github.event_name == 'pull_request' && needs.plan.outputs.tested_sha || github.sha }}",
+                          ci_base_jobs['build'])
+            self.assertIn('--print-verified-pr-base "$TESTED_SHA" "$SOURCE_SHA"', ci_base_jobs['build'])
+            self.assertIn('[[ "$TESTED_SHA" == "$GITHUB_SHA" ]]', ci_base_jobs['build'])
+            self.assertIn('[[ "$actual_base" == "$BASE_SHA" ]]', ci_base_jobs['build'])
+            self.assertIn('OASIS7_PRODUCT_DOC_BASE: ${{ needs.plan.outputs.base_sha }}', ci_base_jobs['build'])
+            self.assertIn('OASIS7_PRODUCT_DOC_HEAD: ${{ needs.plan.outputs.tested_sha }}', ci_base_jobs['build'])
+            build = ci_base_jobs['build']
+            guard = re.search(r'^    if: >-\n((?:      [^\n]+\n)+)', build, re.M)
+            self.assertIsNotNone(guard)
+            self.assertEqual(
+                ' '.join(guard[1].split()),
+                "!cancelled() && ((github.event_name == 'pull_request' && needs.plan.result == 'success' && "
+                "needs.plan.outputs.matrix != '' && needs.plan.outputs.matrix != '{\"target\":[]}') || "
+                "(github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))",
+            )
+            self.assertIn('    needs: plan', build.splitlines())
+            self.assertIn('fromJSON(needs.plan.outputs.matrix ||', ci_base_jobs['build'])
+        else:
+            self.assertNotIn('plan', ci_base_jobs)
+            self.assertIn(
+                "if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'",
+                ci_base_jobs['build'],
+            )
+        self.assertCountEqual(pr_paths, expected_paths)
         self.assertIn(
-            "if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'",
-            ci_base,
+            "    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'",
+            ci_base_jobs['publish'].splitlines(),
         )
+        self.assertNotIn('packages: write', ci_base_jobs['build'])
 
         wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
         wasm_pr = wasm_wf.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
