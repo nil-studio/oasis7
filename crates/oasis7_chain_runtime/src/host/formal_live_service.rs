@@ -10,12 +10,15 @@ use oasis7_world_service::{
     agent_authority, agent_chat, authority, correlation,
     formal_read::{FormalReadHistoryV1, FormalReadVerifier, MAX_FORMAL_HISTORY_STEPS},
     formal_read_service::{FormalCommittedReadService, FormalReadPublication},
-    game_task, gameplay,
+    game_task,
     wire::{
         AuthenticatedLookup, CHANGES_PATH, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest,
         VIEW_PATH, WorldServicePayloadV1,
     },
 };
+// Gameplay submission assembly still requires its L4 adapter; native Service owns
+// generic authentication, but cannot construct the Runtime action on its own.
+use oasis7::world_service::gameplay;
 use oasis7_client_api::world_service::{
     AdmissionDurability, CommitRef, FormalReadAnchorRefV1, FormalReadProfileV1, IntentOutcome,
     IntentResponse, ReadWorldChangesRequest, ReadWorldViewRequest, ReadWorldViewResponse,
