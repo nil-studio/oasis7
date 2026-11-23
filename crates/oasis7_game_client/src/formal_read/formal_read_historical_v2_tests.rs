@@ -331,10 +331,8 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
             .unwrap();
             let receipt = |role, key_id| FormalFinalReceiptV1 {
                 signature_hex: sign(
-                    formal_final_receipt_signing_bytes(
-                        &context.receipt_body(role).unwrap(),
-                    )
-                    .unwrap(),
+                    formal_final_receipt_signing_bytes(&context.receipt_body(role).unwrap())
+                        .unwrap(),
                     key_id,
                 ),
                 body: context.receipt_body(role).unwrap(),
@@ -348,13 +346,9 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                 primary: receipt(EndpointRole::Primary, 24),
                 replica: receipt(EndpointRole::Replica, 25),
             };
-            let verified_decision = verify_formal_decision(
-                &decision,
-                original,
-                Some(anchor.head()),
-                Some(&recovery3),
-            )
-            .unwrap();
+            let verified_decision =
+                verify_formal_decision(&decision, original, Some(anchor.head()), Some(&recovery3))
+                    .unwrap();
             let completion_receipt = |role, key_id| FormalProofCompleteReceiptV1 {
                 signature_hex: sign(
                     formal_proof_complete_signing_bytes(
