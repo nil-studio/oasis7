@@ -877,7 +877,9 @@ impl<B: AgentBehavior> AgentRunner<B> {
 
 // Pure telemetry types now have their owner in oasis7_simulator (L2).
 // Preserve the public oasis7::simulator compatibility re-exports.
-pub use oasis7_simulator::{AgentStats, RunnerLogEntry, RunnerLogKind, RunnerMetrics, SkippedReason};
+pub use oasis7_simulator::{
+    AgentStats, RunnerLogEntry, RunnerLogKind, RunnerMetrics, SkippedReason,
+};
 
 /// Result of a single agent tick.
 #[derive(Debug, Clone, PartialEq)]
