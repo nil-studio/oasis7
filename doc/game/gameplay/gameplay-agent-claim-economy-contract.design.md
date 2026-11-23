@@ -143,7 +143,7 @@ quote 与最终 claim publication 必须核对同一适用 policy、主体、wor
 
 ### 6.1 首次绑定与经济认领的组件边界
 
-既有 [gameplay action 映射](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs) 将 `claim_first_agent` 映射为 `RegisterAgent`，将 `claim_agent` 映射为 `ClaimAgent`。首次绑定只建立可操作 Agent；首聊维护说明需要另外读取该 Agent 作为 claimer 的真实经济 claim。
+既有 [gameplay action 映射](../../../crates/oasis7_runtime_host/src/gameplay_actions.rs) 将 `claim_first_agent` 映射为 `RegisterAgent`，将 `claim_agent` 映射为 `ClaimAgent`。首次绑定只建立可操作 Agent；首聊维护说明需要另外读取该 Agent 作为 claimer 的真实经济 claim。
 
 以下表格与 6.2–6.4 节记录已交付的文案/兼容切片；后继目标由 [DES-CLAIM-ENTRY-001](#des-claim-entry-001) 和 [DES-CLAIM-CHAT-005](#des-claim-chat-005) 单独规定，不能将目标能力读成该切片已有行为。
 
