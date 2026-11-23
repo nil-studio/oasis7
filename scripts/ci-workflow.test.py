@@ -6851,8 +6851,8 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'custody-wasm-approval': 20,
                 'distfs': 20,
                 'rust-baseline': 30,
-                'launcher-web': 15,
-                'viewer-js-required': 20,
+                'launcher-web': 12,
+                'viewer-js-required': 16,
                 'viewer-performance-report': 15,
                 'newapi-bridge-package': 30,
             },
@@ -6861,7 +6861,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'verify-wasm-determinism': 10,
             },
             '.github/workflows/command-center.yml': {
-                'desktop': 25,
+                'desktop': 20,
             },
             '.github/workflows/compile-metrics.yml': {
                 'compile-metrics-linux': 35,
@@ -6961,7 +6961,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-test-build-trusted': 60,
                 'oasis7-required': 35,
                 'workspace-support-legacy': 60,
-                'workspace-support-other': 60,
+                'workspace-support-other': 45,
                 'operational-contracts': 20,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
