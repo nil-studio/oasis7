@@ -1,0 +1,5 @@
+name: Storage required producer diagnostics
+description: Run the original required producer with bounded in-build diagnostic snapshots
+runs:
+  using: node24
+  main: index.cjs
