@@ -123,7 +123,7 @@ pub(super) fn generic_complete_top_roots_do_not_prove_missing_typed_child() {
             PageCompression::Raw,
         )
         .unwrap();
-        let roots = seed(&store, &memory, &source());
+        let roots = seed_default(&store, &memory);
         let qualification = qualify(&store, &memory, &roots, MemoryClass::Ordinary);
         assert_eq!(qualification.record_counts(), [1, 1, 1, 1, 1]);
         let (_, _, child) = malformed::original_child(&store, &memory, &roots);
