@@ -176,7 +176,7 @@ pub(super) fn submit(
             let digest = correlation::key_digest(&correlation.key)?;
             let hash = blake3::hash(digest.as_bytes());
             let action_id = u64::from_be_bytes(hash.as_bytes()[..8].try_into().unwrap()).max(1);
-            let bytes = correlation::encode_consensus_intent(&request)?;
+            let bytes = oasis7_world_service::correlation::encode_consensus_intent(&request)?;
             service
                 .runtime
                 .lock()
