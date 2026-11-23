@@ -1,7 +1,7 @@
 //! One immutable record pins snapshot, journal and proof. Mutable cache paths
 //! are never a read authority for WorldService.
 use super::{ExecutionBridgeRecord, WorldHeadProofV1, checkpoint};
-use oasis7::world_service::*;
+use oasis7_world_service::*;
 use oasis7_runtime::{Journal, LocalCasStore, Snapshot, World, blake3_hex};
 use std::path::Path;
 
