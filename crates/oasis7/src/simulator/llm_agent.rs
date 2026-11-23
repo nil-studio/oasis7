@@ -15,7 +15,7 @@ use super::agent::{
     LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics, LlmEffectIntentTrace,
     LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace,
 };
-use super::llm_defaults::DEFAULT_LLM_MODEL;
+use oasis7_agent_harness::llm_defaults::DEFAULT_LLM_MODEL;
 use super::memory::{AgentMemory, LongTermMemoryEntry, MemoryEntry};
 use oasis7_simulator::{
     Action, CM_PER_KM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY, ModuleInstallTarget, ResourceKind,
