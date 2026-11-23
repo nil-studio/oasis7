@@ -109,7 +109,7 @@ impl Fixture {
                     oasis7_node::NodeConsensusAction::from_payload(
                         132,
                         "cold-node",
-                        correlation::encode_consensus_intent(&request).unwrap(),
+                        oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
                     )
                     .unwrap(),
                 );

@@ -401,7 +401,7 @@ fn valid_submit(owner: &SigningKey) -> SubmitIntentRequest<WorldServicePayloadV1
     );
     SubmitIntentRequest {
         contract_version: WORLD_SERVICE_CONTRACT_VERSION,
-        correlation: oasis7::world_service::correlation::derive_correlation(
+        correlation: oasis7_world_service::correlation::derive_correlation(
             WorldIdentity {
                 world_id: "formal-fixture-world".into(),
                 genesis_digest: fixtures::h(8),

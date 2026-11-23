@@ -635,19 +635,6 @@ class Selection(unittest.TestCase):
                 # Manifest controls intentionally retain the existing full scope.
                 self.assertEqual(plan['scope'], 'full' if path.endswith('Cargo.toml') else 'targeted')
 
-    def test_removed_egui_winit_patch_selects_launcher_consumers(self):
-        config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('vendor-egui-winit-0.33.3/src/lib.rs',
-                     'vendor-egui-winit-0.33.3/Cargo.lock'):
-            with self.subTest(path=path):
-                self.write(path, 'old launcher patch input')
-                case_base = self.commit()
-                Path(path).unlink()
-                plan = selector.select(config, case_base, self.commit())
-                self.assertTrue({'rust_baseline', 'launcher_web'}.issubset(plan['groups']))
-                # Removing a lockfile remains a shared control change.
-                self.assertEqual(plan['scope'], 'full' if path.endswith('Cargo.lock') else 'targeted')
-
     def native_generated_fixture(self, register=True):
         # Retain the real producer and its three OUT_DIR consumers. A workspace
         # without these sources failed to reproduce the docs-only over-selection.

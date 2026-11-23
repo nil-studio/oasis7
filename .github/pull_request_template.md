@@ -7,7 +7,7 @@
 ## 本次改动与结果
 
 <!-- 按行为、能力或规则说明具体变化及改后结果。文档 PR 写清确定了什么设计或方法、实现处于什么状态；文件清单不能代替说明。 -->
-<!-- 涉及代码时，按[小而完整的 PR](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#small-complete-pr)与[任务规模建议](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-file-limit)结合 diff 和关联批次说明任务范围：尽量不超过 30 个代码文件且建议规模内的独立任务默认单 PR 收口；超过 30 个时简述保留完整改动的原因，拆成多个 PR 时说明解阻前置、超规模、分步契约或共享入口隔离依据，不按数量单独阻断交付。多任务分别判断，纯文档变更无需填写。 -->
+<!-- 涉及代码时，按[小而完整的 PR](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#small-complete-pr)、[预计 PR 边界](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#planned-pr-scope)与[任务规模建议](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-file-limit)结合 diff 和关联批次说明任务范围：默认对齐关联代码 Issue 预定的 PR 边界（30 个代码文件建议内的独立任务默认单 PR 收口）；超过 30 个时简述保留完整改动的原因，拆成多个 PR 或实做调整原定 PR 批次时说明解阻前置、超规模、分步契约、共享入口隔离或实际耦合依据，偶发大/小 PR 不按数量单独阻断交付。多任务分别判断，纯文档变更无需填写。 -->
 
 ## 验证结果
 

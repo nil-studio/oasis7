@@ -122,7 +122,7 @@ fn controlled_history_rejects_decodable_service_envelopes_without_dropping_them(
     // Both service encodings accepted by the shared execution decoder stay
     // outside the single legacy origin-bearing ScheduleRecipe history scope.
     for envelope in [
-        correlation::encode_consensus_intent(&request).unwrap(),
+        oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
         encode_consensus_action_payload(&ConsensusActionPayloadEnvelope {
             version: 1,
             auth: None,

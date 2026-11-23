@@ -203,7 +203,7 @@ fn remote_guarded_execution_does_not_read_endpoint_keys_and_reopens_original_res
     let mut node = fixture.node(fixture.driver());
     node.submit_consensus_action_payload(
         42,
-        correlation::encode_consensus_intent(&request).unwrap(),
+        oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
     )
     .unwrap();
     node.start().unwrap();
@@ -323,7 +323,7 @@ fn frozen_crash_helper() {
     let mut node = fixture.node(driver);
     node.submit_consensus_action_payload(
         42,
-        correlation::encode_consensus_intent(&request).unwrap(),
+        oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
     )
     .unwrap();
     node.start().unwrap();

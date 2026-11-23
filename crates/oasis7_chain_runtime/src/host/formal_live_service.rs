@@ -960,7 +960,7 @@ impl FormalLiveService {
         let digest = blake3::hash(key_digest.as_bytes());
         let action_id =
             u64::from_be_bytes(digest.as_bytes()[..8].try_into().expect("hash width")).max(1);
-        let action = correlation::encode_consensus_intent(&request)
+        let action = oasis7_world_service::correlation::encode_consensus_intent(&request)
             .map_err(|error| (400, "invalid_payload", error))?;
         let runtime = self.runtime.lock().map_err(|_| {
             (

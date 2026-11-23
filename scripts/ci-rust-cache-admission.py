@@ -53,6 +53,9 @@ FAMILIES = {
     'release-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'release-windows': ('release-packages-package-native-Windows-native-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'release-macos': ('release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
+    'hosted-login-release': (
+        'hosted-login-linux-x86-64-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb',
+        '.github/workflows/hosted-login-linux-build.yml', 'warm-linux-release-deps'),
     'testnet-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
 }
 COMPONENT_IMAGE_FAMILIES = frozenset(('rust-image-components', 'rust-image-net',
@@ -159,11 +162,12 @@ def trusted_writer(environment, api):
             selected = False
         if not selected:
             raise AdmissionError('manual dependency upload requires run_mode=' + '|'.join(modes))
-    if family.startswith('release-') or family == 'testnet-linux':
+    package_source = family.startswith('release-') or family in ('testnet-linux', 'hosted-login-release')
+    if package_source:
         if (environment.get('OASIS7_DEPENDENCY_CACHE_SOURCE_SHA') != sha
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('package dependency upload requires the matching planned main source and GitHub provider')
-    if component_image or family in ('shared-native', 'rust-image-native', 'testnet-linux') or family.startswith('release-'):
+    if component_image or family in ('shared-native', 'rust-image-native') or package_source:
         try:
             # The plan must still describe the actual checkout after the build.
             git_environment = {key: value for key, value in environment.items()
@@ -183,6 +187,14 @@ def trusted_writer(environment, api):
             selected = False
         if not selected:
             raise AdmissionError('Testnet dependency upload requires the trusted Linux packaging lane')
+    if family == 'hosted-login-release':
+        try:
+            inputs = json.loads(Path(environment.get('GITHUB_EVENT_PATH', '')).read_text()).get('inputs', {})
+            selected = inputs.get('run_mode') == 'release-deps' and inputs.get('build_profile') == 'release'
+        except (OSError, ValueError, AttributeError):
+            selected = False
+        if api.repository != 'nil-studio/oasis7' or not selected:
+            raise AdmissionError('Hosted Login dependency upload requires the trusted release-deps dispatch')
     run = api.request('GET', f'/actions/runs/{run_id}')
     if (not isinstance(run, dict) or run.get('id') != int(run_id) or run.get('head_sha') != sha
             or run.get('head_branch') != 'main' or run.get('event') != event or run.get('path') != workflow

@@ -217,7 +217,7 @@ fn handle_gameplay_submit(
         let signed_payload =
             oasis7::world_service::WorldServicePayloadV1::GameplayJson(body.to_vec());
         let correlation = oasis7::world_service::derive_correlation(identity, &signed_payload)?;
-        oasis7::world_service::correlation::encode_consensus_intent(
+        oasis7_world_service::correlation::encode_consensus_intent(
             &oasis7::world_service::SubmitIntentRequest {
                 contract_version: 1,
                 correlation,

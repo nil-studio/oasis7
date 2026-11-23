@@ -3,6 +3,12 @@ name: Hosted Login Linux Build
 on:
   workflow_dispatch:
     inputs:
+      run_mode:
+        description: "Build the package or warm only the native release dependencies"
+        required: true
+        default: package
+        type: choice
+        options: [package, release-deps]
       build_profile:
         description: "Cargo profile for the hosted login launcher binary"
         required: true
@@ -18,19 +24,23 @@ env:
   CARGO_NET_RETRY: 10
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   RUST_TOOLCHAIN: 1.96.0
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
 
 permissions:
   contents: read
 
+cache-mode: read
+
 jobs:
   build-linux-x86-64:
     name: hosted-login-linux-x86-64
+    if: inputs.run_mode != 'release-deps'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
       packages: read
-    container:
+    container: &hosted-login-container
       image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
       options: --user 1001:1001
       credentials:
@@ -40,31 +50,37 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - &hosted-checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Trust the checked-out workspace path in the job container
+      - &hosted-safe-directory
+        name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Configure mold for Linux host linking
+      - &hosted-mold
+        name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
         with:
           install-dir: ${{ runner.temp }}/oasis7-hosted-login-mold
-      - name: Verify preinstalled Rust and Linux build dependencies
+      - &hosted-toolchain
+        name: Verify preinstalled Rust and Linux build dependencies
         run: |
           cargo +"${RUST_TOOLCHAIN}" --version
           rustup target list --installed --toolchain "${RUST_TOOLCHAIN}" | grep -Fx wasm32-unknown-unknown
           pkg-config --exists wayland-client wayland-protocols xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - &hosted-node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           package-manager-cache: false
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          shared-key: hosted-login-linux-x86-64-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+          shared-key: &hosted-login-cache-key hosted-login-linux-x86-64-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
           add-rust-environment-hash-key: true
           save-if: false
           cache-on-failure: false
@@ -131,3 +147,57 @@ jobs:
           name: hosted-login-linux-x86_64-${{ github.sha }}
           path: output/hosted-login-linux-x86_64.tar.gz
           if-no-files-found: error
+
+  warm-linux-release-deps:
+    name: Warm Hosted Login native release dependencies
+    if: >-
+      github.repository == 'nil-studio/oasis7' && github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      inputs.run_mode == 'release-deps' && inputs.build_profile == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    concurrency:
+      group: hosted-login-linux-release-deps-main
+      cancel-in-progress: false
+    cache-mode: write
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    container: *hosted-login-container
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - *hosted-checkout
+      - *hosted-safe-directory
+      - name: Verify exact main writer source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - *hosted-mold
+      - *hosted-toolchain
+      - *hosted-node
+      - name: Install dependency cache admission
+        id: dependency-cache-tools
+        run: /usr/bin/python3 scripts/ci-rust-cache-admission.py install-release
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        id: release-cache
+        env:
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: hosted-login-release
+          OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ github.sha }}
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          shared-key: *hosted-login-cache-key
+          add-rust-environment-hash-key: true
+          cache-provider: github
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && inputs.run_mode == 'release-deps' && inputs.build_profile == 'release' }}
+          cache-on-failure: false
+      - name: Warm the native release build
+        if: steps.release-cache.outputs.cache-hit != 'true'
+        run: |
+          env -u RUSTC_WRAPPER cargo build --locked --release \
+            -p oasis7_launcher_backend -p oasis7_viewer_runtime \
+            --bin oasis7_game_launcher \
+            --bin oasis7_viewer_live

@@ -5799,7 +5799,7 @@ class AptWorkflow(unittest.TestCase):
     NATIVE = ('pkg-config libwayland-dev wayland-protocols libxkbcommon-dev '
               'libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev '
               'libasound2-dev libudev-dev').split()
-    NATIVE_JOBS = {'pr-fast-preview', 'pr-ordinary-delivery-preview', 'rust-baseline', 'oasis7-test-build-candidate',
+    NATIVE_JOBS = {'pr-fast-preview', 'rust-baseline', 'oasis7-test-build-candidate',
                    'oasis7-test-build-trusted', 'formal-debug-build',
                    'formal-debug-build-trusted', 'formal-endpoint-build',
                    'formal-endpoint-build-trusted', 'formal-test-build',
@@ -6115,38 +6115,6 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
                                  {'common', *owners[1:]})
                 self.assertEqual(set(re.findall(r'name: native-tests-(.*)-\$\{\{ github.sha \}\}', resolved)),
                                  {'common', *owners[1:]})
-
-    def test_diagnostic_uses_actual_producer_identity_without_gate_or_execution_authority(self):
-        job = JOBS['pr-ordinary-delivery-preview']
-        condition = job.split('    if: ', 1)[1].split('    runs-on:', 1)[0]
-        values = {'github.event_name': 'pull_request', 'needs.select.result': 'success',
-                  'needs.oasis7-test-build-candidate.result': 'success',
-                  'needs.oasis7-test-build-trusted.result': 'skipped',
-                  'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': 1,
-                  'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': None}
-        self.assertTrue(effective_job_condition(condition, values, []))
-        self.assertTrue(effective_job_condition(condition, values | {
-            'needs.oasis7-test-build-candidate.result': 'skipped',
-            'needs.oasis7-test-build-trusted.result': 'success',
-        }, []))
-        for extra in ({'github.event_name': 'push'}, {'needs.select.result': 'failure'},
-                      {'needs.oasis7-test-build-candidate.result': 'skipped'},
-                      {'needs.oasis7-test-build-trusted.result': 'success'},
-                      {'needs.oasis7-test-build-candidate.result': 'failure'},
-                      {'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': 2},
-                      {'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': 1}):
-            self.assertFalse(effective_job_condition(condition, values | extra, []))
-        self.assertFalse(effective_job_condition(condition, values, [], cancelled=True))
-        for exact in ('ref: ${{ needs.select.outputs.tested_sha }}',
-                      'SOURCE_SHA: ${{ needs.select.outputs.source_sha }}',
-                      'name: ${{ needs.select.outputs.selection_artifact }}',
-                      'measure-ordinary-delivery', 'contents: read', 'persist-credentials: false'):
-            self.assertIn(exact, job)
-        for forbidden in ('ci-test-artifacts.py run ', 'ci-tests.sh', 'ci-fast-preview.py',
-                          'actions/cache/', 'cache-mode: write', 'actions: write', 'continue-on-error'):
-            self.assertNotIn(forbidden, job)
-        for gate in ('required-gate', 'explicit-full-gate'):
-            self.assertNotIn('pr-ordinary-delivery-preview', JOBS[gate])
 
 
 class WorkerdFaultCapture(unittest.TestCase):
@@ -7007,7 +6975,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         excluded_jobs = {
             'operational-contracts', 'packaging-contracts',
             'pr-fast-preview-plan', 'pr-fast-preview',
-            'pr-governance-preview', 'pr-ordinary-delivery-preview',
+            'pr-governance-preview',
             'periodic-admission', 'cache-bootstrap-maintenance', 'cache-maintenance',
             'oasis7-test-build-trusted', 'formal-debug-build-trusted',
             'formal-endpoint-build-trusted', 'formal-test-build-trusted',

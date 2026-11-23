@@ -99,7 +99,7 @@ fn game_task_driver_same_block_uniqueness_and_queued_owner_fence() {
             NodeConsensusAction::from_payload(
                 10 + index as u64,
                 "node-a",
-                correlation::encode_consensus_intent(request).unwrap(),
+                oasis7_world_service::correlation::encode_consensus_intent(request).unwrap(),
             )
             .unwrap()
         })
