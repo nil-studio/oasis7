@@ -674,6 +674,67 @@ else: record([name, *a])
             self.assertFalse((output / 'result.json').exists())
             self.assertEqual((output / 'workerd-fault-attempt-1').exists(), known_fault)
 
+    def test_known_workerd_fault_with_dispose_respawn_retries_and_passes_real_validation(self):
+        path, shard = self.client_fixture()
+        passing_source = path.read_text()
+        failing_source = "import {test} from 'node:test';test('fault',()=>{throw Error('fetch failed')});"
+        calls = []
+
+        def prepare(root, results, environment, context, attempt, command):
+            call_index = len(calls) + 1
+            calls.append(call_index)
+            path.write_text(failing_source if call_index == 1 else passing_source)
+            directory = results / 'workerd-fault'
+            directory.mkdir()
+            if call_index == 1:
+                rows = [
+                    dict(event='session', schema=C.workerd_capture.SCHEMA, context=context, attempt=attempt,
+                         engine_sha256=C.workerd_capture.ENGINE_SHA256, gdb_version='15.1'),
+                    dict(event='root_started', inferior=1, pid=720),
+                    dict(event='runtime_started', inferior=3, pid=740,
+                         engine_sha256=C.workerd_capture.ENGINE_SHA256),
+                    dict(event='signal', inferior=3, pid=740, thread=[740, 740, 0], signal='SIGSEGV',
+                         si_code=1, si_addr='0x7ffc2c87ffe8',
+                         registers=dict(pc='0x55a884ba5313', r13='0x7ffc2c87ffe0',
+                                        rbp='0x7ffc2c86d6b0', rsp='0x7ffc2c86d680'),
+                         maps_complete=True, mappings=dict.fromkeys(C.workerd_capture.MAPPINGS),
+                         pc_offset=C.workerd_capture.KNOWN_FAULT_OFFSET),
+                    dict(event='runtime_exited', inferior=3, pid=740, exit_code=1, exit_signal=None),
+                    dict(event='runtime_started', inferior=4, pid=744,
+                         engine_sha256=C.workerd_capture.ENGINE_SHA256),
+                    dict(event='runtime_exited', inferior=4, pid=744, exit_code=None, exit_signal=9),
+                    dict(event='root_exited', inferior=1, pid=720, exit_code=1),
+                    dict(event='complete', errors=[], open_runtimes=[]),
+                ]
+            else:
+                rows = [
+                    dict(event='session', schema=C.workerd_capture.SCHEMA, context=context, attempt=attempt,
+                         engine_sha256=C.workerd_capture.ENGINE_SHA256, gdb_version='15.1'),
+                    dict(event='root_started', inferior=1, pid=820),
+                    dict(event='runtime_started', inferior=3, pid=840,
+                         engine_sha256=C.workerd_capture.ENGINE_SHA256),
+                    dict(event='runtime_exited', inferior=3, pid=840, exit_code=None, exit_signal=9),
+                    dict(event='root_exited', inferior=1, pid=820, exit_code=0),
+                    dict(event='complete', errors=[], open_runtimes=[]),
+                ]
+            (directory / 'records.jsonl').write_text('\n'.join(json.dumps(r) for r in rows) + '\n')
+            return directory, command, environment
+
+        receipts = []
+        for s in C.SHARDS:
+            out = Path(self.temporary.name) / f'dispose-respawn-shard-{s}'
+            if s == shard:
+                with mock.patch.object(C.workerd_capture, 'prepare', side_effect=prepare):
+                    C.execute(self.root, self.plan, s, out, '71', 2, True)
+            else:
+                C.execute(self.root, self.plan, s, out, '71', 2, False)
+            receipts.append(out / 'result.json')
+
+        self.assertEqual(calls, [1, 2])
+        target_out = Path(self.temporary.name) / f'dispose-respawn-shard-{shard}'
+        self.assertTrue((target_out / 'workerd-fault-attempt-1/report.json').is_file())
+        C.validate_results(self.root, self.plan, receipts, '71', 2, True)
+
     def test_final_consumer_requires_capture_and_binds_the_producer_attempt(self):
         self.client_fixture()
         receipts = []
