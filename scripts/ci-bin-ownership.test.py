@@ -94,7 +94,7 @@ class Ownership(unittest.TestCase):
     def test_provider_tools_and_viewer_use_native_runtime_owner(self):
         """Reject old umbrella Runtime imports while preserving host Simulator seams."""
         native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
-        viewer = manifest('oasis7_viewer_runtime')['target']["cfg(not(target_arch = \"wasm32\")"]['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
         self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
         self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
         for relative in (
