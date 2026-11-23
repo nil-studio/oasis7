@@ -430,7 +430,7 @@ fn run_ordinary_first_session(handoff_ready: Option<&Path>) {
     let mut pool = None;
     let (dir, mut driver, identity, _, _) =
         canonical_agent_chat::driver_fixture_without_provider_with_resource_preload(|world| {
-            pool = Some(oasis7::runtime_host::ordinary_starter::initialize(world).unwrap());
+            pool = Some(oasis7_world_service::ordinary_starter::initialize(world).unwrap());
         });
     let pool = pool.unwrap();
     let binding = driver

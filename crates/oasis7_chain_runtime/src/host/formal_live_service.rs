@@ -18,7 +18,7 @@ use oasis7_world_service::{
 };
 // Gameplay submission assembly still requires its L4 adapter; native Service owns
 // generic authentication, but cannot construct the Runtime action on its own.
-use oasis7::world_service::gameplay;
+use oasis7_runtime_host::gameplay_service as gameplay;
 use oasis7_client_api::world_service::{
     AdmissionDurability, CommitRef, FormalReadAnchorRefV1, FormalReadProfileV1, IntentOutcome,
     IntentResponse, ReadWorldChangesRequest, ReadWorldViewRequest, ReadWorldViewResponse,

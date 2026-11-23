@@ -1,5 +1,6 @@
 use super::*;
-use oasis7::world_service::*;
+use oasis7_world_service::*;
+use oasis7_runtime_host::gameplay_service as gameplay;
 use oasis7_node::{NodeConsensusAction, NodeExecutionHook};
 use oasis7_runtime::{Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, WorldState};
 
