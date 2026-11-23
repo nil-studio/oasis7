@@ -12,7 +12,10 @@ use oasis7_distfs::protected_bft_v3::{
 
 #[path = "driver_bft_v3_closed_candidate.rs"]
 mod closed_candidate;
-pub(crate) use closed_candidate::{OriginalCandidateArchivePinV1, ReplayedOriginalCandidateV1};
+pub(crate) use closed_candidate::{
+    ArchivedOriginalSourceReaderV1, OriginalCandidateArchivePinV1, OriginalSourceArchivePinV1,
+    ReplayedOriginalCandidateV1,
+};
 
 const MAX_ORIGIN_BYTES: usize = 1024 * 1024;
 const MAX_COMMITTED_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;

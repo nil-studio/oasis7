@@ -15,6 +15,7 @@ use oasis7_node::{
 mod covered_source;
 #[path = "driver_bft_v3_node_private_store.rs"]
 mod private_store;
+pub(super) use covered_source::verify_archived_original_source;
 use private_store::NodePrivateStore;
 
 #[cfg(test)]

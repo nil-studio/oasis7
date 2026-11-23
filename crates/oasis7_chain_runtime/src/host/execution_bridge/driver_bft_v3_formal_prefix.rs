@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 #[path = "driver_bft_v3_committed_archive.rs"]
 mod committed_archive;
 pub(crate) use committed_archive::{
-    CommittedPrefixArchiveRefV1, OriginalCandidateArchivePinV1, ReplayedCommittedPrefixV1,
-    ReplayedOriginalCandidateV1,
+    ArchivedOriginalSourceReaderV1, CommittedPrefixArchiveRefV1, OriginalCandidateArchivePinV1,
+    OriginalSourceArchivePinV1, ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
 };
 
 #[path = "driver_bft_v3_formal_node.rs"]

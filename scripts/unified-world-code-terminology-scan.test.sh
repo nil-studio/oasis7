@@ -54,20 +54,25 @@ printf 'mode\tclaim\nprobe\tclean contents\n' > "$sandbox_root/$path_probe"
 assert_fails_with "$path_probe: legacy terminology in path name" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
 rm -f "$sandbox_root/$path_probe"
 
-# Existing compatibility wrappers and historical boundary explanations remain
+# Existing compatibility diagnostics and historical boundary explanations remain
 # valid only on their specific surfaces; they do not exempt arbitrary scripts.
 legacy_devnet="shared""-devnet"
-wrapper="scripts/${legacy_devnet}-rehearsal.sh"
-compatibility_line="${legacy_devnet}-rehearsal.sh is a legacy compatibility wrapper"
-printf '%s\n' "$compatibility_line" > "$sandbox_root/$wrapper"
+legacy_devnet_u="shared""_devnet"
+allowed_surface="scripts/network-tier-manifest.sh"
+compatibility_line="${legacy_devnet_u} is no longer a manifest tier"
+printf '%s\n' "$compatibility_line" > "$sandbox_root/$allowed_surface"
 printf 'legacy %s\n' "$legacy_content" > "$sandbox_root/doc/p2p/prd.md"
 "$sandbox_root/scripts/unified-world-code-terminology-scan.sh" >/dev/null
 printf '%s\n' "$compatibility_line" > "$sandbox_root/scripts/unrelated.sh"
 assert_fails_with "scripts/unrelated.sh" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
 rm -f "$sandbox_root/scripts/unrelated.sh"
-printf '%s\n' "$legacy_content" > "$sandbox_root/$wrapper"
-assert_fails_with "$wrapper" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
-rm -f "$sandbox_root/$wrapper"
+printf '%s\n' "$legacy_content" > "$sandbox_root/$allowed_surface"
+assert_fails_with "$allowed_surface" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
+rm -f "$sandbox_root/$allowed_surface"
+retired_wrapper="scripts/${legacy_devnet}-rehearsal.sh"
+printf '%s\n' "${legacy_devnet}-rehearsal.sh is a legacy compatibility wrapper" > "$sandbox_root/$retired_wrapper"
+assert_fails_with "$retired_wrapper: legacy terminology in path name" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
+rm -f "$sandbox_root/$retired_wrapper"
 printf '%s\n' "$legacy_content" > "$sandbox_root/doc/p2p/prd.md"
 assert_fails_with "doc/p2p/prd.md" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
 

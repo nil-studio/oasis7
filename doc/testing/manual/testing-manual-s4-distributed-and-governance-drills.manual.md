@@ -1,7 +1,7 @@
 # Testing Manual 分册：S4 分布式子系统与 S4B Governance Registry Drill
 
 - 主测试手册：[`testing-manual.md`](../../../testing-manual.md)
-- 本分册按 #6507 原样承接 `testing-manual.md` 中的 `S4：分布式子系统套件（L3）` 与 `S4B：Governance Registry Drill（L4 前置 / L4）`，不改变既有命令、验收层级或边界。
+- 本分册按 #6507 原样承接 `testing-manual.md` 中的 `S4：分布式子系统套件（L3）` 与 `S4B：Governance Registry Drill（L4 前置 / L4）`，保留原验收层级和边界。
 
 ### S4：分布式子系统套件（L3）
 ```bash
@@ -9,12 +9,9 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_node
 env -u RUSTC_WRAPPER cargo test -p oasis7_distfs
 env -u RUSTC_WRAPPER cargo test -p oasis7_consensus
 env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib
-env -u RUSTC_WRAPPER cargo test -p oasis7_net --features libp2p --lib
 ```
-- 可选增强（涉及 runtime_bridge 改动时）：
-```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7_net --features runtime_bridge --lib
-```
+
+- Net 默认已启用 `libp2p`，上述原生测试只需运行一次；vendor 和 WASM 检查仍走各自的入口。
 
 #### 固定集合 NodeRuntime BFT 工程路径
 
@@ -156,6 +153,25 @@ For first use, run `bft-header node --config ABS --print-binding` without `--act
 | `provider_trust` | Required for actions: schema 3, `provider_public_key`, exact `binding_digest`; may be omitted only for print mode |
 
 The shipping CLI regression first prints this binding without a provider, then preserves an original private candidate before any provider WAL and submits a different new action. It requires the original candidate to commit first with unchanged bytes and the new action to finish afterward. The publication-failure case injects an error after canonical pins are durable, checks that no applied batch or new World is exposed, and cold-opens with an empty external reader to complete the same QC before a second write. A separate real Node/native-TCP/provider regression uses an explicit deterministic test execution hook: 1025 prequeued action IDs must produce independently decoded protocol-valid batches across multiple heights without loss or duplicate delivery. It exercises production queue selection and consumption, not 1025 actual World executions; the actual World, CLI and durable recovery cases above cover that execution boundary. Other regressions test exact CBOR framing and one-element admission boundaries, and require the original completion after both same-Runtime restart and a provider confirmation that commits before returning an unknown result. Fully applied history with no matching pending operation must not be replayed; notification-budget or lock failures must retain the original queue and eligibility. The uncertain-CAS test explicitly fences the old lease generation in its memory backend after the failed provider session ends, without changing committed protocol state; automatic production backend recovery is not supplied. These are local software paths with object-level failure injection, not physical power-loss evidence.
+
+#### 原 covered H 与首个 Local/Received 的独立归档验证
+
+本入口承接 [wire-3 原私有候选保留合同](../../../doc/p2p/design.md#des-p2p-bft-header-node-v3)，使用显式准备、原 Fresh activation 和首个 Pending Reserve，不启用普通 Node 的 covered-source 签名。`bft-header node --config ABS --source-config ABS` 的源配置为 schema 1，要求独立固定的 `creation_identity` 与 `attestor`；准备模式 `--prepare-private-source` 可先输出供独立 provision 审查的 binding/marker，`--activate-private-source` 再通过已配置的原生 provider 保留原 activation。后续 `archive_directory` 必须是与 live CAS、records、replication 分离的已有私有目录。
+
+原 Local 使用 `--archive-first-private-source-input --actions ABS`；原 Received 使用 `--archive-first-received-private-source-input --package ABS`。Received 文件沿用 Node native private exchange 的 canonical package 编码和 66 MiB 上限。codec 不授予远程读取权限，已有文件也不证明来自获准 peer；实际 Runtime 必须从独立 qualified H 重现 header、execution commitment 和候选实际访问的精确依赖闭包后，才生成 schema-10 原件、原 publication metadata 与一次首价。此路径不能替代远端 private acquisition 的独立授权。归档报告包含 `source`、`candidate`、`original_source`、实际 roots 和原 reservation bytes。完整原源归档固定 H material、ledger Origin、schema-8 private Origin、原 activation capsule，以及最多 4096 节点／64 MiB 的完整 H 冷索引；未被候选访问的 H 分支由原源归档保全，不能填入 Received package 改变原闭包。本地目录 inode 只保留在原 Data 身份中，不授权独立归档目录。
+
+把报告中的 `source`、`candidate` 作为 `reserve_input`，把 `original_source` 作为源配置中的同名 pin。`--verify-first-private-source-archive` 只打开独立 trust、requester key、provider trust/attestor 与归档；它不要求 live H 文件、CAS、records 或 replication 存在，也不创建或探测它们。只读验证按可信配置对旧路径做绝对路径和词法重叠检查，归档与 Reserve 的 live-source 模式仍解析实际目录，拒绝可解析别名绕过物理隔离。requester key 文件仍须可用，以重建 binding 中的公开身份；core reader 不读取或保留私钥，本入口不声称所有旧配置和密钥都可丢失。它从原件重建 H、实际执行候选并校验 metadata、全部依赖、private-origin 身份与原首价。manifest、H、activation 或依赖缺失／损坏必须失败，不能使用 live reader 或新生成的材料补齐。
+
+`--reserve-first-private-source-input` 复用同一 `reserve_input` 和原 protected source。provider 的 `BftFirstReserveSourceV1` 可接入 `ArchivedOriginalSourceReaderV1`：独立配置的精确 reference 仅收窄已持有原件的本地读取范围，不提供远端 OriginalAdmissionInput 的 issuer/grant。单个 encoded/decoded input hold 必须持续至原 protected CAS/readback。Local 使用原 height WAL，Received 使用 height/header WAL，原 schema-10 首价同时保留未来 selection 的 footprint；这不表示 selection 已发生。provider 成功而本地 WAL 未完成时，重试须读取原 Pending receipt，保留原 Data 字节、首价、revision 与原目录身份，不重新读取或改写成另一候选。
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib covered_source_tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_distfs --lib protected_bft_v3 -- --test-threads=1
+```
+
+`covered_source_tests` 必须实际运行 Local 与 Received 两项。两项均在测试进程内经 `crate::identity_receipt::dispatch` 调用真实 CLI 路由，使用实际 Runtime、新建的独立 reader 对象及原生 provider TCP service；未启动外层 shipping 二进制或独立 provider 子进程。Received 的输入来自实际 Node retain/export。验收比较原执行与独立冷读的 semantic/result roots，分别移除和损坏 manifest、H、ledger/private Origin、capsule、冷依赖与 admission input，拒绝无权 reference、错误 attestor、过期 deadline、提前释放／并发占用 transport hold、改变首价以及不匹配的 covered checkpoint。冷 CLI 用不存在的 live 路径和实际无法解析的 `/dev/null/old-*` 路径仍须成功；后者明确覆盖 ENOTDIR，不冒充 PermissionDenied 实测。原 Reserve→WAL 失败后，关闭 reader 的再次恢复仍须完成同一原字节。普通 covered-source Node 签名和复制目录冒充原 namespace 继续拒绝。
+
+这些结果只覆盖原 H 到首个 Local/Received Pending 的软件消费链。完整 alternatives、Ready、唯一 Selection、Seal、跨段 carry 和 active successor 的 actual Runtime 消费仍是 #5516 后续义务；本节不把归档 helper、首价中预留 selection 字节或本地软件 backend 计为这些状态完成。测试 backend 是明确的软件事务替身，进程内对象重开与故障注入不证明 #5518 真实保护载体、不可导出密钥、反回滚或物理故障域验收。
 
 #### 本地 CAS retention 与 GC 协调
 

@@ -10,6 +10,8 @@ const SCOPE: &str = "formal-bft-header-node-private-v3";
 const MARKER: &[u8] = b"oasis7.formal.bft.node_private.required/v3\n";
 const COVERED_SOURCE_ORIGIN_DOMAIN: &str = "oasis7.formal.bft.node_private_covered_origin.v1";
 const COVERED_SOURCE_LOCAL_DOMAIN: &str = "oasis7.formal.bft.node_private_protected_input.v1";
+const COVERED_SOURCE_RECEIVED_DOMAIN: &str =
+    "oasis7.formal.bft.node_private_protected_received_input.v1";
 const DOMAIN: &str = "oasis7.formal.bft.node_private.v3";
 const MULTI_DOMAIN: &str = "oasis7.formal.bft.node_private_candidate.v4";
 const SELECTION_DOMAIN: &str = "oasis7.formal.bft.node_private_selection.v5";
@@ -52,6 +54,7 @@ impl Data {
                 | (5, SELECTION_DOMAIN)
                 | (8, COVERED_SOURCE_ORIGIN_DOMAIN)
                 | (9, COVERED_SOURCE_LOCAL_DOMAIN)
+                | (10, COVERED_SOURCE_RECEIVED_DOMAIN)
         ) || self.height == 0
             || !canonical_hash(&self.ledger_origin_digest)
             || !canonical_hash(&self.material_identity)
@@ -79,12 +82,12 @@ impl Data {
             &self.protected_source_origin_ref,
         ) {
             (Some(metadata), Some(origin))
-                if self.schema_version == 9
+                if matches!(self.schema_version, 9 | 10)
                     && !self.origin
                     && canonical_hash(metadata)
                     && canonical_hash(origin) => {}
-            (None, None) if self.schema_version != 9 => {}
-            _ => return Err("covered first Local material refs do not match schema".into()),
+            (None, None) if !matches!(self.schema_version, 9 | 10) => {}
+            _ => return Err("covered first original material refs do not match schema".into()),
         }
         if self.schema_version == 5 {
             if self.origin || !self.actions_cbor.is_empty() || self.references.len() != 1 {
@@ -146,7 +149,7 @@ impl Data {
                 "ledger-{}-selection-{:020}",
                 self.ledger_origin_digest, self.height
             )
-        } else if self.schema_version == 4 {
+        } else if matches!(self.schema_version, 4 | 10) {
             format!(
                 "ledger-{}-height-{:020}-header-{}",
                 self.ledger_origin_digest,

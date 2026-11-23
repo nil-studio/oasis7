@@ -346,8 +346,10 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                      "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
                      "inputs.run_mode == 'full'", "inputs.run_mode == 'image-native'",
                      'fail-fast: false', 'max-parallel: 1', 'runs-on: ubuntu-24.04',
-                     'timeout-minutes: 60', 'image: ${{ matrix.image }}', 'options: ${{ matrix.options }}'):
+                     'image: ${{ matrix.image }}', 'options: ${{ matrix.options }}'):
         assert required in header, 'component image writer needs its complete trusted main layout'
+    timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 60, 'component image writer needs bounded timeout-minutes <= 60'
     if planner is None:
         records = re.findall(r'^          - profile: ([a-z]+)\n((?:^            .+\n)+)', header, re.M)
         rows = {profile: dict((key, value.strip("'")) for key, value in re.findall(
@@ -6808,7 +6810,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 12,
                 'doc-checker-contracts': 12,
                 'workflow-governance': 15,
-                'custody-native-contracts': 20,
+                'custody-native-contracts': 15,
                 'consensus': 5,
                 'net': 10,
                 'node': 12,
@@ -6822,11 +6824,11 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'launcher-web': 12,
                 'viewer-js-required': 16,
                 'viewer-performance-report': 15,
-                'newapi-bridge-package': 30,
+                'newapi-bridge-package': 15,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 5,
-                'verify-wasm-determinism': 10,
+                'verify-wasm-determinism': 5,
             },
             '.github/workflows/command-center.yml': {
                 'desktop': 20,
@@ -6836,19 +6838,34 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'summarize': 5,
             },
             '.github/workflows/daily-github-release.yml': {
-                'create-release': 10,
+                'create-release': 5,
             },
             '.github/workflows/pages.yml': {
                 'deploy': 5,
             },
             '.github/workflows/ecs-packages.yml': {
+                'web': 25,
                 'package': 20,
             },
             '.github/workflows/newapi-bridge-service-package.yml': {
-                'package-linux-x86-64': 30,
+                'package-linux-x86-64': 15,
             },
             '.github/workflows/hosted-login-linux-build.yml': {
                 'build-linux-x86-64': 45,
+            },
+            '.github/workflows/ci-base-images.yml': {
+                'build': 40,
+                'publish': 5,
+            },
+            '.github/workflows/native-cache-diagnostic.yml': {
+                'collector-tests': 5,
+                'diagnose': 35,
+            },
+            '.github/workflows/storage-acceptance.yml': {
+                'build': 10,
+                'verify': 130,
+                'attempt-release-reference': 50,
+                'summary': 5,
             },
         }
         for rel_path, limits in expected_limits.items():
@@ -6867,38 +6884,38 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
     def test_release_packaging_workflows_declare_bounded_timeout_minutes_for_all_jobs(self):
         expected_limits = {
             '.github/workflows/testnet-packages.yml': {
-                'full-regression-qualification': 10,
-                'plan': 10,
-                'build-web-dist': 60,
+                'full-regression-qualification': 5,
+                'plan': 5,
+                'build-web-dist': 35,
                 'package-native': 180,
                 'package-native-trusted': 180,
                 'package-installers': 120,
             },
             '.github/workflows/mainnet-packages.yml': {
-                'full-regression-qualification': 10,
-                'plan': 10,
+                'full-regression-qualification': 5,
+                'plan': 5,
                 'release_gate_runtime_core': 60,
                 'release_gate_runtime_support': 60,
                 'release_gate_runtime_sync': 60,
-                'release_gate_web': 60,
-                'release_gate_soak': 90,
-                'release_gate': 10,
-                'build-web-dist': 60,
+                'release_gate_web': 35,
+                'release_gate_soak': 45,
+                'release_gate': 5,
+                'build-web-dist': 35,
                 'package-native': 180,
-                'package-index': 15,
+                'package-index': 5,
             },
             '.github/workflows/release-packages.yml': {
-                'full-regression-qualification': 10,
+                'full-regression-qualification': 5,
                 'cache-bootstrap-maintenance': 5,
                 'cache-maintenance': 5,
-                'plan': 10,
+                'plan': 5,
                 'release_gate_runtime_core': 60,
                 'release_gate_runtime_support': 60,
                 'release_gate_runtime_sync': 60,
-                'release_gate_web': 60,
-                'release_gate_soak': 90,
-                'release_gate': 10,
-                'build-web-dist': 60,
+                'release_gate_web': 35,
+                'release_gate_soak': 45,
+                'release_gate': 5,
+                'build-web-dist': 35,
                 'package-native': 180,
                 'publish-release': 20,
             },
@@ -6929,11 +6946,11 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-test-build-trusted': 60,
                 'oasis7-required': 35,
                 'workspace-support-legacy': 60,
-                'workspace-support-other': 45,
+                'workspace-support-other': 40,
                 'operational-contracts': 20,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
-                'collect-wasm-summaries': 60,
+                'collect-wasm-summaries': 30,
             },
         }
         for rel_path, limits in expected_limits.items():
