@@ -632,6 +632,8 @@ def validate_candidate_graph(workflow, config):
     gate = jobs['required-gate']
     dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
+    if config.get('workspace_support_direct_gate_version') == 1:
+        expected.add('workspace-support-other')
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
@@ -661,6 +663,8 @@ def validate_candidate_graph(workflow, config):
                     or 'include:' in header or 'exclude:' in header
                     or "workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '[\"all\"]' }}" not in jobs['select']
                     or 'custody_execution_version != 1' not in header
+                    or (config.get('workspace_support_direct_gate_version') == 1
+                        and 'workspace_support_direct_gate_version != 1' not in header)
                     or '--support-partition "$SUPPORT_PARTITION"' not in legacy):
                 raise ValueError('support legacy must retain every trusted partition and old BASE fallback')
             node = jobs['custody-node']
@@ -721,7 +725,9 @@ def validate_candidate_graph(workflow, config):
                         or '\n          retention-days: 7\n' not in uploads[0]):
                     raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
             if ('    needs: select' not in jobs['workspace-support-other']
-                    or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']):
+                    or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
+                    or (config.get('workspace_support_direct_gate_version') == 1
+                        and 'workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other'])):
                 raise ValueError('other support must remain independent of custody builds')
             continue
         if group == 'formal_process':
@@ -729,9 +735,10 @@ def validate_candidate_graph(workflow, config):
                     or "needs.select.outputs.run_formal_process == 'true'" not in job):
                 raise ValueError('formal aggregation must execute when selected or failed and validate results')
             continue
-        if config.get('contract_job_consolidation_version') == 1 and group in config.get('group_jobs', {}):
+        if config.get('contract_job_consolidation_version') in (1, 2) and group in config.get('group_jobs', {}):
             host_job = jobs[config['group_jobs'][group]]
-            if ('fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1' not in job
+            version_guard = f"fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != {config['contract_job_consolidation_version']}"
+            if (version_guard not in job
                     or f'needs.select.outputs.run_{group}' not in host_job):
                 raise ValueError('consolidated contract group must gate legacy job and bind its select output on host job')
         if ("needs.select.result == 'success'" not in job
@@ -1590,7 +1597,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
         self.assertLessEqual(consumers, fields | {
             'ordinary_dynamic_partition_version', 'ordinary_main_fast_cache_writer_version',
-            'contract_job_consolidation_version',
+            'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
             'custody_compile_proof_version', 'custody_policy_tests_version', 'selection_sha256'})
         self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
         guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
@@ -2045,7 +2052,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 repo = Path(directory) / 'repo'
                 subprocess.run(['git', '-C', str(repo), 'checkout', '-q', policy], check=True)
                 retired = ({group.replace('_', '-') for group in CONFIG.get('group_jobs', {})}
-                           if plan.get('contract_job_consolidation_version') == 1 else set())
+                           if plan.get('contract_job_consolidation_version') in (1, 2) else set())
                 needs = {group.replace('_', '-'): {'result': 'skipped' if group.replace('_', '-') in retired else 'success'}
                          for group in CONFIG['groups']}
                 trusted = source == policy
@@ -4574,7 +4581,10 @@ run_cargo() {
     def test_gate_is_last_and_all_groups_are_dependencies(self):
         gate = JOBS['required-gate']
         dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
-        self.assertEqual(set(dependencies), {'select', *(g.replace('_', '-') for g in CONFIG['groups'])})
+        expected_gate = {'select', *(g.replace('_', '-') for g in CONFIG['groups'])}
+        if CONFIG.get('workspace_support_direct_gate_version') == 1:
+            expected_gate.add('workspace-support-other')
+        self.assertEqual(set(dependencies), expected_gate)
         self.assertIn('always()', gate)
         self.assertIn('ci-required-result.py', gate)
         for group in CONFIG['groups']:
@@ -5032,7 +5042,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                                       JOBS[name], re.M | re.S)[1] for name in names}
 
         def values_for(name, event, selected=True, select='success', scope='targeted', results=None,
-                       consolidation=0):
+                       consolidation=0, direct_support=0):
             values = {
                 'needs.select.result': select,
                 'needs.select.outputs.trusted_source': 'true' if event == 'push' else 'false',
@@ -5041,10 +5051,11 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': consolidation,
+                'fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version': direct_support,
                 'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_execution': 'artifact',
-                'fromJSON(needs.select.outputs.plan).custody_execution_version': 1 if selected and name in split_jobs else 0,
-                'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': 1 if selected else 0,
+                'fromJSON(needs.select.outputs.plan).custody_execution_version': 1 if selected and name in split_jobs and not direct_support else 0,
+                'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': 1 if selected and not direct_support else 0,
                 'fromJSON(needs.select.outputs.plan).execution_profile': {
                     'pull_request': 'pr-fast', 'push': 'main-fast',
                     'workflow_dispatch': 'candidate-full',
@@ -5084,17 +5095,41 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                     with self.subTest(job=name, event=event, scope='full'):
                         values = values_for(name, event, selected=False, scope='full')
                         self.assertTrue(effective_job_condition(condition, values, ['skipped', 'success']))
-            for retired in ('codex-agent-config-validation', 'compile-metrics', 'macos-package-contract'):
+            for ver in (1, 2):
+                for retired in ('codex-agent-config-validation', 'compile-metrics', 'macos-package-contract'):
+                    for scope in ('targeted', 'full', 'explicit-full'):
+                        values = values_for(retired, event, selected=True, scope=scope, consolidation=ver)
+                        self.assertFalse(effective_job_condition(conditions[retired], values, ['skipped', 'success']))
+            for retired in ('consensus', 'pixel-world-bridge', 'viewer-performance-report'):
+                self.assertTrue(effective_job_condition(
+                    conditions[retired], values_for(retired, event, selected=True, consolidation=1), ['skipped', 'success']))
                 for scope in ('targeted', 'full', 'explicit-full'):
-                    values = values_for(retired, event, selected=True, scope=scope, consolidation=1)
+                    values = values_for(retired, event, selected=True, scope=scope, consolidation=2)
                     self.assertFalse(effective_job_condition(conditions[retired], values, ['skipped', 'success']))
-            # Consolidated owners trigger even if only the absorbed contract group was selected.
-            only_macos = values_for('baseline', event, selected=False, consolidation=1)
-            only_macos['needs.select.outputs.run_macos_package_contract'] = 'true'
-            self.assertTrue(effective_job_condition(conditions['baseline'], only_macos, ['skipped', 'success']))
-            only_metrics = values_for('doc-checker-contracts', event, selected=False, consolidation=1)
-            only_metrics['needs.select.outputs.run_compile_metrics'] = 'true'
-            self.assertTrue(effective_job_condition(conditions['doc-checker-contracts'], only_metrics, ['skipped', 'success']))
+            # Consolidated owners trigger even if only the absorbed group was selected.
+            for host, flag, ver in (
+                ('baseline', 'needs.select.outputs.run_macos_package_contract', 1),
+                ('baseline', 'needs.select.outputs.run_macos_package_contract', 2),
+                ('doc-checker-contracts', 'needs.select.outputs.run_compile_metrics', 1),
+                ('doc-checker-contracts', 'needs.select.outputs.run_compile_metrics', 2),
+                ('node', 'needs.select.outputs.run_consensus', 2),
+                ('scenario-regression', 'needs.select.outputs.run_pixel_world_bridge', 2),
+                ('viewer-js-required', 'needs.select.outputs.run_viewer_performance_report', 2),
+            ):
+                absorbed = values_for(host, event, selected=False, consolidation=ver)
+                absorbed[flag] = 'true'
+                self.assertTrue(effective_job_condition(conditions[host], absorbed, ['skipped', 'success']))
+            # Direct workspace-support gate skips legacy and join jobs while running workspace-support-other.
+            direct_legacy = values_for('workspace-support-legacy', event, selected=True, direct_support=1)
+            self.assertFalse(effective_job_condition(conditions['workspace-support-legacy'], direct_legacy, ['skipped', 'success']))
+            direct_other = values_for('workspace-support-other', event, selected=True, direct_support=1)
+            direct_other['fromJSON(needs.select.outputs.workspace_support_partitions)'] = ['other']
+            self.assertTrue(effective_job_condition(conditions['workspace-support-other'], direct_other, ['skipped', 'success']))
+            summary_if = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', JOBS['workspace-support'], re.M | re.S)[1]
+            direct_summary = values_for('workspace-support-legacy', event, selected=True, direct_support=1)
+            self.assertFalse(effective_job_condition(summary_if, direct_summary, ['skipped', 'success']))
+            failed_select_summary = values_for('workspace-support-legacy', event, selected=False, select='failure', direct_support=1)
+            self.assertTrue(effective_job_condition(summary_if, failed_select_summary, ['skipped', 'failure']))
 
         # An explicit status function also bypasses implicit producer success.
         # Every producer must therefore be checked by the actual Node job guard.
