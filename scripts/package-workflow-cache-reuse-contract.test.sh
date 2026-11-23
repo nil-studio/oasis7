@@ -73,8 +73,9 @@ for lane in ('package-native', 'package-native-trusted'):
     body = re.search(rf'^  {lane}:\n(.*?)(?=^  [\w-]+:\n|\Z)', testnet, re.M | re.S)[1]
     assert '      - build-web-dist' not in body
 assembly = testnet.split('  package-installers:\n', 1)[1]
-for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-trusted', 'full-regression-qualification'):
+for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-trusted'):
     assert '      - ' + dependency + '\n' in assembly
+assert 'full-regression-qualification' not in testnet
 assert '!cancelled()' in assembly and "needs.build-web-dist.result == 'success'" in assembly
 assert '--native-binaries' in assembly and 'Swatinem/rust-cache@' not in assembly
 installer = assembly.split('      - name: Package native installer\n', 1)[1].split('      - name:', 1)[0]
@@ -89,21 +90,21 @@ def condition(name):
     predicate = re.search(r"^    if: >-\n(.*?)(?=^    \S)", body, re.M | re.S)[1]
     return " ".join(predicate.split())
 
-# The real join must run after one selected native lane, but never on failure,
-# cancellation, unknown results, or both producers selected.
+# The real join must run after plan (which includes full-regression qualification)
+# and one selected native lane, never on failure, cancellation, unknown results,
+# or both producers selected.
 import itertools
 join = condition('package-installers')
-for web, candidate, trusted, full_ci in itertools.product(('success', 'skipped', 'failure', 'cancelled', 'unknown'), repeat=4):
+for plan_res, web, candidate, trusted in itertools.product(('success', 'skipped', 'failure', 'cancelled', 'unknown'), repeat=4):
     expression = join.replace('!cancelled()', 'True')
-    values = {'needs.plan.result': 'success', 'needs.build-web-dist.result': web,
-              'needs.package-native.result': candidate, 'needs.package-native-trusted.result': trusted,
-              'needs.full-regression-qualification.result': full_ci}
+    values = {'needs.plan.result': plan_res, 'needs.build-web-dist.result': web,
+              'needs.package-native.result': candidate, 'needs.package-native-trusted.result': trusted}
     for key in sorted(values, key=len, reverse=True):
         expression = expression.replace(key, repr(values[key]))
     actual = eval(expression.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}})
-    expected = (full_ci == 'success' and web == 'success'
+    expected = (plan_res == 'success' and web == 'success'
                 and (candidate, trusted) in [('success', 'skipped'), ('skipped', 'success')])
-    assert actual == expected, (web, candidate, trusted, full_ci)
+    assert actual == expected, (plan_res, web, candidate, trusted)
 
 trusted_condition = condition("package-native-trusted")
 candidate_condition = condition("package-native")
@@ -420,14 +421,37 @@ native_gates = ("release_gate_runtime_core", "release_gate_runtime_support",
                 "release_gate_runtime_sync", "release_gate_soak")
 for name in native_gates:
     assert cache_identity(release, name)["shared-key"] == "ci-shared-native-trusted-v4", name
+for wf_label, wf_text, allow_candidate in (
+    ("testnet-packages.yml", testnet, True),
+    ("mainnet-packages.yml", mainnet, False),
+    ("release-packages.yml", release, False),
+):
+    assert "full-regression-qualification" not in wf_text, wf_label
+    plan_body = job_body(wf_text, "plan")
+    assert "    cache-mode: none\n" in plan_body, wf_label
+    assert "    permissions:\n      contents: read\n      actions: read\n" in plan_body, wf_label
+    assert "      - uses: actions/checkout@" in plan_body and "ref: ${{ github.workflow_sha }}\n" in plan_body, wf_label
+    assert "      - name: Require complete CI for the exact package source\n" in plan_body, wf_label
+    assert "SOURCE_SHA: ${{ steps.source.outputs.checkoutSha }}" in plan_body, wf_label
+    assert "GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}" in plan_body, wf_label
+    expected_cmd = (
+        'run: python3 scripts/ci-full-result.py verify --source "$SOURCE_SHA" --allow-candidate-source\n'
+        if allow_candidate
+        else 'run: python3 scripts/ci-full-result.py verify --source "$SOURCE_SHA"\n'
+    )
+    assert expected_cmd in plan_body, wf_label
+    if not allow_candidate:
+        assert "--allow-candidate-source" not in plan_body, wf_label
+    assert plan_body.index("id: source\n") < plan_body.index("name: Require complete CI for the exact package source\n"), wf_label
+
 for name in ("release_gate_runtime_core", "release_gate_runtime_support", "release_gate_runtime_sync",
              "release_gate_soak", "release_gate_web", "build-web-dist"):
     if name != "build-web-dist":
-        assert "    needs: [plan, full-regression-qualification]\n" in job_body(release, name), (
-            f"release-packages.yml {name} must wait for full-regression-qualification to fail fast"
+        assert "    needs: plan\n" in job_body(release, name), (
+            f"release-packages.yml {name} must wait for plan (with inlined full-regression qualification) to fail fast"
         )
-        assert "    needs: [plan, full-regression-qualification]\n" in job_body(mainnet, name), (
-            f"mainnet-packages.yml {name} must wait for full-regression-qualification to fail fast"
+        assert "    needs: plan\n" in job_body(mainnet, name), (
+            f"mainnet-packages.yml {name} must wait for plan (with inlined full-regression qualification) to fail fast"
         )
     expected = cache_identity(release, name)
     actual = cache_identity(mainnet, name)
@@ -505,7 +529,7 @@ base_context = {"github.ref": "refs/heads/main", "github.event_name": "workflow_
                 "github.workflow_sha": "event", "github.sha": "event",
                 "needs.plan.outputs.checkoutSha": "event", "needs.plan.result": "success",
                 "needs.build-web-dist.result": "success", "needs.package-native.result": "success",
-                "needs.release_gate.result": "success", "needs.full-regression-qualification.result": "success"}
+                "needs.release_gate.result": "success"}
 for name in ("cache-bootstrap-maintenance", "cache-maintenance"):
     body = job_body(release, name)
     assert "    cache-mode: none\n" in body
@@ -529,16 +553,17 @@ for web, native in itertools.product(("success", "failure", "skipped", "cancelle
         {"needs.build-web-dist.result": web, "needs.package-native.result": native})
     assert actual == ("success" in (web, native)), (web, native)
 assert "    needs: [plan, release_gate, cache-bootstrap-maintenance]\n" in release_web_build
+assert "    needs: [plan, package-native]\n" in job_body(release, "publish-release")
+assert "    needs:\n      - plan\n      - package-native\n      - build-web-dist\n" in job_body(mainnet, "package-index")
 for name, required in (("build-web-dist", "release_gate"),
                        ("package-native", "build-web-dist"), ("publish-release", "package-native")):
     body = job_body(release, name)
     assert "cache-maintenance" not in body
-    for plan, producer, maintenance, full_ci in itertools.product(
-            ("success", "failure", "skipped", "cancelled", "unknown"), repeat=4):
+    for plan, producer, maintenance in itertools.product(
+            ("success", "failure", "skipped", "cancelled", "unknown"), repeat=3):
         context = base_context | {"needs.plan.result": plan, "needs." + required + ".result": producer,
-                                  "needs.cache-bootstrap-maintenance.result": maintenance,
-                                  "needs.full-regression-qualification.result": full_ci}
-        expected = plan == producer == "success" and (name != "publish-release" or full_ci == "success")
+                                  "needs.cache-bootstrap-maintenance.result": maintenance}
+        expected = plan == producer == "success"
         assert evaluate(release_condition(name), context) == expected, (name, context)
         assert not evaluate(release_condition(name), context, cancelled=True)
 

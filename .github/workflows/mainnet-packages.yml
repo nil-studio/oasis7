@@ -31,8 +31,12 @@ env:
 jobs:
   plan:
     name: plan-mainnet-package
+    cache-mode: none
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
       resolvedRef: ${{ steps.source.outputs.resolvedRef }}
@@ -60,30 +64,16 @@ jobs:
           {
             echo "matrix=${matrix}"
           } >> "${GITHUB_OUTPUT}"
-
-  full-regression-qualification:
-    needs: plan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.workflow_sha }}
-          fetch-depth: 0
-          persist-credentials: false
       - name: Require complete CI for the exact package source
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          SOURCE_SHA: ${{ steps.source.outputs.checkoutSha }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: python3 scripts/ci-full-result.py verify --source "$SOURCE_SHA"
 
   release_gate_runtime_core:
     name: release-gate-runtime-core
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -173,7 +163,7 @@ jobs:
 
   release_gate_runtime_support:
     name: release-gate-runtime-support
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -261,7 +251,7 @@ jobs:
 
   release_gate_runtime_sync:
     name: release-gate-runtime-sync
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -346,7 +336,7 @@ jobs:
 
   release_gate_web:
     name: release-gate-web
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -430,7 +420,7 @@ jobs:
 
   release_gate_soak:
     name: release-gate-soak
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -867,7 +857,6 @@ jobs:
       - plan
       - package-native
       - build-web-dist
-      - full-regression-qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

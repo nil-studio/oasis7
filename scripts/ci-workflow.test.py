@@ -6955,7 +6955,6 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
     def test_release_packaging_workflows_declare_bounded_timeout_minutes_for_all_jobs(self):
         expected_limits = {
             '.github/workflows/testnet-packages.yml': {
-                'full-regression-qualification': 5,
                 'plan': 5,
                 'build-web-dist': 35,
                 'package-native': 180,
@@ -6963,7 +6962,6 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                 'package-installers': 120,
             },
             '.github/workflows/mainnet-packages.yml': {
-                'full-regression-qualification': 5,
                 'plan': 5,
                 'release_gate_runtime_core': 60,
                 'release_gate_runtime_support': 60,
@@ -6976,7 +6974,6 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                 'package-index': 5,
             },
             '.github/workflows/release-packages.yml': {
-                'full-regression-qualification': 5,
                 'cache-bootstrap-maintenance': 5,
                 'cache-maintenance': 5,
                 'plan': 5,
