@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadBody, decode_consensus_action_payload,
-};
 use oasis7_node::NodeCommittedActionBatch;
 use oasis7_runtime::Action;
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadBody, decode_consensus_action_payload,
+};
 use serde::{Deserialize, Serialize};
 
 use super::super::transfer_submit_api::{ChainTransferSubmitRequest, TransferLifecycleStatus};

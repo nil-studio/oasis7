@@ -17,6 +17,8 @@ pub use server::{ViewerServer, ViewerServerConfig, ViewerServerError};
 pub use web_bridge::{ViewerWebBridge, ViewerWebBridgeConfig, ViewerWebBridgeError};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use oasis7::{chain_resource_schema, consensus_action_payload};
+pub use oasis7::chain_resource_schema;
 #[cfg(not(target_arch = "wasm32"))]
 pub use oasis7_client_api::governance_audit_report;
+#[cfg(not(target_arch = "wasm32"))]
+pub use oasis7_world_service::consensus_action_payload;

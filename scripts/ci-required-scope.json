@@ -1080,7 +1080,8 @@
       "match": [
         "crates/oasis7/src/runtime_host.rs",
         "crates/oasis7/src/runtime_host/**",
-        "crates/oasis7/src/consensus_action_payload*.rs"
+        "crates/oasis7/src/consensus_action_payload*.rs",
+        "crates/oasis7_world_service/src/consensus_action_payload*.rs"
       ],
       "suites": [
         "runtime-protocol",

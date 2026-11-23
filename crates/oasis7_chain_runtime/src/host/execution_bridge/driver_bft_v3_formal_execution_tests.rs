@@ -37,8 +37,8 @@ fn execution() -> FormalBftHeaderExecutionV3 {
 }
 
 pub(super) fn private_actions() -> Vec<u8> {
-    let payload = oasis7::consensus_action_payload::encode_consensus_action_payload(
-        &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
+    let payload = oasis7_world_service::consensus_action_payload::encode_consensus_action_payload(
+        &oasis7_world_service::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
             oasis7_runtime::Action::RegisterAgent {
                 agent_id: EXECUTION_CANARY.into(),
                 pos: oasis7_agent_api::world_action::GeoPos::new(7, 8, 9),

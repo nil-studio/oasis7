@@ -123,14 +123,38 @@ fn hosted_local_mock_seeded_agent_negotiates_prompt_control_result_capability() 
     // SAFETY: This test/setup code mutates process environment while holding
     // the canonical provider environment lock.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_backed");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_mock");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONTRACT_ENV, "worldsim_provider_v1");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_TRANSPORT_ENV, "loopback_http");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:9");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_DECISION_SOURCE_ENV,
+            "provider_backed",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_backed",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_BACKEND_ENV,
+            "provider_local_mock",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_CONTRACT_ENV,
+            "worldsim_provider_v1",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_TRANSPORT_ENV,
+            "loopback_http",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_URL_ENV,
+            "http://127.0.0.1:9",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
 
     let test_world_id = "live-runtime-minimal".to_string();
@@ -284,10 +308,10 @@ fn runtime_live_agent_chat_echo_flushes_virtual_event_immediately_over_socket() 
     let _guard = runtime_provider_env_lock().lock().expect("env lock");
     clear_runtime_provider_env();
     unsafe {
-        oasis7::env_mut::remove_var(RUNTIME_AGENT_CHAT_ECHO_ENV);
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_MODEL);
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_BASE_URL);
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_API_KEY);
+        oasis7_hosted_access::process_env::remove_var(RUNTIME_AGENT_CHAT_ECHO_ENV);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_MODEL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_BASE_URL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_API_KEY);
     }
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("reserve port");

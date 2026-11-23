@@ -2,7 +2,7 @@
 use oasis7_runtime::World;
 
 pub(super) fn validate_payload(world: &World, payload_cbor: &[u8]) -> Result<(), String> {
-    use oasis7::consensus_action_payload::{
+    use oasis7_world_service::consensus_action_payload::{
         ConsensusActionAuthEnvelope, ConsensusActionPayloadBody,
         decode_consensus_action_payload_envelope,
     };

@@ -664,13 +664,13 @@ fn chain_linked_runtime_revalidates_initial_snapshot_after_previous_session() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn legacy_operator_observer_blocks_hosted_prompt_and_reconnects_exact_head() {
-    let _env_guard = oasis7::env_mut::lock_process_env();
+    let _env_guard = oasis7_hosted_access::process_env::lock_process_env();
     let _provider_env_snapshot = HostedLocalMockProviderEnvSnapshot::capture();
     configure_hosted_local_mock_provider_env();
     let _strong_auth_guard = lock_test_hosted_strong_auth_env();
     let (backend_public_key, backend_private_key) = test_signer(117);
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );

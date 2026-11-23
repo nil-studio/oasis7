@@ -155,7 +155,7 @@ fn world_service_driver_admin_commit_pin_restart_and_stale_fence() {
     // Node admission preserves the opaque legacy outer frame as well as the
     // registered inner frame. The canonical driver authenticates the request;
     // direct local World execution and unsigned controller actions stay fenced.
-    use oasis7::consensus_action_payload::*;
+    use oasis7_world_service::consensus_action_payload::*;
     let node = oasis7_node::NodeRuntime::new(
         oasis7_node::NodeConfig::new("node-a", "w1", NodeRole::Sequencer)
             .expect("valid node admission fixture"),

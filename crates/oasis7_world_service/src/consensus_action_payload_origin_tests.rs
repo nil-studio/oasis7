@@ -4,7 +4,7 @@ use super::*;
 fn committed_recipe_origin_envelope_legacy_bytes_and_malformed_fail_closed() {
     let action = runtime::Action::RegisterAgent {
         agent_id: "a".into(),
-        pos: crate::geometry::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     };
     let envelope = ConsensusActionPayloadEnvelope::from_runtime_action(action.clone());
     let encoded = encode_consensus_action_payload(&envelope).unwrap();
@@ -54,7 +54,7 @@ fn committed_recipe_origin_rejects_non_recipe_and_unknown_metadata() {
     let mut envelope =
         ConsensusActionPayloadEnvelope::from_runtime_action(runtime::Action::RegisterAgent {
             agent_id: "a".into(),
-            pos: crate::geometry::GeoPos::new(0, 0, 0),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
         });
     envelope.version = 2;
     envelope.gameplay_submission_origin = Some(runtime::GameplaySubmissionOrigin {

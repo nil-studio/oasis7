@@ -60,7 +60,7 @@ use tracing::Level;
 
 #[cfg(test)]
 pub(super) fn canonical_runtime_provider_env_lock() -> &'static Mutex<()> {
-    oasis7::env_mut::process_env_lock()
+    oasis7_hosted_access::process_env::process_env_lock()
 }
 
 #[path = "runtime_live/advance_runtime_server.rs"]

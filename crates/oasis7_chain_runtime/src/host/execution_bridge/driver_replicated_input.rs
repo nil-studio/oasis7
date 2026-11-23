@@ -1,7 +1,3 @@
-use oasis7::consensus_action_payload::{
-    ConsensusActionAuthEnvelope, ConsensusActionPayloadBody,
-    decode_consensus_action_payload_envelope,
-};
 use oasis7_node::{
     NodeExecutionCommitContext, decode_replicated_execution_input_action,
     validate_replicated_execution_input_actions,
@@ -9,6 +5,10 @@ use oasis7_node::{
 use oasis7_runtime::Action as RuntimeAction;
 use oasis7_runtime::ProviderBackedBootstrapAuthorityV1;
 use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionAuthEnvelope, ConsensusActionPayloadBody,
+    decode_consensus_action_payload_envelope,
+};
 
 #[expect(
     clippy::type_complexity,

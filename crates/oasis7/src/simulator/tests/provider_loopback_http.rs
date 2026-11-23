@@ -1083,7 +1083,7 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
 }
 
 fn proxy_env_lock() -> &'static Mutex<()> {
-    crate::env_mut::process_env_lock()
+    oasis7_hosted_access::process_env::process_env_lock()
 }
 
 fn proxy_env_keys() -> &'static [&'static str] {
@@ -1128,20 +1128,20 @@ fn set_bad_proxy_env() {
     for key in proxy_env_keys() {
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::remove_var(key);
+            oasis7_hosted_access::process_env::remove_var(key);
         }
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("HTTP_PROXY", "http://127.0.0.1:9");
+        oasis7_hosted_access::process_env::set_var("HTTP_PROXY", "http://127.0.0.1:9");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("HTTPS_PROXY", "http://127.0.0.1:9");
+        oasis7_hosted_access::process_env::set_var("HTTPS_PROXY", "http://127.0.0.1:9");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("ALL_PROXY", "http://127.0.0.1:9");
+        oasis7_hosted_access::process_env::set_var("ALL_PROXY", "http://127.0.0.1:9");
     }
 }
 
@@ -1151,13 +1151,13 @@ fn restore_proxy_env(saved: Vec<(&'static str, Option<String>)>) {
             Some(value) => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::set_var(key, value);
+                    oasis7_hosted_access::process_env::set_var(key, value);
                 }
             }
             None => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::remove_var(key);
+                    oasis7_hosted_access::process_env::remove_var(key);
                 }
             }
         }
