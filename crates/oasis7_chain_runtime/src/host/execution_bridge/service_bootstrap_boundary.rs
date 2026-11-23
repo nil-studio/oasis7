@@ -60,7 +60,7 @@ fn validate(
         return Err("service setup boundary snapshot/journal mismatch".into());
     }
     let journal_len = journal.len();
-    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+    let world = oasis7_runtime_host::world::from_snapshot(snapshot, journal)
         .map_err(|error| format!("service setup world: {error:?}"))?;
     if world
         .current_cognition_runtime_binding()

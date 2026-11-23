@@ -215,7 +215,7 @@ fn freeze_material_inner(
     let restored = if authority.definition().profile_version == 2 {
         world.restore_snapshot_with_attached_formal_history(snapshot.clone(), journal.clone())
     } else {
-        oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
+        oasis7_runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
     }
     .map_err(|e| format!("{e:?}"))?
     .with_release_security_policy(release_policy.clone());
@@ -521,7 +521,7 @@ pub(super) fn restore_executable(
             let bytes = super::snapshot_to_cbor(&snapshot)?;
             let retained =
                 oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
-            oasis7::runtime_host::world::from_verified_formal_snapshot(
+            oasis7_runtime_host::world::from_verified_formal_snapshot(
                 snapshot,
                 journal,
                 retained,
@@ -530,7 +530,7 @@ pub(super) fn restore_executable(
             .map_err(|e| format!("{e:?}"))?
         }
     } else {
-        oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+        oasis7_runtime_host::world::from_snapshot(snapshot, journal)
             .map_err(|e| format!("{e:?}"))?
     }
     .with_release_security_policy(manifest.release_security_policy.clone());

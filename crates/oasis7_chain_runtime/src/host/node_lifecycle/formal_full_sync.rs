@@ -612,7 +612,7 @@ impl FormalFullSyncSession {
             integrity_poisoned: Arc::clone(&self.cas_integrity_poisoned),
         });
         self.check_operation_active()?;
-        let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
+        let world = oasis7_runtime_host::world::from_verified_formal_snapshot(
             snapshot, journal, parent, reader,
         )
         .map_err(|error| format!("full-sync cold restore: {error:?}"))?;
