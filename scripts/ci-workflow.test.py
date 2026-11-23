@@ -255,7 +255,7 @@ def worker_tool_cache_writer(job):
                      "inputs.run_mode == 'full'"):
         assert required in header, 'Worker tool writer must remain a bounded trusted main job'
     timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
-    assert timeout_match and 0 < int(timeout_match.group(1)) <= 15, 'Worker tool writer must declare bounded timeout-minutes <= 15'
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 12, 'Worker tool writer must declare bounded timeout-minutes <= 12'
     assert 'actions: write' not in job and 'secrets.' not in job
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
     assert 'persist-credentials: false' in job
@@ -291,7 +291,7 @@ def browser_archive_cache_writer(job):
                      'component: [fonts-noto-cjk, fonts-freefont-ttf, chrome]'):
         assert required in header, 'browser cache requires the bounded trusted main writer'
     timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
-    assert timeout_match and 0 < int(timeout_match.group(1)) <= 10, 'browser cache requires bounded timeout-minutes <= 10'
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 5, 'browser cache requires bounded timeout-minutes <= 5'
     assert 'actions: write' not in job and 'secrets.' not in job and 'continue-on-error' not in job
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
     assert 'persist-credentials: false' in job
@@ -4402,7 +4402,7 @@ run_cargo() {
         writer_timeout = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', writer.split('    steps:', 1)[0], re.M)
         self.assertIsNotNone(writer_timeout)
         self.assertGreater(int(writer_timeout.group(1)), 0)
-        self.assertLessEqual(int(writer_timeout.group(1)), 210)
+        self.assertLessEqual(int(writer_timeout.group(1)), 150)
         self.assertIn('permissions:\n      contents: read\n      actions: read', writer)
         self.assertNotIn('actions: write', workflow)
         for forbidden in ('ci-full-result.py', 'ci-required-result.py',
