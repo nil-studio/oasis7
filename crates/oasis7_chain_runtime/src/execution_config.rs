@@ -95,13 +95,13 @@ pub(crate) fn restore_execution_world(
                 reason: "local participant recovery release context mismatch".into(),
             });
         }
-        oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
+        oasis7_runtime_host::world::from_snapshot_with_devlocal_participant_authority(
             snapshot,
             journal,
             authority.clone(),
         )
     } else {
-        oasis7::runtime_host::world::from_snapshot_with_release_security_policy(
+        oasis7_runtime_host::world::from_snapshot_with_release_security_policy(
             snapshot, journal, release,
         )
     }

@@ -481,7 +481,7 @@ mod tests {
     #[test]
     fn status_uses_runtime_execution_snapshot_when_simulator_mirror_is_empty() {
         let dir = temp_dir("runtime-fallback");
-        let mut world = oasis7::runtime_host::world::new();
+        let mut world = oasis7_runtime_host::world::new();
         world.submit_action(Action::RegisterAgent {
             agent_id: "starter-agent-0".to_string(),
             pos: GeoPos::new(0, 0, 0),
@@ -547,7 +547,7 @@ mod tests {
         let dir = temp_dir("empty-runtime-context-ready");
         let records_dir = dir.join("records");
         let store_dir = dir.join("store");
-        let world = oasis7::runtime_host::world::new();
+        let world = oasis7_runtime_host::world::new();
         world
             .save_to_dir_with_chain_resource_context(
                 dir.as_path(),
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn status_prefers_matching_runtime_snapshot_over_stale_simulator_mirror() {
         let dir = temp_dir("runtime-over-simulator-mirror");
-        let world = oasis7::runtime_host::world::new();
+        let world = oasis7_runtime_host::world::new();
         world
             .save_to_dir_with_chain_resource_context(
                 dir.as_path(),
@@ -681,7 +681,7 @@ mod tests {
         let dir = temp_dir("authoritative-execution-record");
         let records_dir = dir.join("records");
         let store_dir = dir.join("store");
-        let world = oasis7::runtime_host::world::new();
+        let world = oasis7_runtime_host::world::new();
         world
             .save_to_dir_with_chain_resource_context(
                 dir.as_path(),
@@ -770,7 +770,7 @@ mod tests {
         let dir = temp_dir("tampered-authoritative-execution-record");
         let records_dir = dir.join("records");
         let store_dir = dir.join("store");
-        let world = oasis7::runtime_host::world::new();
+        let world = oasis7_runtime_host::world::new();
         world
             .save_to_dir_with_chain_resource_context(
                 dir.as_path(),
@@ -841,7 +841,7 @@ mod tests {
         let dir = temp_dir("invalid-authoritative-execution-record");
         let records_dir = dir.join("records");
         let store_dir = dir.join("store");
-        let world = oasis7::runtime_host::world::new();
+        let world = oasis7_runtime_host::world::new();
         world
             .save_to_dir_with_chain_resource_context(
                 dir.as_path(),
@@ -880,7 +880,7 @@ mod tests {
         let dir = temp_dir("stale-authoritative-execution-snapshot-height");
         let records_dir = dir.join("records");
         let store_dir = dir.join("store");
-        let world = oasis7::runtime_host::world::new();
+        let world = oasis7_runtime_host::world::new();
         world
             .save_to_dir_with_chain_resource_context(
                 dir.as_path(),

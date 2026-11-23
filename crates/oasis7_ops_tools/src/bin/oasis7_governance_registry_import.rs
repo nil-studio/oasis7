@@ -241,7 +241,7 @@ fn reconcile_latest_tick_consensus_state_root(
     record.block.header.state_root = state_root.clone();
     record.block.execution_digest.state_projection_hash = state_root;
     record.certificate.block_hash = record.block.block_hash();
-    let reconciled = oasis7::runtime_host::world::from_snapshot(snapshot, world.journal().clone())
+    let reconciled = oasis7_runtime_host::world::from_snapshot(snapshot, world.journal().clone())
         .map_err(|err| format!("rebuild world after state-root reconciliation failed: {err:?}"))?;
     Ok((reconciled, Some(reconciled_tick)))
 }
@@ -250,9 +250,9 @@ fn load_or_create_world(world_dir: &Path) -> Result<World, String> {
     let snapshot_path = world_dir.join("snapshot.json");
     let journal_path = world_dir.join("journal.json");
     if !snapshot_path.exists() || !journal_path.exists() {
-        return Ok(oasis7::runtime_host::world::new_production_hardened());
+        return Ok(oasis7_runtime_host::world::new_production_hardened());
     }
-    oasis7::runtime_host::world::load_from_dir(world_dir)
+    oasis7_runtime_host::world::load_from_dir(world_dir)
         .map(|world| {
             world.with_release_security_policy(ReleaseSecurityPolicy::production_hardened())
         })
@@ -668,7 +668,7 @@ mod tests {
         assert_eq!(summary.finality_signer_count, 3);
 
         let world =
-            oasis7::runtime_host::world::load_from_dir(temp_dir.join("world")).expect("load world");
+            oasis7_runtime_host::world::load_from_dir(temp_dir.join("world")).expect("load world");
         let finality_registry = world
             .governance_finality_signer_registry()
             .expect("finality registry");
@@ -853,7 +853,7 @@ mod tests {
         .expect("run import");
 
         let world =
-            oasis7::runtime_host::world::load_from_dir(temp_dir.join("world")).expect("load world");
+            oasis7_runtime_host::world::load_from_dir(temp_dir.join("world")).expect("load world");
         let registry = world
             .governance_main_token_controller_registry()
             .expect("controller registry");
@@ -998,7 +998,7 @@ mod tests {
         .expect("write manifest");
 
         let world_dir = temp_dir.join("world");
-        let mut world = oasis7::runtime_host::world::new_production_hardened();
+        let mut world = oasis7_runtime_host::world::new_production_hardened();
         world.step().expect("step 1");
         world.step().expect("step 2");
         world.save_to_dir(world_dir.as_path()).expect("seed world");
@@ -1013,7 +1013,7 @@ mod tests {
         assert!(summary.reconciled_latest_tick.is_some());
 
         let loaded =
-            oasis7::runtime_host::world::load_from_dir(world_dir).expect("load reconciled world");
+            oasis7_runtime_host::world::load_from_dir(world_dir).expect("load reconciled world");
         assert!(loaded.governance_finality_signer_registry().is_some());
         assert!(loaded.governance_main_token_controller_registry().is_some());
     }
@@ -1028,7 +1028,7 @@ mod tests {
         assert!(created.release_security_policy().is_production_hardened());
 
         let legacy_dir = root.join("legacy-world");
-        let legacy = oasis7::runtime_host::world::new();
+        let legacy = oasis7_runtime_host::world::new();
         legacy
             .save_to_dir(legacy_dir.as_path())
             .expect("save legacy world");

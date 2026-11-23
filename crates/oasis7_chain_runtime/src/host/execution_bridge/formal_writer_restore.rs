@@ -18,7 +18,7 @@ pub(super) fn restore(
     };
     let journal: Journal =
         capture::decode_journal_role(&candidate.material, ArtifactRole::Journal)?;
-    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+    let world = oasis7_runtime_host::world::from_snapshot(snapshot, journal)
         .map_err(|e| format!("{e:?}"))?
         .with_release_security_policy(release.clone());
     if blake3_hex(&snapshot_to_cbor(&world.snapshot())?)
@@ -64,7 +64,7 @@ pub(super) fn restore_qualified(
     }
     let bytes = snapshot_to_cbor(&snapshot)?;
     let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
-    let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
+    let world = oasis7_runtime_host::world::from_verified_formal_snapshot(
         snapshot, journal, parent, reader,
     )
     .map_err(|e| format!("{e:?}"))?
