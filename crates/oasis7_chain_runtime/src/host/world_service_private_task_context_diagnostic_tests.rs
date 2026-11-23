@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::world_service::private_goal_store::client_state::{ClientStateKind, ClientStateV1};
+use oasis7_world_service::private_goal_store::client_state::{ClientStateKind, ClientStateV1};
 fn stage<T, E>(height: u64, name: &str, result: Result<T, E>) -> Option<T> {
     println!(
         "TASK_CONTEXT_DIAGNOSTIC height={height} stage={name} passed={}",
@@ -18,7 +18,7 @@ fn private_task_context_failed_live_stage_diagnostic() {
     let root = std::path::PathBuf::from(ready["root"].as_str().unwrap());
     let config: Value =
         serde_json::from_slice(&std::fs::read(ready["config"].as_str().unwrap()).unwrap()).unwrap();
-    let key = oasis7::world_service::private_key_file::read_private_key_file(std::path::Path::new(
+    let key = oasis7_world_service::private_key_file::read_private_key_file(std::path::Path::new(
         config["signer_file"].as_str().unwrap(),
     ))
     .expect("diagnostic delegate key guard");
