@@ -28,7 +28,7 @@ jobs:
   package-linux-x86-64:
     name: newapi-bridge-linux-x86-64
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
