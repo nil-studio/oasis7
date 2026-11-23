@@ -1,0 +1,71 @@
+name: ECS metrics image diagnostic
+
+on:
+  pull_request:
+    branches: [codex/engineering-ecs-metrics-probe-base]
+    paths: [.github/workflows/ecs-metrics-image-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+cache-mode: read
+
+env:
+  RUST_TOOLCHAIN: 1.96.0
+  MEASUREMENT_SOURCE: 291837d69155e70e7446f80c16733529cb330c3a
+
+jobs:
+  build-metrics:
+    if: github.head_ref == 'codex/engineering-ecs-metrics-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    cache-mode: read
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.MEASUREMENT_SOURCE }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Verify exact measured fixture source
+        run: test "$(git rev-parse HEAD)" = "$MEASUREMENT_SOURCE"
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-ecs-build-metrics-mold
+      - name: Verify the preinstalled measurement toolchain and system libraries
+        run: |
+          set -euo pipefail
+          test "$(id -u)" = 1001
+          cargo +"$RUST_TOOLCHAIN" --version
+          test "$(rustc --version)" = "$(rustc +"$RUST_TOOLCHAIN" --version)"
+          python3 -c 'import tomllib'
+          pkg-config --exists x11 xi xcursor xrandr xinerama alsa libudev
+          report=$(mktemp "$RUNNER_TEMP/ecs-time-preflight.XXXXXX")
+          trap 'rm -- "$report"' EXIT
+          LC_ALL=C /usr/bin/time -v -o "$report" /usr/bin/true
+          grep -Eq 'Maximum resident set size \(kbytes\): [0-9]+$' "$report"
+      - name: Run all real local metrics harness fixtures
+        run: |
+          set -euo pipefail
+          command -v python3
+          uname -m | grep -Fx x86_64
+          test -x "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"
+          pkg-config --modversion x11 xi xcursor xrandr xinerama alsa libudev
+          python3 scripts/ci-ecs-build-metrics.test.py -v 2>&1 | tee "$RUNNER_TEMP/ecs-metrics-fixtures.log"
+          grep -Eq "^Ran 13 tests in " "$RUNNER_TEMP/ecs-metrics-fixtures.log"
+          grep -Fx OK "$RUNNER_TEMP/ecs-metrics-fixtures.log"
