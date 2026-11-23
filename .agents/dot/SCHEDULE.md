@@ -13,6 +13,7 @@
 
 | 稳定 ID | 纳入巡检 | 周期 | 到期时间 | 执行者 | 事项与输出 |
 | --- | --- | --- | --- | --- | --- |
+| `daily-open-issue-review` | 是 | 每天 | `09:00` | subagent | 按[开放 Issue 全量复核](tasks/issue-triage.md#daily-open-issue-review)检查所有当前开放项，给出有证据的更新、流转与关闭建议；不写 GitHub |
 | `daily-ci-merge-review` | 是 | 每天 | `13:00` | subagent | 按 [CI 耗时回顾](tasks/ci-duration-review.md) 检查前一自然日 CI 是否形成明显合入卡点，创建或关联 Issue 并返回中文报告 |
 | `daily-rust-codeql-triage` | 是 | 每天 | `15:00` | subagent | 按 [Rust CodeQL 告警处置](tasks/codeql-alert-triage.md) 分诊主干 default 告警、接续确认问题的修复 Issue，跟进 Coding Agent 的 PR/CI 和后续扫描确认 |
 
@@ -20,13 +21,15 @@ Rust 告警处置安排在[主干日频扫描](../../doc/testing/ci/codeql-integ
 
 每条每日任务的去重键为 `eng-cc/oasis7/<稳定 ID>/YYYY-MM-DD`，日期按本表时区取计划到期日。同一事项需要多个日内执行时间时使用不同 ID；修改描述或规则提交不改变已生成实例的键，不因此重跑。
 
+每日全量复核与下述增量整理并行互补，不替代它，不推进其读取水位或待办。全量复核只检查实读时仍开放的 Issue，不构造历史日快照；接入前按 [HEARTBEAT 的单入口规则](HEARTBEAT.md#daily-open-issue-single-entry)协调已注册的每日全量任务。
+
 ## 增量 Issue 整理
 
 | 稳定 ID | 纳入巡检 | 周期 / 到期时间 | 执行者 | 事项与输出 |
 | --- | --- | --- | --- | --- |
 | `issue-triage` | 是 | 每 20 分钟，每小时 `:00 / :20 / :40` | subagent | 按[增量 Issue 整理](tasks/issue-triage.md)处理五类 Issue 的变化、分类、完成核验及归并，保留未完成义务 |
 
-本项替代每日 `daily-issue-triage` 和周期 `defect-triage`，不再另设 06:00 Issue 整理或固定滚动三日全量扫描。实例键为 `eng-cc/oasis7/issue-triage/YYYY-MM-DDTHH:mm+08:00`；读取仓库为 `nil-studio/oasis7`，保留既有命名空间。周期漏槽按下述规则合并，读取水位与周期槽分别记录。
+本项替代每日 `daily-issue-triage` 和周期 `defect-triage`，不重启旧 06:00 Issue 整理或固定滚动三日扫描；新增的每日任务是只读、无日期筛选的开放项盘点。实例键为 `eng-cc/oasis7/issue-triage/YYYY-MM-DDTHH:mm+08:00`；读取仓库为 `nil-studio/oasis7`，保留既有命名空间。周期漏槽按下述规则合并，读取水位与周期槽分别记录。
 
 <a id="issue-triage-migration"></a>
 ### 迁移与实际启用
