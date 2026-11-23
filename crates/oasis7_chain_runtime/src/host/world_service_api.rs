@@ -1,4 +1,4 @@
-use oasis7::world_service::gameplay;
+use oasis7_runtime_host::gameplay_service as gameplay;
 use super::{
     execution_bridge::world_service_read::{self, PinnedWorld},
     feedback_submit_api::FeedbackSubmitSigner,

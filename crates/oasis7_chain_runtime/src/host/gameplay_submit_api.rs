@@ -315,7 +315,7 @@ fn authorize_chain_gameplay_submit(
             let world = super::execution_bridge::load_execution_world(execution_world_dir)
                 .map_err(|err| (503, GAMEPLAY_SUBMIT_ERROR_INTERNAL.to_string(), err))?;
             let collector_agent_id =
-                oasis7::world_service::gameplay::resolve_collect_data_collector(
+                oasis7_world_service::gameplay::resolve_collect_data_collector(
                     world.state(),
                     &verified.player_id,
                     &verified.public_key,

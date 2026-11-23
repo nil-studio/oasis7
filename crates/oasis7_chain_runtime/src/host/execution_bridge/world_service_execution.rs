@@ -1,4 +1,4 @@
-use oasis7::world_service::gameplay;
+use oasis7_runtime_host::gameplay_service as gameplay;
 use oasis7_world_service::*;
 use oasis7_node::NodeExecutionCommitContext;
 use oasis7_runtime::{CausedBy, DomainEvent, World, WorldEventBody};
