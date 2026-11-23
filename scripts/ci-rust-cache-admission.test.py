@@ -232,6 +232,58 @@ class AdmissionTests(unittest.TestCase):
                 self.api.list_caches.return_value = []
         self.api.delete_cache.assert_not_called()
 
+    def test_hosted_login_writer_requires_its_release_only_dispatch_and_matching_consumer(self):
+        namespace, workflow, job = admission.FAMILIES['hosted-login-release']
+        definition = (Path(__file__).resolve().parent.parent / workflow).read_text()
+        reader, writer = definition.split(f'\n  {job}:\n', 1)
+        self.assertIn('timeout-minutes: 45', reader)
+        self.assertIn("if: inputs.run_mode != 'release-deps'", reader)
+        self.assertIn(f'shared-key: &hosted-login-cache-key {namespace}', reader)
+        self.assertIn('save-if: false', reader)
+        self.assertIn('shared-key: *hosted-login-cache-key', writer)
+        self.assertIn('container: *hosted-login-container', writer)
+        self.assertIn('cargo build --locked --release', writer)
+        self.assertNotIn('upload-artifact', writer)
+        self.assertNotIn('Stage viewer', writer)
+        self.assertNotIn('pull_request:', definition)
+        self.assertNotIn('schedule:', definition)
+        self.assertIn(namespace, admission.maintenance.DEPENDENCY_NAMESPACES)
+
+        event = self.root / 'hosted-login-release.json'
+        environment = self.environment | {
+            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_EVENT_PATH': str(event),
+            'GITHUB_JOB': job, 'INPUT_SHARED-KEY': namespace, 'INPUT_CACHE-PROVIDER': 'github',
+            'GITHUB_WORKFLOW_REF': f'nil-studio/oasis7/{workflow}@refs/heads/main',
+            'OASIS7_DEPENDENCY_CACHE_FAMILY': 'hosted-login-release',
+            'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': self.source_sha,
+        }
+        self.run.update(event='workflow_dispatch', path=workflow)
+        for mode, profile, expected in (('release-deps', 'release', True), ('package', 'release', False),
+                                        ('release-deps', 'dev', False), ('release-deps', None, False)):
+            with self.subTest(mode=mode, profile=profile):
+                event.write_text(json.dumps({'inputs': {'run_mode': mode, 'build_profile': profile}}))
+                self.assertEqual(admission.check_archive(self.archive, environment, self.api)['allowed'], expected)
+
+        event.write_text(json.dumps({'inputs': {'run_mode': 'release-deps', 'build_profile': 'release'}}))
+        invalid_identities = (
+            {'GITHUB_JOB': 'build-linux-x86-64'}, {'GITHUB_REF': 'refs/heads/topic'},
+            {'GITHUB_EVENT_NAME': 'schedule'}, {'GITHUB_EVENT_NAME': 'pull_request'},
+            {'INPUT_SHARED-KEY': 'unrelated-cache'}, {'INPUT_CACHE-PROVIDER': 'other'},
+            {'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': '0' * 40},
+            {'GITHUB_WORKSPACE': str(self.root)}, {'GITHUB_WORKFLOW_SHA': '0' * 40},
+        )
+        for change in invalid_identities:
+            with self.subTest(change=change):
+                self.assertFalse(admission.check_archive(self.archive, environment | change, self.api)['allowed'])
+        self.api.repository = 'fork/oasis7'
+        fork = environment | {'GITHUB_REPOSITORY': 'fork/oasis7',
+                              'GITHUB_WORKFLOW_REF': f'fork/oasis7/{workflow}@refs/heads/main'}
+        self.assertFalse(admission.check_archive(self.archive, fork, self.api)['allowed'])
+        self.api.repository = 'nil-studio/oasis7'
+        self.api.list_caches.return_value = [self.entry(901)]
+        self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        self.api.delete_cache.assert_not_called()
+
     def test_component_image_writer_rejects_a_different_actual_checkout(self):
         family = 'rust-image-components'
         namespace = 'ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f'
