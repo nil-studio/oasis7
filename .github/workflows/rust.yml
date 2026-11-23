@@ -2844,16 +2844,25 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
           RUN_VIEWER_JS_REQUIRED: ${{ needs.select.outputs.run_viewer_js_required }}
-          RUN_VIEWER_PERFORMANCE_REPORT: ${{ needs.select.outputs.run_viewer_performance_report }}
           CI_SCOPE: ${{ fromJSON(needs.select.outputs.plan).scope }}
           CONSOLIDATION_VERSION: ${{ fromJSON(needs.select.outputs.plan).contract_job_consolidation_version }}
         run: |
           if [[ "$RUN_VIEWER_JS_REQUIRED" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || "$CONSOLIDATION_VERSION" != 2 ]]; then
             bash ./scripts/ci-tests.sh required --group "viewer_js_required" --repo-root "$GITHUB_WORKSPACE"
           fi
-          if [[ "$CONSOLIDATION_VERSION" == 2 && ( "$RUN_VIEWER_PERFORMANCE_REPORT" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
-            bash ./scripts/ci-tests.sh required --group "viewer_performance_report" --repo-root "$GITHUB_WORKSPACE"
-          fi
+      - name: Execute Viewer performance report
+        id: viewer-performance
+        if: >-
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 &&
+          (needs.select.outputs.run_viewer_performance_report == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+        run: bash ./scripts/ci-tests.sh required --group "viewer_performance_report" --repo-root "$GITHUB_WORKSPACE"
       - name: Upload browser functional regression evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -2865,16 +2874,15 @@ jobs:
       - name: Upload Viewer performance evidence
         if: >-
           always() &&
-          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 &&
-          (needs.select.outputs.run_viewer_performance_report == 'true' ||
-           fromJSON(needs.select.outputs.plan).scope == 'full' ||
-           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+          (steps.viewer-performance.outcome == 'success' ||
+           steps.viewer-performance.outcome == 'failure')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: viewer-performance-${{ github.run_id }}-${{ github.run_attempt }}
           path: output/ci/viewer-performance/**
           if-no-files-found: error
           retention-days: 7
+
 
   viewer-performance-report:
     needs: select

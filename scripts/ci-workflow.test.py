@@ -6730,6 +6730,13 @@ class RustGovernanceReportContract(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_ci_tests_warning_zero_contract(self):
+        result = subprocess.run(
+            ['bash', str(ROOT / 'scripts/ci-tests-warning-zero-contract.test.sh')],
+            cwd=ROOT, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 class StablePrJobTimeoutContractTests(unittest.TestCase):
     def test_stable_pr_jobs_declare_bounded_timeout_minutes(self):
