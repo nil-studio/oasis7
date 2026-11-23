@@ -8901,5 +8901,35 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         self.assertNotIn('workspace_support_direct_gate_version', custody_plan)
 
 
+class ViewerNpmLockScopeTests(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    def test_viewer_npm_manifest_and_lockfile_select_launcher_web_while_other_viewer_assets_do_not(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_viewer/package.json', '{}\n')
+        base = self.commit()
+        graph = ({}, {}, {})
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in ('crates/oasis7_viewer/package.json', 'crates/oasis7_viewer/package-lock.json'):
+                with self.subTest(path=path):
+                    self.write(path, '{"updated": true}\n')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn('viewer_js_required', plan['groups'])
+                    self.assertIn('launcher_web', plan['groups'])
+                    base = head
+            self.write('crates/oasis7_viewer/src/app.tsx', '// UI edit\n')
+            head = self.commit()
+            plan = selector.select(config, base, head)
+            self.assertEqual(plan['scope'], 'targeted')
+            self.assertIn('viewer_js_required', plan['groups'])
+            self.assertNotIn('launcher_web', plan['groups'])
+
+
 if __name__ == '__main__':
     unittest.main()

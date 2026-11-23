@@ -2351,6 +2351,17 @@
     },
     {
       "match": [
+        "crates/oasis7_viewer/package.json",
+        "crates/oasis7_viewer/package-lock.json"
+      ],
+      "groups": [
+        "viewer_js_required",
+        "launcher_web"
+      ],
+      "reason": "viewer_npm_lock_consumers"
+    },
+    {
+      "match": [
         "site/**",
         "README.md",
         "doc/world-simulator/viewer/viewer-manual.manual.md",
