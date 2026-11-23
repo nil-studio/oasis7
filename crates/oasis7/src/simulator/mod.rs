@@ -50,9 +50,14 @@ mod canonical_contract_owner_tests {
 
     #[test]
     fn old_simulator_exports_are_canonical_owner_contracts() {
-        let _: fn(BudgetContractV1) -> oasis7_agent_harness::BudgetContractV1 = |value| value;
-        let _: fn(AgentIntentSummaryV1) -> oasis7_agent_api::intent_summary::AgentIntentSummaryV1 =
-            |value| value;
+        assert_eq!(
+            std::any::TypeId::of::<BudgetContractV1>(),
+            std::any::TypeId::of::<oasis7_agent_harness::BudgetContractV1>()
+        );
+        assert_eq!(
+            std::any::TypeId::of::<AgentIntentSummaryV1>(),
+            std::any::TypeId::of::<oasis7_agent_api::intent_summary::AgentIntentSummaryV1>()
+        );
         assert_eq!(
             DEFAULT_LLM_MODEL,
             oasis7_agent_harness::llm_defaults::DEFAULT_LLM_MODEL
@@ -63,7 +68,6 @@ mod canonical_contract_owner_tests {
         );
     }
 }
-
 
 // Re-export all public types
 pub use crate::capability_invocation_context::CapabilityInvocationContext;
