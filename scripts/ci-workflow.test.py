@@ -255,7 +255,7 @@ def worker_tool_cache_writer(job):
                      "inputs.run_mode == 'full'"):
         assert required in header, 'Worker tool writer must remain a bounded trusted main job'
     timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
-    assert timeout_match and 0 < int(timeout_match.group(1)) <= 15, 'Worker tool writer must declare bounded timeout-minutes <= 15'
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 12, 'Worker tool writer must declare bounded timeout-minutes <= 12'
     assert 'actions: write' not in job and 'secrets.' not in job
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
     assert 'persist-credentials: false' in job
@@ -291,7 +291,7 @@ def browser_archive_cache_writer(job):
                      'component: [fonts-noto-cjk, fonts-freefont-ttf, chrome]'):
         assert required in header, 'browser cache requires the bounded trusted main writer'
     timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
-    assert timeout_match and 0 < int(timeout_match.group(1)) <= 10, 'browser cache requires bounded timeout-minutes <= 10'
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 5, 'browser cache requires bounded timeout-minutes <= 5'
     assert 'actions: write' not in job and 'secrets.' not in job and 'continue-on-error' not in job
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
     assert 'persist-credentials: false' in job
@@ -346,8 +346,10 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                      "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
                      "inputs.run_mode == 'full'", "inputs.run_mode == 'image-native'",
                      'fail-fast: false', 'max-parallel: 1', 'runs-on: ubuntu-24.04',
-                     'timeout-minutes: 60', 'image: ${{ matrix.image }}', 'options: ${{ matrix.options }}'):
+                     'image: ${{ matrix.image }}', 'options: ${{ matrix.options }}'):
         assert required in header, 'component image writer needs its complete trusted main layout'
+    timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 60, 'component image writer needs bounded timeout-minutes <= 60'
     if planner is None:
         records = re.findall(r'^          - profile: ([a-z]+)\n((?:^            .+\n)+)', header, re.M)
         rows = {profile: dict((key, value.strip("'")) for key, value in re.findall(
@@ -632,6 +634,8 @@ def validate_candidate_graph(workflow, config):
     gate = jobs['required-gate']
     dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
+    if config.get('workspace_support_direct_gate_version') == 1:
+        expected.add('workspace-support-other')
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
@@ -661,6 +665,8 @@ def validate_candidate_graph(workflow, config):
                     or 'include:' in header or 'exclude:' in header
                     or "workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '[\"all\"]' }}" not in jobs['select']
                     or 'custody_execution_version != 1' not in header
+                    or (config.get('workspace_support_direct_gate_version') == 1
+                        and 'workspace_support_direct_gate_version != 1' not in header)
                     or '--support-partition "$SUPPORT_PARTITION"' not in legacy):
                 raise ValueError('support legacy must retain every trusted partition and old BASE fallback')
             node = jobs['custody-node']
@@ -721,7 +727,9 @@ def validate_candidate_graph(workflow, config):
                         or '\n          retention-days: 7\n' not in uploads[0]):
                     raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
             if ('    needs: select' not in jobs['workspace-support-other']
-                    or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']):
+                    or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
+                    or (config.get('workspace_support_direct_gate_version') == 1
+                        and 'workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other'])):
                 raise ValueError('other support must remain independent of custody builds')
             continue
         if group == 'formal_process':
@@ -729,9 +737,10 @@ def validate_candidate_graph(workflow, config):
                     or "needs.select.outputs.run_formal_process == 'true'" not in job):
                 raise ValueError('formal aggregation must execute when selected or failed and validate results')
             continue
-        if config.get('contract_job_consolidation_version') == 1 and group in config.get('group_jobs', {}):
+        if config.get('contract_job_consolidation_version') in (1, 2) and group in config.get('group_jobs', {}):
             host_job = jobs[config['group_jobs'][group]]
-            if ('fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1' not in job
+            version_guard = f"fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != {config['contract_job_consolidation_version']}"
+            if (version_guard not in job
                     or f'needs.select.outputs.run_{group}' not in host_job):
                 raise ValueError('consolidated contract group must gate legacy job and bind its select output on host job')
         if ("needs.select.result == 'success'" not in job
@@ -1590,7 +1599,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
         self.assertLessEqual(consumers, fields | {
             'ordinary_dynamic_partition_version', 'ordinary_main_fast_cache_writer_version',
-            'contract_job_consolidation_version',
+            'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
             'custody_compile_proof_version', 'custody_policy_tests_version', 'selection_sha256'})
         self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
         guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
@@ -2045,7 +2054,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 repo = Path(directory) / 'repo'
                 subprocess.run(['git', '-C', str(repo), 'checkout', '-q', policy], check=True)
                 retired = ({group.replace('_', '-') for group in CONFIG.get('group_jobs', {})}
-                           if plan.get('contract_job_consolidation_version') == 1 else set())
+                           if plan.get('contract_job_consolidation_version') in (1, 2) else set())
                 needs = {group.replace('_', '-'): {'result': 'skipped' if group.replace('_', '-') in retired else 'success'}
                          for group in CONFIG['groups']}
                 trusted = source == policy
@@ -3430,6 +3439,88 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertEqual(sum(len(shard) for shard in shards), len(all_ids))
         self.assertEqual(sorted(item for shard in shards for item in shard), all_ids)
 
+    def test_doc_checker_and_compile_metrics_contracts_use_parallel_pool(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        names = (
+            'run_parallel_contract_commands',
+            'run_doc_checker_contract_tests',
+            'run_procedural_doc_contract',
+            'run_system_design_traceability_tests',
+            'run_compile_metrics_contract_tests',
+        )
+        functions = '\n'.join(re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+                              for name in names)
+        with tempfile.TemporaryDirectory() as temporary:
+            active_dir = Path(temporary) / 'active'
+            active_dir.mkdir()
+            max_seen = Path(temporary) / 'max_seen'
+            setup = (
+                'set -euo pipefail\n'
+                'repo_root="."\n'
+                f'run() {{\n'
+                f'  local marker="{active_dir}/$$.$BASHPID"\n'
+                f'  : >"$marker"\n'
+                f'  local count\n'
+                f'  count=$(ls -1 "{active_dir}" | wc -l)\n'
+                f'  printf "%s\\n" "$count" >>"{max_seen}"\n'
+                f'  sleep 0.05\n'
+                f'  rm -f "$marker"\n'
+                f'  echo "OUT:$*"\n'
+                f'  echo "ERR:$*" >&2\n'
+                f'  if [[ -n "${{FAIL_TEST:-}}" && "$*" == *"$FAIL_TEST"* ]]; then return 41; fi\n'
+                f'}}\n'
+            )
+            ok_doc = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_doc_checker_contract_tests\n'],
+                text=True, capture_output=True,
+                env=dict(os.environ, OASIS7_DOC_CHECKER_CONTRACT_JOBS='4', OASIS7_LOCAL_CHECK='0', FAIL_TEST=''),
+            )
+            self.assertEqual(ok_doc.returncode, 0, ok_doc.stderr)
+            doc_peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
+            self.assertGreaterEqual(max(doc_peaks), 2)
+            for script in (
+                'doc-governance-check.test.sh',
+                'product-doc-governance-check.test.py',
+                'product-doc-content-check.test.py',
+                'system-design-traceability-check.test.py',
+                'resolve-product-doc-ci-range.test.py',
+            ):
+                self.assertIn(script, ok_doc.stdout)
+                self.assertIn(script, ok_doc.stderr)
+
+            failed_doc = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_doc_checker_contract_tests\necho never\n'],
+                text=True, capture_output=True,
+                env=dict(os.environ, OASIS7_DOC_CHECKER_CONTRACT_JOBS='4', OASIS7_LOCAL_CHECK='0',
+                         FAIL_TEST='doc-core-content-check.test.py'),
+            )
+            self.assertEqual(failed_doc.returncode, 41, failed_doc.stdout + failed_doc.stderr)
+            self.assertNotIn('never', failed_doc.stdout)
+
+            max_seen.write_text('')
+            ok_metrics = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_compile_metrics_contract_tests\n'],
+                text=True, capture_output=True,
+                env=dict(os.environ, OASIS7_COMPILE_METRICS_CONTRACT_JOBS='3', OASIS7_LOCAL_CHECK='0', FAIL_TEST=''),
+            )
+            self.assertEqual(ok_metrics.returncode, 0, ok_metrics.stderr)
+            metrics_peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
+            self.assertGreaterEqual(max(metrics_peaks), 2)
+            for script in ('ci-compile-metrics-contract.test.sh', 'ci-ecs-build-metrics.test.py', 'ci-ecs-cache.test.py'):
+                self.assertIn(script, ok_metrics.stdout)
+
+            max_seen.write_text('')
+            serial = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_doc_checker_contract_tests\nrun_compile_metrics_contract_tests\n'],
+                text=True, capture_output=True,
+                env={k: v for k, v in dict(os.environ, OASIS7_LOCAL_CHECK='1', FAIL_TEST='').items()
+                     if k not in ('OASIS7_DOC_CHECKER_CONTRACT_JOBS', 'OASIS7_COMPILE_METRICS_CONTRACT_JOBS')},
+            )
+            self.assertEqual(serial.returncode, 0, serial.stderr)
+            serial_peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
+            self.assertEqual(max(serial_peaks), 1)
+            self.assertIn('ci-python-control-contracts.py local-contract', serial.stdout)
+
     def test_local_public_testnet_build_uses_selected_repo_in_dev_and_ci(self):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
@@ -4313,7 +4404,7 @@ run_cargo() {
         writer_timeout = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', writer.split('    steps:', 1)[0], re.M)
         self.assertIsNotNone(writer_timeout)
         self.assertGreater(int(writer_timeout.group(1)), 0)
-        self.assertLessEqual(int(writer_timeout.group(1)), 210)
+        self.assertLessEqual(int(writer_timeout.group(1)), 150)
         self.assertIn('permissions:\n      contents: read\n      actions: read', writer)
         self.assertNotIn('actions: write', workflow)
         for forbidden in ('ci-full-result.py', 'ci-required-result.py',
@@ -4571,7 +4662,10 @@ run_cargo() {
     def test_gate_is_last_and_all_groups_are_dependencies(self):
         gate = JOBS['required-gate']
         dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
-        self.assertEqual(set(dependencies), {'select', *(g.replace('_', '-') for g in CONFIG['groups'])})
+        expected_gate = {'select', *(g.replace('_', '-') for g in CONFIG['groups'])}
+        if CONFIG.get('workspace_support_direct_gate_version') == 1:
+            expected_gate.add('workspace-support-other')
+        self.assertEqual(set(dependencies), expected_gate)
         self.assertIn('always()', gate)
         self.assertIn('ci-required-result.py', gate)
         for group in CONFIG['groups']:
@@ -5029,7 +5123,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                                       JOBS[name], re.M | re.S)[1] for name in names}
 
         def values_for(name, event, selected=True, select='success', scope='targeted', results=None,
-                       consolidation=0):
+                       consolidation=0, direct_support=0):
             values = {
                 'needs.select.result': select,
                 'needs.select.outputs.trusted_source': 'true' if event == 'push' else 'false',
@@ -5038,10 +5132,11 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': consolidation,
+                'fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version': direct_support,
                 'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_execution': 'artifact',
-                'fromJSON(needs.select.outputs.plan).custody_execution_version': 1 if selected and name in split_jobs else 0,
-                'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': 1 if selected else 0,
+                'fromJSON(needs.select.outputs.plan).custody_execution_version': 1 if selected and name in split_jobs and not direct_support else 0,
+                'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': 1 if selected and not direct_support else 0,
                 'fromJSON(needs.select.outputs.plan).execution_profile': {
                     'pull_request': 'pr-fast', 'push': 'main-fast',
                     'workflow_dispatch': 'candidate-full',
@@ -5081,17 +5176,41 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                     with self.subTest(job=name, event=event, scope='full'):
                         values = values_for(name, event, selected=False, scope='full')
                         self.assertTrue(effective_job_condition(condition, values, ['skipped', 'success']))
-            for retired in ('codex-agent-config-validation', 'compile-metrics', 'macos-package-contract'):
+            for ver in (1, 2):
+                for retired in ('codex-agent-config-validation', 'compile-metrics', 'macos-package-contract'):
+                    for scope in ('targeted', 'full', 'explicit-full'):
+                        values = values_for(retired, event, selected=True, scope=scope, consolidation=ver)
+                        self.assertFalse(effective_job_condition(conditions[retired], values, ['skipped', 'success']))
+            for retired in ('consensus', 'pixel-world-bridge', 'viewer-performance-report'):
+                self.assertTrue(effective_job_condition(
+                    conditions[retired], values_for(retired, event, selected=True, consolidation=1), ['skipped', 'success']))
                 for scope in ('targeted', 'full', 'explicit-full'):
-                    values = values_for(retired, event, selected=True, scope=scope, consolidation=1)
+                    values = values_for(retired, event, selected=True, scope=scope, consolidation=2)
                     self.assertFalse(effective_job_condition(conditions[retired], values, ['skipped', 'success']))
-            # Consolidated owners trigger even if only the absorbed contract group was selected.
-            only_macos = values_for('baseline', event, selected=False, consolidation=1)
-            only_macos['needs.select.outputs.run_macos_package_contract'] = 'true'
-            self.assertTrue(effective_job_condition(conditions['baseline'], only_macos, ['skipped', 'success']))
-            only_metrics = values_for('doc-checker-contracts', event, selected=False, consolidation=1)
-            only_metrics['needs.select.outputs.run_compile_metrics'] = 'true'
-            self.assertTrue(effective_job_condition(conditions['doc-checker-contracts'], only_metrics, ['skipped', 'success']))
+            # Consolidated owners trigger even if only the absorbed group was selected.
+            for host, flag, ver in (
+                ('baseline', 'needs.select.outputs.run_macos_package_contract', 1),
+                ('baseline', 'needs.select.outputs.run_macos_package_contract', 2),
+                ('doc-checker-contracts', 'needs.select.outputs.run_compile_metrics', 1),
+                ('doc-checker-contracts', 'needs.select.outputs.run_compile_metrics', 2),
+                ('node', 'needs.select.outputs.run_consensus', 2),
+                ('scenario-regression', 'needs.select.outputs.run_pixel_world_bridge', 2),
+                ('viewer-js-required', 'needs.select.outputs.run_viewer_performance_report', 2),
+            ):
+                absorbed = values_for(host, event, selected=False, consolidation=ver)
+                absorbed[flag] = 'true'
+                self.assertTrue(effective_job_condition(conditions[host], absorbed, ['skipped', 'success']))
+            # Direct workspace-support gate skips legacy and join jobs while running workspace-support-other.
+            direct_legacy = values_for('workspace-support-legacy', event, selected=True, direct_support=1)
+            self.assertFalse(effective_job_condition(conditions['workspace-support-legacy'], direct_legacy, ['skipped', 'success']))
+            direct_other = values_for('workspace-support-other', event, selected=True, direct_support=1)
+            direct_other['fromJSON(needs.select.outputs.workspace_support_partitions)'] = ['other']
+            self.assertTrue(effective_job_condition(conditions['workspace-support-other'], direct_other, ['skipped', 'success']))
+            summary_if = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', JOBS['workspace-support'], re.M | re.S)[1]
+            direct_summary = values_for('workspace-support-legacy', event, selected=True, direct_support=1)
+            self.assertFalse(effective_job_condition(summary_if, direct_summary, ['skipped', 'success']))
+            failed_select_summary = values_for('workspace-support-legacy', event, selected=False, select='failure', direct_support=1)
+            self.assertTrue(effective_job_condition(summary_if, failed_select_summary, ['skipped', 'failure']))
 
         # An explicit status function also bypasses implicit producer success.
         # Every producer must therefore be checked by the actual Node job guard.
@@ -5682,7 +5801,7 @@ class AptWorkflow(unittest.TestCase):
     NATIVE = ('pkg-config libwayland-dev wayland-protocols libxkbcommon-dev '
               'libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev '
               'libasound2-dev libudev-dev').split()
-    NATIVE_JOBS = {'pr-fast-preview', 'pr-ordinary-delivery-preview', 'rust-baseline', 'oasis7-test-build-candidate',
+    NATIVE_JOBS = {'pr-fast-preview', 'rust-baseline', 'oasis7-test-build-candidate',
                    'oasis7-test-build-trusted', 'formal-debug-build',
                    'formal-debug-build-trusted', 'formal-endpoint-build',
                    'formal-endpoint-build-trusted', 'formal-test-build',
@@ -5998,38 +6117,6 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
                                  {'common', *owners[1:]})
                 self.assertEqual(set(re.findall(r'name: native-tests-(.*)-\$\{\{ github.sha \}\}', resolved)),
                                  {'common', *owners[1:]})
-
-    def test_diagnostic_uses_actual_producer_identity_without_gate_or_execution_authority(self):
-        job = JOBS['pr-ordinary-delivery-preview']
-        condition = job.split('    if: ', 1)[1].split('    runs-on:', 1)[0]
-        values = {'github.event_name': 'pull_request', 'needs.select.result': 'success',
-                  'needs.oasis7-test-build-candidate.result': 'success',
-                  'needs.oasis7-test-build-trusted.result': 'skipped',
-                  'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': 1,
-                  'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': None}
-        self.assertTrue(effective_job_condition(condition, values, []))
-        self.assertTrue(effective_job_condition(condition, values | {
-            'needs.oasis7-test-build-candidate.result': 'skipped',
-            'needs.oasis7-test-build-trusted.result': 'success',
-        }, []))
-        for extra in ({'github.event_name': 'push'}, {'needs.select.result': 'failure'},
-                      {'needs.oasis7-test-build-candidate.result': 'skipped'},
-                      {'needs.oasis7-test-build-trusted.result': 'success'},
-                      {'needs.oasis7-test-build-candidate.result': 'failure'},
-                      {'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': 2},
-                      {'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': 1}):
-            self.assertFalse(effective_job_condition(condition, values | extra, []))
-        self.assertFalse(effective_job_condition(condition, values, [], cancelled=True))
-        for exact in ('ref: ${{ needs.select.outputs.tested_sha }}',
-                      'SOURCE_SHA: ${{ needs.select.outputs.source_sha }}',
-                      'name: ${{ needs.select.outputs.selection_artifact }}',
-                      'measure-ordinary-delivery', 'contents: read', 'persist-credentials: false'):
-            self.assertIn(exact, job)
-        for forbidden in ('ci-test-artifacts.py run ', 'ci-tests.sh', 'ci-fast-preview.py',
-                          'actions/cache/', 'cache-mode: write', 'actions: write', 'continue-on-error'):
-            self.assertNotIn(forbidden, job)
-        for gate in ('required-gate', 'explicit-full-gate'):
-            self.assertNotIn('pr-ordinary-delivery-preview', JOBS[gate])
 
 
 class WorkerdFaultCapture(unittest.TestCase):
@@ -6692,6 +6779,13 @@ class RustGovernanceReportContract(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_ci_tests_warning_zero_contract(self):
+        result = subprocess.run(
+            ['bash', str(ROOT / 'scripts/ci-tests-warning-zero-contract.test.sh')],
+            cwd=ROOT, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 class StablePrJobTimeoutContractTests(unittest.TestCase):
     def test_stable_pr_jobs_declare_bounded_timeout_minutes(self):
@@ -6716,7 +6810,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 12,
                 'doc-checker-contracts': 12,
                 'workflow-governance': 15,
-                'custody-native-contracts': 20,
+                'custody-native-contracts': 15,
                 'consensus': 5,
                 'net': 10,
                 'node': 12,
@@ -6727,36 +6821,51 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'custody-wasm-approval': 20,
                 'distfs': 20,
                 'rust-baseline': 30,
-                'launcher-web': 15,
-                'viewer-js-required': 20,
+                'launcher-web': 12,
+                'viewer-js-required': 16,
                 'viewer-performance-report': 15,
-                'newapi-bridge-package': 30,
+                'newapi-bridge-package': 15,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 5,
-                'verify-wasm-determinism': 10,
+                'verify-wasm-determinism': 5,
             },
             '.github/workflows/command-center.yml': {
-                'desktop': 25,
+                'desktop': 20,
             },
             '.github/workflows/compile-metrics.yml': {
                 'compile-metrics-linux': 35,
                 'summarize': 5,
             },
             '.github/workflows/daily-github-release.yml': {
-                'create-release': 10,
+                'create-release': 5,
             },
             '.github/workflows/pages.yml': {
                 'deploy': 5,
             },
             '.github/workflows/ecs-packages.yml': {
+                'web': 25,
                 'package': 20,
             },
             '.github/workflows/newapi-bridge-service-package.yml': {
-                'package-linux-x86-64': 30,
+                'package-linux-x86-64': 15,
             },
             '.github/workflows/hosted-login-linux-build.yml': {
                 'build-linux-x86-64': 45,
+            },
+            '.github/workflows/ci-base-images.yml': {
+                'build': 40,
+                'publish': 5,
+            },
+            '.github/workflows/native-cache-diagnostic.yml': {
+                'collector-tests': 5,
+                'diagnose': 35,
+            },
+            '.github/workflows/storage-acceptance.yml': {
+                'build': 10,
+                'verify': 130,
+                'attempt-release-reference': 50,
+                'summary': 5,
             },
         }
         for rel_path, limits in expected_limits.items():
@@ -6775,38 +6884,38 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
     def test_release_packaging_workflows_declare_bounded_timeout_minutes_for_all_jobs(self):
         expected_limits = {
             '.github/workflows/testnet-packages.yml': {
-                'full-regression-qualification': 10,
-                'plan': 10,
-                'build-web-dist': 60,
+                'full-regression-qualification': 5,
+                'plan': 5,
+                'build-web-dist': 35,
                 'package-native': 180,
                 'package-native-trusted': 180,
                 'package-installers': 120,
             },
             '.github/workflows/mainnet-packages.yml': {
-                'full-regression-qualification': 10,
-                'plan': 10,
+                'full-regression-qualification': 5,
+                'plan': 5,
                 'release_gate_runtime_core': 60,
                 'release_gate_runtime_support': 60,
                 'release_gate_runtime_sync': 60,
-                'release_gate_web': 60,
-                'release_gate_soak': 90,
-                'release_gate': 10,
-                'build-web-dist': 60,
+                'release_gate_web': 35,
+                'release_gate_soak': 45,
+                'release_gate': 5,
+                'build-web-dist': 35,
                 'package-native': 180,
-                'package-index': 15,
+                'package-index': 5,
             },
             '.github/workflows/release-packages.yml': {
-                'full-regression-qualification': 10,
+                'full-regression-qualification': 5,
                 'cache-bootstrap-maintenance': 5,
                 'cache-maintenance': 5,
-                'plan': 10,
+                'plan': 5,
                 'release_gate_runtime_core': 60,
                 'release_gate_runtime_support': 60,
                 'release_gate_runtime_sync': 60,
-                'release_gate_web': 60,
-                'release_gate_soak': 90,
-                'release_gate': 10,
-                'build-web-dist': 60,
+                'release_gate_web': 35,
+                'release_gate_soak': 45,
+                'release_gate': 5,
+                'build-web-dist': 35,
                 'package-native': 180,
                 'publish-release': 20,
             },
@@ -6837,11 +6946,11 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-test-build-trusted': 60,
                 'oasis7-required': 35,
                 'workspace-support-legacy': 60,
-                'workspace-support-other': 60,
+                'workspace-support-other': 40,
                 'operational-contracts': 20,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
-                'collect-wasm-summaries': 60,
+                'collect-wasm-summaries': 30,
             },
         }
         for rel_path, limits in expected_limits.items():
@@ -6883,7 +6992,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         excluded_jobs = {
             'operational-contracts', 'packaging-contracts',
             'pr-fast-preview-plan', 'pr-fast-preview',
-            'pr-governance-preview', 'pr-ordinary-delivery-preview',
+            'pr-governance-preview',
             'periodic-admission', 'cache-bootstrap-maintenance', 'cache-maintenance',
             'oasis7-test-build-trusted', 'formal-debug-build-trusted',
             'formal-endpoint-build-trusted', 'formal-test-build-trusted',

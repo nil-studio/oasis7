@@ -503,6 +503,7 @@ def main():
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--component', choices=artifacts.STORAGE_COMPONENTS)
     parser.add_argument('--component-directory', type=Path)
+    parser.add_argument('--build-diagnostics', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--results-dir', type=Path)
     parser.add_argument('--group', choices=GROUPS)
@@ -517,7 +518,7 @@ def main():
     if args.timeout_seconds is not None and not 1 <= args.timeout_seconds <= 21600:
         parser.error('--timeout-seconds must be between 1 and 21600')
     if args.action == 'build':
-        artifacts.build(args.bundle.resolve(), args.component or 'storage')
+        artifacts.build(args.bundle.resolve(), args.component or 'storage', diagnostics_dir=args.build_diagnostics)
     elif args.action == 'pack':
         pack(args.bundle.resolve(), args.output, args.component)
     elif args.action == 'merge':

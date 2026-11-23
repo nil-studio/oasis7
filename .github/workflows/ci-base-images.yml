@@ -23,7 +23,7 @@ jobs:
   build:
     if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 40
     permissions:
       contents: read
     strategy:
@@ -141,7 +141,7 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       packages: write
     strategy:

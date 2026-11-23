@@ -392,6 +392,37 @@ fn movement_settlement_domain_rejection_discards_distance_cost_but_retains_gener
         battery(&world),
         (serde_json::to_value(pos(0, 0)).unwrap(), 7)
     );
+
+    // Continue this very same world with a second real nonempty move.
+    // General attempt cost still applies once, and the now-permitted final
+    // distance settles exactly once; prior denial must not poison the cursor.
+    world.submit_action(Action::MoveAgent {
+        agent_id: "a".into(),
+        to: pos(-100_000, 0),
+    });
+    world.step_with_modules(&mut sandbox).unwrap();
+    assert_eq!(world.resource_balance(ResourceKind::Data), 6);
+    assert_eq!(
+        world.resource_balance(ResourceKind::Electricity),
+        electricity - 1
+    );
+    assert_eq!(world.state().agents["a"].state.pos, pos(-100_000, 0));
+    assert_eq!(
+        battery(&world),
+        (serde_json::to_value(pos(-100_000, 0)).unwrap(), 5)
+    );
+
+    // The original legacy snapshot+journal path must retain the exact
+    // second accepted business result and its separate charge identities.
+    // This is NOT an IWS formal Hot or new-PID cold-acceptance assertion.
+    let recovered = World::from_snapshot(world.snapshot(), world.journal().clone()).unwrap();
+    assert_eq!(recovered.resource_balance(ResourceKind::Data), 6);
+    assert_eq!(
+        recovered.resource_balance(ResourceKind::Electricity),
+        electricity - 1
+    );
+    assert_eq!(recovered.state().agents["a"].state.pos, pos(-100_000, 0));
+    assert_eq!(battery(&recovered), battery(&world));
 }
 
 #[test]

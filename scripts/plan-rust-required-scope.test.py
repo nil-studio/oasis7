@@ -635,19 +635,6 @@ class Selection(unittest.TestCase):
                 # Manifest controls intentionally retain the existing full scope.
                 self.assertEqual(plan['scope'], 'full' if path.endswith('Cargo.toml') else 'targeted')
 
-    def test_removed_egui_winit_patch_selects_launcher_consumers(self):
-        config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('vendor-egui-winit-0.33.3/src/lib.rs',
-                     'vendor-egui-winit-0.33.3/Cargo.lock'):
-            with self.subTest(path=path):
-                self.write(path, 'old launcher patch input')
-                case_base = self.commit()
-                Path(path).unlink()
-                plan = selector.select(config, case_base, self.commit())
-                self.assertTrue({'rust_baseline', 'launcher_web'}.issubset(plan['groups']))
-                # Removing a lockfile remains a shared control change.
-                self.assertEqual(plan['scope'], 'full' if path.endswith('Cargo.lock') else 'targeted')
-
     def native_generated_fixture(self, register=True):
         # Retain the real producer and its three OUT_DIR consumers. A workspace
         # without these sources failed to reproduce the docs-only over-selection.
@@ -8735,6 +8722,200 @@ class LocalInputPlans(unittest.TestCase):
         self.assertEqual(process.returncode, 2, process.stderr)
         self.assertIn('full inventory does not accept local input snapshots', process.stderr)
         self.assertEqual(process.stdout, '')
+
+
+class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    def setUp(self):
+        Selection.setUp(self)
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write(
+            'Cargo.toml',
+            '[workspace]\nmembers=["crates/oasis7_runtime", "crates/oasis7_context", '
+            '"crates/oasis7_local_signer", "crates/oasis7_custody_worker"]\nresolver="2"\n',
+        )
+        for crate in ('oasis7_runtime', 'oasis7_context', 'oasis7_local_signer', 'oasis7_custody_worker'):
+            self.write(f'crates/{crate}/Cargo.toml', f'[package]\nname="{crate}"\nversion="0.1.0"\nedition="2021"\n')
+            self.write(f'crates/{crate}/src/lib.rs', 'pub fn item() {}\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.base = self.commit()
+
+    def test_ordinary_scope_config_slice_narrows_harness_costs_and_fast_rules_while_keeping_control_full(self):
+        # 1) ordinary_harness_costs-only edit stays targeted without test_policy_changed
+        costs_cfg = copy.deepcopy(self.config)
+        costs_cfg['ordinary_harness_costs']['fallback_ms'] += 10
+        self.write('scripts/ci-required-scope.json', json.dumps(costs_cfg))
+        costs_head = self.commit()
+        plan = selector.select(self.config, self.base, costs_head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(
+            set(plan['groups']),
+            {'baseline', 'workflow_governance', 'rust_baseline', 'oasis7_required'},
+        )
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['oasis7_required_packages'], sorted(self.config['oasis7_required_packages']))
+
+        # 2) ordinary_scale_contract / ordinary_fast_rules edit widens policy + consensus/node/distfs, still targeted
+        fast_cfg = copy.deepcopy(costs_cfg)
+        fast_cfg['ordinary_fast_rules'][0]['reason'] = 'updated-slice-reason'
+        self.write('scripts/ci-required-scope.json', json.dumps(fast_cfg))
+        fast_head = self.commit()
+        plan = selector.select(self.config, costs_head, fast_head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(
+            set(plan['groups']),
+            {'baseline', 'workflow_governance', 'rust_baseline', 'oasis7_required', 'consensus', 'node', 'distfs'},
+        )
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertIn('scripts/ci-required-scope.json', plan['test_policy_paths'])
+
+        # 3) Untrusted/old baseline without ordinary_scope_config_slice_version keeps full fallback
+        old_policy = copy.deepcopy(self.config)
+        del old_policy['ordinary_scope_config_slice_version']
+        self.assertEqual(selector.select(old_policy, costs_head, fast_head, profile='pr-fast')['scope'], 'full')
+
+        # 4) Editing scoped_control_paths, groups, or duplicate JSON keys falls back to full
+        control_cfg = copy.deepcopy(fast_cfg)
+        control_cfg['scoped_control_paths']['.github/dependabot.yml'] = ['workflow_governance', 'site_quality']
+        self.write('scripts/ci-required-scope.json', json.dumps(control_cfg))
+        control_head = self.commit()
+        self.assertEqual(selector.select(self.config, fast_head, control_head, profile='pr-fast')['scope'], 'full')
+
+        dup_raw = '{"fast_scope_version": 1, "fast_scope_version": 1}'
+        self.write('scripts/ci-required-scope.json', dup_raw)
+        dup_head = self.commit()
+        self.assertEqual(selector.select(self.config, fast_head, dup_head, profile='pr-fast')['scope'], 'full')
+
+    def test_standalone_non_workspace_cargo_manifests_scope_to_owners_and_keep_root_or_patch_full(self):
+        cases = {
+            'tools/oasis7-command-center/Cargo.toml': (
+                '[workspace]\nmembers=["core"]\n',
+                {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'command_center'},
+                [],
+            ),
+            'tests/libp2p-compat/candidate/Cargo.toml': (
+                '[package]\nname="candidate"\nversion="0.1.0"\n',
+                {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'net'},
+                [],
+            ),
+            'tools/wasm_build_suite/templates/minimal_module/Cargo.toml': (
+                '[package]\nname="minimal_module"\nversion="0.1.0"\n',
+                {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'workspace_support'},
+                ['wasm_build_suite'],
+            ),
+            'crates/oasis7_builtin_wasm_modules/m1_rule_move/Cargo.toml': (
+                '[package]\nname="m1_rule_move"\nversion="0.1.0"\n',
+                {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'distfs', 'oasis7_required', 'workspace_support'},
+                ['oasis7_wasm_build', 'wasm_build_suite'],
+            ),
+        }
+        for path, (body, _, _) in cases.items():
+            self.write(path, body)
+        base = self.commit()
+        for path, (body, expected_groups, expected_profiles) in cases.items():
+            with self.subTest(path=path):
+                self.write(path, body + '# comment\n')
+                head = self.commit()
+                plan = selector.select(self.config, base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+                self.assertEqual(set(plan['groups']), expected_groups)
+                self.assertEqual(plan['workspace_support_profiles'], expected_profiles)
+                base = head
+
+        # Malformed TOML or [patch] section in standalone manifest fails closed to full
+        self.write('tools/oasis7-command-center/Cargo.toml', '[patch.crates-io]\nfoo={path="../foo"}\n')
+        patch_head = self.commit()
+        self.assertEqual(selector.select(self.config, base, patch_head, profile='pr-fast')['scope'], 'full')
+
+    def test_scoped_independent_workflows_and_non_python_control_scripts_preserve_forbidden_shared_controls(self):
+        for path, expected in (
+            ('.github/dependabot.yml', {'baseline', 'workflow_governance'}),
+            ('.github/workflows/pages.yml', {'baseline', 'workflow_governance', 'site_quality'}),
+            ('.github/workflows/rust-cache.yml', {'baseline', 'workflow_governance', 'packaging_contracts', 'macos_package_contract'}),
+            ('scripts/ci-rust-governance-report.sh', {'baseline', 'workflow_governance'}),
+            ('scripts/ci-compile-metrics.sh', {'baseline', 'workflow_governance', 'compile_metrics'}),
+        ):
+            with self.subTest(path=path):
+                self.write(path, '#existing\n')
+                base = self.commit()
+                self.write(path, '#updated\n')
+                head = self.commit()
+                plan = selector.select(self.config, base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(set(plan['groups']), expected)
+
+        for forbidden in (
+            '.github/workflows/rust.yml',
+            '.github/workflows/command-center.yml',
+            '.github/actions/setup-linux-mold/action.yml',
+            '.github/actions/cache-permission-probe/action.yml',
+            'scripts/ci-tests.sh',
+            'scripts/ci-required-scope.json',
+            'scripts/ci-formal-process-suites.json',
+            'scripts/plan-rust-required-scope.sh',
+        ):
+            with self.subTest(forbidden=forbidden), self.assertRaises(ValueError):
+                bad = copy.deepcopy(self.config)
+                bad['scoped_control_paths'][forbidden] = ['workflow_governance']
+                selector.validate_config(bad)
+
+    def test_workspace_support_direct_gate_capability_emits_only_for_non_custody_image_profiles(self):
+        # Image-only non-custody support crate (oasis7_context) -> direct gate v1 emitted
+        self.write('crates/oasis7_context/src/lib.rs', 'pub fn changed() {}\n')
+        ctx_head = self.commit()
+        plan = selector.select(self.config, self.base, ctx_head, profile='pr-fast')
+        self.assertEqual(plan['workspace_support_partitions'], ['other'])
+        self.assertEqual(plan.get('workspace_support_direct_gate_version'), 1)
+        self.assertNotIn('custody_execution_version', plan)
+
+        # Host-requiring support crate (oasis7_local_signer) -> direct gate NOT emitted
+        self.git('checkout', '-q', self.base)
+        self.write('crates/oasis7_local_signer/src/lib.rs', 'pub fn changed() {}\n')
+        signer_head = self.commit()
+        signer_plan = selector.select(self.config, self.base, signer_head, profile='pr-fast')
+        self.assertNotIn('workspace_support_direct_gate_version', signer_plan)
+
+        # Custody crate -> custody_execution_version=1, direct gate NOT emitted
+        self.git('checkout', '-q', self.base)
+        self.write('crates/oasis7_custody_worker/src/lib.rs', 'pub fn changed() {}\n')
+        custody_head = self.commit()
+        custody_plan = selector.select(self.config, self.base, custody_head, profile='pr-fast')
+        self.assertEqual(custody_plan.get('custody_execution_version'), 1)
+        self.assertNotIn('workspace_support_direct_gate_version', custody_plan)
+
+
+class ViewerNpmLockScopeTests(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    def test_viewer_npm_manifest_and_lockfile_select_launcher_web_while_other_viewer_assets_do_not(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_viewer/package.json', '{}\n')
+        base = self.commit()
+        graph = ({}, {}, {})
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in ('crates/oasis7_viewer/package.json', 'crates/oasis7_viewer/package-lock.json'):
+                with self.subTest(path=path):
+                    self.write(path, '{"updated": true}\n')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn('viewer_js_required', plan['groups'])
+                    self.assertIn('launcher_web', plan['groups'])
+                    base = head
+            self.write('crates/oasis7_viewer/src/app.tsx', '// UI edit\n')
+            head = self.commit()
+            plan = selector.select(config, base, head)
+            self.assertEqual(plan['scope'], 'targeted')
+            self.assertIn('viewer_js_required', plan['groups'])
+            self.assertNotIn('launcher_web', plan['groups'])
 
 
 if __name__ == '__main__':

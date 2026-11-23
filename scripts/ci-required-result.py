@@ -6,31 +6,71 @@ import re
 from pathlib import Path
 
 
+LEGACY_V1_CONSOLIDATED_GROUPS = frozenset({
+    'codex_agent_config_validation',
+    'macos_package_contract',
+    'compile_metrics',
+})
+
+
+def _consolidation_overrides(config, plan):
+    if not isinstance(plan, dict) or 'contract_job_consolidation_version' not in plan:
+        return None
+    version = plan['contract_job_consolidation_version']
+    config_version = config.get('contract_job_consolidation_version')
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError('unsupported contract job consolidation version')
+    if type(config_version) is not int or config_version not in (1, 2) or version > config_version:
+        raise ValueError('untrusted contract job consolidation capability')
+    overrides = config.get('group_jobs')
+    if not isinstance(overrides, dict) or not overrides:
+        raise ValueError('missing consolidated group job mapping')
+    default_jobs = {group.replace('_', '-') for group in config['groups']}
+    for group, job in overrides.items():
+        if (group not in config['groups'] or not isinstance(job, str)
+                or job not in default_jobs or job == group.replace('_', '-')):
+            raise ValueError('invalid consolidated group job mapping')
+    if version == 1 and config_version == 2:
+        return {group: job for group, job in overrides.items() if group in LEGACY_V1_CONSOLIDATED_GROUPS}
+    return dict(overrides)
+
+
+def _direct_workspace_support_gate(config, plan):
+    if not isinstance(plan, dict) or 'workspace_support_direct_gate_version' not in plan:
+        return False
+    version = plan['workspace_support_direct_gate_version']
+    if type(version) is not int or version != 1:
+        raise ValueError('unsupported direct workspace support gate version')
+    if config.get('workspace_support_direct_gate_version') != 1:
+        raise ValueError('untrusted direct workspace support gate capability')
+    if ('workspace_support' not in plan.get('groups', ())
+            or plan.get('scope') == 'explicit-full'
+            or plan.get('custody_execution_version') == 1
+            or plan.get('workspace_support_partition_version') != 1
+            or plan.get('workspace_support_partitions') != ['other']):
+        raise ValueError('invalid direct workspace support gate plan')
+    return True
+
+
 def configured_group_jobs(config, plan=None):
     jobs = {group: group.replace('_', '-') for group in config['groups']}
-    if isinstance(plan, dict) and 'contract_job_consolidation_version' in plan:
-        version = plan['contract_job_consolidation_version']
-        if type(version) is not int or version != 1:
-            raise ValueError('unsupported contract job consolidation version')
-        if config.get('contract_job_consolidation_version') != 1:
-            raise ValueError('untrusted contract job consolidation capability')
-        overrides = config.get('group_jobs')
-        if not isinstance(overrides, dict) or not overrides:
-            raise ValueError('missing consolidated group job mapping')
-        default_jobs = set(jobs.values())
-        for group, job in overrides.items():
-            if (group not in jobs or not isinstance(job, str)
-                    or job not in default_jobs or job == group.replace('_', '-')):
-                raise ValueError('invalid consolidated group job mapping')
+    overrides = _consolidation_overrides(config, plan)
+    if overrides:
         jobs.update(overrides)
+    if _direct_workspace_support_gate(config, plan):
+        jobs['workspace_support'] = 'workspace-support-other'
     return jobs
 
 
 def retired_group_jobs(config, plan=None):
-    if not (isinstance(plan, dict) and plan.get('contract_job_consolidation_version') == 1):
-        return set()
-    active = set(configured_group_jobs(config, plan).values())
-    return {group.replace('_', '-') for group in config.get('group_jobs', {})} - active
+    retired = set()
+    overrides = _consolidation_overrides(config, plan)
+    if overrides:
+        active = set(configured_group_jobs(config, plan).values())
+        retired.update({group.replace('_', '-') for group in overrides} - active)
+    if _direct_workspace_support_gate(config, plan):
+        retired.add('workspace-support')
+    return retired
 
 
 def validate(plan, needs, group_jobs, *, retired_jobs=()):
@@ -53,6 +93,12 @@ def validate(plan, needs, group_jobs, *, retired_jobs=()):
         if job not in needs or needs.get(job, {}).get('result') != 'skipped':
             raise ValueError(f'{job}: retired consolidated job must be present and skipped')
     expected_jobs = {'select', *group_jobs.values(), *retired}
+    if ('workspace_support' in group_jobs and 'workspace-support-other' in needs
+            and 'workspace-support-other' not in expected_jobs):
+        expected_jobs.add('workspace-support-other')
+        if needs['workspace-support-other'].get('result') not in {'skipped', 'success'}:
+            raise ValueError('workspace-support-other: unexpected result '
+                             f"{needs['workspace-support-other'].get('result')!r}")
     for job, entry in needs.items():
         if job not in expected_jobs:
             if not isinstance(entry, dict) or entry.get('result') != 'success':

@@ -10,14 +10,11 @@ path = "src/lib.rs"
 [features]
 default = ["self_tests", "libp2p"]
 libp2p = ["dep:libp2p", "dep:futures", "dep:pin-project", "dep:tokio"]
-# Reserved for backward-compatible feature flags; runtime bridge logic no longer
-# lives in this crate to avoid package-level dependency cycles.
-runtime_bridge = []
+# Kept one release cycle until trusted-baseline ci-image-cache.test.py drops self_tests check.
 self_tests = []
 
 [dependencies]
 blake3 = "1"
-oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs", optional = true }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 serde = { version = "1", features = ["derive"] }

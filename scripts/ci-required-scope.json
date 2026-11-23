@@ -2,11 +2,17 @@
   "fast_scope_version": 1,
   "ordinary_dynamic_partition_version": 1,
   "custody_node_shards_version": 2,
-  "contract_job_consolidation_version": 1,
+  "contract_job_consolidation_version": 2,
+  "ordinary_scope_config_slice_version": 1,
+  "standalone_cargo_manifest_scope_version": 1,
+  "workspace_support_direct_gate_version": 1,
   "group_jobs": {
     "codex_agent_config_validation": "baseline",
     "macos_package_contract": "baseline",
-    "compile_metrics": "doc-checker-contracts"
+    "compile_metrics": "doc-checker-contracts",
+    "consensus": "node",
+    "pixel_world_bridge": "scenario-regression",
+    "viewer_performance_report": "viewer-js-required"
   },
   "ordinary_case_prefix_contract_version": 1,
   "ordinary_shared_incremental_contract_version": 1,
@@ -1236,6 +1242,42 @@
     ".github/workflows/codeql-rust-wasm-context.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-wasm-metadata.yml": ["workflow_governance"],
     ".github/workflows/codeql-platform-observation.yml": ["workflow_governance"],
+    ".github/dependabot.yml": ["workflow_governance"],
+    ".github/workflows/ci-base-images.yml": ["workflow_governance", "packaging_contracts"],
+    ".github/workflows/compile-metrics.yml": ["workflow_governance", "compile_metrics"],
+    ".github/workflows/daily-github-release.yml": ["workflow_governance"],
+    ".github/workflows/ecs-packages.yml": ["workflow_governance", "packaging_contracts"],
+    ".github/workflows/hosted-login-linux-build.yml": ["workflow_governance"],
+    ".github/workflows/mainnet-packages.yml": ["workflow_governance", "packaging_contracts"],
+    ".github/workflows/native-cache-diagnostic.yml": ["workflow_governance"],
+    ".github/workflows/newapi-bridge-service-package.yml": ["workflow_governance", "packaging_contracts"],
+    ".github/workflows/pages.yml": ["workflow_governance", "site_quality"],
+    ".github/workflows/pr-fast-preview.yml": ["workflow_governance"],
+    ".github/workflows/release-packages.yml": ["workflow_governance", "packaging_contracts"],
+    ".github/workflows/rust-cache.yml": ["workflow_governance", "packaging_contracts"],
+    ".github/workflows/storage-acceptance.yml": ["workflow_governance"],
+    ".github/workflows/testnet-packages.yml": ["workflow_governance", "packaging_contracts", "operational_contracts"],
+    ".github/workflows/wasm-darwin-docker-evidence.yml": ["workflow_governance"],
+    ".github/workflows/wasm-determinism-gate.yml": ["workflow_governance"],
+    "scripts/build-builtin-wasm-candidate-batch.test.sh": ["packaging_contracts"],
+    "scripts/build-game-launcher-bundle-dev-cache.test.sh": ["operational_contracts"],
+    "scripts/build-game-launcher-bundle-macos-bash3.test.sh": ["operational_contracts"],
+    "scripts/build-game-launcher-bundle-ops-default.test.sh": ["operational_contracts"],
+    "scripts/build-game-launcher-bundle.sh": ["operational_contracts", "packaging_contracts"],
+    "scripts/build-viewer-software-safe.sh": ["workflow_governance", "packaging_contracts", "viewer_js_required", "viewer_performance_report"],
+    "scripts/build-wasm-builder-workspace.test.sh": ["packaging_contracts"],
+    "scripts/build-wasm-module.test.sh": ["workflow_governance", "packaging_contracts"],
+    "scripts/ci-browser-tools/package-lock.json": ["workflow_governance", "viewer_js_required", "viewer_performance_report", "site_quality"],
+    "scripts/ci-browser-tools/package.json": ["workflow_governance", "viewer_js_required", "viewer_performance_report", "site_quality"],
+    "scripts/ci-cache-diagnostic.README.md": ["workflow_governance"],
+    "scripts/ci-compile-metrics-contract.test.sh": ["workflow_governance", "compile_metrics"],
+    "scripts/ci-compile-metrics.sh": ["workflow_governance", "compile_metrics"],
+    "scripts/ci-rust-cache-admission-hook.cjs": ["workflow_governance", "packaging_contracts"],
+    "scripts/ci-rust-cache-admission.cjs": ["workflow_governance", "packaging_contracts"],
+    "scripts/ci-rust-cache-admission.test.cjs": ["workflow_governance"],
+    "scripts/ci-rust-governance-report.sh": ["workflow_governance"],
+    "scripts/ci-rust-governance-report.test.sh": ["workflow_governance"],
+    "scripts/ci-tests-warning-zero-contract.test.sh": ["workflow_governance"],
     "scripts/ci-bin-ownership.test.py": ["cargo_tooling_contracts"],
     "scripts/ci-cache-archive.py": ["workflow_governance"],
     "scripts/ci-cache-archive.test.py": ["workflow_governance"],
@@ -1291,6 +1333,8 @@
     "scripts/ci-shared-native-cache.py": ["workflow_governance"],
     "scripts/ci-storage-fixture.py": ["workflow_governance"],
     "scripts/ci-storage-acceptance.py": ["workflow_governance"],
+    ".github/actions/storage-producer-diagnostics/action.yml": ["workflow_governance"],
+    ".github/actions/storage-producer-diagnostics/index.cjs": ["workflow_governance"],
     "scripts/ci-storage-acceptance.test.py": ["workflow_governance"],
     "scripts/ci-storage-network.py": ["workflow_governance"],
     "scripts/ci-storage-network.test.py": ["workflow_governance"],
@@ -2036,6 +2080,11 @@
   },
   "rules": [
     {
+      "match": ["scripts/storage-producer-diagnostics.cjs", "scripts/storage-producer-diagnostics.test.cjs"],
+      "groups": ["workflow_governance"],
+      "reason": "storage_producer_diagnostics"
+    },
+    {
       "match": [
         ".gitattributes"
       ],
@@ -2148,11 +2197,6 @@
       "reason": "if_watch_patch_consumers"
     },
     {
-      "match": ["vendor-egui-winit-0.33.3/**"],
-      "groups": ["rust_baseline", "launcher_web"],
-      "reason": "egui_winit_patch_consumers"
-    },
-    {
       "match": [
         "vendor-libp2p-rendezvous-0.18.1/**"
       ],
@@ -2198,6 +2242,21 @@
       ],
       "groups": [],
       "reason": "documents"
+    },
+    {
+      "match": [
+        "scripts/shared-devnet-blocker-packet-smoke.sh",
+        "scripts/shared-devnet-blocker-packet.sh",
+        "scripts/shared-devnet-rehearsal-smoke.sh",
+        "scripts/shared-devnet-rehearsal.sh",
+        "scripts/shared-network-track-gate-smoke.sh",
+        "scripts/shared-network-track-gate.sh",
+        "scripts/wasm-bindgen-test-runner.sh"
+      ],
+      "groups": [
+        "operational_contracts"
+      ],
+      "reason": "retired_legacy_scripts"
     },
     {
       "match": [
@@ -2299,6 +2358,17 @@
         "viewer_js_required"
       ],
       "reason": "viewer_assets"
+    },
+    {
+      "match": [
+        "crates/oasis7_viewer/package.json",
+        "crates/oasis7_viewer/package-lock.json"
+      ],
+      "groups": [
+        "viewer_js_required",
+        "launcher_web"
+      ],
+      "reason": "viewer_npm_lock_consumers"
     },
     {
       "match": [

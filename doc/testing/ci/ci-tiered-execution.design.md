@@ -29,21 +29,24 @@ PR 测试合并提交时，选择范围合并两组差异：实际 target/source
 
 Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆盖两端；保留有效 features、WASM、生成输入和平台组合。workspace、features、锁文件、共享生成器及共享或尚未分类的 CI 控制输入变化采用保守普通 required，图解析失败仍扩大覆盖；未登记路径按下述门禁阻断。
 
-共享控制规则保留 `.github/**` 的保守默认，可信 scope 配置的 `scoped_control_paths` 仅将下表已审读的精确路径映射到现有验证组。键必须是规范化的 `.github/` 相对文件路径，不接受通配符、目录穿越或反斜杠；组名必须有效且不重复。未登记路径或旧配置缺少该字段时仍按原共享控制规则选择全量，不为普通 Cargo、build 或其他目录提供覆盖入口。
+共享控制规则保留 `.github/**`、`**/Cargo.toml`、`**/Cargo.lock`、`scripts/ci-*` 与 `scripts/build-*` 的保守默认；可信 scope 配置仅通过显式、不可变输入校验收窄已审读边界：
+
+1. **`scoped_control_paths` 精确控制输入**：键必须是规范化的 `.github/` 相对文件路径，或命中 `CONTROL` 的精确 `scripts/` 文件路径（Python 脚本继续强制配套 `python_control_contracts`）；不接受通配符、目录穿越或反斜杠，组名必须有效且不重复。显式禁止将共享总控入口（`.github/workflows/rust.yml`、`.github/workflows/command-center.yml`、`.github/actions/setup-linux-mold/**`、`.github/actions/cache-permission-probe/**`、`scripts/ci-tests.sh`、`scripts/ci-required-scope.json`、`scripts/ci-formal-process-suites.json`、`scripts/plan-rust-required-scope.sh`）登记进 `scoped_control_paths`。
+2. **`ordinary_scope_config_slice_version=1` 配置键切片**：当 `scripts/ci-required-scope.json` 在全部比较树上均为合法 regular Git blob、无重复 JSON 键且通过 `validate_config`，并且实际变化的顶层键非空且严格属于普通选测/分片子集（`ordinary_harness_costs`、`ordinary_fast_targets`、`ordinary_fast_rules`、`ordinary_fast_component_rules`、`ordinary_unit_test_targets`、`ordinary_scale_contract`、`formal_deferred_ordinary_cases`）时，不再把整次 PR/`main-fast` 扩张为跨平台 `scope=full`，而是固定选择 `workflow_governance`、`rust_baseline`、`oasis7_required`（使 `oasis7_required` 保持完整核心包与 WASM 范围、禁止候选借同批新 fast 规则自我减测）；若除 `ordinary_harness_costs` 外仍有键变化，额外选择 `consensus`、`node`、`distfs` 并标记测试策略变化以展开扩展 feature 校验。任何组定义、路由规则、`scoped_control_paths`、能力版本号或无法解析的修改继续回退 `full`。
+3. **`standalone_cargo_manifest_scope_version=1` 独立非根 workspace Cargo 清单**：对全部比较树均确认不属于根 `Cargo.toml` workspace 成员或 `[patch]` 路径依赖的已审读独立目录（`crates/oasis7_builtin_wasm_modules/*/`、`tools/oasis7-command-center/**`、`tools/wasm_build_suite/templates/minimal_module/`、`tests/libp2p-compat/*/`）下的 `Cargo.toml` / `Cargo.lock`，在既有消费者组之上固定追加 `rust_baseline` 与 `cargo_tooling_contracts`（保留全仓 lockfile 禁用包审计与独立 `--locked` 元数据校验；内建 WASM 模块同时覆盖 `distfs`、`oasis7_required` 与 `oasis7_wasm_build` / `wasm_build_suite`），不触发无关跨平台全量；根 `Cargo.toml` / `Cargo.lock`、`vendor-*`、`docker/wasm-builder` 及任何根 workspace 成员清单变化仍保持保守 `full`。
 
 | 独立输入 | 精确路径 | 普通验证组 |
 | --- | --- | --- |
-| GitHub Issue 表单与入口配置 | `.github/ISSUE_TEMPLATE/code-development.yml`、`.github/ISSUE_TEMPLATE/config.yml`、`.github/ISSUE_TEMPLATE/decision.yml`、`.github/ISSUE_TEMPLATE/defect.yml`、`.github/ISSUE_TEMPLATE/document.yml`、`.github/ISSUE_TEMPLATE/test.yml` | baseline、workflow_governance |
-| GitHub PR 模板 | `.github/pull_request_template.md` | baseline、workflow_governance |
-| GitHub PR 评审说明 | `.github/instructions/pr-review.instructions.md` | baseline、workflow_governance |
-| 独立 CodeQL 扫描与诊断 workflow | `.github/workflows/codeql.yml`、`.github/workflows/codeql-rust-capacity.yml`、`.github/workflows/codeql-rust-cargo-check.yml`、`.github/workflows/codeql-rust-native-diagnostic.yml`、`.github/workflows/codeql-rust-cfg-diagnostic.yml` | baseline、workflow_governance |
-| CodeQL WASM 诊断与平台观测 | `.github/workflows/codeql-rust-wasm-context.yml`、`.github/workflows/codeql-rust-wasm-metadata.yml`、`.github/workflows/codeql-platform-observation.yml` | baseline、workflow_governance |
+| GitHub Issue/PR 模板、评审说明与 Dependabot 配置 | `.github/ISSUE_TEMPLATE/*.yml`（6 个固定表单与 `config.yml`）、`.github/pull_request_template.md`、`.github/instructions/pr-review.instructions.md`、`.github/dependabot.yml` | baseline、workflow_governance |
+| 独立 CodeQL 扫描、诊断与平台观测 workflow | `.github/workflows/codeql.yml`、`codeql-rust-capacity.yml`、`codeql-rust-cargo-check.yml`、`codeql-rust-native-diagnostic.yml`、`codeql-rust-cfg-diagnostic.yml`、`codeql-rust-wasm-context.yml`、`codeql-rust-wasm-metadata.yml`、`codeql-platform-observation.yml` | baseline、workflow_governance |
+| 独立打包、缓存、预览、站点、编译指标与确定性 workflow | `.github/workflows/ci-base-images.yml`、`ecs-packages.yml`、`mainnet-packages.yml`、`newapi-bridge-service-package.yml`、`release-packages.yml`、`rust-cache.yml`（以上含 `packaging_contracts`）；`testnet-packages.yml`（含 `packaging_contracts`、`operational_contracts`）；`pages.yml`（含 `site_quality`）；`compile-metrics.yml`（含 `compile_metrics`）；`daily-github-release.yml`、`hosted-login-linux-build.yml`、`native-cache-diagnostic.yml`、`pr-fast-preview.yml`、`storage-acceptance.yml`、`wasm-darwin-docker-evidence.yml`、`wasm-determinism-gate.yml` | baseline、workflow_governance 及对应专项合同组 |
+| 独立非 Python CI/构建脚本与测试 | `scripts/ci-cache-diagnostic.README.md`、`ci-compile-metrics*.sh`、`ci-rust-cache-admission*.cjs`、`ci-rust-governance-report*.sh`、`ci-tests-warning-zero-contract.test.sh`、`ci-browser-tools/package*.json`、`build-viewer-software-safe.sh`、`build-game-launcher-bundle*.sh`、`build-wasm-module.test.sh`、`build-wasm-builder-workspace.test.sh`、`build-builtin-wasm-candidate-batch.test.sh` | baseline 及对应 `workflow_governance` / `packaging_contracts` / `operational_contracts` / `compile_metrics` / Viewer / `site_quality` 消费者组 |
 
 WASM Context、WASM Metadata 与 Platform Observation 的 YAML 准入、权限、固定输入、预算及失败/输出合同由 `workflow_governance` 中各自的 CodeQL 测试承接。对应脚本、测试与说明的独立修改保留这些检查；普通验证不启动诊断本体，也不改变其 main-only 手动入口或结果资格。
 
-精确分类只影响共享控制的全量判定，不提前结束该路径的分析，也不撤销 Cargo、嵌入输入、测试消费者或其他规则选择的组；混合修改取并集，删除与重命名两端分别判定。未列入表中的 `.github` 文件仍保守全量，包括新增或改名后的 workflow、共享 Actions 及 `rust.yml`。`scripts/security/**` 继续使用既有 workflow_governance 规则，CodeQL 的独立扫描、运营开关与 required/advisory 边界不变。
+精确分类只影响共享控制的全量判定，不提前结束该路径的分析，也不撤销 Cargo、嵌入输入、测试消费者或其他规则选择的组；混合修改取并集，删除与重命名两端分别判定。未列入表中的 `.github` 文件仍保守全量，包括新增或改名后的 workflow、共享 Actions、`command-center.yml` 及 `rust.yml`。`scripts/security/**` 继续使用既有 workflow_governance 规则，CodeQL 的独立扫描、运营开关与 required/advisory 边界不变。
 
-Cargo manifest/lock、共享 build 脚本、缓存及其他 CI 控制保持原覆盖。白名单与验证归属均来自同一事件 BASE；候选新增分类不能缩小本轮基线覆盖。
+根 workspace Cargo manifest/lock、共享 build 脚本及其他未单列 CI 控制保持原覆盖。白名单与验证归属均来自同一事件 BASE；候选新增分类不能缩小本轮基线覆盖。
 
 可信 scope 配置的 `workspace_support_profile_paths` 可逐 profile 登记跨 package 的真实测试输入路径；命中时在原 Cargo/目录选择之上追加 `workspace_support` 与该 profile，不把整个 support 组扩大。该映射不登记新输入的 ownership，未知路径仍失败，profile 名称及路径必须通过配置验证。现有非 package support 规则、显式整组请求及共享控制/不确定输入继续保留全部 support profiles。
 
@@ -144,7 +147,7 @@ python3 scripts/ci-contract-jobs.py --write
 
 ## 调度和结果
 
-select 先产生明确的非空逻辑组列表，按资源组并行执行。普通组使用原生 job，fleet-health 使用固定 Linux/Windows/macOS 矩阵；可信配置启用 `contract_job_consolidation_version=1` 时，保留全部逻辑组与细粒度选择不变，由 `group_jobs` 将超短同环境契约组并入兼容宿主 job（`codex_agent_config_validation`、`macos_package_contract` 归 `baseline`，`compile_metrics` 归 `doc-checker-contracts`）按选中条件执行，原独立旧 job 在新能力生效后必须 skipped，旧 BASE 过渡期继续独立运行。最终唯一 `required-gate` 使用可靠的 always 汇总，并显式依赖 select 和所有组。选中组对应宿主必须 success；未选中组可以 skipped 或 success；被归并退役的旧独立 job 出现非 skipped，或任何失败、取消、缺失、未知及意外 skipped 都必须阻断。fleet 矩阵不吞退出码，采用 fail-fast=false。
+select 先产生明确的非空逻辑组列表，按资源组并行执行。普通组使用原生 job，fleet-health 使用固定 Linux/Windows/macOS 矩阵；可信配置启用 `contract_job_consolidation_version=1/2` 时，保留全部逻辑组与细粒度选择不变，由 `group_jobs` 将超短或完全同环境的组并入兼容宿主 job（v1 含 `codex_agent_config_validation`、`macos_package_contract` 归 `baseline`，`compile_metrics` 归 `doc-checker-contracts`；v2 进一步将同容器镜像 `consensus` 并入 `node`、同容器镜像 `pixel_world_bridge` 并入 `scenario-regression`、同前置环境的 `viewer_performance_report` 并入 `viewer-js-required`）按选中条件执行，原独立旧 job 在新能力生效后必须 skipped，旧 BASE 过渡期继续独立运行。可信配置与固定 tested 源码启用 `workspace_support_direct_gate_version=1` 且本次未启用 custody 拆分、所选 support profile 均无需 host 专用依赖时，直接运行单容器 `workspace-support-other (image)` 并跳过 `workspace-support-legacy` 与独立 `workspace-support` 汇总 job，由 `required-gate` 零 checkout 直接验证 `workspace-support-other=success` 且 `workspace-support=skipped`。最终唯一 `required-gate` 使用可靠的 always 汇总，并显式依赖 select、所有组及直连 `workspace-support-other`。选中组对应宿主必须 success；未选中组可以 skipped 或 success；被归并退役的旧独立 job 或直连跳过的 `workspace-support` 出现非 skipped，或任何失败、取消、缺失、未知及意外 skipped 都必须阻断。fleet 矩阵不吞退出码，采用 fail-fast=false。
 
 记录 source HEAD、base 和实际测试对象及运行链接。普通 PR 权限只读，从同一事件 BASE 提取可信选择器、scope 配置与结果汇总器，候选 checkout 的 driver 执行真实测试；候选控制变化不能缩小基线覆盖。CI 控制、安全或兼容边界变化接受对应能力的独立评审。
 

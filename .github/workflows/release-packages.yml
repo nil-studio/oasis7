@@ -34,7 +34,7 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
       version: ${{ steps.source.outputs.version }}
@@ -55,7 +55,7 @@ jobs:
   full-regression-qualification:
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: read
@@ -333,7 +333,7 @@ jobs:
     name: release-gate-web
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 35
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -418,7 +418,7 @@ jobs:
     name: release-gate-soak
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 45
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -512,7 +512,7 @@ jobs:
       - release_gate_web
       - release_gate_soak
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Assert all release gates passed
         env:
@@ -547,7 +547,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 35
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup

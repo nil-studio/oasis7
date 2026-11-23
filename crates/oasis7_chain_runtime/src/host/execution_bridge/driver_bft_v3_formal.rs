@@ -365,6 +365,7 @@ mod prefix;
 #[path = "driver_bft_v3_formal_prefix.rs"]
 pub(crate) mod prefix;
 pub(crate) use prefix::{
-    CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
-    OriginalCandidateArchivePinV1, ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
+    ArchivedOriginalSourceReaderV1, CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3,
+    FormalBftHeaderNodeDriverV3, OriginalCandidateArchivePinV1, OriginalSourceArchivePinV1,
+    ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
 };

@@ -101,13 +101,25 @@ def definition_digest(root, revision):
                 or config["custody_execution_version"] != 1):
             raise ValueError("invalid trusted custody_node_shards_version definition")
     for capability in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version",
-                       "ordinary_dynamic_partition_version", "contract_job_consolidation_version"):
+                       "ordinary_dynamic_partition_version", "ordinary_scope_config_slice_version",
+                       "standalone_cargo_manifest_scope_version"):
         if capability in config and (type(config[capability]) is not int or config[capability] != 1):
             raise ValueError(f"invalid trusted {capability} definition")
+    if "workspace_support_direct_gate_version" in config:
+        if (type(config["workspace_support_direct_gate_version"]) is not int
+                or config["workspace_support_direct_gate_version"] != 1
+                or type(config.get("workspace_support_partition_version")) is not int
+                or config["workspace_support_partition_version"] != 1):
+            raise ValueError("invalid trusted workspace_support_direct_gate_version definition")
+    if "contract_job_consolidation_version" in config:
+        if (type(config["contract_job_consolidation_version"]) is not int
+                or config["contract_job_consolidation_version"] not in (1, 2)):
+            raise ValueError("invalid trusted contract_job_consolidation_version definition")
     if "group_jobs" in config or "contract_job_consolidation_version" in config:
         overrides = config.get("group_jobs")
         groups = config.get("groups")
-        if (config.get("contract_job_consolidation_version") != 1
+        if (type(config.get("contract_job_consolidation_version")) is not int
+                or config.get("contract_job_consolidation_version") not in (1, 2)
                 or not isinstance(groups, list) or not isinstance(overrides, dict) or not overrides):
             raise ValueError("invalid trusted contract job consolidation definition")
         default_jobs = {group.replace("_", "-") for group in groups if isinstance(group, str)}

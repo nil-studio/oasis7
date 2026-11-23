@@ -47,7 +47,7 @@ impl NodeRuntimeExecutionDriver {
                     != Some(*value)
             })
             .map(|(key, value)| {
-                oasis7::world_service::correlation::validate_result(key, value)?;
+                oasis7_world_service::correlation::validate_result(key, value)?;
                 serde_json::from_value(value.clone()).map_err(|error| error.to_string())
             })
             .collect::<Result<Vec<_>, String>>()?;
