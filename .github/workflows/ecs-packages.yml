@@ -49,7 +49,7 @@ jobs:
   web:
     if: inputs.retained_release == ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 25
     permissions:
       contents: read
       actions: read

@@ -237,7 +237,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -274,7 +274,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    timeout-minutes: 150
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -424,7 +424,7 @@ jobs:
     if: inputs.attempt_release_host_reference
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 20
     strategy:
       matrix:
         include:
@@ -467,7 +467,7 @@ jobs:
     if: always() && inputs.diagnostics_probe != true
     needs: [build, verify, capacity-long, full-node-long, attempt-release-reference]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
