@@ -2477,7 +2477,7 @@ jobs:
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 16
     permissions:
       contents: read
       packages: read
@@ -2561,7 +2561,7 @@ jobs:
         needs.select.outputs.run_consensus == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 12
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -3017,7 +3017,7 @@ jobs:
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 12
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -3418,7 +3418,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 15
+    timeout-minutes: 12
     permissions:
       contents: read
       packages: read
@@ -3516,7 +3516,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 17
     outputs:
       artifact: ${{ steps.bundle.outputs.artifact }}
       attempt: ${{ steps.bundle.outputs.attempt }}
@@ -3826,7 +3826,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 20
+    timeout-minutes: 16
     strategy:
       fail-fast: false
       max-parallel: 4
@@ -4070,7 +4070,7 @@ jobs:
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
-    timeout-minutes: 16
+    timeout-minutes: 12
     permissions:
       contents: read
       packages: read
@@ -4173,7 +4173,7 @@ jobs:
       actions: read
       packages: read
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 15
+    timeout-minutes: 12
     container:
       image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
       options: --user 1001:1001 --init
@@ -4446,7 +4446,7 @@ jobs:
         needs.select.outputs.run_packaging_contracts == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 12
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
