@@ -91,6 +91,21 @@ class Ownership(unittest.TestCase):
                 nonce,
             )
 
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
         self.assertIs(core['package']['autobins'], False)

@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(feature = "test_tier_full")]
-use oasis7::runtime::{EconomicContractStatus, GovernanceProposalStatus};
+use oasis7_runtime::{EconomicContractStatus, GovernanceProposalStatus};
 use oasis7::simulator::{AgentDecision, AgentDecisionTrace, LlmStepTrace, WorldEvent};
 #[cfg(feature = "test_tier_full")]
 use oasis7_agent_api::world_action::ResourceKind;

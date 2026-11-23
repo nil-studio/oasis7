@@ -1,4 +1,4 @@
-use oasis7::runtime::{
+use oasis7_runtime::{
     Action as RuntimeAction, CrisisStatus, DomainEvent as RuntimeDomainEvent,
     EconomicContractFulfillmentKind, RejectReason as RuntimeRejectReason, World as RuntimeWorld,
     WorldEventBody as RuntimeWorldEventBody,
@@ -556,7 +556,7 @@ impl RuntimeGameplayBridge {
     }
 
     #[cfg(all(test, feature = "test_tier_full"))]
-    pub(crate) fn state(&self) -> &oasis7::runtime::WorldState {
+    pub(crate) fn state(&self) -> &oasis7_runtime::WorldState {
         self.world.state()
     }
 }
