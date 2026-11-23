@@ -79,6 +79,10 @@ fn healthy_copy_source_fetches_shared_history_index_once() {
 
 #[test]
 fn healthy_copy_source_reuses_authenticated_inline_business_nodes() {
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_start\n",
+    );
     let snapshot = serde_cbor::to_vec(&serde_json::json!({
         "state": { "retained_history_root": null }
     }))
@@ -102,6 +106,10 @@ fn healthy_copy_source_reuses_authenticated_inline_business_nodes() {
         true,
     )
     .unwrap();
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_signed_source_walk_passed\n",
+    );
     let local = FileFormalArchiveSourceV1::new(target.clone()).unwrap();
     let verified = super::super::store::durable_set::copy_authenticated_closure(
         &target,
@@ -113,6 +121,10 @@ fn healthy_copy_source_reuses_authenticated_inline_business_nodes() {
         false,
     )
     .unwrap();
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_independent_readback_passed\n",
+    );
     assert_eq!(copied, verified);
     assert_eq!(envelope.delta.node_writes.len(), 257);
     let repeated_reads: usize = envelope
@@ -121,12 +133,20 @@ fn healthy_copy_source_reuses_authenticated_inline_business_nodes() {
         .iter()
         .map(|write| source.reads(&write.digest))
         .sum();
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_source_read_count_ready\n",
+    );
     assert_eq!(
         repeated_reads, 0,
         "the authenticated Result already carries every node; copying must not refetch them"
     );
     // A verified inline copy is not an install verdict. Independent readback
     // must still detect damage to the newly written physical pack.
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_before_corruption_reject\n",
+    );
     fs::write(
         target
             .join("formal-objects-v1")

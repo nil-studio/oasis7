@@ -30,6 +30,10 @@ fn exercise_native_successor<T>(work: impl FnOnce() -> T) -> T {
 }
 
 fn exercise_native_install(recover_uncertain_activation: bool) {
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_enter\n",
+    );
     let fixture = Fixture::new();
     let open = |role, provider: Arc<dyn MonotonicEndpointProvider>| {
         FileFormalEndpoint::open_protected(
@@ -52,6 +56,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     };
     // Keep the staged candidate/transition construction separate from the
     // independent remote copy, activation and cold-reopen consumers.
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_start_construct\n",
+    );
     let (_po, ro, pp, rp, next_dir, sealed, boundary, manifest, pcp) =
         build_native_install_setup(|| {
             let po = Oracle::start(&fixture, EndpointRole::Primary);
@@ -155,6 +163,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             drop(coordinator);
             (po, ro, pp, rp, next_dir, sealed, boundary, manifest, pcp)
         });
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_signed_transition_constructed\n",
+    );
     let (source, source_owner) = remote_sealed_source(
         open(EndpointRole::Replica, ro.provider(&fixture)),
         &fixture,
@@ -175,6 +187,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     )
     .unwrap();
     drop(source_owner); // independent replica copy no longer depends on old R
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_replica_copy_staged\n",
+    );
     let pi = pc.install().unwrap();
     // The provider independently reads its registered local directory. A root
     // assertion cannot hide damaged/missing copied content or mint an install.
@@ -194,6 +210,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&artifact_path, fs::Permissions::from_mode(0o600)).unwrap();
     }
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_after_expected_corruptions\n",
+    );
     let ri = rc.install().unwrap();
     assert_eq!(
         pi.body.independent_inventory_digest,
@@ -273,6 +293,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         [&pi, &ri],
     )
     .unwrap();
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_both_installed\n",
+    );
     let p = if recover_uncertain_activation {
         recovery::verify_management_recovery(
             pc,
@@ -285,6 +309,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     } else {
         verify_candidate_management_rpc(pc, sealed.clone(), pi.clone(), ri.clone())
     };
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_primary_activated\n",
+    );
     let r = rc.activate(&activation, pi.clone(), ri.clone()).unwrap();
     assert_eq!(p.parent.as_ref().unwrap().head(), boundary.head());
     verify_remote_activated_boundary(p, &fixture, &activation, false);
@@ -309,6 +337,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     .unwrap();
     let p = pc.activate(&activation, pi.clone(), ri.clone()).unwrap();
     let r = rc.activate(&activation, pi, ri).unwrap();
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_before_normal_successor\n",
+    );
     exercise_native_successor(|| {
         let mut next = FormalCoordinator::new(
             p,
@@ -355,6 +387,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         next.submit(candidate).unwrap();
         drop(next);
     });
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_before_cold_reopen\n",
+    );
     let mut reopened = FileFormalEndpoint::open_durable_set_active(
         &fixture.pdir,
         sealed.clone(),
