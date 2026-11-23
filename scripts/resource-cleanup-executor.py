@@ -150,19 +150,39 @@ def read_open_files(pids, path, deadline, result=None):
         # namespace component; unknown forms remain ambiguous.
         if sys.platform == 'darwin' and kind == 'PSXSEM' and fd.isdecimal() and name and re.fullmatch(r'/[^/]+', name):
             return
-        if kind not in {'REG', 'DIR', 'CHR', 'BLK', 'FIFO', 'LINK'}:
-            raise CleanupError(f'PID {pid}: unknown descriptor type {kind}')
-        # Linux lsof names anonymous pipe descriptors as FIFO/pipe. A
-        # filename whitelist would hide named FIFOs: verify the exact native
-        # fd symlink, which uses pipe:[inode], before treating it as non-file.
-        if sys.platform.startswith('linux') and kind == 'FIFO' and name == 'pipe' and fd.isdecimal():
+        # Linux lsof reports anonymous pipes as FIFO/pipe and kernel anon_inodefs
+        # handles (epoll, eventfd, timerfd, inotify, io_uring) as a_inode. Verify
+        # the exact native /proc/<pid>/fd/<fd> target rather than trusting names;
+        # if a transient descriptor closed after lsof (such as our own lsof
+        # capture pipes), confirm /proc/<pid>/cwd visibility or process exit first.
+        if sys.platform.startswith('linux') and fd.isdecimal() and (
+                (kind == 'FIFO' and name == 'pipe') or kind == 'a_inode'):
+            label = 'anonymous pipe' if kind == 'FIFO' else 'anonymous inode'
             try:
                 native = os.readlink(f'/proc/{pid}/fd/{fd}')
-            except OSError as exc:
-                raise CleanupError(f'PID {pid}: anonymous pipe identity unreadable') from exc
-            if re.fullmatch(r'pipe:\[[0-9]+\]', native):
+            except FileNotFoundError:
+                try:
+                    cwd_target = os.readlink(f'/proc/{pid}/cwd')
+                except FileNotFoundError as exc:
+                    if process_identity(pid, deadline) is None:
+                        return
+                    raise CleanupError(f'PID {pid}: {label} identity unreadable') from exc
+                except OSError as exc:
+                    raise CleanupError(f'PID {pid}: {label} identity unreadable') from exc
+                try:
+                    pathlib.Path(re.sub(r' \(deleted\)$', '', cwd_target)).resolve().relative_to(target)
+                    busy.add(pid)
+                except ValueError:
+                    pass
                 return
-            raise CleanupError(f'PID {pid}: FIFO/pipe native identity mismatch')
+            except OSError as exc:
+                raise CleanupError(f'PID {pid}: {label} identity unreadable') from exc
+            pattern = r'pipe:\[[0-9]+\]' if kind == 'FIFO' else r'anon_inode:[^/\s]+'
+            if re.fullmatch(pattern, native):
+                return
+            raise CleanupError(f'PID {pid}: {kind} native identity mismatch')
+        if kind not in {'REG', 'DIR', 'CHR', 'BLK', 'FIFO', 'LINK'}:
+            raise CleanupError(f'PID {pid}: unknown descriptor type {kind}')
         if not name or not name.startswith('/'):
             raise CleanupError(f'PID {pid}: ambiguous file path')
         value = re.sub(r' \((deleted|revoked)\)$', '', name)
@@ -399,7 +419,7 @@ def _module_git(gitdir, *args):
     return result.stdout.strip()
 
 
-def _module_cache_layout(root, known):
+def _module_cache_layout(root, known, declared=()):
     """Retain cached repositories that no current gitlink can account for."""
     if not root.exists():
         return
@@ -410,8 +430,8 @@ def _module_cache_layout(root, known):
             raise CleanupError('symlinked submodule Git data retained')
         if child in known:
             continue
-        if child.is_dir() and any(child in target.parents for target in known):
-            _module_cache_layout(child, known)
+        if child.is_dir() and any(child in target.parents for target in (*known, *declared)):
+            _module_cache_layout(child, known, declared)
         else:
             raise CleanupError('unknown submodule cache retained: ' + str(child))
 
@@ -593,7 +613,7 @@ def inspect_submodules(path, allow_submodules=False):
             if value in names:
                 raise CleanupError('duplicate submodule path retained')
             names[value] = key[len('submodule.'):-len('.path')]
-        known = set()
+        known, declared = set(), set()
         for name, commit in sorted(links.items()):
             module_name = names.get(name)
             if module_name is None:
@@ -616,6 +636,7 @@ def inspect_submodules(path, allow_submodules=False):
                 current = current / component
                 if current.is_symlink():
                     raise CleanupError('symlinked submodule Git data retained')
+            declared.add(backend)
             marker = child / '.git'
             initialized = marker.exists() or marker.is_symlink()
             if initialized:
@@ -657,7 +678,7 @@ def inspect_submodules(path, allow_submodules=False):
             elif initialized:
                 raise CleanupError('missing submodule Git data retained')
             result.append(state)
-        _module_cache_layout(cache, known)
+        _module_cache_layout(cache, known, declared)
 
     visit(root_gitdir, path)
     return sorted(result, key=lambda item: item['path'])

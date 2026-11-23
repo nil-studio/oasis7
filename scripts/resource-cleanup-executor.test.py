@@ -7,6 +7,7 @@ import time
 import json
 import py_compile
 import marshal
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -200,6 +201,59 @@ class ProcessReadbackTests(unittest.TestCase):
             return original(path, *args, **kwargs)
         with patch.object(cleanup.sys, 'platform', 'linux'), patch.object(cleanup.os, 'readlink', side_effect=denied), self.assertRaisesRegex(cleanup.CleanupError, 'pipe identity unreadable'):
             self.scan('202\n', sample)
+
+    def test_linux_anon_inode_and_closed_transient_fd_require_exact_native_proof(self):
+        anon_sample = 'p202\nfcwd\ntDIR\nn/tmp/unrelated\nf3\nta_inode\nn[eventpoll:6,7]\n'
+        pipe_sample = 'p202\nfcwd\ntDIR\nn/tmp/unrelated\nf1\ntFIFO\nnpipe\n'
+        original = os.readlink
+
+        def anon_readlink(value):
+            return lambda path, *args, **kwargs: value if str(path) == '/proc/202/fd/3' else original(path, *args, **kwargs)
+
+        for valid in ['anon_inode:[eventpoll]', 'anon_inode:inotify', 'anon_inode:[io_uring]']:
+            with patch.object(cleanup.sys, 'platform', 'linux'), patch.object(cleanup.os, 'readlink', side_effect=anon_readlink(valid)):
+                self.assertFalse(self.scan('202\n', anon_sample))
+        for invalid in ['/tmp/user-file', 'socket:[1234]', 'anon_inode:/bad', 'anon_inode:']:
+            with patch.object(cleanup.sys, 'platform', 'linux'), patch.object(cleanup.os, 'readlink', side_effect=anon_readlink(invalid)), self.assertRaises(cleanup.CleanupError):
+                self.scan('202\n', anon_sample)
+        with patch.object(cleanup.sys, 'platform', 'darwin'), self.assertRaisesRegex(cleanup.CleanupError, 'unknown descriptor type'):
+            self.scan('202\n', anon_sample)
+
+        def closed_fd_live_proc(cwd_value):
+            def reader(path, *args, **kwargs):
+                if str(path) == '/proc/202/fd/1':
+                    raise FileNotFoundError(2, 'closed after lsof')
+                if str(path) == '/proc/202/cwd':
+                    return cwd_value
+                return original(path, *args, **kwargs)
+            return reader
+
+        with patch.object(cleanup.sys, 'platform', 'linux'), patch.object(cleanup.os, 'readlink', side_effect=closed_fd_live_proc('/tmp/unrelated')):
+            self.assertFalse(self.scan('202\n', pipe_sample))
+        with patch.object(cleanup.sys, 'platform', 'linux'), patch.object(cleanup.os, 'readlink', side_effect=closed_fd_live_proc('/tmp/retained-worktree/sub')):
+            self.assertTrue(self.scan('202\n', pipe_sample))
+
+        def closed_fd_exited_proc(path, *args, **kwargs):
+            if str(path) in {'/proc/202/fd/1', '/proc/202/cwd'}:
+                raise FileNotFoundError(2, 'gone')
+            return original(path, *args, **kwargs)
+
+        with patch.object(cleanup.sys, 'platform', 'linux'), patch.object(cleanup.os, 'readlink', side_effect=closed_fd_exited_proc):
+            with patch.object(cleanup, 'process_identity', return_value=None):
+                covered, busy = cleanup.read_open_files({202}, pathlib.Path('/tmp/retained-worktree'), time.monotonic() + 30, result=subprocess.CompletedProcess([], 0, pipe_sample, ''))
+                self.assertEqual((covered, busy), ({202}, set()))
+            with patch.object(cleanup, 'process_identity', return_value=(202, 1, 'R')), self.assertRaisesRegex(cleanup.CleanupError, 'pipe identity unreadable'):
+                cleanup.read_open_files({202}, pathlib.Path('/tmp/retained-worktree'), time.monotonic() + 30, result=subprocess.CompletedProcess([], 0, pipe_sample, ''))
+
+        def closed_fd_denied_cwd(path, *args, **kwargs):
+            if str(path) == '/proc/202/fd/1':
+                raise FileNotFoundError(2, 'missing')
+            if str(path) == '/proc/202/cwd':
+                raise PermissionError(1, 'denied')
+            return original(path, *args, **kwargs)
+
+        with patch.object(cleanup.sys, 'platform', 'linux'), patch.object(cleanup.os, 'readlink', side_effect=closed_fd_denied_cwd), self.assertRaisesRegex(cleanup.CleanupError, 'pipe identity unreadable'):
+            self.scan('202\n', pipe_sample)
 
     def test_named_filesystem_fifo_remains_a_busy_file(self):
         self.assertTrue(self.scan('202\n', 'p202\nfcwd\ntDIR\nn/tmp/unrelated\nf3\ntFIFO\nn/tmp/retained-worktree/user-fifo\n'))
@@ -931,6 +985,28 @@ class SubmoduleSafetyTests(unittest.TestCase):
         self.assertTrue(self.path.exists())
         self.assertFalse(report['worktree_removed'])
 
+    def test_empty_declared_module_parent_directory_removal_and_unknown_retention(self):
+        self.command(self.path, 'submodule', 'deinit', '--all')
+        parent = self.module_gitdir.parent
+        shutil.rmtree(self.module_gitdir)
+        self.assertTrue(parent.is_dir())
+        self.assertEqual(list(parent.iterdir()), [])
+        note = parent / 'notes'
+        note.write_text('user material')
+        with self.assertRaisesRegex(cleanup.CleanupError, 'unknown submodule cache retained'):
+            self.inspect()
+        note.unlink()
+        unrelated_prefix = parent.parent / 'undeclared-prefix'
+        unrelated_prefix.mkdir()
+        with self.assertRaisesRegex(cleanup.CleanupError, 'unknown submodule cache retained'):
+            self.inspect()
+        unrelated_prefix.rmdir()
+        self.module_gitdir.mkdir()
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.module_gitdir.rmdir()
+        self.remove()
+
 class HostSmokeTests(unittest.TestCase):
     def test_native_named_fifo_is_target_file_use(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -946,6 +1022,25 @@ class HostSmokeTests(unittest.TestCase):
                 covered, busy = cleanup.read_open_files({proc.pid}, target, time.monotonic() + 30)
                 self.assertIn(proc.pid, covered)
                 self.assertIn(proc.pid, busy)
+            finally:
+                proc.terminate()
+                proc.wait(timeout=5)
+                proc.stdout.close()
+                proc.stderr.close()
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux real epoll anon_inode and self capture-pipe smoke')
+    def test_linux_self_pipe_and_anon_inode_readback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = pathlib.Path(directory)
+            target = outside / 'target'
+            target.mkdir()
+            code = 'import select, time; ep = select.epoll(); print("ready", flush=True); time.sleep(60)'
+            proc = subprocess.Popen([sys.executable, '-c', code], cwd=outside, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(proc.stdout.readline().strip(), 'ready')
+                covered, busy = cleanup.read_open_files({os.getpid(), proc.pid}, target, time.monotonic() + 30)
+                self.assertEqual(covered, {os.getpid(), proc.pid})
+                self.assertEqual(busy, set())
             finally:
                 proc.terminate()
                 proc.wait(timeout=5)
