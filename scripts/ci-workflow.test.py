@@ -252,8 +252,10 @@ def worker_tool_cache_writer(job):
     for required in ('cache-mode: write', 'contents: read', 'actions: read',
                      "github.ref == 'refs/heads/main'", 'github.workflow_sha == github.sha',
                      "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
-                     "inputs.run_mode == 'full'", 'timeout-minutes: 15'):
+                     "inputs.run_mode == 'full'"):
         assert required in header, 'Worker tool writer must remain a bounded trusted main job'
+    timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 15, 'Worker tool writer must declare bounded timeout-minutes <= 15'
     assert 'actions: write' not in job and 'secrets.' not in job
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
     assert 'persist-credentials: false' in job
@@ -285,9 +287,11 @@ def browser_archive_cache_writer(job):
     for required in ('cache-mode: write', 'contents: read', 'actions: read',
                      "github.ref == 'refs/heads/main'", 'github.workflow_sha == github.sha',
                      "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
-                     "inputs.run_mode == 'full'", 'timeout-minutes: 10', 'max-parallel: 1',
+                     "inputs.run_mode == 'full'", 'max-parallel: 1',
                      'component: [fonts-noto-cjk, fonts-freefont-ttf, chrome]'):
         assert required in header, 'browser cache requires the bounded trusted main writer'
+    timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 10, 'browser cache requires bounded timeout-minutes <= 10'
     assert 'actions: write' not in job and 'secrets.' not in job and 'continue-on-error' not in job
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
     assert 'persist-credentials: false' in job
@@ -4309,7 +4313,10 @@ run_cargo() {
         self.assertIn('group: ci-shared-native-cache-main', workflow)
         self.assertIn('cancel-in-progress: false', workflow)
         self.assertNotIn('ci-shared-native-cache-main', WORKFLOW)
-        self.assertIn('timeout-minutes: 210', writer)
+        writer_timeout = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', writer.split('    steps:', 1)[0], re.M)
+        self.assertIsNotNone(writer_timeout)
+        self.assertGreater(int(writer_timeout.group(1)), 0)
+        self.assertLessEqual(int(writer_timeout.group(1)), 210)
         self.assertIn('permissions:\n      contents: read\n      actions: read', writer)
         self.assertNotIn('actions: write', workflow)
         for forbidden in ('ci-full-result.py', 'ci-required-result.py',
@@ -4995,6 +5002,9 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             expr = condition
             for token, value in {'always()': True, 'cancelled()': False,
                     'github.event_name': event, 'github.event.pull_request.draft': draft,
+                    'github.event.action': 'opened', 'github.event.label.name': '',
+                    'github.event.pull_request.head.repo.full_name': 'nil-studio/oasis7',
+                    'github.repository': 'nil-studio/oasis7',
                     'inputs.run_mode': mode,
                     'needs.periodic-admission.result': admission,
                     'needs.periodic-admission.outputs.run_full': full}.items():

@@ -46,15 +46,6 @@ ISSUE_METADATA_INPUTS = {
 }
 
 
-# Exact orphaned root evidence PNG screenshots permitted for deletion-only
-# cleanup (#6398 / #6403). New or modified paths under evidence/ stay closed.
-RETIRED_ROOT_EVIDENCE_PATHS = {
-    'evidence/issue-1973/selected-target-polish.png',
-    'evidence/pr-234/viewer-entry-after-advance.png',
-    'evidence/pr-234/viewer-entry-before.png',
-}
-
-
 def retired_document_metadata_path(path):
     # This is a bounded deletion migration, not a registration of live inputs.
     # The caller also proves the old path exists, the new path does not, and
@@ -217,7 +208,6 @@ def plan(args):
     retired_deletions = {path for path in deleted_paths if retired_document_metadata_path(path)}
     if retired_deletions and not document_metadata_readers_retired(root, ids['source_head'], head_files):
         retired_deletions.clear()
-    retired_deletions |= deleted_paths.intersection(RETIRED_ROOT_EVIDENCE_PATHS)
     manifests = {side: [p for p in files if pathlib.PurePosixPath(p).name == 'Cargo.toml' and not p.startswith('third_party/')]
                  for side, files in [('base', base_files), ('head', head_files)]}
     reasons = {u: [] for u, _ in UNITS}
