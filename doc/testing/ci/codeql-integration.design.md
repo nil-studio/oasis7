@@ -304,7 +304,7 @@ GitHub 原生 `queue: max` 支持同一 concurrency group 保留多个待执行�
 
 ### 6.4 资源与公平性边界
 
-重型扫描最多两个并发；plan 和摘要仍有短暂 runner 开销。为减少普通 PR 排队开销，`OASIS7_CODEQL_MODE` 处于缺省/`off` 或 `baseline` 时在 job 层直接跳过 PR 的 `plan` 与 `summary`（非法值仍进入 `plan` 显式报错），且 PR 在 `plan` 成功但无选中分析单元（`has_units != 'true'`，如纯文档或仅命中 baseline 的纯 Rust PR）时直接保留 `plan` 摘要并跳过独立 `summary` runner；维护运行与存在选中单元或 `plan` 异常的 PR 仍保留 `summary`。两个槽位不是专属预留机器，GitHub 也没有在这里承诺 required CI 的绝对优先级。因此不能宣称真实排队时间必然零增长。
+重型扫描最多两个并发；plan 仍有短暂 runner 开销。为减少普通 PR 排队开销与串行跳数，`OASIS7_CODEQL_MODE` 处于缺省/`off` 或 `baseline`、以及 PR 处于 draft 或 `closed` 事件时，在 job 层直接跳过 `plan`（保留 `closed` 与 `converted_to_draft` 触发仅用于 `cancel-in-progress` 回收在途扫描，非法模式值仍进入 `plan` 显式报错）；不再单独分配末端 `CodeQL / summary` runner，计划状态与各语言扫描结论直接写入 `CodeQL / plan` 及对应 `analyze` job summary。两个槽位不是专属预留机器，GitHub 也没有在这里承诺 required CI 的绝对优先级。因此不能宣称真实排队时间必然零增长。
 
 分桶可能造成一个槽位排队、另一个暂时空闲，接受这一简单方案的利用率损失，不增加自建调度服务。超出平台队列容量的取消必须进入健康报告，不能统计为完成。
 
@@ -354,7 +354,7 @@ Rust 求值日志的闭包行数不能直接代表独占耗时、实际物理存
 
 分类不能只根据 name 前缀、`[bot]`、PR body、label、候选 JSON 或 `details_url` 的字符串外观。需要验证当前 commit/ref、App 来源以及 Actions run/job 的 workflow path 或 code-scanning analysis 的可靠关联。
 
-两类来源都要考虑：Actions 产生的 plan/analyze/summary job check；平台可能另外产生的 CodeQL 汇总 check。后者不能未经实测假定 App ID、名称或 URL 格式。
+两类来源都要考虑：Actions 产生的 plan/analyze job check（及历史运行遗留的 summary check）；平台可能另外产生的 CodeQL 汇总 check。后者不能未经实测假定 App ID、名称或 URL 格式。
 
 稳定规范存储 provider 类型、workflow path、category 规则；具体数字 ID 运行时读回，不把一次扫描的实例写进 allowlist。
 
@@ -406,9 +406,9 @@ PR 固定 default，默认分支维护的 extended 可产生原生配置缺失�
 
 `execution_status` 表示扫描是否真正执行成功；`upload_status` 表示结果是否被平台接受；`finding_status` 表示告警结果。planner 的 `not_applicable`/`disabled` 另列。
 
-扫描成功不等于零漏洞；上传失败不等于成功发布；取消、超时和队列溢出不等于完成。全部真实状态保留在 Actions/summary 和只读健康报告中。
+扫描成功不等于零漏洞；上传失败不等于成功发布；取消、超时和队列溢出不等于完成。全部真实状态保留在 Actions job summary 和只读健康报告中。
 
-GitHub 原生结果检查、告警状态和配置覆盖提示另行读取；job success 不能代签原生检查通过或覆盖完整。closed 事件仅有 plan/summary 成功、分析 job 跳过时，没有产生新的扫描结果。
+GitHub 原生结果检查、告警状态和配置覆盖提示另行读取；job success 不能代签原生检查通过或覆盖完整。closed 事件直接跳过 `plan` 与分析 job 时，没有产生新的扫描结果。
 
 ### 9.3 修复流程
 
@@ -430,7 +430,7 @@ Rust default 的平台补采入口为 `codeql-platform-observation.yml`，只接
 
 ## 10. 执行安全与供应链
 
-使用 ephemeral GitHub-hosted Ubuntu runner；不访问用户本机、链网、云账户或发布 environment。默认 `permissions: contents: read`；仅扫描上传相关 job 授予 `security-events: write`，必要时给予只读 Actions/PR 权限。plan/summary 不给写权限。
+使用 ephemeral GitHub-hosted Ubuntu runner；不访问用户本机、链网、云账户或发布 environment。默认 `permissions: contents: read`；仅扫描上传相关 job 授予 `security-events: write`，必要时给予只读 Actions/PR 权限。`plan` 不给写权限。
 
 使用 `pull_request`，不为了 fork 上传或读取私有数据改成 `pull_request_target`。不使用 `secrets: inherit`、PAT、云密钥、签名密钥、业务 API key；checkout 使用 `persist-credentials: false`。[E8]
 
