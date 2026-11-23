@@ -1,6 +1,6 @@
 //! Actual signed World component, not custody MFA/prepayment or production acceptance.
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     private_goal_prepare::sign_goal_prepare, private_goal_read::publication,
     private_goal_store::PrivateGoalStore,
 };

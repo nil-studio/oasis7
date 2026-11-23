@@ -6,7 +6,7 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7。
 
 ## 运行
 
-合入并完成适用独立评审后，在 GitHub Actions 的 **Native Cache Diagnostic** 选择 `main`，手动运行一次 `ordinary` 或 `formal`。PR 事件只运行采集器的 Python 测试，不启动 Rust 编译。入口没有定时触发，也不会自动重试。
+合入并完成适用独立评审后，在 GitHub Actions 的 **Native Cache Diagnostic** 选择 `main`，手动运行一次 `ordinary` 或 `formal`（手动运行首步前置执行采集器单测 `ci-cache-diagnostic.test.py`；PR 阶段由主工作流 `workflow_governance` 执行该单测，不额外重复触发本诊断工作流）。入口没有定时触发，也不会自动重试。
 
 工作流读取 `rust.yml` 的顶层字面量环境，使用相同的 pinned toolchains、依赖缓存族和工作区恢复器；环境格式或字段变化时要求重新核对，不静默换用另一套配置。诊断代码从 `ci-test-artifacts.py` 读取选定生产路径的第一个 build variant：ordinary 当前为 viewer，formal 当前为 formal-required。只编译该 variant，不运行测试或构建整个工作区。
 

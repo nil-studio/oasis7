@@ -319,7 +319,7 @@ impl ViewerRuntimeLiveServer {
             std::fs::write(&preflight_path, b"authoritative-recovery-preflight")?;
             std::fs::remove_file(&preflight_path)?;
             if let Some(committed) =
-                crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+                oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
                     .map_err(ViewerRuntimeLiveServerError::Runtime)?
             {
                 let metadata = committed.recovery_metadata;
@@ -934,7 +934,7 @@ impl ViewerRuntimeLiveServer {
 
 #[cfg(test)]
 fn test_first_agent_spawn_pos() -> Result<crate::geometry::GeoPos, String> {
-    let (_, model) = oasis7::runtime_host::gameplay_actions::formal_release_default_seed_model()?;
+    let (_, model) = oasis7_runtime_host::gameplay_actions::formal_release_default_seed_model()?;
     model
         .agents
         .get(oasis7_client_api::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)

@@ -1,3 +1,4 @@
+use super::rendezvous_client;
 use libp2p::autonat;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::OrTransport;
@@ -8,7 +9,7 @@ use libp2p::kad::{self, store::MemoryStoreConfig};
 use libp2p::multiaddr::Protocol;
 use libp2p::noise;
 use libp2p::relay;
-use libp2p::rendezvous::{client as rendezvous_client, server as rendezvous_server};
+use libp2p::rendezvous::server as rendezvous_server;
 use libp2p::request_response::{self, ProtocolSupport};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, Swarm};
@@ -23,6 +24,7 @@ use super::peer_record_dial_gate::DiscoveryDialPolicy;
 use super::peer_record_protocol_dial::{ProtocolDialBehaviour, ProtocolDialOrigins};
 use super::peer_record_store::PeerRecordStore;
 use super::request_deadline::{LocalRequest, RequestCodec, deadline_in};
+use super::transport_admission::TransportAdmissionGate;
 use super::wire_bytes::{InstrumentedStreamMuxer, SharedLibp2pWireByteCounters};
 
 pub(super) const KAD_MAX_PROVIDED_KEYS: usize = 65_536;
@@ -48,6 +50,7 @@ pub(super) struct InnerBehaviour {
 pub(super) struct Behaviour {
     inner: InnerBehaviour,
     connection_budget: Option<ConnectionBudget>,
+    admission_gate: TransportAdmissionGate,
     request_timeout: Option<std::time::Duration>,
     pub(super) discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
     peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
@@ -62,12 +65,14 @@ impl Behaviour {
         protocol_dials: ProtocolDialOrigins,
         peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
         connection_budget: Option<ConnectionBudget>,
+        admission_gate: TransportAdmissionGate,
         discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
         request_timeout: Option<std::time::Duration>,
     ) -> Self {
         Self {
             inner,
             connection_budget,
+            admission_gate,
             discovery_budget,
             request_timeout,
             peer_record_admission_budget,
@@ -131,8 +136,11 @@ impl NetworkBehaviour for Behaviour {
         local: &Multiaddr,
         remote: &Multiaddr,
     ) -> Result<(), libp2p::swarm::ConnectionDenied> {
-        self.inner
-            .handle_pending_inbound_connection(id, local, remote)
+        let inner = &mut self.inner;
+        self.admission_gate
+            .handle_pending_inbound(id, local, remote, || {
+                inner.handle_pending_inbound_connection(id, local, remote)
+            })
     }
     fn handle_established_inbound_connection(
         &mut self,
@@ -180,7 +188,9 @@ impl NetworkBehaviour for Behaviour {
         let augmented = self
             .inner
             .handle_pending_outbound_connection(id, peer, addresses, role)?;
-        Ok(self.dial_policy.filter(peer, augmented))
+        let filtered = self.dial_policy.filter(peer, augmented);
+        self.admission_gate
+            .handle_pending_outbound(id, peer, addresses, filtered)
     }
     fn handle_established_outbound_connection(
         &mut self,
@@ -204,6 +214,7 @@ impl NetworkBehaviour for Behaviour {
         Ok(handler)
     }
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<'_>) {
+        self.admission_gate.on_swarm_event(event);
         if let libp2p::swarm::FromSwarm::DialFailure(failure) = event {
             self.automatic_dials.remove(&failure.connection_id);
             self.protocol_dials.cleanup(failure.connection_id);
@@ -223,6 +234,7 @@ impl NetworkBehaviour for Behaviour {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<libp2p::swarm::ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>>
     {
+        self.admission_gate.clear_outbound_session();
         let action = self.inner.poll(cx);
         if let std::task::Poll::Ready(libp2p::swarm::ToSwarm::Dial { opts }) = &action {
             self.automatic_dials.insert(opts.connection_id());
@@ -321,10 +333,10 @@ pub(super) fn build_swarm_with_receiver(
 ) -> Swarm<Behaviour> {
     let swarm_config = libp2p::swarm::Config::with_tokio_executor()
         .with_idle_connection_timeout(std::time::Duration::from_secs(30));
-    let swarm_config = match &connection_budget {
-        Some(budget) => budget.configure_swarm(swarm_config),
-        None => swarm_config,
-    };
+    let admission_gate = connection_budget
+        .as_ref()
+        .map(ConnectionBudget::admission_gate)
+        .unwrap_or_default();
 
     let peer_id = PeerId::from(keypair.public());
     let gossipsub = gossipsub::Behaviour::new(
@@ -386,6 +398,7 @@ pub(super) fn build_swarm_with_receiver(
         protocol_dials,
         peer_record_admission_budget,
         connection_budget,
+        admission_gate.clone(),
         super::discovery_budget::DiscoveryWorkBudget::with_wire_window(wire_window),
         request_timeout,
     );
@@ -427,9 +440,10 @@ pub(super) fn build_swarm_with_receiver(
                 )),
             )
         });
-    let transport = OrTransport::new(direct_transport, relay_transport)
+    let base_transport = OrTransport::new(direct_transport, relay_transport)
         .map(|output, _| output.into_inner())
         .boxed();
+    let transport = admission_gate.wrap_transport(base_transport).boxed();
 
     Swarm::new(transport, behaviour, peer_id, swarm_config)
 }

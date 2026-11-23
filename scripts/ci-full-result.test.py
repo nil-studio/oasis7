@@ -2265,6 +2265,7 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         self.assertEqual(out.getvalue().strip(), m0)
         gh_cls.assert_called_once_with("nil-studio/oasis7", "tok")
         for bad_field in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version",
+                          "auxiliary_workflow_consolidation_version",
                           "ordinary_dynamic_partition_version", "contract_job_consolidation_version",
                           "ordinary_scope_config_slice_version", "standalone_cargo_manifest_scope_version",
                           "workspace_support_direct_gate_version",
@@ -2290,7 +2291,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         verified = module.verify_receipt(receipt, run, jobs, source=A, repository="nil-studio/oasis7",
                                          workflow_id=7, config=CONFIG, digest="definition")
         self.assertEqual(verified, receipt)
-        for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report"):
+        for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report",
+                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout"):
             broken = copy.deepcopy(receipt)
             broken["needs"][retired_job] = {"result": "success"}
             with self.subTest(retired_job=retired_job), self.assertRaises(ValueError):

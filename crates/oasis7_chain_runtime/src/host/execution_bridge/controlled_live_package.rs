@@ -354,10 +354,10 @@ fn validate_transition_inner(
         None
     } else {
         Some((
-            oasis7::runtime_host::world::from_snapshot(before.clone(), before_journal.clone())
+            oasis7_runtime_host::world::from_snapshot(before.clone(), before_journal.clone())
                 .map_err(|e| format!("live predecessor restore: {e:?}"))?
                 .with_release_security_policy(release_policy.clone()),
-            oasis7::runtime_host::world::from_snapshot(after.clone(), after_journal.clone())
+            oasis7_runtime_host::world::from_snapshot(after.clone(), after_journal.clone())
                 .map_err(|e| format!("live candidate restore: {e:?}"))?,
         ))
     };

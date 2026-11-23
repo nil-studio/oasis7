@@ -458,7 +458,7 @@ fn parse_validator_spec_rejects_zero_stake() {
 
 #[test]
 fn balances_payload_reports_empty_world_without_error() {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let payload = build_chain_balances_payload_from_world(
         "node-a",
         "live-a",

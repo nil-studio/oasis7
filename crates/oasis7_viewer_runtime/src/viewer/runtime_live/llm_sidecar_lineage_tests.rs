@@ -54,7 +54,7 @@ fn runtime_provider_continuation_recovery_fence_blocks_retained_context_after_re
         );
     }
     let world_id = "fenced-continuation-world";
-    let mut world = crate::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .bind_cognition_runtime(world_id, "continuation-fence-branch", 0, None, "pending", 0)
         .expect("Runtime cognition binding");
@@ -461,7 +461,7 @@ fn provider_dispatch_persists_active_marker_before_actor_start() {
         );
     }
     let world_id = "durable-dispatch-marker-world";
-    let mut world = crate::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .bind_cognition_runtime(
             world_id,
@@ -651,7 +651,7 @@ fn provider_dispatch_persistence_failure_does_not_start_actor() {
         );
     }
     let world_id = "failed-dispatch-marker-world";
-    let mut world = crate::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .bind_cognition_runtime(
             world_id,

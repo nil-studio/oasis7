@@ -78,7 +78,11 @@ fn exercise_pending_tcp_handshake_limit(total: u32, pending: u32, reason: Resour
                 };
                 assert_eq!(occupancy(&budget, target), (1, [0, 1], 1));
 
-                let DialError::Transport(errors) = completion.await else {
+                let dial_error = completion.await;
+                assert!(
+                    crate::libp2p_net::resource_budget::dial_hit_handshake_deadline(&dial_error)
+                );
+                let DialError::Transport(errors) = dial_error else {
                     panic!("expected the pending transport to time out");
                 };
                 let [(failed_address, libp2p::core::transport::TransportError::Other(error))] =
@@ -87,7 +91,11 @@ fn exercise_pending_tcp_handshake_limit(total: u32, pending: u32, reason: Resour
                     panic!("unexpected transport errors: {errors:?}");
                 };
                 assert_eq!(failed_address, &address.with_p2p(target).unwrap());
-                assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+                let inner_error = error
+                    .get_ref()
+                    .and_then(|cause| cause.downcast_ref::<io::Error>())
+                    .unwrap_or(error);
+                assert_eq!(inner_error.kind(), io::ErrorKind::TimedOut);
                 assert_eq!(error.to_string(), "transport handshake deadline expired");
                 assert_eq!(occupancy(&budget, target), (0, [0, 0], 0));
                 assert!(

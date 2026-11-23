@@ -20,7 +20,7 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
   - `crates/oasis7_runtime/src/tests/agent_claims.rs`
 
 <a id="public-claim-boundary"></a>
-## Public claim boundary
+## Public claim evidence boundary
 
 本 runbook 是受控 restricted grant 的运营执行权威，不是公开发行公告，也不把一次成功执行变成普遍可用性或公开 entitlement。它必须遵守玩家接入与发行模块的 [`REQ-ENTRY-CLAIM-003`](../../product/player-entry-distribution/release-communications-and-public-claims.prd.md#req-entry-claim-003) 与 [`四层口径分离`](../../product/player-entry-distribution/release-communications-and-public-claims.prd.md#public-claim-four-layer-model)。
 

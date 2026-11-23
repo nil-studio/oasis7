@@ -995,7 +995,7 @@ fn run_protected_runtime_fixture(
             .world
             .state()
             .agents
-            .contains_key(oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
+            .contains_key(oasis7_runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
         {
             return Err("canonical genesis gameplay action did not create the first agent".into());
         }
@@ -1134,7 +1134,7 @@ fn run_protected_runtime_fixture(
     let game_task_after =
         if genesis_mode {
             if !reopened_cut.world.state().agents.contains_key(
-                oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID,
+                oasis7_runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID,
             ) {
                 return Err("genesis gameplay effect missing after restart".into());
             }

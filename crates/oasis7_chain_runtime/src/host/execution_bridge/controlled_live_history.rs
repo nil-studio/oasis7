@@ -5,7 +5,7 @@ use super::{
     controlled_capture as capture, controlled_live_package as package, to_cbor,
 };
 use crate::controlled_live_config::GuardedAuthority;
-use oasis7::world_service::{CommitRef, ExecutionBinding, WorldIdentity, authority};
+use oasis7_world_service::{CommitRef, ExecutionBinding, WorldIdentity, authority};
 use oasis7_distfs::controlled_authority::{
     LocalRequestIdentity,
     replicated_protocol::{ArtifactRole, DurabilityEvidence, HeadAnchor, verify_evidence},
@@ -41,7 +41,7 @@ impl VerifiedRuntimeHead {
         &self,
         policy: &oasis7_runtime::ReleaseSecurityPolicy,
     ) -> Result<World, String> {
-        oasis7::runtime_host::world::from_snapshot(self.snapshot.clone(), self.journal.clone())
+        oasis7_runtime_host::world::from_snapshot(self.snapshot.clone(), self.journal.clone())
             .map(|w| w.with_release_security_policy(policy.clone()))
             .map_err(|e| format!("verified controlled world restore: {e:?}"))
     }

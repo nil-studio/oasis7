@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use oasis7::runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request;
+use oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request;
 use oasis7_client_api::viewer_auth::{
     VerifiedPlayerAuth, verify_collect_data_auth_proof, verify_gameplay_action_auth_proof,
 };

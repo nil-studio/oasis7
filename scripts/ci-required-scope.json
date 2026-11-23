@@ -2,7 +2,7 @@
   "fast_scope_version": 1,
   "ordinary_dynamic_partition_version": 1,
   "custody_node_shards_version": 2,
-  "contract_job_consolidation_version": 2,
+  "contract_job_consolidation_version": 3,
   "ordinary_scope_config_slice_version": 1,
   "standalone_cargo_manifest_scope_version": 1,
   "workspace_support_direct_gate_version": 1,
@@ -12,7 +12,10 @@
     "compile_metrics": "doc-checker-contracts",
     "consensus": "node",
     "pixel_world_bridge": "scenario-regression",
-    "viewer_performance_report": "viewer-js-required"
+    "viewer_performance_report": "viewer-js-required",
+    "packaging_contracts": "doc-checker-contracts",
+    "cargo_tooling_contracts": "scenario-regression",
+    "windows_rollout": "fleet-health"
   },
   "ordinary_case_prefix_contract_version": 1,
   "ordinary_shared_incremental_contract_version": 1,
@@ -74,6 +77,7 @@
   "ecs_workspace_upload_budget_version": 2,
   "main_fast_range_recovery_version": 1,
   "draft_pr_heavy_ci_skip_version": 1,
+  "auxiliary_workflow_consolidation_version": 1,
   "ordinary_harness_costs": {
     "version": 1,
     "fallback_ms": 60000,
@@ -1381,7 +1385,8 @@
     "crates/oasis7_custody_worker/scripts/verify-stages.test.py",
     "scripts/ci-local-signer-tests.test.py",
     "scripts/pr-review-threads.test.py",
-    "scripts/ci-governance-preview.test.py"
+    "scripts/ci-governance-preview.test.py",
+    "scripts/ci-cache-diagnostic.test.py"
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
@@ -1838,6 +1843,7 @@
     "oasis7_world_state": ["oasis7_required", "launcher_web"],
     "oasis7_world_projection": ["oasis7_required"],
     "oasis7_runtime": ["oasis7_required", "launcher_web"],
+    "oasis7_runtime_host": ["oasis7_required", "launcher_web"],
     "oasis7_world_service": ["oasis7_required"],
     "oasis7_simulator": ["oasis7_required", "launcher_web"],
     "oasis7_agent_api": [
@@ -2187,7 +2193,11 @@
       "reason": "quic_patch_consumers"
     },
     {
-      "match": ["vendor-libp2p-swarm-0.48.0/src/**"],
+      "match": [
+        "vendor-libp2p-swarm-0.48.0/src/**",
+        "vendor-libp2p-swarm-0.48.0/LICENSE",
+        "vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json"
+      ],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "swarm_patch_consumers"
     },
@@ -2201,7 +2211,7 @@
         "vendor-libp2p-rendezvous-0.18.1/**"
       ],
       "groups": ["rust_baseline", "net", "node"],
-      "reason": "rendezvous_patch_consumers"
+      "reason": "retired_rendezvous_patch_consumers"
     },
     {
       "match": ["scripts/libp2p-security-source.test.py"],

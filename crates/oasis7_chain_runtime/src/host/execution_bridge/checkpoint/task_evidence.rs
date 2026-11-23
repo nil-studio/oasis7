@@ -1,7 +1,7 @@
 //! Derived live-task read dependencies. This scope is a GC cache, never authority.
 use super::*;
-use oasis7::world_service::wire::{SchedulerOperationV1, WorldServicePayloadV1};
-use oasis7::world_service::{CanonicalIntentResultV1, correlation, game_task};
+use oasis7_world_service::wire::{SchedulerOperationV1, WorldServicePayloadV1};
+use oasis7_world_service::{CanonicalIntentResultV1, correlation, game_task};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -246,7 +246,7 @@ pub(super) fn trusted_restore_context(
 pub(in super::super) fn pin_task_history(
     records: &Path,
     store: &LocalCasStore,
-    identity: &oasis7::world_service::WorldIdentity,
+    identity: &oasis7_world_service::WorldIdentity,
     height: u64,
     context: &super::super::world_service_read::RestoreContext,
 ) -> Result<super::super::world_service_read::PinnedWorld, String> {
@@ -450,7 +450,7 @@ mod historical_validation_tests {
     use super::*;
     #[test]
     fn owned_height_still_requires_its_original_signature() {
-        use oasis7::world_service::{SubmitIntentRequest, WorldIdentity, sign_read_request};
+        use oasis7_world_service::{SubmitIntentRequest, WorldIdentity, sign_read_request};
         use oasis7_agent_api::game::{DecimalU64, GAME_TASK_CREATE_DOMAIN, GameTaskCreateV1};
         let identity = WorldIdentity {
             world_id: "world".into(),

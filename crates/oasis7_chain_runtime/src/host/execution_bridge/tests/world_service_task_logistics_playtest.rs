@@ -18,7 +18,7 @@ pub(super) fn fixture() -> (
         world_id: "w1".into(),
         genesis_digest: "fixture-genesis-v1".into(),
     };
-    let mut world = oasis7::runtime_host::world::new_with_state(initial_state());
+    let mut world = oasis7_runtime_host::world::new_with_state(initial_state());
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),

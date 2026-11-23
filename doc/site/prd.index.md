@@ -43,9 +43,7 @@
 - `doc/site/prd.md`：站点主叙事、docs hub、下载链路、质量门禁、镜像、公开版本说明的当前 authority。
 - 当前站点任务、验证状态与历史追溯：Git、PR、实际 CI 与评审记录；Issue/Project 按需，PRD 不承载可变台账。
 - `doc/site/manual/README.md`：静态 docs hub、Viewer 手册镜像与 canonical/manual 映射的首读入口；再分流到主专题或已完成增量记录。
-- `doc/site/github-pages/github-pages-homepage-page-2026-06-19.design.md`：首页页面级层级基线；它是 Image2 设计证据，不是新的 visual-designer signoff。
-- `doc/site/github-pages/github-pages-visual-content-refresh-2026-07-18.design.md`：双语、响应式与概念图边界；旧三列布局已被 [Site 当前布局](design.md#homepage-layout-authority)替代。
-- `doc/site/github-pages/github-pages-cinematic-consequence-refresh-2026-07-19.design.md`：后果链节奏与渐进披露；当前布局与图注优先关系见 [Site 设计](design.md#homepage-layout-authority)。
+- 历史日期化首页增量设计（`2026-06-19`、`2026-07-18`、`2026-07-19` 三份）的有效双语、响应式、素材边界与后果链条款已全部吸收进 [Site 当前布局权威](design.md#homepage-layout-authority) 与 `doc/site/github-pages/public-site-discovery-and-showcase.design.md` 并退役（历史原文从 Git history 追溯）。
 - [官网发现与展示配套文档](#public-site-document-set)：聚合产品需求、产品体验与视觉设计、系统实现设计；设计师和开发者分别从对应职责入口阅读，继承现有站点布局约束。
 
 ## 默认阅读面边界

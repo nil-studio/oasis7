@@ -190,7 +190,7 @@ fn restore(
         &super::super::super::snapshot_to_cbor(&snapshot).unwrap(),
     )
     .unwrap();
-    let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
+    let world = oasis7_runtime_host::world::from_verified_formal_snapshot(
         snapshot, journal, retained, reader,
     )
     .unwrap();
@@ -225,7 +225,7 @@ fn run_inner(heights: u64, progress: &mut Progress) {
         &to_cbor(fixture.world.snapshot()).unwrap(),
     )
     .unwrap();
-    fixture.world = oasis7::runtime_host::world::from_verified_formal_snapshot(
+    fixture.world = oasis7_runtime_host::world::from_verified_formal_snapshot(
         fixture.world.snapshot(),
         fixture.world.journal().clone(),
         parent,

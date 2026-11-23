@@ -247,7 +247,7 @@ fn reward_runtime_loop(
             }
         };
 
-    let mut reward_world = oasis7::runtime_host::world::new_production_hardened();
+    let mut reward_world = oasis7_runtime_host::world::new_production_hardened();
     reward_world.set_reward_asset_config(config.reward_asset_config.clone());
     reward_world.set_reward_signature_governance_policy(RewardSignatureGovernancePolicy {
         require_mintsig_v2: true,

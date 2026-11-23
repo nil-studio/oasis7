@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 const DEADLINE: Duration = Duration::from_secs(5);
 
 fn actual_restore() -> Result<World, WorldError> {
-    let world = oasis7::runtime_host::world::new();
-    oasis7::runtime_host::world::from_snapshot(world.snapshot(), world.journal().clone())
+    let world = oasis7_runtime_host::world::new();
+    oasis7_runtime_host::world::from_snapshot(world.snapshot(), world.journal().clone())
 }
 
 fn wait_for_join(cache: &Mutex<RestoreCache>, key: &Key) {

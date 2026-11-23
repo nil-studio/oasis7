@@ -128,25 +128,25 @@ with tempfile.TemporaryDirectory() as temporary:
     tool=root / "gh"
     tool.write_text("#!/usr/bin/env python3\nimport json,os,sys\nkind=os.environ['MOCK_KIND']\nsha=os.environ['MOCK_SHA']\nprint(json.dumps({'object': {'type': 'commit' if '/git/tags/' in sys.argv[2] else kind, 'sha': sha if kind == 'commit' or '/git/tags/' in sys.argv[2] else 'b'*40}}))\n")
     tool.chmod(0o755)
-    # The real release workflow uses jq on its publishing runner. This test
-    # already mocks gh; emulate only the jq invocations exercised here so
-    # documentation CI images do not need a separate jq installation.
+    # The doc-checker runner does not necessarily ship jq. Exercise the
+    # workflow's exact jq argument contract against a strict local fixture
+    # rather than allowing a missing system package to mask release checks.
     jq = root / "jq"
-    jq.write_text(
-        "#!/usr/bin/env python3\n"
-        "import json, sys\n"
-        "args = sys.argv[1:]\n"
-        "if args in ([\"-r\", \".object.sha\"], [\"-r\", \".object.type\"]):\n"
-        "    value = json.load(sys.stdin)[\"object\"][args[1].rsplit(\".\", 1)[1]]\n"
-        "    print(value)\n"
-        "elif len(args) == 6 and args[:3] == [\"-e\", \"--arg\", \"sha\"] and args[4] == \".checkoutSha == $sha\":\n"
-        "    with open(args[5], encoding=\"utf-8\") as source:\n"
-        "        accepted = json.load(source)[\"checkoutSha\"] == args[3]\n"
-        "    print(\"true\" if accepted else \"false\")\n"
-        "    sys.exit(0 if accepted else 1)\n"
-        "else:\n"
-        "    sys.exit(\"unsupported jq fixture invocation\")\n"
-    )
+    jq.write_text("""#!/usr/bin/env python3
+import json,sys
+args=sys.argv[1:]
+if len(args)==2 and args[0]=='-r' and args[1] in ('.object.sha','.object.type'):
+    value=json.load(sys.stdin)['object'][args[1].split('.')[-1]]
+    if not isinstance(value,str): sys.exit(2)
+    print(value)
+elif len(args)==6 and args[:3]==['-e','--arg','sha'] and args[4]=='.checkoutSha == $sha':
+    with open(args[5],encoding='utf-8') as source:
+        actual=json.load(source).get('checkoutSha')
+    print('true' if actual==args[3] else 'false')
+    sys.exit(0 if actual==args[3] else 1)
+else:
+    sys.exit(2)
+""")
     jq.chmod(0o755)
     (root / "output/release/assets").mkdir(parents=True)
     for platform in ("linux-x64", "macos-x64", "windows-x64"):

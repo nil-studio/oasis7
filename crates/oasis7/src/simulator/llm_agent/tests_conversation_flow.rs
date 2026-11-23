@@ -402,6 +402,19 @@ fn base_config() -> LlmAgentConfig {
     }
 }
 
+// Preserve the original three input values for every environment-config test,
+// rather than changing their models, provider URL, or credentials in the size cleanup.
+fn fixture_provider_env() -> BTreeMap<String, String> {
+    let mut vars = BTreeMap::new();
+    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
+    vars.insert(
+        ENV_LLM_BASE_URL.to_string(),
+        "https://api.example.com/v1".to_string(),
+    );
+    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    vars
+}
+
 #[test]
 fn llm_prompt_profile_uses_relaxed_token_budget_for_stability() {
     let compact = LlmPromptProfile::Compact.prompt_budget();
@@ -419,16 +432,13 @@ fn llm_prompt_profile_uses_relaxed_token_budget_for_stability() {
 
 #[test]
 fn llm_config_uses_default_system_prompt() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let vars = fixture_provider_env();
 
     let config = LlmAgentConfig::from_env_with(|key| vars.get(key).cloned(), "").unwrap();
-    assert_eq!(config.system_prompt, DEFAULT_LLM_SYSTEM_PROMPT);
+    assert_eq!(
+        config.system_prompt,
+        oasis7_agent_harness::llm_defaults::DEFAULT_LLM_SYSTEM_PROMPT
+    );
     assert_eq!(config.timeout_ms, DEFAULT_LLM_TIMEOUT_MS);
     assert_eq!(config.short_term_goal, DEFAULT_LLM_SHORT_TERM_GOAL);
     assert_eq!(config.long_term_goal, DEFAULT_LLM_LONG_TERM_GOAL);
@@ -470,13 +480,7 @@ fn llm_config_uses_default_model_when_unset() {
 
 #[test]
 fn llm_config_reads_system_prompt_from_env() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(
         ENV_LLM_SYSTEM_PROMPT.to_string(),
         "自定义 system prompt".to_string(),
@@ -490,13 +494,7 @@ fn llm_config_reads_system_prompt_from_env() {
 
 #[test]
 fn llm_config_reads_goal_and_module_limits_from_env() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(
         ENV_LLM_SHORT_TERM_GOAL.to_string(),
         "保持本轮高效".to_string(),
@@ -515,13 +513,7 @@ fn llm_config_reads_goal_and_module_limits_from_env() {
 
 #[test]
 fn llm_config_reads_multistep_and_prompt_fields_from_env() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(ENV_LLM_MAX_DECISION_STEPS.to_string(), "6".to_string());
     vars.insert(ENV_LLM_MAX_REPAIR_ROUNDS.to_string(), "2".to_string());
     vars.insert(
@@ -551,13 +543,7 @@ fn llm_config_reads_multistep_and_prompt_fields_from_env() {
 
 #[test]
 fn llm_config_reads_debug_mode_from_env() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(ENV_LLM_DEBUG_MODE.to_string(), "true".to_string());
 
     let config = LlmAgentConfig::from_env_with(|key| vars.get(key).cloned(), "").unwrap();
@@ -566,13 +552,7 @@ fn llm_config_reads_debug_mode_from_env() {
 
 #[test]
 fn llm_config_rejects_invalid_debug_mode() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(ENV_LLM_DEBUG_MODE.to_string(), "maybe".to_string());
 
     let err = LlmAgentConfig::from_env_with(|key| vars.get(key).cloned(), "").unwrap_err();
@@ -581,13 +561,7 @@ fn llm_config_rejects_invalid_debug_mode() {
 
 #[test]
 fn llm_config_rejects_invalid_harvest_max_amount_cap() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(ENV_LLM_HARVEST_MAX_AMOUNT_CAP.to_string(), "0".to_string());
 
     let err = LlmAgentConfig::from_env_with(|key| vars.get(key).cloned(), "").unwrap_err();
@@ -599,13 +573,7 @@ fn llm_config_rejects_invalid_harvest_max_amount_cap() {
 
 #[test]
 fn llm_config_rejects_invalid_execute_until_auto_reenter_ticks() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(
         ENV_LLM_EXECUTE_UNTIL_AUTO_REENTER_TICKS.to_string(),
         "-1".to_string(),
@@ -620,13 +588,7 @@ fn llm_config_rejects_invalid_execute_until_auto_reenter_ticks() {
 
 #[test]
 fn llm_config_rejects_invalid_prompt_profile() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(
         ENV_LLM_PROMPT_PROFILE.to_string(),
         "invalid-profile".to_string(),
@@ -638,13 +600,7 @@ fn llm_config_rejects_invalid_prompt_profile() {
 
 #[test]
 fn llm_config_agent_scoped_goal_overrides_global_value() {
-    let mut vars = BTreeMap::new();
-    vars.insert(ENV_LLM_MODEL.to_string(), "gpt-4o-mini".to_string());
-    vars.insert(
-        ENV_LLM_BASE_URL.to_string(),
-        "https://api.example.com/v1".to_string(),
-    );
-    vars.insert(ENV_LLM_API_KEY.to_string(), "secret".to_string());
+    let mut vars = fixture_provider_env();
     vars.insert(
         ENV_LLM_SHORT_TERM_GOAL.to_string(),
         "global-short".to_string(),

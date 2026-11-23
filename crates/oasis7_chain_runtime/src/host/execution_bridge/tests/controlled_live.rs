@@ -4,7 +4,7 @@ use super::super::controlled_live::*;
 use super::super::{controlled_bootstrap_anchor, controlled_live_history as history};
 use crate::controlled_live_config::{ENGINEERING_SCOPE, GuardedAuthority, GuardedConfiguration};
 use ed25519_dalek::SigningKey;
-use oasis7::world_service::*;
+use oasis7_world_service::*;
 use oasis7_distfs::controlled_authority::replicated_protocol::{
     DurabilityEvidence, FixedTrust, HeadAnchor, verify_evidence,
 };
@@ -476,10 +476,10 @@ fn guarded_inputs_fail_closed_before_creating_private_records() {
 #[test]
 #[cfg(all(unix, feature = "wasmtime"))]
 fn signed_http_pure_client_requires_explicit_prerequisite_policy_for_all_operations() {
-    use oasis7::world_service::client::{
+    use oasis7_world_service::client::{
         RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort,
     };
-    use oasis7::world_service::verified_view::ReadEvidencePolicy;
+    use oasis7_world_service::verified_view::ReadEvidencePolicy;
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},

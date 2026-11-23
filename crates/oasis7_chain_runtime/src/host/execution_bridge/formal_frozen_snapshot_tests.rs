@@ -154,7 +154,7 @@ fn original_snapshot_token_rejects_equal_clones_and_changed_rebuilds() {
     let mut changed_world = world.snapshot().clone();
     changed_world.cognition = serde_json::json!({"changed-original-snapshot": true});
     let changed_world =
-        oasis7::runtime_host::world::from_snapshot(changed_world, world.journal().clone()).unwrap();
+        oasis7_runtime_host::world::from_snapshot(changed_world, world.journal().clone()).unwrap();
     assert!(
         freeze_material_inner(
             anchor.authority(),

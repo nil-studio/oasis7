@@ -51,7 +51,7 @@ fn publish_visual_fixture(world: &mut crate::runtime::World, body: WorldEventBod
         caused_by: None,
         body,
     });
-    *world = crate::runtime_host::world::from_snapshot(snapshot, journal)
+    *world = oasis7_runtime_host::world::from_snapshot(snapshot, journal)
         .expect("replay production visual event through public recovery boundary");
 }
 

@@ -6,7 +6,7 @@ use super::execution_bridge_real_tests::real_execution_bridge as bridge;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world as viewer_bootstrap_formal_release_runtime_world;
 use oasis7::runtime_host::ordinary_starter::{self, OrdinaryStarterPoolV1};
-use oasis7::world_service::WorldIdentity;
+use oasis7_world_service::WorldIdentity;
 use oasis7_node::{NodeConfig, NodeRole, NodeRuntime};
 use oasis7_proto::storage_profile::StorageProfileConfig;
 use oasis7_runtime::{ChainResourceDerivationContext, ReleaseSecurityPolicy, blake3_hex};
@@ -446,7 +446,7 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
             hash,
             "devlocal-preview-initialization-v1",
         );
-        world = oasis7::runtime_host::world::from_snapshot_with_release_security_policy(
+        world = oasis7_runtime_host::world::from_snapshot_with_release_security_policy(
             snapshot,
             world.journal().clone(),
             ReleaseSecurityPolicy::production_hardened(),
@@ -659,7 +659,7 @@ fn verify_at(
         .map_err(|_| "invalid preview service pin")?
         .verify_strict(&receipt_payload(&receipt)?, &signature)
         .map_err(|_| "node-scoped preview receipt signature rejected")?;
-    let original: oasis7::world_service::CommitRef =
+    let original: oasis7_world_service::CommitRef =
         serde_json::from_value(receipt.published_commit.clone())
             .map_err(|_| "preview original commit invalid")?;
     if receipt.initial_publication_proof_hash.is_none() {

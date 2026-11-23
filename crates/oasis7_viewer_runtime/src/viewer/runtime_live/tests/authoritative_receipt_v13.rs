@@ -65,7 +65,7 @@ fn governed_player_attribution_preserves_non_rejected_census_semantics_across_re
             )
         })
         .collect::<Vec<_>>();
-    server.world = crate::runtime_host::world::from_snapshot(snapshot, journal)
+    server.world = oasis7_runtime_host::world::from_snapshot(snapshot, journal)
         .expect("restore census fixture");
 
     let now_ms = crate::viewer::runtime_live::recovery_receipt::current_unix_time_ms();
@@ -118,7 +118,7 @@ fn governed_player_attribution_preserves_non_rejected_census_semantics_across_re
         assert!(!resolved.system_authored);
     }
     let persisted =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation")
             .expect("persisted generation");
     let generation: RuntimeAuthoritativeRecoveryGeneration =
@@ -180,7 +180,7 @@ fn governed_player_attribution_preserves_non_rejected_census_semantics_across_re
         let nonces_before = restarted.consumed_rollback_operator_nonces.clone();
         let readiness_before = restarted.rollback_readiness.clone();
         let generation_before =
-            crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+            oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
                 .expect("load generation before retry")
                 .expect("generation before retry")
                 .recovery_metadata;
@@ -193,7 +193,7 @@ fn governed_player_attribution_preserves_non_rejected_census_semantics_across_re
         assert_eq!(restarted.consumed_rollback_operator_nonces, nonces_before);
         assert_eq!(restarted.rollback_readiness, readiness_before);
         assert_eq!(
-            crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+            oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
                 .expect("load generation after retry")
                 .expect("generation after retry")
                 .recovery_metadata,

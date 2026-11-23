@@ -116,7 +116,7 @@ fn execute_with_business_reader(
     let _attempt_pin = super::formal_attempt_lifecycle::active(&attempt, frozen)?;
     let world_dir = attempt.join("world");
     super::controlled_live::private_directory(&world_dir)?;
-    let identity = oasis7::world_service::WorldIdentity {
+    let identity = oasis7_world_service::WorldIdentity {
         world_id: authority.definition().world.world_id.clone(),
         genesis_digest: authority.definition().world.genesis_digest.clone(),
     };
@@ -215,7 +215,7 @@ fn execute_with_business_reader(
             )
             .map_err(|e| format!("{e:?}"))?
     } else {
-        oasis7::runtime_host::world::from_snapshot(output_snapshot, output_journal)
+        oasis7_runtime_host::world::from_snapshot(output_snapshot, output_journal)
             .map_err(|e| format!("{e:?}"))?
     };
     let reader = business_reader.cloned().unwrap_or_else(|| {
