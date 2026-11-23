@@ -76,8 +76,11 @@
   "ordinary_main_fast_cache_writer_version": 1,
   "ecs_workspace_upload_budget_version": 2,
   "main_fast_range_recovery_version": 1,
+  "main_fast_coalesce_concurrency_version": 1,
   "draft_pr_heavy_ci_skip_version": 1,
   "auxiliary_workflow_consolidation_version": 1,
+  "workspace_member_cargo_manifest_scope_version": 1,
+  "scoped_production_cfg_version": 1,
   "ordinary_harness_costs": {
     "version": 1,
     "fallback_ms": 60000,
@@ -2198,7 +2201,10 @@
       "match": [
         "vendor-libp2p-swarm-0.48.0/src/**",
         "vendor-libp2p-swarm-0.48.0/LICENSE",
-        "vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json"
+        "vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json",
+        "vendor/libp2p-swarm-0.49.0/src/**",
+        "vendor/libp2p-swarm-0.49.0/LICENSE",
+        "vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json"
       ],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "swarm_patch_consumers"
@@ -2257,6 +2263,18 @@
       ],
       "groups": [],
       "reason": "documents"
+    },
+    {
+      "match": [
+        "tools/voxel_asset_pipeline/DESIGN.md",
+        "tools/voxel_asset_pipeline/README.md",
+        "tools/voxel_asset_pipeline/requirements.txt",
+        "tools/voxel_asset_pipeline/six_view_to_voxel_model.py",
+        "tools/voxel_asset_pipeline/tests/test_six_view_to_voxel_model.py",
+        "tools/voxel_asset_pipeline/tests/test_source_cleanup_cli.py"
+      ],
+      "groups": [],
+      "reason": "retired_voxel_asset_pipeline"
     },
     {
       "match": [

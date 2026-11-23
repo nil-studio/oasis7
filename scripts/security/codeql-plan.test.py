@@ -339,7 +339,8 @@ class PlannerTests(unittest.TestCase):
                      'vendor-libp2p-swarm-0.48.0/LICENSE',
                      'vendor/if-watch-3.2.2/Cargo.toml.orig',
                      'vendor/libp2p-quic-0.15.0/.gitignore',
-                     'vendor/libp2p-quic-0.15.0/LICENSE'):
+                     'vendor/libp2p-quic-0.15.0/LICENSE',
+                     'vendor/libp2p-swarm-0.49.0/LICENSE'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'fixed vendor metadata\n')
@@ -364,7 +365,8 @@ class PlannerTests(unittest.TestCase):
                      'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
                      'vendor/if-watch-3.2.2/upstream-source-sha256.json',
                      'vendor/libp2p-quic-0.15.0/local-patch-sha256.json',
-                     'vendor/libp2p-quic-0.15.0/upstream-source-sha256.json'):
+                     'vendor/libp2p-quic-0.15.0/upstream-source-sha256.json',
+                     'vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, '{"sha256": "fixed"}\n')
@@ -393,6 +395,8 @@ class PlannerTests(unittest.TestCase):
                      'vendor/if-watch-3.2.3/Cargo.toml.orig',
                      'vendor/libp2p-quic-0.15.0/unregistered.json',
                      'vendor/libp2p-quic-0.16.0/LICENSE',
+                     'vendor/libp2p-swarm-0.49.0/unregistered.json',
+                     'vendor/libp2p-swarm-0.50.0/LICENSE',
                      'vendor/unregistered.json'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')

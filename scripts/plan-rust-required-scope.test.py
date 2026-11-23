@@ -567,7 +567,10 @@ class Selection(unittest.TestCase):
         for path in ('vendor-libp2p-swarm-0.48.0/src/lib.rs',
                      'vendor-libp2p-swarm-0.48.0/src/outbound_attempt.rs',
                      'vendor-libp2p-swarm-0.48.0/LICENSE',
-                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json'):
+                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
+                     'vendor/libp2p-swarm-0.49.0/src/lib.rs',
+                     'vendor/libp2p-swarm-0.49.0/LICENSE',
+                     'vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json'):
             with self.subTest(path=path):
                 base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'fixed Swarm patch source')
@@ -576,7 +579,10 @@ class Selection(unittest.TestCase):
                 self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
         for path in ('vendor-libp2p-swarm-0.48.0/unregistered.json',
                      'vendor-libp2p-swarm-0.49.0/src/lib.rs',
-                     'vendor-libp2p-swarm-0.49.0/LICENSE'):
+                     'vendor-libp2p-swarm-0.49.0/LICENSE',
+                     'vendor/libp2p-swarm-0.49.0/unregistered.json',
+                     'vendor/libp2p-swarm-0.50.0/src/lib.rs',
+                     'vendor/libp2p-swarm-0.50.0/LICENSE'):
             with self.subTest(path=path):
                 base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'unregistered input')
@@ -6940,11 +6946,21 @@ class NativeSupportContracts(unittest.TestCase):
         base = self.commit()
         self.write(self.LEAF, source.replace('args.len() != 3',
                                             'args.len() != 3 || args.is_empty()'))
-        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        head = self.commit()
+        plan = selector.select(config, base, head, profile='pr-fast')
         self.assertNotIn('ordinary_support_handoffs', plan)
         self.assertNotIn('ordinary_execution', plan)
+        self.assertNotIn('ordinary_fast_targets', plan)
+        self.assertNotIn('build_policy', plan['architecture'])
         self.assertIn('workspace_support', plan['groups'])
-        self.assertEqual(plan['scope'], 'full')
+        self.assertEqual(set(plan['workspace_support_profiles']), {self.OWNER, *self.CONSUMERS})
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertTrue(any('production cfg changed; scoped package and platform coverage' in reason
+                            for reason in plan['reasons']))
+        legacy = copy.deepcopy(config)
+        legacy.pop('scoped_production_cfg_version', None)
+        self.assertEqual(selector.select(legacy, base, head, profile='pr-fast')['scope'], 'full')
+
 
     def test_local_adapter_and_public_dispatch_cannot_borrow_legacy_handoff(self):
         config, _ = self.fixture()
@@ -8905,6 +8921,257 @@ class ViewerNpmLockScopeTests(unittest.TestCase):
             self.assertEqual(plan['scope'], 'targeted')
             self.assertIn('viewer_js_required', plan['groups'])
             self.assertNotIn('launcher_web', plan['groups'])
+
+
+class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    ROOT_TOML = (
+        '[workspace]\n'
+        'members=["crates/oasis7_runtime", "crates/oasis7_runtime_host", '
+        '"crates/oasis7_chain_runtime", "crates/oasis7_context", "crates/oasis7_viewer"]\n'
+        'resolver="2"\n'
+        '[workspace.dependencies]\n'
+        'serde = "1.0"\n'
+    )
+
+    BASE_LOCK = (
+        'version = 3\n\n'
+        '[[package]]\nname = "oasis7_chain_runtime"\nversion = "0.1.0"\n'
+        'dependencies = ["oasis7_runtime_host"]\n\n'
+        '[[package]]\nname = "oasis7_context"\nversion = "0.1.0"\n\n'
+        '[[package]]\nname = "oasis7_runtime"\nversion = "0.1.0"\n\n'
+        '[[package]]\nname = "oasis7_runtime_host"\nversion = "0.1.0"\n'
+        'dependencies = ["oasis7_runtime"]\n\n'
+        '[[package]]\nname = "oasis7_viewer"\nversion = "0.1.0"\n\n'
+        '[[package]]\nname = "serde"\nversion = "1.0.210"\n'
+        'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+        'checksum = "c8e3592472072e6e22e0a54d5904d9febf8508f65fb8552499a1abc7d1078c3a"\n'
+    )
+
+    def setUp(self):
+        Selection.setUp(self)
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('Cargo.toml', self.ROOT_TOML)
+        self.write('Cargo.lock', self.BASE_LOCK)
+        self.write('crates/oasis7_runtime/Cargo.toml', '[package]\nname="oasis7_runtime"\nversion="0.1.0"\nedition="2021"\n')
+        self.write('crates/oasis7_runtime/src/lib.rs', 'pub fn rt() {}\n')
+        self.write(
+            'crates/oasis7_runtime_host/Cargo.toml',
+            '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\noasis7_runtime={path="../oasis7_runtime"}\n',
+        )
+        self.write('crates/oasis7_runtime_host/src/lib.rs', 'pub fn host() {}\n')
+        self.write(
+            'crates/oasis7_chain_runtime/Cargo.toml',
+            '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\noasis7_runtime_host={path="../oasis7_runtime_host"}\n',
+        )
+        self.write('crates/oasis7_chain_runtime/build.rs', 'fn main() {}\n')
+        self.write('crates/oasis7_chain_runtime/src/lib.rs', 'pub fn chain() {}\n')
+        self.write('crates/oasis7_context/Cargo.toml', '[package]\nname="oasis7_context"\nversion="0.1.0"\nedition="2021"\n')
+        self.write('crates/oasis7_context/src/lib.rs', 'pub fn ctx() {}\n')
+        self.write('crates/oasis7_viewer/Cargo.toml', '[package]\nname="oasis7_viewer"\nversion="0.1.0"\nedition="2021"\n')
+        self.write('crates/oasis7_viewer/src/lib.rs', 'pub fn view() {}\n')
+        self.base = self.commit()
+
+    def test_workspace_member_manifest_and_internal_lock_edges_scope_and_include_lock_consumers(self):
+        self.write(
+            'crates/oasis7_runtime_host/Cargo.toml',
+            '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\noasis7_runtime={path="../oasis7_runtime"}\n'
+            'oasis7_context={path="../oasis7_context"}\nserde={workspace=true}\n',
+        )
+        updated_lock = self.BASE_LOCK.replace(
+            'dependencies = ["oasis7_runtime"]',
+            'dependencies = ["oasis7_context", "oasis7_runtime", "serde"]',
+        )
+        self.write('Cargo.lock', updated_lock)
+        head = self.commit()
+        plan = selector.select(self.config, self.base, head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+        self.assertEqual(
+            set(plan['groups']),
+            {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'oasis7_required', 'launcher_web'},
+        )
+        self.assertEqual(plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
+        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+        self.assertEqual(plan['architecture']['mode'], 'targeted')
+        self.assertNotEqual(plan['architecture'].get('build_policy'), 'ordinary-targets')
+        self.assertTrue(any('scoped workspace member Cargo manifest/lockfile changed: Cargo.lock' == r
+                            for r in plan['reasons']))
+
+        # Even if oasis7_context Cargo.toml changes + Cargo.lock changes, generated_inputs native-Cargo.lock
+        # ensures oasis7_chain_runtime stays in oasis7_required_packages!
+        self.git('checkout', '-q', self.base)
+        self.write(
+            'crates/oasis7_context/Cargo.toml',
+            '[package]\nname="oasis7_context"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\nserde={workspace=true}\n',
+        )
+        ctx_lock = self.BASE_LOCK.replace(
+            '[[package]]\nname = "oasis7_context"\nversion = "0.1.0"\n',
+            '[[package]]\nname = "oasis7_context"\nversion = "0.1.0"\ndependencies = ["serde"]\n',
+        )
+        self.write('Cargo.lock', ctx_lock)
+        ctx_head = self.commit()
+        ctx_plan = selector.select(self.config, self.base, ctx_head, profile='pr-fast')
+        self.assertEqual(ctx_plan['scope'], 'targeted', ctx_plan['reasons'])
+        self.assertIn('oasis7_chain_runtime', ctx_plan['oasis7_required_packages'])
+        self.assertIn('command_center', ctx_plan['groups'])
+        self.assertTrue(ctx_plan['command_center_package'])
+        self.assertNotIn('viewer_js_required', ctx_plan['groups'])
+        self.assertNotIn('site_quality', ctx_plan['groups'])
+
+        # Old baseline without workspace_member_cargo_manifest_scope_version stays full
+        old_cfg = copy.deepcopy(self.config)
+        del old_cfg['workspace_member_cargo_manifest_scope_version']
+        self.assertEqual(selector.select(old_cfg, self.base, head, profile='pr-fast')['scope'], 'full')
+
+        # Removing an internal member dependency edge still retains reverse consumers across compared graphs
+        self.git('checkout', '-q', self.base)
+        self.write(
+            'crates/oasis7_runtime_host/Cargo.toml',
+            '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\nedition="2021"\n',
+        )
+        removed_lock = self.BASE_LOCK.replace(
+            '[[package]]\nname = "oasis7_runtime_host"\nversion = "0.1.0"\ndependencies = ["oasis7_runtime"]\n',
+            '[[package]]\nname = "oasis7_runtime_host"\nversion = "0.1.0"\n',
+        )
+        self.write('Cargo.lock', removed_lock)
+        removed_head = self.commit()
+        removed_plan = selector.select(self.config, self.base, removed_head, profile='pr-fast')
+        self.assertEqual(removed_plan['scope'], 'targeted', removed_plan['reasons'])
+        self.assertEqual(removed_plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
+        self.assertEqual(removed_plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+
+    def test_workspace_member_manifest_rejects_unsafe_manifest_or_lock_mutations(self):
+        valid_member = (
+            '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\noasis7_runtime={path="../oasis7_runtime"}\nserde={workspace=true}\n'
+        )
+        cases = [
+            ('lone_lock', {'Cargo.lock': self.BASE_LOCK + '\n'}),
+            ('root_toml', {'Cargo.toml': self.ROOT_TOML + '# root comment\n',
+                           'crates/oasis7_runtime_host/Cargo.toml': valid_member}),
+            ('ext_lock_checksum', {
+                'crates/oasis7_runtime_host/Cargo.toml': valid_member,
+                'Cargo.lock': self.BASE_LOCK.replace('1.0.210', '1.0.211'),
+            }),
+            ('other_member_lock_edge', {
+                'crates/oasis7_runtime_host/Cargo.toml': valid_member,
+                'Cargo.lock': self.BASE_LOCK.replace(
+                    '[[package]]\nname = "oasis7_viewer"\nversion = "0.1.0"\n',
+                    '[[package]]\nname = "oasis7_viewer"\nversion = "0.1.0"\ndependencies = ["serde"]\n',
+                ),
+            }),
+            ('features_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': valid_member + '[features]\nextra = []\n',
+            }),
+            ('optional_dep_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\nedition="2021"\n'
+                    '[dependencies]\noasis7_runtime={path="../oasis7_runtime"}\nserde={workspace=true, optional=true}\n'
+                ),
+            }),
+            ('target_deps_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    valid_member + '[target.\'cfg(unix)\'.dependencies]\nserde={workspace=true}\n'
+                ),
+            }),
+            ('build_deps_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': valid_member + '[build-dependencies]\nserde={workspace=true}\n',
+            }),
+            ('git_dep', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\nedition="2021"\n'
+                    '[dependencies]\nfoo={git="https://example.invalid/foo.git"}\n'
+                ),
+            }),
+            ('outside_path_dep', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\nedition="2021"\n'
+                    '[dependencies]\noutside={path="../../outside"}\n'
+                ),
+            }),
+            ('member_with_build_rs', {
+                'crates/oasis7_chain_runtime/Cargo.toml': (
+                    '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\nedition="2021"\n'
+                    '[dependencies]\noasis7_runtime_host={path="../oasis7_runtime_host"}\nserde={workspace=true}\n'
+                ),
+            }),
+        ]
+        for label, edits in cases:
+            with self.subTest(case=label):
+                self.git('checkout', '-q', self.base)
+                for path, content in edits.items():
+                    self.write(path, content)
+                head = self.commit()
+                self.assertEqual(selector.select(self.config, self.base, head, profile='pr-fast')['scope'], 'full')
+
+    def test_scoped_production_cfg_retains_affected_closure_without_unrelated_groups(self):
+        self.write('crates/oasis7_runtime_host/src/lib.rs', '#[cfg(unix)]\npub fn host() {}\n')
+        head = self.commit()
+        plan = selector.select(self.config, self.base, head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required', 'launcher_web'})
+        self.assertEqual(plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
+        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+        self.assertTrue(any('production cfg changed; scoped package and platform coverage' in r
+                            for r in plan['reasons']))
+
+        old_cfg = copy.deepcopy(self.config)
+        del old_cfg['scoped_production_cfg_version']
+        self.assertEqual(selector.select(old_cfg, self.base, head, profile='pr-fast')['scope'], 'full')
+
+        # Unowned standalone .rs production cfg falls back to conservative full,
+        # even when embedded/referenced by a root-workspace member (populate path_affected)
+        # or nested inside a standalone Cargo.toml subdirectory under a workspace member.
+        self.git('checkout', '-q', self.base)
+        self.write('tools/oasis7-command-center/src-tauri/Cargo.toml',
+                   '[package]\nname="oasis7-command-center"\nversion="0.1.0"\nedition="2021"\n')
+        self.write('tools/oasis7-command-center/src-tauri/src/main.rs', 'fn main() {}\n')
+        self.write('crates/oasis7_runtime_host/templates/subcrate/Cargo.toml',
+                   '[package]\nname="subcrate"\nversion="0.1.0"\nedition="2021"\n')
+        self.write('crates/oasis7_runtime_host/templates/subcrate/src/lib.rs', 'pub fn f() {}\n')
+        self.write(
+            'crates/oasis7_runtime_host/src/lib.rs',
+            'pub const CC_REF: &str = include_str!("../../../tools/oasis7-command-center/src-tauri/src/main.rs");\n'
+            'pub const PATH_LIT: &str = "tools/oasis7-command-center/src-tauri/src/main.rs";\n'
+            'pub fn host() {}\n',
+        )
+        cc_base = self.commit()
+        self.write('tools/oasis7-command-center/src-tauri/src/main.rs', '#[cfg(target_os = "macos")]\nfn main() {}\n')
+        cc_head = self.commit()
+        cc_plan = selector.select(self.config, cc_base, cc_head, profile='pr-fast')
+        self.assertIn('oasis7_runtime_host', cc_plan['affected_packages'])
+        self.assertEqual(cc_plan['scope'], 'full')
+
+        self.git('checkout', '-q', cc_base)
+        nested_cfg = copy.deepcopy(self.config)
+        nested_cfg['rules'].append({
+            'match': ['crates/oasis7_runtime_host/templates/subcrate/**'],
+            'groups': ['packaging_contracts'],
+            'reason': 'nested_template_fixture',
+        })
+        self.write('crates/oasis7_runtime_host/templates/subcrate/src/lib.rs', '#[cfg(unix)]\npub fn f() {}\n')
+        nested_head = self.commit()
+        self.assertEqual(selector.select(nested_cfg, cc_base, nested_head, profile='pr-fast')['scope'], 'full')
+
+    def test_v5_capability_version_validation(self):
+        for key in ('workspace_member_cargo_manifest_scope_version',
+                    'scoped_production_cfg_version',
+                    'main_fast_coalesce_concurrency_version'):
+            for bad in (0, 2, True, '1'):
+                with self.subTest(key=key, bad=bad), self.assertRaises(ValueError):
+                    cfg = copy.deepcopy(self.config)
+                    cfg[key] = bad
+                    selector.validate_config(cfg)
 
 
 if __name__ == '__main__':

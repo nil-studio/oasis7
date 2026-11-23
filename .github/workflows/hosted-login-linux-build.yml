@@ -139,17 +139,18 @@ jobs:
             cd output/hosted-login
             sha256sum bin/oasis7_game_launcher_v3 bin/oasis7_viewer_live > SHA256SUMS
           )
-          tar -czf "$RUNNER_TEMP/stage.tar.gz" -C output/hosted-login .
-          python3 scripts/ci-hosted-login-package.py seal "$RUNNER_TEMP" native "$GITHUB_SHA"
+          stage=output/hosted-login-stage
+          mkdir -p "$stage"
+          tar -czf "$stage/stage.tar.gz" -C output/hosted-login .
+          python3 scripts/ci-hosted-login-package.py seal "$stage" native "$GITHUB_SHA"
+          test -s "$stage/stage.tar.gz" && test -s "$stage/stage.json"
 
       - name: Upload native stage
         id: stage
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hosted-login-native-stage-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/stage.tar.gz
-            ${{ runner.temp }}/stage.json
+          path: output/hosted-login-stage/
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
@@ -179,16 +180,17 @@ jobs:
         run: |
           ./scripts/build-viewer-software-safe.sh
           ./scripts/copy-viewer-web-dist.sh --dist-dir output/hosted-login/web
-          tar -czf "$RUNNER_TEMP/stage.tar.gz" -C output/hosted-login web
-          python3 scripts/ci-hosted-login-package.py seal "$RUNNER_TEMP" viewer "$GITHUB_SHA"
+          stage=output/hosted-login-stage
+          mkdir -p "$stage"
+          tar -czf "$stage/stage.tar.gz" -C output/hosted-login web
+          python3 scripts/ci-hosted-login-package.py seal "$stage" viewer "$GITHUB_SHA"
+          test -s "$stage/stage.tar.gz" && test -s "$stage/stage.json"
       - name: Upload Viewer stage
         id: stage
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hosted-login-viewer-stage-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/stage.tar.gz
-            ${{ runner.temp }}/stage.json
+          path: output/hosted-login-stage/
           compression-level: 0
           retention-days: 1
           if-no-files-found: error

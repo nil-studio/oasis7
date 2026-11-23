@@ -1,4 +1,13 @@
 import "@testing-library/jest-dom/vitest";
+import { webcrypto } from "node:crypto";
+
+if (typeof window !== "undefined" && !window.crypto?.subtle && webcrypto?.subtle) {
+  Object.defineProperty(window, "crypto", {
+    configurable: true,
+    writable: true,
+    value: webcrypto,
+  });
+}
 
 if (typeof window !== "undefined" && typeof window.requestAnimationFrame !== "function") {
   window.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
