@@ -6859,12 +6859,12 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             },
             '.github/workflows/native-cache-diagnostic.yml': {
                 'collector-tests': 5,
-                'diagnose': 20,
+                'diagnose': 35,
             },
             '.github/workflows/storage-acceptance.yml': {
                 'build': 10,
-                'verify': 60,
-                'attempt-release-reference': 20,
+                'verify': 130,
+                'attempt-release-reference': 50,
                 'summary': 5,
             },
         }
