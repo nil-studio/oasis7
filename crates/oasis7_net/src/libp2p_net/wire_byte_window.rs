@@ -592,6 +592,153 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_refunds_only_unsubmitted_bytes_and_preserves_unknown_progress() {
+        let window = Arc::new(
+            WireByteWindow::new(WireByteLimits {
+                inbound: 8,
+                outbound: 8,
+                total: 8,
+            })
+            .unwrap(),
+        );
+        let Admission::Granted(unsubmitted) = window.reserve(Direction::Read, 8).unwrap() else {
+            panic!("initial reservation was refused");
+        };
+        drop(unsubmitted);
+        assert_eq!(window.snapshot().unwrap().charged_bytes.total, 0);
+        assert_eq!(window.snapshot().unwrap().reserved_bytes.total, 0);
+
+        let Admission::Granted(successful) = window.reserve(Direction::Write, 2).unwrap() else {
+            panic!("refunded reservation was not available");
+        };
+        assert!(matches!(
+            successful.apply(false, |_| Poll::Ready(Ok(2))),
+            Poll::Ready(Ok(2))
+        ));
+        let Admission::Granted(submitted) = window.reserve(Direction::Read, 4).unwrap() else {
+            panic!("remaining reservation was refused");
+        };
+        // Aborting a lower I/O poll after submission must run the same RAII
+        // cleanup as any unobservable partial operation. No reported count is
+        // available, so only this reservation is conservative, not actual I/O.
+        let aborted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            submitted.apply(false, |_| panic!("lower I/O aborted without a count"))
+        }));
+        assert!(aborted.is_err());
+        let snapshot = window.snapshot().unwrap();
+        assert_eq!(snapshot.actual_bytes.outbound, 2);
+        assert_eq!(snapshot.actual_bytes.total, 2);
+        assert_eq!(snapshot.uncertain_charge_bytes.inbound, 4);
+        assert_eq!(snapshot.uncertain_charge_bytes.total, 4);
+        assert_eq!(snapshot.charged_bytes.total, 6);
+        assert_eq!(snapshot.reserved_bytes.total, 0);
+        let Admission::Granted(remaining) = window.reserve(Direction::Write, 8).unwrap() else {
+            panic!("unused headroom was lost");
+        };
+        assert_eq!(remaining.amount, 2);
+        drop(remaining);
+        assert_eq!(window.snapshot().unwrap(), snapshot);
+    }
+
+    #[test]
+    fn simultaneous_read_and_write_reserve_one_total_without_holding_the_lock_during_io() {
+        let window = Arc::new(
+            WireByteWindow::new(WireByteLimits {
+                inbound: 6,
+                outbound: 6,
+                total: 8,
+            })
+            .unwrap(),
+        );
+        let (reserved, ready) = std::sync::mpsc::channel();
+        let (begin_read, read_start) = std::sync::mpsc::channel();
+        let (begin_write, write_start) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let run = |direction, start: std::sync::mpsc::Receiver<()>| {
+                let Admission::Granted(permit) = window.reserve(direction, 6).unwrap() else {
+                    panic!("each direction has headroom for at least two bytes");
+                };
+                reserved.send(()).unwrap();
+                start.recv_timeout(Duration::from_secs(5)).unwrap();
+                permit.apply(false, |allowed| {
+                    // A real I/O poll can reenter bookkeeping without deadlock.
+                    assert!(window.snapshot().is_some());
+                    Poll::Ready(Ok(allowed - 1))
+                })
+            };
+            let read = scope.spawn(move || run(Direction::Read, read_start));
+            let write = scope.spawn(move || run(Direction::Write, write_start));
+            ready.recv_timeout(Duration::from_secs(5)).unwrap();
+            ready.recv_timeout(Duration::from_secs(5)).unwrap();
+            let simultaneous = window.snapshot().unwrap();
+            assert_eq!(simultaneous.reserved_bytes.total, 8);
+            assert!((2..=6).contains(&simultaneous.reserved_bytes.inbound));
+            assert!((2..=6).contains(&simultaneous.reserved_bytes.outbound));
+            assert_eq!(simultaneous.charged_bytes.total, 0);
+            begin_read.send(()).unwrap();
+            begin_write.send(()).unwrap();
+            assert!(matches!(read.join().unwrap(), Poll::Ready(Ok(_))));
+            assert!(matches!(write.join().unwrap(), Poll::Ready(Ok(_))));
+        });
+        let completed = window.snapshot().unwrap();
+        assert_eq!(completed.actual_bytes.total, 6);
+        assert_eq!(completed.charged_bytes.total, 6);
+        assert_eq!(completed.uncertain_charge_bytes.total, 0);
+        assert_eq!(completed.reserved_bytes.total, 0);
+    }
+
+    #[test]
+    fn slow_mixed_progress_keeps_at_most_sixty_one_buckets_until_exact_expiry() {
+        let window = WireByteWindow::new(WireByteLimits {
+            inbound: 512,
+            outbound: 512,
+            total: 512,
+        })
+        .unwrap();
+        let mut state = State::default();
+        for second in 0..183 {
+            let now = window.origin + Duration::from_secs(second) + Duration::from_millis(777);
+            state.prune(now).unwrap();
+            let expiry = window.bucket_expiry(now).unwrap();
+            assert!(expiry - now > Duration::from_secs(60));
+            assert!(expiry - now <= Duration::from_secs(61));
+            for (lane, charge) in [
+                (
+                    0,
+                    Charge {
+                        actual: 2,
+                        conservative: 0,
+                    },
+                ),
+                (
+                    1,
+                    Charge {
+                        actual: 0,
+                        conservative: 3,
+                    },
+                ),
+            ] {
+                state.record(lane, charge, expiry).unwrap();
+            }
+            // Independent per-second reference: both charges share one bucket;
+            // the oldest 60-second interval remains charged until its end.
+            let retained = (second + 1).min(61);
+            assert_eq!(state.buckets.len(), retained as usize);
+            assert_eq!(state.used[0].actual, retained * 2);
+            assert_eq!(state.used[1].conservative, retained * 3);
+        }
+        let final_expiry = state.buckets.back().unwrap().expires;
+        state.prune(final_expiry - Duration::from_nanos(1)).unwrap();
+        assert_eq!(state.buckets.len(), 1);
+        assert_eq!(state.used[0].actual, 2);
+        assert_eq!(state.used[1].conservative, 3);
+        state.prune(final_expiry).unwrap();
+        assert!(state.buckets.is_empty());
+        assert_eq!(state.used[0].total().unwrap(), 0);
+        assert_eq!(state.used[1].total().unwrap(), 0);
+    }
+
+    #[test]
     fn charged_bytes_remain_until_bucket_expiry_and_waiter_resumes() {
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
