@@ -4470,13 +4470,7 @@ jobs:
           persist-credentials: false
       - name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-      - name: Verify Node for the Viewer distribution contract
-        run: |
-          node --version
-          node -e 'if (Number(process.versions.node.split(".")[0]) !== 22) process.exit(1)'
+      - uses: ./.github/actions/setup-doc-checker-node
       - name: Verify preinstalled jq for package source contracts
         run: |
           jq --version
