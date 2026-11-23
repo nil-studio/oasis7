@@ -324,9 +324,9 @@ jobs:
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features test_tier_required --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features wasmtime --lib
-          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_launcher_backend --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_launcher_backend --bins
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_client_launcher --tests
-          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --bins
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --features test_tier_required --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --tests
