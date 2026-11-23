@@ -1,6 +1,6 @@
 use super::*;
-use oasis7_world_service::*;
 use oasis7_client_api::world_service as authority;
+use oasis7_world_service::*;
 #[cfg(unix)]
 use std::io::Read;
 use std::net::TcpListener;
