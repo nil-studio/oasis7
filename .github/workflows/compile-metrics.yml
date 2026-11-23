@@ -76,7 +76,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Bound stalled toolchain/download/compile work so a metrics run cannot
     # consume unbounded CI time without producing evidence.
-    timeout-minutes: 45
+    timeout-minutes: 35
     steps: &compile-metrics-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -292,7 +292,7 @@ jobs:
   compile-metrics-linux:
     name: compile-metrics-${{ matrix.platform }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 25
     strategy:
       matrix:
         platform: [linux-x64]
