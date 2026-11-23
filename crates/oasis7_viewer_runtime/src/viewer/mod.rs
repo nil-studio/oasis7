@@ -7,10 +7,10 @@ mod auth {
 }
 #[cfg(not(target_arch = "wasm32"))]
 mod demo;
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) use oasis7_runtime_host::gameplay_actions;
 #[cfg(target_arch = "wasm32")]
 pub(crate) use oasis7_client_api::gameplay_actions;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::gameplay_actions;
 #[cfg(not(target_arch = "wasm32"))]
 mod live;
 mod protocol;

@@ -1,9 +1,9 @@
+use oasis7_proto::viewer::{GameplayActionError, GameplayActionRequest};
 use oasis7_runtime::{Action as RuntimeAction, RecipeExecutionPlan};
 use oasis7_simulator::{
     AgentSpawnConfig, AsteroidFragmentInitConfig, ChunkCoord, GeoPos, OriginLocationConfig,
     ResourceKind, ResourceStock, WorldConfig, WorldInitConfig, WorldModel, build_world_model,
 };
-use oasis7_proto::viewer::{GameplayActionError, GameplayActionRequest};
 use oasis7_wasm_abi::{FactoryModuleSpec, MaterialStack};
 
 pub use oasis7_client_api::gameplay_actions::*;
@@ -338,8 +338,9 @@ mod native_owner_tests {
 
     #[test]
     fn original_gameplay_admission_rejects_blank_target() {
-        let error = build_runtime_action_from_gameplay_request(&request(ACTION_CLAIM_FIRST_AGENT, "  "))
-            .expect_err("blank target must not be admitted");
+        let error =
+            build_runtime_action_from_gameplay_request(&request(ACTION_CLAIM_FIRST_AGENT, "  "))
+                .expect_err("blank target must not be admitted");
         assert_eq!(error.code, "target_agent_required");
     }
 
@@ -349,7 +350,10 @@ mod native_owner_tests {
         let position = formal_release_default_first_agent_spawn_pos().expect("spawn position");
         assert_eq!(model.agents.len(), 1);
         assert_eq!(
-            model.agents.get(FIRST_AGENT_CLAIM_TARGET_AGENT_ID).map(|agent| agent.pos),
+            model
+                .agents
+                .get(FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
+                .map(|agent| agent.pos),
             Some(position)
         );
         let action = build_runtime_action_from_gameplay_request(&request(
