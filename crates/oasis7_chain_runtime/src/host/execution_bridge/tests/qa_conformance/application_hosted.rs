@@ -1,6 +1,6 @@
 //! Native provider actor installation followed only by the real hosted serving loop.
 use super::*;
-use oasis7::world_service::client::WorldServiceAgentSignerConfig;
+use oasis7_world_service::client::WorldServiceAgentSignerConfig;
 use oasis7_simulator::WorldScenario;
 use oasis7_viewer_runtime::viewer::{
     ControlCompletionStatus, ViewerLiveDecisionMode, ViewerResponse, ViewerRuntimeLiveServer,

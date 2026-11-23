@@ -1,7 +1,7 @@
 //! Long-running actual Node/World/P/R administrative publications, beyond
 //! native-only C10. Wasmtime execution is covered by gameplay crash scenarios.
 use super::*;
-use oasis7::world_service::AgentSignerDelegationChangeV1;
+use oasis7_world_service::AgentSignerDelegationChangeV1;
 use oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1;
 
 #[test]
@@ -319,13 +319,13 @@ fn fresh_long_history_result(
     world: &oasis7_runtime::World,
     key: &str,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
-) -> Result<Option<oasis7::world_service::CanonicalIntentResultV1>, String> {
+) -> Result<Option<oasis7_world_service::CanonicalIntentResultV1>, String> {
     fresh_request_result(world, key, request)
 }
 
 #[test]
 fn fresh_long_history_wait_avoids_cold_absence_and_requires_exact_success() {
-    use oasis7::world_service::CanonicalIntentResultV1;
+    use oasis7_world_service::CanonicalIntentResultV1;
     let mut staged = oasis7_runtime_host::world::new();
     staged.initialize_empty_formal_history().unwrap();
     let mut world =

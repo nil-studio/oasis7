@@ -1,4 +1,4 @@
-use oasis7::world_service::{
+use oasis7_world_service::{
     SignedReadRequest, WorldIdentity,
     authority::{request_digest, sign_read_request, sign_service_response},
     client::{RemoteWorldServiceClient, WorldServiceClientConfig, WorldServiceClientError},
