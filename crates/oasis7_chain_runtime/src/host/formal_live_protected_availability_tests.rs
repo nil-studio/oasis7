@@ -155,7 +155,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         AdmissionCase::QueuedBehindEmptyFrozen => (Point::BeforeResume, None),
         AdmissionCase::OriginalCandidateSaved => (
             Point::CandidateSaved,
-            Some(correlation::encode_consensus_intent(&case.owner_request)?),
+            Some(oasis7_world_service::correlation::encode_consensus_intent(&case.owner_request)?),
         ),
     };
     control.arm(point, None, exact_action, boundary_hold_deadline)?;
@@ -492,7 +492,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         recovery_control.arm(
             Point::Published,
             Some(replay_position),
-            Some(correlation::encode_consensus_intent(&case.owner_request)?),
+            Some(oasis7_world_service::correlation::encode_consensus_intent(&case.owner_request)?),
             replay_deadline,
         )?;
         let replayed = recovery_control
@@ -574,7 +574,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     duplicate_control.arm(
         Point::Published,
         Some(next_position),
-        Some(correlation::encode_consensus_intent(&case.owner_request)?),
+        Some(oasis7_world_service::correlation::encode_consensus_intent(&case.owner_request)?),
         duplicate_deadline,
     )?;
     let observed = duplicate_control.wait(duplicate_deadline).map_err(|error|format!(
