@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [codex/engineering-labeled-preview-plan-probe-base]
     paths: [.github/workflows/labeled-preview-plan-image-probe.yml]
-    types: [opened]
+    types: [synchronize]
 
 permissions:
   contents: read
@@ -13,8 +13,8 @@ cache-mode: read
 env:
   PYTHONDONTWRITEBYTECODE: '1'
   BASE_SHA: bf6ce0facc8dc9ebf481eb4b108e4a41ffd87825
-  SOURCE_SHA: a670f132cd26305cc365bbac86bab1d812ae4673
-  TESTED_SHA: b346642eb875bdad71128e821541aa9a917ec514
+  SOURCE_SHA: 6335e5b76c6978dd28bb8834782eba9774758cb1
+  TESTED_SHA: 6335e5b76c6978dd28bb8834782eba9774758cb1
 
 jobs:
   preview-plan:
@@ -48,8 +48,9 @@ jobs:
           set -euo pipefail
           test "$(id -u)" = 1001
           test "$(git rev-parse HEAD)" = "$TESTED_SHA"
-          test "$(git show -s --format=%P HEAD)" = "$BASE_SHA $SOURCE_SHA"
-          test "$(git rev-parse HEAD:scripts/ci-fast-preview.py)" = b849458654fd283c9238139c9214eef8c7f596a5
+          test "$SOURCE_SHA" = "$TESTED_SHA"
+          test "$(git merge-base "$BASE_SHA" "$TESTED_SHA")" = "$BASE_SHA"
+          test "$(git rev-parse HEAD:scripts/ci-fast-preview.py)" = 9c31b7940f4ca20aa64a2746e65eac400a6c2b95
       - name: Plan diagnostic ordinary source benchmark
         id: preview
         run: |
@@ -91,6 +92,7 @@ jobs:
               assert item["authority"] == "diagnostic-only"
               assert item["actual_pr_base_sha"] == os.environ["BASE_SHA"]
               assert item["actual_pr_source_sha"] == os.environ["SOURCE_SHA"]
+              assert item["actual_target_sha"] is None
               assert item["source_sha"] == item["tested_sha"] == item["policy_sha"] == os.environ["TESTED_SHA"]
               assert plan["groups"] == item["groups"] and plan["ordinary_partitions"] == item["ordinary_partitions"]
               for group in item["groups"]:
