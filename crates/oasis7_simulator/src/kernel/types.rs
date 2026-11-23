@@ -731,8 +731,7 @@ where
             oasis7_domain_types::rule_settlement::RuleSettlementInput {
                 general: &decision.cost,
                 with_distance: &decision.cost,
-                disposition:
-                    oasis7_domain_types::rule_settlement::RuleActionDisposition::Accepted,
+                disposition: oasis7_domain_types::rule_settlement::RuleActionDisposition::Accepted,
             },
         );
         merged.cost.add_assign(quote.selected);
