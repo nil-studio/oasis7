@@ -1,5 +1,5 @@
 fn provider_env_lock() -> &'static std::sync::Mutex<()> {
-    crate::env_mut::process_env_lock()
+    oasis7_hosted_access::process_env::process_env_lock()
 }
 use super::*;
 use crate::geometry::GeoPos;
@@ -48,13 +48,13 @@ impl Drop for EnvVarGuard {
             Some(value) => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::set_var(self.key.as_str(), value);
+                    oasis7_hosted_access::process_env::set_var(self.key.as_str(), value);
                 }
             }
             None => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::remove_var(self.key.as_str());
+                    oasis7_hosted_access::process_env::remove_var(self.key.as_str());
                 }
             }
         }
@@ -665,7 +665,7 @@ fn llm_env_var_reads_oasis7_prefix() {
     let _primary_guard = EnvVarGuard::capture(ENV_LLM_MODEL);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(ENV_LLM_MODEL, "oasis7-model");
+        oasis7_hosted_access::process_env::set_var(ENV_LLM_MODEL, "oasis7-model");
     }
 
     assert_eq!(llm_env_var(ENV_LLM_MODEL).as_deref(), Some("oasis7-model"));
@@ -679,11 +679,11 @@ fn llm_env_var_rejects_removed_old_brand_prefix() {
     let _removed_old_brand_guard = EnvVarGuard::capture(removed_old_brand_model.as_str());
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(ENV_LLM_MODEL);
+        oasis7_hosted_access::process_env::remove_var(ENV_LLM_MODEL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(removed_old_brand_model.as_str(), "removed-old-brand-model");
+        oasis7_hosted_access::process_env::set_var(removed_old_brand_model.as_str(), "removed-old-brand-model");
     }
 
     assert!(llm_env_var(ENV_LLM_MODEL).is_none());
@@ -706,37 +706,37 @@ fn llm_config_from_env_for_agent_rejects_removed_old_brand_prefix() {
     let _removed_old_brand_api_key_guard = EnvVarGuard::capture(removed_old_brand_api_key.as_str());
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(ENV_LLM_MODEL);
+        oasis7_hosted_access::process_env::remove_var(ENV_LLM_MODEL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(ENV_LLM_BASE_URL);
+        oasis7_hosted_access::process_env::remove_var(ENV_LLM_BASE_URL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(ENV_LLM_API_KEY);
+        oasis7_hosted_access::process_env::remove_var(ENV_LLM_API_KEY);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(removed_old_brand_model.as_str(), "removed-old-brand-model");
+        oasis7_hosted_access::process_env::set_var(removed_old_brand_model.as_str(), "removed-old-brand-model");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_base_url.as_str(),
             "https://removed-old-brand.example.com/v1",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_api_key.as_str(),
             "removed-old-brand-secret",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_goal.as_str(),
             "removed-old-brand-agent-short",
         );
@@ -912,7 +912,7 @@ fn openai_client_respects_configured_timeout_without_hidden_retry() {
     // SAFETY: The shared environment lock isolates the ordinary SDK contract
     // from the parallel opt-in diagnostic transport test.
     unsafe {
-        oasis7::env_mut::set_var(ENV_LLM_STREAM_DIAGNOSTICS, "0");
+        oasis7_hosted_access::process_env::set_var(ENV_LLM_STREAM_DIAGNOSTICS, "0");
     }
 
     let mut config = base_config();
@@ -954,7 +954,7 @@ fn openai_client_retries_single_concurrency_limit_decode_failure() {
     // SAFETY: The shared environment lock isolates the ordinary SDK contract
     // from the parallel opt-in diagnostic transport test.
     unsafe {
-        oasis7::env_mut::set_var(ENV_LLM_STREAM_DIAGNOSTICS, "0");
+        oasis7_hosted_access::process_env::set_var(ENV_LLM_STREAM_DIAGNOSTICS, "0");
     }
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind flaky openai server");
@@ -1062,7 +1062,7 @@ fn instrumented_stream_transport_error_reports_response_metadata() {
     let _diagnostic_guard = EnvVarGuard::capture(ENV_LLM_STREAM_DIAGNOSTICS);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(ENV_LLM_STREAM_DIAGNOSTICS, "1");
+        oasis7_hosted_access::process_env::set_var(ENV_LLM_STREAM_DIAGNOSTICS, "1");
     }
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind truncated stream server");

@@ -157,15 +157,15 @@ fn runtime_step_control_reports_llm_init_failed_when_provider_unavailable() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_MODEL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_MODEL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_BASE_URL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_BASE_URL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_API_KEY);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_API_KEY);
     }
 
     let mut server = ViewerRuntimeLiveServer::new(
@@ -215,15 +215,15 @@ fn runtime_background_play_stops_when_llm_access_is_unavailable() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_MODEL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_MODEL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_BASE_URL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_BASE_URL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_API_KEY);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_API_KEY);
     }
 
     let mut server = ViewerRuntimeLiveServer::new(
@@ -344,19 +344,28 @@ fn runtime_background_play_tolerates_transient_llm_failure_after_confirmed_progr
     });
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
 
     let test_world_id = format!("live-runtime-{}", WorldScenario::Minimal.as_str());
@@ -544,19 +553,28 @@ fn runtime_background_play_stops_on_non_retryable_provider_error_after_progress(
     });
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
 
     let test_world_id = format!("live-runtime-{}", WorldScenario::Minimal.as_str());
@@ -873,11 +891,11 @@ fn hosted_registration_grant_survives_bind_rejection_until_force_rebind_succeeds
         crate::viewer::derive_hosted_registration_issuer_public_key(issuer_private_key.as_str())
             .expect("derive issuer public key");
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
             issuer_public_key,
         );
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
             replay_ledger.as_os_str(),
         );
@@ -962,8 +980,12 @@ fn hosted_registration_grant_survives_bind_rejection_until_force_rebind_succeeds
     assert!(replay_error.message.contains("registration grant replay"));
 
     unsafe {
-        oasis7::env_mut::remove_var(crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV);
-        oasis7::env_mut::remove_var(crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV);
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
+        );
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
+        );
     }
     let _ = std::fs::remove_dir_all(replay_dir);
 }

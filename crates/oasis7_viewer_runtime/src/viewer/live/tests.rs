@@ -20,18 +20,18 @@ fn set_test_llm_env() -> std::sync::MutexGuard<'static, ()> {
         .expect("env lock");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-4o-mini");
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-4o-mini");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             crate::simulator::ENV_LLM_BASE_URL,
             "https://api.openai.com/v1",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-api-key");
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_API_KEY, "test-api-key");
     }
     guard
 }
@@ -263,7 +263,7 @@ fn live_server_config_supports_llm_mode() {
 }
 
 fn viewer_live_llm_timeout_env_lock() -> &'static Mutex<()> {
-    oasis7::env_mut::process_env_lock()
+    oasis7_hosted_access::process_env::process_env_lock()
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn viewer_live_llm_timeout_defaults_to_trust_floor_budget() {
     let _guard = viewer_live_llm_timeout_env_lock().lock().expect("env lock");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS");
+        oasis7_hosted_access::process_env::remove_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS");
     }
     assert_eq!(resolve_viewer_live_llm_timeout_ms(180_000), 30_000);
     assert_eq!(resolve_viewer_live_llm_timeout_ms(8_000), 8_000);
@@ -282,13 +282,13 @@ fn viewer_live_llm_timeout_respects_env_ceiling_without_expanding_budget() {
     let _guard = viewer_live_llm_timeout_env_lock().lock().expect("env lock");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS", "9000");
+        oasis7_hosted_access::process_env::set_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS", "9000");
     }
     assert_eq!(resolve_viewer_live_llm_timeout_ms(180_000), 9_000);
     assert_eq!(resolve_viewer_live_llm_timeout_ms(4_000), 4_000);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS");
+        oasis7_hosted_access::process_env::remove_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS");
     }
 }
 

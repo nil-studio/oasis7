@@ -272,7 +272,7 @@ fn runtime_prompt_control_hosted_expired_grant_has_full_no_mutation_fingerprint(
     let (backend_public_key, backend_private_key) = test_signer(115);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );
@@ -552,7 +552,7 @@ fn runtime_prompt_control_hosted_local_mock_preview_apply_and_rollback_use_resul
     let (backend_public_key, backend_private_key) = test_signer(90);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );

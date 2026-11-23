@@ -7,6 +7,7 @@ license = "MIT"
 [dependencies]
 oasis7_viewer_codec = { version = "0.1.0", path = "../oasis7_viewer_codec" }
 oasis7_simulator = { path = "../oasis7_simulator" }
+oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 url = "2"
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 serde_ignored = "0.1"
@@ -36,7 +37,6 @@ tungstenite = "0.30.0"
 oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false }
 oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
 oasis7_formal_protocol = { version = "0.1.0", path = "../oasis7_formal_protocol" }
-oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 libc = "0.2"
 
 [features]
