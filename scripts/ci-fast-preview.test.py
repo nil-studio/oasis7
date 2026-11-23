@@ -91,6 +91,11 @@ def valid_plan(source, sample='runtime-world'):
 def fixture_planner(repo, consumer_groups=None, sample='runtime-world'):
     """Run a real planner subprocess without compiling a product workspace."""
     plan = valid_plan('unused', sample)
+    if sample == 'world-state-unit-tests':
+        package_groups = {'oasis7_world_state': ['oasis7_required'], 'oasis7_distfs': ['distfs'],
+                          'oasis7_net': ['net'], 'oasis7_node': ['node']}
+        (repo / 'scripts/ci-required-scope.json').write_text(json.dumps({'package_groups': package_groups}))
+        plan['affected_packages'] = sorted(package_groups)
     if consumer_groups:
         plan['groups'] = sorted(PREVIEW.EXPECTED_GROUPS | consumer_groups.keys())
         plan['affected_packages'] = ['oasis7_runtime', 'oasis7_world_state',
