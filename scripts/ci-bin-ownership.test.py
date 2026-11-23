@@ -106,6 +106,31 @@ class Ownership(unittest.TestCase):
             self.assertNotIn('oasis7::runtime::', source, relative)
             self.assertIn('oasis7_runtime::', source, relative)
 
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
         self.assertIs(core['package']['autobins'], False)

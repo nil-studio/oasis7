@@ -6,7 +6,7 @@
 //! oracle is a test simulation and does not prove HSM custody or fault domains.
 use super::*;
 use ed25519_dalek::{Signature, SigningKey, Verifier, VerifyingKey};
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority::sign_read_request,
     client::{
         FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServiceClientConfig,
@@ -952,7 +952,7 @@ fn run_protected_runtime_fixture(
                     .formal_read_anchor()
                     .ok_or("prior verified read anchor missing")?,
                 exact_changes.anchor(),
-                oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
+                oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
             )
             .map_err(|error| error.to_string())?;
     }

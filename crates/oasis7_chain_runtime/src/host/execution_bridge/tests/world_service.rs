@@ -1,7 +1,10 @@
 use super::*;
-use oasis7::world_service::*;
 use oasis7_node::{NodeConsensusAction, NodeExecutionHook};
 use oasis7_runtime::{Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, WorldState};
+// Preserve the real two-argument signed admission host seam; the generic
+// native Service gameplay module requires an additional application callback.
+use oasis7_runtime_host::gameplay_service as gameplay;
+use oasis7_world_service::*;
 
 fn commit(
     driver: &mut NodeRuntimeExecutionDriver,

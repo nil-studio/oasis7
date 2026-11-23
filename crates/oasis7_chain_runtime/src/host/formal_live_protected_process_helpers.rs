@@ -51,7 +51,7 @@ pub(super) fn stop_owned_protected_runtime(
 pub(super) fn assert_live_descends_from_view(
     runtime: &FormalLiveRuntime,
     current: &crate::formal_live_service::PublishedReadCut,
-    view: &oasis7::world_service::verified_view::VerifiedWorldView,
+    view: &oasis7_world_service::verified_view::VerifiedWorldView,
 ) -> Result<(), String> {
     let observed = view
         .formal_read_anchor()
@@ -67,7 +67,7 @@ pub(super) fn assert_live_descends_from_view(
         .history_page(
             observed,
             &current.anchor,
-            oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
+            oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
         )
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -230,7 +230,7 @@ pub(super) fn request_for_first_agent(
 pub(super) fn retained_result_from_hot_or_cold(
     world: &oasis7_runtime::World,
     result_key: &str,
-) -> Result<oasis7::world_service::CanonicalIntentResultV1, String> {
+) -> Result<oasis7_world_service::CanonicalIntentResultV1, String> {
     optional_retained_result_from_hot_or_cold(world, result_key)?
         .ok_or_else(|| "canonical result is absent from hot and authenticated cold history".into())
 }
@@ -238,7 +238,7 @@ pub(super) fn retained_result_from_hot_or_cold(
 pub(super) fn optional_retained_result_from_hot_or_cold(
     world: &oasis7_runtime::World,
     result_key: &str,
-) -> Result<Option<oasis7::world_service::CanonicalIntentResultV1>, String> {
+) -> Result<Option<oasis7_world_service::CanonicalIntentResultV1>, String> {
     if let Some(value) = world
         .capability_revocation_state()
         .world_service_results
@@ -263,7 +263,7 @@ pub(super) fn fresh_request_result(
     world: &oasis7_runtime::World,
     key: &str,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
-) -> Result<Option<oasis7::world_service::CanonicalIntentResultV1>, String> {
+) -> Result<Option<oasis7_world_service::CanonicalIntentResultV1>, String> {
     let Some(value) = world
         .capability_revocation_state()
         .world_service_results
@@ -272,7 +272,7 @@ pub(super) fn fresh_request_result(
         return Ok(None);
     };
     correlation::validate_result(key, value)?;
-    let result: oasis7::world_service::CanonicalIntentResultV1 =
+    let result: oasis7_world_service::CanonicalIntentResultV1 =
         serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
     if result.request != *request || result.rejected.is_some() {
         return Err(format!(
@@ -442,7 +442,7 @@ pub(super) fn wait_for_new_request_result(
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
     timeout: Duration,
     label: &str,
-) -> Result<oasis7::world_service::CanonicalIntentResultV1, String> {
+) -> Result<oasis7_world_service::CanonicalIntentResultV1, String> {
     let key =
         correlation::key_digest(&request.correlation.key).map_err(|error| error.to_string())?;
     let started = Instant::now();
@@ -537,7 +537,7 @@ pub(super) fn wait_for_canonical_request_result(
 ) -> Result<
     (
         crate::formal_live_service::PublishedReadCut,
-        oasis7::world_service::CanonicalIntentResultV1,
+        oasis7_world_service::CanonicalIntentResultV1,
     ),
     String,
 > {
@@ -593,7 +593,7 @@ pub(super) fn lookup_original_commit(
 pub(super) fn original_commit_from_lookup(
     response: Result<
         oasis7_client_api::world_service::IntentResponse<Value>,
-        oasis7::world_service::client::WorldServiceClientError,
+        oasis7_world_service::client::WorldServiceClientError,
     >,
     original: &SubmitIntentRequest<WorldServicePayloadV1>,
 ) -> Result<oasis7_client_api::world_service::CommitRef, String> {
@@ -714,7 +714,7 @@ pub(super) fn wait_for_published_position_until(
 pub(super) fn read_current(
     client: &RemoteWorldServiceClient,
     world: &WorldIdentity,
-) -> Result<oasis7::world_service::verified_view::VerifiedWorldView, String> {
+) -> Result<oasis7_world_service::verified_view::VerifiedWorldView, String> {
     client
         .read_view(ReadWorldViewRequest {
             observation_nonce: None,
@@ -733,7 +733,7 @@ pub(super) fn read_until_position(
     client: &RemoteWorldServiceClient,
     world: &WorldIdentity,
     position: u64,
-) -> Result<oasis7::world_service::verified_view::VerifiedWorldView, String> {
+) -> Result<oasis7_world_service::verified_view::VerifiedWorldView, String> {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let view = read_current(client, world)?;
@@ -890,7 +890,7 @@ pub(super) fn commit_ref_for_opaque_cut(
             .authority_id()
             .map_err(|error| error.to_string())?,
     };
-    let publication = oasis7::world_service::formal_read_service::FormalReadPublication::new(
+    let publication = oasis7_world_service::formal_read_service::FormalReadPublication::new(
         cut.anchor.clone(),
         cut.world.clone(),
     )
