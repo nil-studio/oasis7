@@ -70,6 +70,8 @@
 - 2026-07-03--06 窗口观测:
   - `public-testnet-current-required-lanes-2026-07-03.md`
   - `public-testnet-claims-boundary-review-2026-07-06.md`
+  - `public-testnet-api-viewer-projection-2026-07-05/`（API/Viewer 投影与链状态采样 JSON）
+  - `public-testnet-same-world-hosted-entry-2026-07-05/`（同世界 hosted-entry / launcher / pure-api 配置与快照采样 JSON）
 - 历史 provenance:
   - `public-testnet-live-candidate-endpoint-deploy-2026-05-19.md`
   - `p2p-real-env-triad-current-version-full-game-nodes-2026-05-16.md`
@@ -123,6 +125,7 @@
   - `provider-agent-dual-mode-recertification-evidence-2026-04-07.md`
   - `software-safe-primary-web-entry-evidence-2026-04-07.md`
   - `post-onboarding-headless-smoke-2026-03-19.md`
+  - `login-surface-clarity/`（登录表面桌面/移动端视觉清晰度截图 supporting artifact）
   - `p2p-user-mode-launcher-ux-2026-04-07.md`（历史 P2PARCH-9 UX 自动化证据；当前行为回到 `../../p2p/network/mainnet-private-reachability-architecture.prd.md` 与 `../../../testing-manual.md` S9C）
 - 适合问题:
   - provider dual-mode、旧 `software_safe` alias、headless smoke 或 launcher UX 的历史验证在哪

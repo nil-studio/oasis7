@@ -61,7 +61,7 @@
 - [独立试玩任务模板](templates/agent-runtime-playtester-task.template.md)与[自测报告模板](templates/agent-runtime-playtest-report.template.md)：由手册引用的可复用格式，不是独立流程入口或已执行证据。
 - `doc/testing/governance/README.md`：`governance/` 热点子域 landing page，按质量门禁、playability 证据、L4 分层、role review 与 persona 问题分流读者。
 - `doc/testing/evidence/README.md`：`evidence/` 热点子域 landing page，按 release gate、hosted access、legacy p2p network rehearsal、governance drill 与 claim/audit 分流读者。
-- `testing-manual.md`：仓库级系统测试手册，不并入下方模块 PRD 三件套长表。
+- `testing-manual.md`：仓库级系统测试手册，不并入下方模块 PRD 三件套长表；其分册为 [S4 分布式与 S4B Governance Registry Drill](manual/testing-manual-s4-distributed-and-governance-drills.manual.md) 与 [节点经济 planned QA、统一 seed/resource 验证计划与 Discovery 观测](manual/testing-manual-planned-and-discovery.manual.md)。
 - `doc/testing/manual/README.md`：`manual/` 子树 landing page，按 Web UI 页面闭环、真实 Playwright 流程、formal public-testnet attach 与模型视觉评审分流；具体 manual 保留 operator 真值，不并入下方模块 PRD 三件套长表。
 - `doc/testing/performance/performance-coverage-gap-matrix-2026-06-09.md`：按 surface 汇总现有性能覆盖、当前缺口、建议补测和建议 tier 的速查表。
 - `doc/testing/performance/compile-metrics-v2-warm-check.design.md`：Compile Metrics V2 warm/no-op check 的技术合同、冷/暖隔离、schema/identity、阈值与 rollout；它补充性能矩阵，不承载可变任务状态。
