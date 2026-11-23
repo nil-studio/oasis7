@@ -12,6 +12,14 @@ fn build_retained_recovery_setup<T>(build: impl FnOnce() -> T) -> T {
     build()
 }
 
+// Build and independently verify the E1→E2→E3 recovery chain on a separate
+// default test-thread frame before assembling the candidate and read proof.
+// Keep signer inputs and all original acceptance checks unchanged.
+#[inline(never)]
+fn build_retained_recovery_steps<T>(build: impl FnOnce() -> T) -> T {
+    build()
+}
+
 pub(super) fn exercise() {
     let (
         world,
@@ -27,99 +35,133 @@ pub(super) fn exercise() {
         step3,
         completion,
     ) = build_retained_recovery_setup(|| {
-        let (world, trust, anchor, initial_proof) = protocol_initial_fixture();
-        let origin_checkpoint = anchor.checkpoint();
-        let origin_digest = origin_checkpoint.digest().unwrap();
-        let (request, mut reply) = response(
-            &world,
-            &anchor,
-            FormalReadHistoryV1 {
+        let (
+            world,
+            trust,
+            anchor,
+            initial_proof,
+            origin_checkpoint,
+            origin_digest,
+            request,
+            reply,
+            view,
+            frozen_body,
+            frozen,
+            step2,
+            step3,
+            recovery3,
+        ) = build_retained_recovery_steps(|| {
+            let (world, trust, anchor, initial_proof) = protocol_initial_fixture();
+            let origin_checkpoint = anchor.checkpoint();
+            let origin_digest = origin_checkpoint.digest().unwrap();
+            let (request, mut reply) = response(
+                &world,
+                &anchor,
+                FormalReadHistoryV1 {
+                    schema_version: 1,
+                    steps: vec![],
+                },
+            );
+            let original = anchor.authority();
+            let mut view = reply.view.clone();
+            view.runtime_binding.as_mut().unwrap().runtime_manifest_hash =
+                serde_json::from_value(serde_json::json!(format!("blake3:{}", h(91)))).unwrap();
+            view.formal_commit_header
+                .as_mut()
+                .unwrap()
+                .permission_generation += 1;
+            let frozen_body = FormalFrozenBodyV1 {
                 schema_version: 1,
-                steps: vec![],
-            },
-        );
-        let original = anchor.authority();
-        let mut view = reply.view.clone();
-        view.runtime_binding.as_mut().unwrap().runtime_manifest_hash =
-            serde_json::from_value(serde_json::json!(format!("blake3:{}", h(91)))).unwrap();
-        view.formal_commit_header
-            .as_mut()
-            .unwrap()
-            .permission_generation += 1;
-        let frozen_body = FormalFrozenBodyV1 {
-            schema_version: 1,
-            world: original.definition().world.clone(),
-            authority_id: original.authority_id().unwrap(),
-            epoch: original.definition().epoch,
-            activation_ref: original.activation_ref().into(),
-            parent: anchor.head().head(),
-            next_position: anchor.head().record().position + 1,
-            request_digest: h(60),
-            payload_digest: h(61),
-            runtime_manifest_digest: h(62),
-            governing_manifest_digest: anchor.head().record().governing_manifest_digest.clone(),
-            execution_policy_digest: anchor.head().record().execution_policy_digest.clone(),
-            pre_state_root: anchor.head().record().after_state_root.clone(),
-            frozen_material_digest: h(64),
-            handoff: None,
-        };
-        let frozen_receipt = |role, binding: &EndpointSignerBindingV1, key_id| {
-            let body = FormalFrozenReceiptBodyV1 {
+                world: original.definition().world.clone(),
                 authority_id: original.authority_id().unwrap(),
-                role,
-                instance_digest: binding.instance.digest().unwrap(),
-                reservation_id: frozen_body.reservation_id().unwrap(),
+                epoch: original.definition().epoch,
+                activation_ref: original.activation_ref().into(),
+                parent: anchor.head().head(),
+                next_position: anchor.head().record().position + 1,
+                request_digest: h(60),
+                payload_digest: h(61),
+                runtime_manifest_digest: h(62),
+                governing_manifest_digest: anchor.head().record().governing_manifest_digest.clone(),
+                execution_policy_digest: anchor.head().record().execution_policy_digest.clone(),
+                pre_state_root: anchor.head().record().after_state_root.clone(),
+                frozen_material_digest: h(64),
+                handoff: None,
             };
-            FormalFrozenReceiptV1 {
-                signature_hex: sign(frozen_receipt_signing_bytes(&body).unwrap(), key_id),
-                body,
-            }
-        };
-        let frozen = FormalFrozenCertificateV1 {
-            reservation: SignedFormalFrozenV1 {
-                signature_hex: sign(frozen_signing_bytes(&frozen_body).unwrap(), 4),
-                body: frozen_body.clone(),
-            },
-            primary: frozen_receipt(EndpointRole::Primary, &original.definition().primary, 5),
-            replica: frozen_receipt(EndpointRole::Replica, &original.definition().replica, 6),
-        };
-        let witness = RecoveryTailWitnessV1::Frozen(frozen.clone());
-        let next2 = successor(original, 2, 13, 14, 15, 2);
-        let minimum = issuer::IssuerAnchorV1::initial(original.policy()).unwrap();
-        let (step2, issuer_anchor2) = recovery_step(
-            original,
-            anchor.head(),
-            next2,
-            witness.clone(),
-            None,
-            1,
-            minimum,
-            [5, 6],
-        );
-        let recovery2 = history::verify_recovery_step(&step2, &anchor, None)
-            .unwrap()
-            .recovery;
-        let context3 = VerifiedActiveRecoveryContextV2::from_previous(
-            &recovery2,
-            original,
-            anchor.head(),
-            &witness,
-        )
-        .unwrap();
-        let next3 = successor(recovery2.successor(), 3, 23, 24, 25, 2);
-        let (step3, _) = recovery_step(
-            recovery2.successor(),
-            anchor.head(),
-            next3,
-            witness.clone(),
-            Some(&context3),
-            2,
-            issuer_anchor2,
-            [14, 15],
-        );
-        let recovery3 = history::verify_recovery_step(&step3, &anchor, Some(&recovery2))
-            .unwrap()
-            .recovery;
+            let frozen_receipt = |role, binding: &EndpointSignerBindingV1, key_id| {
+                let body = FormalFrozenReceiptBodyV1 {
+                    authority_id: original.authority_id().unwrap(),
+                    role,
+                    instance_digest: binding.instance.digest().unwrap(),
+                    reservation_id: frozen_body.reservation_id().unwrap(),
+                };
+                FormalFrozenReceiptV1 {
+                    signature_hex: sign(frozen_receipt_signing_bytes(&body).unwrap(), key_id),
+                    body,
+                }
+            };
+            let frozen = FormalFrozenCertificateV1 {
+                reservation: SignedFormalFrozenV1 {
+                    signature_hex: sign(frozen_signing_bytes(&frozen_body).unwrap(), 4),
+                    body: frozen_body.clone(),
+                },
+                primary: frozen_receipt(EndpointRole::Primary, &original.definition().primary, 5),
+                replica: frozen_receipt(EndpointRole::Replica, &original.definition().replica, 6),
+            };
+            let witness = RecoveryTailWitnessV1::Frozen(frozen.clone());
+            let next2 = successor(original, 2, 13, 14, 15, 2);
+            let minimum = issuer::IssuerAnchorV1::initial(original.policy()).unwrap();
+            let (step2, issuer_anchor2) = recovery_step(
+                original,
+                anchor.head(),
+                next2,
+                witness.clone(),
+                None,
+                1,
+                minimum,
+                [5, 6],
+            );
+            let recovery2 = history::verify_recovery_step(&step2, &anchor, None)
+                .unwrap()
+                .recovery;
+            let context3 = VerifiedActiveRecoveryContextV2::from_previous(
+                &recovery2,
+                original,
+                anchor.head(),
+                &witness,
+            )
+            .unwrap();
+            let next3 = successor(recovery2.successor(), 3, 23, 24, 25, 2);
+            let (step3, _) = recovery_step(
+                recovery2.successor(),
+                anchor.head(),
+                next3,
+                witness.clone(),
+                Some(&context3),
+                2,
+                issuer_anchor2,
+                [14, 15],
+            );
+            let recovery3 = history::verify_recovery_step(&step3, &anchor, Some(&recovery2))
+                .unwrap()
+                .recovery;
+            (
+                world,
+                trust,
+                anchor,
+                initial_proof,
+                origin_checkpoint,
+                origin_digest,
+                request,
+                reply,
+                view,
+                frozen_body,
+                frozen,
+                step2,
+                step3,
+                recovery3,
+            )
+        });
+        let original = anchor.authority();
 
         let audience = ProjectionAudienceV1::public();
         let mut record = anchor.head().record().clone();
