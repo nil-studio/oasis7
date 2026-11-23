@@ -6,6 +6,7 @@
 
 pub mod canonical_digest;
 pub mod chain_resource_hash;
+pub mod rule_settlement;
 pub mod formal_projection;
 pub mod geometry;
 pub mod ledger;
