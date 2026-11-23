@@ -64,9 +64,9 @@ fn real_tcp_strict_guarantee_fields_defaults_and_opaque_gameplay_bytes() {
     let signed: SignedServiceResponse<
         ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
     > = response.json().unwrap();
-    oasis7::world_service::authority::verify_service_response(
+    oasis7_world_service::authority::verify_service_response(
         "/v1/world/view",
-        &oasis7::world_service::authority::request_digest("/v1/world/view", &signed_view).unwrap(),
+        &oasis7_world_service::authority::request_digest("/v1/world/view", &signed_view).unwrap(),
         &signed,
         &fixture.client.config().trusted_service_public_key,
     )

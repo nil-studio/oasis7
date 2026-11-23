@@ -1,7 +1,7 @@
 //! Same actual formal writer/authority/history before and after maintenance.
 //! This is not a synthetic raw CAS comparison or independent fault-domain proof.
 use super::*;
-use oasis7::world_service::AgentSignerDelegationChangeV1;
+use oasis7_world_service::AgentSignerDelegationChangeV1;
 use std::{
     ffi::OsString,
     fs::{File, OpenOptions},

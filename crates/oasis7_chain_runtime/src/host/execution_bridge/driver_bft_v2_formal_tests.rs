@@ -8,8 +8,8 @@ use crate::execution_bridge_real_tests::real_execution_bridge::{
 };
 use crate::formal_read_fixtures as fixtures;
 use ed25519_dalek::Signer;
-use oasis7::world_service::client::FormalReadTrustConfigV1;
-use oasis7::world_service::formal_result::FormalBusinessResultTreeV1;
+use oasis7_world_service::client::FormalReadTrustConfigV1;
+use oasis7_world_service::formal_result::FormalBusinessResultTreeV1;
 use oasis7_consensus::tendermint_v2::{
     BftProfileTargetV1, BftSchedulePolicyV2, verify_formal_bft_handoff_v1,
 };
@@ -984,7 +984,7 @@ fn formal_bft_cli_http_case() {
     )
     .expect("construct independently pinned real client");
     let page = client
-        .read::<oasis7::world_service::projection::WorldServiceProjection>()
+        .read::<oasis7_world_service::projection::WorldServiceProjection>()
         .expect("real HTTP response passes signature, QC, commitment and inclusion checks");
     assert_eq!(page.response().head.height, exact_target.height);
     assert_eq!(page.response().head.block_id, exact_target.block_id);

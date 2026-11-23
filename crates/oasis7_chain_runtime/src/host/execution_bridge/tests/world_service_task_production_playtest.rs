@@ -363,7 +363,7 @@ fn private_task_production_prepared_world_live_service() {
 fn private_task_production_signed_quote_first_product_and_restart() {
     let _scenario_permit = super::private_task_resource_permit();
     let _probe_slot = super::prepared_world_probe_slot();
-    use oasis7::world_service::private_task_context::*;
+    use oasis7_world_service::private_task_context::*;
     let ready = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "oasis7-production-test-ready-{}-{}.json",
         std::process::id(),
@@ -483,8 +483,8 @@ fn private_task_production_signed_quote_first_product_and_restart() {
                 match client.prepare_task_context(&proof) {
                     Ok(prepared) => break prepared,
                     Err(
-                        oasis7::world_service::client::WorldServiceClientError::Transport(_)
-                        | oasis7::world_service::client::WorldServiceClientError::Cooldown { .. },
+                        oasis7_world_service::client::WorldServiceClientError::Transport(_)
+                        | oasis7_world_service::client::WorldServiceClientError::Cooldown { .. },
                     ) => {
                         assert!(
                             Instant::now() < deadline,
@@ -725,7 +725,7 @@ fn private_task_production_signed_quote_first_product_and_restart() {
         assert!(matches!(
             client.submit(changed.clone()),
             Err(
-                oasis7::world_service::client::WorldServiceClientError::Rejected {
+                oasis7_world_service::client::WorldServiceClientError::Rejected {
                     status: 503,
                     ..
                 }
@@ -872,14 +872,14 @@ fn retain_terminal_original(
 fn verified_quote(
     client: &RemoteWorldServiceClient,
     delegate: &str,
-    get: &SignedReadRequest<oasis7::world_service::private_task_context::TaskContextGetV1>,
-    captured: &mut oasis7::world_service::private_task_context::CapturedTaskContextV1,
+    get: &SignedReadRequest<oasis7_world_service::private_task_context::TaskContextGetV1>,
+    captured: &mut oasis7_world_service::private_task_context::CapturedTaskContextV1,
     deadline: Instant,
 ) -> (
-    oasis7::world_service::task_recipe_quote::TaskRecipeQuoteV1,
-    SignedReadRequest<oasis7::world_service::task_recipe_quote::TaskRecipeQuoteRequestV1>,
+    oasis7_world_service::task_recipe_quote::TaskRecipeQuoteV1,
+    SignedReadRequest<oasis7_world_service::task_recipe_quote::TaskRecipeQuoteRequestV1>,
 ) {
-    use oasis7::world_service::task_recipe_quote::*;
+    use oasis7_world_service::task_recipe_quote::*;
     while Instant::now() < deadline {
         let proof = sign_read_request(
             TASK_RECIPE_QUOTE_PATH,
@@ -904,13 +904,13 @@ fn verified_quote(
                     return (quote, proof);
                 }
                 Err(
-                    oasis7::world_service::client::WorldServiceClientError::Transport(_)
-                    | oasis7::world_service::client::WorldServiceClientError::Cooldown { .. },
+                    oasis7_world_service::client::WorldServiceClientError::Transport(_)
+                    | oasis7_world_service::client::WorldServiceClientError::Cooldown { .. },
                 ) => {
                     assert!(Instant::now() < deadline);
                     std::thread::sleep(Duration::from_millis(100));
                 }
-                Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+                Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
                     status: 409,
                     ..
                 }) => break,
@@ -924,7 +924,7 @@ fn verified_quote(
     panic!("production chain deadline exhausted during quote refresh");
 }
 fn private_http(endpoint: &str, body: &serde_json::Value) -> (u16, serde_json::Value) {
-    use oasis7::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH;
+    use oasis7_world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH;
     let mut stream =
         std::net::TcpStream::connect(endpoint.strip_prefix("http://").unwrap()).unwrap();
     stream
@@ -958,12 +958,12 @@ fn check_quote_read_contract(
     delegate: &str,
     root: &Path,
     world: &WorldIdentity,
-    proof: &SignedReadRequest<oasis7::world_service::task_recipe_quote::TaskRecipeQuoteRequestV1>,
-    quoted: &oasis7::world_service::task_recipe_quote::TaskRecipeQuoteV1,
-    captured: &oasis7::world_service::private_task_context::CapturedTaskContextV1,
+    proof: &SignedReadRequest<oasis7_world_service::task_recipe_quote::TaskRecipeQuoteRequestV1>,
+    quoted: &oasis7_world_service::task_recipe_quote::TaskRecipeQuoteV1,
+    captured: &oasis7_world_service::private_task_context::CapturedTaskContextV1,
     deadline: Instant,
 ) {
-    use oasis7::world_service::task_recipe_quote::*;
+    use oasis7_world_service::task_recipe_quote::*;
     let config: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("client-device/client.json")).unwrap()).unwrap();
     let endpoint = config["endpoint"].as_str().unwrap();
@@ -1018,7 +1018,7 @@ fn check_quote_read_contract(
                 );
             }
         }
-        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+        Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
             status: 409,
             ..
         }) => assert_ne!(pin().commit, quoted.read_commit),
@@ -1046,7 +1046,7 @@ fn check_quote_read_contract(
     wrong.expected_base_binding = pin().world.current_cognition_base_binding().unwrap();
     wrong.context_proof.request.context.context_commitment = format!("blake3:{}", "44".repeat(32));
     wrong.context_proof = sign_read_request(
-        oasis7::world_service::private_task_context::TASK_CONTEXT_READ_PATH,
+        oasis7_world_service::private_task_context::TASK_CONTEXT_READ_PATH,
         wrong.context_proof.request,
         delegate,
     )
@@ -1090,9 +1090,9 @@ pub(super) fn retry_same_signed_private_quote_until<Q, T>(
     deadline: Instant,
     mut read: impl FnMut(
         &SignedReadRequest<Q>,
-    ) -> Result<T, oasis7::world_service::client::WorldServiceClientError>,
-) -> Result<T, oasis7::world_service::client::WorldServiceClientError> {
-    use oasis7::world_service::client::WorldServiceClientError;
+    ) -> Result<T, oasis7_world_service::client::WorldServiceClientError>,
+) -> Result<T, oasis7_world_service::client::WorldServiceClientError> {
+    use oasis7_world_service::client::WorldServiceClientError;
 
     loop {
         if Instant::now() >= deadline {
@@ -1124,7 +1124,7 @@ pub(super) fn retry_same_signed_private_quote_until<Q, T>(
 
 #[test]
 fn repeated_private_quote_retries_same_signed_read_within_original_deadline() {
-    use oasis7::world_service::client::WorldServiceClientError;
+    use oasis7_world_service::client::WorldServiceClientError;
 
     #[derive(serde::Serialize)]
     struct PinnedReadRequest {

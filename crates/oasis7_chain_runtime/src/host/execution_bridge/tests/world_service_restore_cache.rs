@@ -196,7 +196,7 @@ fn same_complete_journal_with_different_snapshot_bytes_restores_distinct_worlds(
 
 pub(super) fn local_context(seed: u8) -> super::super::RestoreContext {
     let release = oasis7_runtime::ReleaseSecurityPolicy::default();
-    let public = oasis7::world_service::sign_read_request("test", (), &hex::encode([seed; 32]))
+    let public = oasis7_world_service::sign_read_request("test", (), &hex::encode([seed; 32]))
         .unwrap()
         .subject_public_key;
     let local = oasis7_runtime::DevLocalParticipantAuthority::new(
@@ -340,7 +340,7 @@ fn warm_local_policy_history_remains_rejected_without_matching_operator_context(
             environment_id: "test".into(),
             instance_epoch: DecimalU64(1),
         },
-        issuer_public_key: oasis7::world_service::sign_read_request("test", (), &issuer_key)
+        issuer_public_key: oasis7_world_service::sign_read_request("test", (), &issuer_key)
             .unwrap()
             .subject_public_key,
         generation: 1,
@@ -365,11 +365,11 @@ fn warm_local_policy_history_remains_rejected_without_matching_operator_context(
         legacy_owner_state_digest: world.participant_legacy_owner_state_digest().unwrap(),
         entries: vec![],
     };
-    let authorization = oasis7::world_service::sign_read_request(
+    let authorization = oasis7_world_service::sign_read_request(
         devlocal_policy_signing_domain(1),
         DevLocalParticipantPolicyAuthorizationV1 {
             policy: policy.clone(),
-            manifest: oasis7::world_service::sign_read_request(
+            manifest: oasis7_world_service::sign_read_request(
                 PARTICIPANT_MIGRATION_MANIFEST_DOMAIN,
                 manifest,
                 &issuer_key,

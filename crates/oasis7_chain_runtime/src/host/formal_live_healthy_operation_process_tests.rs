@@ -578,7 +578,7 @@ pub(super) fn exercise_with_fault(
         if stage == "waiting_first_normal_qualified" && !submitted_after_reopen {
             new_primary.wait_ordinary(case.primary_address, Duration::from_secs(20))?;
             new_replica.wait_ordinary(case.replica_address, Duration::from_secs(20))?;
-            let change = oasis7::world_service::AgentSignerDelegationChangeV1 {
+            let change = oasis7_world_service::AgentSignerDelegationChangeV1 {
                 world_id: case.world.world_id.clone(),
                 branch_id: "main".into(),
                 agent_id: "agent".into(),

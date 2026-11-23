@@ -321,7 +321,7 @@ fn no_mount_application_acceptance() {
     }
     let payload = WorldServicePayloadV1::GameplayJson(serde_json::to_vec(&command).unwrap());
     let correlation =
-        oasis7::world_service::derive_correlation(client.config().expected_world.clone(), &payload)
+        oasis7_world_service::derive_correlation(client.config().expected_world.clone(), &payload)
             .unwrap();
     send(
         &mut stream,
@@ -382,7 +382,7 @@ fn no_mount_application_acceptance() {
             Some(current.version().commit.clone()),
         )) {
             Ok(view) => view,
-            Err(oasis7::world_service::client::WorldServiceClientError::Cooldown {
+            Err(oasis7_world_service::client::WorldServiceClientError::Cooldown {
                 retry_after,
                 ..
             }) => {

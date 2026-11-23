@@ -86,7 +86,7 @@ impl AdmitRejectedCandidateEvidence {
 }
 
 fn opaque_digest(domain: &str, value: &str) -> Result<String, String> {
-    oasis7::world_service::authority::request_digest(domain, &value)
+    oasis7_world_service::authority::request_digest(domain, &value)
 }
 
 #[expect(
@@ -103,7 +103,7 @@ fn candidate_identity_digest(
     payload_digest: &str,
     captured_base_binding_digest: &str,
 ) -> Result<String, String> {
-    oasis7::world_service::authority::request_digest(
+    oasis7_world_service::authority::request_digest(
         "admit-rejection-candidate-v1",
         &(
             world,
@@ -129,7 +129,7 @@ fn parse_candidate(
     let WorldServicePayloadV1::Scheduler(signed) = &request.signed_payload else {
         return Err(CandidateValidationStage::SchedulerPayloadKind);
     };
-    oasis7::world_service::authority::verify_read_request("scheduler", signed)
+    oasis7_world_service::authority::verify_read_request("scheduler", signed)
         .map_err(|_| CandidateValidationStage::SchedulerSignature)?;
     let SchedulerOperationV1::AdmitContinuation(proposal) = &signed.request.operation else {
         return Err(CandidateValidationStage::AdmitOperation);
@@ -180,7 +180,7 @@ fn parse_candidate(
         .map_err(|_| CandidateValidationStage::CandidateEvidenceDigest)?;
     let payload_digest = derived.payload_digest;
     let captured_base_binding_digest =
-        oasis7::world_service::authority::request_digest("admit-rejection-captured-base-v1", base)
+        oasis7_world_service::authority::request_digest("admit-rejection-captured-base-v1", base)
             .map_err(|_| CandidateValidationStage::CandidateEvidenceDigest)?;
     let identity_digest = candidate_identity_digest(
         &arm.world,
@@ -310,7 +310,7 @@ impl super::WorldGate {
 
     pub(in super::super) fn release_admit_rejected_gate_after_clock_commit(
         &self,
-        post_commit_view: &oasis7::world_service::verified_view::VerifiedWorldView,
+        post_commit_view: &oasis7_world_service::verified_view::VerifiedWorldView,
     ) -> Result<(), String> {
         let root = self
             .root
@@ -360,7 +360,7 @@ impl super::WorldGate {
         if base_unchanged {
             return Err("verified post-commit View did not change the captured Admit base".into());
         }
-        let current_base_binding_digest = oasis7::world_service::authority::request_digest(
+        let current_base_binding_digest = oasis7_world_service::authority::request_digest(
             "admit-rejection-post-commit-base-v1",
             runtime_binding,
         )?;

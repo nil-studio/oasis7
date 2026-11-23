@@ -213,7 +213,7 @@ fn private_task_logistics_prepared_world_live_service() {
 #[test]
 fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
     let _probe_slot = super::prepared_world_probe_slot();
-    use oasis7::world_service::private_task_context::*;
+    use oasis7_world_service::private_task_context::*;
     let ready = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "oasis7-logistics-test-ready-{}-{}.json",
         std::process::id(),
@@ -332,8 +332,8 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
                 match client.prepare_task_context(&proof) {
                     Ok(prepared) => break prepared,
                     Err(
-                        oasis7::world_service::client::WorldServiceClientError::Transport(_)
-                        | oasis7::world_service::client::WorldServiceClientError::Cooldown { .. },
+                        oasis7_world_service::client::WorldServiceClientError::Transport(_)
+                        | oasis7_world_service::client::WorldServiceClientError::Cooldown { .. },
                     ) => {
                         assert!(
                             Instant::now() < deadline,
@@ -529,7 +529,7 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
         assert!(matches!(
             client.submit(changed.clone()),
             Err(
-                oasis7::world_service::client::WorldServiceClientError::Rejected {
+                oasis7_world_service::client::WorldServiceClientError::Rejected {
                     status: 503,
                     ..
                 }

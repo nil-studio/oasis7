@@ -726,7 +726,7 @@ fn devlocal_host_null_genesis_requires_verified_origin_and_commits_original_bind
 
 #[test]
 fn devlocal_host_live_goal_retention_revalidates_new_and_previous_cuts() {
-    use oasis7::world_service::game_task;
+    use oasis7_world_service::game_task;
     let (dir, mut driver, identity, owner, _) =
         canonical_agent_chat::driver_fixture_without_provider();
     let control = config(&driver.execution_world, &identity);
