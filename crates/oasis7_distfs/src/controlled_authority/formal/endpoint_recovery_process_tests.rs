@@ -9,6 +9,8 @@ mod boundary_tests;
 mod consecutive_tests;
 #[path = "endpoint_recovery_fencing_tests.rs"]
 mod final_fencing_tests;
+#[path = "endpoint_legacy_plan_reopen_tests.rs"]
+mod legacy_plan_reopen_tests;
 #[path = "endpoint_legacy_recovery_process_tests.rs"]
 mod legacy_tests;
 #[path = "endpoint_planned_consecutive_tests.rs"]

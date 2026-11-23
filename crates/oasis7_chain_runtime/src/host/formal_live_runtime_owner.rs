@@ -14,7 +14,7 @@ use std::{
         net::{UnixListener, UnixStream},
     },
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     time::{Duration, Instant},
 };
 
@@ -22,6 +22,8 @@ use std::{
 mod attempt;
 #[path = "formal_live_owner_fixed_trust.rs"]
 mod fixed_trust;
+#[path = "formal_live_owner_spawn.rs"]
+mod spawn;
 use attempt::{read_owner_record, write_owner_record};
 #[path = "formal_live_runtime_owner_wire.rs"]
 mod control_wire;
@@ -548,46 +550,14 @@ pub(crate) fn launch_operation_with_fixed_trust(
         attempt::remove_stale_socket_after_confirmed_exit(&socket_path, true)?;
     }
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-    let mut command = Command::new(&executable);
-    #[cfg(test)]
-    {
-        // Rust's test harness binary is not the production CLI. Launch one
-        // exact ignored test as a child so process-owner acceptance tests still
-        // exercise the real owner loop instead of substituting an in-process
-        // fake. The production binary branch below remains byte-for-byte
-        // separate from this test-only dispatch.
-        let test_name = owner_worker_test_name(&executable)?;
-        command
-            .args(["--ignored", "--exact", &test_name, "--nocapture"])
-            .env(TEST_WORKER_CONFIG, config_path)
-            .env(TEST_WORKER_OPERATION, operation_id)
-            .env(TEST_WORKER_REQUEST_DIGEST, request_digest)
-            .env(TEST_WORKER_CONFIG_DIGEST, expected_config_digest);
-    }
-    #[cfg(not(test))]
-    command.args([
-        "op",
-        "formal-owner-worker",
-        "--config",
-        config_path
-            .to_str()
-            .ok_or("non-UTF8 formal runtime config path")?,
-        "--operation-id",
+    let mut command = spawn::command(
+        &executable,
+        config_path,
         operation_id,
-        "--request-digest",
         request_digest,
-        "--config-digest",
         expected_config_digest,
-    ]);
-    if let Some(digest) = expected_read_trust_digest {
-        #[cfg(test)]
-        command.env("OASIS7_FORMAL_OWNER_TEST_READ_TRUST_DIGEST", digest);
-        #[cfg(not(test))]
-        command.args(["--expected-formal-read-trust-digest", digest]);
-    } else {
-        #[cfg(test)]
-        command.env_remove("OASIS7_FORMAL_OWNER_TEST_READ_TRUST_DIGEST");
-    }
+        expected_read_trust_digest,
+    )?;
     // The owner outlives this CLI. Inheriting CLI-owned output pipes would
     // leave it with broken stdout/stderr as soon as the launching CLI exits.
     let diagnostics = WorkerDiagnostics::prepare(&prepared_root)?;
@@ -717,30 +687,6 @@ pub(crate) fn launch_operation_with_fixed_trust(
         }
         std::thread::sleep(Duration::from_millis(40));
     }
-}
-
-#[cfg(test)]
-fn owner_worker_test_name(executable: &Path) -> Result<String, String> {
-    let output = Command::new(executable)
-        .arg("--list")
-        .output()
-        .map_err(|error| format!("list formal owner test worker: {error}"))?;
-    if !output.status.success() {
-        return Err("formal owner test worker discovery failed".into());
-    }
-    let listing = String::from_utf8(output.stdout)
-        .map_err(|error| format!("formal owner test worker listing is not UTF-8: {error}"))?;
-    let mut matches = listing.lines().filter_map(|line| {
-        line.strip_suffix(": test")
-            .filter(|name| name.ends_with("::protected_handoff_owner_worker"))
-    });
-    let name = matches
-        .next()
-        .ok_or("formal owner test worker is not registered")?;
-    if matches.next().is_some() {
-        return Err("multiple formal owner test workers are registered".into());
-    }
-    Ok(name.to_owned())
 }
 
 pub(crate) fn run_standalone(config_path: &Path) -> Result<(), String> {
