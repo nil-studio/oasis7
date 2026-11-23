@@ -139,8 +139,21 @@ async function uploadSnapshot(uploader, file, name, env, executeImpl = execute) 
   if (!/^\d+$/.test(id || '') || !/^[a-f0-9]{64}$/.test(digest || '')) throw Error('missing official upload acknowledgement');
   return {artifact_id: id, artifact_digest: digest};
 }
-async function main({env = process.env, runBuild, fetchImpl = fetch, executeImpl = execute} = {}) {
+function completedProbeReceipt(receipt) {
+  return receipt?.diagnostic_only === true && receipt.probe_only === true &&
+    receipt.build?.variant === 'formal-required' && receipt.build.status === 'success' &&
+    receipt.build.cargo_exit_code === 0 && receipt.build.completed_units === 1 &&
+    receipt.build.latest_completed_unit?.target_name === 'diagnostic_fake_build_only' &&
+    receipt.resources?.complete === true && receipt.resources.sample_count > 0 &&
+    receipt.resources.process_tree?.sample_count > 0 && receipt.resources.process_tree.latest?.rss_bytes > 0 &&
+    receipt.resources.host?.mem_total_bytes?.end > 0 && receipt.resources.disk?.free_bytes > 0 &&
+    receipt.orchestrator?.rss_bytes > 0;
+}
+async function main({env = process.env, runBuild, fetchImpl = fetch, executeImpl = execute,
+                     requireProbeAck = false} = {}) {
   const root = env.GITHUB_WORKSPACE;
+  if (requireProbeAck && env.GITHUB_JOB !== 'diagnostics-probe')
+    throw Error('strict probe acknowledgement is confined to the diagnostic probe job');
   if (env.GITHUB_REPOSITORY !== 'nil-studio/oasis7' || env.GITHUB_REF !== 'refs/heads/main' ||
       env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.SOURCE_SHA !== env.GITHUB_SHA || env.GITHUB_WORKFLOW_SHA !== env.GITHUB_SHA)
     throw Error('live diagnostics require trusted main dispatch source');
@@ -155,7 +168,7 @@ async function main({env = process.env, runBuild, fetchImpl = fetch, executeImpl
   const directory = await fs.mkdtemp(path.join(env.RUNNER_TEMP, 'storage-required-diagnostics-'));
   const diagnostics = path.join(directory, 'observation');
   const uploader = path.join(directory, 'upload-artifact.mjs');
-  let available = false, sequence = 0, busy = false;
+  let available = false, sequence = 0, busy = false, completedProbeAcknowledged = false;
   try { await downloadUploader(uploader, fetchImpl); available = true; }
   catch { console.log('::warning::Storage diagnostic uploader unavailable'); }
   async function publish() {
@@ -165,8 +178,10 @@ async function main({env = process.env, runBuild, fetchImpl = fetch, executeImpl
     try {
       const name = `storage-required-diagnostic-${env.GITHUB_SHA}-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}-${index}`;
       const file = path.join(directory, name + '.json');
-      await fs.writeFile(file, await snapshot(diagnostics, env, index), {mode: 0o600});
+      const json = await snapshot(diagnostics, env, index);
+      await fs.writeFile(file, json, {mode: 0o600});
       const acknowledgement = await uploadSnapshot(uploader, file, name, env, executeImpl);
+      completedProbeAcknowledged ||= completedProbeReceipt(JSON.parse(json));
       console.log('storage_diagnostic_saved=' + JSON.stringify({sequence: index, ...acknowledgement}));
     } catch { console.log(`::warning::Storage diagnostic snapshot ${index} was not acknowledged`); }
     finally { busy = false; }
@@ -180,6 +195,10 @@ async function main({env = process.env, runBuild, fetchImpl = fetch, executeImpl
   const pendingAtExit = busy;
   await inflight;
   if (!pendingAtExit) await publish();
+  if (code === 0 && requireProbeAck && !completedProbeAcknowledged) {
+    console.log('::error::Diagnostic probe has no acknowledged completed observer snapshot');
+    return 1;
+  }
   return code;
 }
-module.exports = {...module.exports, execute, downloadUploader, uploadSnapshot, main};
+module.exports = {...module.exports, execute, downloadUploader, uploadSnapshot, completedProbeReceipt, main};

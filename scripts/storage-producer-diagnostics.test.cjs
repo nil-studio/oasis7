@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
-const {buildEnvironment, snapshot, uploadSnapshot, downloadUploader, main, execute, MAX_BYTES} = require('./storage-producer-diagnostics.cjs');
+const {buildEnvironment, snapshot, uploadSnapshot, downloadUploader, main, execute, completedProbeReceipt, MAX_BYTES} = require('./storage-producer-diagnostics.cjs');
 const identity = {GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '2', GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'workflow_dispatch', SOURCE_SHA: 'a'.repeat(40), GITHUB_WORKFLOW_SHA: 'a'.repeat(40), GITHUB_REPOSITORY: 'nil-studio/oasis7'};
 async function temporary(fn) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'storage-diag-test-'));
@@ -128,4 +128,27 @@ test('fork main and a different workflow source cannot obtain live diagnostics',
       runBuild: async () => { calls++; }, fetchImpl: async () => { calls++; }}), /trusted main/);
     assert.equal(calls, 0);
   }
+}));
+
+test('probe requires acknowledged complete observations while production remains best effort', () => temporary(async dir => {
+  const receipt = {diagnostic_only: true, probe_only: true, orchestrator: {rss_bytes: 1},
+    build: {variant: 'formal-required', status: 'success', cargo_exit_code: 0, completed_units: 1,
+      latest_completed_unit: {target_name: 'diagnostic_fake_build_only'}},
+    resources: {complete: true, sample_count: 2, disk: {free_bytes: 1}, host: {mem_total_bytes: {end: 1}},
+      process_tree: {sample_count: 1, latest: {rss_bytes: 1}}}};
+  assert.equal(completedProbeReceipt(receipt), true);
+  for (const changed of [{...receipt, probe_only: false}, {...receipt, build: null},
+    {...receipt, resources: {...receipt.resources, complete: false}},
+    {...receipt, resources: {...receipt.resources, process_tree: {sample_count: 0}}}]) {
+    assert.equal(Boolean(completedProbeReceipt(changed)), false);
+  }
+  execFileSync('git', ['init', '-q', dir]);
+  execFileSync('git', ['-C', dir, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'fixture']);
+  const sha = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim();
+  const options = {env: {...identity, GITHUB_SHA: sha, SOURCE_SHA: sha, GITHUB_WORKFLOW_SHA: sha,
+    GITHUB_JOB: 'diagnostics-probe', GITHUB_WORKSPACE: dir, RUNNER_TEMP: dir,
+    STORAGE_ARTIFACT_CHECKOUT: await fs.realpath(dir)}, runBuild: async () => 0,
+    fetchImpl: async () => { throw Error('offline'); }};
+  assert.equal(await main(options), 0);
+  assert.equal(await main({...options, requireProbeAck: true}), 1);
 }));

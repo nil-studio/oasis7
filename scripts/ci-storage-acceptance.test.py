@@ -360,7 +360,12 @@ class Contracts(unittest.TestCase):
                       'github.workflow_sha == github.sha'):
             self.assertIn(guard, probe)
         self.assertIn('timeout-minutes: 5', probe)
-        self.assertIn("main({env: environment, runBuild:", probe)
+        self.assertIn('needs: diagnostics-probe-admission', probe)
+        admission = workflow.split('  diagnostics-probe-admission:\n', 1)[1].split('  diagnostics-probe:\n', 1)[0]
+        self.assertIn('if: inputs.diagnostics_probe == true', admission)
+        self.assertIn('timeout-minutes: 2', admission)
+        self.assertIn('test \"$GITHUB_WORKFLOW_SHA\" = \"$GITHUB_SHA\"', admission)
+        self.assertIn("main({env: environment, requireProbeAck: true, runBuild:", probe)
         self.assertIn('diagnostic_fake_build_only', probe)
         program = re.search(r'const program = `(.*?)`;', probe, re.DOTALL).group(1)
         compile(textwrap.dedent(program), '<trusted-diagnostic-observer-fixture>', 'exec')
@@ -374,7 +379,7 @@ class Contracts(unittest.TestCase):
         result = subprocess.run(['node', '--test', str(HERE / 'storage-producer-diagnostics.test.cjs')],
                                 cwd=HERE.parent, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('tests 14', result.stdout)
+        self.assertIn('tests 15', result.stdout)
         self.assertIn('fail 0', result.stdout)
 
     def test_live_producer_diagnostics_keep_candidate_builds_on_original_no_token_path(self):

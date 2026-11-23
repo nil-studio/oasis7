@@ -66,7 +66,24 @@ env:
   OASIS7_STORAGE_PROGRESS_INTERVAL: '100'
 
 jobs:
+  diagnostics-probe-admission:
+    name: Validate diagnostic probe source
+    if: inputs.diagnostics_probe == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Reject any source outside the trusted main dispatch
+        shell: bash
+        run: |
+          test "$GITHUB_REPOSITORY" = 'nil-studio/oasis7'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+
   diagnostics-probe:
+    needs: diagnostics-probe-admission
     name: Storage diagnostic transport probe (no Cargo)
     if: >-
       inputs.diagnostics_probe == true && github.repository == 'nil-studio/oasis7' &&
@@ -98,7 +115,7 @@ jobs:
             const {main} = require(process.env.GITHUB_WORKSPACE + '/scripts/storage-producer-diagnostics.cjs');
             const environment = {...process.env};
             delete environment['INPUT_GITHUB-TOKEN'];
-            const code = await main({env: environment, runBuild: async ({root, diagnostics, env}) => {
+            const code = await main({env: environment, requireProbeAck: true, runBuild: async ({root, diagnostics, env}) => {
               // This is a diagnostic-only observer fixture, never a Cargo artifact producer.
               // Keep the fixture alive past the first upload's 30s bound, so the final
               // snapshot includes the completed real observer rather than its initial state.
