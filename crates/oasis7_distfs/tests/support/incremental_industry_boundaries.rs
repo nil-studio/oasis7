@@ -137,7 +137,7 @@ pub(super) fn noops_cancel_after_public_resolver_and_poison_real_prefix() {
                 .state_session(physical_scope(), MemoryClass::Ordinary)
                 .unwrap();
             let values = store.value_session(physical_scope());
-            let mut writer = store.value_session(physical_scope());
+            let mut writer = StagedPages::new(&memory);
             let mut tx = ExecutionTransaction::begin(
                 parent.clone(),
                 [0x91; 32],
@@ -330,7 +330,7 @@ pub(super) fn state_and_value_carriers_require_the_actual_caller_pool_and_capaci
     let store =
         IncrementalPageStore::create(&dir.0.join("pages"), memory.clone(), PageCompression::Raw)
             .unwrap();
-    let roots = seed(&store, &memory, &source());
+    let roots = seed_default(&store, &memory);
     let parent = parent(roots.clone());
     let live = parent.fence().unwrap();
     for state_pages in [false, true] {
@@ -339,7 +339,7 @@ pub(super) fn state_and_value_carriers_require_the_actual_caller_pool_and_capaci
                 .state_session(physical_scope(), MemoryClass::Ordinary)
                 .unwrap();
             let good = store.value_session(physical_scope());
-            let mut writer = store.value_session(physical_scope());
+            let mut staged = StagedPages::new(&memory);
             let mut tx = ExecutionTransaction::begin(
                 parent.clone(),
                 [0x92; 32],
@@ -352,7 +352,7 @@ pub(super) fn state_and_value_carriers_require_the_actual_caller_pool_and_capaci
                 &mut tx,
                 state,
                 &good,
-                &mut writer,
+                &mut staged,
                 &memory,
                 || false,
                 || false,
@@ -360,6 +360,8 @@ pub(super) fn state_and_value_carriers_require_the_actual_caller_pool_and_capaci
                     prefix!(read, write, &mut work(), &live);
                 }
             );
+            flush_pages(&store, &memory, &staged.take_all());
+            let mut writer = store.value_session(physical_scope());
             let fault = Fault {
                 source: &good,
                 pool: MemoryBudget::new(4 << 20, 0).unwrap(),

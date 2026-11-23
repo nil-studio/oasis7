@@ -1,7 +1,10 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression, PageIoBudget};
 use oasis7_formal_protocol::{
-    incremental_execution::*, incremental_state::*, incremental_value::*,
+    incremental_execution::*,
+    incremental_record_root::{RECORD_ROOT_BYTES, RecordRootRefV1},
+    incremental_state::*,
+    incremental_value::*,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_world_state::{
@@ -53,8 +56,197 @@ fn work() -> IndustryWorkBudgetV1 {
         },
     }
 }
-fn seed(store: &IncrementalPageStore, memory: &MemoryBudget, source: &WorldState) -> RootSetV1 {
-    let mut values = store.value_session(physical_scope());
+struct EmptyState<'a>(&'a MemoryBudget);
+impl MerkleNodeReader for EmptyState<'_> {
+    type Node = Vec<u8>;
+    fn allocation_class(&self) -> Option<MemoryClass> {
+        Some(MemoryClass::Ordinary)
+    }
+    fn allocation_budget(&self) -> Option<&MemoryBudget> {
+        Some(self.0)
+    }
+    fn read_node(&self, _: &str, _: usize) -> Result<Option<Self::Node>, String> {
+        Ok(None)
+    }
+}
+struct StagedPages<'a> {
+    fallback: Option<oasis7_distfs::incremental_page_store::ValuePageSession<'a>>,
+    memory: &'a MemoryBudget,
+    staged: std::collections::BTreeMap<[u8; 32], Vec<u8>>,
+    order: Vec<[u8; 32]>,
+}
+impl<'a> StagedPages<'a> {
+    fn new(memory: &'a MemoryBudget) -> Self {
+        Self {
+            fallback: None,
+            memory,
+            staged: std::collections::BTreeMap::new(),
+            order: Vec::new(),
+        }
+    }
+    fn with_store(store: &'a IncrementalPageStore, memory: &'a MemoryBudget) -> Self {
+        Self {
+            fallback: Some(store.value_session(physical_scope())),
+            memory,
+            staged: std::collections::BTreeMap::new(),
+            order: Vec::new(),
+        }
+    }
+    fn into_reachable<'r>(
+        mut self,
+        state_roots: impl IntoIterator<Item = &'r StateRootV1>,
+        value_roots: impl IntoIterator<Item = [u8; 32]>,
+    ) -> Vec<([u8; 32], Vec<u8>)> {
+        let mut live = std::collections::BTreeSet::new();
+        let mut queue = Vec::new();
+        let mut enqueue = |id: [u8; 32],
+                           staged: &std::collections::BTreeMap<[u8; 32], Vec<u8>>,
+                           queue: &mut Vec<[u8; 32]>| {
+            if staged.contains_key(&id) && live.insert(id) {
+                queue.push(id);
+            }
+        };
+        for root in state_roots {
+            if root.leaf_count > 0 {
+                let id = *blake3::Hash::from_hex(&root.node_root).unwrap().as_bytes();
+                enqueue(id, &self.staged, &mut queue);
+            }
+        }
+        for id in value_roots {
+            enqueue(id, &self.staged, &mut queue);
+        }
+        while let Some(id) = queue.pop() {
+            let bytes = self.staged[&id].clone();
+            if bytes.starts_with(b"oasis7.iws.state-page.v1\0") {
+                let links = StateNodeWriteV1 {
+                    digest: blake3::Hash::from_bytes(id).to_hex().to_string(),
+                    bytes,
+                }
+                .verified_links()
+                .unwrap();
+                match links {
+                    StatePageLinksV1::Branch { children, .. } => {
+                        for child in children.into_iter().flatten() {
+                            let child_id = *blake3::Hash::from_hex(&child).unwrap().as_bytes();
+                            enqueue(child_id, &self.staged, &mut queue);
+                        }
+                    }
+                    StatePageLinksV1::Value(entry) => {
+                        enqueue(entry.value, &self.staged, &mut queue);
+                    }
+                }
+            } else {
+                match verified_value_links(&id, &bytes).unwrap() {
+                    ValuePageLinksV1::Root(node) => enqueue(node.id, &self.staged, &mut queue),
+                    ValuePageLinksV1::Index(children) => {
+                        for child in children {
+                            enqueue(child.id, &self.staged, &mut queue);
+                        }
+                    }
+                    ValuePageLinksV1::Data { logical_len } => {
+                        let data = &bytes[bytes.len() - logical_len as usize..];
+                        if data.starts_with(FIELD_MEMBER_DOMAIN)
+                            && data.len() >= FIELD_MEMBER_HEADER_BYTES + RECORD_ROOT_BYTES
+                            && data[FIELD_MEMBER_DOMAIN.len() + 2]
+                                == MemberPayloadCodecV1::RecordRoot as u8
+                        {
+                            let record_bytes = &data[data.len() - RECORD_ROOT_BYTES..];
+                            RecordRootRefV1::from_canonical_bytes(record_bytes).unwrap();
+                            let child = StateRootV1::from_canonical_bytes(
+                                &record_bytes[RECORD_ROOT_BYTES - STATE_ROOT_BYTES..],
+                            )
+                            .unwrap();
+                            if child.leaf_count > 0 {
+                                let child_id =
+                                    *blake3::Hash::from_hex(&child.node_root).unwrap().as_bytes();
+                                enqueue(child_id, &self.staged, &mut queue);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut pages = Vec::with_capacity(live.len());
+        for id in self.order {
+            if live.contains(&id) {
+                let mut bytes = self.staged.remove(&id).unwrap();
+                bytes.shrink_to_fit();
+                pages.push((id, bytes));
+            }
+        }
+        pages
+    }
+    fn take_all(&mut self) -> Vec<([u8; 32], Vec<u8>)> {
+        let order = std::mem::take(&mut self.order);
+        let mut pages = Vec::with_capacity(order.len());
+        for id in order {
+            let mut bytes = self.staged.remove(&id).unwrap();
+            bytes.shrink_to_fit();
+            pages.push((id, bytes));
+        }
+        pages
+    }
+}
+impl ValueNodeWriter for StagedPages<'_> {
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> Result<(), ValueTreeError> {
+        if !bytes.uses_budget(self.memory)
+            || bytes.capacity() > bytes.reserved_bytes()
+            || bytes.is_empty()
+            || bytes.len() > VALUE_MAX_NODE_BYTES
+            || blake3::hash(&bytes).as_bytes() != &id
+        {
+            return Err(ValueTreeError::Invalid("staged page accounting/hash/bound"));
+        }
+        if let Some(existing) = self.staged.get(&id) {
+            if existing.as_slice() != bytes.as_slice() {
+                return Err(ValueTreeError::Invalid("staged page collision"));
+            }
+            return Ok(());
+        }
+        let mut copy = Vec::with_capacity(bytes.len());
+        copy.extend_from_slice(&bytes);
+        self.staged.insert(id, copy);
+        self.order.push(id);
+        Ok(())
+    }
+}
+impl StatePageWriter for StagedPages<'_> {}
+impl ValueNodeReader for StagedPages<'_> {
+    fn read_node(
+        &self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<std::sync::Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+        if !self.memory.same_pool(memory) {
+            return Err(ValueTreeError::Invalid("physical session memory pool"));
+        }
+        if let Some(bytes) = self.staged.get(id) {
+            if bytes.len() > max_bytes {
+                return Err(ValueTreeError::ResourceLimited("requested page bound"));
+            }
+            let charge = memory.reserve(bytes.len(), class)?;
+            let mut copy = Vec::with_capacity(bytes.len());
+            copy.extend_from_slice(bytes);
+            return Ok(std::sync::Arc::new(charge.retain(copy)));
+        }
+        match &self.fallback {
+            Some(fallback) => fallback.read_node(id, max_bytes, memory, class),
+            None => Err(ValueTreeError::Io(std::io::ErrorKind::NotFound.into())),
+        }
+    }
+}
+struct SeedSnapshot {
+    roots: RootSetV1,
+    pages: Vec<([u8; 32], Vec<u8>)>,
+}
+fn prepare_seed_with_budget(memory: &MemoryBudget, source: &WorldState) -> SeedSnapshot {
+    let mut values = StagedPages::new(memory);
     let _rows = memory.reserve(128 << 10, MemoryClass::Ordinary).unwrap();
     let mut rows: Vec<ReservedValue<ExecutionWriteV1>> = Vec::with_capacity(32);
     let mut remaining = 100_000;
@@ -91,10 +283,8 @@ fn seed(store: &IncrementalPageStore, memory: &MemoryBudget, source: &WorldState
     assert_eq!(count, expected as u64);
     assert_eq!(rows.len(), 10 + expected);
     let mut roots = RootSetV1::empty("industry-source".into(), [0x41; 32]).unwrap();
+    let empty_state = EmptyState(memory);
     for ns in [StateNamespaceV1::Scheduler, StateNamespaceV1::Authorization] {
-        let state = store
-            .state_session(physical_scope(), MemoryClass::Ordinary)
-            .unwrap();
         let mut writes: Vec<_> = rows
             .iter()
             .filter(|r| r.namespace == ns)
@@ -107,13 +297,50 @@ fn seed(store: &IncrementalPageStore, memory: &MemoryBudget, source: &WorldState
         writes.sort_by(|a, b| a.key.cmp(&b.key));
         let charge = memory.reserve(16 << 20, MemoryClass::Ordinary).unwrap();
         let delta = charge.retain(
-            StateDeltaV1::build(StateRootV1::empty(ns).unwrap(), writes, &state, 8 << 20).unwrap(),
+            StateDeltaV1::build(
+                StateRootV1::empty(ns).unwrap(),
+                writes,
+                &empty_state,
+                8 << 20,
+            )
+            .unwrap(),
         );
         values.put_state_pages(&delta, memory).unwrap();
         let index = roots.state.iter().position(|r| r.namespace == ns).unwrap();
         roots.state[index] = delta.after.clone();
     }
-    roots
+    let pages = values.into_reachable(&roots.state, []);
+    SeedSnapshot { roots, pages }
+}
+fn prepare_seed(source: &WorldState) -> SeedSnapshot {
+    let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();
+    prepare_seed_with_budget(&memory, source)
+}
+fn flush_pages(store: &IncrementalPageStore, memory: &MemoryBudget, pages: &[([u8; 32], Vec<u8>)]) {
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let mut io = physical_scope();
+    let mut never = || false;
+    let mut writer = store
+        .buffered_page_writer(&mut io, &cancel, &mut never)
+        .unwrap();
+    for (id, bytes) in pages {
+        let mut copy = Vec::with_capacity(bytes.len());
+        copy.extend_from_slice(bytes);
+        let charge = memory.reserve(copy.len(), MemoryClass::Ordinary).unwrap();
+        writer.put_node(*id, charge.retain(copy)).unwrap();
+    }
+    writer.finish().unwrap();
+}
+fn seed(store: &IncrementalPageStore, memory: &MemoryBudget, source: &WorldState) -> RootSetV1 {
+    let snapshot = prepare_seed_with_budget(memory, source);
+    flush_pages(store, memory, &snapshot.pages);
+    snapshot.roots
+}
+fn seed_default(store: &IncrementalPageStore, memory: &MemoryBudget) -> RootSetV1 {
+    static DEFAULT_SEED: std::sync::OnceLock<SeedSnapshot> = std::sync::OnceLock::new();
+    let snapshot = DEFAULT_SEED.get_or_init(|| prepare_seed(&source()));
+    flush_pages(store, memory, &snapshot.pages);
+    snapshot.roots.clone()
 }
 #[test]
 fn industry_genesis_original_columns_continue_in_small_cold_pools() {
@@ -125,7 +352,10 @@ fn industry_genesis_original_columns_continue_in_small_cold_pools() {
             let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();
             let _source = memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap();
             let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
-            seed(&store, &memory, &source())
+            match compression {
+                PageCompression::Raw => seed(&store, &memory, &source()),
+                PageCompression::Zstd => seed_default(&store, &memory),
+            }
         };
         for class in [MemoryClass::Ordinary, MemoryClass::Recovery] {
             let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -306,6 +536,7 @@ fn industry_terminal_delta_receiver_and_buffered_transfer_continue_from_roots_on
     use IndustryColumnV1 as C;
     use IndustryRecordKindV1 as K;
     use IndustryValueRefV1 as V;
+    let mut prepared_overlay = None;
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let dir = Directory::new();
         let target_dir = Directory::new();
@@ -316,110 +547,91 @@ fn industry_terminal_delta_receiver_and_buffered_transfer_continue_from_roots_on
             let store =
                 IncrementalPageStore::create(&dir.0.join("pages"), memory.clone(), compression)
                     .unwrap();
-            let source = source();
-            let mut created_recipe = source.pending_recipe_jobs[&u64::MAX].clone();
-            created_recipe.industrial_root_ref = Some(
-                serde_json::from_value(json!({
-                    "world_binding":" raw/界 ","domain":"d","schema":"s","id":"embedded-id",
-                    "revision":u64::MAX,"digest":"Original-Digest"
-                }))
-                .unwrap(),
-            );
-            created_recipe.committed_recipe_origin = Some(serde_json::from_value(json!({
-                "submission":{"verified_player_id":" player ","public_key":"RawKey",
-                "auth_nonce":u64::MAX,"hosted_registration_nonce":" raw nonce ",
-                "requester_agent_id":"submit-agent","factory_id":"submit-factory","recipe_id":"submit-recipe"},
-                "consensus_action_id":u64::MAX,"consensus_submitter_player_id":"submitter",
-                "action_payload_hash":"OriginalHash","committed_height":u64::MAX,"action_root":"OriginalRoot"
-            })).unwrap());
-            let mut created_completion = source.recipe_completion_receipts[&3].clone();
-            created_completion.committed_recipe_origin =
-                created_recipe.committed_recipe_origin.clone();
-            let roots = seed(&store, &memory, &source);
+            let roots = seed_default(&store, &memory);
             let qualification = qualify(&store, &memory, &roots, MemoryClass::Ordinary);
             let parent = parent(roots);
             let live = parent.fence().unwrap();
-            let state = store
-                .state_session(physical_scope(), MemoryClass::Ordinary)
-                .unwrap();
-            let values = store.value_session(physical_scope());
-            let mut writer = store.value_session(physical_scope());
-            let mut transaction = ExecutionTransaction::begin(
-                parent.clone(),
-                [0x78; 32],
-                &state,
-                &memory,
-                tx_limits(),
-            )
-            .unwrap();
-            {
-                let mut read = WorldFieldOverlayContextV1 {
-                    transaction: &mut transaction,
-                    values: ValueReadContext {
-                        source: &values,
-                        memory: &memory,
-                        class: MemoryClass::Ordinary,
-                        io: &mut logical(),
-                    },
-                    key_work: &mut SemanticKeyBudget {
-                        bytes_remaining: 16 << 20,
-                    },
-                    semantic_bytes: 4096,
-                    record_bytes: 8192,
-                    take_state_error: || {
-                        state
-                            .take_read_error()
-                            .map(|_| ValueTreeError::Invalid("industry fixture state"))
-                    },
-                    cancelled: || false,
-                };
-                let mut write = MemberRecordWriteContext {
-                    sink: &mut writer,
-                    memory: &memory,
-                    io: &mut logical(),
-                    key_work: &mut SemanticKeyBudget {
-                        bytes_remaining: 16 << 20,
-                    },
-                    limits: MemberRecordLimitsV1 {
-                        semantic_bytes: 4096,
-                        payload_bytes: 4096,
-                        record_bytes: 8192,
-                    },
-                    cancelled: || false,
-                };
-                let mut work = work();
-                let guard = read.transaction.guard();
-                assert!(
-                    change_industry_cell_overlay_v1(
-                        IndustryCellChangeV1 {
-                            key: IndustryRecordKeyV1 {
-                                kind: K::Failure,
-                                id: 4
-                            },
-                            cell: IndustryCellV1::Column(C::RecordLostPower),
-                            expected: Some(V::Signed(i64::MAX)),
-                            after: Some(V::Signed(17)),
-                            max_current_payload_bytes: 8
-                        },
-                        &mut read,
-                        &mut write,
-                        &mut work,
-                        &guard,
-                        &live
-                    )
-                    .unwrap()
+            let (record, staged) = prepared_overlay.get_or_insert_with(|| {
+                let source = source();
+                let mut created_recipe = source.pending_recipe_jobs[&u64::MAX].clone();
+                created_recipe.industrial_root_ref = Some(
+                    serde_json::from_value(json!({
+                        "world_binding":" raw/界 ","domain":"d","schema":"s","id":"embedded-id",
+                        "revision":u64::MAX,"digest":"Original-Digest"
+                    }))
+                    .unwrap(),
                 );
-                for (kind, id) in [(K::Recipe, u64::MAX), (K::Transit, 2)] {
-                    let key = IndustryRecordKeyV1 { kind, id };
-                    let expected = read_industry_record_root_overlay_v1(key, &mut read).unwrap();
-                    assert!(expected.is_some());
+                created_recipe.committed_recipe_origin = Some(serde_json::from_value(json!({
+                    "submission":{"verified_player_id":" player ","public_key":"RawKey",
+                    "auth_nonce":u64::MAX,"hosted_registration_nonce":" raw nonce ",
+                    "requester_agent_id":"submit-agent","factory_id":"submit-factory","recipe_id":"submit-recipe"},
+                    "consensus_action_id":u64::MAX,"consensus_submitter_player_id":"submitter",
+                    "action_payload_hash":"OriginalHash","committed_height":u64::MAX,"action_root":"OriginalRoot"
+                })).unwrap());
+                let mut created_completion = source.recipe_completion_receipts[&3].clone();
+                created_completion.committed_recipe_origin =
+                    created_recipe.committed_recipe_origin.clone();
+                let state = store
+                    .state_session(physical_scope(), MemoryClass::Ordinary)
+                    .unwrap();
+                let values = store.value_session(physical_scope());
+                let mut writer = StagedPages::with_store(&store, &memory);
+                let mut transaction = ExecutionTransaction::begin(
+                    parent.clone(),
+                    [0x78; 32],
+                    &state,
+                    &memory,
+                    tx_limits(),
+                )
+                .unwrap();
+                {
+                    let mut read = WorldFieldOverlayContextV1 {
+                        transaction: &mut transaction,
+                        values: ValueReadContext {
+                            source: &values,
+                            memory: &memory,
+                            class: MemoryClass::Ordinary,
+                            io: &mut logical(),
+                        },
+                        key_work: &mut SemanticKeyBudget {
+                            bytes_remaining: 16 << 20,
+                        },
+                        semantic_bytes: 4096,
+                        record_bytes: 8192,
+                        take_state_error: || {
+                            state
+                                .take_read_error()
+                                .map(|_| ValueTreeError::Invalid("industry fixture state"))
+                        },
+                        cancelled: || false,
+                    };
+                    let mut write = MemberRecordWriteContext {
+                        sink: &mut writer,
+                        memory: &memory,
+                        io: &mut logical(),
+                        key_work: &mut SemanticKeyBudget {
+                            bytes_remaining: 16 << 20,
+                        },
+                        limits: MemberRecordLimitsV1 {
+                            semantic_bytes: 4096,
+                            payload_bytes: 4096,
+                            record_bytes: 8192,
+                        },
+                        cancelled: || false,
+                    };
+                    let mut work = work();
                     let guard = read.transaction.guard();
                     assert!(
-                        delete_industry_record_overlay_v1(
-                            IndustryRecordDeleteV1 {
-                                key,
-                                expected_root: expected,
-                                qualification: &qualification
+                        change_industry_cell_overlay_v1(
+                            IndustryCellChangeV1 {
+                                key: IndustryRecordKeyV1 {
+                                    kind: K::Failure,
+                                    id: 4
+                                },
+                                cell: IndustryCellV1::Column(C::RecordLostPower),
+                                expected: Some(V::Signed(i64::MAX)),
+                                after: Some(V::Signed(17)),
+                                max_current_payload_bytes: 8
                             },
                             &mut read,
                             &mut write,
@@ -429,49 +641,79 @@ fn industry_terminal_delta_receiver_and_buffered_transfer_continue_from_roots_on
                         )
                         .unwrap()
                     );
+                    for (kind, id) in [(K::Recipe, u64::MAX), (K::Transit, 2)] {
+                        let key = IndustryRecordKeyV1 { kind, id };
+                        let expected =
+                            read_industry_record_root_overlay_v1(key, &mut read).unwrap();
+                        assert!(expected.is_some());
+                        let guard = read.transaction.guard();
+                        assert!(
+                            delete_industry_record_overlay_v1(
+                                IndustryRecordDeleteV1 {
+                                    key,
+                                    expected_root: expected,
+                                    qualification: &qualification
+                                },
+                                &mut read,
+                                &mut write,
+                                &mut work,
+                                &guard,
+                                &live
+                            )
+                            .unwrap()
+                        );
+                    }
+                    for (kind, id, after) in [
+                        (K::Recipe, 60, IndustryRecordRefV1::Recipe(&created_recipe)),
+                        (
+                            K::Transit,
+                            20,
+                            IndustryRecordRefV1::Transit(&source.pending_material_transits[&2]),
+                        ),
+                        (
+                            K::Completion,
+                            30,
+                            IndustryRecordRefV1::Completion(&created_completion),
+                        ),
+                        (
+                            K::Settlement,
+                            40,
+                            IndustryRecordRefV1::Settlement(
+                                &source.logistics_settlement_receipts[&5],
+                            ),
+                        ),
+                    ] {
+                        let guard = read.transaction.guard();
+                        create_industry_record_overlay_v1(
+                            IndustryRecordCreateV1 {
+                                key: IndustryRecordKeyV1 { kind, id },
+                                after,
+                                qualification: &qualification,
+                            },
+                            &mut read,
+                            &mut write,
+                            &mut work,
+                            &guard,
+                            &live,
+                        )
+                        .unwrap();
+                    }
                 }
-                for (kind, id, after) in [
-                    (K::Recipe, 60, IndustryRecordRefV1::Recipe(&created_recipe)),
-                    (
-                        K::Transit,
-                        20,
-                        IndustryRecordRefV1::Transit(&source.pending_material_transits[&2]),
-                    ),
-                    (
-                        K::Completion,
-                        30,
-                        IndustryRecordRefV1::Completion(&created_completion),
-                    ),
-                    (
-                        K::Settlement,
-                        40,
-                        IndustryRecordRefV1::Settlement(&source.logistics_settlement_receipts[&5]),
-                    ),
-                ] {
-                    let guard = read.transaction.guard();
-                    create_industry_record_overlay_v1(
-                        IndustryRecordCreateV1 {
-                            key: IndustryRecordKeyV1 { kind, id },
-                            after,
-                            qualification: &qualification,
-                        },
-                        &mut read,
-                        &mut write,
-                        &mut work,
-                        &guard,
-                        &live,
-                    )
-                    .unwrap();
-                }
-            }
-            let guard = transaction.guard();
-            let sealed = transaction.seal(&guard, &live, 1).unwrap();
-            assert_eq!(sealed.record.writes.len(), 7);
+                let guard = transaction.guard();
+                let sealed = transaction.seal(&guard, &live, 1).unwrap();
+                assert_eq!(sealed.record.writes.len(), 7);
+                let staged = writer.into_reachable(
+                    [],
+                    sealed.record.writes.iter().filter_map(|w| w.mutation.after),
+                );
+                (sealed.record.clone(), staged)
+            });
+            flush_pages(&store, &memory, staged);
             let receiver = store.value_session(physical_scope());
             let verified = verify_industry_transition_v1(
                 &parent,
                 [0x78; 32],
-                &sealed.record,
+                record,
                 &qualification,
                 &mut IndustryTransitionReadContextV1 {
                     values: ValueReadContext {
