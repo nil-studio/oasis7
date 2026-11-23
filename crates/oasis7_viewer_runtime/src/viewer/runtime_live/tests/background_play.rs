@@ -6,15 +6,15 @@ fn runtime_background_play_retries_transient_llm_access_failure_after_prior_prog
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_MODEL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_MODEL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_BASE_URL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_BASE_URL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_API_KEY);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_API_KEY);
     }
 
     let mut server = ViewerRuntimeLiveServer::new(
@@ -69,15 +69,15 @@ fn runtime_background_play_stops_after_retry_budget_exhausted() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_MODEL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_MODEL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_BASE_URL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_BASE_URL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_API_KEY);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_API_KEY);
     }
 
     let mut server = ViewerRuntimeLiveServer::new(
