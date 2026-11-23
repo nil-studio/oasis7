@@ -10,7 +10,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::{
-    fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+    fs::{FileTypeExt, OpenOptionsExt, PermissionsExt},
     net::{UnixListener, UnixStream},
     process::CommandExt,
 };
@@ -21,6 +21,10 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[path = "process_ownership.rs"]
+mod ownership;
+pub(super) use ownership::{ProcessOwnership, lock};
 
 #[path = "formal_full_sync_runtime.rs"]
 mod formal_full_sync_runtime;
@@ -84,56 +88,6 @@ pub(super) fn admission_lock(data: &Path) -> Result<AdmissionLock, String> {
     file.try_lock()
         .map_err(|_| "native action admission writer busy".to_string())?;
     Ok(AdmissionLock(file))
-}
-/// Lifetime ownership of one exact local directory and lock inode. Only the
-/// native lock acquisition path can construct this value; arbitrary files and
-/// persisted PID/incarnation strings are not ownership capabilities.
-/// There is deliberately no unlock, raw-file conversion, or Clone operation.
-/// Path checks detect existing mismatches; they do not pin future path lookups
-/// against concurrent directory replacement or authorize operation recovery.
-pub(super) struct ProcessOwnership {
-    file: File,
-    directory: PathBuf,
-    directory_identity: (u64, u64),
-}
-impl ProcessOwnership {
-    pub(super) fn require_directory(&self, data: &Path) -> Result<(), String> {
-        io::reject_symlinks(data)?;
-        let directory = fs::canonicalize(data).map_err(|e| e.to_string())?;
-        let metadata = fs::metadata(&directory).map_err(|e| e.to_string())?;
-        let path = directory.join("process.lock");
-        io::regular(&path)?;
-        let current = fs::metadata(&path).map_err(|e| e.to_string())?;
-        let held = self.file.metadata().map_err(|e| e.to_string())?;
-        if directory != self.directory
-            || (metadata.dev(), metadata.ino()) != self.directory_identity
-            || (current.dev(), current.ino()) != (held.dev(), held.ino())
-        {
-            return Err("native ownership does not bind this exact data directory".into());
-        }
-        Ok(())
-    }
-}
-pub(super) fn lock(data: &Path) -> Result<ProcessOwnership, String> {
-    let path = data.join("process.lock");
-    io::regular(&path)?;
-    super::super::controlled_live_config::require_private_owned(&path, false)?;
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&path)
-        .map_err(|e| e.to_string())?;
-    file.try_lock()
-        .map_err(|_| "another process retains this exact local node ownership lock".to_string())?;
-    let directory = fs::canonicalize(data).map_err(|e| e.to_string())?;
-    let metadata = fs::metadata(&directory).map_err(|e| e.to_string())?;
-    let ownership = ProcessOwnership {
-        file,
-        directory,
-        directory_identity: (metadata.dev(), metadata.ino()),
-    };
-    ownership.require_directory(data)?;
-    Ok(ownership)
 }
 pub(super) fn read_instance(data: &Path) -> Result<Option<Instance>, String> {
     let path = data.join(INSTANCE_FILE);
@@ -277,19 +231,27 @@ fn status_value(
     } else {
         None
     };
-    let full_sync_status = if config.identity.chain.formal_full_sync().is_some() {
+    let full_sync_status = if config.identity.chain.formal_full_sync().is_some()
+        || config.identity.chain.budgeted_formal_full_sync().is_some()
+    {
         instance.as_ref().and_then(|instance| {
-            io::read::<super::formal_full_sync::FormalFullSyncStatusV1>(
-                &config
-                    .identity
-                    .data_dir
-                    .join(super::formal_full_sync::STATUS_FILE),
-            )
-            .ok()
-            .filter(|status| {
-                status.incarnation == instance.incarnation
-                    && status.generation == instance.generation
-                    && status.config_digest == instance.config_digest
+            let path = config
+                .identity
+                .data_dir
+                .join(super::formal_full_sync::STATUS_FILE);
+            let value = if config.identity.chain.budgeted_formal_full_sync().is_some() {
+                io::read_bounded_json::<serde_json::Value>(&path, 2 * 1024 * 1024)
+                    .ok()
+                    .filter(|value| value["api_version"] == "oasis7.formal-full-sync-status/v2")
+            } else {
+                io::read::<super::formal_full_sync::FormalFullSyncStatusV1>(&path)
+                    .ok()
+                    .and_then(|status| serde_json::to_value(status).ok())
+            };
+            value.filter(|status| {
+                status["incarnation"] == instance.incarnation
+                    && status["generation"] == instance.generation
+                    && status["config_digest"] == instance.config_digest
             })
         })
     } else {
@@ -299,7 +261,9 @@ fn status_value(
     let full_sync_ready = blocker.is_none()
         && active_instance
         && full_sync_status.as_ref().is_some_and(|status| {
-            status.ready && status.state_root_verified && status.world_loaded
+            status["ready"] == true
+                && status["state_root_verified"] == true
+                && status["world_loaded"] == true
         });
     let formal_readiness = blocker.is_none()
         && active_instance
@@ -311,14 +275,23 @@ fn status_value(
         if full_sync_ready {
             "ready".to_owned()
         } else {
-            status.state.clone()
+            status["state"].as_str().unwrap_or("blocked").to_owned()
         }
     });
     let full_sync_status = full_sync_status.map(|mut status| {
         if !full_sync_ready {
-            status.ready = false;
-            status.can_propose = false;
-            status.world_loaded = false;
+            status["ready"] = false.into();
+            status["can_propose"] = false.into();
+            status["world_loaded"] = false.into();
+            if (!active_instance || blocker.is_some())
+                && let Some(operation) = status
+                    .get_mut("operation")
+                    .filter(|value| value.is_object())
+            {
+                operation["elapsed_ms"] = serde_json::Value::Null;
+                operation["remaining_ms"] = serde_json::Value::Null;
+                operation["attempt_state"] = "interrupted".into();
+            }
         }
         status
     });
@@ -433,6 +406,34 @@ pub(super) fn start_with_action_using_runtime(
             };
         }
     };
+    // V2's native ownership extends through the actual last worker. Obtaining
+    // this lock therefore proves the old incarnation ended, even if its process
+    // crashed before reporting. Reconcile only that lifecycle receipt; the
+    // original operation/installation outcome remains in its unchanged ledger.
+    if config.identity.chain.budgeted_formal_full_sync().is_some()
+        && let Some(mut ended) = read_instance(data)?
+        && !matches!(ended.state.as_str(), "queued" | "stopped" | "failed")
+    {
+        super::formal_full_sync::operation_status::require_takeover_continuity(
+            &config, &ownership,
+        )?;
+        let mut original: ActionRecord = io::read(&data.join(START_INTENT))?;
+        if ended.config_digest != digest
+            || original.target.incarnation != ended.incarnation
+            || original.target.generation != ended.generation
+            || original.action_id != ended.action_id
+        {
+            return Err(
+                "operation_recovery_required: original incarnation admission differs".into(),
+            );
+        }
+        ended.state = "failed".into();
+        ended.exit_code = None;
+        original.target = ended.clone();
+        write_instance(data, &ended)?;
+        io::write(&data.join(START_INTENT), &original)?;
+        save_action(data, &original)?;
+    }
     if let Some(expected) = expected_generation {
         let observed = read_instance(data)?;
         let replaying_same_queued = observed.as_ref().is_some_and(|i| {
@@ -486,6 +487,7 @@ pub(super) fn start_with_action_using_runtime(
     };
     if config.identity.chain.formal_observer().is_some()
         || config.identity.chain.formal_full_sync().is_some()
+        || config.identity.chain.budgeted_formal_full_sync().is_some()
     {
         config.verify_identity()?;
         config.identity.chain.verify()?;
@@ -504,14 +506,28 @@ pub(super) fn start_with_action_using_runtime(
         None => std::env::current_exe().map_err(|e| e.to_string())?,
     };
     let mut child_command = Command::new(executable);
+    let arguments = vec![
+        "node",
+        "_run",
+        "--config",
+        path.to_str().ok_or("non-UTF8 node config path")?,
+        "--incarnation",
+        &intent.target.incarnation,
+    ];
+    #[cfg(test)]
+    let arguments = if runtime_artifact.is_some() {
+        vec![
+            "--exact",
+            package_failed_start_tests::SUPERVISOR_ENTRY,
+            "--nocapture",
+        ]
+    } else {
+        arguments
+    };
+    child_command.args(arguments);
     #[cfg(test)]
     if runtime_artifact.is_some() {
         child_command
-            .args([
-                "--exact",
-                package_failed_start_tests::SUPERVISOR_ENTRY,
-                "--nocapture",
-            ])
             .env(
                 package_failed_start_tests::SUPERVISOR_CONFIG_ENV,
                 path.to_str().ok_or("non-UTF8 node config path")?,
@@ -525,26 +541,6 @@ pub(super) fn start_with_action_using_runtime(
                 &intent.action_id,
             );
     }
-    #[cfg(test)]
-    if runtime_artifact.is_none() {
-        child_command.args([
-            "node",
-            "_run",
-            "--config",
-            path.to_str().ok_or("non-UTF8 node config path")?,
-            "--incarnation",
-            &intent.target.incarnation,
-        ]);
-    }
-    #[cfg(not(test))]
-    child_command.args([
-        "node",
-        "_run",
-        "--config",
-        path.to_str().ok_or("non-UTF8 node config path")?,
-        "--incarnation",
-        &intent.target.incarnation,
-    ]);
     let child = child_command
         .stdin(Stdio::null())
         .stdout(Stdio::from(output.try_clone().map_err(|e| e.to_string())?))
@@ -883,6 +879,9 @@ pub(super) fn supervise(path: &Path, incarnation: &str) -> Result<(), String> {
     if let Some(full_sync) = config.identity.chain.formal_full_sync() {
         return formal_full_sync_runtime::supervise(&config, &mut intent, ownership, full_sync);
     }
+    if config.identity.chain.budgeted_formal_full_sync().is_some() {
+        return formal_full_sync_runtime::supervise_budgeted(&config, &mut intent, ownership);
+    }
     if let Some(observer) = config.identity.chain.formal_observer() {
         return supervise_formal_public_observer(&config, &mut intent, ownership, observer);
     }
@@ -930,16 +929,15 @@ pub(super) fn supervise(path: &Path, incarnation: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     let mut command = Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
     #[cfg(test)]
-    if intent.runtime_artifact.is_some() {
-        command.args([
-            "--exact",
-            package_failed_start_tests::RUNTIME_ENTRY,
-            "--nocapture",
-        ]);
+    let arguments = if intent.runtime_artifact.is_some() {
+        vec![
+            "--exact".into(),
+            package_failed_start_tests::RUNTIME_ENTRY.into(),
+            "--nocapture".into(),
+        ]
     } else {
-        command.args(arguments.iter().map(String::as_str));
-    }
-    #[cfg(not(test))]
+        arguments
+    };
     command.args(arguments);
     #[cfg(test)]
     if intent.runtime_artifact.is_some() {

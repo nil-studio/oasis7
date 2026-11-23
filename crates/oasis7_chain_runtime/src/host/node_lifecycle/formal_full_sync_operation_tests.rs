@@ -89,13 +89,15 @@ fn zero_attempt_ledger_rejects_forged_activity_on_cold_open() {
                 .unwrap()
                 .insert("ab".repeat(32), serde_json::json!(1));
         }
-        let forged: super::operation_snapshot::Snapshot =
-            serde_json::from_value(forged).unwrap();
+        let forged: super::operation_snapshot::Snapshot = serde_json::from_value(forged).unwrap();
         // Structural validation is performed before attaching a recovered
         // owner, so a fabricated operation cannot be resumed as original.
         assert!(forged.validate().is_err(), "{field}");
         local_io::write(&path, &forged).unwrap();
-        assert!(Ledger::open(&path, &identity, &policy, 10).is_err(), "{field}");
+        assert!(
+            Ledger::open(&path, &identity, &policy, 10).is_err(),
+            "{field}"
+        );
     }
     local_io::write(&path, &pristine).unwrap();
     let reopened = Ledger::open(&path, &identity, &policy, 10).unwrap();
@@ -223,12 +225,66 @@ fn reserved_body_window_persisted_after_deadline_never_returns_token() {
     assert_eq!(spent.window_seq, 1);
     assert_eq!(spent.reservation.as_ref().unwrap().bytes, 20);
     assert_eq!(spent.charged().unwrap(), paid_before);
-    assert!(ledger.reserve(&attempt, &request, Direction::Rx, 1).is_err());
+    assert!(
+        ledger
+            .reserve(&attempt, &request, Direction::Rx, 1)
+            .is_err()
+    );
     drop(ledger);
 
     let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(reopened.snapshot(), &spent);
     assert_eq!(reopened.snapshot().charged().unwrap(), paid_before);
+}
+
+#[test]
+fn cancellation_after_durable_admission_never_releases_new_io_permission() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    for reserve_window in [false, true] {
+        let temp = TestDir::new();
+        let path = temp.path().join("operation.json");
+        let policy = policy();
+        let identity = identity(&policy);
+        let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        ledger.bind_cancellation(Arc::clone(&cancelled)).unwrap();
+        let attempt = ledger.begin_attempt().unwrap();
+        let cancel_after_persistence = || {
+            cancelled.store(true, Ordering::SeqCst);
+            Instant::now()
+        };
+        let error = if reserve_window {
+            let request = ledger.begin_exchange(&attempt, 32, 32).unwrap();
+            ledger
+                .reserve_with_finished_at(
+                    &attempt,
+                    &request,
+                    Direction::Rx,
+                    20,
+                    cancel_after_persistence,
+                )
+                .err()
+                .unwrap()
+        } else {
+            ledger
+                .begin_exchange_with_finished_at(&attempt, 32, 32, cancel_after_persistence)
+                .err()
+                .unwrap()
+        };
+        assert!(error.contains("worker cancelled"), "{error}");
+        let paid = ledger.snapshot().clone();
+        assert_eq!(paid.exchanges_started, 1);
+        assert_eq!(paid.charged().unwrap(), 64);
+        assert_eq!(paid.encoded_tx_actual + paid.encoded_rx_actual, 0);
+        assert_eq!(paid.reservation.is_some(), reserve_window);
+        assert!(ledger.check_attempt(&attempt).is_err());
+        drop(ledger);
+        let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+        assert_eq!(reopened.snapshot(), &paid);
+    }
 }
 
 #[test]
@@ -478,7 +534,10 @@ fn late_target_persistence_keeps_original_selection_without_granting_more_io() {
         .unwrap_err();
     assert_eq!(error, "attempt_expired");
     let saved = ledger.snapshot().clone();
-    assert_eq!(saved.verified_target_json.as_deref(), Some(target.as_slice()));
+    assert_eq!(
+        saved.verified_target_json.as_deref(),
+        Some(target.as_slice())
+    );
     assert_eq!(saved.attempts_used, 1);
     assert!(saved.active_attempt_nonce.is_some());
     assert_eq!(saved.exchanges_started, 0);
@@ -487,7 +546,11 @@ fn late_target_persistence_keeps_original_selection_without_granting_more_io() {
     assert!(ledger.begin_exchange(&attempt, 1, 1).is_err());
     assert!(
         ledger
-            .begin_publication(&attempt, &serde_json::json!({"position":7}), &"ab".repeat(32))
+            .begin_publication(
+                &attempt,
+                &serde_json::json!({"position":7}),
+                &"ab".repeat(32)
+            )
             .is_err()
     );
     drop(ledger);
@@ -593,7 +656,10 @@ fn late_publication_intent_persistence_never_authorizes_external_pin_cas() {
     assert_eq!(error, "attempt_expired");
     let pending = ledger.snapshot().clone();
     assert_eq!(
-        pending.publication.as_ref().map(|journal| journal.completed),
+        pending
+            .publication
+            .as_ref()
+            .map(|journal| journal.completed),
         Some(false)
     );
     assert!(ledger.check_attempt(&attempt).is_err());
@@ -605,7 +671,11 @@ fn late_publication_intent_persistence_never_authorizes_external_pin_cas() {
     // acknowledgement or replay permission may appear on the reopened handle.
     let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(reopened.snapshot(), &pending);
-    assert!(reopened.complete_publication(&attempt, &cut, &roots).is_err());
+    assert!(
+        reopened
+            .complete_publication(&attempt, &cut, &roots)
+            .is_err()
+    );
     assert_eq!(reopened.snapshot(), &pending);
 }
 
@@ -737,7 +807,9 @@ fn publication_intent_freezes_proof_and_material_progress_through_cold_reopen() 
 
     // Both accounting operations are allowed during the real sync phase.
     ledger.charge_proof(&attempt, 7).unwrap();
-    ledger.charge_material(&attempt, &first_material, 4).unwrap();
+    ledger
+        .charge_material(&attempt, &first_material, 4)
+        .unwrap();
     let cut = serde_json::json!({"record_id": "original"});
     let target =
         serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record": true}))).unwrap();
@@ -939,4 +1011,31 @@ fn native_initial_ledger_durably_publishes_the_complete_original_request() {
     assert!(repeated.is_err());
     let observed = Ledger::open(&path, &identity, &policy, 1).unwrap();
     assert_eq!(observed.snapshot(), &original);
+}
+
+#[cfg(feature = "node-libp2p")]
+#[path = "formal_full_sync_operation_wire_tests.rs"]
+mod wire_tests;
+
+#[test]
+fn incomplete_operation_does_not_admit_an_unverified_grant_transition() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let ledger = Ledger::create(&path, identity(&policy), policy).unwrap();
+    let original = serde_json::json!({
+        "node_identity": {"grant": "old"},
+        "config": {"grant": "old"}
+    });
+    let current_identity = serde_json::json!({"grant": "new"});
+    let current_config = serde_json::json!({"grant": "new"});
+    assert!(
+        !super::grant_transition::permits(
+            ledger.snapshot(),
+            &original,
+            &current_identity,
+            &current_config
+        )
+        .unwrap()
+    );
 }

@@ -18,6 +18,7 @@ pub(super) struct Request<'a> {
     pub request_timeout: Duration,
 }
 
+#[cfg(test)]
 pub(super) fn post(
     input: Request<'_>,
     ledger: &mut Ledger,
@@ -148,6 +149,7 @@ pub(super) fn post_with_headers(
     result
 }
 
+#[cfg(test)]
 fn parse_headers(bytes: &[u8], bound: usize) -> Result<(u16, usize), String> {
     parse_full_headers(bytes, bound).map(|(status, length, _)| (status, length))
 }

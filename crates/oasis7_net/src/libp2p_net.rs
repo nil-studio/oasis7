@@ -21,6 +21,7 @@ mod discovery_budget;
 mod discovery_list;
 mod drop_support;
 mod durable_peer_record_publisher;
+mod encoded_exchange;
 use durable_peer_record_publisher::LocalPeerRecordPublisher;
 pub(crate) mod error_mapping;
 mod inbound_dispatch;

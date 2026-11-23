@@ -917,6 +917,7 @@ fn full_sync_source_failure_wire_category_ignores_diagnostic_words() {
     for diagnostic in [
         "opaque failure",
         "HistoryUnavailable not available not ready grant authorized node",
+        "attempt_expired operation_budget_exhausted installation_repair_attempt_failed:",
     ] {
         for (error, expected_status, expected_code) in [
             (

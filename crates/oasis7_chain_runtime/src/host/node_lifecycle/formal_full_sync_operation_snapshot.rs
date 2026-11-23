@@ -1,6 +1,7 @@
 //! Shared durable operation record and bounded read-only verification.
 use super::super::local_io;
 use super::operation_config::FormalFullSyncTransferPolicyV1 as Policy;
+use super::operation_terminal::{AttemptOwner, Installation, TerminalIndex};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::path::Path;
@@ -52,6 +53,8 @@ pub(super) struct Reservation {
 #[serde(deny_unknown_fields)]
 pub(super) struct Publication {
     pub intent_digest: String,
+    #[serde(default)]
+    pub installation_input_digest: Option<String>,
     pub attempt_no: u64,
     pub completed: bool,
 }
@@ -68,6 +71,8 @@ pub(super) struct InterruptedAttempt {
     pub(super) tx_credit: u64,
     pub(super) rx_credit: u64,
     pub(super) reservation: Option<Reservation>,
+    #[serde(default)]
+    pub(super) owner: Option<AttemptOwner>,
 }
 impl InterruptedAttempt {
     fn charged(&self) -> Option<u64> {
@@ -94,6 +99,14 @@ pub(super) struct Snapshot {
     pub publication: Option<Publication>,
     #[serde(default)]
     pub publication_journal_version: Option<u32>,
+    #[serde(default)]
+    pub installation: Option<Installation>,
+    #[serde(default)]
+    pub terminal_index: Option<TerminalIndex>,
+    #[serde(default)]
+    pub attempt_owner: Option<AttemptOwner>,
+    #[serde(default)]
+    pub repair_attempt: bool,
     pub proof_pages: u64,
     pub proof_bytes: u64,
     pub material_limit: u64,
@@ -137,6 +150,89 @@ impl Snapshot {
 
     pub(super) fn validate(&self) -> Result<(), String> {
         self.policy.validate()?;
+        if let Some(index) = &self.terminal_index {
+            index.validate()?;
+        }
+        for owner in self.attempt_owner.iter().chain(
+            self.interrupted_attempts
+                .iter()
+                .filter_map(|a| a.owner.as_ref()),
+        ) {
+            if owner.generation == 0
+                || owner.incarnation.len() != 32
+                || !owner.incarnation.bytes().all(|c| c.is_ascii_hexdigit())
+            {
+                return Err("invalid operation attempt owner".into());
+            }
+        }
+        if let Some(installation) = &self.installation {
+            let manifest: oasis7_client_api::world_service_full_sync::FormalFullSyncManifestV1 =
+                serde_json::from_value(installation.manifest.clone()).map_err(|e| e.to_string())?;
+            manifest.validate()?;
+            let target: serde_json::Value = serde_json::from_slice(
+                self.verified_target_json
+                    .as_deref()
+                    .ok_or("installation has no original target")?,
+            )
+            .map_err(|e| e.to_string())?;
+            if serde_json::to_value(&manifest.cut).map_err(|e| e.to_string())? != target[0]
+                || installation.retained_cas_hashes.is_empty()
+                || installation
+                    .retained_cas_hashes
+                    .iter()
+                    .any(|hash| !self.materials.contains_key(hash))
+                || serde_json::to_vec(&installation.manifest)
+                    .map_err(|e| e.to_string())?
+                    .len()
+                    > 8 * 1024 * 1024
+            {
+                return Err("installation differs from original verified material".into());
+            }
+            if let Some(publication) = &self.publication {
+                let roots = local_io::digest(&installation.retained_cas_hashes)?;
+                if publication.intent_digest != local_io::digest(&(&target[0], &roots))?
+                    || publication.installation_input_digest.as_deref()
+                        != Some(
+                            local_io::digest(&(
+                                &installation.manifest,
+                                &installation.retained_cas_hashes,
+                            ))?
+                            .as_str(),
+                        )
+                {
+                    return Err(
+                        "operation_recovery_required: original installation intent changed".into(),
+                    );
+                }
+            }
+            let installation_digest = local_io::digest(installation)?;
+            if installation.completed
+                && (self.active_attempt_nonce.is_some()
+                    || self.active_request.is_some()
+                    || self.unresolved_reserved()? != 0
+                    || !self.publication.as_ref().is_some_and(|p| p.completed)
+                    || !self
+                        .terminal_index
+                        .as_ref()
+                        .and_then(|i| i.summaries.last())
+                        .is_some_and(|s| {
+                            s.identity == self.identity
+                                && s.target == target[0]
+                                && s.encoded_tx_actual == self.encoded_tx_actual
+                                && s.encoded_rx_actual == self.encoded_rx_actual
+                                && s.unknown_final_charged == self.unknown_final_charged
+                                && s.exchanges_started == self.exchanges_started
+                                && s.attempts_used == self.attempts_used
+                                && s.proof_pages == self.proof_pages
+                                && s.proof_bytes == self.proof_bytes
+                                && s.material_bytes == self.material_bytes
+                                && s.installation_digest == installation_digest
+                                && s.history_manifest_digest == installation.history_manifest_digest
+                        }))
+            {
+                return Err("completed installation lacks its exact terminal accounting".into());
+            }
+        }
         if self
             .publication_journal_version
             .is_some_and(|version| version != 1)
@@ -149,8 +245,7 @@ impl Snapshot {
                 // Publication is written only once the preceding request and
                 // reservation have ended; a cold ledger must preserve that
                 // ordering rather than admitting an invented later exchange.
-                || self.active_request.is_some()
-                || self.reservation.is_some()
+                || (!self.repair_attempt && (self.active_request.is_some() || self.reservation.is_some()))
                 || publication.attempt_no == 0
                 || publication.attempt_no > self.attempts_used
                 || publication.intent_digest.len() != 64
@@ -160,6 +255,13 @@ impl Snapshot {
                     .all(|c| c.is_ascii_hexdigit()))
         {
             return Err("invalid operation publication identity".into());
+        }
+        if self.repair_attempt
+            && (self.attempts_used == 0
+                || self.publication.is_none()
+                || self.installation.as_ref().is_none_or(|i| i.completed))
+        {
+            return Err("invalid original installation repair attempt".into());
         }
         let mut previous = 0;
         for old in &self.interrupted_attempts {

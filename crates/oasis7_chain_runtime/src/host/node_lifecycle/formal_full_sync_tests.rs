@@ -1124,10 +1124,12 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
     let node_path = data.join(model::CONFIG_FILE);
     assert_eq!(model::NodeConfig::load(&node_path).unwrap(), node);
     let path = node_path.to_str().unwrap();
+    // V2 now has a shipping consumer. An unadmitted _run still cannot acquire
+    // a lifecycle identity; real start/grant/World behavior is exercised below.
     assert!(
-        run(["start", "--config", path].into_iter())
+        node.require_active_worker_profile()
             .unwrap_err()
-            .contains("no active worker consumer")
+            .contains("independent issuer grant")
     );
     assert!(
         run([
@@ -1138,8 +1140,7 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
             "not-an-admitted-incarnation"
         ]
         .into_iter())
-        .unwrap_err()
-        .contains("no active worker consumer")
+        .is_err()
     );
     assert!(!data.join("state/full-sync").exists());
 
