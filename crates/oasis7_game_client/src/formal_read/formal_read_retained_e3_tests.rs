@@ -43,7 +43,7 @@ pub(super) fn exercise() {
             origin_checkpoint,
             origin_digest,
             request,
-            reply,
+            mut reply,
             view,
             frozen_body,
             frozen,
@@ -54,7 +54,7 @@ pub(super) fn exercise() {
             let (world, trust, anchor, initial_proof) = protocol_initial_fixture();
             let origin_checkpoint = anchor.checkpoint();
             let origin_digest = origin_checkpoint.digest().unwrap();
-            let (request, mut reply) = response(
+            let (request, reply) = response(
                 &world,
                 &anchor,
                 FormalReadHistoryV1 {
