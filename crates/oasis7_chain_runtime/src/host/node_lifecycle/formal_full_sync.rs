@@ -282,6 +282,9 @@ pub(crate) struct RestoredFormalFullSyncWorldV1 {
     manifest: FormalFullSyncManifestV1,
 }
 
+#[cfg(test)]
+type PublicationFaultHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 pub(crate) struct FormalFullSyncSession {
     config: FormalFullSyncConfigV1,
     client: RemoteWorldServiceClient,
@@ -293,7 +296,7 @@ pub(crate) struct FormalFullSyncSession {
     local_recovery_deadline: Option<std::time::Instant>,
     cancellation: Option<Arc<AtomicBool>>,
     #[cfg(test)]
-    publication_fault: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    publication_fault: Option<PublicationFaultHook>,
     node_private_key_hex: String,
     node_public_key_hex: String,
     cas: Arc<LocalCasStore>,
@@ -634,7 +637,7 @@ impl FormalFullSyncSession {
         }
         let parent = VerifiedFormalRetainedHistoryParentV1::verify(anchor, snapshot_bytes)?;
         let tree_leaves =
-            self.fetch_retained_tree(&cut, &retained.root_digest, &retained.index_root, budget)?;
+            self.fetch_retained_tree(cut, &retained.root_digest, &retained.index_root, budget)?;
         if tree_leaves != retained.index_root.leaf_count {
             return Err("full-sync retained tree leaf count mismatch".into());
         }

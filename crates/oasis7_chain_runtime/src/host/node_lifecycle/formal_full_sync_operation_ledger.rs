@@ -393,12 +393,7 @@ impl Ledger {
             || Instant::now() >= deadline
             || self.state.publication_journal_version != Some(1)
             || (self.state.publication.is_some() != repair)
-            || (repair
-                && !self
-                    .state
-                    .installation
-                    .as_ref()
-                    .is_some_and(|i| !i.completed))
+            || (repair && self.state.installation.as_ref().is_none_or(|i| i.completed))
             || self.state.verified_target_json.as_deref() != verified_target
         {
             return Err("operation_recovery_required: unpublished recovery unavailable".into());

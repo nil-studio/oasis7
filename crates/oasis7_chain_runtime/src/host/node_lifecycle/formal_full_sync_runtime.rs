@@ -53,36 +53,34 @@ impl Drop for WorkerStop {
     }
 }
 
+struct LegacyPollSession {
+    session: super::super::formal_full_sync::FormalFullSyncSession,
+    restored_world: Option<oasis7_runtime::World>,
+}
 enum PollSession {
-    Legacy {
-        session: super::super::formal_full_sync::FormalFullSyncSession,
-        restored_world: Option<oasis7_runtime::World>,
-    },
-    Budgeted(super::super::formal_full_sync::operation_worker::BudgetedDriver),
+    Legacy(Box<LegacyPollSession>),
+    Budgeted(Box<super::super::formal_full_sync::operation_worker::BudgetedDriver>),
 }
 impl PollSession {
     fn poll_interval(&self) -> Duration {
         match self {
-            Self::Legacy { session, .. } => session.poll_interval(),
+            Self::Legacy(legacy) => legacy.session.poll_interval(),
             Self::Budgeted(driver) => driver.poll_interval(),
         }
     }
     fn begin_poll(&mut self) {
-        if let Self::Legacy {
-            session,
-            restored_world,
-        } = self
-        {
-            drop(restored_world.take());
-            session.begin_poll();
+        if let Self::Legacy(legacy) = self {
+            drop(legacy.restored_world.take());
+            legacy.session.begin_poll();
         }
     }
     fn poll(&mut self) -> Result<(), String> {
         match self {
-            Self::Legacy {
-                session,
-                restored_world,
-            } => {
+            Self::Legacy(legacy) => {
+                let LegacyPollSession {
+                    session,
+                    restored_world,
+                } = legacy.as_mut();
                 *restored_world = session.sync_latest().ok().map(|restored| restored.world);
                 session.set_world_loaded(restored_world.is_some());
                 if session.status().ready
@@ -97,8 +95,8 @@ impl PollSession {
     }
     fn status(&self, node: &NodeConfig) -> Result<serde_json::Value, String> {
         match self {
-            Self::Legacy { session, .. } => {
-                serde_json::to_value(session.status()).map_err(|e| e.to_string())
+            Self::Legacy(legacy) => {
+                serde_json::to_value(legacy.session.status()).map_err(|e| e.to_string())
             }
             Self::Budgeted(driver) => super::super::formal_full_sync::operation_status::running(
                 node,
@@ -165,9 +163,11 @@ fn supervise_inner(
             &state_root,
             &intent.target,
         )
-        .map(|session| PollSession::Legacy {
-            session,
-            restored_world: None,
+        .map(|session| {
+            PollSession::Legacy(Box::new(LegacyPollSession {
+                session,
+                restored_world: None,
+            }))
         })
     } else {
         super::super::formal_full_sync::operation_worker::BudgetedDriver::new(
@@ -176,7 +176,7 @@ fn supervise_inner(
             Arc::clone(&ownership),
             Arc::clone(&stop_polling),
         )
-        .map(PollSession::Budgeted)
+        .map(|driver| PollSession::Budgeted(Box::new(driver)))
     };
     let mut session = match initialized {
         Ok(session) => session,
@@ -190,7 +190,7 @@ fn supervise_inner(
     };
     let live_observation = match &session {
         PollSession::Budgeted(driver) => Some(Arc::clone(&driver.observation)),
-        PollSession::Legacy { .. } => None,
+        PollSession::Legacy(_) => None,
     };
     intent.target.runtime_pid = None;
     intent.target.state = "running".into();

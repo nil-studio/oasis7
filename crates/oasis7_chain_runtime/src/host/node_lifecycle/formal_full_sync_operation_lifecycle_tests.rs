@@ -497,10 +497,10 @@ impl BudgetFixture {
 }
 impl Drop for BudgetFixture {
     fn drop(&mut self) {
-        if let Some(cli) = &mut self.cli {
-            if cli.started {
-                let _ = cli.stop();
-            }
+        if let Some(cli) = &mut self.cli
+            && cli.started
+        {
+            let _ = cli.stop();
         }
         let _ = self.service.0.stop();
         let _ = self.service.3.lock().unwrap().stop();

@@ -259,7 +259,7 @@ impl Snapshot {
         if self.repair_attempt
             && (self.attempts_used == 0
                 || self.publication.is_none()
-                || !self.installation.as_ref().is_some_and(|i| !i.completed))
+                || self.installation.as_ref().is_none_or(|i| i.completed))
         {
             return Err("invalid original installation repair attempt".into());
         }
