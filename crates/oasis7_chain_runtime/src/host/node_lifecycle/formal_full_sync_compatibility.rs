@@ -7,7 +7,7 @@ use super::{
     FormalFullSyncConfigV1, FormalFullSyncStatusV1, PROFILE, history_chain, nondecreasing_cut,
     providers,
 };
-use oasis7::world_service::authority;
+use oasis7_world_service::authority;
 use oasis7_client_api::world_service_full_sync::FormalFullSyncCutV1;
 use oasis7_runtime::LocalCasStore;
 use std::{path::Path, sync::Arc, time::Duration};

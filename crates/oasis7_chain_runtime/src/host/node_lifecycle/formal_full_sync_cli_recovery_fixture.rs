@@ -8,7 +8,7 @@ use serde::Serialize;
 
 pub(super) fn empty_recovery_fixture(
     original: &FullSyncCutFixture,
-    trust: &oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: &oasis7_world_service::client::FormalReadTrustConfigV1,
 ) -> Result<(FullSyncCutFixture, Vec<FormalReadStepV1>), String> {
     let cut = &original.anchor;
     let next = successor(cut.authority(), cut, 2, [101, 102, 103]);

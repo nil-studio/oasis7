@@ -3,7 +3,7 @@ use super::super::super::{
     formal_live_config::ValidatedFormalLiveConfigV1, node_lifecycle::local_io as io,
 };
 use super::{FormalHandoffReadbackV1, recovery_permission_digest};
-use oasis7::world_service::client::{
+use oasis7_world_service::client::{
     RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort,
 };
 use oasis7_client_api::world_service::{
