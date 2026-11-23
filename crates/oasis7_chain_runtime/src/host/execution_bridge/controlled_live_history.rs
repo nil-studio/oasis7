@@ -5,7 +5,7 @@ use super::{
     controlled_capture as capture, controlled_live_package as package, to_cbor,
 };
 use crate::controlled_live_config::GuardedAuthority;
-use oasis7::world_service::{CommitRef, ExecutionBinding, WorldIdentity, authority};
+use oasis7_world_service::{CommitRef, ExecutionBinding, WorldIdentity, authority};
 use oasis7_distfs::controlled_authority::{
     LocalRequestIdentity,
     replicated_protocol::{ArtifactRole, DurabilityEvidence, HeadAnchor, verify_evidence},

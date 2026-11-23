@@ -3,7 +3,7 @@
 use super::driver::NodeRuntimeExecutionDriver;
 use super::execution_hash::ExecutionHashPayload;
 use super::{ExecutionBridgeRecord, checkpoint, to_cbor, world_service_read, write_bytes_atomic};
-use oasis7::world_service::WorldIdentity;
+use oasis7_world_service::WorldIdentity;
 use oasis7_node::NodeExecutionBootstrap;
 use oasis7_runtime::{BlobStore, Journal, Snapshot, blake3_hex};
 use serde::{Deserialize, Serialize};

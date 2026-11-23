@@ -340,7 +340,7 @@ fn run_cli_join_with_sources(
         // A separate ordinary reader starts at the unchanged C0. Prove the
         // fixture's recovery page actually reaches E2 before judging the CLI
         // worker's grant denial; a raw/current service head is never a pin.
-        use oasis7::world_service::client::{
+        use oasis7_world_service::client::{
             RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort,
         };
         let probe = RemoteWorldServiceClient::new(WorldServiceClientConfig {

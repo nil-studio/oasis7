@@ -72,7 +72,7 @@ fn context(height: u64, nonce: u64) -> NodeExecutionCommitContext {
 }
 #[test]
 fn controlled_history_rejects_decodable_service_envelopes_without_dropping_them() {
-    use oasis7::world_service::*;
+    use oasis7_world_service::*;
     let legacy = context(1, 1);
     let original = capture::supported_origin(&legacy).unwrap();
     assert_eq!(original.submission.auth_nonce, 1);

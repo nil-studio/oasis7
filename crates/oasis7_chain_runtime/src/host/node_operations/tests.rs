@@ -824,7 +824,7 @@ fn package_plan_rejects_non_symlink_current_before_operation_admission() {
 #[test]
 fn operation_result_binds_verified_formal_read_to_exact_operation_and_instance() {
     use crate::formal_read_fixtures as fixtures;
-    use oasis7::world_service::{
+    use oasis7_world_service::{
         authority,
         client::{
             FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServiceClientConfig,

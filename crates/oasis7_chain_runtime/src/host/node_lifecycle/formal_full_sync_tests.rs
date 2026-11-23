@@ -5,7 +5,7 @@ use crate::formal_live_service::{
     PublishedReadState,
 };
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority,
     formal_read::{FormalReadHistoryV1, FormalReadStepV1, MAX_FORMAL_HISTORY_STEPS},
     formal_read_service::FormalReadPublication,
@@ -77,7 +77,7 @@ fn endpoint(
 
 fn full_sync_fixture() -> (
     World,
-    oasis7::world_service::client::FormalReadTrustConfigV1,
+    oasis7_world_service::client::FormalReadTrustConfigV1,
     VerifiedFormalReadAnchorV1,
     ClosedRecord,
     FormalQualifiedCommitProofV1,
@@ -89,7 +89,7 @@ fn full_sync_fixture_with_result(
     result_bytes: Vec<u8>,
 ) -> (
     World,
-    oasis7::world_service::client::FormalReadTrustConfigV1,
+    oasis7_world_service::client::FormalReadTrustConfigV1,
     VerifiedFormalReadAnchorV1,
     ClosedRecord,
     FormalQualifiedCommitProofV1,
@@ -216,7 +216,7 @@ fn full_sync_fixture_with_result(
     let mut roots = role_roots;
     roots.insert(ArtifactRole::Input, payload_digest.clone());
     role_bytes.insert(ArtifactRole::Input, input_bytes);
-    let projection_root = oasis7::world_service::formal_projection::commitments_for_world(&world)
+    let projection_root = oasis7_world_service::formal_projection::commitments_for_world(&world)
         .unwrap()
         .root()
         .unwrap();
@@ -270,7 +270,7 @@ fn full_sync_fixture_with_result(
     )
     .unwrap();
     let checkpoint = anchor.checkpoint();
-    let formal_trust = oasis7::world_service::client::FormalReadTrustConfigV1 {
+    let formal_trust = oasis7_world_service::client::FormalReadTrustConfigV1 {
         initial_trust: trust,
         checkpoint_digest: checkpoint.digest().unwrap(),
         checkpoint,
@@ -289,7 +289,7 @@ type LiveServiceFixture = (
 
 fn start_live_service(
     world: World,
-    trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: oasis7_world_service::client::FormalReadTrustConfigV1,
     anchor: VerifiedFormalReadAnchorV1,
     material: ClosedRecord,
     proof: FormalQualifiedCommitProofV1,
@@ -299,7 +299,7 @@ fn start_live_service(
 
 fn start_live_service_with_read_gate(
     world: World,
-    trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: oasis7_world_service::client::FormalReadTrustConfigV1,
     anchor: VerifiedFormalReadAnchorV1,
     material: ClosedRecord,
     proof: FormalQualifiedCommitProofV1,
@@ -618,7 +618,7 @@ fn same_epoch_successor_fixture(
 
 fn externally_pinned_recovered_anchor(
     anchor: &VerifiedFormalReadAnchorV1,
-    trust: &oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: &oasis7_world_service::client::FormalReadTrustConfigV1,
 ) -> VerifiedFormalReadAnchorV1 {
     // This fixture tests the service's current-epoch grant gate from a typed,
     // independently pinned checkpoint. Recovery-certificate validation is

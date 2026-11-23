@@ -60,7 +60,7 @@ fn preview_history_reconstructs_compacted_original_without_changing_source() {
     // A well-formed signed Scheduler request with no Agent authority must be
     // canonically rejected. It still exercises the real driver's identity
     // sidecar read and retains the original correlated business result.
-    use oasis7::world_service::*;
+    use oasis7_world_service::*;
     let initial_view = bridge::world_service_read::pin(
         &options.root.join("records"),
         &options.root.join("store"),
@@ -534,7 +534,7 @@ fn preview_history_pin_namespace_symlinks_refuse_reads_and_publication() {
         .unwrap();
         let record_path = root.join("records").join(format!("{:020}.json", 17));
         fs::write(&record_path, &header).unwrap();
-        let identity = oasis7::world_service::WorldIdentity {
+        let identity = oasis7_world_service::WorldIdentity {
             world_id: "namespace-world".into(),
             genesis_digest: "namespace-genesis".into(),
         };

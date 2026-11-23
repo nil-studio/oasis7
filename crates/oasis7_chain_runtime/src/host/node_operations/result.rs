@@ -310,7 +310,7 @@ impl OperationResultV1 {
         {
             return Err("qualified protocol observation omits required durable roots".into());
         }
-        let verified_commitment_digest = oasis7::world_service::authority::request_digest(
+        let verified_commitment_digest = oasis7_world_service::authority::request_digest(
             "oasis7.operation-result.formal-commit.v1",
             &(
                 record,
