@@ -205,7 +205,7 @@ World/Region/Node优先热区/主干、区域关系、配方/库存，目标定�
 <a id="follow-up-brainstorm"></a>
 ### 12.1 后续候选
 
-viewer-pixel-world-player-leverage-production-readability-2026-05-28.brainstorm.md保留command-lens/production-pulse/pixel-moment候选，不是第二Shell authority；新增数据/交互需更新对应合同，不复活旧PM流程。
+历史 2026-05-28 brainstorm（已吸收并退役，可从 Git history 追溯）中的 command-lens/production-pulse/pixel-moment 候选不是第二 Shell authority；新增数据/交互需更新对应合同，不复活旧 PM 流程。
 
 <a id="边界决策与风险"></a>
 ### 12.2 边界和剩余风险

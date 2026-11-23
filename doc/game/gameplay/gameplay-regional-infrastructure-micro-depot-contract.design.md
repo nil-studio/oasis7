@@ -9,7 +9,7 @@
   - [`受治理的区域能力与扩展`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-001) 是本设计的产品语义入口。
   - `doc/game/gameplay/gameplay-indirect-control-agency-contract.prd.md`
   - `doc/product/world-rules-core-gameplay/mature-world-progression.prd.md`
-  - `doc/world-simulator/viewer/viewer-pixel-world-player-leverage-production-readability-2026-05-28.brainstorm.md`
+  - `doc/world-simulator/viewer/viewer-pixel-world-player-readable-rendering.design.md`
 
 <a id="1-设计定位"></a>
 ## 1. 目标与设计定位

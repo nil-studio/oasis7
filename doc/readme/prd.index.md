@@ -87,8 +87,8 @@
 ## 历史压缩专题清单（保留原址与互链）
 | 历史 PRD | 设计承接 | 执行来源 | 保留理由 |
 | --- | --- | --- | --- |
-| `doc/readme/gap/readme-gap-distributed-prod-hardening-gap12345.prd.md` | [同文历史边界与现行去向](gap/readme-gap-distributed-prod-hardening-gap12345.prd.md#historical-retention-and-routing)；旧 design 仅兼容 | 原 Git / PR / CI / 评审 | 保留多样本、重试、审计与原失败；不是当前操作入口 |
-| `doc/readme/production/readme-prod-gap1245-wasm-repl-topology-player.prd.md` | [同文历史边界与现行去向](production/readme-prod-gap1245-wasm-repl-topology-player.prd.md#historical-retention-and-routing)；旧 design 仅兼容 | 原 Git / PR / CI / 评审 | 保留 WASM、复制与玩家身份原合同；旧 Viewer 节点参数不再适用 |
+| `doc/readme/gap/readme-gap-distributed-prod-hardening-gap12345.prd.md` | [同文历史边界与现行去向](gap/readme-gap-distributed-prod-hardening-gap12345.prd.md#historical-retention-and-routing)（旧兼容跳转 design 已移除） | 原 Git / PR / CI / 评审 | 保留多样本、重试、审计与原失败；不是当前操作入口 |
+| `doc/readme/production/readme-prod-gap1245-wasm-repl-topology-player.prd.md` | [同文历史边界与现行去向](production/readme-prod-gap1245-wasm-repl-topology-player.prd.md#historical-retention-and-routing)（旧兼容跳转 design 已移除） | 原 Git / PR / CI / 评审 | 保留 WASM、复制与玩家身份原合同；旧 Viewer 节点参数不再适用 |
 
 ## 已退役删除专题
 | 专题 | 当前承接 | 删除理由 |
