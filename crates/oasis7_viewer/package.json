@@ -38,11 +38,11 @@
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^7.0.1",
-    "@testing-library/user-event": "^14.6.10",
+    "@testing-library/user-event": "^14.6.13",
     "jsdom": "^31.0.1",
     "vite": "^8.3.8",
-    "vite-plugin-solid": "^2.11.16",
-    "vitest": "^5.1.0",
+    "vite-plugin-solid": "^2.11.17",
+    "vitest": "^5.1.1",
     "ws": "8.23.0"
   }
 }
