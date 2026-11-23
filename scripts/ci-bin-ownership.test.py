@@ -182,7 +182,8 @@ class Ownership(unittest.TestCase):
         self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
         host_deps = manifest('oasis7_runtime_host')['dependencies']
         self.assertEqual(set(host_deps), {
-            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api'
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
         })
         self.assertNotIn('oasis7', host_deps)
         for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
