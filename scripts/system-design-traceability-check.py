@@ -46,7 +46,6 @@ DESIGN_STANDARD_EXCLUSIONS = frozenset(
         "doc/engineering/doc-governance/product-documentation-standard.design.md",
         "doc/engineering/doc-governance/project-management-record-standard.design.md",
         "doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md",
-        "doc/engineering/self-evolution/file-based-self-evolution-management-2026-03-30.design.md",
         "doc/engineering/doc-governance/system-design-writing-standard.design.md",
     }
 )
