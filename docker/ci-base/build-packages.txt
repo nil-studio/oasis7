@@ -12,4 +12,5 @@ libxrandr-dev
 lsof
 pkg-config
 procps
+time
 wayland-protocols

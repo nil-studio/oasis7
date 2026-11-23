@@ -101,13 +101,6 @@ allowed_snippets = {
     ),
 }
 allowed_path_names = {
-    "doc/testing/templates/shared-network-exit-decision-template.md",
-    "doc/testing/templates/shared-network-incident-review-template.md",
-    "doc/testing/templates/shared-network-incident-template.md",
-    "doc/testing/templates/shared-network-mixed-topology-gate-template.md",
-    "doc/testing/templates/shared-network-promotion-record-template.md",
-    "doc/testing/templates/shared-network-rollback-target-template.md",
-    "doc/testing/templates/shared-network-shared-access-check-template.md",
     "scripts/legacy-shared-devnet-provenance-smoke.sh",
     "scripts/shared-network-track-gate.sh",
 }

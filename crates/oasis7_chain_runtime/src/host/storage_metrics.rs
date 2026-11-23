@@ -863,7 +863,7 @@ mod tests {
         fs::create_dir_all(paths.execution_world_dir.as_path())
             .expect("create execution world dir");
 
-        let world = oasis7::runtime_host::world::new();
+        let world = oasis7_runtime_host::world::new();
         world
             .save_to_dir(paths.execution_world_dir.as_path())
             .expect("initial save should succeed");

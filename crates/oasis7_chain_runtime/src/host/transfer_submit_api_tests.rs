@@ -282,7 +282,7 @@ fn seed_world_for_explorer_p1(temp_dir: &Path) {
         },
     );
 
-    let world = oasis7::runtime_host::world::new_with_state(state);
+    let world = oasis7_runtime_host::world::new_with_state(state);
     world
         .save_to_dir(temp_dir)
         .expect("save seeded world for explorer p1 tests");
@@ -667,7 +667,7 @@ fn preflight_transfer_rejects_restricted_only_balance() {
             .as_nanos()
     ));
     fs::create_dir_all(&temp_dir).expect("create temp dir");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.set_main_token_supply(MainTokenSupplyState {
         total_supply: 125,
         circulating_supply: 125,

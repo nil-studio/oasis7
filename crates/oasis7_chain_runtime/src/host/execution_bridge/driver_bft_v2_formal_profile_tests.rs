@@ -189,7 +189,7 @@ fn seed_formal_ledger(h: &QualifiedH, scratch: &Scratch) {
 
 #[cfg(unix)]
 fn empty_bft_genesis_world(scope: &oasis7_node::BftScopeV1) -> RuntimeWorld {
-    let world = oasis7::runtime_host::world::new_production_hardened();
+    let world = oasis7_runtime_host::world::new_production_hardened();
     let manifest = world.chain_resource_manifest();
     let snapshot = world.snapshot_with_chain_resource_context(
         oasis7_runtime::ChainResourceDerivationContext {

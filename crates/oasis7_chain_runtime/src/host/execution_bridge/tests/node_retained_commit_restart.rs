@@ -75,7 +75,7 @@ fn node_restart_preserves_signed_retained_commit_when_replication_frontier_lags(
     let replication = root.join("replication");
     let world_id = "retained-restart-world";
     let node_id = "retained-restart-node";
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.step().unwrap();
     world
         .bind_cognition_runtime(world_id, "main", 0, None, "pending", 0)

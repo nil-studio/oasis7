@@ -4,7 +4,7 @@
 //! Content-addressed blobs are atomic; proof history and the last verified World
 //! remain pinned until a fully restored successor is ready.
 
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority,
     client::{FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServicePort},
     verified_view::VerifiedWorldView,
@@ -646,7 +646,7 @@ impl FormalFullSyncSession {
             integrity_poisoned: Arc::clone(&self.cas_integrity_poisoned),
         });
         self.check_operation_active()?;
-        let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
+        let world = oasis7_runtime_host::world::from_verified_formal_snapshot(
             snapshot, journal, parent, reader,
         )
         .map_err(|error| format!("full-sync cold restore: {error:?}"))?;

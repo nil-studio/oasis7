@@ -39,7 +39,7 @@ fn committed_fence_readback_preserves_signed_devlocal_history_and_trusted_contex
         "viewer-test-config",
         "viewer-test-generation",
     );
-    server.world = crate::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
+    server.world = oasis7_runtime_host::world::from_snapshot_with_devlocal_participant_authority(
         snapshot,
         server.world.journal().clone(),
         authority.clone(),

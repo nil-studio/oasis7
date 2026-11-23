@@ -258,19 +258,19 @@ pub(crate) fn classify_control_plane_event(
         )) => Some("relay_client.inbound_circuit_established"),
         SwarmEvent::Behaviour(BehaviourEvent::Dcutr(_)) => Some("dcutr.event"),
         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-            rendezvous::client::Event::Registered { .. },
+            super::rendezvous_client::Event::Registered { .. },
         )) => Some("rendezvous_client.registered"),
         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-            rendezvous::client::Event::RegisterFailed { .. },
+            super::rendezvous_client::Event::RegisterFailed { .. },
         )) => Some("rendezvous_client.register_failed"),
         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-            rendezvous::client::Event::Discovered { .. },
+            super::rendezvous_client::Event::Discovered { .. },
         )) => Some("rendezvous_client.discovered"),
         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-            rendezvous::client::Event::DiscoverFailed { .. },
+            super::rendezvous_client::Event::DiscoverFailed { .. },
         )) => Some("rendezvous_client.discover_failed"),
         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-            rendezvous::client::Event::Expired { .. },
+            super::rendezvous_client::Event::Expired { .. },
         )) => Some("rendezvous_client.expired"),
         SwarmEvent::Behaviour(BehaviourEvent::RendezvousServer(
             rendezvous::server::Event::PeerNotRegistered { .. },

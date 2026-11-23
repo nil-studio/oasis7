@@ -24,7 +24,7 @@ use oasis7_world_service::consensus_action_payload::encode_consensus_action_payl
 fn chain_runtime_persistence_recovery_roundtrip() {
     let dir = temp_dir("execution-world");
     let world_dir = dir.join("world");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.submit_action(RuntimeAction::RegisterAgent {
         agent_id: "recovery-agent".to_string(),
         pos: oasis7_agent_api::world_action::GeoPos::new(1, 2, 3),
@@ -74,7 +74,7 @@ fn load_execution_world_defaults_to_hardened_release_policy() {
     );
 
     let legacy_world_dir = dir.join("legacy");
-    let legacy_world = oasis7::runtime_host::world::new();
+    let legacy_world = oasis7_runtime_host::world::new();
     persist_execution_world(legacy_world_dir.as_path(), &legacy_world).expect("persist world");
     let loaded_world = load_execution_world(legacy_world_dir.as_path()).expect("load world");
     assert!(
@@ -276,7 +276,7 @@ fn node_runtime_execution_driver_persists_v2_committed_tick_context() {
         .expect("load authoritative journal CAS blob");
     let snapshot = serde_cbor::from_slice(snapshot_bytes.as_slice()).expect("decode snapshot");
     let journal = serde_cbor::from_slice(journal_bytes.as_slice()).expect("decode journal");
-    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+    let world = oasis7_runtime_host::world::from_snapshot(snapshot, journal)
         .expect("reconstruct committed world");
     let record = world
         .latest_tick_consensus_record()
@@ -326,7 +326,7 @@ fn load_execution_world_with_dev_local_policy_keeps_generic_supply_for_missing_w
 fn load_execution_world_with_dev_local_policy_clears_pristine_frozen_supply_from_existing_world() {
     let dir = temp_dir("execution-world-dev-local-clears-pristine-frozen");
     let world_dir = dir.join("world");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.set_main_token_config(production_hardened_main_token_config());
     persist_execution_world(world_dir.as_path(), &world).expect("persist release-like world");
 
@@ -351,7 +351,7 @@ fn local_execution_bootstrap_accepts_first_successor_and_recovers_durable_head()
     let records_dir = dir.join("records");
     let storage_root = dir.join("store");
     let world_id = "world-local-bootstrap";
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.step().expect("persist local setup tick one");
     world.step().expect("persist local setup tick two");
     assert_eq!(world.state().time, 2);
@@ -497,7 +497,7 @@ fn node_runtime_execution_driver_commit_routes_modules_via_step_with_modules() {
         hex::encode(hasher.finalize())
     };
     let manifest = tick_manifest(&wasm_hash);
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     let signer_public_key_hex = hex::encode(
         test_module_artifact_signing_key()
             .verifying_key()
@@ -956,7 +956,7 @@ fn committed_recipe_origin_preserves_exact_consensus_context_and_runtime_id_allo
     assert_eq!(origin.committed_height, 1);
     assert_eq!(origin.submission.verified_player_id, "browser-player");
     assert_eq!(origin.consensus_submitter_player_id, "node-transport");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     for index in 0..4 {
         world.submit_action(RuntimeAction::RegisterAgent {
             agent_id: format!("queued-{index}"),
@@ -975,7 +975,7 @@ fn committed_recipe_origin_preserves_exact_consensus_context_and_runtime_id_allo
         Some(origin.clone())
     );
     let restored =
-        oasis7::runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
+        oasis7_runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
     assert_eq!(
         restored.snapshot().pending_actions[4].committed_recipe_origin,
         Some(origin)

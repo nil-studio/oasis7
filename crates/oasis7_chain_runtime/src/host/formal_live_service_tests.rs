@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority::{self, sign_read_request, verify_service_response},
     formal_read::FormalReadHistoryV1,
     formal_read_service::{FormalCommittedReadService, FormalReadPublication},
@@ -113,12 +113,12 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
 
 fn fixture_trust() -> (
     World,
-    oasis7::world_service::client::FormalReadTrustConfigV1,
+    oasis7_world_service::client::FormalReadTrustConfigV1,
     VerifiedFormalReadAnchorV1,
 ) {
     let (world, initial_trust, anchor, _) = fixtures::actual_world_initial_fixture();
     let checkpoint = anchor.checkpoint();
-    let trust = oasis7::world_service::client::FormalReadTrustConfigV1 {
+    let trust = oasis7_world_service::client::FormalReadTrustConfigV1 {
         initial_trust,
         checkpoint_digest: checkpoint.digest().unwrap(),
         checkpoint,
@@ -152,7 +152,7 @@ fn live_node(world_id: &str) -> Arc<Mutex<NodeRuntime>> {
 fn live_service(
     world: World,
     anchor: VerifiedFormalReadAnchorV1,
-    trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: oasis7_world_service::client::FormalReadTrustConfigV1,
     history: Arc<dyn FormalLiveHistoryResolver>,
     node: Arc<Mutex<NodeRuntime>>,
     published: Arc<PublishedReadState>,
@@ -270,7 +270,7 @@ fn current_and_fixed_reads_are_signed_by_existing_node_key_and_formal_proof_path
 
 #[test]
 fn formal_changes_empty_range_is_qualified_and_substituted_stream_is_rejected() {
-    use oasis7::world_service::{
+    use oasis7_world_service::{
         formal_read::FormalReadVerifier,
         formal_result::{VerifiedFormalChangesCursorV1, verify_formal_changes_page},
         wire::FormalAuthenticatedChangesV1,
@@ -344,7 +344,7 @@ fn formal_changes_empty_range_is_qualified_and_substituted_stream_is_rejected() 
 fn world_with_owner() -> (World, SigningKey) {
     let owner = fixtures::key(71);
     let owner_public = hex::encode(owner.verifying_key().to_bytes());
-    let mut world = oasis7::runtime_host::world::new_with_state(WorldState::default())
+    let mut world = oasis7_runtime_host::world::new_with_state(WorldState::default())
         .try_with_cognition_scheduler(
             SchedulerPolicyV1 {
                 schema_version: SchedulerPolicyV1::SCHEMA_VERSION.into(),
@@ -495,7 +495,7 @@ fn signed_submit_queues_real_node_action_without_mutating_world_and_lookup_fails
 
     let reader_private = hex::encode(fixtures::key(92).to_bytes());
     let publication = FormalReadPublication::new(anchor.clone(), base_world.clone()).unwrap();
-    let formal_trust = oasis7::world_service::client::FormalReadTrustConfigV1 {
+    let formal_trust = oasis7_world_service::client::FormalReadTrustConfigV1 {
         initial_trust: trust.initial_trust,
         checkpoint_digest: trust.checkpoint_digest,
         checkpoint: trust.checkpoint,
@@ -734,7 +734,7 @@ fn formal_http_fragmented_body_on_nonblocking_accepted_stream_reaches_grant_reje
 
 #[test]
 fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signature_drift() {
-    use oasis7::world_service::wire::FormalAuthenticatedLookupV1;
+    use oasis7_world_service::wire::FormalAuthenticatedLookupV1;
     let (world, trust, anchor) = fixture_trust();
     let resolver = Arc::new(CurrentOnlyResolver::new(world.clone(), anchor.clone()));
     let node = live_node(&anchor.head().record().world.world_id);

@@ -141,7 +141,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         let journal_bytes = object(ArtifactRole::Journal)?;
         let journal: Journal = oasis7_world_state::codec::journal_from_cbor(&journal_bytes)
             .map_err(|error| error.to_string())?;
-        let mut world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+        let mut world = oasis7_runtime_host::world::from_snapshot(snapshot, journal)
             .map_err(|error| format!("{error:?}"))?
             .with_release_security_policy(self.release.clone());
         if world.state().time != 0

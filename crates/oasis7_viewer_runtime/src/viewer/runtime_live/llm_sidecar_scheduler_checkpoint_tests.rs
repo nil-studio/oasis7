@@ -153,7 +153,7 @@ fn new_prefix_checkpoint_binds_verified_post_reserve_view_and_replays_original()
     current.base_world_hash = crate::simulator::h_v1("post-reserve-world", &1);
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
     let mut projection =
-        crate::world_service::projection::from_world(&crate::runtime_host::world::new(), None)
+        crate::world_service::projection::from_world(&oasis7_runtime_host::world::new(), None)
             .unwrap();
     projection.runtime_binding = Some(current.clone());
     sidecar.provider_service_projection = Some(projection);

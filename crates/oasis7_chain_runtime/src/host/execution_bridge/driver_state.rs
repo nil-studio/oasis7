@@ -27,7 +27,7 @@ pub(crate) struct NodeRuntimeExecutionDriver {
     pub(crate) formal_retention_enabled: bool,
     pub(crate) formal_retention_delta:
         Option<oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexDeltaV1>,
-    pub(crate) formal_new_results: Vec<oasis7::world_service::CanonicalIntentResultV1>,
+    pub(crate) formal_new_results: Vec<oasis7_world_service::CanonicalIntentResultV1>,
     pub(crate) formal_event_root: Option<String>,
     pub(crate) formal_unpruned_journal: Option<oasis7_runtime::Journal>,
     pub(crate) formal_journal_cursors: Vec<(u64, u64)>,

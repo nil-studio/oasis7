@@ -1,3 +1,4 @@
+use super::rendezvous_client;
 use libp2p::autonat;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::OrTransport;
@@ -8,7 +9,7 @@ use libp2p::kad::{self, store::MemoryStoreConfig};
 use libp2p::multiaddr::Protocol;
 use libp2p::noise;
 use libp2p::relay;
-use libp2p::rendezvous::{client as rendezvous_client, server as rendezvous_server};
+use libp2p::rendezvous::server as rendezvous_server;
 use libp2p::request_response::{self, ProtocolSupport};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, Swarm};

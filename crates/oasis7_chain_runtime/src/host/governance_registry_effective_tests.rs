@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn world_effective_finality_registry_overrides_node_pos_config_after_validator_activation() {
     let temp_dir = temp_dir("effective-finality-override");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_execution_policy(GovernanceExecutionPolicy {
             epoch_length_ticks: 10,

@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import time
@@ -44,37 +45,100 @@ class ClockAndPaths(unittest.TestCase):
 
 class Production(unittest.TestCase):
     """Real files and checkout/lock checks; only CodeQL and Cargo proxy calls are substituted."""
+    @classmethod
+    def setUpClass(cls):
+        cls._template_dir = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._template_dir.cleanup)
+        troot = Path(cls._template_dir.name).resolve()
+        tsource, trunner = troot / 'source', troot / 'runner'
+        tsource.mkdir(); trunner.mkdir()
+        tofficial = trunner / 'bundle'
+        tofficial.mkdir()
+        codeql = tofficial / 'codeql'
+        codeql.write_text('#!/bin/true\n'); codeql.chmod(0o700)
+        database = trunner / 'databases/rust'
+        database.mkdir(parents=True)
+        (database / 'codeql-database.yml').write_text('language: rust\nfinalised: true\n')
+        (database / 'log').mkdir()
+        (trunner / 'output').write_text(''); (trunner / 'env').write_text('')
+        (trunner / 'action').mkdir()
+        for folder in (tsource, tsource / 'independent'):
+            folder.mkdir(exist_ok=True)
+            (folder / 'Cargo.toml').write_text('[workspace]\nmembers = []\n')
+            (folder / 'Cargo.lock').write_text('version = 4\n')
+        (tsource / 'lib.rs').write_text('pub fn unchanged() {}\n')
+        subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=tsource, check=True)
+        subprocess.run(['git', 'add', '.'], cwd=tsource, check=True)
+        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        'commit', '-qm', 'Freeze production fixture'], cwd=tsource, check=True)
+        cls._source_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=tsource, text=True).strip()
+        published = tofficial / 'qlpacks/codeql/rust-queries/0.1.46'
+        (published / 'queries/support').mkdir(parents=True)
+        (published / 'queries/support/Helper.qll').write_text('predicate helper() { any() }\n')
+        cls._entries = []
+        for index in range(37):
+            path = published / ('queries/Q' + str(index).zfill(2) + '.ql')
+            path.write_text('/** @id rust/production-test-' + str(index) + ' */\nselect 1\n')
+            cls._entries.append(dict(relative=str(path.relative_to(published)),
+                                     id='rust/production-test-' + str(index), sha256=m.runtime.digest(path)))
+            path.with_suffix('.qlx').write_text('precompiled stock query')
+        (published / '.codeql/libraries/stock').mkdir(parents=True)
+        (published / '.codeql/libraries/stock/TypeInference.qll').write_text('embedded stock')
+        for name in ('qlpack.yml', 'codeql-pack.lock.yml', '.packinfo'):
+            (published / name).write_text('published binding')
+        (published / 'codeql-suites').mkdir()
+        suite = published / 'codeql-suites/rust-code-scanning.qls'
+        suite.write_text('- queries: queries\n')
+        cls._suite_sha = m.runtime.digest(suite)
+        cls._entries_sha = sha(json.dumps(cls._entries, sort_keys=True, separators=(',', ':')).encode())
+        cls._closure_specs = {}
+        for name in ['rust-all', 'util', 'typeinference', *['fixture-' + str(i) for i in range(10)]]:
+            version = {'util': '2.0.48', 'typeinference': '0.0.42'}.get(name, '0.2.25')
+            rel_root = Path('qlpacks/codeql') / name / version
+            root = tofficial / rel_root
+            root.mkdir(parents=True)
+            manifest = root / 'qlpack.yml'
+            manifest.write_text('library: true\nname: codeql/' + name + '\nversion: ' + version + '\ndependencies: {}\n')
+            cls._closure_specs['codeql/' + name] = (
+                dict(name='codeql/' + name, version=version, dependencies={},
+                     manifest_sha256=m.runtime.digest(manifest)),
+                rel_root,
+            )
+        original = tofficial / cls._closure_specs['codeql/rust-all'][1]
+        (original / m.comparison.TYPE_FILE).parent.mkdir(parents=True)
+        (original / m.comparison.TYPE_FILE).write_text('stock')
+        (original / m.candidate.TRAIT_PATH_FILE).write_text('stock-path')
+        (original / m.candidate.MODEL_FILE).parent.mkdir(parents=True)
+        cls._core = b'extensions:\n' + m.candidate.MODEL_MARKER + b'      # Existing models\n'
+        (original / m.candidate.MODEL_FILE).write_bytes(cls._core)
+        (original / 'rust.dbscheme').write_text('schema')
+        shared = tofficial / cls._closure_specs['codeql/typeinference'][1]
+        (shared / m.candidate.SHARED_FILE).parent.mkdir(parents=True)
+        (shared / m.candidate.SHARED_FILE).write_text('stock-shared')
+        (shared / 'Unchanged.qll').write_text('unchanged shared support')
+        helper = tofficial / 'qlpacks/codeql/suite-helpers/1.0.61'
+        helper.mkdir(parents=True)
+        (helper / 'qlpack.yml').write_text('name: codeql/suite-helpers\nversion: 1.0.61\nlibrary: false\ndependencies: {}\n')
+        cls._template_root = troot
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        shutil.copytree(self._template_root, self.root, dirs_exist_ok=True)
         self.source, self.runner = self.root / 'source', self.root / 'runner'
-        self.source.mkdir(); self.runner.mkdir()
         self.official = self.runner / 'bundle'
-        self.official.mkdir()
         self.codeql = self.official / 'codeql'
-        self.codeql.write_text('#!/bin/true\n'); self.codeql.chmod(0o700)
         self.database = self.runner / 'databases/rust'
-        self.database.mkdir(parents=True)
-        (self.database / 'codeql-database.yml').write_text('language: rust\nfinalised: true\n')
-        (self.database / 'log').mkdir()
         self.work, self.output = self.runner / 'work', self.runner / 'evidence'
         self.sarif = self.runner / 'results/rust.sarif'
         self.github_output, self.github_env = self.runner / 'output', self.runner / 'env'
-        self.github_output.write_text(''); self.github_env.write_text('')
         self.action = self.runner / 'action'
-        self.action.mkdir()
         self.config = dict(languages=['rust'], buildMode='none', dbLocation=str(self.database.parent),
                            repositoryRoot=str(self.source), overlayDatabaseMode='none', trapCaches={},
                            useOverlayDatabaseCaching=False, dependencyCachingEnabled=False)
         (self.action / 'config').write_text(json.dumps(self.config))
-        for folder in (self.source, self.source / 'independent'):
-            folder.mkdir(exist_ok=True)
-            (folder / 'Cargo.toml').write_text('[workspace]\nmembers = []\n')
-            (folder / 'Cargo.lock').write_text('version = 4\n')
-        (self.source / 'lib.rs').write_text('pub fn unchanged() {}\n')
-        subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=self.source, check=True)
-        self.commit()
+        self.source_sha = self._source_sha
         self.deadline = time.time() + 4400
         self.budget_receipt = dict(mode=m.MODE, source_sha=self.source_sha, job_budget_seconds=5400,
                                    fixed_job_deadline=self.deadline + 600,
@@ -90,48 +154,16 @@ class Production(unittest.TestCase):
                         CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=json.dumps(
                             [str(self.source / 'crates/oasis7_builtin_wasm_modules/_templates')]))
         self.published = self.official / 'qlpacks/codeql/rust-queries/0.1.46'
-        (self.published / 'queries/support').mkdir(parents=True)
-        (self.published / 'queries/support/Helper.qll').write_text('predicate helper() { any() }\n')
-        self.entries = []
-        for index in range(37):
-            path = self.published / ('queries/Q' + str(index).zfill(2) + '.ql')
-            path.write_text('/** @id rust/production-test-' + str(index) + ' */\nselect 1\n')
-            self.entries.append(dict(relative=str(path.relative_to(self.published)),
-                                     id='rust/production-test-' + str(index), sha256=m.runtime.digest(path)))
-            path.with_suffix('.qlx').write_text('precompiled stock query')
-        (self.published / '.codeql/libraries/stock').mkdir(parents=True)
-        (self.published / '.codeql/libraries/stock/TypeInference.qll').write_text('embedded stock')
-        for name in ('qlpack.yml', 'codeql-pack.lock.yml', '.packinfo'):
-            (self.published / name).write_text('published binding')
-        (self.published / 'codeql-suites').mkdir()
-        suite = self.published / 'codeql-suites/rust-code-scanning.qls'
-        suite.write_text('- queries: queries\n')
-        self.suite_sha = m.runtime.digest(suite)
-        self.entries_sha = sha(json.dumps(self.entries, sort_keys=True, separators=(',', ':')).encode())
-        self.closure = {}
-        for name in ['rust-all', 'util', 'typeinference', *['fixture-' + str(i) for i in range(10)]]:
-            version = {'util': '2.0.48', 'typeinference': '0.0.42'}.get(name, '0.2.25')
-            root = self.official / 'qlpacks/codeql' / name / version
-            root.mkdir(parents=True)
-            manifest = root / 'qlpack.yml'
-            manifest.write_text('library: true\nname: codeql/' + name + '\nversion: ' + version + '\ndependencies: {}\n')
-            self.closure['codeql/' + name] = dict(name='codeql/' + name, version=version, dependencies={},
-                                                manifest_sha256=m.runtime.digest(manifest), root=str(root))
+        self.entries = [dict(entry) for entry in self._entries]
+        self.suite_sha = self._suite_sha
+        self.entries_sha = self._entries_sha
+        self.closure = {
+            key: dict(meta, dependencies=dict(meta['dependencies']), root=str(self.official / rel_root))
+            for key, (meta, rel_root) in self._closure_specs.items()
+        }
         self.original = Path(self.closure['codeql/rust-all']['root'])
-        (self.original / m.comparison.TYPE_FILE).parent.mkdir(parents=True)
-        (self.original / m.comparison.TYPE_FILE).write_text('stock')
-        (self.original / m.candidate.TRAIT_PATH_FILE).write_text('stock-path')
-        (self.original / m.candidate.MODEL_FILE).parent.mkdir(parents=True)
-        self.core = b'extensions:\n' + m.candidate.MODEL_MARKER + b'      # Existing models\n'
-        (self.original / m.candidate.MODEL_FILE).write_bytes(self.core)
-        (self.original / 'rust.dbscheme').write_text('schema')
+        self.core = self._core
         self.shared = Path(self.closure['codeql/typeinference']['root'])
-        (self.shared / m.candidate.SHARED_FILE).parent.mkdir(parents=True)
-        (self.shared / m.candidate.SHARED_FILE).write_text('stock-shared')
-        (self.shared / 'Unchanged.qll').write_text('unchanged shared support')
-        helper = self.official / 'qlpacks/codeql/suite-helpers/1.0.61'
-        helper.mkdir(parents=True)
-        (helper / 'qlpack.yml').write_text('name: codeql/suite-helpers\nversion: 1.0.61\nlibrary: false\ndependencies: {}\n')
         self.calls, self.guard_manifests, self.call_options = [], [], []
         self.bad_closure = self.query_failure = self.mutate_source = self.missing_result = False
         self.bad_shared_closure = False

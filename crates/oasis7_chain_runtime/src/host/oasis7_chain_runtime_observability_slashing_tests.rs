@@ -243,7 +243,7 @@ fn build_chain_status_payload_marks_consensus_misbehavior_critical() {
 #[test]
 fn status_server_attaches_governance_slashing_receipts_from_execution_world() {
     let world_dir = slashing_temp_dir("slashing-receipt-world");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     register_slashing_agent(&mut world, "node-a");
     world
         .set_governance_identity_profile("node-a", 100, 0, GovernanceIdentityStatus::Active)
@@ -316,7 +316,7 @@ fn status_server_attaches_governance_slashing_receipts_from_execution_world() {
 #[test]
 fn status_server_treats_accepted_slashing_appeal_as_resolved_receipt() {
     let world_dir = slashing_temp_dir("slashing-receipt-appeal-accepted-world");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     register_slashing_agent(&mut world, "node-a");
     world
         .set_governance_identity_profile("node-a", 100, 0, GovernanceIdentityStatus::Active)

@@ -37,10 +37,7 @@
 首屏不恢复三列事实摘要；其有效信息由标题、副标题和后续说明承接。本条确定文档优先关系，
 不改变当前 HTML、按钮目的地、公开能力承诺或已有验收结论。
 
-7 月 19 日补充负责后果链节奏与渐进披露；7 月 18 日补充继续承接双语、响应式、可访问性
-与生成素材边界，但其“三列事实摘要”布局已经被本节替代。两者发生布局冲突时以本节为准，
-不是以文件日期自行覆盖所有专业要求。生成图公开标签按 7 月 18 日文档记录的 #2459 amendment：
-不强制展示 Image2／non-gameplay 生产标签；来源保留在仓库，生成图仍不是玩法或发布证据。
+原 2026-06-19 页面层级基线、2026-07-18 视觉与双语响应式补充（其“三列事实摘要”布局已被替代）及 2026-07-19 后果链节奏与渐进披露补充的有效条款均已吸收进本节与 `public-site-discovery-and-showcase.design.md` 并退役（历史增量原文从 Git history 追溯）。生成图公开标签按 #2459 amendment：不强制展示 Image2／non-gameplay 生产标签；来源保留在仓库，生成图仍不是玩法或发布证据。
 
 首页以陌生访客为第一阅读对象：首屏先说明游戏、玩家位置与当前可做
 事项，再渐进披露证据、下载、文档与技术细节。中英文路由须保持同一信息
@@ -52,9 +49,7 @@
 承担氛围与层级，不能替代真实 Viewer 截图、状态证据或 HTML 中的有效文案。
 
 - 需求与公开边界：`doc/site/prd.md`
-- 首页页面级层级基线：`doc/site/github-pages/github-pages-homepage-page-2026-06-19.design.md`
-- 响应式、双语与素材边界补充：[7 月 18 日文档](github-pages/github-pages-visual-content-refresh-2026-07-18.design.md)；旧三列布局不再生效。
-- 后果链节奏与渐进披露补充：[7 月 19 日文档](github-pages/github-pages-cinematic-consequence-refresh-2026-07-19.design.md)；服从本节的当前布局与图注边界。
+- 现行无日期首页发现与展示设计：`doc/site/github-pages/public-site-discovery-and-showcase.design.md`
 
 ### 静态页面实现与页面级覆盖合同
 

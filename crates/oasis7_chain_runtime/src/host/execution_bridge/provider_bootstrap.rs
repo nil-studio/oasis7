@@ -122,7 +122,7 @@ fn detached_execution_world_for_bootstrap(world_dir: &Path) -> Result<RuntimeWor
     // normalization (including production main-token defaults) after load;
     // applying that policy here would change the state root before preflight
     // and reject an otherwise valid current world as stale.
-    let current = oasis7::runtime_host::world::load_from_dir(world_dir).map_err(|error| {
+    let current = oasis7_runtime_host::world::load_from_dir(world_dir).map_err(|error| {
         format!(
             "load current execution world for ProviderBacked bootstrap preflight failed: {error:?}"
         )
@@ -131,7 +131,7 @@ fn detached_execution_world_for_bootstrap(world_dir: &Path) -> Result<RuntimeWor
     let has_inline_module_artifacts = !snapshot.module_artifact_bytes.is_empty();
     let journal = current.journal().clone();
     let release_security_policy = current.release_security_policy().clone();
-    let mut detached = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+    let mut detached = oasis7_runtime_host::world::from_snapshot(snapshot, journal)
         .map_err(|error| {
             format!(
             "clone current execution world for ProviderBacked bootstrap preflight failed: {error:?}"

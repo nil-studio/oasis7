@@ -336,7 +336,6 @@ class PlannerTests(unittest.TestCase):
         for path in ('vendor-if-watch-3.2.2/Cargo.toml.orig',
                      'vendor-libp2p-quic-0.14.0/.gitignore',
                      'vendor-libp2p-quic-0.14.0/LICENSE',
-                     'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
                      'vendor-libp2p-swarm-0.48.0/LICENSE'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
@@ -357,6 +356,7 @@ class PlannerTests(unittest.TestCase):
         for path in ('vendor-if-watch-3.2.2/upstream-source-sha256.json',
                      'vendor-libp2p-rendezvous-0.18.1/LICENSE',
                      'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+                     'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
                      'vendor-libp2p-rendezvous-0.18.1/upstream-source-sha256.json',
                      'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json'):
             with self.subTest(path=path):
@@ -376,6 +376,7 @@ class PlannerTests(unittest.TestCase):
 
     def test_fixed_quic_vendor_registration_does_not_admit_neighbors(self):
         for path in ('vendor-if-watch-3.2.2/unregistered.json',
+                     'vendor-if-watch-3.2.3/Cargo.toml.orig',
                      'vendor-libp2p-quic-0.14.0/unregistered.json',
                      'vendor-libp2p-quic-0.14.1/LICENSE',
                      'vendor-libp2p-rendezvous-0.18.1/unregistered.json',
@@ -386,8 +387,9 @@ class PlannerTests(unittest.TestCase):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, '{}')
                 self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                        self.run_plan(full=full)
 
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
         path = 'crates/oasis7_viewer/viewer_terminal_shell.css'

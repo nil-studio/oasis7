@@ -1,6 +1,6 @@
 use super::private_goal_tests::{consumer, http_with_diagnostic_hook, http_with_hook};
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     private_goal_prepare::sign_goal_prepare, private_goal_read::publication,
     private_goal_store::PrivateGoalStore, private_task_context::*,
 };
@@ -561,7 +561,7 @@ fn private_task_context_http_service_emits_stage_without_tracing_subscriber() {
     );
     assert!(matches!(
         result,
-        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+        Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
             status: 409,
             message,
         }) if message == "private goal request rejected"

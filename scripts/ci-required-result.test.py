@@ -324,6 +324,65 @@ class Results(unittest.TestCase):
             with self.subTest(unselected_support_other=bad), self.assertRaises(ValueError):
                 result.validate(non_support_plan, broken, ns_jobs, retired_jobs=ns_retired)
 
+    def test_v3_consolidation_and_v1_v2_transitions(self):
+        config = {
+            'groups': [
+                'baseline', 'doc_checker_contracts', 'codex_agent_config_validation',
+                'macos_package_contract', 'compile_metrics',
+                'node', 'consensus', 'scenario_regression', 'pixel_world_bridge',
+                'viewer_js_required', 'viewer_performance_report',
+                'packaging_contracts', 'cargo_tooling_contracts',
+                'fleet_health', 'windows_rollout',
+            ],
+            'contract_job_consolidation_version': 3,
+            'group_jobs': {
+                'codex_agent_config_validation': 'baseline',
+                'macos_package_contract': 'baseline',
+                'compile_metrics': 'doc-checker-contracts',
+                'consensus': 'node',
+                'pixel_world_bridge': 'scenario-regression',
+                'viewer_performance_report': 'viewer-js-required',
+                'packaging_contracts': 'doc-checker-contracts',
+                'cargo_tooling_contracts': 'scenario-regression',
+                'windows_rollout': 'fleet-health',
+            },
+        }
+        v1_jobs = result.configured_group_jobs(config, {'groups': ['baseline'], 'contract_job_consolidation_version': 1})
+        self.assertEqual(v1_jobs['consensus'], 'consensus')
+        self.assertEqual(v1_jobs['packaging_contracts'], 'packaging-contracts')
+        self.assertEqual(v1_jobs['windows_rollout'], 'windows-rollout')
+
+        v2_jobs = result.configured_group_jobs(config, {'groups': ['baseline'], 'contract_job_consolidation_version': 2})
+        self.assertEqual(v2_jobs['consensus'], 'node')
+        self.assertEqual(v2_jobs['packaging_contracts'], 'packaging-contracts')
+        self.assertEqual(v2_jobs['cargo_tooling_contracts'], 'cargo-tooling-contracts')
+        self.assertEqual(v2_jobs['windows_rollout'], 'windows-rollout')
+
+        v3_plan = {'groups': ['baseline', 'packaging_contracts', 'cargo_tooling_contracts', 'windows_rollout'],
+                   'contract_job_consolidation_version': 3}
+        v3_jobs = result.configured_group_jobs(config, v3_plan)
+        v3_retired = result.retired_group_jobs(config, v3_plan)
+        self.assertEqual(v3_jobs['packaging_contracts'], 'doc-checker-contracts')
+        self.assertEqual(v3_jobs['cargo_tooling_contracts'], 'scenario-regression')
+        self.assertEqual(v3_jobs['windows_rollout'], 'fleet-health')
+        self.assertTrue({'packaging-contracts', 'cargo-tooling-contracts', 'windows-rollout'}.issubset(v3_retired))
+        needs = {
+            'select': {'result': 'success'},
+            'baseline': {'result': 'success'},
+            'doc-checker-contracts': {'result': 'success'},
+            'fleet-health': {'result': 'success'},
+            'node': {'result': 'skipped'},
+            'scenario-regression': {'result': 'success'},
+            'viewer-js-required': {'result': 'skipped'},
+            **{job: {'result': 'skipped'} for job in v3_retired},
+        }
+        self.assertTrue(result.validate(v3_plan, needs, v3_jobs, retired_jobs=v3_retired))
+        for retired_job in ('packaging-contracts', 'cargo-tooling-contracts', 'windows-rollout'):
+            broken = copy.deepcopy(needs)
+            broken[retired_job] = {'result': 'success'}
+            with self.subTest(retired_job=retired_job), self.assertRaises(ValueError):
+                result.validate(v3_plan, broken, v3_jobs, retired_jobs=v3_retired)
+
 
 if __name__ == '__main__':
     unittest.main()

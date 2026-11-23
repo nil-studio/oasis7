@@ -17,7 +17,7 @@ impl Fixture {
         let root = temp_dir("service-record-before-cache");
         let world_dir = root.join("world");
         let records = root.join("records");
-        let mut world = oasis7::runtime_host::world::new();
+        let mut world = oasis7_runtime_host::world::new();
         world.step().unwrap();
         world
             .bind_cognition_runtime("cold-world", "main", 0, None, "pending", 0)
@@ -44,7 +44,7 @@ impl Fixture {
             .unwrap();
         fs::write(
             world_dir.join("world-service-identity.json"),
-            serde_json::to_vec(&oasis7::world_service::WorldIdentity {
+            serde_json::to_vec(&oasis7_world_service::WorldIdentity {
                 world_id: "cold-world".into(),
                 genesis_digest: "cold-genesis".into(),
             })
@@ -73,7 +73,7 @@ impl Fixture {
         for height in 2..=132 {
             let mut actions = Vec::new();
             if admin_last && height == 132 {
-                use oasis7::world_service::*;
+                use oasis7_world_service::*;
                 let payload = WorldServicePayloadV1::Scheduler(
                     sign_read_request(
                         "scheduler",

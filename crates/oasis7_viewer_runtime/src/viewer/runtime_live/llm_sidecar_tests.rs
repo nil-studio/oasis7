@@ -528,7 +528,7 @@ fn hosted_local_mock_seeded_agent_builds_runtime_bound_capability_context() {
     }
 
     let agent_id = "hosted-local-mock-agent";
-    let mut world = crate::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .bind_cognition_runtime(
             "hosted-local-mock-world",

@@ -38,9 +38,12 @@ pub(super) struct ClientEventContext<'a> {
     pub event_errors: &'a Arc<Mutex<Vec<String>>>,
 }
 
-pub(super) fn handle_client_event(event: rendezvous::client::Event, ctx: ClientEventContext<'_>) {
+pub(super) fn handle_client_event(
+    event: super::rendezvous_client::Event,
+    ctx: ClientEventContext<'_>,
+) {
     match event {
-        rendezvous::client::Event::Registered {
+        super::rendezvous_client::Event::Registered {
             request_id,
             rendezvous_node,
             ttl,
@@ -56,7 +59,7 @@ pub(super) fn handle_client_event(event: rendezvous::client::Event, ctx: ClientE
                 ctx.registered_nodes,
             );
         }
-        rendezvous::client::Event::RegisterFailed {
+        super::rendezvous_client::Event::RegisterFailed {
             request_id,
             rendezvous_node,
             namespace,
@@ -81,7 +84,7 @@ pub(super) fn handle_client_event(event: rendezvous::client::Event, ctx: ClientE
                 );
             }
         }
-        rendezvous::client::Event::Discovered {
+        super::rendezvous_client::Event::Discovered {
             request_id,
             rendezvous_node,
             registrations,
@@ -114,7 +117,7 @@ pub(super) fn handle_client_event(event: rendezvous::client::Event, ctx: ClientE
                 );
             }
         }
-        rendezvous::client::Event::DiscoverFailed {
+        super::rendezvous_client::Event::DiscoverFailed {
             request_id,
             rendezvous_node,
             namespace,
@@ -137,7 +140,7 @@ pub(super) fn handle_client_event(event: rendezvous::client::Event, ctx: ClientE
                 );
             }
         }
-        rendezvous::client::Event::Expired { peer } => {
+        super::rendezvous_client::Event::Expired { peer } => {
             ctx.cookies.remove(&peer);
         }
     }

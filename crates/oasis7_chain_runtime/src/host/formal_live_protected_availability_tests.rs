@@ -2,7 +2,7 @@
 //! last exact committed read. The endpoint and Node are real child/runtime
 //! processes; the monotonic oracle remains a test-only simulation.
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority::{request_digest, verify_service_response},
     wire::SignedServiceResponse,
 };
@@ -123,7 +123,7 @@ pub(super) struct AvailabilityCase {
     pub(super) owner_client_config: WorldServiceClientConfig,
     pub(super) world: WorldIdentity,
     pub(super) owner_request: SubmitIntentRequest<WorldServicePayloadV1>,
-    pub(super) initial_view: oasis7::world_service::verified_view::VerifiedWorldView,
+    pub(super) initial_view: oasis7_world_service::verified_view::VerifiedWorldView,
 }
 
 /// Entry point called by the shared fixture's C06 hook.
@@ -301,7 +301,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     eprintln!("C06 signed_host_pair=bound_old_cut_with_lost_replica");
     eprintln!("C06 protected_pair=replica_unavailable_old_cut_retained");
     match owner_client.submit(case.owner_request.clone()) {
-        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+        Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
             status: 503,
             message,
         }) if message == "formal runtime is not ready" => {}
@@ -446,7 +446,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
                 outcome => return Err(format!("C06 unexpected recovery lookup: {outcome:?}")),
             }
         }
-        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+        Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
             status: 503,
             message,
         }) if message == "HistoryUnavailable: no result at the exact qualified lookup cut" => None,
