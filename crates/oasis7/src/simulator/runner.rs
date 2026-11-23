@@ -10,7 +10,7 @@ use super::agent::{
 };
 use super::runtime_perf::{RuntimePerfCollector, RuntimePerfSnapshot};
 use oasis7_simulator::WorldEventKind;
-use oasis7_simulator::{Action, WorldTime};
+use oasis7_simulator::WorldTime;
 
 // ============================================================================
 // Quota and Rate Limiting
