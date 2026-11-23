@@ -21,6 +21,14 @@ fn build_native_install_setup<T>(build: impl FnOnce() -> T) -> T {
     build()
 }
 
+/// Native post-activation freeze/submit and idempotent replay have their own
+/// ordinary test-thread frame. The caller subsequently checks independent
+/// cold readback and the original signed result, without a stack override.
+#[inline(never)]
+fn exercise_native_successor<T>(work: impl FnOnce() -> T) -> T {
+    work()
+}
+
 fn exercise_native_install(recover_uncertain_activation: bool) {
     let fixture = Fixture::new();
     let open = |role, provider: Arc<dyn MonotonicEndpointProvider>| {
@@ -301,50 +309,52 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     .unwrap();
     let p = pc.activate(&activation, pi.clone(), ri.clone()).unwrap();
     let r = rc.activate(&activation, pi, ri).unwrap();
-    let mut next = FormalCoordinator::new(
-        p,
-        r,
-        activation.successor().clone(),
-        activation.successor().clone(),
-        None,
-        Some((*boundary).clone()),
-    )
-    .unwrap();
-    let (mut freeze, material) = fixture.frozen(&boundary, 62);
-    freeze.body.authority_id = activation.successor().authority_id().unwrap();
-    freeze.body.epoch = 2;
-    freeze.signature_hex = signed(frozen_signing_bytes(&freeze.body).unwrap(), 4);
-    let executable = next.freeze(freeze, material).unwrap();
-    let mut candidate = fixture.candidate(&executable);
-    candidate.candidate.record.original_epoch = 2;
-    candidate.candidate.writer_signature_hex = signed(
-        canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
-        4,
-    );
-    let child = next.submit(candidate.clone()).unwrap();
-    assert_eq!(
-        verify_formal_qualified(&child, activation.successor(), Some(&boundary), None)
-            .unwrap()
-            .head()
-            .position,
-        3
-    );
-    assert_eq!(next.submit(candidate).unwrap(), child);
-    let first =
-        verify_formal_qualified(&child, activation.successor(), Some(&boundary), None).unwrap();
-    let (mut freeze, material) = fixture.frozen(&first, 63);
-    freeze.body.authority_id = activation.successor().authority_id().unwrap();
-    freeze.body.epoch = 2;
-    freeze.signature_hex = signed(frozen_signing_bytes(&freeze.body).unwrap(), 4);
-    let executable = next.freeze(freeze, material).unwrap();
-    let mut candidate = fixture.candidate(&executable);
-    candidate.candidate.record.original_epoch = 2;
-    candidate.candidate.writer_signature_hex = signed(
-        canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
-        4,
-    );
-    next.submit(candidate).unwrap();
-    drop(next);
+    exercise_native_successor(|| {
+        let mut next = FormalCoordinator::new(
+            p,
+            r,
+            activation.successor().clone(),
+            activation.successor().clone(),
+            None,
+            Some((*boundary).clone()),
+        )
+        .unwrap();
+        let (mut freeze, material) = fixture.frozen(&boundary, 62);
+        freeze.body.authority_id = activation.successor().authority_id().unwrap();
+        freeze.body.epoch = 2;
+        freeze.signature_hex = signed(frozen_signing_bytes(&freeze.body).unwrap(), 4);
+        let executable = next.freeze(freeze, material).unwrap();
+        let mut candidate = fixture.candidate(&executable);
+        candidate.candidate.record.original_epoch = 2;
+        candidate.candidate.writer_signature_hex = signed(
+            canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
+            4,
+        );
+        let child = next.submit(candidate.clone()).unwrap();
+        assert_eq!(
+            verify_formal_qualified(&child, activation.successor(), Some(&boundary), None)
+                .unwrap()
+                .head()
+                .position,
+            3
+        );
+        assert_eq!(next.submit(candidate).unwrap(), child);
+        let first =
+            verify_formal_qualified(&child, activation.successor(), Some(&boundary), None).unwrap();
+        let (mut freeze, material) = fixture.frozen(&first, 63);
+        freeze.body.authority_id = activation.successor().authority_id().unwrap();
+        freeze.body.epoch = 2;
+        freeze.signature_hex = signed(frozen_signing_bytes(&freeze.body).unwrap(), 4);
+        let executable = next.freeze(freeze, material).unwrap();
+        let mut candidate = fixture.candidate(&executable);
+        candidate.candidate.record.original_epoch = 2;
+        candidate.candidate.writer_signature_hex = signed(
+            canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
+            4,
+        );
+        next.submit(candidate).unwrap();
+        drop(next);
+    });
     let mut reopened = FileFormalEndpoint::open_durable_set_active(
         &fixture.pdir,
         sealed.clone(),
