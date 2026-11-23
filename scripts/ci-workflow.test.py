@@ -7206,6 +7206,94 @@ print({m0!r})
             self.assertEqual((plan['policy_sha'], plan['source_sha'], plan['tested_sha']), (m1, m2, m2))
             self.assertIn('oasis7_required', plan['groups'])
 
+    def test_noop_label_runs_never_publish_skipped_required_gate_or_cancel_preview(self):
+        gate = JOBS['required-gate']
+        name_match = re.search(r'^    name:\s*(.+?)\s*$', gate, re.M)
+        self.assertIsNotNone(name_match, 'required-gate must declare an explicit name')
+        raw_name = name_match.group(1)
+        # GitHub treats a skipped required check as passing; when if: skips
+        # required-gate on unrelated labels (e.g. merge:managed, bug), neither
+        # the unexpanded expression nor its evaluated result may equal 'required-gate'.
+        self.assertNotEqual(raw_name, 'required-gate')
+        self.assertRegex(raw_name, r'^\$\{\{.+\}\}$')
+        self.assertLessEqual(len(raw_name), 255)
+
+        if_match = re.search(r'^    if:\s*(.*?)(?=^    [a-z-]+:|\Z)', gate, re.M | re.S)
+        self.assertIsNotNone(if_match)
+        if_expr = if_match.group(1).strip().removeprefix('>-').strip()
+        name_expr = raw_name.removeprefix('${{').removesuffix('}}').strip()
+
+        def eval_gh_expr(expr, *, event_name, action='', label='', same_repo=True, draft=False):
+            py_expr = ' '.join(expr.split())
+            replacements = {
+                'always()': 'True',
+                'github.event_name': repr(event_name),
+                'github.event.action': repr(action),
+                'github.event.label.name': repr(label),
+                'github.event.pull_request.head.repo.full_name': repr('nil-studio/oasis7' if same_repo else 'fork/oasis7'),
+                'github.repository': repr('nil-studio/oasis7'),
+                'github.event.pull_request.draft': repr(draft),
+            }
+            for token in sorted(replacements, key=len, reverse=True):
+                py_expr = py_expr.replace(token, replacements[token])
+            py_expr = re.sub(r'!(?!=)', 'not ', py_expr.replace('&&', ' and ').replace('||', ' or '))
+            return eval(py_expr, {'__builtins__': {}}, {})
+
+        cases = (
+            # Executed gate runs must publish exact CheckRun name 'required-gate'.
+            ('push', '', '', True, False, True, 'required-gate'),
+            ('pull_request', 'opened', '', True, False, True, 'required-gate'),
+            ('pull_request', 'synchronize', '', False, False, True, 'required-gate'),
+            ('pull_request', 'reopened', '', True, False, True, 'required-gate'),
+            ('pull_request', 'ready_for_review', '', True, False, True, 'required-gate'),
+            ('pull_request', 'opened', '', True, True, True, 'required-gate'),
+            ('pull_request', 'labeled', 'ci-priority', True, False, True, 'required-gate'),
+            # Skipped no-op label runs must never publish 'required-gate'.
+            ('pull_request', 'labeled', 'merge:managed', True, False, False, 'required-gate-label-noop'),
+            ('pull_request', 'labeled', 'bug', True, False, False, 'required-gate-label-noop'),
+            ('pull_request', 'labeled', 'ci-fast-preview', True, False, False, 'required-gate-label-noop'),
+            ('pull_request', 'labeled', 'ci-priority', False, False, False, 'required-gate-label-noop'),
+            ('pull_request', 'labeled', 'ci-priority', True, True, False, 'required-gate-label-noop'),
+        )
+        for event_name, action, label, same_repo, draft, expected_run, expected_name in cases:
+            with self.subTest(event=event_name, action=action, label=label, same_repo=same_repo, draft=draft):
+                actual_run = bool(eval_gh_expr(
+                    if_expr, event_name=event_name, action=action,
+                    label=label, same_repo=same_repo, draft=draft,
+                ))
+                actual_name = eval_gh_expr(
+                    name_expr, event_name=event_name, action=action,
+                    label=label, same_repo=same_repo, draft=draft,
+                )
+                self.assertEqual(actual_run, expected_run)
+                self.assertEqual(actual_name, expected_name)
+                if not actual_run:
+                    self.assertNotEqual(actual_name, 'required-gate')
+                    self.assertNotEqual(raw_name, 'required-gate')
+
+        preview_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
+        preview_concurrency = preview_workflow.split('concurrency:\n', 1)[1].split('permissions:\n', 1)[0]
+        group_match = re.search(r'^  group:\s*(.+?)\s*$', preview_concurrency, re.M)
+        self.assertIsNotNone(group_match)
+        group_suffix_expr = group_match.group(1).removeprefix('${{ github.workflow }}-${{').removesuffix('}}').strip()
+        for label, draft, expected_group in (
+            ('ci-fast-preview', False, 'pr-6630'),
+            ('merge:managed', False, 'pr-label-noop-999'),
+            ('bug', False, 'pr-label-noop-999'),
+            ('ci-fast-preview', True, 'pr-label-noop-999'),
+        ):
+            py_group = group_suffix_expr
+            for token, val in {
+                'github.event.label.name': repr(label),
+                'github.event.pull_request.draft': repr(draft),
+                "format('pr-{0}', github.event.pull_request.number)": repr('pr-6630'),
+                "format('pr-label-noop-{0}', github.run_id)": repr('pr-label-noop-999'),
+            }.items():
+                py_group = py_group.replace(token, val)
+            py_group = re.sub(r'!(?!=)', 'not ', py_group.replace('&&', ' and ').replace('||', ' or '))
+            with self.subTest(preview_label=label, draft=draft):
+                self.assertEqual(eval(py_group, {'__builtins__': {}}, {}), expected_group)
+
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
     def test_every_executable_workflow_job_declares_timeout_minutes(self):
