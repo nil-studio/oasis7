@@ -2774,15 +2774,12 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_preview_is_cold_read_only_and_independent_of_required_authority(self):
         planner, preview = JOBS['pr-fast-preview-plan'], JOBS['pr-fast-preview']
-        self.assertTrue(any(
-            expected in planner for expected in (
-                "if: github.event_name == 'pull_request' && !github.event.pull_request.draft && "
-                "contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')",
-                "if: github.event_name == 'pull_request' && github.event.action != 'labeled' && "
-                "!github.event.pull_request.draft && "
-                "contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')",
-            )
-        ), planner)
+        self.assertIn(
+            "if: github.event_name == 'pull_request' && github.event.action != 'labeled' && "
+            "!github.event.pull_request.draft && "
+            "contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')",
+            planner,
+        )
         self.assertNotIn('needs: select', planner)
         self.assertIn('ci-fast-preview.py plan-matrix --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
         self.assertIn('SOURCE_SHA: ${{ github.event.pull_request.head.sha }}', planner)
@@ -6902,28 +6899,35 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
 
     def test_draft_pr_fail_closed_gate_and_main_fast_cancelled_push_range_recovery(self):
         pr_header = RAW_WORKFLOW.split('  pull_request:\n', 1)[1].split('  schedule:\n', 1)[0]
-        self.assertTrue(any(
-            expected in pr_header for expected in (
-                'types: [opened, synchronize, reopened, ready_for_review]',
-                'types: [opened, synchronize, reopened, ready_for_review, labeled]',
-            )
-        ), pr_header)
+        self.assertIn('types: [opened, synchronize, reopened, ready_for_review, labeled]', pr_header)
+        concurrency = RAW_WORKFLOW.split('concurrency:\n', 1)[1].split('permissions:\n', 1)[0]
+        self.assertIn(
+            "(github.event_name == 'pull_request' && github.event.action == 'labeled' && "
+            "(github.event.label.name != 'ci-priority' || "
+            "github.event.pull_request.head.repo.full_name != github.repository || "
+            "github.event.pull_request.draft)) && format('pr-label-noop-{0}', github.run_id)",
+            concurrency,
+        )
         self.assertEqual(CONFIG.get('main_fast_range_recovery_version'), 1)
         self.assertEqual(CONFIG.get('draft_pr_heavy_ci_skip_version'), 1)
 
         gate = JOBS['required-gate']
-        self.assertTrue(any(
-            expected in gate for expected in (
-                "if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')",
-                "if: >-\n"
-                "      always() && (github.event_name == 'push' ||\n"
-                "      (github.event_name == 'pull_request' &&\n"
-                "       (github.event.action != 'labeled' ||\n"
-                "        (github.event.label.name == 'ci-priority' &&\n"
-                "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
-                "         !github.event.pull_request.draft))))",
-            )
-        ), gate)
+        self.assertIn(
+            "if: >-\n"
+            "      always() && (github.event_name == 'push' ||\n"
+            "      (github.event_name == 'pull_request' &&\n"
+            "       (github.event.action != 'labeled' ||\n"
+            "        (github.event.label.name == 'ci-priority' &&\n"
+            "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
+            "         !github.event.pull_request.draft))))",
+            gate,
+        )
+        self.assertIn(
+            "(github.event.action != 'labeled' ||\n"
+            "         (github.event.label.name == 'ci-priority' &&\n"
+            "          github.event.pull_request.head.repo.full_name == github.repository))",
+            JOBS['select'],
+        )
         self.assertIn(
             "IS_DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'true' || 'false' }}",
             gate,
