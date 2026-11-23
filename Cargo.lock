@@ -6272,6 +6272,7 @@ dependencies = [
  "oasis7_runtime_host",
  "oasis7_simulator",
  "oasis7_viewer_runtime",
+ "oasis7_world_service",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
