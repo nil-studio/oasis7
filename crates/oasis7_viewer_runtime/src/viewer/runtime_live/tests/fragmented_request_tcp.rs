@@ -38,7 +38,7 @@ fn fragmented_pause_survives_an_observed_read_timeout_and_preserves_next_frame()
             (VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc"),
             (VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity"),
         ] {
-            oasis7::env_mut::set_var(key, value);
+            oasis7_hosted_access::process_env::set_var(key, value);
         }
     }
     let mut server = ViewerRuntimeLiveServer::new(

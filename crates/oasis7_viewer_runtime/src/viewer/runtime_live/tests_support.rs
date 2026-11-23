@@ -36,23 +36,23 @@ pub(super) fn removed_old_brand_runtime_live_env(suffix: &str) -> String {
     ["AGENT", "WORLD", suffix].join("_")
 }
 
-pub(super) fn lock_test_llm_env() -> oasis7::env_mut::ProcessEnvGuard {
-    let guard = oasis7::env_mut::lock_process_env();
+pub(super) fn lock_test_llm_env() -> oasis7_hosted_access::process_env::ProcessEnvGuard {
+    let guard = oasis7_hosted_access::process_env::lock_process_env();
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-4o-mini");
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-4o-mini");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             crate::simulator::ENV_LLM_BASE_URL,
             "https://api.openai.com/v1",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-api-key");
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_API_KEY, "test-api-key");
     }
     guard
 }
@@ -89,13 +89,13 @@ pub(super) fn clear_runtime_provider_env() {
     ] {
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::remove_var(env_name);
+            oasis7_hosted_access::process_env::remove_var(env_name);
         }
     }
     for env_name in removed_old_brand_envs {
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::remove_var(env_name);
+            oasis7_hosted_access::process_env::remove_var(env_name);
         }
     }
 }
@@ -107,12 +107,12 @@ pub(super) fn runtime_provider_env_lock() -> &'static Mutex<()> {
 pub(super) fn clear_hosted_strong_auth_env() {
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV);
+        oasis7_hosted_access::process_env::remove_var(HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV);
     }
 }
 
-pub(super) fn lock_test_hosted_strong_auth_env() -> oasis7::env_mut::ProcessEnvGuard {
-    let guard = oasis7::env_mut::lock_process_env();
+pub(super) fn lock_test_hosted_strong_auth_env() -> oasis7_hosted_access::process_env::ProcessEnvGuard {
+    let guard = oasis7_hosted_access::process_env::lock_process_env();
     clear_hosted_strong_auth_env();
     guard
 }

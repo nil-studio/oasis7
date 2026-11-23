@@ -97,7 +97,7 @@ fn runtime_prompt_control_hosted_public_join_accepts_valid_backend_grant() {
     let (backend_public_key, backend_private_key) = test_signer(28);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );
@@ -177,7 +177,7 @@ fn runtime_prompt_control_hosted_public_join_rejects_expired_backend_grant() {
     let (backend_public_key, backend_private_key) = test_signer(30);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );
@@ -258,7 +258,7 @@ fn runtime_prompt_control_hosted_public_join_rejects_replayed_auth_nonce_even_wi
     let (backend_public_key, backend_private_key) = test_signer(32);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );
@@ -349,7 +349,7 @@ fn runtime_prompt_control_hosted_public_join_rejects_revoked_session_even_with_v
     let (backend_public_key, backend_private_key) = test_signer(34);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );
@@ -440,15 +440,15 @@ fn runtime_prompt_control_provider_mode_reports_unsupported() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:5841");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:5841");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
     }
     let mut server = ViewerRuntimeLiveServer::new(
         ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)

@@ -12,14 +12,14 @@ mod prompt_control_enhanced_race;
 fn configure_hosted_local_mock_provider_env(contract: &str) {
     // SAFETY: Callers hold the canonical provider environment lock.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_backed");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_mock");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONTRACT_ENV, contract);
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_TRANSPORT_ENV, "loopback_http");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:9");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_backed");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_mock");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_CONTRACT_ENV, contract);
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_TRANSPORT_ENV, "loopback_http");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:9");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
     }
 }
 
@@ -267,7 +267,7 @@ fn runtime_prompt_control_hosted_local_mock_serialized_apply_returns_ack() {
     let (backend_public_key, backend_private_key) = test_signer(92);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );
@@ -433,7 +433,7 @@ fn runtime_prompt_control_hosted_local_mock_blocks_apply_and_rollback_when_conte
     let (backend_public_key, backend_private_key) = test_signer(94);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             HOSTED_STRONG_AUTH_GRANT_PUBLIC_KEY_ENV,
             backend_public_key.as_str(),
         );
@@ -611,10 +611,10 @@ fn runtime_prompt_control_production_provider_backed_handler_remains_denied() {
     // SAFETY: This test/setup code mutates process environment while holding
     // the canonical provider environment lock.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_backed");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_bridge");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:9");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_backed");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_bridge");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:9");
     }
     let mut server = ViewerRuntimeLiveServer::new(
         ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
