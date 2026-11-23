@@ -1,7 +1,8 @@
 use serde::Serialize;
-pub mod process_env;
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::{Mutex, OnceLock};
+
+pub mod process_env;
 
 pub const DEFAULT_DEPLOYMENT_MODE: &str = "hosted_public_join";
 #[allow(dead_code)]
