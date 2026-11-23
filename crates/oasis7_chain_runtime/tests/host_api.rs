@@ -551,7 +551,7 @@ mod shipping_budget_process {
         };
         let verify_original = || {
             let mut world =
-                oasis7::runtime_host::world::load_from_dir(root.0.join("provider-world"))
+                oasis7_runtime_host::world::load_from_dir(root.0.join("provider-world"))
                     .expect("independent reader opens the actual provider World");
             let persisted = world
                 .load_module(&wasm_hash)

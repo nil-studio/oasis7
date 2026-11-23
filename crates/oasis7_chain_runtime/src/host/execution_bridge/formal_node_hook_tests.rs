@@ -168,7 +168,7 @@ fn initial_activation_evidence(bootstrap: NodeExecutionBootstrap) -> CurrentHead
 }
 
 fn world_at_tick(tick: u64) -> World {
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     for _ in 0..tick {
         world.step().expect("advance fixture World time");
     }
@@ -246,7 +246,7 @@ fn writer(
 
 #[test]
 fn bootstrap_uses_node_result_hashes_instead_of_formal_record_id() {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let head = execution_evidence(
         &world,
         5,
@@ -313,7 +313,7 @@ fn initial_activation_uses_typed_bootstrap_and_rejects_missing_or_tampered_evide
 
 #[test]
 fn pending_zero_predecessor_requires_verified_genesis_read_cut() {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let zero_height = continuation(&world, 0, "node-genesis", "execution-genesis");
     let error = match FormalNodeHook::new(writer(
         world.clone(),
@@ -328,7 +328,7 @@ fn pending_zero_predecessor_requires_verified_genesis_read_cut() {
 
 #[test]
 fn terminal_pending_bootstraps_from_original_predecessor_not_published_result() {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let action_root = context(8, "node-h8").action_root;
     let current_head = execution_evidence(
         &world,
@@ -351,7 +351,7 @@ fn terminal_pending_bootstraps_from_original_predecessor_not_published_result() 
 
 #[test]
 fn prepare_is_durable_before_execution_and_successor_cannot_replace_pending() {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let action_root = context(5, "node-h5").action_root;
     let head = execution_evidence(
         &world,
@@ -385,7 +385,7 @@ fn prepare_is_durable_before_execution_and_successor_cannot_replace_pending() {
 
 #[test]
 fn completion_keeps_terminal_until_exact_successor_replaces_it() {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let action_root = context(5, "node-h5").action_root;
     let predecessor = execution_evidence(
         &world,
@@ -466,7 +466,7 @@ fn completion_keeps_terminal_until_exact_successor_replaces_it() {
 
 #[test]
 fn proof_head_record_mismatch_never_returns_applied_or_clears_pending() {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let action_root = context(5, "node-h5").action_root;
     let predecessor = execution_evidence(
         &world,
@@ -506,7 +506,7 @@ fn proof_head_record_mismatch_never_returns_applied_or_clears_pending() {
 
 #[test]
 fn execution_bootstrap_rejects_non_v3_or_world_root_mismatch() {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let action_root = context(5, "node-h5").action_root;
     let old_schema = execution_evidence(
         &world,
