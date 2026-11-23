@@ -122,7 +122,6 @@ pub enum SkippedReason {
     NotInWorld,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
