@@ -24,7 +24,7 @@ fn observer_fixture() -> (PathBuf, RuntimeWorld, String, serde_json::Value) {
     let public = sign_read_request("fixture", (), &private)
         .unwrap()
         .subject_public_key;
-    let mut world = crate::runtime_host::world::new_with_state(WorldState::default());
+    let mut world = oasis7_runtime_host::world::new_with_state(WorldState::default());
     world.submit_action(RuntimeAction::RegisterAgent {
         agent_id: "owner-agent".into(),
         pos: crate::GeoPos::new(0, 0, 0),
@@ -862,7 +862,7 @@ fn canonical_capability_rejects_stale_foreign_rotated_and_legacy_sources() {
                 "tick" => {
                     let mut state = server.world.state().clone();
                     state.time += 1;
-                    server.world = crate::runtime_host::world::new_with_state(state);
+                    server.world = oasis7_runtime_host::world::new_with_state(state);
                 }
                 "revoked" => {
                     server.session_policy.revoke_session("owner", None).unwrap();
