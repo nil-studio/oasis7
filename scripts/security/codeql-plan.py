@@ -55,6 +55,7 @@ VENDOR_RUST_METADATA_INPUTS = {
     'vendor/if-watch-3.2.2/Cargo.toml.orig',
     'vendor/libp2p-quic-0.15.0/.gitignore',
     'vendor/libp2p-quic-0.15.0/LICENSE',
+    'vendor/libp2p-swarm-0.49.0/LICENSE',
 }
 
 VENDOR_PROVENANCE_INPUTS = {
@@ -67,6 +68,7 @@ VENDOR_PROVENANCE_INPUTS = {
     'vendor/if-watch-3.2.2/upstream-source-sha256.json',
     'vendor/libp2p-quic-0.15.0/local-patch-sha256.json',
     'vendor/libp2p-quic-0.15.0/upstream-source-sha256.json',
+    'vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json',
 }
 
 

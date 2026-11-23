@@ -49,7 +49,7 @@ jobs:
   web:
     if: inputs.retained_release == ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 18
     permissions:
       contents: read
       actions: read
@@ -112,7 +112,7 @@ jobs:
   native:
     if: inputs.retained_release == '' && (github.ref != 'refs/heads/main' || github.workflow_sha != github.sha)
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 135
     steps: &native-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -274,7 +274,7 @@ jobs:
     if: inputs.retained_release == '' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha
     cache-mode: write
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 135
     steps: *native-steps
 
   cache-maintenance:

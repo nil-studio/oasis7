@@ -33,7 +33,8 @@ Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆
 
 1. **`scoped_control_paths` 精确控制输入**：键必须是规范化的 `.github/` 相对文件路径，或命中 `CONTROL` 的精确 `scripts/` 文件路径（Python 脚本继续强制配套 `python_control_contracts`）；不接受通配符、目录穿越或反斜杠，组名必须有效且不重复。显式禁止将共享总控入口（`.github/workflows/rust.yml`、`.github/workflows/command-center.yml`、`.github/actions/setup-linux-mold/**`、`.github/actions/cache-permission-probe/**`、`scripts/ci-tests.sh`、`scripts/ci-required-scope.json`、`scripts/ci-formal-process-suites.json`、`scripts/plan-rust-required-scope.sh`）登记进 `scoped_control_paths`。
 2. **`ordinary_scope_config_slice_version=1` 配置键切片**：当 `scripts/ci-required-scope.json` 在全部比较树上均为合法 regular Git blob、无重复 JSON 键且通过 `validate_config`，并且实际变化的顶层键非空且严格属于普通选测/分片子集（`ordinary_harness_costs`、`ordinary_fast_targets`、`ordinary_fast_rules`、`ordinary_fast_component_rules`、`ordinary_unit_test_targets`、`ordinary_scale_contract`、`formal_deferred_ordinary_cases`）时，不再把整次 PR/`main-fast` 扩张为跨平台 `scope=full`，而是固定选择 `workflow_governance`、`rust_baseline`、`oasis7_required`（使 `oasis7_required` 保持完整核心包与 WASM 范围、禁止候选借同批新 fast 规则自我减测）；若除 `ordinary_harness_costs` 外仍有键变化，额外选择 `consensus`、`node`、`distfs` 并标记测试策略变化以展开扩展 feature 校验。任何组定义、路由规则、`scoped_control_paths`、能力版本号或无法解析的修改继续回退 `full`。
-3. **`standalone_cargo_manifest_scope_version=1` 独立非根 workspace Cargo 清单**：对全部比较树均确认不属于根 `Cargo.toml` workspace 成员或 `[patch]` 路径依赖的已审读独立目录（`crates/oasis7_builtin_wasm_modules/*/`、`tools/oasis7-command-center/**`、`tools/wasm_build_suite/templates/minimal_module/`、`tests/libp2p-compat/*/`）下的 `Cargo.toml` / `Cargo.lock`，在既有消费者组之上固定追加 `rust_baseline` 与 `cargo_tooling_contracts`（保留全仓 lockfile 禁用包审计与独立 `--locked` 元数据校验；内建 WASM 模块同时覆盖 `distfs`、`oasis7_required` 与 `oasis7_wasm_build` / `wasm_build_suite`），不触发无关跨平台全量；根 `Cargo.toml` / `Cargo.lock`、`vendor-*`、`docker/wasm-builder` 及任何根 workspace 成员清单变化仍保持保守 `full`。
+3. **`standalone_cargo_manifest_scope_version=1` 独立非根 workspace Cargo 清单**：对全部比较树均确认不属于根 `Cargo.toml` workspace 成员或 `[patch]` 路径依赖的已审读独立目录（`crates/oasis7_builtin_wasm_modules/*/`、`tools/oasis7-command-center/**`、`tools/wasm_build_suite/templates/minimal_module/`、`tests/libp2p-compat/*/`）下的 `Cargo.toml` / `Cargo.lock`，在既有消费者组之上固定追加 `rust_baseline` 与 `cargo_tooling_contracts`（保留全仓 lockfile 禁用包审计与独立 `--locked` 元数据校验；内建 WASM 模块同时覆盖 `distfs`、`oasis7_required` 与 `oasis7_wasm_build` / `wasm_build_suite`），不触发无关跨平台全量；`vendor-*`、`docker/wasm-builder` 仍保持保守 `full`。
+4. **`workspace_member_cargo_manifest_scope_version=1` 根 workspace 成员内部依赖边与锁文件收敛**：当根 `Cargo.toml` 在全部比较树上原字节未变，且变动的 `Cargo.toml` / `Cargo.lock` 全部属于全部比较树均存在的非 proc-macro、无 `build.rs`、非 host 代码生成器输入（`__host_execution_inputs__`）的根 workspace 成员或根 `Cargo.lock` 时，若成员 `Cargo.toml` 除顶层 `dependencies`、`dev-dependencies`（不含 `git`/`registry` 覆盖、非成员本地 `path` 或改变隐式 feature 的 `optional = true` 变更）外其余配置（`package`、`features`、`target`、`lib`/`bin`/`test`、`build-dependencies`、`patch`、`lints` 等）完全一致，且根 `Cargo.lock`（若有变动）中全部外部包版本/来源/校验和及顶层非 `package` 段完全未变、仅已变更成员自身的依赖边变化，则按两端依赖图的成员及反向消费者闭包追加 `rust_baseline`、`cargo_tooling_contracts`（若根 `Cargo.lock` 变化，同时纳入登记了 `native-Cargo.lock` 生成输入的 `oasis7_chain_runtime` 及其反向消费者），并禁用普通窄 target 快捷裁剪以保留受影响包的完整测试与架构 profile 校验；根 `Cargo.toml` 变化、独立无成员清单配合的根 `Cargo.lock` 变化、外部依赖锁变化、成员增删改名、`features`/`optional`/`target`/`build-dependencies` 变化继续回退保守 `full`。
 
 | 独立输入 | 精确路径 | 普通验证组 |
 | --- | --- | --- |
@@ -46,7 +47,7 @@ WASM Context、WASM Metadata 与 Platform Observation 的 YAML 准入、权限�
 
 精确分类只影响共享控制的全量判定，不提前结束该路径的分析，也不撤销 Cargo、嵌入输入、测试消费者或其他规则选择的组；混合修改取并集，删除与重命名两端分别判定。未列入表中的 `.github` 文件仍保守全量，包括新增或改名后的 workflow、共享 Actions、`command-center.yml` 及 `rust.yml`。`scripts/security/**` 继续使用既有 workflow_governance 规则，CodeQL 的独立扫描、运营开关与 required/advisory 边界不变。
 
-根 workspace Cargo manifest/lock、共享 build 脚本及其他未单列 CI 控制保持原覆盖。白名单与验证归属均来自同一事件 BASE；候选新增分类不能缩小本轮基线覆盖。
+根 workspace `Cargo.toml`、含外部包或独立变更的根 `Cargo.lock`、共享 build 脚本及其他未单列 CI 控制保持原覆盖。白名单与验证归属均来自同一事件 BASE；候选新增分类不能缩小本轮基线覆盖。
 
 可信 scope 配置的 `workspace_support_profile_paths` 可逐 profile 登记跨 package 的真实测试输入路径；命中时在原 Cargo/目录选择之上追加 `workspace_support` 与该 profile，不把整个 support 组扩大。该映射不登记新输入的 ownership，未知路径仍失败，profile 名称及路径必须通过配置验证。现有非 package support 规则、显式整组请求及共享控制/不确定输入继续保留全部 support profiles。
 
@@ -71,7 +72,7 @@ baseline 文档检查直接核对实际目录入口、Markdown 导航及受影�
 
 可信 scope 配置可登记已审读的 `OUT_DIR` 生成文件，逐项绑定 Cargo package、实际 build producer 的仓库路径、producer Git blob 内容的 SHA-256 和固定输出文件名。选择器在每个参与分析的 Git revision 上独立验证 package、manifest 的 build 入口及 producer 摘要，只将完整匹配的 `include_str!` / `include_bytes!` 生成输出计为已解析；不执行候选构建脚本，也不按 `OUT_DIR` 名称统一豁免。
 
-登记适用于已确认输入全部受既有共享构建/CI 控制规则覆盖的独立生成脚本。`oasis7_chain_runtime` 的三份 native 构建元数据分别来自构建环境、编译器版本和根目录 `Cargo.lock`，其 producer、manifest、锁文件、工具链及 CI 配置仍按原规则选择保守全量。
+登记适用于已确认输入全部受既有构建/CI 控制规则覆盖的独立生成脚本。`oasis7_chain_runtime` 的三份 native 构建元数据分别来自构建环境、编译器版本和根目录 `Cargo.lock`：其 producer、自身 manifest、工具链、CI 配置及非纯成员内部边变更的根 `Cargo.lock` 继续按原规则选择保守全量；即使命中上述 `workspace_member_cargo_manifest_scope_version=1` 的纯成员内部依赖边锁更新，根 `Cargo.lock` 变化也显式将 `oasis7_chain_runtime` 及其反向消费者纳入受影响集合。
 
 producer 内容或 build 入口变化、输出未登记、路径逃逸及其他动态表达式继续保留未解析回退；更新生成器时须重新核对实际输入再更新登记，不能沿用失效摘要。真正由 Rust 嵌入的文档仍按 reader 及反向消费者选择测试；无关说明文档仅保留其适用文档检查。
 

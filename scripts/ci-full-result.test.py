@@ -2264,10 +2264,12 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
             module.main()
         self.assertEqual(out.getvalue().strip(), m0)
         gh_cls.assert_called_once_with("nil-studio/oasis7", "tok")
-        for bad_field in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version",
+        for bad_field in ("main_fast_range_recovery_version", "main_fast_coalesce_concurrency_version",
+                          "draft_pr_heavy_ci_skip_version",
                           "auxiliary_workflow_consolidation_version",
                           "ordinary_dynamic_partition_version", "contract_job_consolidation_version",
                           "ordinary_scope_config_slice_version", "standalone_cargo_manifest_scope_version",
+                          "workspace_member_cargo_manifest_scope_version", "scoped_production_cfg_version",
                           "workspace_support_direct_gate_version",
                           "custody_node_shards_version"):
             bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 9})).encode()

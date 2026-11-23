@@ -54,7 +54,7 @@ fn commit_legacy(
             unreachable!()
         };
         let action =
-            oasis7::world_service::gameplay::authenticated_action(&driver.execution_world, bytes)
+            oasis7_runtime_host::gameplay_service::authenticated_action(&driver.execution_world, bytes)
                 .unwrap();
         let bytes = encode_consensus_action_payload(
             &ConsensusActionPayloadEnvelope::from_runtime_action(action),

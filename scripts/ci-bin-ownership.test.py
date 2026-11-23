@@ -91,6 +91,21 @@ class Ownership(unittest.TestCase):
                 nonce,
             )
 
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
         self.assertIs(core['package']['autobins'], False)
@@ -262,6 +277,34 @@ class Ownership(unittest.TestCase):
             for target in spec.get('target', {}).values():
                 deps.update(target.get('dependencies', {}))
             self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
 
     def test_world_library_does_not_own_launcher_or_network_hosting(self):
         source = ROOT / 'crates/oasis7/src'

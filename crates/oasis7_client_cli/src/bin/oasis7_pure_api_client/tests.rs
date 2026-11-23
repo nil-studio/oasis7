@@ -373,8 +373,8 @@ fn collect_until_reports_timeout_when_peer_stays_open() {
 
 #[test]
 fn pure_api_negotiates_canonical_chat_with_shipped_viewer() {
-    use oasis7::world_service::{WorldIdentity, client::WorldServiceClientConfig};
     use oasis7_viewer_runtime::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
+    use oasis7_world_service::{WorldIdentity, client::WorldServiceClientConfig};
     use std::sync::{Arc, Mutex};
     let private = fixed_private_key_hex(73);
     let mut config = ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal);

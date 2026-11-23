@@ -52,6 +52,9 @@ CONTRACT_JOB_CONSOLIDATION_VERSION = 3
 CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3)
 ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 1
 STANDALONE_CARGO_MANIFEST_SCOPE_VERSION = 1
+WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION = 1
+SCOPED_PRODUCTION_CFG_VERSION = 1
+MAIN_FAST_COALESCE_CONCURRENCY_VERSION = 1
 WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 1
 ORDINARY_SCOPE_SLICE_KEYS = frozenset((
     'ordinary_harness_costs',
@@ -381,6 +384,194 @@ def standalone_cargo_manifest_selection(config, graphs, graph_refs, comparisons,
                     if path.endswith('Cargo.toml') and 'patch' in parsed:
                         return {}
         return classified
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
+        return {}
+
+
+def _strip_member_normal_dev_deps(manifest):
+    return {key: value for key, value in manifest.items() if key not in ('dependencies', 'dev-dependencies')}
+
+
+def _optional_member_deps(manifest):
+    deps = manifest.get('dependencies')
+    if not isinstance(deps, dict):
+        return {}
+    return {key: value for key, value in deps.items()
+            if isinstance(value, dict) and value.get('optional') is True}
+
+
+def _validate_member_dep_specs(manifest, directory, by_directory, workspace_dep_keys):
+    for kind in ('dependencies', 'dev-dependencies'):
+        table = manifest.get(kind)
+        if table is None:
+            continue
+        if not isinstance(table, dict):
+            return False
+        for alias, spec in table.items():
+            if not isinstance(alias, str) or not alias:
+                return False
+            if isinstance(spec, str):
+                continue
+            if not isinstance(spec, dict):
+                return False
+            if 'optional' in spec and (type(spec['optional']) is not bool
+                                       or (kind == 'dev-dependencies' and spec['optional'])):
+                return False
+            if any(key in spec for key in ('git', 'registry', 'registry-index')):
+                return False
+            if spec.get('workspace') is True:
+                if alias not in workspace_dep_keys or 'path' in spec:
+                    return False
+                continue
+            if 'path' in spec:
+                raw_path = spec['path']
+                if not isinstance(raw_path, str) or not raw_path or posixpath.isabs(raw_path) or '\\' in raw_path:
+                    return False
+                target_dir = posixpath.normpath(posixpath.join(directory, raw_path))
+                target_pkg = by_directory.get(target_dir)
+                if target_pkg is None or spec.get('package', target_pkg) != target_pkg:
+                    return False
+    return True
+
+
+def workspace_member_cargo_manifest_selection(config, graphs, graph_refs, comparisons, paths,
+                                              standalone_manifests=None, *, repo=None):
+    """Scope root-workspace member normal/dev dependency-edge and matching lockfile updates."""
+    version = config.get('workspace_member_cargo_manifest_scope_version')
+    unique_refs = list(dict.fromkeys(graph_refs))
+    standalone = standalone_manifests or {}
+    if (not comparisons or not graphs or len(graphs) != len(unique_refs)
+            or type(version) is not int or version != WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION):
+        return {}
+    cargo_paths = [path for path in paths
+                   if posixpath.basename(path) in ('Cargo.toml', 'Cargo.lock') and path not in standalone]
+    if not cargo_paths:
+        return {}
+    if 'Cargo.toml' in cargo_paths or any(path.endswith('Cargo.lock') and path != 'Cargo.lock' for path in cargo_paths):
+        return {}
+    member_manifest_paths = [path for path in cargo_paths if path.endswith('Cargo.toml')]
+    has_root_lock = 'Cargo.lock' in cargo_paths
+    if not member_manifest_paths:
+        return {}
+    try:
+        all_refs = list(dict.fromkeys([*unique_refs, *(rev for pair in comparisons for rev in pair)]))
+        root_blobs = {}
+        for ref in all_refs:
+            raw_root = _git_regular_blob_bytes(ref, 'Cargo.toml', repo=repo)
+            if raw_root is None:
+                return {}
+            root_blobs[ref] = raw_root
+        for before, after in comparisons:
+            if root_blobs[before] != root_blobs[after]:
+                return {}
+        workspace_dep_keys_by_ref = {
+            ref: set(tomllib.loads(raw.decode('utf-8')).get('workspace', {}).get('dependencies', {}))
+            for ref, raw in root_blobs.items()
+        }
+        member_dirs = {name: directory for name, (directory, _) in graphs[0][0].items() if directory}
+        if not member_dirs:
+            return {}
+        for manifests, _, _ in graphs[1:]:
+            if {name: directory for name, (directory, _) in manifests.items() if directory} != member_dirs:
+                return {}
+        by_directory = {directory: name for name, directory in member_dirs.items()}
+        host_inputs = set().union(*(embedded.get('__host_execution_inputs__', ()) for _, _, embedded in graphs))
+        changed_members = set()
+        for mpath in member_manifest_paths:
+            directory = posixpath.dirname(mpath)
+            pkg_name = by_directory.get(directory)
+            if pkg_name is None or pkg_name in host_inputs:
+                return {}
+            parsed_by_ref = {}
+            for ref in all_refs:
+                raw = _git_regular_blob_bytes(ref, mpath, repo=repo)
+                if raw is None:
+                    return {}
+                parsed = tomllib.loads(raw.decode('utf-8'))
+                if any(key in parsed for key in ('workspace', 'patch', 'profile', 'replace')):
+                    return {}
+                pkg_table = parsed.get('package')
+                if not isinstance(pkg_table, dict) or pkg_table.get('name') != pkg_name:
+                    return {}
+                build_cfg = pkg_table.get('build')
+                if build_cfg is not False:
+                    if (build_cfg is not None
+                            or _git_regular_blob_bytes(ref, posixpath.join(directory, 'build.rs'), repo=repo) is not None):
+                        return {}
+                lib_cfg = parsed.get('lib', {})
+                if (isinstance(lib_cfg, dict) and (
+                        lib_cfg.get('proc-macro') is True or lib_cfg.get('proc_macro') is True
+                        or 'proc-macro' in lib_cfg.get('crate-type', ())
+                        or 'proc-macro' in lib_cfg.get('crate_type', ()))):
+                    return {}
+                if not _validate_member_dep_specs(parsed, directory, by_directory, workspace_dep_keys_by_ref[ref]):
+                    return {}
+                parsed_by_ref[ref] = parsed
+            for before, after in comparisons:
+                if (_strip_member_normal_dev_deps(parsed_by_ref[before])
+                        != _strip_member_normal_dev_deps(parsed_by_ref[after])
+                        or _optional_member_deps(parsed_by_ref[before])
+                        != _optional_member_deps(parsed_by_ref[after])):
+                    return {}
+            changed_members.add(pkg_name)
+
+        def split_lock_packages(lock_data):
+            packages = lock_data.get('package')
+            if not isinstance(packages, list):
+                return None
+            external, members = [], {}
+            for entry in packages:
+                if not isinstance(entry, dict) or not isinstance(entry.get('name'), str):
+                    return None
+                is_ws = (entry['name'] in member_dirs
+                         and 'source' not in entry and 'checksum' not in entry and 'replace' not in entry)
+                if is_ws:
+                    if entry['name'] in members:
+                        return None
+                    members[entry['name']] = entry
+                else:
+                    external.append(entry)
+            return external, members
+
+        for before, after in comparisons:
+            raw_before = _git_regular_blob_bytes(before, 'Cargo.lock', repo=repo)
+            raw_after = _git_regular_blob_bytes(after, 'Cargo.lock', repo=repo)
+            if raw_before == raw_after:
+                continue
+            if raw_before is None or raw_after is None:
+                return {}
+            lock_before = tomllib.loads(raw_before.decode('utf-8'))
+            lock_after = tomllib.loads(raw_after.decode('utf-8'))
+            if ({k: v for k, v in lock_before.items() if k != 'package'}
+                    != {k: v for k, v in lock_after.items() if k != 'package'}):
+                return {}
+            split_before = split_lock_packages(lock_before)
+            split_after = split_lock_packages(lock_after)
+            if split_before is None or split_after is None:
+                return {}
+            ext_before, ws_before = split_before
+            ext_after, ws_after = split_after
+            if ext_before != ext_after or set(ws_before) != set(ws_after):
+                return {}
+            for name in ws_before:
+                if ({k: v for k, v in ws_before[name].items() if k != 'dependencies'}
+                        != {k: v for k, v in ws_after[name].items() if k != 'dependencies'}):
+                    return {}
+                if ws_before[name].get('dependencies', []) != ws_after[name].get('dependencies', []):
+                    if name not in changed_members:
+                        return {}
+
+        groups = {'rust_baseline', 'cargo_tooling_contracts'}
+        result = {mpath: (set(groups), {by_directory[posixpath.dirname(mpath)]})
+                  for mpath in member_manifest_paths}
+        if has_root_lock:
+            lock_owners = set(changed_members)
+            for entry in config.get('generated_inputs', ()):
+                if (isinstance(entry, dict) and entry.get('package') in member_dirs
+                        and 'native-Cargo.lock' in entry.get('outputs', ())):
+                    lock_owners.add(entry['package'])
+            result['Cargo.lock'] = (set(groups), lock_owners)
+        return result
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
         return {}
 
@@ -1136,6 +1327,7 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None, repo=None):
     embedded['__trusted_generated_producers__'] = trusted_producers
     embedded['__symlink_sources__'] = symlink_paths
     embedded['__private_test_input_inventory__'] = source_cache.private_test_contract
+    embedded['__all_cargo_manifest_dirs__'] = {posixpath.dirname(path) for path in paths if path.endswith('Cargo.toml')}
     return manifests, reverse, embedded
 
 
@@ -1328,6 +1520,20 @@ def validate_config(config):
                 or config['standalone_cargo_manifest_scope_version'] != STANDALONE_CARGO_MANIFEST_SCOPE_VERSION
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid standalone Cargo manifest scope capability')
+    if 'workspace_member_cargo_manifest_scope_version' in config:
+        if (type(config['workspace_member_cargo_manifest_scope_version']) is not int
+                or config['workspace_member_cargo_manifest_scope_version'] != WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid workspace member Cargo manifest scope capability')
+    if 'scoped_production_cfg_version' in config:
+        if (type(config['scoped_production_cfg_version']) is not int
+                or config['scoped_production_cfg_version'] != SCOPED_PRODUCTION_CFG_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid scoped production cfg capability')
+    if 'main_fast_coalesce_concurrency_version' in config:
+        if (type(config['main_fast_coalesce_concurrency_version']) is not int
+                or config['main_fast_coalesce_concurrency_version'] != MAIN_FAST_COALESCE_CONCURRENCY_VERSION):
+            raise ValueError('invalid main-fast coalesce concurrency capability')
     if 'workspace_support_direct_gate_version' in config:
         if (type(config['workspace_support_direct_gate_version']) is not int
                 or config['workspace_support_direct_gate_version'] != WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
@@ -3795,6 +4001,7 @@ def add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons,
     owners = {target['package'] for target in targets}
     relevant = [path for path in paths if owners.intersection(path_affected.get(path, ()))]
     isolated = (plan['scope'] == 'targeted' and not plan['test_policy_changed']
+                and not plan.get('fast_plan_exceptions')
                 and scale_isolation_proven(contract, relevant, comparisons, source_inputs))
     if isolated:
         plan['reasons'].append('audited isolated function-body changes retain required cross-chunk contracts; scale matrices stay in full')
@@ -4010,7 +4217,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
 def fast_plan(config, plan, base, source, tested, paths, affected, path_affected,
               path_rules, additions, profile, formal_inventory=None, policy_ref=None,
               comparisons=None, feature_owners=None, feature_manifests=None, test_target_roots=None,
-              source_inputs=None, *, scope_config_policy_changed=False):
+              source_inputs=None, *, scope_config_policy_changed=False, member_manifest_paths=()):
     if config.get('fast_scope_version') != FAST_PLAN_VERSION:
         # The version capability comes from BASE. Candidate metadata cannot opt in.
         raise ValueError('fast profiles require trusted baseline fast_scope_version')
@@ -4020,10 +4227,13 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     policy_paths, ignored_risk, production_cfg_paths = set(), False, set()
     if scope_config_policy_changed and not conservative:
         policy_paths.add('scripts/ci-required-scope.json')
+    if member_manifest_paths and not conservative:
+        exceptions.append('workspace member Cargo manifest/lockfile changed; '
+                          'full package and architecture profile coverage retained')
     selected_core = affected & set(config['oasis7_required_packages'])
     native_fast_candidate = None
     support_owners = {contract['package'] for contract in config.get('ordinary_fast_support_contracts', [])}
-    if (not conservative and selected_core
+    if (not conservative and not member_manifest_paths and selected_core
             and ('oasis7_required' in chosen or support_owners.intersection(affected))
             and 'oasis7_required' not in additions
             and not any('oasis7_required' in groups for groups in path_rules.values())):
@@ -4082,16 +4292,52 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         plan['reasons'].extend('changed source is not proven executable by the selected fast target/features; expanded coverage: ' + path
                                for path in sorted(narrow_unavailable))
         policy_paths = sorted(set(policy_paths) | narrow_unavailable)
+    def _direct_workspace_member_source(path):
+        if not path_affected.get(path) or not source_inputs:
+            return False
+        seen = False
+        for info in source_inputs.values():
+            if path not in info.get('sources', {}):
+                continue
+            seen = True
+            member_dirs = set(info.get('directories', {}).values())
+            all_cargo_dirs = set(info.get('all_cargo_dirs', ()))
+            ancestor = posixpath.dirname(path)
+            while True:
+                if ancestor:
+                    if ancestor in member_dirs:
+                        break
+                    if ancestor in all_cargo_dirs:
+                        return False
+                    parent = posixpath.dirname(ancestor)
+                    ancestor = '' if parent == ancestor else parent
+                else:
+                    if '' in member_dirs and path.startswith(('src/', 'tests/', 'examples/', 'benches/')):
+                        break
+                    return False
+        return seen
+
+    scoped_production_cfg = False
     if production_cfg_paths:
-        # Production platform/feature edits are not test retirement. Preserve
-        # the old necessary groups and platform jobs instead of rejecting code.
-        conservative = True
-        chosen = set(config['groups'])
-        plan['scope'] = 'full'
-        plan['architecture']['mode'] = 'full'
-        plan['workspace_support_profiles'] = sorted(SUPPORT_PROFILES)
-        plan['reasons'].extend('production cfg changed; conservative platform coverage: ' + path
-                               for path in sorted(production_cfg_paths))
+        if (config.get('scoped_production_cfg_version') == SCOPED_PRODUCTION_CFG_VERSION
+                and not conservative and affected
+                and all(_direct_workspace_member_source(path) for path in production_cfg_paths)):
+            scoped_production_cfg = True
+            native_fast_candidate = None
+            exceptions.append('production cfg changed; full package, architecture profile, '
+                              'and affected platform coverage retained')
+            plan['reasons'].extend('production cfg changed; scoped package and platform coverage: ' + path
+                                   for path in sorted(production_cfg_paths))
+        else:
+            # Production platform/feature edits are not test retirement. Preserve
+            # the old necessary groups and platform jobs instead of rejecting code.
+            conservative = True
+            chosen = set(config['groups'])
+            plan['scope'] = 'full'
+            plan['architecture']['mode'] = 'full'
+            plan['workspace_support_profiles'] = sorted(SUPPORT_PROFILES)
+            plan['reasons'].extend('production cfg changed; conservative platform coverage: ' + path
+                                   for path in sorted(production_cfg_paths))
     if conservative:
         exceptions.append('shared control or uncertain impact; original necessary groups retained')
     if policy_paths:
@@ -4160,7 +4406,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
 
     suites = set()
     if 'formal_process' in chosen:
-        if conservative or 'formal_process' in additions or ignored_risk:
+        if conservative or scoped_production_cfg or 'formal_process' in additions or ignored_risk:
             suites.update(FORMAL_SUITES)
         else:
             for path in paths:
@@ -4235,9 +4481,11 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                     'command_center' in path_rules.get(path, ()) or any(
                         'command_center' in config['package_groups'].get(package, ())
                         for package in path_affected.get(path, ()))]
-    center_package = ('command_center' in chosen and (conservative or 'command_center' in additions
-                      or not center_paths or any(not any(fnmatch.fnmatchcase(path, pattern)
-                          for pattern in config.get('command_center_fast_paths', [])) for path in center_paths)))
+    center_package = ('command_center' in chosen and (
+        conservative or scoped_production_cfg or bool(member_manifest_paths)
+        or 'command_center' in additions or not center_paths
+        or any(not any(fnmatch.fnmatchcase(path, pattern)
+                       for pattern in config.get('command_center_fast_paths', [])) for path in center_paths)))
     if (native_fast is not None and execution_capable and not exceptions and not additions
             and 'workspace_support' in chosen
             and not any('workspace_support' in groups for groups in path_rules.values())
@@ -4475,6 +4723,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
     source_inputs = {}
     policy_comparisons = snapshot['comparisons'] if snapshot is not None else [(base, source_head)]
     scope_config_slice = None
+    member_manifests = {}
     try:
         # Push/source-only checks retain the event range. For PR merge checks,
         # exclude target history already present in the actual first parent.
@@ -4564,6 +4813,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                         'trusted_generated_producers': graph[2].get('__trusted_generated_producers__', ()),
                         'symlink_sources': graph[2].get('__symlink_sources__', ()),
                         'private_test_input_inventory': graph[2].get('__private_test_input_inventory__', False),
+                        'all_cargo_dirs': graph[2].get('__all_cargo_manifest_dirs__', ()),
                     }
             except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
                 # Keep usable graphs to establish ownership even when another
@@ -4576,8 +4826,11 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
             scope_config_slice = scoped_scope_config_groups(config, policy_comparisons, paths)
             standalone_manifests = standalone_cargo_manifest_selection(
                 config, graphs, graph_refs, policy_comparisons, paths)
+            member_manifests = workspace_member_cargo_manifest_selection(
+                config, graphs, graph_refs, policy_comparisons, paths, standalone_manifests)
         else:
             standalone_manifests = {}
+            member_manifests = {}
         for path in paths:
             path_affected[path] = set()
             path_rules[path] = set()
@@ -4604,6 +4857,19 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                 path_rules[path].update(manifest_groups)
                 path_support_profiles.update(manifest_profiles)
                 reasons.append('scoped standalone Cargo manifest/lockfile changed: ' + path)
+            elif path in member_manifests:
+                manifest_groups, manifest_owners = member_manifests[path]
+                chosen.update(manifest_groups)
+                path_rules[path].update(manifest_groups)
+                for manifests, reverse, _ in graphs:
+                    present_owners = manifest_owners.intersection(manifests)
+                    if present_owners:
+                        architecture_inputs.update(present_owners)
+                        affected.update(present_owners)
+                        affected.update(reverse_consumers(present_owners, reverse))
+                        path_affected[path].update(present_owners)
+                        path_affected[path].update(reverse_consumers(present_owners, reverse))
+                reasons.append('scoped workspace member Cargo manifest/lockfile changed: ' + path)
             elif controlled:
                 full = True
                 reasons.append('shared build or CI control changed: ' + path)
@@ -4728,7 +4994,8 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
         return fast_plan(config, plan, base, source_head, test_head, paths, affected,
                          path_affected, path_rules, additions, profile, formal_inventory, policy_ref,
                          policy_comparisons, feature_owners, feature_manifests, test_target_roots, source_inputs,
-                         scope_config_policy_changed=bool(scope_config_slice and scope_config_slice[1]))
+                         scope_config_policy_changed=bool(scope_config_slice and scope_config_slice[1]),
+                         member_manifest_paths=sorted(member_manifests))
     return plan
 
 

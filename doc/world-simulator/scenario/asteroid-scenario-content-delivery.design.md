@@ -101,7 +101,7 @@ fragment ID 形如 `frag-{x}-{y}-{z}-{idx}`，由生成路径分配；缺号可�
 | 消费入口与当前源 | 保留或改变的内容 | 可作出的交付判断 |
 | --- | --- | --- |
 | Simulator `build_world_model` / `initialize_kernel`；[init demo](../../../crates/oasis7_simulator/src/bin/oasis7_init_demo.rs) | 按场景生成 origin、普通地点、frag、Agent 和显式设施；kernel 在时间 0 保留初始模型及适用 Init 事件 | 可核四场景的 Simulator 初态；demo 文本摘要不包含全部位置/profile/预算。 |
-| named runtime-live；[bootstrap_runtime_world_with_chunk_runtime](../../../crates/oasis7/src/runtime_host/bootstrap.rs)与[入口分流](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) | 从模型投影 Runtime；返回路径不保留完整 seed model | 适合其 Runtime 调试用途，不能据场景标签宣称完整模型原样保留。 |
+| named runtime-live；[bootstrap_runtime_world_with_chunk_runtime](../../../crates/oasis7_runtime_host/src/bootstrap.rs)与[入口分流](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) | 从模型投影 Runtime；返回路径不保留完整 seed model | 适合其 Runtime 调试用途，不能据场景标签宣称完整模型原样保留。 |
 | runtime-live `--generated-world-dir`；同 bootstrap 源 | 加载 sidecar snapshot/config/model/chunk runtime，并保留 seed model 参与 Viewer 映射；Agent 仍由 Runtime 投影 | 能验证被实际保留的地点/profile/引用，不自动保留零 Agent 或完整原始库存。 |
 | 本地无场景默认入口；[formal_release_default_seed_model](../../../crates/oasis7_runtime_host/src/gameplay_actions.rs) | 程序内构造 seed `0x0A51_5700_0000_0001`、bootstrap `(0,0,0)`、关闭 origin 与一个 starter Agent，不读取这四份 JSON | 是另一份已采用本地输入；函数名不证明正式 starter 或 chain provenance 已接通。 |
 | world-service / 正式世界激活 | [world-service 分流](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs)等待权威读取；[正式初始化](../../../crates/oasis7_chain_runtime/src/host/world_initialization.rs)接外部准备材料 | 以实际权威 snapshot/配置为源，不把本目录当正式世界初态。 |
