@@ -385,7 +385,7 @@ pub(super) fn bootstrap_runtime_live_world(
 > {
     if config.world_service.is_some() {
         return Ok((
-            oasis7_oasis7_runtime_host::world::new_production_hardened(),
+            oasis7_runtime_host::world::new_production_hardened(),
             WorldConfig::default(),
             None,
             ChunkRuntimeConfig::default(),
@@ -404,7 +404,7 @@ pub(super) fn bootstrap_runtime_live_world(
             Ok((world, snapshot_config, None, chunk_runtime))
         }
         None if config.world_service.is_some() || config.chain_status_bind.is_some() => Ok((
-            oasis7_oasis7_runtime_host::world::new_production_hardened(),
+            oasis7_runtime_host::world::new_production_hardened(),
             WorldConfig::default(),
             None,
             ChunkRuntimeConfig::default(),

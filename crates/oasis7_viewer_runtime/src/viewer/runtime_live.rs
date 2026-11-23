@@ -319,7 +319,7 @@ impl ViewerRuntimeLiveServer {
             std::fs::write(&preflight_path, b"authoritative-recovery-preflight")?;
             std::fs::remove_file(&preflight_path)?;
             if let Some(committed) =
-                oasis7_oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+                oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
                     .map_err(ViewerRuntimeLiveServerError::Runtime)?
             {
                 let metadata = committed.recovery_metadata;

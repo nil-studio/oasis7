@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn safe_alternative_public_snapshot_drops_private_lineages_results_and_pending_commands() {
         let world =
-            oasis7_oasis7_runtime_host::world::new_with_state(crate::runtime::WorldState::default());
+            oasis7_runtime_host::world::new_with_state(crate::runtime::WorldState::default());
         let mut snapshot = world.snapshot();
         let private = serde_json::json!({"request":{"signed_payload":{"kind":"safe_alternative","payload":{"goal":"PRIVATE_ALTERNATIVE_GOAL","signature_hex":"PRIVATE_SIGNATURE"}}}});
         snapshot
