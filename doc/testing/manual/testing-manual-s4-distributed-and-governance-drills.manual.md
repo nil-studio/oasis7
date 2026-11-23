@@ -1,7 +1,7 @@
 # Testing Manual 分册：S4 分布式子系统与 S4B Governance Registry Drill
 
 - 主测试手册：[`testing-manual.md`](../../../testing-manual.md)
-- 本分册按 #6507 原样承接 `testing-manual.md` 中的 `S4：分布式子系统套件（L3）` 与 `S4B：Governance Registry Drill（L4 前置 / L4）`，不改变既有命令、验收层级或边界。
+- 本分册按 #6507 原样承接 `testing-manual.md` 中的 `S4：分布式子系统套件（L3）` 与 `S4B：Governance Registry Drill（L4 前置 / L4）`，保留原验收层级和边界。
 
 ### S4：分布式子系统套件（L3）
 ```bash
@@ -9,12 +9,9 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_node
 env -u RUSTC_WRAPPER cargo test -p oasis7_distfs
 env -u RUSTC_WRAPPER cargo test -p oasis7_consensus
 env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib
-env -u RUSTC_WRAPPER cargo test -p oasis7_net --features libp2p --lib
 ```
-- 可选增强（涉及 runtime_bridge 改动时）：
-```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7_net --features runtime_bridge --lib
-```
+
+- Net 默认已启用 `libp2p`，上述原生测试只需运行一次；vendor 和 WASM 检查仍走各自的入口。
 
 #### 固定集合 NodeRuntime BFT 工程路径
 
