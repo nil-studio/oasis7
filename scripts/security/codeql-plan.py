@@ -34,6 +34,14 @@ WORKERS_POLICY_INPUTS = {
 }
 
 
+# Original JSON golden payload and its single native Host destination. The
+# fixture is consumed by Rust include_str! tests; this grants Rust scan routing,
+# never an exclusion or blanket JSON/fixture-directory permission.
+LLM_DECISION_PAYLOAD_INPUTS = {
+    'crates/oasis7/src/simulator/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json',
+    'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json',
+}
+
 # Exact non-executable GitHub issue forms/chooser metadata. This is not a
 # directory or YAML exclusion; possible embedded/build consumers still apply.
 ISSUE_METADATA_INPUTS = {
@@ -280,6 +288,10 @@ def plan(args):
             add('rust-repo', path)
         elif path == 'tools/scenario_test_runner/scenarios/triad_p2p.yaml':
             # Exact data fixture read by the Rust scenario runner, not Actions YAML.
+            add('rust-repo', path)
+        elif path in LLM_DECISION_PAYLOAD_INPUTS:
+            # Move-only JSON golden fixture: both old-side deletion and new
+            # native Host addition select the original Rust test consumer.
             add('rust-repo', path)
         elif path in WORKERS_POLICY_INPUTS:
             add('javascript-repo', path)

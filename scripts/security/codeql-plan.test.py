@@ -311,6 +311,42 @@ class PlannerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'unregistered input'):
                 self.run_plan(full=full)
 
+    def test_original_llm_json_golden_owner_migration_routes_rust(self):
+        paths = (
+            'crates/oasis7/src/simulator/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json',
+            'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json',
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                for value in ('{}', '{"fixture":true}'):
+                    self.base = self.git('rev-parse', 'HEAD')
+                    self.write(path, value)
+                    self.commit()
+                    result = self.run_plan()
+                    self.assertEqual(result['candidate_units'], ['rust-repo'])
+                    self.assertEqual(result['selected_units'], ['rust-repo'])
+                    self.assertIn(path, result['reasons']['rust-repo'])
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).unlink()
+                self.commit()
+                self.assertEqual(self.run_plan()['selected_units'], ['rust-repo'])
+
+    def test_llm_json_fixture_neighbors_still_fail_closed(self):
+        for path in (
+            'crates/oasis7/src/simulator/llm_agent/decision_flow/fixtures/unknown.json',
+            'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/unknown.json',
+            'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.extra.json',
+        ):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}')
+                self.commit()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                        self.run_plan(full=full)
+                (self.root / path).unlink()
+                self.commit()
+
     def test_workers_policy_fixture_owners_across_changes(self):
         for name in ('policy.json', 'policy-large-input.json', 'policy-large-bindings.json'):
             path = 'crates/oasis7_dev_test_worker/tests/fixtures/' + name
