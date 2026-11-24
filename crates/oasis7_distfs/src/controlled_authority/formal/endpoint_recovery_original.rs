@@ -243,10 +243,11 @@ mod tests {
             } else {
                 "0".repeat(64)
             };
-            let error =
-                verify_native_recovery_original_legacy_cut(&completed, &recovery, &parent, &wrong_pin)
-                    .err()
-                    .expect("the independently pinned digest must match");
+            let error = verify_native_recovery_original_legacy_cut(
+                &completed, &recovery, &parent, &wrong_pin,
+            )
+            .err()
+            .expect("the independently pinned digest must match");
             assert!(error.to_string().contains("proof pin mismatch"));
 
             let mut corrupted = completed;
