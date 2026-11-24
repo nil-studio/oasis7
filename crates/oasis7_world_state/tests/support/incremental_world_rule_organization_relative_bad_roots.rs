@@ -1,6 +1,10 @@
 use super::*;
 pub(super) fn exercise() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    #[cfg(feature = "test_tier_full")]
+    const COMPRESSIONS: &[PageCompression] = &[PageCompression::Raw, PageCompression::Zstd];
+    #[cfg(not(feature = "test_tier_full"))]
+    const COMPRESSIONS: &[PageCompression] = &[PageCompression::Raw];
+    for &compression in COMPRESSIONS {
         let directory = Directory::new();
         let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
         let _admission = memory.reserve(1 << 20, MemoryClass::Ordinary).unwrap();
