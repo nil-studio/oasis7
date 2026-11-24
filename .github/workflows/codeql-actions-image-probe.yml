@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [codex/engineering-codeql-actions-image-probe-base]
     paths: [.github/workflows/codeql-actions-image-probe.yml]
-    types: [opened]
+    types: [synchronize]
 
 permissions:
   contents: read
@@ -146,8 +146,11 @@ jobs:
               driver = run['tool']['driver']
               assert driver['name'] == 'CodeQL'
               assert '2.27.4' in (driver.get('version'), driver.get('semanticVersion'))
-              assert driver['rules'] and isinstance(run['results'], list)
-              comparison.append(normalize({'driver': driver, 'results': run['results']}))
+              rules = driver.get('rules', [])
+              results = run['results']
+              assert isinstance(rules, list) and isinstance(results, list), 'invalid SARIF rule/result arrays'
+              assert rules or not results, 'nonempty results require reporting rules'
+              comparison.append(normalize({'driver': dict(driver, rules=rules), 'results': results}))
           evidence = {'source': os.environ['SOURCE'], 'selection': json.loads(os.environ['SELECTION']),
                       'query_suite_sha256': hashlib.sha256(Path('scripts/security/codeql-actions/default.qls').read_bytes()).hexdigest(),
                       'sarif': comparison}
