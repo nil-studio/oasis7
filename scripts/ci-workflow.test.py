@@ -7085,7 +7085,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'package-linux-x86-64': 10,
             },
             '.github/workflows/hosted-login-linux-build.yml': {
-                'build-linux-x86-64': 45,
+                'build-linux-x86-64': 30,
                 'build-viewer': 12,
                 'assemble': 5,
             },
@@ -7097,7 +7097,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'diagnose': 35,
             },
             '.github/workflows/storage-acceptance.yml': {
-                'build-components': 150,
+                'build-components': 125,
                 'build': 10,
                 'verify': 130,
                 'attempt-release-reference': 50,
