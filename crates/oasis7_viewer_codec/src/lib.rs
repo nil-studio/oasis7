@@ -10,7 +10,7 @@ pub type ViewerResponse = proto::ViewerResponse<
     WorldEvent,
     AgentDecisionTrace,
     RunnerMetrics,
-    oasis7::simulator::WorldTime,
+    oasis7_simulator::WorldTime,
 >;
 
 // Both capacities use the same fixed serializer instance. Taking the buffer

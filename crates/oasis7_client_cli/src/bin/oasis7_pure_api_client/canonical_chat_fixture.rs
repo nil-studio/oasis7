@@ -25,7 +25,7 @@ pub(super) fn world_fixture() -> (World, String, WorldIdentity, CommitRef) {
     let mut world = oasis7_runtime_host::world::new();
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-0".into(),
-        pos: oasis7::GeoPos::new(0, 0, 0),
+        pos: oasis7_simulator::GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
     world.submit_action(Action::ClaimStarterOc {

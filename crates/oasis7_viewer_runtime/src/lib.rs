@@ -1,5 +1,5 @@
 //! Viewer application, sessions, recovery orchestration and network transports.
-pub use oasis7::GeoPos;
+pub use oasis7_simulator::GeoPos;
 pub use oasis7::{geometry, models, simulator};
 #[cfg(not(target_arch = "wasm32"))]
 pub use oasis7::{observability, runtime, runtime_host, world_service};

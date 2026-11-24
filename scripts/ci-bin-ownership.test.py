@@ -49,6 +49,35 @@ class Ownership(unittest.TestCase):
             source = (ROOT / 'crates' / package / 'src' / relative).read_text()
             self.assertIn(f'oasis7_observability::{function}', source, relative)
 
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('oasis7_simulator::WorldTime', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
     def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
         """Fail closed for both accepted two-argument host seams during native migration.
 
