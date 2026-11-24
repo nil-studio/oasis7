@@ -13,7 +13,6 @@ fn demo_original_archive_has_single_native_host_identity() {
     assert_eq!(TypeId::of::<WorldEvent>(), TypeId::of::<oasis7::simulator::WorldEvent>());
 }
 
-
 #[cfg(feature = "test_tier_full")]
 fn tracked_baseline_fixture_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
