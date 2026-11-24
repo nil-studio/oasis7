@@ -140,12 +140,8 @@ fn seal_profile2_inline_business_source(
             .unwrap(),
     );
     updates.sort_by(|a, b| a.key_digest.cmp(&b.key_digest));
-    let delta = BusinessIndexDeltaV1::build(
-        original.delta.new.clone(),
-        updates,
-        &primary.store,
-    )
-    .unwrap();
+    let delta =
+        BusinessIndexDeltaV1::build(original.delta.new.clone(), updates, &primary.store).unwrap();
     let envelope = super::business_tests::envelope(delta);
     super::business_tests::replace_result(&mut candidate.material, envelope.encode().unwrap());
     candidate.candidate.record.artifact_roots = candidate.material.roots.clone();
@@ -155,13 +151,8 @@ fn seal_profile2_inline_business_source(
         4,
     );
     let proof = coordinator.submit(candidate).unwrap();
-    let boundary = verify_formal_qualified(
-        &proof,
-        &fixture.authority,
-        Some(&predecessor),
-        None,
-    )
-    .unwrap();
+    let boundary =
+        verify_formal_qualified(&proof, &fixture.authority, Some(&predecessor), None).unwrap();
     let transition = verify_normal_durable_set_transition(
         &signed_transition,
         &fixture.authority,
