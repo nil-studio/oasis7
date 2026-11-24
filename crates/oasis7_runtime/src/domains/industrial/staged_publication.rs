@@ -13,29 +13,28 @@ use crate::world::transition::{
 };
 use crate::{CausedBy, DomainEvent, World, WorldError, WorldEvent, WorldEventBody, WorldEventId};
 
-#[derive(Clone, Copy)]
-enum IndustrialFamily {
-    State,
-    History,
-}
-
-pub(super) struct StagedIndustrialPublication<'a> {
-    event: &'a DomainEvent,
-    family: IndustrialFamily,
+pub(super) enum StagedIndustrialPublication<'a> {
+    State(&'a DomainEvent),
+    History(&'a DomainEvent),
+    RouteOnly(&'a DomainEvent, &'a str),
+    DeliveryCursor(&'a WorldEventBody),
 }
 
 impl<'a> StagedIndustrialPublication<'a> {
     pub(super) fn from_body(body: &'a WorldEventBody) -> Option<Self> {
+        if matches!(body, WorldEventBody::ProductValidationDeliveryCursorUpdated(_)) {
+            return Some(Self::DeliveryCursor(body));
+        }
         let WorldEventBody::Domain(event) = body else {
             return None;
         };
-        let family = match event {
+        match event {
             DomainEvent::AgentLocationAuthorityUpdated { .. }
             | DomainEvent::LocationAnchorUpdated { .. }
             | DomainEvent::FactorySiteAuthorityUpdated { .. }
             | DomainEvent::FactoryConstructionPowerProfileUpdated { .. }
             | DomainEvent::ProductValidationRecorded { .. }
-            | DomainEvent::ProductValidationAttemptStarted { .. } => IndustrialFamily::History,
+            | DomainEvent::ProductValidationAttemptStarted { .. } => Some(Self::History(event)),
             DomainEvent::LogisticsRouteRegistered { .. }
             | DomainEvent::LogisticsRouteAvailabilityChanged { .. }
             | DomainEvent::MaterialTransferred { .. }
@@ -50,10 +49,12 @@ impl<'a> StagedIndustrialPublication<'a> {
             | DomainEvent::RecipeCompleted { .. }
             | DomainEvent::FactoryProductionBlocked { .. }
             | DomainEvent::FactoryProductionResumed { .. }
-            | DomainEvent::FactoryProductionPaused { .. } => IndustrialFamily::State,
-            _ => return None,
-        };
-        Some(Self { event, family })
+            | DomainEvent::FactoryProductionPaused { .. } => Some(Self::State(event)),
+            DomainEvent::LogisticsPathRerouted { requester_agent_id, .. } => {
+                Some(Self::RouteOnly(event, requester_agent_id))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -90,12 +91,33 @@ impl StagedTransition for StagedIndustrialPublication<'_> {
         view: &BorrowedWorldView<'_>,
         ctx: &TransitionContext,
     ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
-        let state_delta = match self.family {
-            IndustrialFamily::State => PreparedEventStateDelta::Industry(
-                PreparedIndustryEvent::prepare(view.state(), self.event, view.time())?,
+        let (body, state_delta) = match self {
+            Self::State(event) => (
+                WorldEventBody::Domain((*event).clone()),
+                PreparedEventStateDelta::Industry(PreparedIndustryEvent::prepare(
+                    view.state(), event, view.time(),
+                )?),
             ),
-            IndustrialFamily::History => PreparedEventStateDelta::IndustryHistory(
-                PreparedIndustryHistoryEvent::prepare(view.state(), self.event, view.time())?,
+            Self::History(event) => (
+                WorldEventBody::Domain((*event).clone()),
+                PreparedEventStateDelta::IndustryHistory(PreparedIndustryHistoryEvent::prepare(
+                    view.state(), event, view.time(),
+                )?),
+            ),
+            Self::RouteOnly(event, agent_id) => (
+                WorldEventBody::Domain((*event).clone()),
+                PreparedEventStateDelta::DomainRouteOnly {
+                    event: (*event).clone(),
+                    agent_id: (*agent_id).to_owned(),
+                },
+            ),
+            Self::DeliveryCursor(body) => (
+                (*body).clone(),
+                PreparedEventStateDelta::for_body(view.world(), body).ok_or_else(|| {
+                    WorldError::ResourceBalanceInvalid {
+                        reason: "unclassified product validation delivery cursor".to_string(),
+                    }
+                })?,
             ),
         };
         let PreparedEventPublication {
@@ -107,7 +129,7 @@ impl StagedTransition for StagedIndustrialPublication<'_> {
             consensus_record,
             state_delta,
         } = view.world().prepare_event_publication(
-            WorldEventBody::Domain(self.event.clone()),
+            body,
             ctx.caused_by.clone(),
             state_delta,
         )?;

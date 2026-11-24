@@ -258,15 +258,6 @@ impl World {
                     )?),
                 ))
             }
-            WorldEventBody::Domain(
-                event @ DomainEvent::LogisticsPathRerouted {
-                    requester_agent_id,
-                    ..
-                },
-            ) => Some(PreparedEventStateDelta::DomainRouteOnly {
-                event: event.clone(),
-                agent_id: requester_agent_id.clone(),
-            }),
             WorldEventBody::ModuleStateUpdated(update) => {
                 Some(PreparedEventStateDelta::ModuleStateUpdated {
                     module_states: BTreeMap::from([(
