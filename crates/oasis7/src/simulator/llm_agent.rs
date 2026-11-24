@@ -747,6 +747,7 @@ mod prompt_assembly_owner_tests {
         };
         let output: canonical::PromptAssemblyOutput = PromptAssembler::assemble(input);
         assert!(output.system_prompt.contains("base prompt"));
-        assert!(output.user_prompt.contains("short goal"));
+        assert!(output.system_prompt.contains("short goal"));
+        assert!(output.user_prompt.contains("observation(json)"));
     }
 }
