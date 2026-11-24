@@ -79,6 +79,15 @@ fn subject_for(f: &IssuerFixture) -> BftCandidateReadSubjectV1 {
 }
 #[test]
 fn remote_provider_lease_retry_keeps_original_signature_head_and_ids() {
+    run_lease_retry(false);
+}
+
+#[test]
+fn remote_provider_lease_recovers_after_competing_cas_advances_exact_prefix() {
+    run_lease_retry(true);
+}
+
+fn run_lease_retry(competing_cas: bool) {
     let (_, trust, _, _, _) = full_sync_fixture();
     let f = issue_lease_fixture_role(
         trust.initial_trust.clone(),
@@ -95,22 +104,22 @@ fn remote_provider_lease_retry_keeps_original_signature_head_and_ids() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let server_captured = captured.clone();
     let server = std::thread::spawn(move || {
-        for index in 0..3 {
+        let mut nonces = std::collections::BTreeSet::new();
+        for index in 0..4 {
             let (mut stream, query) = read_query(&listener);
+            assert!(nonces.insert(query.observation_nonce.clone()));
             let request = query_request(&query);
             let before = server_witness.fetch(&request).unwrap();
-            if index == 0 {
-                assert!(query.provider_lease_request.is_none());
-            }
+            assert_eq!(query.provider_lease_request.is_none(), index % 2 == 0);
             if let Some(signed) = query.provider_lease_request {
                 signed.verify(&v3).unwrap();
                 assert_eq!(signed.body.provider_incarnation, issuer_hash(29));
                 assert_eq!(signed.body.target, request.target);
                 assert_eq!(signed.body.target_generation, 1);
                 server_captured.lock().unwrap().push(signed.clone());
-                if index == 1 {
-                    // A lost/unavailable result is not proof that a different
-                    // request ID or expected head may be signed on retry.
+                if index == 1 && !competing_cas {
+                    // The original CAS has not committed. A lost result alone
+                    // cannot authorize replacement of its signed request.
                     stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
                     continue;
                 }
@@ -126,9 +135,25 @@ fn remote_provider_lease_retry_keeps_original_signature_head_and_ids() {
                 let lease_observation = v3_observation_for_test(
                     &v3,
                     state.anchor(),
-                    77,
+                    77 + index,
                     before.observation.body.protected_time.latest_unix_ms,
                 );
+                let signed = if index == 1 {
+                    // A different incarnation wins the same exact CAS head.
+                    // The original is absent from the resulting signed prefix.
+                    let mut competing = signed.body.clone();
+                    competing.provider_incarnation = issuer_hash(180);
+                    competing.lease_id = issuer_hash(181);
+                    competing.request_id = issuer_hash(182);
+                    competing.request_nonce = issuer_hash(183);
+                    oasis7_distfs::controlled_authority::formal::full_sync_issuer::SignedFullSyncProviderLeaseRequestV3::sign(
+                        competing,
+                        &key(PROVIDER_KEY),
+                    )
+                    .unwrap()
+                } else {
+                    signed
+                };
                 let prepared = state
                     .prepare_lease(signed, &lease_observation, &key(LEASE_SIGNER_KEY))
                     .unwrap();
@@ -146,6 +171,10 @@ fn remote_provider_lease_retry_keeps_original_signature_head_and_ids() {
                     .unwrap()
                     .v3_entries
                     .push(decision.entry().clone());
+                if index == 1 {
+                    stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                    continue;
+                }
             }
             let evidence = server_witness.fetch(&request).unwrap();
             let body = serde_json::to_vec(&evidence).unwrap();
@@ -197,9 +226,18 @@ fn remote_provider_lease_retry_keeps_original_signature_head_and_ids() {
     server.join().unwrap();
     let signed = captured.lock().unwrap();
     assert_eq!(signed.len(), 2);
-    assert_eq!(signed[0], signed[1]);
     assert_eq!(
         signed[0].body.expected_head,
         f.history.v3_entries.last().unwrap().record.next_anchor
     );
+    if competing_cas {
+        assert_ne!(signed[0], signed[1]);
+        assert_ne!(signed[0].body.request_id, signed[1].body.request_id);
+        assert_eq!(
+            signed[1].body.expected_head.revision,
+            signed[0].body.expected_head.revision + 1
+        );
+    } else {
+        assert_eq!(signed[0], signed[1]);
+    }
 }

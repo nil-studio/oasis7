@@ -11,7 +11,13 @@ pub(super) struct ProviderLeaseClientV3 {
     v2: VerifiedFullSyncIssuerPolicyV2,
     v3: VerifiedFullSyncIssuerPolicyV3,
     provider: ed25519_dalek::SigningKey,
-    pending: Mutex<BTreeMap<String, SignedFullSyncProviderLeaseRequestV3>>,
+    pending: Mutex<BTreeMap<String, PendingLeaseRequestV3>>,
+}
+
+struct PendingLeaseRequestV3 {
+    signed: SignedFullSyncProviderLeaseRequestV3,
+    // Any failed submission requires a read-only reconciliation before retry.
+    last_verified_head: Option<FullSyncIssuerAnchorV3>,
 }
 impl ProviderLeaseClientV3 {
     pub fn new(
@@ -58,24 +64,45 @@ impl ProviderLeaseClientV3 {
             .pending
             .lock()
             .map_err(|_| FormalReadError::Internal("lease request state poisoned".into()))?;
-        let evidence = source.fetch_raw(request, pending.get(&key).cloned())?;
-        let state = self.verify_evidence(request, &evidence)?;
+        // A previously verified successful submission may replay its exact
+        // original receipt. A failed submission cannot loop forever on a stale
+        // CAS: first obtain a read-only, independently verified complete prefix.
+        if let Some(head) = pending
+            .get(&key)
+            .and_then(|entry| entry.last_verified_head.clone())
+        {
+            return self.submit_pending(source, request, &mut pending, &key, Some(&head), true);
+        }
+        // Reserve the caller's nonce for the final authorization response.
+        // The preliminary observation must not reuse it across a lease CAS.
+        let mut probe = request.clone();
+        probe.observation_nonce = fresh_nonce().map_err(FormalReadError::Internal)?;
+        if probe.observation_nonce == request.observation_nonce {
+            return Err(FormalReadError::Internal(
+                "lease bootstrap nonce collides with authorization nonce".into(),
+            ));
+        }
+        let evidence = source.fetch_raw(&probe, None)?;
+        let state = self.verify_evidence(&probe, &evidence)?;
         if let Some(original) = pending.get(&key) {
             let committed = state
                 .leases()
                 .values()
-                .any(|pair| &pair.request == original);
-            let old_head = &original.body.expected_head;
+                .any(|pair| pair.request == original.signed);
+            let old_head = &original.signed.body.expected_head;
             let exact_prefix = evidence
                 .history
                 .v3_entries
                 .iter()
                 .any(|entry| &entry.record.next_anchor == old_head);
-            // A complete signed prefix proves either the exact committed
-            // original, or that its CAS head has definitively advanced without
-            // that request. Only then may a fresh operation be prepared.
             if committed || (exact_prefix && state.anchor().revision > old_head.revision) {
+                // Only a signed complete history can resolve an unknown
+                // outcome or prove that the original CAS can no longer win.
                 pending.remove(&key);
+            } else if state.anchor() != old_head {
+                return Err(FormalReadError::Integrity(
+                    "lease recovery history does not prove the original CAS prefix".into(),
+                ));
             }
         }
         let current = state
@@ -96,14 +123,22 @@ impl ProviderLeaseClientV3 {
                 && b.not_before_unix_ms <= evidence.observation.body.protected_time.earliest_unix_ms
                 && b.expires_unix_ms > latest
         });
-        if has_lease {
-            pending.remove(&key);
-            return Ok(evidence);
-        }
-        // A retained request has already been submitted above. Do not refresh
-        // its expected head, IDs or signature when the result remains unknown.
         if pending.contains_key(&key) {
-            return Ok(evidence);
+            // Its exact head is still current. Preserve all signed bytes,
+            // including IDs and nonce, even when the previous reply was lost.
+            return self.submit_pending(
+                source,
+                request,
+                &mut pending,
+                &key,
+                Some(state.anchor()),
+                true,
+            );
+        }
+        if has_lease {
+            let final_evidence = source.fetch_raw(request, None)?;
+            self.verify_response_at_least(request, &final_evidence, Some(state.anchor()))?;
+            return Ok(final_evidence);
         }
         if pending.len() >= 1024 {
             return Err(FormalReadError::HistoryUnavailable(
@@ -140,12 +175,77 @@ impl ProviderLeaseClientV3 {
         signed.verify(&self.v3).map_err(|_| {
             FormalReadError::Integrity("provider lease request does not match policy".into())
         })?;
-        pending.insert(key, signed.clone());
-        // Only a real committed lease in the returned complete signed history
-        // can authorize a read. An HTTP acknowledgement or this signature alone
-        // never becomes a lease capability.
-        source.fetch_raw(request, Some(signed))
+        pending.insert(
+            key.clone(),
+            PendingLeaseRequestV3 {
+                signed,
+                last_verified_head: None,
+            },
+        );
+        self.submit_pending(
+            source,
+            request,
+            &mut pending,
+            &key,
+            Some(state.anchor()),
+            false,
+        )
     }
+
+    fn submit_pending(
+        &self,
+        source: &RemoteFullSyncReadEvidenceSourceV3,
+        request: &FullSyncIssuerReadEvidenceRequestV3,
+        pending: &mut BTreeMap<String, PendingLeaseRequestV3>,
+        key: &str,
+        previous: Option<&FullSyncIssuerAnchorV3>,
+        retire_on_success: bool,
+    ) -> FormalReadResult<FullSyncIssuerReadEvidenceV3> {
+        let entry = pending
+            .get_mut(key)
+            .ok_or_else(|| FormalReadError::Internal("missing pending lease request".into()))?;
+        // Set uncertainty before sending; neither HTTP success nor a signature
+        // alone is proof that the issuer committed this exact operation.
+        entry.last_verified_head = None;
+        let evidence = source.fetch_raw(request, Some(entry.signed.clone()))?;
+        let state = self.verify_response_at_least(request, &evidence, previous)?;
+        if !state
+            .leases()
+            .values()
+            .any(|pair| pair.request == entry.signed)
+        {
+            return Err(FormalReadError::HistoryUnavailable(
+                "issuer history does not contain the exact submitted lease".into(),
+            ));
+        }
+        entry.last_verified_head = Some(state.anchor().clone());
+        if retire_on_success {
+            pending.remove(key);
+        }
+        Ok(evidence)
+    }
+
+    fn verify_response_at_least(
+        &self,
+        request: &FullSyncIssuerReadEvidenceRequestV3,
+        evidence: &FullSyncIssuerReadEvidenceV3,
+        previous: Option<&FullSyncIssuerAnchorV3>,
+    ) -> FormalReadResult<VerifiedFullSyncIssuerStateV3> {
+        let state = self.verify_evidence(request, evidence)?;
+        if let Some(anchor) = previous
+            && !evidence
+                .history
+                .v3_entries
+                .iter()
+                .any(|entry| &entry.record.next_anchor == anchor)
+        {
+            return Err(FormalReadError::Integrity(
+                "lease response does not extend the verified bootstrap prefix".into(),
+            ));
+        }
+        Ok(state)
+    }
+
     fn verify_evidence(
         &self,
         request: &FullSyncIssuerReadEvidenceRequestV3,
