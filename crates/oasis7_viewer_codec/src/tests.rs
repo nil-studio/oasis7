@@ -14,6 +14,32 @@ fn typed_error() -> ViewerResponse {
 }
 
 #[test]
+fn canonical_simulator_trace_metrics_and_world_time_keep_legacy_viewer_wire_type() {
+    // Native L2's telemetry and decision grammar are the exact old public
+    // ViewerResponse generic arguments, not a new runtime wire encoding.
+    type NativeResponse = oasis7_proto::viewer::ViewerResponse<
+        oasis7::simulator::WorldSnapshot,
+        oasis7::simulator::WorldEvent,
+        oasis7_simulator::AgentDecisionTrace,
+        oasis7_simulator::RunnerMetrics,
+        oasis7_simulator::WorldTime,
+    >;
+    type LegacyResponse = oasis7_proto::viewer::ViewerResponse<
+        oasis7::simulator::WorldSnapshot,
+        oasis7::simulator::WorldEvent,
+        oasis7::simulator::AgentDecisionTrace,
+        oasis7::simulator::RunnerMetrics,
+        oasis7::simulator::WorldTime,
+    >;
+    let native: NativeResponse = typed_error();
+    let legacy: LegacyResponse = native;
+    assert_eq!(
+        response_to_json(&legacy).unwrap(),
+        response_to_json(&typed_error()).unwrap()
+    );
+}
+
+#[test]
 fn concrete_writer_and_string_preserve_legacy_compact_bytes() {
     let snapshot = WorldKernel::new().snapshot();
     let responses = vec![

@@ -1,4 +1,4 @@
-use oasis7::simulator::AgentDecisionTrace;
+use oasis7_simulator::AgentDecisionTrace;
 
 pub(crate) fn truncate_for_llm_io_log(text: &str, max_chars: Option<usize>) -> String {
     let Some(max_chars) = max_chars else {

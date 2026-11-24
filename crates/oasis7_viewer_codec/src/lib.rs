@@ -1,8 +1,9 @@
 //! Concrete Viewer JSON adaptation. Callers own visibility, framing and transport.
 use std::io::Write;
 
-use oasis7::simulator::{AgentDecisionTrace, RunnerMetrics, WorldEvent, WorldSnapshot};
+use oasis7::simulator::{WorldEvent, WorldSnapshot};
 use oasis7_proto::viewer as proto;
+use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};
 
 pub use oasis7_client_api::viewer_protocol::ViewerRequest;
 pub type ViewerResponse = proto::ViewerResponse<
@@ -10,7 +11,7 @@ pub type ViewerResponse = proto::ViewerResponse<
     WorldEvent,
     AgentDecisionTrace,
     RunnerMetrics,
-    oasis7::simulator::WorldTime,
+    WorldTime,
 >;
 
 // Both capacities use the same fixed serializer instance. Taking the buffer

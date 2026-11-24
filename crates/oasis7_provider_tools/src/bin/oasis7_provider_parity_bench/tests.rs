@@ -5,8 +5,9 @@ use super::recovery_ledger::{
 use super::*;
 use oasis7::simulator::{
     ContinuousAgentResponseContextV1, DecisionProvider, DecisionResponse, FeedbackEnvelopeV1,
-    cognition_response_digest, golden_decision_provider_fixtures,
+    golden_decision_provider_fixtures,
 };
+use oasis7_agent_api::cognition_response_digest;
 use oasis7_simulator::Action;
 use std::io::{Read, Write};
 use std::net::TcpListener;
