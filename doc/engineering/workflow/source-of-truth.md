@@ -6,7 +6,7 @@
 
 本文是通用开发流程的唯一规范。脚本、CI、AGENTS 和 skills 负责执行或说明这些规则，不得另设任务准入、审批、状态、证据材料或完成条件。发现不一致时，应修正对应实现和入口，不得用额外证明补偿规则冲突。
 
-每项工作有一个明确负责人，可以是人或主 Agent，直接负责本项分析、设计、实现、自测和组织适用评审。专业角色提供按需参考的关注点，不构成固定交接链。
+每项工作有一个明确负责人，可以是人或主 Agent，直接负责本项分析、设计、实现、自测和组织适用评审。专业角色提供按需参考的关注点，不构成固定交接链。通用开发流程只要求实际能力和可验证的交付，不绑定 Codex、Claude Code、Cursor 或其他指定 Coding Agent；各平台的配置、会话 URI、命令及独立 subagent 能力仅在该平台确实可用、获得相应授权时适用。产品指定的外部游戏 Runtime 验收对象、真实历史证据和现存配置校验不因这一原则被重命名或免除。
 
 Git、PR、实际 CI 结果和评审记录承载代码交付事实。未拆分的简单修改可以只有 PR；拆出的独立开发任务使用[原生 sub-issue](#code-task-sub-issues)，Project 按需使用。本地开发、测试和 PR 验证不依赖 Project 可用性，不要求额外任务标识或工作区登记。
 
@@ -44,7 +44,7 @@ Trace ID: O7-REQ-45815c91-fc25-43b0-b91b-e0ec221b6a20
 
 本地编译优先复用少量固定路径的开发 worktree：串行任务在干净、未被其他执行者占用的开发工作区切换独立分支；并行任务才新增隔离工作区，不在 main 或主工作区修改。切换前保留未提交和未推送工作；不强制重置或替他人切换分支。固定路径复用该工作区的 Cargo target，跨工作区由 sccache 复用支持的编译结果。日常命令按受影响 crate、测试或 binary 执行，完整 launcher/playtest 和预热仅按需启动。操作及磁盘回收见 [testing-manual.md](../../../testing-manual.md)。
 
-工作区入口统一使用仓库脚本和 Git 配置：先用 `git worktree list --porcelain` 检查已有工作区、分支和使用情况；当前聊天的附件列表不能代替仓库工作区清单。确需新增时使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`，根目录取 `git config --local --get oasis7.task-worktrees-root`，未配置时按脚本默认值解析。Agent 不用 Codex App 的 `create_worktree`、worktree fork 或 handoff 代替该入口；用户明确指定时遵从用户要求。Cargo 默认使用工作区内的 `target/`，不预建缓存链接；已有 target 不自动删除，保留占用中和身份不明确的资源。日常反馈使用开发 wrapper，正式验收保留 canonical 命令和参数。
+工作区入口统一使用仓库脚本和 Git 配置：先用 `git worktree list --porcelain` 检查已有工作区、分支和使用情况；当前聊天的附件列表不能代替仓库工作区清单。确需新增时使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`，根目录取 `git config --local --get oasis7.task-worktrees-root`，未配置时按脚本默认值解析。Coding Agent 不以任何客户端内置的 `create_worktree`、worktree fork 或 handoff（包括 Codex App 的同类能力）代替仓库入口；用户明确指定时遵从用户要求。默认新分支采用 `task/<module>-<task>`，已有 `codex/*` 分支保留原身份，可显式指定或在原路径恢复，不批量重命名。Cargo 默认使用工作区内的 `target/`，不预建缓存链接；已有 target 不自动删除，保留占用中和身份不明确的资源。日常反馈使用开发 wrapper，正式验收保留 canonical 命令和参数。
 
 <a id="small-complete-pr"></a>
 **优先小而完整的 PR。** 开发默认按可独立验收的完整结果组织 PR，在控制审阅负担的同时避免拆出过多碎片化微 PR 放大 CI 排队与冲突重跑。每个 PR 聚焦一个清楚结果，包含本次所需实现、调用方、测试和文档，能在目标分支独立构建、验证并保持已有行为与合同。预计范围在[30 个代码文件建议](#code-task-file-limit)以内的独立任务或功能修改，默认在同一分支、同一 PR 内用多个清楚的本地 commit 连续完成实现、调用方切换与测试，自测收敛后成批推送，不把局部 commit 步骤当成 PR 拆分单位。准备性切片可以尚未开放完整功能，但不能依赖未来 PR 才能让当前代码正确。必须同时修改才能保持正确性的强耦合改动可原子跨多个 crate，在 PR 中说明合在一起的原因。

@@ -1,6 +1,6 @@
 // Three bounded cache capability cases. No Viewer budget, frame or authority claim.
 import { createServer } from 'node:http';
-import { createRequire } from 'node:module';
+import { loadPlaywright } from '../../../scripts/playwright-module-loader.mjs';
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -8,8 +8,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { verifyStartupCacheCases } from './viewer-startup-cache-policy.mjs';
 import { createStartupProfile, launchOwnedStartupContext, readOwnedStartupProfile } from './viewer-owned-startup-context.mjs';
-const modules = process.env.OASIS7_PLAYWRIGHT_NODE_MODULES || '/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
-const { chromium } = createRequire(join(modules, 'startup-capability.cjs'))('playwright');
+const { chromium } = loadPlaywright(import.meta.url);
 const chrome = process.env.OASIS7_PLAYWRIGHT_CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 if (!existsSync(chrome)) throw Error('declare an existing Chrome executable');
 if (!process.env.VIEWER_STARTUP_OUTPUT) throw Error('declare new VIEWER_STARTUP_OUTPUT');

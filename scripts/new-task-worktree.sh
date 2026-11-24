@@ -22,7 +22,7 @@ serial tasks should reuse a clean, unoccupied dev worktree via `git switch -c`.
 New branches require fetching origin/main; existing branches and setup recovery do not.
 
 Default conventions:
-- branch: codex/<module>-<task>
+- branch: task/<module>-<task> (existing Codex-named branches remain valid with --branch)
 - worktrees root: oasis7.task-worktrees-root Git config; fallback <repo-parent>/worktrees
 - worktree path: <worktrees root>/<repo-name>-<module>-<task>
 - base ref: origin/main (fetched before creating a new branch)
@@ -43,7 +43,7 @@ Examples:
   ./scripts/new-task-worktree.sh scripts task-worktree-bootstrap
   ./scripts/new-task-worktree.sh scripts task-worktree-bootstrap --init-docs
   ./scripts/new-task-worktree.sh viewer hud-redesign --base origin/main
-  ./scripts/new-task-worktree.sh p2p hosted-flow --json --path ../worktrees/oasis7-codex-p2p-hosted-flow
+  ./scripts/new-task-worktree.sh p2p hosted-flow --json --path ../worktrees/oasis7-p2p-hosted-flow
   ./scripts/new-task-worktree.sh viewer hud-redesign --with-harness
 USAGE
 }
@@ -228,14 +228,22 @@ else
   WORKTREES_ROOT="$(resolve_abs_path "$FAMILY_WORKTREES_ROOT")"
 fi
 
-if [[ -z "$BRANCH_NAME" ]]; then
-  BRANCH_NAME="codex/${MODULE_SLUG}-${TASK_SLUG}"
-fi
-
 if [[ -n "$TARGET_PATH" ]]; then
   TARGET_PATH="$(resolve_abs_path "$TARGET_PATH")"
 else
   TARGET_PATH="$(resolve_abs_path "$WORKTREES_ROOT/$FAMILY_REPO_NAME-$MODULE_SLUG-$TASK_SLUG")"
+fi
+
+if [[ -z "$BRANCH_NAME" ]]; then
+  BRANCH_NAME="task/${MODULE_SLUG}-${TASK_SLUG}"
+  # Recover the former default only when its exact branch is already
+  # checked out at this path. Never rename existing branches on recovery.
+  if [[ "$RESUME_SETUP" == 1 ]]; then
+    legacy_branch="codex/${MODULE_SLUG}-${TASK_SLUG}"
+    if [[ "$(branch_checkout_path "$legacy_branch" 2>/dev/null || true)" == "$TARGET_PATH" ]]; then
+      BRANCH_NAME="$legacy_branch"
+    fi
+  fi
 fi
 
 

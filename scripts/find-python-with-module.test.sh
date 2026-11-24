@@ -82,7 +82,7 @@ write_forwarding_wrapper "$TMPDIR/working-bin/python42" "$REAL_PYTHON"
 generic_home="$TMPDIR/no-bundled-home"
 mkdir -p "$generic_home"
 
-selected="$(HOME="$generic_home" PATH="$TMPDIR/broken-bin:$TMPDIR/working-bin:$PATH" \
+selected="$(HOME="$generic_home" OASIS7_PYTHON_BIN= PATH="$TMPDIR/broken-bin:$TMPDIR/working-bin:$PATH" \
   "$ROOT_DIR/scripts/find-python-with-module.sh" ast)"
 if [[ "$selected" != "$TMPDIR/working-bin/python42" ]]; then
   echo "find-python-with-module.test: generic discovery did not select python42: $selected" >&2
@@ -93,6 +93,18 @@ if ! "$selected" -c 'import ast; print("selected")' | grep -Fxq selected; then
   exit 1
 fi
 
+# Explicit selection works without a particular agent's runtime and rejects bad
+# overrides rather than silently picking the bundled or PATH interpreter.
+override_selected="$(HOME="$generic_home" OASIS7_PYTHON_BIN="$TMPDIR/working-bin/python42" \
+  PATH="$TMPDIR/broken-bin" "$ROOT_DIR/scripts/find-python-with-module.sh" ast)"
+test "$override_selected" = "$TMPDIR/working-bin/python42"
+if HOME="$generic_home" OASIS7_PYTHON_BIN="$TMPDIR/broken-bin/python" \
+  PATH="$TMPDIR/broken-bin:$TMPDIR/working-bin" \
+  "$ROOT_DIR/scripts/find-python-with-module.sh" ast >/dev/null 2>&1; then
+  echo "find-python-with-module.test: invalid explicit interpreter accepted" >&2
+  exit 1
+fi
+
 # The Codex bundled runtime uses a Unix bin/python3 layout.  Isolate HOME and
 # PATH so this contract exercises the bundled candidate rather than a host
 # installation or the generic future-python shim above.
@@ -100,7 +112,7 @@ bundled_home="$TMPDIR/bundled-home"
 bundled_python_dir="$bundled_home/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin"
 mkdir -p "$bundled_python_dir"
 write_forwarding_wrapper "$bundled_python_dir/python3" "$REAL_PYTHON"
-bundled_selected="$(HOME="$bundled_home" PATH="$TMPDIR/broken-bin" \
+bundled_selected="$(HOME="$bundled_home" OASIS7_PYTHON_BIN= PATH="$TMPDIR/broken-bin" \
   "$ROOT_DIR/scripts/find-python-with-module.sh" ast)"
 if [[ "$bundled_selected" != "$bundled_python_dir/python3" ]]; then
   echo "find-python-with-module.test: did not select Unix bundled runtime: $bundled_selected" >&2

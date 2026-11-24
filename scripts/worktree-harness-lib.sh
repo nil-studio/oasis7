@@ -844,7 +844,7 @@ with lock_path.open("a+", encoding="utf-8") as lock:
 PY
 }
 
-# Return a comparable wall-epoch clock in milliseconds.  The Codex CI runner
+# Return a comparable wall-epoch clock in milliseconds.  Some hosted CI runners
 # may give separate Python processes independent monotonic origins, so the
 # watchdog uses one epoch clock for both deadline creation and polling.
 wh_clock_ms() {

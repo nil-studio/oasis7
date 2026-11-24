@@ -32,8 +32,8 @@ Current library entries:
 - `level-design`: level pacing, spatial flow, encounters, and traversal.
 - `memory-management`: memory, pooling, allocation, and asset streaming.
 - [`oasis7-command-center`](oasis7-command-center/SKILL.md): project goals,
-  current rules and decisions, Git/PR/CI delivery facts, and Codex development
-  sessions for the oasis7 command dashboard.
+  current rules and decisions, Git/PR/CI delivery facts, and original
+  development-session links (with optional Codex URI support) for the dashboard.
 - [`oasis7-play`](oasis7-play/SKILL.md): formal player/runtime gameplay entry,
   capability discovery, and self-playtest reference for oasis7 worlds.
 - `optimization-performance`: profiling, frame rate, CPU/GPU, loading, and

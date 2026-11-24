@@ -1,22 +1,10 @@
 #!/usr/bin/env node
-import { createRequire } from "node:module";
+import { loadPlaywright } from "../../../scripts/playwright-module-loader.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-function loadPlaywright() {
-  const moduleDirs = [
-    process.env.OASIS7_PLAYWRIGHT_NODE_MODULES || "",
-    "/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules",
-  ].filter(Boolean);
-  for (const moduleDir of moduleDirs) {
-    if (!existsSync(join(moduleDir, "playwright"))) continue;
-    return createRequire(join(moduleDir, "oasis7-viewer-first-user-smoke.cjs"))("playwright");
-  }
-  return createRequire(import.meta.url)("playwright");
-}
-
-const { chromium } = loadPlaywright();
+const { chromium } = loadPlaywright(import.meta.url);
 
 function usage() {
   console.log(`Usage: node crates/oasis7_viewer/scripts/viewer-first-user-smoke.mjs --url <url> --out-dir <path> [options]
