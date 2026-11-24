@@ -8,6 +8,7 @@ on:
       - scripts/ci-browser-tools/package.json
       - scripts/ci-browser-tools/package-lock.json
       - .github/workflows/ci-base-images.yml
+      - .github/workflows/rust.yml
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 1"
@@ -20,20 +21,62 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      base_sha: ${{ steps.select.outputs.base_sha }}
+      tested_sha: ${{ steps.select.outputs.tested_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          ref: ${{ github.sha }}
+      - id: select
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base_sha=$(bash docker/ci-base/plan-candidate.sh --print-verified-pr-base "$TESTED_SHA" "$SOURCE_SHA")
+          matrix=$(bash docker/ci-base/plan-candidate.sh "$base_sha")
+          printf 'matrix=%s\nbase_sha=%s\ntested_sha=%s\n' "$matrix" "$base_sha" "$TESTED_SHA" >> "$GITHUB_OUTPUT"
+
   build:
-    if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'
+    needs: plan
+    if: >-
+      !cancelled() &&
+      ((github.event_name == 'pull_request' && needs.plan.result == 'success' &&
+        needs.plan.outputs.matrix != '' && needs.plan.outputs.matrix != '{"target":[]}') ||
+       (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions:
       contents: read
     strategy:
-      matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build]
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix || '{"target":["runtime","build","browser","rust-build","rust-wasm-build"]}') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && needs.plan.outputs.tested_sha || github.sha }}
+      - name: Verify planned candidate identity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          TESTED_SHA: ${{ needs.plan.outputs.tested_sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ needs.plan.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TESTED_SHA" == "$GITHUB_SHA" ]]
+          actual_base=$(bash docker/ci-base/plan-candidate.sh --print-verified-pr-base "$TESTED_SHA" "$SOURCE_SHA")
+          [[ "$actual_base" == "$BASE_SHA" ]]
       - name: Build and smoke test
         env:
           TARGET: ${{ matrix.target }}
@@ -63,7 +106,8 @@ jobs:
         if: github.event_name == 'pull_request' && matrix.target == 'runtime'
         timeout-minutes: 12
         env:
-          OASIS7_PRODUCT_DOC_BASE: ${{ github.event.pull_request.base.sha }}
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.plan.outputs.base_sha }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.plan.outputs.tested_sha }}
         run: |
           set -euo pipefail
           wheels=$(mktemp -d)
@@ -71,8 +115,7 @@ jobs:
           python3 -m pip download --only-binary=:all: --dest "$wheels" \
             --requirement scripts/doc-governance-requirements.txt
           git cat-file -e "${OASIS7_PRODUCT_DOC_BASE}^{commit}"
-          OASIS7_PRODUCT_DOC_HEAD=$(git rev-parse HEAD)
-          export OASIS7_PRODUCT_DOC_HEAD
+          [[ "$(git rev-parse --verify HEAD)" == "$OASIS7_PRODUCT_DOC_HEAD" ]]
           docker run --rm --network none \
             --user "$(id -u):$(id -g)" \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \

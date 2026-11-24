@@ -25,12 +25,9 @@ if [[ "$target" == browser ]]; then
 fi
 if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
   workflow=../../.github/workflows/rust.yml
-  stable=$(sed -n 's/^  RUST_TOOLCHAIN: //p' "$workflow")
-  nightly=$(sed -n 's/^  OASIS7_WASM_TOOLCHAIN: //p' "$workflow")
-  wasm_target=$(sed -n 's/^  OASIS7_WASM_TARGET: //p' "$workflow")
-  [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-  [[ "$nightly" =~ ^nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
-  [[ "$wasm_target" == wasm32-unknown-unknown ]]
+  source ./toolchain-contract.sh
+  tuple=$(ci_base_toolchain_tuple "$(cat "$workflow")")
+  read -r stable nightly wasm_target <<< "$tuple"
   rust_base="rust:${stable}-bookworm"
   rust_digest=$(docker buildx imagetools inspect "$rust_base" --format "{{json .Manifest}}" | jq -er .digest)
   [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
