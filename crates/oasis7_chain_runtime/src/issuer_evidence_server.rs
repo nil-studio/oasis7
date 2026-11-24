@@ -35,6 +35,9 @@ const MAX_CONNECTION_TIME: Duration = Duration::from_secs(60);
 pub struct IssuerEvidenceGrantV3 {
     pub client_certificate_sha256: String,
     pub provider_public_key: String,
+    /// Independently authenticated active process incarnation; a retained
+    /// certificate alone cannot refresh an old provider's history access.
+    pub provider_incarnation: String,
     pub policy_digest: String,
     pub target: FullSyncIssuerTargetV2,
     pub target_generation: u64,
@@ -71,12 +74,15 @@ impl IssuerEvidenceServerV3 {
         for (index, grant) in grants.iter().enumerate() {
             if !hex32(&grant.client_certificate_sha256)
                 || !hex32(&grant.provider_public_key)
+                || !hex32(&grant.provider_incarnation)
                 || !hex32(&grant.policy_digest)
                 || !hex32(&grant.target.node_public_key)
                 || grant.target_generation == 0
                 || grants[..index].iter().any(|old| {
                     old.client_certificate_sha256 == grant.client_certificate_sha256
-                        && (old.provider_public_key != grant.provider_public_key || old == grant)
+                        && (old.provider_public_key != grant.provider_public_key
+                            || old.provider_incarnation != grant.provider_incarnation
+                            || old == grant)
                 })
             {
                 return Err("invalid or ambiguous issuer evidence grant".into());
@@ -160,6 +166,7 @@ impl IssuerEvidenceServerV3 {
             query.schema_version == 3
                 && grant.client_certificate_sha256 == pin
                 && grant.provider_public_key == query.provider_public_key
+                && grant.provider_incarnation == query.provider_incarnation
                 && grant.policy_digest == query.minimum_anchor.policy_digest
                 && grant.target == query.target
                 && grant.target_generation == query.target_generation

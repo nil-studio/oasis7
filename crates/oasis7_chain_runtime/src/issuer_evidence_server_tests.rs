@@ -74,6 +74,7 @@ fn actual_mtls_listener_rejects_unlisted_leaf_and_mismatched_grant_before_dispat
     let grant = IssuerEvidenceGrantV3 {
         client_certificate_sha256: certificate_pin(allowed_cert.der().as_ref()),
         provider_public_key: request.provider_public_key.clone(),
+        provider_incarnation: request.provider_incarnation.clone(),
         policy_digest: request.minimum_anchor.policy_digest.clone(),
         target: request.target.clone(),
         target_generation: request.target_generation,
@@ -94,6 +95,8 @@ fn actual_mtls_listener_rejects_unlisted_leaf_and_mismatched_grant_before_dispat
     wrong.provider_public_key = hash(9);
     let mut wrong_generation = request.clone();
     wrong_generation.target_generation = 2;
+    let mut wrong_incarnation = request.clone();
+    wrong_incarnation.provider_incarnation = hash(12);
     let mut wrong_policy = request.clone();
     wrong_policy.minimum_anchor.policy_digest = hash(10);
     let mut wrong_target = request.clone();
@@ -102,6 +105,7 @@ fn actual_mtls_listener_rejects_unlisted_leaf_and_mismatched_grant_before_dispat
         (&other_cert, &other_key, &request, 403),
         (&allowed_cert, &allowed_key, &wrong, 403),
         (&allowed_cert, &allowed_key, &wrong_generation, 403),
+        (&allowed_cert, &allowed_key, &wrong_incarnation, 403),
         (&allowed_cert, &allowed_key, &wrong_policy, 403),
         (&allowed_cert, &allowed_key, &wrong_target, 403),
         (&allowed_cert, &allowed_key, &request, 200),
@@ -115,6 +119,7 @@ fn actual_mtls_listener_rejects_unlisted_leaf_and_mismatched_grant_before_dispat
             server
                 .serve_with(socket, Instant::now() + Duration::from_secs(5), |grant, input| {
                     assert_eq!(grant.provider_public_key, input.provider_public_key);
+                    assert_eq!(grant.provider_incarnation, input.provider_incarnation);
                     assert_eq!(grant.policy_digest, input.minimum_anchor.policy_digest);
                     observed.fetch_add(1, Ordering::SeqCst);
                     Ok(b"{}".to_vec())
