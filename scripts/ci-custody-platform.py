@@ -404,9 +404,14 @@ def _execute_file(root, results, context, attempt, filename, capture_workerd, pr
         if capture_workerd and filename == workerd_capture.TEST_FILE:
             capture, command, environment = workerd_capture.prepare(
                 root, results, environment, context, attempt, command)
-        with log.open('w') as stream:
-            result = run(command, root / WORKER, environment, 'custody', filename, process_journal,
-                         timeout_seconds=2400, log_stream=stream, cancellation_event=cancellation_event)
+        try:
+            with log.open('w') as stream:
+                result = run(command, root / WORKER, environment, 'custody', filename, process_journal,
+                             timeout_seconds=2400, log_stream=stream, cancellation_event=cancellation_event)
+        except InterruptedError:
+            if cancellation_event is not None and cancellation_event.is_set():
+                return None, (f'custody Node file failed: {filename}', True)
+            raise
         capture_report = None
         capture_passed = True
         if capture is not None:
@@ -500,9 +505,13 @@ def execute(root, plan, shard, results, run_id, attempt, capture_workerd=False):
                 def worker(filename):
                     if cancellation_event.is_set():
                         return
-                    entry, failure = _execute_file(
-                        root, results, context, attempt, filename, capture_workerd,
-                        journals[filename], cancellation_event=cancellation_event)
+                    try:
+                        entry, failure = _execute_file(
+                            root, results, context, attempt, filename, capture_workerd,
+                            journals[filename], cancellation_event=cancellation_event)
+                    except BaseException:
+                        cancellation_event.set()
+                        raise
                     with lock:
                         if failure is not None:
                             failures[filename] = failure
@@ -512,8 +521,11 @@ def execute(root, plan, shard, results, run_id, attempt, capture_workerd=False):
                 try:
                     with ThreadPoolExecutor(max_workers=min(concurrency, len(remaining))) as pool:
                         futures = [pool.submit(worker, filename) for filename in remaining]
-                        for future in futures:
-                            future.result()
+                        try:
+                            for future in futures:
+                                future.result()
+                        finally:
+                            cancellation_event.set()
                 finally:
                     for signum, handler in previous_handlers.items():
                         signal.signal(signum, handler)

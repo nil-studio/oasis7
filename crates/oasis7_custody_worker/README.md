@@ -176,7 +176,7 @@ Canonical submit and lookup responses occupy separate immutable fact slots. Arch
 
 The platform verification builds a test-only real NodeRuntime/World HTTP process in addition to the native SQLite authority and workerd roles. World policy is installed through the existing fixture governance signatures, and actual execution produces the canonical receipt. Fixed test keys are not operational credentials. Local tests cover response loss, signature corruption, independent Fence freezing, budget exhaustion and restart without resending; 实际部署与外部 Agent 使用另按当前任务验收。
 
-Node test files run serially so independent local World/workerd fixtures do not compete for the five-second authority window. Explicit races inside a test still run concurrently, and expiry, revocation and rollback tests retain their original checks. This verification does not establish production load capacity.
+Cases within each Node test file run serially (`--test-concurrency=1`), and cross-file execution uses bounded concurrency (`<= 2` by default, with GDB `workerd` fault capture running solo) so independent local World/workerd fixtures do not overcommit CPU for the five-second authority window. Explicit races inside a test still run concurrently, and expiry, revocation and rollback tests retain their original checks. This verification does not establish production load capacity.
 
 Native 准备及过期 ManagedLogin 恢复的关键阶段断言失败时，测试输出 `oasis7.custody-native-stage-diagnostic/v1`：先记录失败观测时刻和固定请求计数，再停止 workerd，并通过既有只读 Account 快照入口投影白名单状态。原严格断言照常失败；诊断读取或输出异常不会替换它。正常路径只记录有限时间点，不增加诊断读取、等待或重发。
 

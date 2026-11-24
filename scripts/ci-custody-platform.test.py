@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 import zipfile
@@ -867,6 +869,89 @@ else: record([name, *a])
             C.execute(self.root, plan, 0, fail_output, '71', 2)
         self.assertFalse((fail_output / 'result.json').exists())
         self.assertEqual(list(fail_output.glob('.*.processes.jsonl')), [])
+
+        # Pre-spawn InterruptedError on a cancelled sibling must not mask a genuine root-cause ValueError.
+        for name in ('first.test.mjs', 'root-fail.test.mjs', 'third.test.mjs'):
+            (self.worker / 'tests' / name).write_text("import {test} from 'node:test';\ntest('ok', () => {});\n")
+        prespawn_output = Path(self.temporary.name) / 'concurrent-prespawn-cancel'
+        third_entered = threading.Event()
+        prespawn_raised = threading.Event()
+        def fake_prespawn_run(command, cwd, env, group, name, journal, timeout_seconds=2400,
+                              log_stream=None, cancellation_event=None):
+            if log_stream is not None:
+                log_stream.write('TAP version 13\n1..1\nok 1 - ok\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n')
+                log_stream.flush()
+            if name == 'first.test.mjs':
+                return dict(passed=True, cancelled=False, exit_code=0)
+            if name == 'root-fail.test.mjs':
+                self.assertTrue(third_entered.wait(2.0))
+                return dict(passed=False, cancelled=False, exit_code=1)
+            assert cancellation_event is not None
+            third_entered.set()
+            self.assertTrue(cancellation_event.wait(2.0))
+            prespawn_raised.set()
+            raise InterruptedError('cancelled before starting child')
+        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
+             mock.patch.object(C, 'partition', return_value=[['third.test.mjs', 'first.test.mjs', 'root-fail.test.mjs'], ['x'], ['y']]), \
+             mock.patch.object(C, 'run', side_effect=fake_prespawn_run), \
+             self.assertRaisesRegex(ValueError, r'custody Node file failed: root-fail\.test\.mjs'):
+            C.execute(self.root, plan, 0, prespawn_output, '71', 2)
+        self.assertTrue(prespawn_raised.is_set())
+        self.assertFalse((prespawn_output / 'result.json').exists())
+        self.assertEqual(list(prespawn_output.glob('.*.processes.jsonl')), [])
+
+        # Unexpected worker exception must set cancellation_event so active siblings abort immediately.
+        unexpected_output = Path(self.temporary.name) / 'concurrent-unexpected-error'
+        sibling_entered = threading.Event()
+        sibling_saw_cancel = []
+        def fake_unexpected_run(command, cwd, env, group, name, journal, timeout_seconds=2400,
+                                log_stream=None, cancellation_event=None):
+            if name == 'first.test.mjs':
+                self.assertTrue(sibling_entered.wait(2.0))
+                raise OSError('simulated disk failure')
+            assert cancellation_event is not None
+            sibling_entered.set()
+            sibling_saw_cancel.append(cancellation_event.wait(2.0))
+            return dict(passed=False, cancelled=True, exit_code=-15)
+        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
+             mock.patch.object(C, 'partition', return_value=[['first.test.mjs', 'third.test.mjs'], ['x'], ['y']]), \
+             mock.patch.object(C, 'run', side_effect=fake_unexpected_run), \
+             self.assertRaisesRegex(OSError, 'simulated disk failure'):
+            C.execute(self.root, plan, 0, unexpected_output, '71', 2)
+        self.assertEqual(sibling_saw_cancel, [True])
+        self.assertFalse((unexpected_output / 'result.json').exists())
+        self.assertEqual(list(unexpected_output.glob('.*.processes.jsonl')), [])
+
+        # capture_workerd=True must execute client-abuse.integration.test.mjs solo before pooled files start.
+        for existing in (self.worker / 'tests').glob('*.test.mjs'):
+            existing.unlink()
+        capture_names = (C.workerd_capture.TEST_FILE, 'pool-a.test.mjs', 'pool-b.test.mjs')
+        for name in capture_names:
+            (self.worker / 'tests' / name).write_text("import {test} from 'node:test';\ntest('ok', () => {});\n")
+        capture_output = Path(self.temporary.name) / 'concurrent-capture-solo'
+        events = []
+        events_lock = threading.Lock()
+        def fake_capture_run(command, cwd, env, group, name, journal, timeout_seconds=2400,
+                             log_stream=None, cancellation_event=None):
+            start_ts = time.monotonic()
+            time.sleep(0.08)
+            end_ts = time.monotonic()
+            with events_lock:
+                events.append((name, start_ts, end_ts))
+            if log_stream is not None:
+                log_stream.write('TAP version 13\n1..1\nok 1 - ok\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n')
+                log_stream.flush()
+            return dict(passed=True, cancelled=False, exit_code=0)
+        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
+             mock.patch.object(C, 'partition', return_value=[['pool-a.test.mjs', C.workerd_capture.TEST_FILE, 'pool-b.test.mjs'], ['x'], ['y']]), \
+             mock.patch.object(C.workerd_capture, 'prepare', side_effect=lambda root, res, env, ctx, att, cmd: (res / 'workerd-fault', cmd, env)), \
+             mock.patch.object(C.workerd_capture, 'finish', return_value={'passed': True}), \
+             mock.patch.object(C, 'run', side_effect=fake_capture_run):
+            C.execute(self.root, plan, 0, capture_output, '71', 2, capture_workerd=True)
+        by_name = {name: (start_ts, end_ts) for name, start_ts, end_ts in events}
+        solo_end = by_name[C.workerd_capture.TEST_FILE][1]
+        self.assertLessEqual(solo_end, by_name['pool-a.test.mjs'][0])
+        self.assertLessEqual(solo_end, by_name['pool-b.test.mjs'][0])
 
 
 if __name__ == '__main__':
