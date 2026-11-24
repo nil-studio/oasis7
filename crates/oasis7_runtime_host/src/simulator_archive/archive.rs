@@ -1,10 +1,10 @@
 //! Lossless adapters for the historical host-owned combined archives.
 use super::persist::{PlayerGameplaySnapshot, WorldSnapshot};
+use oasis7_agent_api::world_resource::{ChainResourceDelta, ChainResourceManifest};
 #[cfg(not(target_arch = "wasm32"))]
 use oasis7_runtime::Snapshot as RuntimeSnapshot;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime::WorldEvent as RuntimeWorldEvent;
-use oasis7_agent_api::world_resource::{ChainResourceDelta, ChainResourceManifest};
 use oasis7_simulator::WorldEventKind;
 use oasis7_simulator::{KernelEvent, KernelSnapshot};
 use oasis7_simulator::{WorldEventId, WorldTime};

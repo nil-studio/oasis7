@@ -201,32 +201,6 @@ class Ownership(unittest.TestCase):
             {'path': '../oasis7_runtime', 'default-features': False},
         )
 
-    def test_composite_archive_native_owner_and_legacy_consumer_contracts(self):
-        """Historical archive belongs to L4, while the wasm legacy branch is preserved."""
-        native = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
-        for component, signature in (
-            ('kernel_host.rs', 'pub struct WorldKernel {'),
-            ('persist.rs', 'pub struct WorldSnapshot {'),
-            ('archive.rs', 'pub struct WorldEvent {'),
-        ):
-            self.assertIn(signature, (native / component).read_text())
-        deps = manifest('oasis7_runtime_host')['dependencies']
-        self.assertIn('oasis7_simulator', deps)
-        self.assertIn('oasis7_runtime', deps)
-        self.assertNotIn('oasis7', deps)
-        old = ROOT / 'crates/oasis7/src/simulator'
-        for file, native_path in (
-            ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
-            ('persist_host_facade.rs', 'simulator_archive::persist::*'),
-            ('archive_host_facade.rs', 'simulator_archive::archive::*'),
-        ):
-            self.assertIn(native_path, (old / file).read_text())
-        self.assertIn('archive/retention_tests.rs', (old / 'archive_host_facade.rs').read_text())
-        mod = (old / 'mod.rs').read_text()
-        self.assertIn('#[cfg(target_arch = "wasm32")]', mod)
-        for x in ('archive_host_facade.rs', 'persist_host_facade.rs', 'kernel_host_host_facade.rs'):
-            self.assertIn(x, mod)
-
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
         self.assertIs(core['package']['autobins'], False)
@@ -380,13 +354,51 @@ class Ownership(unittest.TestCase):
         self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
         self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
         host_deps = manifest('oasis7_runtime_host')['dependencies']
-        self.assertEqual(set(host_deps), {
+        expected_host_deps = {
             'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
             'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
-            # The archive-bearing Host now owns real persisted JSON types and
-            # reuses the original Harness memory correction wire contract.
-            'oasis7_agent_harness', 'serde', 'serde_json',
-        })
+        }
+        # The trusted baseline must validate both complete migration states.
+        # Never accept extra dependencies on the strength of a manifest alone.
+        archive = native.parent / 'simulator_archive'
+        legacy_sim = ROOT / 'crates/oasis7/src/simulator'
+        archive_owners = (
+            ('archive', 'pub struct WorldEvent {', 'mod archive;'),
+            ('persist', 'pub struct WorldSnapshot {', 'pub(crate) mod persist;'),
+            ('kernel_host', 'pub struct WorldKernel {', 'mod kernel_host;'),
+        )
+        if archive.exists():
+            self.assertIn('pub mod simulator_archive;', native.read_text())
+            expected_host_deps.update({'oasis7_agent_harness', 'serde', 'serde_json'})
+            self.assertEqual(host_deps['oasis7_agent_harness'], {'path': '../oasis7_agent_harness'})
+            self.assertEqual(host_deps['serde'], {'version': '1', 'features': ['derive']})
+            self.assertEqual(host_deps['serde_json'], '1')
+            simulator_module = (legacy_sim / 'mod.rs').read_text()
+            for name, signature, _ in archive_owners:
+                self.assertIn(signature, (archive / (name + '.rs')).read_text())
+                self.assertIn(signature, (legacy_sim / (name + '.rs')).read_text())
+                self.assertIn('pub mod ' + name + ';', (archive / 'mod.rs').read_text())
+                facade = name + '_host_facade.rs'
+                self.assertIn('pub use oasis7_runtime_host::simulator_archive::' + name + '::*;',
+                              (legacy_sim / facade).read_text())
+                self.assertNotIn(signature, (legacy_sim / facade).read_text())
+                self.assertIn('#[cfg(not(target_arch = "wasm32"))]\n#[path = "' + facade + '"]',
+                              simulator_module)
+                self.assertRegex(simulator_module,
+                                 r'#\[cfg\(target_arch = "wasm32"\)\]\n(?:pub\(crate\) )?mod ' + name + r';')
+            for name in ('archive_origin', 'codec', 'forwarding', 'journal_view'):
+                self.assertTrue((archive / 'kernel_host' / (name + '.rs')).is_file())
+            self.assertIn('archive/tests.rs', (legacy_sim / 'archive_host_facade.rs').read_text())
+            self.assertIn('archive/retention_tests.rs', (legacy_sim / 'archive_host_facade.rs').read_text())
+            self.assertIn('original_composite_snapshot_extensions_survive_exact_native_split_rejoin',
+                          (archive / 'tests.rs').read_text())
+            self.assertIn('native_composite_event_roundtrip_keeps_rejection_and_host_field',
+                          (archive / 'tests.rs').read_text())
+        else:
+            self.assertNotIn('pub mod simulator_archive;', native.read_text())
+            for name, _, _ in archive_owners:
+                self.assertFalse((legacy_sim / (name + '_host_facade.rs')).exists())
+        self.assertEqual(set(host_deps), expected_host_deps)
         self.assertNotIn('oasis7', host_deps)
         for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
             for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
