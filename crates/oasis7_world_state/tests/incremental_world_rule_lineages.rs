@@ -158,7 +158,12 @@ impl Reader<'_> {
 #[test]
 fn original_lineage_columns_reopen_as_one_complete_three_signed_value_record() {
     use WorldRuleLineageValueV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let producer = MemoryBudget::new(32 << 20, 1 << 20).unwrap();

@@ -177,11 +177,11 @@ impl MetadataServer {
                                 )
                                 .unwrap();
                             }
-                            let base = oasis7::simulator::DecisionResponse {
+                            let base = oasis7_agent_api::DecisionResponse {
                                 decision: if first_wait {
-                                    oasis7::simulator::ProviderDecision::WaitTicks { ticks: 2 }
+                                    oasis7_agent_api::ProviderDecision::WaitTicks { ticks: 2 }
                                 } else {
-                                    oasis7::simulator::ProviderDecision::Act {
+                                    oasis7_agent_api::ProviderDecision::Act {
                                         action_ref: "move_agent".into(),
                                         action: oasis7_simulator::Action::MoveAgent {
                                             agent_id: incoming.agent_subject.clone(),
@@ -215,9 +215,7 @@ impl MetadataServer {
                                 },
                             };
                             let response = oasis7::simulator::ContinuousAgentResponseContextV1 {
-                                response_digest: oasis7::simulator::cognition_response_digest(
-                                    &base,
-                                ),
+                                response_digest: oasis7_agent_api::cognition_response_digest(&base),
                                 base_decision_response: base,
                                 context_discriminator: incoming.context_discriminator,
                                 context_version: incoming.context_version,
