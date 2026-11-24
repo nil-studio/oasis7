@@ -266,9 +266,12 @@ struct BuiltinParityBehavior {
 }
 
 struct ProviderBackedLoopbackBehavior {
-    inner: oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior<ProviderLoopbackAdapter>,
-    request_builder: oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior<MockDecisionProvider>,
-    request_builder_state: Arc<Mutex<oasis7_runtime_host::agent_execution::MockDecisionProviderState>>,
+    inner:
+        oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior<ProviderLoopbackAdapter>,
+    request_builder:
+        oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior<MockDecisionProvider>,
+    request_builder_state:
+        Arc<Mutex<oasis7_runtime_host::agent_execution::MockDecisionProviderState>>,
     fixture_id: String,
     session_id: String,
     next_turn: u64,
@@ -957,21 +960,22 @@ fn build_behavior(
                 options.agent_provider_connect_timeout_ms,
             )
             .map_err(|err| err.to_string())?;
-            let mut behavior = oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior::new(
-                agent_id.to_string(),
-                adapter,
-                phase1_action_catalog(),
-            )
-            .require_continuous_request_context()
-            .with_provider_config_ref(format!(
-                "provider://loopback-http/parity/{}/{}",
-                options.benchmark_run_id, agent_id
-            ))
-            .with_agent_profile(options.agent_provider_profile.clone())
-            .with_execution_mode(options.execution_mode)
-            .with_environment_class(execution_environment_class(options.execution_mode))
-            .with_fixture_id(fixture_id)
-            .with_replay_id(format!("{}:{}", options.benchmark_run_id, fixture_id));
+            let mut behavior =
+                oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior::new(
+                    agent_id.to_string(),
+                    adapter,
+                    phase1_action_catalog(),
+                )
+                .require_continuous_request_context()
+                .with_provider_config_ref(format!(
+                    "provider://loopback-http/parity/{}/{}",
+                    options.benchmark_run_id, agent_id
+                ))
+                .with_agent_profile(options.agent_provider_profile.clone())
+                .with_execution_mode(options.execution_mode)
+                .with_environment_class(execution_environment_class(options.execution_mode))
+                .with_fixture_id(fixture_id)
+                .with_replay_id(format!("{}:{}", options.benchmark_run_id, fixture_id));
             if let Some(fallback_reason) = provider.fallback_reason.as_deref() {
                 behavior = behavior.with_fallback_reason(fallback_reason);
             }

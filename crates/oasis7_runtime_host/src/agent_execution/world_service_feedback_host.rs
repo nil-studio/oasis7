@@ -46,9 +46,9 @@ pub fn check_fresh_session(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use oasis7_runtime::World;
     use oasis7_agent_api::Digest32;
     use oasis7_agent_api::FeedbackEnvelopeV1;
+    use oasis7_runtime::World;
     fn feedback(agent: &str, session: &str, seq: u64) -> FeedbackEnvelopeV1 {
         FeedbackEnvelopeV1 {
             feedback_id: format!("{agent}-{session}-{seq}"),

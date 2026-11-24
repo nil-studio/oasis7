@@ -165,4 +165,3 @@ pub(super) fn production_observation(agent_id: &str, time: u64) -> Observation {
         social_state: Default::default(),
     }
 }
-

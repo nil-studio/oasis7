@@ -28,13 +28,14 @@ mod runtime_perf {
 }
 
 pub use agent::{
-    AgentBehavior, AgentDecision, AgentDecisionExplanationV1, AgentDecisionTrace,
-    AgentQuery, AgentQueryResult, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
+    AgentBehavior, AgentDecision, AgentDecisionExplanationV1, AgentDecisionTrace, AgentQuery,
+    AgentQueryResult, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
     LlmEffectIntentTrace, LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace,
     MicroDepotQuoteRequest,
 };
 pub use async_agent_runner::CommittedFeedbackMemoryInput;
 pub use async_agent_runner::project_receipt_memory;
+pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
 pub use async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
     AsyncTurnLifecycle, AsyncWorldEffect, AsyncWorldProgress, RuntimeReceiptReadbackHandleV1,
@@ -86,28 +87,6 @@ pub use oasis7_agent_harness::BudgetContractV1;
 pub use oasis7_simulator::ChunkRuntimeConfig;
 pub use oasis7_simulator::generate_fragments;
 pub use oasis7_simulator::{
-    AgentSpawnConfig, AsteroidFragmentInitConfig, LocationSeedConfig, OriginLocationConfig,
-    PowerPlantSeedConfig, WorldInitConfig, WorldInitError, WorldInitReport, build_world_model,
-};
-pub use oasis7_simulator::{
-    CHUNK_SIZE_X_CM, CHUNK_SIZE_Y_CM, CHUNK_SIZE_Z_CM, ChunkBounds, ChunkCoord, chunk_bounds,
-    chunk_coord_of, chunk_coords, chunk_grid_dims, chunk_seed,
-};
-pub use oasis7_simulator::{
-    CM3_PER_M3, CompoundComposition, CuboidSizeCm, FragmentBlock, FragmentBlockField,
-    FragmentCompoundKind, FragmentPhysicalProfile, GridPosCm, MIN_BLOCK_EDGE_CM, infer_element_ppm,
-    mass_grams_from_volume_density, synthesize_fragment_budget, synthesize_fragment_profile,
-};
-pub use provider_material_capture::{
-    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
-    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
-    ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1, ProviderPendingRootsPageV1,
-    ProviderPendingStateRootsV1,
-};
-pub use provider_material_capture::{
-    ProviderMaterialAuthority, ProviderOriginalMaterialStore, ProviderSpoolReservation,
-};
-pub use oasis7_simulator::{
     Action, ActionEnvelope, ActionId, ActionSubmitter, AgentId, AssetId,
     CHUNK_GENERATION_SCHEMA_VERSION, CM_PER_KM, ChunkResourceBudget,
     DEFAULT_ELEMENT_RECOVERABILITY_PPM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY,
@@ -127,10 +106,43 @@ pub use oasis7_simulator::{
     SpaceConfig, ThermalStatus, WorldConfig, WorldModel, physics_parameter_specs,
 };
 pub use oasis7_simulator::{
+    AgentPowerState, AgentPowerStatus, ConsumeReason, PlantStatus, PowerConfig, PowerEvent,
+    PowerPlant, PowerSaleQuote, PowerSurvivalQuote,
+};
+pub use oasis7_simulator::{
+    AgentSpawnConfig, AsteroidFragmentInitConfig, LocationSeedConfig, OriginLocationConfig,
+    PowerPlantSeedConfig, WorldInitConfig, WorldInitError, WorldInitReport, build_world_model,
+};
+pub use oasis7_simulator::{
+    CHUNK_SIZE_X_CM, CHUNK_SIZE_Y_CM, CHUNK_SIZE_Z_CM, ChunkBounds, ChunkCoord, chunk_bounds,
+    chunk_coord_of, chunk_coords, chunk_grid_dims, chunk_seed,
+};
+pub use oasis7_simulator::{
+    CM3_PER_M3, CompoundComposition, CuboidSizeCm, FragmentBlock, FragmentBlockField,
+    FragmentCompoundKind, FragmentPhysicalProfile, GridPosCm, MIN_BLOCK_EDGE_CM, infer_element_ppm,
+    mass_grams_from_volume_density, synthesize_fragment_budget, synthesize_fragment_profile,
+};
+pub use oasis7_simulator::{
+    ChunkGenerationCause, KernelRuleCost, KernelRuleDecision, KernelRuleDecisionMergeError,
+    KernelRuleModuleContext, KernelRuleModuleInput, KernelRuleModuleOutput, KernelRuleVerdict,
+    MICRO_DEPOT_DEBIT_AMOUNT_CRITICAL, MICRO_DEPOT_DEBIT_AMOUNT_HIGH, MICRO_DEPOT_DEBIT_AMOUNT_LOW,
+    MICRO_DEPOT_DEBIT_AMOUNT_MEDIUM, MICRO_DEPOT_DEBIT_AMOUNT_NONE, MICRO_DEPOT_INSTALL_DATA_COST,
+    MICRO_DEPOT_PROPOSAL_EMIT_KIND, MICRO_DEPOT_UPKEEP_DATA_COST, MicroDepotActionContext,
+    MicroDepotActionKind, MicroDepotConsumedResourceClass, MicroDepotDecision,
+    MicroDepotDeltaClass, MicroDepotEffectPreview, MicroDepotEvalInput, MicroDepotFacilityContext,
+    MicroDepotInstallQuote, MicroDepotPlayerContext, MicroDepotPlayerFacilitySnapshot,
+    MicroDepotPressureClass, MicroDepotProposal, MicroDepotProposalResourceDebit,
+    MicroDepotQuotePreview, MicroDepotRegionContext, MicroDepotResourceDebit, MicroDepotStatus,
+    PowerOrderFill, PromptUpdateOperation, RejectReason, WorldEventKind,
+    compute_micro_depot_proposal_hash, evaluate_micro_depot_quote_with_module,
+    merge_kernel_rule_decisions,
+};
+pub use oasis7_simulator::{
     CmMappingRule, NativeResolutionDeclaration, NativeResolutionKind, NativeResolutionValue,
     RUNTIME_NATIVE_RESOLUTIONS, RoundingRule, fragment_block_native_resolution,
     native_resolution_by_subsystem, runtime_native_resolutions,
 };
+pub use oasis7_simulator::{KernelEvent, KernelJournal, KernelSnapshot};
 pub use oasis7_simulator::{ModuleVisualAnchor, ModuleVisualEntity};
 pub use oasis7_simulator::{
     Observation, ObservedAgent, ObservedLocation, ObservedModuleArtifactRecord,
@@ -153,39 +165,27 @@ pub use provider_loopback_http::{
     provider_phase1_required_capabilities, validate_provider_http_base_url,
     validate_provider_loopback_http_base_url,
 };
+pub use provider_material_capture::{
+    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
+    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
+    ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1, ProviderPendingRootsPageV1,
+    ProviderPendingStateRootsV1,
+};
+pub use provider_material_capture::{
+    ProviderMaterialAuthority, ProviderOriginalMaterialStore, ProviderSpoolReservation,
+};
 pub use runner::{
     AgentQuota, AgentRunner, AgentStats, AgentTickResult, RateLimitPolicy, RateLimitState,
     RegisteredAgent, RunnerLogEntry, RunnerLogKind, RunnerMetrics, SkippedReason,
-};
-pub use turn_engine::{
-    RuntimeReadbackProof, TurnEngine, TurnEngineError, TurnEngineEvent, TurnEnginePhase,
-    TurnRequest,
-};
-pub use oasis7_simulator::{
-    AgentPowerState, AgentPowerStatus, ConsumeReason, PlantStatus, PowerConfig, PowerEvent,
-    PowerPlant, PowerSaleQuote, PowerSurvivalQuote,
 };
 pub use runtime_perf::{
     RuntimePerfBottleneck, RuntimePerfHealth, RuntimePerfSeriesSnapshot, RuntimePerfSnapshot,
     unsupported_runtime_perf_snapshot,
 };
-pub use oasis7_simulator::{
-    ChunkGenerationCause, KernelRuleCost, KernelRuleDecision, KernelRuleDecisionMergeError,
-    KernelRuleModuleContext, KernelRuleModuleInput, KernelRuleModuleOutput, KernelRuleVerdict,
-    MICRO_DEPOT_DEBIT_AMOUNT_CRITICAL, MICRO_DEPOT_DEBIT_AMOUNT_HIGH, MICRO_DEPOT_DEBIT_AMOUNT_LOW,
-    MICRO_DEPOT_DEBIT_AMOUNT_MEDIUM, MICRO_DEPOT_DEBIT_AMOUNT_NONE, MICRO_DEPOT_INSTALL_DATA_COST,
-    MICRO_DEPOT_PROPOSAL_EMIT_KIND, MICRO_DEPOT_UPKEEP_DATA_COST, MicroDepotActionContext,
-    MicroDepotActionKind, MicroDepotConsumedResourceClass, MicroDepotDecision,
-    MicroDepotDeltaClass, MicroDepotEffectPreview, MicroDepotEvalInput, MicroDepotFacilityContext,
-    MicroDepotInstallQuote, MicroDepotPlayerContext, MicroDepotPlayerFacilitySnapshot,
-    MicroDepotPressureClass, MicroDepotProposal, MicroDepotProposalResourceDebit,
-    MicroDepotQuotePreview, MicroDepotRegionContext, MicroDepotResourceDebit, MicroDepotStatus,
-    PowerOrderFill, PromptUpdateOperation, RejectReason, WorldEventKind,
-    compute_micro_depot_proposal_hash, evaluate_micro_depot_quote_with_module,
-    merge_kernel_rule_decisions,
+pub use turn_engine::{
+    RuntimeReadbackProof, TurnEngine, TurnEngineError, TurnEngineEvent, TurnEnginePhase,
+    TurnRequest,
 };
-pub use oasis7_simulator::{KernelEvent, KernelJournal, KernelSnapshot};
-pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
 
 #[cfg(test)]
 mod tests;

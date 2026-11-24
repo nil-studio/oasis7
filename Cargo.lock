@@ -6797,6 +6797,7 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -6846,6 +6847,7 @@ dependencies = [
  "oasis7",
  "oasis7_client_api",
  "oasis7_proto",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "serde",
  "serde_json",

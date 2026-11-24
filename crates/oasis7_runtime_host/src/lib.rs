@@ -1,15 +1,15 @@
 //! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod agent_execution;
+pub mod bootstrap;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod feedback;
+pub mod gameplay_actions;
+pub mod gameplay_service;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod harness_authority;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod runner;
-pub mod bootstrap;
-pub mod gameplay_actions;
-pub mod gameplay_service;
 pub mod simulator_archive;
 
 use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, WorldError, WorldState};

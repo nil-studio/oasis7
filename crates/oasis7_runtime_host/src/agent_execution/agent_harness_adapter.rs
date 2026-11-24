@@ -37,7 +37,8 @@ pub(super) struct BehaviorTurnResult {
     pub prepared_context: Option<ContinuousAgentTurnContextV1>,
     pub prepared_response_context: Option<ContinuousAgentResponseContextV1>,
     #[cfg(not(target_arch = "wasm32"))]
-    pub provider_original_material_refs: Option<crate::agent_execution::ProviderOriginalMaterialRefsV1>,
+    pub provider_original_material_refs:
+        Option<crate::agent_execution::ProviderOriginalMaterialRefsV1>,
     #[cfg(not(target_arch = "wasm32"))]
     pub provider_response_context_lease:
         Option<crate::agent_execution::provider_json_admission::ProviderResponseContextLease>,

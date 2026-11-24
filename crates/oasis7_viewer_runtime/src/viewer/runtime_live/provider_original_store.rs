@@ -16,10 +16,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use oasis7_runtime_host::agent_execution::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ProviderOriginalMaterialStore, ProviderSpoolReservation,
-};
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
@@ -28,6 +24,10 @@ use oasis7_formal_protocol::incremental_state::{
     MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1, StateWriteV1,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
+use oasis7_runtime_host::agent_execution::{
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+    ProviderOriginalMaterialStore, ProviderSpoolReservation,
+};
 use oasis7_world_service::provider_material::{
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
     ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
