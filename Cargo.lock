@@ -6883,7 +6883,6 @@ dependencies = [
  "serde_ignored",
  "serde_json",
  "sha2 0.11.0",
- "toml",
  "tracing",
  "tungstenite",
  "unicode-normalization",
