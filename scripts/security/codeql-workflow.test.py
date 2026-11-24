@@ -244,7 +244,7 @@ class WorkflowTests(unittest.TestCase):
     def test_analyzer_containers_preserve_shared_matrix_and_upload_identity(self):
         analyze = WORKFLOW.split("\n  analyze:\n", 1)[1]
         header = analyze.split("    steps:\n", 1)[0]
-        self.assertRegex(header, r"(?m)^      image: \$\{\{ matrix.language == 'python' && "
+        self.assertRegex(header, r"(?m)^      image: \$\{\{ \(matrix.language == 'python' \|\| matrix.language == 'javascript-typescript'\) && "
                                 r"'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:[0-9a-f]{64}' \|\| matrix.language == 'actions' && "
                                 r"'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:[0-9a-f]{64}' \|\| '' \}\}$")
         permissions = header.split("    permissions:\n", 1)[1].split("    container:\n", 1)[0]
@@ -255,7 +255,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}\n", header)
         self.assertIn("      max-parallel: 2\n", header)
         preflight = analyze.split("      - name: Verify CodeQL image prerequisites\n", 1)[1]
-        self.assertTrue(preflight.startswith("        if: matrix.language == 'actions' || matrix.language == 'python'\n"))
+        self.assertTrue(preflight.startswith("        if: matrix.language == 'actions' || matrix.language == 'python' || matrix.language == 'javascript-typescript'\n"))
+        node = analyze.split("      - name: Verify JavaScript image Node.js\n", 1)[1].split("\n      - ", 1)[0]
+        self.assertTrue(node.startswith("        if: matrix.language == 'javascript-typescript'\n"))
+        self.assertIn('/usr/local/bin/node', node)
+        self.assertIn('process.versions.node', node)
         upload = analyze.split("      - id: upload\n", 1)[1].split("\n      - ", 1)[0]
         self.assertIn("category: ${{ matrix.category }}", upload)
         self.assertIn("sha: ${{ needs.plan.outputs.checkout }}", upload)
