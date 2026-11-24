@@ -1,6 +1,5 @@
 //! Async runner integration for strict continuation admission and wake handoff.
 
-use oasis7_runtime::AgentContinuation as RuntimeAgentContinuation;
 use crate::agent_execution::cognition_policy::{
     ContinuationAuthorityContextV1, ContinuationCurrentContextV1, ContinuationHandle,
     ContinuationInvalidationReason, ContinuationProposalV1, RuntimeContinuationStatusV1,
@@ -8,6 +7,7 @@ use crate::agent_execution::cognition_policy::{
 use crate::agent_execution::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
 };
+use oasis7_runtime::AgentContinuation as RuntimeAgentContinuation;
 use oasis7_simulator::Observation;
 
 use super::{AsyncAgentRunner, AsyncAgentRunnerError, AsyncTurnId};
