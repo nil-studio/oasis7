@@ -710,7 +710,7 @@ jobs:
       github.event.action != 'opened' &&
       contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
@@ -2721,7 +2721,7 @@ jobs:
         needs.select.outputs.run_viewer_performance_report == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 16
+    timeout-minutes: 14
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -4679,7 +4679,7 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     name: fleet-health (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 13
     strategy:
       fail-fast: false
       matrix:
@@ -5302,7 +5302,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'newapi_bridge_package'
     name: newapi-bridge-linux-x86-64
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
