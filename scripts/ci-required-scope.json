@@ -2402,6 +2402,16 @@
     },
     {
       "match": [
+        "scripts/release-candidate-bundle.sh",
+        "scripts/release-candidate-bundle-smoke.sh"
+      ],
+      "groups": [
+        "operational_contracts"
+      ],
+      "reason": "release_candidate_bundle_operational_contract"
+    },
+    {
+      "match": [
         "scripts/package-*",
         "scripts/ecs_preview_*",
         "scripts/ecs-preview-*",
