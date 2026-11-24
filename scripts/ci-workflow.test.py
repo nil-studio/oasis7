@@ -1864,7 +1864,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                   'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
                   'check_inventory_version', 'fast_plan_exceptions'}
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
-        self.assertLessEqual(consumers, fields | {
+        fleet_subcontract_fields = {'fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks'}
+        self.assertLessEqual(consumers, fields | fleet_subcontract_fields | {
             'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
             'ordinary_main_fast_cache_writer_version',
             'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
@@ -1890,6 +1891,19 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     env=dict(environment, WORKFLOW_PLAN=json.dumps(value)), text=True, capture_output=True)
             result = invoke(projected)
             self.assertEqual(result.returncode, 0, result.stderr)
+            if fleet_subcontract_fields.intersection(consumers):
+                fleet_extra = {
+                    'fleet_health_subcontracts_version': 1,
+                    'fleet_health_checks': ['macos_signer'],
+                    'fleet_health_oses': ['macos-15'],
+                }
+                fleet_projected = project_selection(root, plan | fleet_extra)
+                for key, expected_val in fleet_extra.items():
+                    self.assertEqual(fleet_projected.get(key), expected_val)
+                fleet_result = invoke(fleet_projected)
+                self.assertEqual(fleet_result.returncode, 0, fleet_result.stderr)
+                self.assertNotEqual(invoke(fleet_projected | {'fleet_health_oses': ['windows-2022']}).returncode, 0)
+                project_selection(root, plan)
             for key in fields:
                 for broken in ({k: v for k, v in projected.items() if k != key},
                                projected | {key: {'changed': True}}):
@@ -6264,7 +6278,7 @@ class AptWorkflow(unittest.TestCase):
 
     def test_existing_lsof_does_not_invoke_package_manager(self):
         step = self.apt_steps()['rust', 'fleet-health', 'Ensure Linux process inspection dependency']
-        self.assertIn("if: runner.os == 'Linux'", step)
+        self.assertRegex(step, r"if:\s*(?:>-\s*)?runner\.os == 'Linux'")
         script = textwrap.dedent(step.split('        run: |\n', 1)[1])
         stub = ('command() { return 0; };\n'
                 'sudo() { echo unexpected-install >&2; return 99; };\n')
