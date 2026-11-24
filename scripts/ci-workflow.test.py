@@ -230,7 +230,32 @@ def comparable_source_steps(name):
         return steps
     # The image changes only environment/cache preparation. Preserve an exact
     # comparison of every workspace/artifact/delivery step after that boundary.
-    steps = steps[steps.index('      - name: Identify ordinary workspace cache'):]
+    boundary = '      - name: Identify ordinary workspace cache'
+    assert steps.count(boundary) == 1, 'ordinary workspace boundary must be unique'
+    prefix, steps = steps.split(boundary, 1)
+    expected = [
+        '- name: Check out workflow linker setup',
+        '- name: Configure mold for Linux host linking',
+        '- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+        '- uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2',
+        '- name: Report ordinary workspace cache capacity',
+        '- name: Reclaim unused candidate SDK capacity',
+        '- name: Stabilize Rust cache toolchains',
+        '- uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2',
+    ]
+    if name == 'oasis7-test-build-trusted':
+        expected.insert(1, '- name: Verify trusted ordinary image and source')
+        expected.insert(-1, '- name: Install ordinary dependency cache admission')
+    else:
+        expected.insert(4, '- uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7')
+        expected.insert(-2, '- name: Install pinned Rust toolchains')
+    actual = [step.splitlines()[0].strip()
+              for step in re.findall(r'^      - .*?(?=^      - |\Z)', prefix, re.M | re.S)]
+    assert actual == expected, 'ordinary environment prefix cannot hide other business steps'
+    steps = boundary + steps
+    assert steps.count('      - name: Install native libraries\n') == (name == 'oasis7-test-build-candidate')
+    assert steps.count('      - name: Wait for candidate SDK reclamation\n') == 1
+
     return ''.join(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
                    if not step.startswith(('      - name: Install native libraries\n',
                                            '      - name: Wait for candidate SDK reclamation\n')))
@@ -1812,6 +1837,17 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         host_cache = rust_cache_steps(candidate)[0]
         self.assertIn('shared-key: ci-shared-native-trusted-v4', host_cache)
         self.assertIn('save-if: false', host_cache)
+        boundary = '      - name: Identify ordinary workspace cache'
+        for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
+            original = JOBS[name]
+            added = '      - name: Unrelated artifact business step\n        run: echo unexpected\n'
+            business = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', original, re.M | re.S)
+                            if step.startswith('      - name: Build ordinary test artifacts\n'))
+            for changed in (original.replace(boundary, added + boundary, 1),
+                            original.replace(business, '', 1).replace(boundary, business + boundary, 1),
+                            original.replace(boundary, boundary + '\n' + boundary, 1)):
+                with self.subTest(name=name), patch.dict(JOBS, {name: changed}), self.assertRaises(AssertionError):
+                    comparable_source_steps(name)
         preflight = workflow_step_script(job, 'Verify trusted ordinary image and source')
         for guard in ('test "$GITHUB_REF" = refs/heads/main',
                       'test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"',
