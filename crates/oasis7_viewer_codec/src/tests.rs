@@ -17,6 +17,13 @@ fn typed_error() -> ViewerResponse {
 #[test]
 fn native_archive_owner_retains_exact_original_viewer_response_identity() {
     use std::any::TypeId;
+    type HostWire = oasis7_proto::viewer::ViewerResponse<
+        oasis7_runtime_host::simulator_archive::persist::WorldSnapshot,
+        oasis7_runtime_host::simulator_archive::archive::WorldEvent,
+        oasis7_simulator::AgentDecisionTrace,
+        oasis7_simulator::RunnerMetrics,
+        oasis7_simulator::WorldTime,
+    >;
     assert_eq!(
         TypeId::of::<WorldKernel>(),
         TypeId::of::<oasis7::simulator::WorldKernel>()
@@ -29,13 +36,6 @@ fn native_archive_owner_retains_exact_original_viewer_response_identity() {
         TypeId::of::<WorldEvent>(),
         TypeId::of::<oasis7::simulator::WorldEvent>()
     );
-    type HostWire = oasis7_proto::viewer::ViewerResponse<
-        oasis7_runtime_host::simulator_archive::persist::WorldSnapshot,
-        oasis7_runtime_host::simulator_archive::archive::WorldEvent,
-        oasis7_simulator::AgentDecisionTrace,
-        oasis7_simulator::RunnerMetrics,
-        oasis7_simulator::WorldTime,
-    >;
     assert_eq!(TypeId::of::<ViewerResponse>(), TypeId::of::<HostWire>());
     let original: oasis7::simulator::WorldSnapshot = WorldKernel::new().snapshot();
     let current: WorldSnapshot = original.clone();
