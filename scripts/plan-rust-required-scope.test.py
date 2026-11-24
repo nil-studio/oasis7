@@ -9471,6 +9471,43 @@ class MainFastHistoricalRetiredPathsTests(WorkspaceMemberCargoAndScopedCfgTests)
         self.assertEqual(policy_paths2, [])
         self.assertEqual(prod_cfg2, [target_path])
 
+    def test_oasis7_required_package_groups_are_registered_in_required_packages(self):
+        cfg = json.loads((HERE / 'ci-required-scope.json').read_text(encoding='utf-8'))
+        required_packages = cfg['oasis7_required_packages']
+        self.assertEqual(len(required_packages), len(set(required_packages)))
+        grouped_required = {
+            package for package, groups in cfg['package_groups'].items()
+            if 'oasis7_required' in groups
+        }
+        missing = sorted(grouped_required - set(required_packages))
+        self.assertEqual(
+            missing,
+            [],
+            'packages mapped to oasis7_required in package_groups must also be in oasis7_required_packages',
+        )
+
+    def test_managed_script_subdirectories_route_without_unknown_inputs(self):
+        cases = (
+            ('scripts/governance/new-gate.sh', 'workflow_governance'),
+            ('scripts/ops/new-drill.sh', 'operational_contracts'),
+            ('scripts/packaging/new-check.sh', 'packaging_contracts'),
+            ('scripts/viewer/new-helper.mjs', 'viewer_js_required'),
+            ('scripts/security/new-guard.py', 'workflow_governance'),
+        )
+        for path, expected_group in cases:
+            with self.subTest(path=path):
+                self.git('checkout', '-q', self.base)
+                self.write(path, '#!/usr/bin/env bash\nexit 0\n')
+                head = self.commit()
+                plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+                self.assertIn(expected_group, plan['groups'])
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/unregistered-root-script.sh', '#!/usr/bin/env bash\nexit 0\n')
+        unregistered_head = self.commit()
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(self.config, self.base, unregistered_head, profile='pr-fast')
+
 
 if __name__ == '__main__':
     unittest.main()
