@@ -2543,6 +2543,17 @@
     },
     {
       "match": [
+        "scripts/playwright-module-loader.mjs",
+        "scripts/playwright-module-loader.test.mjs"
+      ],
+      "groups": [
+        "viewer_js_required",
+        "launcher_web"
+      ],
+      "reason": "shared_playwright_module_resolution"
+    },
+    {
+      "match": [
         "scripts/worktree-harness*",
         "scripts/launcher-help*"
       ],
