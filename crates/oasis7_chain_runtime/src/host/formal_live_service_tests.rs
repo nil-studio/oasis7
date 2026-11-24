@@ -136,7 +136,7 @@ fn identity(anchor: &VerifiedFormalReadAnchorV1) -> WorldIdentity {
 fn live_node(world_id: &str) -> Arc<Mutex<NodeRuntime>> {
     let mut config = NodeConfig::new("formal-live-test-node", world_id, NodeRole::Sequencer)
         .unwrap()
-        .with_tick_interval(Duration::from_secs(60))
+        .with_tick_interval(Duration::from_secs(3600))
         .unwrap()
         .with_auto_attest_all_validators(false)
         .with_require_execution_on_commit(true)

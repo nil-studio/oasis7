@@ -78,13 +78,17 @@ class Ownership(unittest.TestCase):
                 text = source_path.read_text()
                 self.assertNotIn('oasis7::world_service::', text, str(source_path))
 
-    def test_provider_original_material_contract_has_native_world_service_owner(self):
-        """L2 pending roots and provider material identities have one native owner."""
-        native = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
         old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
         self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
         self.assertIn('pub struct ProviderPendingRootsPageV1', native)
-        self.assertIn('pub use oasis7_world_service::provider_material::{', old)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
         self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
         store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
         codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
