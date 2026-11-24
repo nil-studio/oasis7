@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bind complete custody build outputs and Node file shards to one selected run."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
 import json
@@ -9,9 +10,11 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
+import threading
 import tomllib
 
 from ci_process_runner import run
@@ -25,44 +28,50 @@ WORKER = Path('crates/oasis7_custody_worker')
 COMPONENTS = ('native', 'wasm-production', 'wasm-approval')
 SHARDS = [0, 1, 2]
 ALLOWED_SHARDS = ([0, 1, 2], [0, 1, 2, 3])
+MAX_NODE_CONCURRENCY = 2
 ROLES = ('identity', 'owner', 'executor', 'recovery-fence', 'native-harness')
 SCHEMA = 'oasis7.custody-platform/v1'
-# Complete Node file durations from run 42934311475, jobs
-# 130245943288/130245943018/130245943112/130245942945. Weights only
-# determine placement; every discovered file still executes exactly once.
+# Complete Node file durations from run 45283513119, jobs
+# 138082922714/138082922769/138082922743 (with test-session-paid split 6/8).
+# Weights only determine placement and LPT order; every discovered file still
+# executes exactly once.
 FILE_SECONDS = {
-    'approval.test.mjs': 19.848,
-    'client-abuse.integration.test.mjs': 1.410,
-    'client-enrollment.integration.test.mjs': 1.410,
-    'context-body-crypto.integration.test.mjs': 7.415,
-    'context-body-signatures.integration.test.mjs': 2.011,
-    'context-body.integration.test.mjs': 5.616,
-    'contract.test.mjs': 1.209,
-    'host-control-https.integration.test.mjs': 0.809,
-    'live-context-read.integration.test.mjs': 1.609,
-    'management-metadata.integration.test.mjs': 2.210,
-    'native-continuation-reference.test.mjs': 31.037,
-    'native-identity.integration.test.mjs': 29.234,
-    'native-provision.integration.test.mjs': 75.466,
-    'native-runtime-manifest.integration.test.mjs': 4.412,
-    'owner-directory.test.mjs': 51.057,
-    'owner-setup.integration.test.mjs': 183.737,
-    'participant-provision.integration.test.mjs': 60.076,
-    'participant-role-capability.test.mjs': 4.813,
-    'platform.test.mjs': 2.210,
-    'recovery-activation.integration.test.mjs': 15.619,
-    'rejection-diagnostic.test.mjs': 0.208,
-    'role-runtime-negative.integration.test.mjs': 14.020,
-    'role-runtime-options.test.mjs': 0.612,
-    'setup-baseline-settlement.test.mjs': 0.208,
-    'storage.test.mjs': 2.212,
-    'test-session-activation.integration.test.mjs': 186.354,
-    'test-session-alarm.integration.test.mjs': 130.904,
-    'test-session-alarm.test.mjs': 0.209,
-    'test-session-paid.integration.test.mjs': 357.084,
-    'test-session-results.integration.test.mjs': 157.919,
-    'test-session-tools.integration.test.mjs': 170.361,
-    'test-session.integration.test.mjs': 265.218,
+    'approval.test.mjs': 13.700,
+    'client-abuse.integration.test.mjs': 0.300,
+    'client-enrollment.integration.test.mjs': 3.200,
+    'context-body-crypto.integration.test.mjs': 5.400,
+    'context-body-signatures.integration.test.mjs': 1.300,
+    'context-body.integration.test.mjs': 3.800,
+    'contract.test.mjs': 0.700,
+    'host-control-https.integration.test.mjs': 0.100,
+    'live-context-read.integration.test.mjs': 1.100,
+    'management-metadata.integration.test.mjs': 1.400,
+    'native-continuation-reference.test.mjs': 25.300,
+    'native-identity.integration.test.mjs': 22.800,
+    'native-provision.integration.test.mjs': 65.600,
+    'native-response-diagnostics.test.mjs': 0.400,
+    'native-runtime-manifest.integration.test.mjs': 3.200,
+    'native-stage-diagnostics.test.mjs': 0.300,
+    'owner-directory.test.mjs': 34.300,
+    'owner-setup.integration.test.mjs': 170.000,
+    'participant-provision.integration.test.mjs': 42.800,
+    'participant-role-capability.test.mjs': 3.500,
+    'participant-stage-diagnostics.test.mjs': 1.300,
+    'platform.test.mjs': 0.400,
+    'recovery-activation.integration.test.mjs': 10.500,
+    'rejection-diagnostic.test.mjs': 0.100,
+    'role-runtime-negative.integration.test.mjs': 10.000,
+    'role-runtime-options.test.mjs': 0.400,
+    'setup-baseline-settlement.test.mjs': 0.100,
+    'storage.test.mjs': 1.400,
+    'test-session-activation.integration.test.mjs': 139.200,
+    'test-session-alarm.integration.test.mjs': 106.800,
+    'test-session-alarm.test.mjs': 0.100,
+    'test-session-paid-role.integration.test.mjs': 147.700,
+    'test-session-paid.integration.test.mjs': 110.800,
+    'test-session-results.integration.test.mjs': 120.400,
+    'test-session-tools.integration.test.mjs': 122.800,
+    'test-session.integration.test.mjs': 199.300,
 }
 BUILD_CONTRACTS = {
     'native': ['launcher:custody', 'world:commit-barrier', 'contract:check', 'context-body:export'],
@@ -374,71 +383,160 @@ def tap_summary(text, filename):
     return values
 
 
+def resolve_node_concurrency(env=os.environ, cpu_count=None):
+    configured = env.get('OASIS7_CUSTODY_NODE_CONCURRENCY')
+    if configured is not None and configured != '':
+        if not re.fullmatch(r'[1-9][0-9]*', str(configured)):
+            raise ValueError('invalid custody Node concurrency')
+        return min(4, int(configured))
+    detected = os.cpu_count() if cpu_count is None else cpu_count
+    return max(1, min(MAX_NODE_CONCURRENCY, detected or 1))
+
+
+def _execute_file(root, results, context, attempt, filename, capture_workerd, process_journal, cancellation_event=None):
+    log = results / (filename + '.log')
+    base_command = ['node', '--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/' + filename]
+    known_fault_retry = None
+    for file_attempt in (1, 2):
+        command = list(base_command)
+        environment = os.environ.copy()
+        capture = None
+        if capture_workerd and filename == workerd_capture.TEST_FILE:
+            capture, command, environment = workerd_capture.prepare(
+                root, results, environment, context, attempt, command)
+        with log.open('w') as stream:
+            result = run(command, root / WORKER, environment, 'custody', filename, process_journal,
+                         timeout_seconds=2400, log_stream=stream, cancellation_event=cancellation_event)
+        capture_report = None
+        capture_passed = True
+        if capture is not None:
+            try:
+                capture_report = workerd_capture.finish(capture, context, attempt, result['passed'])
+                capture_passed = capture_report['passed']
+            except (OSError, ValueError):
+                capture_passed = False
+        if (file_attempt == 1 and capture is not None and not result['passed']
+                and workerd_capture.can_retry_known_fault(capture_report, result)):
+            preserved_capture = results / 'workerd-fault-attempt-1'
+            preserved_log = results / (filename + '.attempt-1.log')
+            capture.rename(preserved_capture)
+            log.rename(preserved_log)
+            known_fault_retry = dict(
+                attempts=2,
+                engine_sha256=workerd_capture.ENGINE_SHA256,
+                fault_offset=workerd_capture.KNOWN_FAULT_OFFSET,
+                issue='#5900',
+                upstream_issue=workerd_capture.UPSTREAM_ISSUE_URL,
+                preserved_evidence=preserved_capture.name,
+                preserved_log=preserved_log.name,
+            )
+            print(
+                f'::warning title=Custody workerd known SIGSEGV retry::Retrying {filename} once after '
+                f'exact known workerd SIGSEGV at {workerd_capture.KNOWN_FAULT_OFFSET} '
+                f'(tracking #5900 / {workerd_capture.UPSTREAM_ISSUE_URL}); attempt-1 evidence preserved '
+                f'under {preserved_capture.name}.',
+                file=sys.stderr,
+            )
+            continue
+        break
+    if not result['passed']:
+        return None, (f'custody Node file failed: {filename}', bool(result.get('cancelled')))
+    if not capture_passed:
+        return None, ('workerd capture failed, was incomplete, or observed a runtime restart/failure', False)
+    try:
+        counts = tap_summary(log.read_text(), filename)
+    except ValueError as error:
+        return None, (str(error), False)
+    entry = dict(file=filename, counts=counts, process=result)
+    if known_fault_retry is not None:
+        entry['known_fault_retry'] = known_fault_retry
+    return entry, None
+
+
 def execute(root, plan, shard, results, run_id, attempt, capture_workerd=False):
     context = identity(root, plan, run_id)
     positive_attempt(attempt)
     shards = plan_shards(plan)
     if type(shard) is not int or shard not in shards:
         raise ValueError('invalid custody shard')
+    concurrency = resolve_node_concurrency()
     files = partition(context['tests'], shards)[shard]
     if not files:
         raise ValueError('empty custody shard')
     results.mkdir(parents=True, exist_ok=False)
-    receipts = []
-    for filename in files:
-        log = results / (filename + '.log')
-        base_command = ['node', '--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/' + filename]
-        known_fault_retry = None
-        for file_attempt in (1, 2):
-            command = list(base_command)
-            environment = os.environ.copy()
-            capture = None
-            if capture_workerd and filename == workerd_capture.TEST_FILE:
-                capture, command, environment = workerd_capture.prepare(
-                    root, results, environment, context, attempt, command)
-            with log.open('w') as stream:
-                result = run(command, root / WORKER, environment, 'custody', filename, results / 'processes.jsonl',
-                             timeout_seconds=2400, log_stream=stream)
-            capture_report = None
-            capture_passed = True
-            if capture is not None:
+    size_by_name = {row['path']: row['size'] for row in context['tests']}
+    weight = lambda name: FILE_SECONDS.get(name, max(1, size_by_name.get(name, 1000) / 1000))
+    solo = [workerd_capture.TEST_FILE] if capture_workerd and workerd_capture.TEST_FILE in files else []
+    remaining = sorted((name for name in files if name not in solo), key=lambda name: (-weight(name), name))
+    journals = {name: results / f'.{name}.processes.jsonl' for name in files}
+    entries = {}
+    failures = {}
+    cancellation_event = threading.Event()
+    received_signal = []
+    try:
+        for filename in solo:
+            entry, failure = _execute_file(root, results, context, attempt, filename, capture_workerd, journals[filename])
+            if failure is not None:
+                failures[filename] = failure
+                break
+            entries[filename] = entry
+        if not failures and remaining:
+            if concurrency == 1 or len(remaining) == 1:
+                for filename in remaining:
+                    entry, failure = _execute_file(root, results, context, attempt, filename, capture_workerd, journals[filename])
+                    if failure is not None:
+                        failures[filename] = failure
+                        break
+                    entries[filename] = entry
+            else:
+                previous_handlers = {}
+                def on_signal(signum, frame):
+                    received_signal.append(signum)
+                    cancellation_event.set()
+                if threading.current_thread() is threading.main_thread():
+                    for signum in (signal.SIGTERM, signal.SIGINT):
+                        previous_handlers[signum] = signal.signal(signum, on_signal)
+                lock = threading.Lock()
+                def worker(filename):
+                    if cancellation_event.is_set():
+                        return
+                    entry, failure = _execute_file(
+                        root, results, context, attempt, filename, capture_workerd,
+                        journals[filename], cancellation_event=cancellation_event)
+                    with lock:
+                        if failure is not None:
+                            failures[filename] = failure
+                            cancellation_event.set()
+                        else:
+                            entries[filename] = entry
                 try:
-                    capture_report = workerd_capture.finish(capture, context, attempt, result['passed'])
-                    capture_passed = capture_report['passed']
-                except (OSError, ValueError):
-                    capture_passed = False
-            if (file_attempt == 1 and capture is not None and not result['passed']
-                    and workerd_capture.can_retry_known_fault(capture_report, result)):
-                preserved_capture = results / 'workerd-fault-attempt-1'
-                preserved_log = results / (filename + '.attempt-1.log')
-                capture.rename(preserved_capture)
-                log.rename(preserved_log)
-                known_fault_retry = dict(
-                    attempts=2,
-                    engine_sha256=workerd_capture.ENGINE_SHA256,
-                    fault_offset=workerd_capture.KNOWN_FAULT_OFFSET,
-                    issue='#5900',
-                    upstream_issue=workerd_capture.UPSTREAM_ISSUE_URL,
-                    preserved_evidence=preserved_capture.name,
-                    preserved_log=preserved_log.name,
-                )
-                print(
-                    f'::warning title=Custody workerd known SIGSEGV retry::Retrying {filename} once after '
-                    f'exact known workerd SIGSEGV at {workerd_capture.KNOWN_FAULT_OFFSET} '
-                    f'(tracking #5900 / {workerd_capture.UPSTREAM_ISSUE_URL}); attempt-1 evidence preserved '
-                    f'under {preserved_capture.name}.',
-                    file=sys.stderr,
-                )
-                continue
-            break
-        if not result['passed']:
-            raise ValueError(f'custody Node file failed: {filename}')
-        if not capture_passed:
-            raise ValueError('workerd capture failed, was incomplete, or observed a runtime restart/failure')
-        entry = dict(file=filename, counts=tap_summary(log.read_text(), filename), process=result)
-        if known_fault_retry is not None:
-            entry['known_fault_retry'] = known_fault_retry
-        receipts.append(entry)
+                    with ThreadPoolExecutor(max_workers=min(concurrency, len(remaining))) as pool:
+                        futures = [pool.submit(worker, filename) for filename in remaining]
+                        for future in futures:
+                            future.result()
+                finally:
+                    for signum, handler in previous_handlers.items():
+                        signal.signal(signum, handler)
+    finally:
+        merged_lines = []
+        for filename in files:
+            journal = journals[filename]
+            if journal.exists():
+                merged_lines.append(journal.read_text())
+                journal.unlink()
+        if merged_lines:
+            (results / 'processes.jsonl').write_text(''.join(merged_lines))
+    for filename in files:
+        if filename in failures and not failures[filename][1]:
+            raise ValueError(failures[filename][0])
+    if received_signal:
+        raise InterruptedError(f'cancelled by signal {received_signal[0]}')
+    for filename in files:
+        if filename in failures:
+            raise ValueError(failures[filename][0])
+    if set(entries) != set(files):
+        raise ValueError('incomplete custody shard execution')
+    receipts = [entries[filename] for filename in files]
     (results / 'result.json').write_text(json.dumps(dict(schema=SCHEMA, context=context, shard=shard,
         consumer_attempt=attempt, files=receipts), sort_keys=True) + '\n')
 

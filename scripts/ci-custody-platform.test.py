@@ -804,6 +804,70 @@ else: record([name, *a])
                     with self.subTest(job=job, state=state), self.assertRaises(ValueError):
                         C.validate_jobs(plan, changed)
 
+    def test_node_concurrency_bounds_defaults_and_rejects_invalid_overrides(self):
+        self.assertEqual(C.resolve_node_concurrency({}, cpu_count=1), 1)
+        self.assertEqual(C.resolve_node_concurrency({}, cpu_count=2), 2)
+        self.assertEqual(C.resolve_node_concurrency({}, cpu_count=8), 2)
+        self.assertEqual(C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': ''}, cpu_count=4), 2)
+        self.assertEqual(C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': '1'}, cpu_count=4), 1)
+        self.assertEqual(C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': '3'}, cpu_count=1), 3)
+        self.assertEqual(C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': '9'}, cpu_count=2), 4)
+        for bad in ('0', '-1', 'abc', '2.5', '1 '):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'invalid custody Node concurrency'):
+                C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': bad}, cpu_count=2)
+
+    def test_concurrent_node_execution_overlaps_workers_preserves_order_and_isolates_root_failure(self):
+        stamps = Path(self.temporary.name) / 'stamps'
+        stamps.mkdir()
+        for existing in (self.worker / 'tests').glob('*.test.mjs'):
+            existing.unlink()
+        for name in ('a.test.mjs', 'b.test.mjs', 'c.test.mjs'):
+            marker = stamps / name
+            (self.worker / 'tests' / name).write_text(
+                "import {test} from 'node:test';\n"
+                "import {writeFileSync} from 'node:fs';\n"
+                "import {setTimeout as delay} from 'node:timers/promises';\n"
+                f"test('case', async () => {{ const s = Date.now(); await delay(250); "
+                f"writeFileSync({json.dumps(str(marker))}, JSON.stringify([s, Date.now()])); }});\n"
+            )
+        plan = dict(self.plan, custody_node_shards=[0, 1, 2])
+        # Put all three files into one shard by using a mocked partition for this check.
+        output = Path(self.temporary.name) / 'concurrent-order'
+        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
+             mock.patch.object(C, 'partition', return_value=[['a.test.mjs', 'b.test.mjs', 'c.test.mjs'], ['x'], ['y']]):
+            C.execute(self.root, plan, 0, output, '71', 2)
+        intervals = [json.loads((stamps / name).read_text()) for name in ('a.test.mjs', 'b.test.mjs', 'c.test.mjs')]
+        overlapped = any(
+            max(intervals[i][0], intervals[j][0]) < min(intervals[i][1], intervals[j][1])
+            for i in range(len(intervals)) for j in range(i + 1, len(intervals))
+        )
+        self.assertTrue(overlapped, f'expected concurrent Node workers to overlap, got {intervals}')
+        receipt = C.load(output / 'result.json')
+        self.assertEqual([row['file'] for row in receipt['files']], ['a.test.mjs', 'b.test.mjs', 'c.test.mjs'])
+        journal_rows = [json.loads(line) for line in (output / 'processes.jsonl').read_text().splitlines()]
+        self.assertEqual([row['test_name'] for row in journal_rows], ['a.test.mjs', 'b.test.mjs', 'c.test.mjs'])
+        self.assertEqual(list(output.glob('.*.processes.jsonl')), [])
+
+        # Root-cause failure in z.test.mjs must cancel sibling a.test.mjs and still report z.test.mjs.
+        for existing in (self.worker / 'tests').glob('*.test.mjs'):
+            existing.unlink()
+        (self.worker / 'tests/a-slow.test.mjs').write_text(
+            "import {test} from 'node:test';\n"
+            "import {setTimeout as delay} from 'node:timers/promises';\n"
+            "test('slow', async () => { await delay(8000); });\n"
+        )
+        (self.worker / 'tests/z-fail.test.mjs').write_text(
+            "import {test} from 'node:test';\n"
+            "test('fail', () => { throw new Error('real root failure'); });\n"
+        )
+        fail_output = Path(self.temporary.name) / 'concurrent-fail'
+        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
+             mock.patch.object(C, 'partition', return_value=[['a-slow.test.mjs', 'z-fail.test.mjs'], ['x'], ['y']]), \
+             self.assertRaisesRegex(ValueError, r'custody Node file failed: z-fail\.test\.mjs'):
+            C.execute(self.root, plan, 0, fail_output, '71', 2)
+        self.assertFalse((fail_output / 'result.json').exists())
+        self.assertEqual(list(fail_output.glob('.*.processes.jsonl')), [])
+
 
 if __name__ == '__main__':
     unittest.main()
