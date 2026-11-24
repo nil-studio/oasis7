@@ -300,33 +300,45 @@ fn page(
         cut,
     )
 }
+// Build original signed proof chains on a separate default-stack frame, and
+// retain the verified evidence on the heap while cold loaders/negative checks
+// recurse through the original C0 -> advanced cut lineage. No larger test
+// stack, additional trust, ignored cases, or altered authorizations.
+#[inline(never)]
+fn boxed_recovery_lineage_stage<T>(work: impl FnOnce() -> T) -> Box<T> {
+    Box::new(work())
+}
+
 #[test]
 fn formal_recovery_loader_advanced_cut_and_retained_chain_preserve_c0_and_reject_forks() {
     let fixture = Fixture::new();
     let c0 = fixture.anchor.clone();
     let trust_bytes = fs::read(fixture.root.0.join("formal-read-trust.json")).unwrap();
     let trust: FormalReadTrustConfigV1 = serde_json::from_slice(&trust_bytes).unwrap();
-    let (first_page, cut) = page(&c0, 71);
+    let first = boxed_recovery_lineage_stage(|| page(&c0, 71));
+    let (first_page, cut) = (&first.0, &first.1);
     let initial_floor = issuer::IssuerAnchorV1::initial(c0.authority().policy()).unwrap();
-    let (raw2, verified2) = permission_evidence_at_cut(
-        &cut,
+    let second = boxed_recovery_lineage_stage(|| permission_evidence_at_cut(
+        cut,
         &trust.initial_trust,
         2,
         [10, 11, 12],
         [5, 6],
         None,
         &initial_floor,
-    );
-    let active2 = cut.with_empty_recovery(verified2.recovery()).unwrap();
-    let (raw3, verified3) = permission_evidence_at_cut(
+    ));
+    let (raw2, verified2) = (&second.0, &second.1);
+    let active2 = boxed_recovery_lineage_stage(|| cut.with_empty_recovery(verified2.recovery()).unwrap());
+    let third = boxed_recovery_lineage_stage(|| permission_evidence_at_cut(
         &active2,
         &trust.initial_trust,
         3,
         [13, 14, 15],
         [11, 12],
-        Some(&verified2),
+        Some(verified2),
         &raw2.issuer_witness.body.current_anchor,
-    );
+    ));
+    let (raw3, verified3) = (&third.0, &third.1);
     let directory = fixture.root.0.join("origin-pages");
     fs::create_dir(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
@@ -353,7 +365,7 @@ fn formal_recovery_loader_advanced_cut_and_retained_chain_preserve_c0_and_reject
             &c0,
         )
     };
-    let actual = load().unwrap();
+    let actual = boxed_recovery_lineage_stage(|| load().unwrap());
     assert_eq!(
         actual.external_anchor().checkpoint(),
         verified3.external_anchor().checkpoint()
@@ -363,24 +375,25 @@ fn formal_recovery_loader_advanced_cut_and_retained_chain_preserve_c0_and_reject
         recovery_config::load_recovery_permission(&permission_path, &floor_path, None, &trust, &c0)
             .is_err()
     );
-    let (fork_page, fork_cut) = page(&c0, 81);
+    let fork = boxed_recovery_lineage_stage(|| page(&c0, 81));
+    let (fork_page, fork_cut) = (&fork.0, &fork.1);
     write_private(&page_path, &fork_page.encode_bytes().unwrap());
     assert!(load().is_err());
     write_private(&page_path, &first_page.encode_bytes().unwrap());
-    let (fork2, _) = permission_evidence_at_cut(
-        &fork_cut,
+    let fork2 = boxed_recovery_lineage_stage(|| permission_evidence_at_cut(
+        fork_cut,
         &trust.initial_trust,
         2,
         [10, 11, 12],
         [5, 6],
         None,
         &initial_floor,
-    );
-    let mut bad = raw3.clone();
-    bad.prior_permission = Some(Box::new(fork2));
+    ).0);
+    let mut bad = boxed_recovery_lineage_stage(|| raw3.clone());
+    bad.prior_permission = Some(fork2);
     write_private(&permission_path, &serde_json::to_vec(&bad).unwrap());
     assert!(load().is_err());
-    let mut bad = raw3;
+    let mut bad = boxed_recovery_lineage_stage(|| raw3.clone());
     bad.predecessor_checkpoint.head_record.request_digest = fixtures::h(222);
     write_private(&permission_path, &serde_json::to_vec(&bad).unwrap());
     assert!(load().is_err());
