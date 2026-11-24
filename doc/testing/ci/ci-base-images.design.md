@@ -40,6 +40,14 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 3. 首批验收要求宿主平台合同、测试覆盖和真实结果等价，普通路径无系统包现场安装，且镜像引入的冷启动成本有可接受的实测结果。采用 rust-build 后，常规编译 job 无需现场执行 rustup 工具链或组件安装。候选镜像现场构建的结果可以证明测试兼容，需另用已发布 digest 验证冷拉取。对拉取拒绝、缺库与缓存不匹配验证可观测的失败及回退路径。
 4. 普通 Linux 编译、缓存和指标采纳同一镜像后，再逐工作流迁移打包与验收。发布类任务逐一核对 SOURCEPLAN、BUILDINFO、签名边界和实际目标系统启动，保持 source HEAD 与被测产物绑定。任何依赖宿主能力的例外都记录在相应工作流设计。
 
+### Ordinary 原生测试构件消费
+
+`oasis7-required` 的 v2 归档只将 `native-0` 至 `native-3` 迁到预制 Rust 镜像。保留原分区矩阵、每个分区的超时和 priority runner 路由。inline、controls 和旧版归档继续使用各自原执行环境。
+
+构件中的 `CARGO_BIN_EXE_*` 和编译清单包含生产者的绝对路径。镜像只增加当前 checkout 到该原路径的同目录绑定，现有临时目录继续接收构件。预检确认两个 checkout 路径的设备及 inode 一致、Ubuntu 24.04 身份、UID/GID 1001 和 Docker init。仅解包和执行步骤使用该 checkout 路径及相同 `ImageOS`，原加载器继续验证源码、运行、路径和构件摘要。Bash 初始化只作用于这两个步骤，子进程可以按测试选择的目录运行。
+
+原 mold 链接器 使用固定摘要校验后安装到本 job 可写临时位置。镜像为此链路提供库和 Rust 工具链，现有只读缓存权限、宿主依赖缓存和 inline 工作区缓存路径保持。需记录真实原生分片的完整执行结果、绝对路径加载、进程清理和镜像冷拉取；环境预检失败使原分片失败。
+
 ### Storage Acceptance 冷构建拆分
 
 独立 Storage Acceptance 的五个 Cargo 编译变体目前串行运行。预制镜像消除了临时系统库和工具链安装，仍有一次 90 分钟、一次 150 分钟冷构建耗尽预算，均未上传完整归档。150 分钟运行中，`formal-required` 耗时约 67 分钟，`runtime` 约 35 分钟，`endpoint` 约 9 分钟，`distfs-tests` 约 10 分钟。`storage-libs` 进行到 `oasis7_world_service` 后被取消。 [正式构建日志](https://github.com/nil-studio/oasis7/actions/runs/44650838134/job/136005023073)

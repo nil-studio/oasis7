@@ -2185,6 +2185,22 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: >-
+        ${{ fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline' &&
+            fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
+            fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2 &&
+            contains(fromJSON('["native-0","native-1","native-2","native-3"]'), matrix.partition) &&
+            'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c' || '' }}
+      options: --user 1001:1001 --init
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     strategy:
       fail-fast: false
       matrix:
@@ -2194,6 +2210,8 @@ jobs:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ job.container.id && format('{0}/oasis7-ordinary-native-mold', runner.temp) || '' }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
@@ -2205,8 +2223,49 @@ jobs:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        if: ${{ !job.container.id }}
         with:
           python-version: '3.12'
+      - name: Verify prebuilt native artifact consumer environment
+        if: job.container.id
+        shell: bash
+        env:
+          EXPECTED_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+        run: |
+          set -euo pipefail
+          canonical=/home/runner/work/oasis7/oasis7
+          test "$(stat -c '%d:%i' "$canonical")" = "$(stat -c '%d:%i' "$GITHUB_WORKSPACE")"
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -w "$canonical" && test -w "$RUNNER_TEMP"
+          [[ "$(< /proc/1/comm)" =~ ^(docker-init|tini)$ ]]
+          source /etc/os-release
+          test "$ID:$VERSION_ID" = ubuntu:24.04
+          test "$(uname -m)" = x86_64
+          git config --global --add safe.directory "$canonical"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git -C "$canonical" rev-parse HEAD)" = "$EXPECTED_TESTED_SHA"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          export RUSTUP_AUTO_INSTALL=0
+          test "$(rustc --version | cut -d ' ' -f 2)" = "$RUST_TOOLCHAIN"
+          rustup component list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx clippy-x86_64-unknown-linux-gnu
+          rustup component list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx rustfmt-x86_64-unknown-linux-gnu
+          rustup component list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx rust-src
+          rustup target list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx wasm32-unknown-unknown
+          rustup target list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx "$OASIS7_WASM_TARGET"
+          pkg-config --exists wayland-client xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
+          test -x "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"
+          lsof -v
+          zstd --version
+          # Run the existing artifact commands under the producer's exact path.
+          # The hook is used only by the two explicit steps and does not reach child shells.
+          env_file="$RUNNER_TEMP/oasis7-ordinary-native-env.bash"
+          umask 077
+          cat > "$env_file" <<'NATIVE_ENV'
+          unset BASH_ENV
+          export GITHUB_WORKSPACE=/home/runner/work/oasis7/oasis7
+          export ImageOS=ubuntu24
+          cd -- "$GITHUB_WORKSPACE" || exit 1
+          NATIVE_ENV
       - name: Install pinned Rust toolchains
         if: >-
           !(fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline' &&
@@ -2218,7 +2277,10 @@ jobs:
               !contains(fromJSON(needs.select.outputs.plan).oasis7_required_packages, 'oasis7_game_client') &&
               !contains(fromJSON(needs.select.outputs.plan).oasis7_required_packages, 'oasis7_wasm_materializer'))))
         shell: bash
+        env:
+          NATIVE_CONTAINER: ${{ job.container.id != '' }}
         run: |
+          if [[ "${NATIVE_CONTAINER:-false}" == true ]]; then exit 0; fi
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
@@ -2271,7 +2333,10 @@ jobs:
       - name: Install native libraries
         shell: bash
         timeout-minutes: 11
+        env:
+          NATIVE_CONTAINER: ${{ job.container.id != '' }}
         run: |
+          if [[ "${NATIVE_CONTAINER:-false}" == true ]]; then exit 0; fi
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: >-
@@ -2299,7 +2364,9 @@ jobs:
           path: ${{ runner.temp }}/ordinary-archives
       - name: Unpack exact ordinary consumption closure
         if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2) && matrix.partition != 'controls'
+        shell: bash
         env:
+          BASH_ENV: ${{ job.container.id && format('{0}/oasis7-ordinary-native-env.bash', runner.temp) || '' }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           ORDINARY_PARTITION: ${{ matrix.partition }}
         run: |
@@ -2310,6 +2377,7 @@ jobs:
       - name: Execute selected group
         shell: bash
         env:
+          BASH_ENV: ${{ job.container.id && format('{0}/oasis7-ordinary-native-env.bash', runner.temp) || '' }}
           OASIS7_CI_TEST_BUNDLE: ${{ !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 && fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') && format('{0}/native-tests', runner.temp) || '' }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           CI_VERBOSE: "1"
