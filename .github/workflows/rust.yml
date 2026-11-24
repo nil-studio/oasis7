@@ -3608,10 +3608,14 @@ jobs:
           rustup target add wasm32-unknown-unknown
       - name: Verify the preinstalled Rust toolchains
         if: matrix.execution != 'host'
+        env:
+          SUPPORT_EXECUTION: ${{ matrix.execution }}
         run: |
           set -euo pipefail
-          zstd --version
-          ps -o pid= -p "$$"
+          if [[ "$SUPPORT_EXECUTION" == image ]]; then
+            zstd --version
+            ps -o pid= -p "$$"
+          fi
           rustc +"$RUST_TOOLCHAIN" -vV
           rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
           cargo +"$RUST_TOOLCHAIN" clippy --version
