@@ -1,0 +1,102 @@
+name: Wasm scope planner replay
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-wasm-scope-planner-replay-base]
+    paths: [.github/workflows/wasm-scope-planner-replay.yml]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  host:
+    if: &isolated github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-wasm-scope-planner-replay'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - &source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 73e94b04b063fd483680d5f2d35611d8771ecb99
+          fetch-depth: 0
+          persist-credentials: false
+      - &replay
+        name: Compare ten scope outputs on frozen Git ranges
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -I - <<'PY'
+          import hashlib, os, subprocess, tempfile, textwrap
+          from pathlib import Path
+
+          assert os.getuid() != 0
+          checkout = '73e94b04b063fd483680d5f2d35611d8771ecb99'
+          historical_base = '0d85adb154dcd4db8482d1f2116072dc265b6c09'
+          historical_source = '91e90e8c75fe1e53a42a375f639bb4d608aa5596'
+          skip_base = '26501388c234785f5fb2956e6813e52a2e42d511'
+          skip_source = '6588434cb5e4ab39118efe9f8b7a7678cb022584'
+          candidate = '6772f3dedf8043f6135e8f558bf028a4d9a7db2e'
+
+          def git(*arguments):
+              return subprocess.check_output(['git', *arguments], text=True).strip()
+
+          assert git('show', '--no-patch', '--format=%H %P', 'HEAD').split() == [
+              checkout, historical_base, historical_source,
+          ]
+          assert git('rev-parse', skip_source + '^') == skip_base
+          script = 'scripts/plan-wasm-determinism-scope.sh'
+          assert git('rev-parse', f'{checkout}:{script}') == git('rev-parse', f'{candidate}:{script}')
+          workflow = git('show', f'{candidate}:.github/workflows/wasm-determinism-gate.yml')
+
+          def shell_body(step):
+              block = workflow.split('name: ' + step + '\n', 1)[1].split('        run: |\n', 1)[1]
+              return textwrap.dedent(block.split('\n      - ', 1)[0])
+
+          shell = ['bash', '--noprofile', '--norc', '-euo', 'pipefail', '-c']
+          subprocess.run(shell + [shell_body('Verify preinstalled scope planner tools')], check=True)
+          for label, base, source, modules in (
+              ('all', historical_base, historical_source, '["m1","m4","m5"]'),
+              ('skip', skip_base, skip_source, '[]'),
+          ):
+              with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as directory:
+                  output = Path(directory) / 'outputs'
+                  env = dict(os.environ, GITHUB_EVENT_NAME='pull_request', GITHUB_SHA=checkout, GITHUB_OUTPUT=str(output))
+                  command = shell_body('Plan builtin wasm scope')
+                  for expression, value in (
+                      ('github.event.pull_request.base.sha', base),
+                      ('github.event.pull_request.head.sha', source),
+                      ('github.event.before', ''),
+                  ):
+                      placeholder = '$' + '{{ ' + expression + ' }}'
+                      assert command.count(placeholder) == 1
+                      command = command.replace(placeholder, value)
+                  subprocess.run(shell + [command], env=env, check=True)
+                  rows = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                  assert set(rows) == {'scope', 'run_all', 'run_m1', 'run_m4', 'run_m5',
+                                       'selected_module_sets', 'selected_module_sets_json', 'reason_summary',
+                                       'changed_path_count', 'changed_paths'}
+                  assert rows['scope'] == label and rows['selected_module_sets_json'] == modules
+                  expected = {
+                      'all': 'cc759cf47d72f1b03a312906b8a58e997ea4cb8bc36ad21ddc84bc8c47bcdf61',
+                      'skip': 'c1086f4fccdfe80b6107aa51f8dcef6e2141c19c1deaff97529cca2195167bb9',
+                  }
+                  digest = hashlib.sha256(output.read_bytes()).hexdigest()
+                  assert digest == expected[label], label
+                  print(label, digest)
+          PY
+
+  image:
+    if: *isolated
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - *source
+      - *replay
