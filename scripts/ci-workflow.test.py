@@ -223,6 +223,44 @@ def selected_source_steps(name):
     return steps
 
 
+def comparable_source_steps(name):
+    steps = selected_source_steps(name)
+    if (name not in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted')
+            or '    container:' not in JOBS['oasis7-test-build-trusted']):
+        return steps
+    # The image changes only environment/cache preparation. Preserve an exact
+    # comparison of every workspace/artifact/delivery step after that boundary.
+    boundary = '      - name: Identify ordinary workspace cache'
+    assert steps.count(boundary) == 1, 'ordinary workspace boundary must be unique'
+    prefix, steps = steps.split(boundary, 1)
+    expected = [
+        '- name: Check out workflow linker setup',
+        '- name: Configure mold for Linux host linking',
+        '- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+        '- uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2',
+        '- name: Report ordinary workspace cache capacity',
+        '- name: Reclaim unused candidate SDK capacity',
+        '- name: Stabilize Rust cache toolchains',
+        '- uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2',
+    ]
+    if name == 'oasis7-test-build-trusted':
+        expected.insert(1, '- name: Verify trusted ordinary image and source')
+        expected.insert(-1, '- name: Install ordinary dependency cache admission')
+    else:
+        expected.insert(4, '- uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7')
+        expected.insert(-2, '- name: Install pinned Rust toolchains')
+    actual = [step.splitlines()[0].strip()
+              for step in re.findall(r'^      - .*?(?=^      - |\Z)', prefix, re.M | re.S)]
+    assert actual == expected, 'ordinary environment prefix cannot hide other business steps'
+    steps = boundary + steps
+    assert steps.count('      - name: Install native libraries\n') == (name == 'oasis7-test-build-candidate')
+    assert steps.count('      - name: Wait for candidate SDK reclamation\n') == 1
+
+    return ''.join(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
+                   if not step.startswith(('      - name: Install native libraries\n',
+                                           '      - name: Wait for candidate SDK reclamation\n')))
+
+
 def effective_job_condition(condition, values, ancestor_results, *, cancelled=False):
     """Include Actions' implicit success() instead of evaluating only written YAML."""
     expression = condition.strip().removeprefix('>-').strip()
@@ -349,6 +387,30 @@ def image_cache_admission_layout(job, cache, save_condition):
         assert 'run: python3 scripts/ci-rust-cache-admission.py install\n' in installer
         assert path_adapter in cache and preload not in cache and interpreter not in cache
     assert '          save-if: ${{ ' + save_condition + ' }}\n' in cache
+
+
+def ordinary_image_cache_admission(job):
+    cache = rust_cache_steps(job)
+    assert len(cache) == 1, 'ordinary image must use one admitted dependency cache'
+    cache = cache[0]
+    for field in (
+        '          OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image\n',
+        '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}\n',
+        '          GH_TOKEN: ${{ github.token }}\n',
+        '          cache-on-failure: false\n',
+    ):
+        assert cache.count(field) == 1, 'ordinary image cache needs its exact bounded writer environment'
+    save = "job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha"
+    # Reuse the complete installer/preload/interpreter/provider/save transition;
+    # only the ordinary producer's independent step ID differs.
+    image_cache_admission_layout(job.replace('ordinary-dependency-cache-tools', 'dependency-cache-tools'),
+                                 cache.replace('ordinary-dependency-cache-tools', 'dependency-cache-tools'), save)
+    assert 'run: python3 scripts/ci-rust-cache-admission.py install-release\n' in job
+    preflight = workflow_step_script(job, 'Verify trusted ordinary image and source')
+    for guard in ('test "$GITHUB_REF" = refs/heads/main',
+                  'test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"',
+                  'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"'):
+        assert guard in preflight, 'ordinary cache source must match the actual trusted main checkout'
 
 
 def component_image_cache_writer(job, families, readers=JOBS, planner=None):
@@ -876,11 +938,17 @@ class Workflow(unittest.TestCase):
                     steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                     setup = next(i for i, step in enumerate(steps)
                                  if 'uses: ./.github/actions/setup-linux-mold' in step)
-                    self.assertIn('uses: actions/checkout@', steps[setup - 1])
-                    self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
+                    tools = setup - 1
+                    if (filename == 'rust.yml' and name == 'oasis7-test-build-trusted'
+                            and '    container:' in job):
+                        self.assertIn('name: Verify trusted ordinary image and source', steps[tools])
+                        self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', steps[tools])
+                        tools -= 1
+                    self.assertIn('uses: actions/checkout@', steps[tools])
+                    self.assertIn('ref: ${{ github.workflow_sha }}', steps[tools])
                     if (filename == 'rust.yml'
-                            and 'sparse-checkout: .github/actions/setup-linux-mold\n' not in steps[setup - 1]):
-                        validate_mold_checkout_reuse(*steps[setup - 1:setup + 2])
+                            and 'sparse-checkout: .github/actions/setup-linux-mold\n' not in steps[tools]):
+                        validate_mold_checkout_reuse(steps[tools], steps[setup], steps[setup + 1])
                     else:
                         self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
                     self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
@@ -979,7 +1047,7 @@ class Workflow(unittest.TestCase):
         original = JOBS[writer]
         direct = original.replace('ref: ${{ needs.select.outputs.tested_sha }}', 'ref: ${{ github.sha }}', 1)
         with patch.dict(JOBS, {writer: direct}):
-            self.assertEqual(selected_source_steps(writer).strip(), selected_source_steps(reader).strip())
+            self.assertEqual(comparable_source_steps(writer).strip(), comparable_source_steps(reader).strip())
         for ref in ('${{ inputs.ref }}', '${{ needs.other.outputs.tested_sha }}',
                     '${{ github.sha || inputs.ref }}'):
             with patch.dict(JOBS, {writer: direct.replace('${{ github.sha }}', ref, 1)}):
@@ -1004,7 +1072,7 @@ class Workflow(unittest.TestCase):
                     with self.assertRaises(AssertionError):
                         selected_source_steps(writer)
                 else:
-                    self.assertNotEqual(selected_source_steps(writer).strip(), selected_source_steps(reader).strip())
+                    self.assertNotEqual(comparable_source_steps(writer).strip(), comparable_source_steps(reader).strip())
 
     def test_writer_identity_is_bound_by_the_real_selector_and_job_conditions(self):
         selection = re.search(r'^          trusted_source=false\n.*?^          fi\n',
@@ -1759,6 +1827,76 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 validator.write_text(prefix + source)
                 self.assertEqual(invoke().returncode, status)
             self.assertFalse((root / 'transport-must-not-execute').exists())
+
+    def test_trusted_ordinary_image_pairs_bounded_cache_with_original_artifacts(self):
+        job = JOBS['oasis7-test-build-trusted']
+        if '    container:' not in job:
+            self.assertNotIn('ORDINARY_BUILD_IMAGE:', job)
+            self.assertIn('rustup toolchain install', job)
+            self.assertIn('scripts/ci-apt-install.py', job)
+            self.assertIn('shared-key: ci-shared-native-trusted-v4', job)
+            self.assertIn('save-if: false', rust_cache_steps(job)[0])
+            return
+        digest = 'f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c'
+        image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest
+        self.assertIn('container:\n      image: ' + image, job)
+        self.assertIn('ORDINARY_BUILD_IMAGE: ' + image, job)
+        self.assertIn('timeout-minutes: 60', job)
+        self.assertIn('packages: read', job)
+        self.assertNotIn('apt-install.py', job)
+        self.assertNotIn('rustup toolchain install', job)
+        self.assertIn('$(git rev-parse HEAD)', job)
+        self.assertIn('build --scope ordinary --plan', job)
+        caches = rust_cache_steps(job)
+        self.assertEqual(len(caches), 1)
+        cache = caches[0]
+        self.assertIn('shared-key: ci-ordinary-image-' + digest, cache)
+        self.assertIn('add-rust-environment-hash-key: true', cache)
+        self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', cache)
+        self.assertIn('cache-provider: github', cache)
+        self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image', cache)
+        ordinary_image_cache_admission(job)
+        save = re.search(r'^          save-if: .+$', cache, re.M).group()
+        mutations = (
+            job.replace(save, '          save-if: true', 1),
+            job.replace('python3 scripts/ci-rust-cache-admission.py install-release', 'echo guard_ready', 1),
+            job.replace('          NODE_OPTIONS: ${{ steps.ordinary-dependency-cache-tools.outputs.node_options }}\n', '', 1),
+            job.replace('          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.ordinary-dependency-cache-tools.outputs.python }}\n', '', 1),
+            job.replace('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
+                        'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: 999999999999', 1),
+            job.replace('GH_TOKEN: ${{ github.token }}', 'GH_TOKEN: unrelated', 1),
+            job.replace('cache-provider: github', 'cache-provider: other', 1),
+            job.replace('cache-on-failure: false', 'cache-on-failure: true', 1),
+            job.replace('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', ': # no actual source check', 1),
+            job.replace(" && github.workflow_sha == github.sha }}", " }}", 1),
+        )
+        for changed in mutations:
+            # A disconnected marker must never substitute for the real post hook.
+            changed = changed.replace('OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image',
+                                      'guard_ready: ignored\n          OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image', 1)
+            with self.subTest(cache_admission=changed), self.assertRaises(AssertionError):
+                ordinary_image_cache_admission(changed)
+        candidate = JOBS['oasis7-test-build-candidate']
+        self.assertNotIn('    container:', candidate)
+        host_cache = rust_cache_steps(candidate)[0]
+        self.assertIn('shared-key: ci-shared-native-trusted-v4', host_cache)
+        self.assertIn('save-if: false', host_cache)
+        boundary = '      - name: Identify ordinary workspace cache'
+        for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
+            original = JOBS[name]
+            added = '      - name: Unrelated artifact business step\n        run: echo unexpected\n'
+            business = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', original, re.M | re.S)
+                            if step.startswith('      - name: Build ordinary test artifacts\n'))
+            for changed in (original.replace(boundary, added + boundary, 1),
+                            original.replace(business, '', 1).replace(boundary, business + boundary, 1),
+                            original.replace(boundary, boundary + '\n' + boundary, 1)):
+                with self.subTest(name=name), patch.dict(JOBS, {name: changed}), self.assertRaises(AssertionError):
+                    comparable_source_steps(name)
+        preflight = workflow_step_script(job, 'Verify trusted ordinary image and source')
+        for guard in ('test "$GITHUB_REF" = refs/heads/main',
+                      'test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"',
+                      'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"'):
+            self.assertIn(guard, preflight)
 
     def test_optional_ordinary_cache_capability_is_bound_to_the_complete_plan(self):
         field = 'ordinary_main_fast_cache_writer_version'
@@ -2691,7 +2829,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 self.assertIn(text, writer.split('    steps:', 1)[0])
                 self.assertIn(text, reader.split('    steps:', 1)[0])
             self.assertIn('!(', reader.split('    steps:', 1)[0])
-            self.assertEqual(selected_source_steps(reader_name).strip(), selected_source_steps(writer_name).strip())
+            self.assertEqual(comparable_source_steps(reader_name).strip(), comparable_source_steps(writer_name).strip())
             for job in (reader, writer):
                 self.assertIn('actions: read', job)
                 self.assertNotIn('actions: write', job)
@@ -4754,6 +4892,11 @@ run_cargo() {
                                     and 'OASIS7_DEPENDENCY_CACHE_FAMILY: ' + family in step)
             self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
             without_admitted_uploads = without_admitted_uploads.replace(dependency_cache, '', 1)
+        if '    container:' in JOBS['oasis7-test-build-trusted']:
+            ordinary_cache = rust_cache_steps(JOBS['oasis7-test-build-trusted'])[0]
+            self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image', ordinary_cache)
+            self.assertEqual(ordinary_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
+            without_admitted_uploads = without_admitted_uploads.replace(ordinary_cache, '', 1)
         admission = JOBS['periodic-admission']
         self.assertIn("if: github.event_name == 'schedule'", admission)
         self.assertIn('actions: read', admission)
@@ -5881,6 +6024,12 @@ class AptWorkflow(unittest.TestCase):
                     del expected['rust', name, 'Install native libraries']
                 packages = (ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()
                 self.assertLessEqual(set(self.NATIVE), set(packages))
+        ordinary = JOBS['oasis7-test-build-trusted']
+        if '    container:' in ordinary:
+            self.assertIn('name: Verify trusted ordinary image and source', ordinary)
+            self.assertIn('pkg-config --exists', ordinary)
+            self.assertLessEqual(set(self.NATIVE), set((ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()))
+            del expected['rust', 'oasis7-test-build-trusted', 'Install native libraries']
         custody = ('rust', 'custody-node', 'Install native libraries')
         if re.search(r'^    container:', JOBS['custody-node'], re.M):
             del expected[custody]
