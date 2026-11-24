@@ -15,6 +15,7 @@ struct RacingWitness {
     replay_resume_bundle: Option<FullSyncIssuerMigrationResumeBundleV3>,
     resume_queries: Vec<SignedFullSyncIssuerMigrationResumeQueryV3>,
     next_race_nonce: u8,
+    delay_event_reply_until: Option<Instant>,
 }
 
 impl RacingWitness {
@@ -32,6 +33,7 @@ impl RacingWitness {
             replay_resume_bundle: None,
             resume_queries: Vec::new(),
             next_race_nonce: 212,
+            delay_event_reply_until: None,
         }
     }
 
@@ -258,7 +260,11 @@ impl FullSyncIssuerWitnessV3 for RacingWitness {
             self.next_race_nonce = self.next_race_nonce.wrapping_add(1);
             self.commit_v3_winner(winner, nonce)?;
         }
-        self.inner.commit_v3(observation, record)
+        let receipt = self.inner.commit_v3(observation, record)?;
+        if let Some(until) = self.delay_event_reply_until.take() {
+            std::thread::sleep(until.saturating_duration_since(Instant::now()));
+        }
+        Ok(receipt)
     }
 
     fn resume_migration_v3(
@@ -1105,7 +1111,9 @@ mod rotation_tests;
 
 #[test]
 fn serving_lifecycle_cold_reopens_exact_lease_after_uncertain_cas() {
-    for committed_before_reply_loss in [false, true] {
+    for (committed_before_reply_loss, late_reply) in
+        [(false, false), (true, false), (true, true)]
+    {
         let (directory, old, new, mut witness, migration_entry) =
             migrate_fixture("serving-lifecycle-uncertain-cas");
         let mut issuer = open_issuer(&directory, &old, &new, &migration_entry, &mut witness);
@@ -1156,13 +1164,22 @@ fn serving_lifecycle_cold_reopens_exact_lease_after_uncertain_cas() {
         let deadline = || Instant::now() + std::time::Duration::from_secs(30);
         let commits = witness.inner.event_commits;
         let attempts = witness.inner.event_attempts.len();
-        witness.inner.lose_next_event_reply = committed_before_reply_loss;
+        witness.inner.lose_next_event_reply = committed_before_reply_loss && !late_reply;
         witness.inner.fail_next_event_before_commit = !committed_before_reply_loss;
+        let first_deadline = if late_reply {
+            Instant::now() + std::time::Duration::from_secs(5)
+        } else {
+            deadline()
+        };
+        witness.delay_event_reply_until = late_reply.then_some(first_deadline);
         assert!(
             serving
-                .read_evidence_for_provider(&access, query.clone(), deadline(), &mut witness)
+                .read_evidence_for_provider(&access, query.clone(), first_deadline, &mut witness)
                 .is_err()
         );
+        if late_reply {
+            assert_eq!(witness.inner.event_commits, commits + 1);
+        }
         assert!(directory.path().join(PENDING_FILE).is_file());
         let original = witness.inner.event_attempts[attempts].clone();
         let observations = witness.inner.v3_observations.len();
