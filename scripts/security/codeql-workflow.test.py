@@ -309,6 +309,35 @@ class WorkflowTests(unittest.TestCase):
                     with self.subTest(event=event, mode=mode, draft=draft, action=action):
                         self.assertEqual(eval_guard(plan_if, values), expected_plan)
 
+    def test_rust_template_inclusion_uses_the_local_workspace(self):
+        name = '      - name: Set Rust template inclusion from the actual checkout\n'
+        analyze = WORKFLOW.split('\n  analyze:\n', 1)[1]
+        self.assertIn("CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '[]'\n", analyze)
+        self.assertLess(analyze.index('Confirm actual analysis checkout'), analyze.index(name))
+        self.assertLess(analyze.index(name), analyze.index('      - id: init\n'))
+        step = analyze.split(name, 1)[1].split('\n      - ', 1)[0]
+        self.assertTrue(step.startswith("        if: matrix.language == 'rust'\n"))
+        body = step.split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
+        body = '\n'.join(line[10:] for line in body.splitlines())
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory).resolve()
+            for mount in ('host/work/oasis7/oasis7', '__w/oasis7/oasis7'):
+                with self.subTest(mount=mount):
+                    source = folder / mount
+                    templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
+                    templates.mkdir(parents=True)
+                    env_file = source / 'env'
+                    env = dict(GITHUB_WORKSPACE=str(source), GITHUB_ENV=str(env_file))
+                    subprocess.run([sys.executable, '-I', '-c', body], env=env, check=True)
+                    name, value = env_file.read_text().split('=', 1)
+                    self.assertEqual(name, 'CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES')
+                    self.assertEqual(json.loads(value), [str(templates)])
+                    templates.rmdir()
+                    env_file.unlink()
+                    result = subprocess.run([sys.executable, '-I', '-c', body], env=env, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(env_file.exists())
+
     def test_rust_native_preparation_scope_budget_and_artifact(self):
         step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id:', 1)[0]
         self.assertIn("if: matrix.language == 'rust'", step)
