@@ -399,7 +399,7 @@ class Contracts(unittest.TestCase):
         timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', build_job, re.M)
         self.assertIsNotNone(timeout_match)
         self.assertGreater(int(timeout_match.group(1)), 0)
-        self.assertLessEqual(int(timeout_match.group(1)), 150)
+        self.assertLessEqual(int(timeout_match.group(1)), 125)
         self.assertNotIn('continue-on-error:', build_job)
         self.assertNotIn('actions: write', build_job)
         self.assertNotIn('checks: write', build_job)

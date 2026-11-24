@@ -4,8 +4,9 @@ import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
 
-const runtimeModules = process.env.OASIS7_PLAYWRIGHT_NODE_MODULES || "/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules";
+const runtimeModules = process.env.OASIS7_PLAYWRIGHT_NODE_MODULES || join(homedir(), ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules");
 const require = existsSync(join(runtimeModules, "playwright")) ? createRequire(join(runtimeModules, "oasis7-passkey-smoke.cjs")) : createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const url = process.argv[process.argv.indexOf("--url") + 1];

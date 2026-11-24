@@ -729,7 +729,8 @@ def validate_candidate_graph(workflow, config):
         'os: ${{ (needs.select.outputs.run_fleet_health == \'true\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'full\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'explicit-full\' || '
-        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3) && '
+        '(fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && '
+        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)) && '
         'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\') }}'
     )
     if (expected_fleet_os not in fleet
@@ -841,7 +842,7 @@ def validate_candidate_graph(workflow, config):
                     or "needs.select.outputs.run_formal_process == 'true'" not in job):
                 raise ValueError('formal aggregation must execute when selected or failed and validate results')
             continue
-        if config.get('contract_job_consolidation_version') in (1, 2, 3) and group in config.get('group_jobs', {}):
+        if config.get('contract_job_consolidation_version') in (1, 2, 3, 4) and group in config.get('group_jobs', {}):
             host_job = jobs[config['group_jobs'][group]]
             version_guard = f"fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != {config['contract_job_consolidation_version']}"
             if (version_guard not in job
@@ -1757,7 +1758,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                   'check_inventory_version', 'fast_plan_exceptions'}
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
         self.assertLessEqual(consumers, fields | {
-            'ordinary_dynamic_partition_version', 'ordinary_main_fast_cache_writer_version',
+            'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
+            'ordinary_main_fast_cache_writer_version',
             'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
             'custody_compile_proof_version', 'custody_policy_tests_version', 'selection_sha256'})
         self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
@@ -2288,7 +2290,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 repo = Path(directory) / 'repo'
                 subprocess.run(['git', '-C', str(repo), 'checkout', '-q', policy], check=True)
                 retired = ({group.replace('_', '-') for group in CONFIG.get('group_jobs', {})}
-                           if plan.get('contract_job_consolidation_version') in (1, 2, 3) else set())
+                           if plan.get('contract_job_consolidation_version') in (1, 2, 3, 4) else set())
                 needs = {group.replace('_', '-'): {'result': 'skipped' if group.replace('_', '-') in retired else 'success'}
                          for group in CONFIG['groups']}
                 trusted = source == policy
@@ -6312,31 +6314,46 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
                         self.assertEqual('--split-ordinary' in lines[1], version in ('1', '2'))
         uploads = [step for step in steps if 'uses: actions/upload-artifact@' in step and 'name: native-tests-' in step]
         self.assertEqual(len(uploads), 6)
-        for version, compact in ((None, False), (1, False), (2, False), (2, True)):
+        for version, compact, baseline_controls in (
+                (None, False, None), (1, False, None), (1, False, 1),
+                (2, False, None), (2, False, 1), (2, True, None), (2, True, 1)):
+            native_owners = (
+                [] if version is None
+                else ['runtime', 'component-libs', 'integrations-0', 'integrations-1'] if version == 1
+                else ['native-0', 'native-1'] if compact
+                else ['native-0', 'native-1', 'native-2', 'native-3']
+            )
             owners = (['all'] if version is None
-                      else ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'] if version == 1
-                      else ['controls', 'native-0', 'native-1'] if compact
-                      else ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                      else native_owners if baseline_controls == 1
+                      else ['controls', *native_owners])
             partition_values = {
                 'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': version,
+                'fromJSON(needs.select.outputs.plan).ordinary_controls_in_rust_baseline_version': baseline_controls,
+                'fromJSON(needs.select.outputs.ordinary_partitions)[0]': owners[0] if len(owners) > 0 else None,
+                'fromJSON(needs.select.outputs.ordinary_partitions)[1]': owners[1] if len(owners) > 1 else None,
+                'fromJSON(needs.select.outputs.ordinary_partitions)[2]': owners[2] if len(owners) > 2 else None,
                 'fromJSON(needs.select.outputs.ordinary_partitions)[3]': owners[3] if len(owners) > 3 else None,
                 'fromJSON(needs.select.outputs.ordinary_partitions)[4]': owners[4] if len(owners) > 4 else None,
             }
             selected = [step for step in uploads if effective_job_condition(self.condition(step), partition_values, [])]
-            self.assertEqual(len(selected), 1 if version is None else len(owners))
+            self.assertEqual(len(selected), 1 if version is None else 1 + len(native_owners))
             for step in selected:
                 for required in ('compression-level: 0', 'overwrite: true', 'if-no-files-found: error'):
                     self.assertIn(required, step)
             if version is not None:
                 resolved = '\n'.join(selected)
-                for index, owner in enumerate(owners[1:], 1):
-                    expression = '${{ fromJSON(needs.select.outputs.ordinary_partitions)[' + str(index) + '] }}'
+                for index, owner in enumerate(native_owners):
+                    expression = (
+                        '${{ fromJSON(needs.select.outputs.plan).ordinary_controls_in_rust_baseline_version == 1 && '
+                        f'fromJSON(needs.select.outputs.ordinary_partitions)[{index}] || '
+                        f'fromJSON(needs.select.outputs.ordinary_partitions)[{index + 1}] }}}}'
+                    )
                     self.assertEqual(resolved.count(expression), 2)
                     resolved = resolved.replace(expression, owner)
                 self.assertEqual(set(re.findall(r'/ordinary-archives/(.*)\.tar\.gz', resolved)),
-                                 {'common', *owners[1:]})
+                                 {'common', *native_owners})
                 self.assertEqual(set(re.findall(r'name: native-tests-(.*)-\$\{\{ github.sha \}\}', resolved)),
-                                 {'common', *owners[1:]})
+                                 {'common', *native_owners})
 
     def test_retired_ordinary_delivery_preview_is_absent(self):
         self.assertNotIn('pr-ordinary-delivery-preview', JOBS)
@@ -7085,7 +7102,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'package-linux-x86-64': 10,
             },
             '.github/workflows/hosted-login-linux-build.yml': {
-                'build-linux-x86-64': 45,
+                'build-linux-x86-64': 30,
                 'build-viewer': 12,
                 'assemble': 5,
             },
@@ -7097,7 +7114,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'diagnose': 35,
             },
             '.github/workflows/storage-acceptance.yml': {
-                'build-components': 150,
+                'build-components': 125,
                 'build': 10,
                 'verify': 130,
                 'attempt-release-reference': 50,
@@ -7266,7 +7283,9 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         self.assertEqual(CONFIG.get('main_fast_coalesce_concurrency_version'), 1)
         self.assertEqual(CONFIG.get('draft_pr_heavy_ci_skip_version'), 1)
         self.assertEqual(CONFIG.get('auxiliary_workflow_consolidation_version'), 1)
-        self.assertEqual(CONFIG.get('workspace_member_cargo_manifest_scope_version'), 1)
+        self.assertEqual(CONFIG.get('workspace_member_cargo_manifest_scope_version'), 2)
+        self.assertEqual(CONFIG.get('ordinary_controls_in_rust_baseline_version'), 1)
+        self.assertEqual(CONFIG.get('contract_job_consolidation_version'), 4)
         self.assertEqual(CONFIG.get('scoped_production_cfg_version'), 1)
 
         gate = JOBS['required-gate']
@@ -7504,6 +7523,50 @@ class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
                     else:
                         self.assertRegex(value, r'^\$\{\{.+\}\}$')
         self.assertGreater(checked_jobs, 0)
+
+    def test_consolidation_v4_runs_operational_contracts_in_workflow_governance_without_governance_overhead(self):
+        gov_job = JOBS['workflow-governance']
+        op_job = JOBS['operational-contracts']
+        gov_cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', gov_job, re.M | re.S)[1]
+        op_cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', op_job, re.M | re.S)[1]
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', gov_job, re.M | re.S)
+        op_exec = next(s for s in steps if 'name: Execute consolidated operational contracts group\n' in s)
+        op_tools = next(s for s in steps if 'name: Verify preinstalled operational contract tools\n' in s)
+        parser_step = next(s for s in steps if 'name: Install document contract parser\n' in s)
+        authority_step = next(s for s in steps if 'name: Download trusted control authority\n' in s)
+
+        def step_cond(step):
+            return re.search(r'^        if: (.*?)(?=^        \w|\Z)', step, re.M | re.S)[1]
+
+        for version, run_gov, run_op, scope in (
+            (3, 'false', 'true', 'targeted'),
+            (4, 'false', 'true', 'targeted'),
+            (4, 'true', 'false', 'targeted'),
+            (4, 'true', 'true', 'targeted'),
+            (4, 'false', 'false', 'full'),
+        ):
+            vals = {
+                'needs.select.result': 'success',
+                'needs.select.outputs.run_workflow_governance': run_gov,
+                'needs.select.outputs.run_operational_contracts': run_op,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': version,
+                'fromJSON(needs.select.outputs.plan).scope': scope,
+                'fromJSON(needs.select.outputs.plan).python_control_contract_version': 1,
+                'steps.control-mode.outputs.complete_governance': 'true',
+            }
+            with self.subTest(version=version, run_gov=run_gov, run_op=run_op, scope=scope):
+                expect_legacy_op = version != 4 and (run_op == 'true' or scope == 'full')
+                expect_gov_job = (run_gov == 'true' or scope == 'full'
+                                  or (version == 4 and run_op == 'true'))
+                self.assertEqual(effective_job_condition(op_cond, vals, ['success']), expect_legacy_op)
+                self.assertEqual(effective_job_condition(gov_cond, vals, ['success']), expect_gov_job)
+                if expect_gov_job:
+                    expect_gov_steps = run_gov == 'true' or scope in ('full', 'explicit-full') or version != 4
+                    expect_op_steps = version == 4 and (run_op == 'true' or scope in ('full', 'explicit-full'))
+                    self.assertEqual(effective_job_condition(step_cond(parser_step), vals, []), expect_gov_steps)
+                    self.assertEqual(effective_job_condition(step_cond(authority_step), vals, []), expect_gov_steps)
+                    self.assertEqual(effective_job_condition(step_cond(op_tools), vals, []), expect_op_steps)
+                    self.assertEqual(effective_job_condition(step_cond(op_exec), vals, []), expect_op_steps)
 
 
 if __name__ == '__main__':

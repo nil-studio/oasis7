@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONFIG_PATH="${OASIS7_LETAI_CONFIG_PATH:-/Users/scc/Documents/keys/letai.txt}"
+CONFIG_PATH="${OASIS7_LETAI_CONFIG_PATH:-${HOME}/Documents/keys/letai.txt}"
 MODEL="${OASIS7_LETAI_MODEL:-${OASIS7_LLM_MODEL:-custom-right-codes/gpt-5.4}}"
 BASE_URL="${OASIS7_LETAI_BASE_URL:-${OASIS7_LLM_BASE_URL:-https://api.letai.run/v1}}"
 PRINT_CONFIG="0"
@@ -14,7 +14,7 @@ Load a local LetAI credential file into oasis7 LLM env vars, then exec a command
 The credential value is never printed by this wrapper.
 
 Options:
-  --config <path>     LetAI config file (default: $OASIS7_LETAI_CONFIG_PATH or /Users/scc/Documents/keys/letai.txt)
+  --config <path>     LetAI config file (default: $OASIS7_LETAI_CONFIG_PATH or $HOME/Documents/keys/letai.txt)
   --model <id>        OASIS7_LLM_MODEL override (default: $OASIS7_LETAI_MODEL, $OASIS7_LLM_MODEL, or custom-right-codes/gpt-5.4)
   --base-url <url>    OASIS7_LLM_BASE_URL override (default: $OASIS7_LETAI_BASE_URL, $OASIS7_LLM_BASE_URL, or https://api.letai.run/v1)
   --print-config      Print sanitized resolved config as JSON and exit

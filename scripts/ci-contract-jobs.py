@@ -101,8 +101,13 @@ def render_job(group: str) -> str:
             '          cargo +"$RUST_TOOLCHAIN" clippy --version\n'
         )
     consolidation_guard = ""
-    if group == "packaging_contracts":
-        consolidation_guard = "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&\n"
+    if group == "operational_contracts":
+        consolidation_guard = "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&\n"
+    elif group == "packaging_contracts":
+        consolidation_guard = (
+            "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&\n"
+            "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&\n"
+        )
     return (
         f"  {job_id}:\n"
         f"    needs: select\n"
