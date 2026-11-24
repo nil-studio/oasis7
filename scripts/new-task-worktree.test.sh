@@ -34,22 +34,31 @@ if "$REPO/scripts/new-task-worktree.sh" docs offline --path "$TMP/offline" --jso
   echo 'failed fetch unexpectedly accepted' >&2; exit 1
 fi
 test ! -e "$TMP/offline"
-if git -C "$REPO" show-ref --verify --quiet refs/heads/codex/docs-offline; then exit 1; fi
+if git -C "$REPO" show-ref --verify --quiet refs/heads/task/docs-offline; then exit 1; fi
 python3 - "$TMP/offline-result" <<'CHECK'
 import json,sys
 result=json.load(open(sys.argv[1]))
 assert result['failed_step']=='refresh_base' and not result['worktree_created']
 CHECK
 git -C "$REPO" branch codex/docs-attached "$initial_head"
-"$REPO/scripts/new-task-worktree.sh" docs attached --path "$TMP/attached" --json >/dev/null
+"$REPO/scripts/new-task-worktree.sh" docs attached --branch codex/docs-attached --path "$TMP/attached" --json >/dev/null
 test "$(git -C "$TMP/attached" rev-parse HEAD)" = "$initial_head"
+test "$(git -C "$TMP/attached" branch --show-current)" = codex/docs-attached
+# Old worktrees keep their identity on setup recovery without --branch.
+"$REPO/scripts/new-task-worktree.sh" docs attached --path "$TMP/attached" --resume-setup --json >"$TMP/legacy-resume"
+python3 - "$TMP/legacy-resume" <<'CHECK_LEGACY'
+import json,sys
+p=json.load(open(sys.argv[1]))
+assert p['branch']=='codex/docs-attached'
+assert p['mode']=='resume_setup'
+CHECK_LEGACY
 "$REPO/scripts/new-task-worktree.sh" docs isolated --path "$TMP/new" --resume-setup --json >/dev/null
 test "$(git -C "$TMP/new" rev-parse HEAD)" = "$latest_head"
 git -C "$REPO" remote set-url origin "$TMP/origin.git"
 python3 - "$TMP/result" "$TMP/new" <<'CHECK'
 import json,os,sys
 p=json.load(open(sys.argv[1]))
-assert p['branch']=='codex/docs-isolated'
+assert p['branch']=='task/docs-isolated'
 assert os.path.realpath(p['worktree_path'])==os.path.realpath(sys.argv[2])
 assert 'pm_task' not in p
 assert p['head'] and p['setup_status']=='complete'
