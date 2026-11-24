@@ -95,7 +95,10 @@ mod canonical_contract_owner_tests {
             TypeId::of::<AsyncAgentRunner>(),
             TypeId::of::<native::AsyncAgentRunner>()
         );
-        assert_eq!(TypeId::of::<TurnEngine>(), TypeId::of::<native::TurnEngine>());
+        assert_eq!(
+            TypeId::of::<TurnEngine>(),
+            TypeId::of::<native::TurnEngine>()
+        );
         assert_eq!(
             TypeId::of::<ContinuousAgentRequestContextV1>(),
             TypeId::of::<native::ContinuousAgentRequestContextV1>()
