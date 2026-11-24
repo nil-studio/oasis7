@@ -78,8 +78,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
             );
             request.formal_anchor = Some(fresh.anchor_ref().unwrap());
             request.observation_nonce = Some("fe".repeat(32));
-            reply.formal_proof.as_mut().unwrap().anchor =
-                request.formal_anchor.clone().unwrap();
+            reply.formal_proof.as_mut().unwrap().anchor = request.formal_anchor.clone().unwrap();
             fresh.verify_view(&reply, &request, &public(7)).unwrap();
             fresh
         })
