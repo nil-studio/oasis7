@@ -715,6 +715,9 @@ mod memory_selector_owner_tests {
         let config: canonical::MemorySelectorConfig = MemorySelectorConfig::default();
         let memory = AgentMemory::with_capacities(8, 8);
         let result: canonical::MemorySelectorResult = MemorySelector::select(&memory, 0, &config);
-        assert_eq!(result, canonical::MemorySelector::select(&memory, 0, &config));
+        assert_eq!(
+            result,
+            canonical::MemorySelector::select(&memory, 0, &config)
+        );
     }
 }
