@@ -4082,6 +4082,60 @@ class Selection(unittest.TestCase):
         with self.assertRaises(selector.TestPolicyError):
             selector.select(config, base, self.commit(), profile='pr-fast')
 
+    def test_node_default_lib_driver_proves_nested_unix_not_optional_features(self):
+        config = self.fast_config()
+        config['groups'].append('node')
+        config['resources']['node'] = []
+        config['package_groups']['oasis7_node'] = ['node']
+        self.write('crates/oasis7_node/Cargo.toml',
+                   '[package]\nname="oasis7_node"\nversion="0.1.0"\n'
+                   '[features]\noptional_lane=[]\ntest_tier_full=[]\n')
+        self.write('crates/oasis7_node/src/lib.rs', 'mod runtime;\n')
+        self.write('crates/oasis7_node/src/runtime.rs',
+                   '#[cfg(all(test, unix))] #[path="transition.rs"] mod transition;\n')
+        self.write('crates/oasis7_node/src/transition.rs', '#[test] fn original() {}\n')
+        base = self.commit()
+        self.write('crates/oasis7_node/src/transition.rs',
+                   '#[test] fn original() {}\n'
+                   '#[path="transition/socket_handoff.rs"] mod socket_handoff;\n')
+        path = 'crates/oasis7_node/src/transition/socket_handoff.rs'
+        added = '#[test] fn socket_handoff() {}\n'
+        self.write(path, added)
+        head = self.commit()
+        with patch.object(selector, 'NATIVE_DEFAULT_TEST_PACKAGES',
+                          selector.NATIVE_DEFAULT_TEST_PACKAGES - {'oasis7_node'}):
+            with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, head, profile='pr-fast')
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertIn('node', plan['groups'])
+        for expression in ('windows', 'target_os="windows"', 'not(target_os="linux")',
+                           'feature="optional_lane"', 'feature="test_tier_full"'):
+            with self.subTest(expression=expression):
+                self.write(path, added + f'#[cfg({expression})] #[test] fn unsupported() {{}}\n')
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+        self.write(path, added)
+        config['oasis7_required_packages'].remove('other')
+        self.write('crates/other/src/lib.rs',
+                   '#[path="../../oasis7_node/src/transition/socket_handoff.rs"] mod shared;\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_node_native_default_driver_does_not_authorize_unexecuted_binary(self):
+        config = self.fast_config()
+        config['groups'].append('node')
+        config['resources']['node'] = []
+        config['package_groups']['oasis7_node'] = ['node']
+        self.write('crates/oasis7_node/Cargo.toml',
+                   '[package]\nname="oasis7_node"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_node/src/lib.rs', '')
+        path = 'crates/oasis7_node/src/bin/unexecuted.rs'
+        self.write(path, 'fn main() {}\n')
+        base = self.commit()
+        self.write(path, 'fn main() {}\n#[cfg(unix)] #[test] fn unexecuted() {}\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
     def native_default_integration_fixture(self, package_settings='', declarations=''):
         config = self.fast_config()
         config['groups'].append('distfs')
