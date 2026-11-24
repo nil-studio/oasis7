@@ -27,6 +27,13 @@ fn retained_e3_phase(label: &'static [u8]) {
     let _ = std::io::Write::write_all(&mut std::io::stderr(), label);
 }
 
+// Keep large verifier results off the signed recovery-proof construction
+// frame; original success, rejection and cold-restore checks stay intact.
+#[inline(never)]
+fn boxed_retained_reader<T>(make: impl FnOnce() -> T) -> Box<T> {
+    Box::new(make())
+}
+
 pub(super) fn exercise() {
     let (
         world,
@@ -324,7 +331,8 @@ pub(super) fn exercise() {
         )
     });
     retained_e3_phase(b"oasis7 native diagnostic game_setup_returned\n");
-    let mut without_previous = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
+    let mut without_previous =
+        boxed_retained_reader(|| FormalReadVerifier::new(&trust, anchor.clone()).unwrap());
     let before = without_previous.anchor_ref().unwrap();
     let mut skipped = reply.clone();
     skipped.formal_proof.as_mut().unwrap().history_cbor_hex = FormalReadHistoryV1 {
@@ -342,8 +350,11 @@ pub(super) fn exercise() {
     assert_eq!(without_previous.anchor_ref().unwrap(), before);
 
     retained_e3_phase(b"oasis7 native diagnostic game_first_reader_begin\n");
-    let mut verifier = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
-    let observed = verifier.verify_view(&reply, &request, &public(7)).unwrap();
+    let mut verifier =
+        boxed_retained_reader(|| FormalReadVerifier::new(&trust, anchor.clone()).unwrap());
+    let observed = boxed_retained_reader(|| {
+        verifier.verify_view(&reply, &request, &public(7)).unwrap()
+    });
     assert_eq!(observed.commit().record().position, 2);
     assert_eq!(
         observed.commit().finalizing_authority_id(),
@@ -355,17 +366,17 @@ pub(super) fn exercise() {
     let advanced = verifier.anchor_ref().unwrap();
     assert_eq!(advanced.position, 2);
     assert!(verifier.checkpoint().is_err());
-    let checkpoint_v2 = verifier.checkpoint_v2(&origin_digest).unwrap();
+    let checkpoint_v2 = boxed_retained_reader(|| verifier.checkpoint_v2(&origin_digest).unwrap());
     let pinned_v2_digest = checkpoint_v2.digest().unwrap();
     let decoded = FormalReadCheckpointV2::decode_hex(&checkpoint_v2.encode_hex().unwrap()).unwrap();
     retained_e3_phase(b"oasis7 native diagnostic game_checkpoint_reopen_begin\n");
-    let restored = FormalReadVerifier::from_fixed_checkpoint_v2(
+    let restored = boxed_retained_reader(|| FormalReadVerifier::from_fixed_checkpoint_v2(
         &trust,
         &decoded,
         &pinned_v2_digest,
         &origin_digest,
     )
-    .unwrap();
+    .unwrap());
     assert_eq!(restored.anchor_ref().unwrap(), advanced);
     assert_eq!(
         restored.qualified_commits.len(),
@@ -402,7 +413,8 @@ pub(super) fn exercise() {
     };
     origin_reply.formal_proof.as_mut().unwrap().history_cbor_hex =
         origin_history.encode_hex().unwrap();
-    let mut schema2_origin_reader = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
+    let mut schema2_origin_reader =
+        boxed_retained_reader(|| FormalReadVerifier::new(&trust, anchor.clone()).unwrap());
     schema2_origin_reader
         .verify_view(&origin_reply, &origin_request, &public(7))
         .unwrap();
@@ -442,13 +454,13 @@ pub(super) fn exercise() {
     };
     let rebased_digest = rebased.digest().unwrap();
     retained_e3_phase(b"oasis7 native diagnostic game_rebase_reader_begin\n");
-    let rebased_reader = FormalReadVerifier::from_fixed_checkpoint_v2(
+    let rebased_reader = boxed_retained_reader(|| FormalReadVerifier::from_fixed_checkpoint_v2(
         &trust,
         &rebased,
         &rebased_digest,
         &schema2_origin_digest,
     )
-    .unwrap();
+    .unwrap());
     assert_eq!(
         rebased_reader.anchor_ref().unwrap().active_authority_id,
         recovery3.successor().authority_id().unwrap()
@@ -490,13 +502,13 @@ pub(super) fn exercise() {
     };
     let replayed_non_normal_digest = replayed_non_normal_checkpoint.digest().unwrap();
     retained_e3_phase(b"oasis7 native diagnostic game_non_normal_reader_begin\n");
-    let replayed_non_normal_reader = FormalReadVerifier::from_fixed_checkpoint_v2(
+    let replayed_non_normal_reader = boxed_retained_reader(|| FormalReadVerifier::from_fixed_checkpoint_v2(
         &trust,
         &replayed_non_normal_checkpoint,
         &replayed_non_normal_digest,
         &completed_origin_digest,
     )
-    .unwrap();
+    .unwrap());
     let replayed_non_normal_key = QualifiedCommitKey {
         position: observed.commit().record().position,
         record_id: observed.commit().head().record_id.clone(),

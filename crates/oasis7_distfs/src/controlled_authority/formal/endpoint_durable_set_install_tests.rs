@@ -29,6 +29,13 @@ fn exercise_native_successor<T>(work: impl FnOnce() -> T) -> T {
     work()
 }
 
+// Large native coordinator/proof results are boxed in a non-inlined frame
+// before later seal, activation, and independent cold-reopen validations.
+#[inline(never)]
+fn native_boxed_stage<T>(work: impl FnOnce() -> T) -> Box<T> {
+    Box::new(work())
+}
+
 fn exercise_native_install(recover_uncertain_activation: bool) {
     let _ = std::io::Write::write_all(
         &mut std::io::stderr(),
@@ -98,21 +105,25 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_before_coordinator\n",
             );
-            let mut coordinator = FormalCoordinator::new(
-                open(EndpointRole::Primary, pp.clone()),
-                open(EndpointRole::Replica, ro.provider(&fixture)),
-                fixture.authority.clone(),
-                fixture.authority.clone(),
-                None,
-                None,
-            )
-            .unwrap();
-            let initial = coordinator.submit(fixture.initial.clone()).unwrap();
+            let mut coordinator = native_boxed_stage(|| {
+    FormalCoordinator::new(
+                    open(EndpointRole::Primary, pp.clone()),
+                    open(EndpointRole::Replica, ro.provider(&fixture)),
+                    fixture.authority.clone(),
+                    fixture.authority.clone(),
+                    None,
+                    None,
+                )
+                .unwrap()
+            });
+            let initial = native_boxed_stage(|| coordinator.submit(fixture.initial.clone()).unwrap());
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_initial_submitted\n",
             );
-            let parent = verify_formal_qualified(&initial, &fixture.authority, None, None).unwrap();
+            let parent = native_boxed_stage(|| {
+                verify_formal_qualified(&initial, &fixture.authority, None, None).unwrap()
+            });
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_initial_verified\n",
@@ -153,7 +164,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_frozen_built\n",
             );
-            let executable = coordinator.freeze(frozen, material).unwrap();
+            let executable = native_boxed_stage(|| coordinator.freeze(frozen, material).unwrap());
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_freeze_completed\n",
@@ -166,14 +177,14 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
                 4,
             );
-            let proof = coordinator.submit(candidate).unwrap();
+            let proof = native_boxed_stage(|| coordinator.submit(candidate).unwrap());
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_transition_submitted\n",
             );
-            let boundary = Box::new(
-                verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap(),
-            );
+            let boundary = native_boxed_stage(|| {
+                verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap()
+            });
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_before_transition_verification\n",
