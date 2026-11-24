@@ -1,6 +1,7 @@
 //! Authentication of a complete renewal issuer status snapshot.
 //!
 //! Current use additionally requires a protected status floor and trusted time.
+use super::checkpoint_time_observation::AuthenticatedBftCheckpointTimeObservationV1;
 use super::checkpoint_trust_policy::{BftCheckpointTrustPolicyV1, issuer_status_bounds};
 use super::formal_handoff::{canonical_bytes, decode_canonical, domain_digest};
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -155,6 +156,53 @@ impl AuthenticatedBftCheckpointIssuerStatusV1 {
             })
         {
             return Err("checkpoint issuer status cannot revise a revoked key".into());
+        }
+        Ok(())
+    }
+
+    /// Check freshness and revocation at the original signed observation.
+    /// This is a historical diagnostic: a reply may have been delayed, and
+    /// no protected elapsed continuity or status floor is established here.
+    pub fn check_signed_observation_window(
+        &self,
+        policy: &BftCheckpointTrustPolicyV1,
+        observation: &AuthenticatedBftCheckpointTimeObservationV1,
+    ) -> Result<(), String> {
+        let time = observation.body();
+        if policy.digest()? != self.body.policy_digest
+            || time.policy_digest != self.body.policy_digest
+            || time.origin_digest != self.body.origin_digest
+        {
+            return Err("checkpoint status and time observation policy mismatch".into());
+        }
+        if self.body.policy_revoked {
+            return Err("checkpoint issuer status policy revoked".into());
+        }
+        if time.utc_earliest_unix_ms < self.body.not_before_unix_ms
+            || time.utc_latest_unix_ms >= self.body.expires_at_unix_ms
+        {
+            return Err("checkpoint signed observation outside issuer status window".into());
+        }
+        if time
+            .utc_latest_unix_ms
+            .checked_sub(self.body.issued_at_unix_ms)
+            .is_none_or(|age| age > policy.max_status_age_ms)
+        {
+            return Err("checkpoint issuer status exceeds maximum age".into());
+        }
+        // Potentially eligible keys are not actual verified proof signatures.
+        let eligible = policy
+            .issuer_keys
+            .iter()
+            .zip(&self.body.issuer_keys)
+            .filter(|(key, status)| {
+                status.revoked_at_unix_ms.is_none()
+                    && key.not_before_unix_ms <= time.utc_earliest_unix_ms
+                    && time.utc_latest_unix_ms < key.expires_at_unix_ms
+            })
+            .count() as u64;
+        if eligible < policy.threshold {
+            return Err("checkpoint issuer status has insufficient eligible keys".into());
         }
         Ok(())
     }

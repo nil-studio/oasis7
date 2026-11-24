@@ -279,6 +279,85 @@ pub(super) fn check_preparation(
         .authenticate_time_observation(&time_bytes, &nonce, &epoch)
         .unwrap();
     assert!(observation.candidate_interval(None).is_err());
+    // This compares signed originals, not protected current authorization.
+    use oasis7_formal_protocol::bft::checkpoint_issuer_status::AuthenticatedBftCheckpointIssuerStatusV1;
+    let check_status_window = |body: serde_json::Value| {
+        write_status(body, 118);
+        let status_bytes = std::fs::read(&status_path).unwrap();
+        let authenticated = AuthenticatedBftCheckpointIssuerStatusV1::decode(
+            &status_bytes,
+            &config.policy,
+            &policy_pin,
+        )
+        .unwrap();
+        authenticated.check_signed_observation_window(&config.policy, &observation)
+    };
+    let mut live_status = status.clone();
+    live_status["status_sequence"] = serde_json::json!(4);
+    live_status["issued_at_unix_ms"] = serde_json::json!(37);
+    live_status["not_before_unix_ms"] = serde_json::json!(40);
+    live_status["expires_at_unix_ms"] = serde_json::json!(43);
+    live_status["policy_revoked"] = serde_json::json!(false);
+    live_status["issuer_keys"][0]["revoked_at_unix_ms"] = serde_json::Value::Null;
+    check_status_window(live_status.clone()).expect("inclusive age and lower time boundary");
+    for (field, replacement, reason) in [
+        ("issued_at_unix_ms", serde_json::json!(36), "maximum age"),
+        (
+            "not_before_unix_ms",
+            serde_json::json!(41),
+            "outside issuer status window",
+        ),
+        (
+            "expires_at_unix_ms",
+            serde_json::json!(42),
+            "outside issuer status window",
+        ),
+        ("policy_revoked", serde_json::json!(true), "policy revoked"),
+    ] {
+        let mut invalid = live_status.clone();
+        invalid[field] = replacement;
+        assert!(check_status_window(invalid).unwrap_err().contains(reason));
+    }
+    let mut revoked_key = live_status.clone();
+    revoked_key["issuer_keys"][0]["revoked_at_unix_ms"] = serde_json::json!(37);
+    assert!(
+        check_status_window(revoked_key)
+            .unwrap_err()
+            .contains("insufficient eligible keys")
+    );
+    let prepare_with_both = || {
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "prepare-checkpoint-trust",
+                "--config",
+                path.to_str().unwrap(),
+                "--node-config",
+                node_config.to_str().unwrap(),
+                "--policy-pin",
+                &policy_pin,
+                "--consumer-binding",
+                &pin,
+                "--original-c0-pin",
+                &c0_pin,
+                "--issuer-status",
+                status_path.to_str().unwrap(),
+                "--time-observation",
+                time_path.to_str().unwrap(),
+                "--time-nonce",
+                &nonce,
+                "--clock-epoch",
+                &epoch,
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+    };
+    write_status(live_status.clone(), 118);
+    prepare_with_both().expect("actual host compares compatible signed originals");
+    write_status(status.clone(), 118);
+    prepare_with_both().expect("revocation does not erase historical preparation");
+    check_status_window(live_status).expect("original compatible snapshot can be read again");
     let mut sample = BftCheckpointTimeContinuityV1 {
         challenge: BftCheckpointTimeChallengeV1 {
             consumer_binding_digest: pin.clone(),

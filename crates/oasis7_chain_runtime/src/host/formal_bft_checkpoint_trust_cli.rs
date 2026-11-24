@@ -122,6 +122,17 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
         "renewal_ready": false,
         "blocker": "C0-to-H lineage, current status, protected time and installation are not established by preparation",
     });
+    if let (Some(status), Some(time)) = (&authenticated_status, &authenticated_time) {
+        let compatibility =
+            status.check_signed_observation_window(&prepared.config().policy, time);
+        report["signed_observation_status_diagnostic"] = serde_json::json!({
+            "compatible_at_observation": compatibility.is_ok(),
+            "blocker": compatibility.err(),
+            "protected_continuity_checked": false,
+            "protected_status_floor_checked": false,
+            "issuer_proof_signatures_checked": false,
+        });
+    }
     if let Some(status) = authenticated_status {
         report["authenticated_issuer_status"] = serde_json::json!({
             "digest": status.digest(),
