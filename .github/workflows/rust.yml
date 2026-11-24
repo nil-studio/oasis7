@@ -215,6 +215,7 @@ jobs:
       ordinary_partitions: ${{ steps.select.outputs.ordinary_partitions || '["all"]' }}
       workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '["all"]' }}
       workspace_support_host: ${{ steps.select.outputs.workspace_support_host }}
+      workspace_support_signer_only: ${{ steps.workflow-plan.outputs.workspace_support_signer_only }}
       command_center_package: ${{ steps.select.outputs.command_center_package || 'true' }}
       run_baseline: ${{ steps.select.outputs.run_baseline }}
       run_command_center: ${{ steps.select.outputs.run_command_center }}
@@ -453,6 +454,22 @@ jobs:
           projected.update(workflow_projection_version=1, selection_sha256=hashlib.sha256(raw).hexdigest())
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
               output.write('plan=' + json.dumps(projected, separators=(',', ':')) + '\n')
+              signer_only = (
+                  plan.get('scope') == 'targeted'
+                  and 'workspace_support' in plan.get('groups', [])
+                  and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                  and type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+                  and type(plan.get('workspace_support_direct_gate_version')) is int
+                  and plan['workspace_support_direct_gate_version'] in (1, 2)
+                  and plan.get('test_policy_changed') is False
+                  and type(plan.get('workspace_support_profile_version')) is int
+                  and plan['workspace_support_profile_version'] == 1
+                  and type(plan.get('workspace_support_partition_version')) is int
+                  and plan['workspace_support_partition_version'] == 1
+                  and plan.get('workspace_support_partitions') == ['other']
+                  and plan.get('workspace_support_profiles') == ['oasis7_local_signer']
+              )
+              output.write('workspace_support_signer_only=' + str(signer_only).lower() + '\n')
           PY
       - id: formal-select
         name: Resolve formal selection with conservative old-baseline fallback
@@ -3511,14 +3528,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
+        execution: ${{ fromJSON(needs.select.outputs.workspace_support_signer_only == 'true' && '["signer-image"]' || needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 35
     permissions:
       contents: read
       packages: read
     container:
-      image: ${{ matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2' || '' }}
+      image: ${{ matrix.execution == 'signer-image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f' || matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2' || '' }}
+      options: ${{ matrix.execution == 'signer-image' && '--user 1001:1001' || '' }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -3535,6 +3553,8 @@ jobs:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ matrix.execution == 'signer-image' && format('{0}/oasis7-node-mold', runner.temp) || '' }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
@@ -3542,7 +3562,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Trust the checked-out workspace path in the job container
-        if: matrix.execution == 'image'
+        if: matrix.execution != 'host'
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Verify the host process identity
         if: matrix.execution == 'host'
@@ -3553,10 +3573,28 @@ jobs:
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
+      - name: Verify the non-root signer execution plan
+        if: matrix.execution == 'signer-image'
+        env:
+          SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = 1001:1001
+          python3 - "$RUNNER_TEMP/selection.json" "$SELECTION_SHA256" <<'PYTHON'
+          import hashlib, json, sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_bytes()
+          if hashlib.sha256(raw).hexdigest() != sys.argv[2]:
+              raise SystemExit('non-root signer lane received a different selection artifact')
+          plan = json.loads(raw)
+          if plan.get('scope') != 'targeted' or plan.get('workspace_support_profiles') != ['oasis7_local_signer']:
+              raise SystemExit('non-root signer lane requires an exact targeted signer selection')
+          PYTHON
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: matrix.execution != 'signer-image'
         with:
           node-version: '22'
       - name: Install pinned Rust toolchains
@@ -3569,11 +3607,15 @@ jobs:
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
       - name: Verify the preinstalled Rust toolchains
-        if: matrix.execution == 'image'
+        if: matrix.execution != 'host'
+        env:
+          SUPPORT_EXECUTION: ${{ matrix.execution }}
         run: |
           set -euo pipefail
-          zstd --version
-          ps -o pid= -p "$$"
+          if [[ "$SUPPORT_EXECUTION" == image ]]; then
+            zstd --version
+            ps -o pid= -p "$$"
+          fi
           rustc +"$RUST_TOOLCHAIN" -vV
           rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
           cargo +"$RUST_TOOLCHAIN" clippy --version
@@ -3601,6 +3643,14 @@ jobs:
         with:
           save-if: false
           shared-key: ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: matrix.execution == 'signer-image'
+        with:
+          save-if: false
+          shared-key: ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -3680,6 +3730,10 @@ jobs:
             if [[ -n "${WORKER_TOOL_ROOT:-}" ]]; then
               export PATH="$WORKER_TOOL_ROOT/bin:$PATH"
             fi
+          fi
+          if [[ "$SUPPORT_EXECUTION" == signer-image ]]; then
+            # Reuse the original host profile filter without host provisioning.
+            SUPPORT_EXECUTION=host
           fi
           support_capacity_snapshot after-native-libraries
           bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION" --support-execution "$SUPPORT_EXECUTION"

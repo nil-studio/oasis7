@@ -42,6 +42,8 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
+当可信 fast 计划采用 direct gate、未改动测试策略且 other 分区只选择 `oasis7_local_signer` 时，`workspace-support-other` 只启动 `signer-image` 分片。该分片校验 selection artifact 摘要，以 UID/GID 1001 执行原 `--lib` 和 `--test context_cli --locked`，保留文件权限拒绝语义。它复用 Node Rust 分片的固定镜像、mold 安装路径和只读依赖缓存身份。全量、旧计划和混合选择继续使用原 host/image 路由，`oasis7_game_client` 的跨 UID 验证保留在宿主。
+
 快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan-file <selection.json>`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
 
 完整 `selection.json` 保留可信 planner 生成的全部字段、逐路径原因和检查库存，通过本轮既有 selection artifact 传递。执行器、架构检查、preview 与最终门禁读取同一完整文件；文件路径贯穿 shell 和 Python，不再将整份计划装入环境变量或操作系统进程参数。旧 JSON 参数接口继续兼容，文件接口共用原有选组、版本、profile、partition、feature 和来源校验；缺失或无效计划必须失败。批量删除或长路径令诊断数据超过单个进程参数限制时，仍执行原定全部检查，不截断完整证据或缩减覆盖。
