@@ -27,13 +27,13 @@ use oasis7_distfs::incremental_page_store::{
 use oasis7_formal_protocol::incremental_state::{
     MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1, StateWriteV1,
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 use oasis7_formal_protocol::provider_material::{
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
     ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
     ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1, ProviderPendingRootsPageV1,
     ProviderPendingStateRootsV1,
 };
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 
 use super::provider_original_store_codec::{
     EventPhase, EventRecord, MAX_EVENT_BYTES, MAX_EVENTS, MAX_OPERATION_ID_BYTES,
