@@ -24,6 +24,7 @@ WORKFLOW = '.github/workflows/rust.yml'
 WRITERS = {'ordinary': 'oasis7-test-build-trusted', 'formal': 'formal-test-build-trusted',
            'formal-debug': 'formal-debug-build-trusted', 'formal-endpoint': 'formal-endpoint-build-trusted'}
 VERSIONS = {'ordinary': 'v1', 'formal': 'v3', 'formal-debug': 'v1', 'formal-endpoint': 'v1'}
+ORDINARY_STABLE_IDENTITY = True
 
 
 def load(name, filename):
@@ -49,15 +50,25 @@ def identity(scope):
         ['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1'], cwd=ROOT, text=True))
     # Hash effective compiler inputs and restore semantics, not orchestration
     # or capacity policy. Writer authorization still checks WORKFLOW separately.
+    # For `ordinary` scope, avoid hashing unrelated Formal suite config, the
+    # full ci-test-artifacts.py script (tracked via CACHE_SCHEMA instead), or
+    # workspace-member Cargo.toml contents (tracked by path list here while
+    # cache_restore refreshes mtimes for modified manifests so Cargo safely
+    # recompiles affected crates).
     files = {'Cargo.toml', 'Cargo.lock', 'scripts/ci-workspace-cache.py',
-             'scripts/ci-cache-archive.py', 'scripts/ci-test-artifacts.py',
-             'scripts/ci-formal-process-suites.json', 'scripts/ci-rust-cache-toolchains.py'}
-    files.update(str(Path(package['manifest_path']).relative_to(ROOT)) for package in metadata['packages'])
+             'scripts/ci-cache-archive.py', 'scripts/ci-rust-cache-toolchains.py'}
+    member_manifests = sorted(
+        str(Path(package['manifest_path']).relative_to(ROOT)) for package in metadata['packages'])
+    if scope != 'ordinary':
+        files.update(('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json'))
+        files.update(member_manifests)
     files.update(str(path.relative_to(ROOT)) for path in (ROOT / '.cargo').rglob('*') if path.is_file())
     files.update(name for name in ('rust-toolchain', 'rust-toolchain.toml') if (ROOT / name).is_file())
     env = units.build_environment(scope)
     wasm = env.get('OASIS7_WASM_TOOLCHAIN')
     configuration = dict(scope=scope, selection='libraries' if scope == 'ordinary' else 'all',
+        cache_schema=units.CACHE_SCHEMA,
+        member_manifests=member_manifests,
         platform=dict(os=platform.system(), arch=platform.machine(), image=env.get('ImageOS')),
         rustc=subprocess.check_output(['rustc', '-vV'], cwd=ROOT, text=True),
         cargo=subprocess.check_output(['cargo', '-V'], cwd=ROOT, text=True),
