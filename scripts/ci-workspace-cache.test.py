@@ -112,6 +112,17 @@ class Workspace(unittest.TestCase):
                  patch.dict(os.environ, {'OASIS7_WASM_TOOLCHAIN': 'nightly-2025-12-11'}, clear=True):
                 original = cache.identity('ordinary')
                 self.assertTrue(cache.current_key('ordinary', original['key']))
+                image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=image):
+                    image_key = cache.identity('ordinary')['prefix']
+                    self.assertNotEqual(image_key, original['prefix'])
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=image[:-1] + 'b'):
+                    self.assertNotEqual(cache.identity('ordinary')['prefix'], image_key)
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE='rust-build:latest'):
+                    with self.assertRaisesRegex(ValueError, 'fixed Rust image'):
+                        cache.identity('ordinary')
+                self.assertEqual(cache.identity('ordinary')['prefix'], original['prefix'])
+
                 self.assertNotEqual(cache.identity('formal')['prefix'], original['prefix'])
                 source[0] = 'c' * 40
                 (root / 'src/lib.rs').write_text('modified source')

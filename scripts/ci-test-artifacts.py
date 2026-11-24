@@ -1781,6 +1781,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
         runner_image=os.environ.get('ImageOS', sys.platform), checkout=str(ROOT), binaries=binaries,
         config_sha256=digest(CONFIG), build_timings=timings)
+    if scope == 'ordinary' and os.environ.get('ORDINARY_BUILD_IMAGE'):
+        manifest['image'] = ordinary_build_image()
     if fast_plan(plan) is not None:
         manifest['execution_plan'] = plan
     if ordinary_partition is not None:
@@ -1887,6 +1889,13 @@ def formal_component_targets(scope):
     if not expected:
         raise ValueError('Formal component has no selected Cargo targets')
     return expected
+
+
+def ordinary_build_image():
+    image = os.environ.get('ORDINARY_BUILD_IMAGE', '')
+    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}', image):
+        raise ValueError('ordinary build requires a fixed Rust image digest')
+    return image
 
 
 def storage_build_image():

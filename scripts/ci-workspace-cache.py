@@ -69,6 +69,8 @@ def identity(scope):
                                     'LDFLAGS', 'LIBRARY_PATH', 'CPATH'))
                      and key not in ('CARGO_BUILD_JOBS', 'CARGO_TERM_COLOR', 'CARGO_NET_RETRY')},
         files={name: units.digest(ROOT / name) for name in sorted(files)})
+    if scope == 'ordinary' and os.environ.get('ORDINARY_BUILD_IMAGE'):
+        configuration['image'] = units.ordinary_build_image()
     digest = hashlib.sha256(json.dumps(configuration, sort_keys=True).encode()).hexdigest()
     source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if not re.fullmatch('[0-9a-f]{40}', source):

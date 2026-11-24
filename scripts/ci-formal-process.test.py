@@ -3105,10 +3105,12 @@ pub fn mark(name: &str) {
             ordinary_harness_costs=TargetedArtifactPartitions.costs([
                 dict(package='oasis7_chain_runtime', target_kind='test', target_name='process',
                      variant='required', mode='batch', selector='', elapsed_ms=5000)]))
+        cls.image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64
         cls.bundle, cls.consumer = cls.root / 'bundle', cls.root / 'consumer'
         with patch.object(artifacts, 'ROOT', cls.root), patch.object(artifacts, 'CONFIG', cls.config), \
              patch.dict(os.environ, SOURCE_SHA=cls.sha):
-            artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
+            with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=cls.image):
+                artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
             archive = cls.root / 'ordinary.tar.gz'
             artifacts.pack(cls.bundle, archive, suite='ordinary', plan=cls.selected)
         cls.consumer.mkdir()
@@ -3127,6 +3129,9 @@ pub fn mark(name: &str) {
         return stack
 
     def test_real_build_pack_load_and_four_owners_equal_the_original_complete_execution(self):
+        self.assertEqual(json.loads((self.bundle / 'manifest.json').read_text())['image'], self.image)
+        self.assertEqual(json.loads((self.consumer / 'manifest.json').read_text())['image'], self.image)
+        self.assertNotIn('ORDINARY_BUILD_IMAGE', os.environ)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             baseline, partitioned = root / 'baseline', root / 'partitioned'
