@@ -532,6 +532,70 @@ print(json.dumps(result))
         self.assertFalse(node["profile_readiness"]["can_propose"])
         self.assertIn("2" * 64, markdown)
 
+    def test_controlled_signed_receipt_scope_refusal_and_cold_report_recovery(self):
+        # The selected shipping verifier owns authentication. The report must
+        # never promote its diagnostic receipt into protected P/R authority.
+        inventory = self.controlled_inventory_fixture()
+        runtime = self.fixture.root / "fixture-status-verifier"
+        original = runtime.read_text()
+        options = ["--controlled-status-inventory", str(inventory)]
+        child = load("controlled_receipt_recovery_reader", "p2p-triad-http-profile.py")
+
+        def collect(extra):
+            runtime.write_text(original.replace("print(json.dumps(result))",
+                "import time\\n" + extra + "\\nprint(json.dumps(result))"))
+            process = self.fixture.start(self.env, options)
+            out, err = process.communicate(timeout=20)
+            report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+            markdown = (self.fixture.out / "latest_summary.md").read_text()
+            return process.returncode, report["nodes"]["local_node"], markdown, (out, err)
+
+        receipt = (
+            'result["authenticated_status_receipt_sha256"] = "4" * 64\\n'
+            'result["authenticated_status_verified_at_unix_ms"] = time.time_ns() // 1_000_000'
+        )
+        code, node, markdown, output = collect(receipt)
+        self.assertEqual(code, 0, output)
+        profile = node["profile_readiness"]
+        verified = profile["authenticated_status_verified_at_unix_ms"]
+        self.assertEqual(profile["authenticated_status_receipt_sha256"], "4" * 64)
+        self.assertEqual(profile["observed_at_unix_ms"], verified)
+        self.assertEqual(profile["authority_qualification"], "unknown")
+        self.assertFalse(profile["can_propose"])
+        self.assertIn("4" * 64, markdown)
+        self.assertNotIn("DO_NOT_COPY", markdown)
+        stale = child.refresh_node(node, verified + child.adapter.MAX_AGE_MS + 1)["profile_readiness"]
+        self.assertEqual(stale["source_freshness"], "stale")
+        self.assertEqual(stale["observed_at_unix_ms"], verified)
+        self.assertFalse(stale["can_propose"])
+
+        for mutation in (
+            'result["node_id"] = "wrong-host"',
+            'result["world"]["world_id"] = "wrong-world"',
+            'result["authority_qualification"] = "qualified"',
+            'result["host_reports_ready"] = False',
+            'result["authenticated_status_verified_at_unix_ms"] += 60_000',
+        ):
+            with self.subTest(mutation=mutation):
+                rc, rejected, markdown, output = collect(receipt + "\\n" + mutation)
+                self.assertEqual(rc, 1, output)
+                self.assertFalse(rejected["profile_collection"]["complete"])
+                self.assertEqual(rejected["profile_readiness"]["status"], "unknown")
+                self.assertFalse(rejected["profile_readiness"]["can_propose"])
+                self.assertNotIn("4" * 64, json.dumps(rejected) + markdown)
+                self.assertNotIn("DO_NOT_COPY", json.dumps(rejected) + markdown)
+
+        recovered_receipt = receipt.replace('"4" * 64', '"5" * 64')
+        rc, recovered, markdown, output = collect(recovered_receipt)
+        self.assertEqual(rc, 0, output)
+        self.assertTrue(recovered["profile_collection"]["complete"])
+        profile = recovered["profile_readiness"]
+        self.assertEqual(profile["authenticated_status_receipt_sha256"], "5" * 64)
+        self.assertEqual(profile["authority_qualification"], "unknown")
+        self.assertFalse(profile["can_propose"])
+        self.assertNotIn("4" * 64, json.dumps(recovered) + markdown)
+        self.assertIn("5" * 64, markdown)
+
     def test_controlled_verifier_stdout_is_bounded_before_collection_and_recovers(self):
         inventory = self.controlled_inventory_fixture()
         runtime = self.fixture.root / "fixture-status-verifier"
