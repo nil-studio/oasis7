@@ -1,7 +1,12 @@
 //! Concrete Viewer JSON adaptation. Callers own visibility, framing and transport.
 use std::io::Write;
 
+#[cfg(target_arch = "wasm32")]
 use oasis7::simulator::{WorldEvent, WorldSnapshot};
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;
 use oasis7_proto::viewer as proto;
 use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};
 
