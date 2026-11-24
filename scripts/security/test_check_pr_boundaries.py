@@ -29,6 +29,10 @@ class PrBoundaryGateTests(unittest.TestCase):
         self.write("crates/oasis7_world_state/src/lib.rs", "pub fn state_v1() {}\n")
         self.write("crates/oasis7_viewer/src/lib.rs", "pub fn viewer_v1() {}\n")
         self.write("crates/oasis7_runtime/src/lib.rs", "pub fn runtime_v1() {}\n")
+        self.write(
+            "fixtures/staged_template.rs",
+            "\n".join(f"pub fn staged_{i}() {{}}" for i in range(180)) + "\n",
+        )
         self.git("add", ".")
         self.git("commit", "-m", "initial main")
         self.git("update-ref", "refs/remotes/origin/main", "HEAD")
@@ -91,8 +95,8 @@ class PrBoundaryGateTests(unittest.TestCase):
         self.git("commit", "--allow-empty", "-m", "chore: lock scope contract")
         body = (
             "## Boundary Metadata (Machine-Checked)\n"
-            "- Slice-Type: Dark <!-- Dark | Adapter | Cutover -->\n"
-            "- Allowed-Crates: oasis7_simulator, oasis7_world_state <!-- whitelist -->\n"
+            "- Slice-Type: Dark <!-- Dark -> Adapter -> Cutover -->\n"
+            "- Allowed-Crates: oasis7_simulator, oasis7_world_state <!-- L1 -> L2 -->\n"
             "- Active-Path-Impact: <!-- filled once code lands -->\n"
         )
         res = self.run_gate(
@@ -106,15 +110,27 @@ class PrBoundaryGateTests(unittest.TestCase):
         self.assertIn("Zero-diff Contract Draft PR verified", res.stdout)
         self.assertIn("Slice: Dark", res.stdout)
 
+        # Missing Allowed-Crates fails even on zero-diff Draft
         missing_whitelist = self.run_gate(
             env_overrides={
                 "GITHUB_ACTIONS": "true",
                 "PR_TITLE": "[Slice: Dark] feat(sim): missing whitelist",
-                "PR_BODY": "- Slice-Type: Dark\n- Allowed-Crates: <!-- empty -->\n",
+                "PR_BODY": "- Slice-Type: Dark\n- Allowed-Crates: <!-- L1 -> L2 -->\n",
             }
         )
         self.assertNotEqual(missing_whitelist.returncode, 0)
         self.assertIn("Missing 'Allowed-Crates:' scope contract", missing_whitelist.stderr)
+
+        # Invalid upfront ring jump (L0 + L3) in Allowed-Crates fails even on zero-diff Draft
+        bad_contract = self.run_gate(
+            env_overrides={
+                "GITHUB_ACTIONS": "true",
+                "PR_TITLE": "[Slice: Dark] feat: invalid contract rings",
+                "PR_BODY": "- Slice-Type: Dark\n- Allowed-Crates: oasis7_proto, oasis7_viewer\n",
+            }
+        )
+        self.assertNotEqual(bad_contract.returncode, 0)
+        self.assertIn("Declared Allowed-Crates spans L0 -> L3", bad_contract.stderr)
 
     def test_2_valid_whitelisted_adjacent_ring_changes_pass_and_ignore_locks(self) -> None:
         self.git("checkout", "-b", "task/valid-dark-slice")
@@ -126,6 +142,8 @@ class PrBoundaryGateTests(unittest.TestCase):
             "crates/oasis7_world_state/src/new_state.rs",
             "\n".join(f"pub const S_{i}: usize = {i};" for i in range(30)) + "\n",
         )
+        # Intra-codebase pure file rename within allowed crate should add 0 churn
+        self.git("mv", "crates/oasis7_simulator/src/lib.rs", "crates/oasis7_simulator/src/lib_moved.rs")
         # Lockfiles and fixtures should be excluded from effective line churn
         self.write(
             "Cargo.lock",
@@ -151,7 +169,7 @@ class PrBoundaryGateTests(unittest.TestCase):
         self.assertIn("oasis7_world_state(L2)", res.stdout)
         self.assertIn("[PASS] PR boundaries and scope-lock contract within safe limits.", res.stdout)
 
-    def test_3_out_of_whitelist_crate_and_rename_trigger_scope_drift(self) -> None:
+    def test_3_out_of_whitelist_crate_rename_and_non_ascii_paths_trigger_scope_drift(self) -> None:
         self.git("checkout", "-b", "task/scope-drift")
         self.write("crates/oasis7_simulator/src/lib.rs", "pub fn sim_v2() {}\n")
         self.write("crates/oasis7_world_state/src/lib.rs", "pub fn state_v2() {}\n")
@@ -168,12 +186,52 @@ class PrBoundaryGateTests(unittest.TestCase):
         self.assertIn("Scope Drift Detected! Touched crate 'oasis7_world_state'", res.stderr)
         self.assertIn("[CIRCUIT BREAKER TRIGGERED]", res.stderr)
 
-        # Also verify Allowed-Crates: none rejects any crate modification
+        # Allowed-Crates: none rejects any crate modification
         none_res = self.run_gate("--slice", "Chore", "--allowed-crates", "none")
         self.assertNotEqual(none_res.returncode, 0)
         self.assertIn("Scope Drift Detected!", none_res.stderr)
 
-    def test_4_non_adjacent_rings_and_cutover_loc_cap_trigger_circuit_breaker(self) -> None:
+        # Cross-directory git mv into an unapproved crate must still detect Scope Drift
+        self.git("checkout", "main")
+        self.git("checkout", "-b", "task/rename-drift")
+        (self.repo / "crates/oasis7_world_state/moved").mkdir(parents=True, exist_ok=True)
+        self.git(
+            "mv",
+            "crates/oasis7_simulator/src/lib.rs",
+            "crates/oasis7_world_state/moved/from_sim.rs",
+        )
+        self.git("commit", "-m", "refactor: move file into unapproved crate")
+        mv_res = self.run_gate(
+            "--slice",
+            "Dark",
+            "--allowed-crates",
+            "oasis7_simulator",
+        )
+        self.assertNotEqual(mv_res.returncode, 0)
+        self.assertIn("Scope Drift Detected! Touched crate 'oasis7_world_state'", mv_res.stderr)
+
+        # Non-ASCII path under crates/* (where default core.quotePath=true C-quotes output)
+        # must still enforce both [Slice: Docs] ban and Allowed-Crates Scope Drift!
+        self.git("checkout", "main")
+        self.git("checkout", "-b", "task/non-ascii-crate-path")
+        self.write("crates/oasis7_viewer/assets/图标 资源.svg", "<svg/>\n")
+        self.git("add", ".")
+        self.git("commit", "-m", "feat: add non-ascii viewer asset")
+
+        docs_utf8 = self.run_gate("--slice", "Docs", "--allowed-crates", "none")
+        self.assertNotEqual(docs_utf8.returncode, 0)
+        self.assertIn("[Slice: Docs] cannot modify Rust/Viewer crate files", docs_utf8.stderr)
+
+        drift_utf8 = self.run_gate(
+            "--slice",
+            "Dark",
+            "--allowed-crates",
+            "oasis7_world_service",
+        )
+        self.assertNotEqual(drift_utf8.returncode, 0)
+        self.assertIn("Scope Drift Detected! Touched crate 'oasis7_viewer'", drift_utf8.stderr)
+
+    def test_4_non_adjacent_rings_and_cutover_loc_cap_and_fixture_rename_bypass_blocked(self) -> None:
         # Case 4a: L1 (oasis7_runtime) + L3 (oasis7_viewer) -> ring span 2 > 1
         self.git("checkout", "-b", "task/ring-jump")
         self.write("crates/oasis7_runtime/src/lib.rs", "pub fn runtime_v2() {}\n")
@@ -188,7 +246,14 @@ class PrBoundaryGateTests(unittest.TestCase):
             "oasis7_runtime,oasis7_viewer",
         )
         self.assertNotEqual(ring_res.returncode, 0)
-        self.assertIn("Architecture ring jump too wide: L1 -> L3 (span 2 > 1)", ring_res.stderr)
+        self.assertIn(
+            "Declared Allowed-Crates spans L1 -> L3",
+            ring_res.stderr,
+        )
+        # Also verify actual touched-crate ring span check when unconstrained locally
+        ring_local = self.run_gate("--slice", "Adapter")
+        self.assertNotEqual(ring_local.returncode, 0)
+        self.assertIn("Architecture ring jump too wide: L1 -> L3 (span 2 > 1)", ring_local.stderr)
 
         # Case 4b: Cutover > 150 lines rejected
         self.git("checkout", "main")
@@ -209,19 +274,29 @@ class PrBoundaryGateTests(unittest.TestCase):
         self.assertNotEqual(cutover_res.returncode, 0)
         self.assertIn("exceeds 'Cutover' cap (150)", cutover_res.stderr)
 
-        # Case 4c: > 3 crates rejected even within adjacent rings
+        # Case 4c: Moving 180-line file out of excluded fixtures/* into crates/* must count full 180 lines
+        self.git("checkout", "main")
+        self.git("checkout", "-b", "task/fixture-to-crate-move")
+        self.git("mv", "fixtures/staged_template.rs", "crates/oasis7_runtime/src/from_fixture.rs")
+        self.git("commit", "-m", "feat: move staged fixture into active crate")
+        fixture_mv_res = self.run_gate(
+            "--slice",
+            "Cutover",
+            "--allowed-crates",
+            "oasis7_runtime",
+        )
+        self.assertNotEqual(fixture_mv_res.returncode, 0)
+        self.assertIn("Effective Churn : 180 lines", fixture_mv_res.stdout)
+        self.assertIn("exceeds 'Cutover' cap (150)", fixture_mv_res.stderr)
+
+        # Case 4d: > 3 crates rejected even within adjacent rings
         self.git("checkout", "main")
         self.git("checkout", "-b", "task/too-many-crates")
         for crate in ("oasis7_proto", "oasis7_node", "oasis7_net", "oasis7_consensus"):
             self.write(f"crates/{crate}/src/extra.rs", "pub const X: u8 = 1;\n")
         self.git("add", ".")
         self.git("commit", "-m", "feat: touch 4 crates")
-        crates_res = self.run_gate(
-            "--slice",
-            "Dark",
-            "--allowed-crates",
-            "oasis7_proto,oasis7_node,oasis7_net,oasis7_consensus",
-        )
+        crates_res = self.run_gate("--slice", "Dark")
         self.assertNotEqual(crates_res.returncode, 0)
         self.assertIn("Touched 4 workspace crates (limit: 3)", crates_res.stderr)
 
@@ -233,12 +308,7 @@ class PrBoundaryGateTests(unittest.TestCase):
         self.git("commit", "-m", "chore: mechanical cross-ring rename")
 
         # Without override -> fails ring jump (L0 -> L3)
-        blocked = self.run_gate(
-            "--slice",
-            "Chore",
-            "--allowed-crates",
-            "oasis7_proto,oasis7_viewer",
-        )
+        blocked = self.run_gate("--slice", "Chore")
         self.assertNotEqual(blocked.returncode, 0)
 
         # With pr-boundary-override label -> passes with maintainer override warning

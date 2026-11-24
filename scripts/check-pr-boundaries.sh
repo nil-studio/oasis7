@@ -65,8 +65,15 @@ extract_body_field() {
     {
       line = $0
       sub(/\r$/, "", line)
-      while (match(line, /<!--[^>]*-->/)) {
-        line = substr(line, 1, RSTART - 1) substr(line, RSTART + RLENGTH)
+      while ((s = index(line, "<!--")) > 0) {
+        rest_comment = substr(line, s + 4)
+        e = index(rest_comment, "-->")
+        if (e > 0) {
+          line = substr(line, 1, s - 1) substr(rest_comment, e + 3)
+        } else {
+          line = substr(line, 1, s - 1)
+          break
+        }
       }
       trimmed = line
       sub(/^[-[:space:]*]+/, "", trimmed)
@@ -83,6 +90,43 @@ extract_body_field() {
       }
     }
   '
+}
+
+is_excluded_churn_path() {
+  case "$1" in
+    Cargo.lock|*/Cargo.lock|*package-lock.json|*pnpm-lock.yaml|skills-lock.json|*.snap) return 0 ;;
+    fixtures/*|doc/testing/evidence/*|vendor/*|third_party/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+crate_to_ring() {
+  case "$1" in
+    oasis7_proto|oasis7_node|oasis7_net|oasis7_consensus|oasis7_distfs|\
+    oasis7_domain_types|oasis7_formal_protocol|oasis7_cas|oasis7_context|\
+    oasis7_custody_core|oasis7_local_signer|oasis7_secure_envelope|\
+    oasis7_signer_protocol|oasis7_observability)
+      echo 0
+      ;;
+    oasis7|oasis7_simulator|oasis7_runtime|oasis7_wasm_*|\
+    oasis7_builtin_wasm_modules|oasis7_executable_image|oasis7_runtime_host)
+      echo 1
+      ;;
+    oasis7_world_state|oasis7_world_projection|oasis7_world_service|\
+    oasis7_chain_runtime|oasis7_custody_worker|oasis7_dev_test_worker|\
+    oasis7_hosted_access|oasis7_letai_credit_adapter|\
+    oasis7_newapi_bridge_service|oasis7_provider_local_bridge)
+      echo 2
+      ;;
+    oasis7_agent_*|oasis7_model_provider|oasis7_client_*|oasis7_game_client|\
+    oasis7_browser_game_client|oasis7_launcher_*|oasis7_ops_tools|\
+    oasis7_protocol_tools|oasis7_provider_tools|oasis7_viewer*|pixel_world_bridge)
+      echo 3
+      ;;
+    *)
+      echo -1
+      ;;
+  esac
 }
 
 # 1. Human Escape Hatch & Bot Exemption
@@ -110,7 +154,7 @@ if ! git rev-parse --verify "${HEAD_REF}^{commit}" >/dev/null 2>&1; then
   exit 1
 fi
 
-MERGE_BASE="$(git merge-base "$BASE_REF" "$HEAD_REF")"
+MERGE_BASE="$(git merge-base -- "$BASE_REF" "$HEAD_REF")"
 
 # 2. Parse Slice-Type & Allowed-Crates Contract
 SLICE_TYPE=""
@@ -175,8 +219,88 @@ if [[ -n "${GITHUB_ACTIONS:-}" && "$SLICE_TYPE" =~ ^(Dark|Adapter|Cutover|Bugfix
   exit 1
 fi
 
-# 3. Zero-Diff Contract Draft PR Short-Circuit (Empty Commit Scope-Lock Mode)
-CHANGED_FILES_COUNT="$(git diff --name-only --no-renames "${MERGE_BASE}...${HEAD_REF}" | wc -l | tr -d '[:space:]')"
+# Configure Thresholds per Slice Type
+MAX_CRATES="${MAX_CRATES:-3}"
+MAX_RING_SPAN="${MAX_RING_SPAN:-1}"
+WARN_BEHIND_COMMITS="${WARN_BEHIND_COMMITS:-25}"
+MAX_BEHIND_COMMITS="${MAX_BEHIND_COMMITS:-60}"
+
+case "$SLICE_TYPE" in
+  Dark)       MAX_LOC="${MAX_LOC_DARK:-800}" ;;
+  Adapter)    MAX_LOC="${MAX_LOC_ADAPTER:-600}" ;;
+  Cutover)    MAX_LOC="${MAX_LOC_CUTOVER:-150}" ;;
+  Bugfix)     MAX_LOC="${MAX_LOC_BUGFIX:-400}" ;;
+  Docs|Chore) MAX_LOC="${MAX_LOC_CHORE:-1200}" ;;
+esac
+
+ALLOWED_NORM=""
+if [[ -n "$ALLOWED_CRATES_RAW" ]]; then
+  ALLOWED_COMPACT="$(printf '%s' "$ALLOWED_CRATES_RAW" | tr -d '[:space:]')"
+  ALLOWED_LOWER="$(printf '%s' "$ALLOWED_COMPACT" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$ALLOWED_LOWER" == "none" ]]; then
+    ALLOWED_NORM=",__none__,"
+  else
+    ALLOWED_NORM=",${ALLOWED_COMPACT},"
+    # Validate declared Allowed-Crates upfront (including Zero-Diff Contract Draft PRs)
+    DECLARED_COUNT=0
+    DECLARED_MIN_RING=99
+    DECLARED_MAX_RING=-1
+    DECLARED_SEEN=","
+    OLD_IFS="$IFS"
+    IFS=','
+    set -f
+    for decl_crate in $ALLOWED_COMPACT; do
+      [[ -z "$decl_crate" ]] && continue
+      if [[ "$DECLARED_SEEN" == *",${decl_crate},"* ]]; then
+        continue
+      fi
+      DECLARED_SEEN="${DECLARED_SEEN}${decl_crate},"
+      DECLARED_COUNT=$((DECLARED_COUNT + 1))
+      decl_ring="$(crate_to_ring "$decl_crate")"
+      if (( decl_ring >= 0 )); then
+        (( decl_ring < DECLARED_MIN_RING )) && DECLARED_MIN_RING=$decl_ring
+        (( decl_ring > DECLARED_MAX_RING )) && DECLARED_MAX_RING=$decl_ring
+      fi
+    done
+    set +f
+    IFS="$OLD_IFS"
+    if (( DECLARED_COUNT > MAX_CRATES )); then
+      echo "[FAIL] Declared Allowed-Crates lists ${DECLARED_COUNT} crates (limit: ${MAX_CRATES}). Split across Dark/Adapter/Cutover PRs." >&2
+      exit 1
+    fi
+    if (( DECLARED_MAX_RING >= 0 && DECLARED_MIN_RING <= 3 && (DECLARED_MAX_RING - DECLARED_MIN_RING) > MAX_RING_SPAN )); then
+      echo "[FAIL] Declared Allowed-Crates spans L${DECLARED_MIN_RING} -> L${DECLARED_MAX_RING} (span $((DECLARED_MAX_RING - DECLARED_MIN_RING)) > ${MAX_RING_SPAN})." >&2
+      exit 1
+    fi
+  fi
+fi
+
+# 3. Scan Changed Paths (core.quotePath=false + -z + --no-renames prevents C-quote & rename bypasses)
+CHANGED_FILES_COUNT=0
+TOUCHED_CRATES=()
+while IFS= read -r -d '' path; do
+  [[ -z "$path" ]] && continue
+  CHANGED_FILES_COUNT=$((CHANGED_FILES_COUNT + 1))
+  if [[ "$SLICE_TYPE" == "Docs" && "$path" == crates/* ]]; then
+    echo "[FAIL] [Slice: Docs] cannot modify Rust/Viewer crate files ('$path')." >&2
+    exit 1
+  fi
+  if [[ "$path" =~ ^crates/([^/]+)/ ]]; then
+    crate_name="${BASH_REMATCH[1]}"
+    already_seen=0
+    for existing in ${TOUCHED_CRATES[@]+"${TOUCHED_CRATES[@]}"}; do
+      if [[ "$existing" == "$crate_name" ]]; then
+        already_seen=1
+        break
+      fi
+    done
+    if (( already_seen == 0 )); then
+      TOUCHED_CRATES+=("$crate_name")
+    fi
+  fi
+done < <(git -c core.quotePath=false diff --name-only --no-renames -z "${MERGE_BASE}...${HEAD_REF}")
+
+# Zero-Diff Contract Draft PR Short-Circuit (Empty Commit Scope-Lock Mode)
 if (( CHANGED_FILES_COUNT == 0 )); then
   echo "[PASS] Zero-diff Contract Draft PR verified (Slice: ${SLICE_TYPE}, Allowed-Crates: ${ALLOWED_CRATES_RAW:-unspecified})."
   echo "       Scope is locked; skipping line-churn and staleness checks until code is pushed."
@@ -191,21 +315,12 @@ if [[ -n "${GITHUB_ACTIONS:-}" && "$SLICE_TYPE" =~ ^(Dark|Adapter|Cutover|Bugfix
   fi
 fi
 
-# 4. Configure Thresholds per Slice Type
-MAX_CRATES="${MAX_CRATES:-3}"
-MAX_RING_SPAN="${MAX_RING_SPAN:-1}"
-WARN_BEHIND_COMMITS="${WARN_BEHIND_COMMITS:-25}"
-MAX_BEHIND_COMMITS="${MAX_BEHIND_COMMITS:-60}"
+if [[ -n "${GITHUB_ACTIONS:-}" && "$SLICE_TYPE" == "Chore" && ${#TOUCHED_CRATES[@]} -gt 0 && -z "$ALLOWED_CRATES_RAW" ]]; then
+  echo "[FAIL] [Slice: Chore] touches workspace crates (${TOUCHED_CRATES[*]}) without an explicit 'Allowed-Crates:' contract." >&2
+  exit 1
+fi
 
-case "$SLICE_TYPE" in
-  Dark)       MAX_LOC="${MAX_LOC_DARK:-800}" ;;
-  Adapter)    MAX_LOC="${MAX_LOC_ADAPTER:-600}" ;;
-  Cutover)    MAX_LOC="${MAX_LOC_CUTOVER:-150}" ;;
-  Bugfix)     MAX_LOC="${MAX_LOC_BUGFIX:-400}" ;;
-  Docs|Chore) MAX_LOC="${MAX_LOC_CHORE:-1200}" ;;
-esac
-
-# 5. Staleness / Drift Circuit-Breaker Check
+# 4. Staleness / Drift Circuit-Breaker Check
 BEHIND_COUNT="$(git rev-list --count "${HEAD_REF}..${BASE_REF}")"
 if (( BEHIND_COUNT > MAX_BEHIND_COMMITS )); then
   echo "[FAIL] Branch is ${BEHIND_COUNT} commits behind ${BASE_REF} (limit: ${MAX_BEHIND_COMMITS})." >&2
@@ -215,92 +330,59 @@ elif (( BEHIND_COUNT > WARN_BEHIND_COMMITS )); then
   echo "[WARN] Branch is ${BEHIND_COUNT} commits behind ${BASE_REF}. Rebase or land slice soon to avoid drift."
 fi
 
-# 6. Track Touched Crates (no-renames prevents cross-directory move bypass) & Calculate Effective LOC Churn
-TOUCHED_CRATES_LIST=""
-while IFS= read -r path; do
-  [[ -z "${path:-}" ]] && continue
-  if [[ "$SLICE_TYPE" == "Docs" && "$path" == crates/* ]]; then
-    echo "[FAIL] [Slice: Docs] cannot modify Rust/Viewer crate files ('$path')." >&2
-    exit 1
-  fi
-  if [[ "$path" =~ ^crates/([^/]+)/ ]]; then
-    crate_name="${BASH_REMATCH[1]}"
-    if [[ " $TOUCHED_CRATES_LIST " != *" $crate_name "* ]]; then
-      TOUCHED_CRATES_LIST="${TOUCHED_CRATES_LIST:+$TOUCHED_CRATES_LIST }$crate_name"
-    fi
-  fi
-done < <(git diff --name-only --no-renames "${MERGE_BASE}...${HEAD_REF}")
-
-if [[ -n "${GITHUB_ACTIONS:-}" && "$SLICE_TYPE" == "Chore" && -n "$TOUCHED_CRATES_LIST" && -z "$ALLOWED_CRATES_RAW" ]]; then
-  echo "[FAIL] [Slice: Chore] touches workspace crates ($TOUCHED_CRATES_LIST) without an explicit 'Allowed-Crates:' contract." >&2
-  exit 1
-fi
-
+# 5. Calculate Effective LOC Churn (NUL-delimited -M -z guards cross-exclusion-boundary renames)
 TOTAL_ADDED=0
 TOTAL_DELETED=0
-while IFS=$'\t' read -r added deleted path; do
-  [[ -z "${path:-}" ]] && continue
-  [[ "$added" == "-" || "$deleted" == "-" ]] && continue
-
-  case "$path" in
-    Cargo.lock|*/Cargo.lock|*package-lock.json|*pnpm-lock.yaml|skills-lock.json|*.snap) continue ;;
-    fixtures/*|doc/testing/evidence/*|vendor/*|third_party/*) continue ;;
-  esac
-
-  TOTAL_ADDED=$((TOTAL_ADDED + added))
-  TOTAL_DELETED=$((TOTAL_DELETED + deleted))
-done < <(git diff --numstat -M "${MERGE_BASE}...${HEAD_REF}")
+while IFS= read -r -d '' record; do
+  [[ -z "$record" ]] && continue
+  IFS=$'\t' read -r added deleted path <<< "$record"
+  if [[ -z "$path" ]]; then
+    IFS= read -r -d '' old_path || break
+    IFS= read -r -d '' new_path || break
+    old_excl=0
+    new_excl=0
+    is_excluded_churn_path "$old_path" && old_excl=1
+    is_excluded_churn_path "$new_path" && new_excl=1
+    if (( old_excl == 1 && new_excl == 1 )); then
+      continue
+    elif (( old_excl == 1 && new_excl == 0 )); then
+      # File moved from excluded directory (e.g. fixtures/*) into active tree: count full target lines
+      if git cat-file -e "${HEAD_REF}:${new_path}" 2>/dev/null; then
+        entered_lines="$(git cat-file -p "${HEAD_REF}:${new_path}" | awk 'END { print NR + 0 }')"
+        TOTAL_ADDED=$((TOTAL_ADDED + entered_lines))
+      fi
+      continue
+    elif (( old_excl == 0 && new_excl == 1 )); then
+      # File moved from active tree into excluded path (e.g. *.snap / fixtures/*): count full removed lines
+      if git cat-file -e "${MERGE_BASE}:${old_path}" 2>/dev/null; then
+        removed_lines="$(git cat-file -p "${MERGE_BASE}:${old_path}" | awk 'END { print NR + 0 }')"
+        TOTAL_DELETED=$((TOTAL_DELETED + removed_lines))
+      fi
+      continue
+    fi
+    [[ "$added" == "-" || "$deleted" == "-" ]] && continue
+    TOTAL_ADDED=$((TOTAL_ADDED + added))
+    TOTAL_DELETED=$((TOTAL_DELETED + deleted))
+  else
+    [[ "$added" == "-" || "$deleted" == "-" ]] && continue
+    if is_excluded_churn_path "$path"; then
+      continue
+    fi
+    TOTAL_ADDED=$((TOTAL_ADDED + added))
+    TOTAL_DELETED=$((TOTAL_DELETED + deleted))
+  fi
+done < <(git -c core.quotePath=false diff --numstat -M -z "${MERGE_BASE}...${HEAD_REF}")
 
 TOTAL_CHURN=$((TOTAL_ADDED + TOTAL_DELETED))
 
-# 7. Map Crates to Architecture Rings & Enforce Allowed-Crates Whitelist
-crate_to_ring() {
-  case "$1" in
-    oasis7_proto|oasis7_node|oasis7_net|oasis7_consensus|oasis7_distfs|\
-    oasis7_domain_types|oasis7_formal_protocol|oasis7_cas|oasis7_context|\
-    oasis7_custody_core|oasis7_local_signer|oasis7_secure_envelope|\
-    oasis7_signer_protocol|oasis7_observability)
-      echo 0
-      ;;
-    oasis7|oasis7_simulator|oasis7_runtime|oasis7_wasm_*|\
-    oasis7_builtin_wasm_modules|oasis7_executable_image|oasis7_runtime_host)
-      echo 1
-      ;;
-    oasis7_world_state|oasis7_world_projection|oasis7_world_service|\
-    oasis7_chain_runtime|oasis7_custody_worker|oasis7_dev_test_worker|\
-    oasis7_hosted_access|oasis7_letai_credit_adapter|\
-    oasis7_newapi_bridge_service|oasis7_provider_local_bridge)
-      echo 2
-      ;;
-    oasis7_agent_*|oasis7_model_provider|oasis7_client_*|oasis7_game_client|\
-    oasis7_browser_game_client|oasis7_launcher_*|oasis7_ops_tools|\
-    oasis7_protocol_tools|oasis7_provider_tools|oasis7_viewer*|pixel_world_bridge)
-      echo 3
-      ;;
-    *)
-      echo -1
-      ;;
-  esac
-}
-
+# 6. Map Touched Crates to Architecture Rings & Enforce Allowed-Crates Whitelist
 CRATE_COUNT=0
 MIN_RING=99
 MAX_RING=-1
 RING_SUMMARY=""
 FAILED=0
 
-ALLOWED_NORM=""
-if [[ -n "$ALLOWED_CRATES_RAW" ]]; then
-  ALLOWED_COMPACT="$(printf '%s' "$ALLOWED_CRATES_RAW" | tr -d '[:space:]')"
-  ALLOWED_LOWER="$(printf '%s' "$ALLOWED_COMPACT" | tr '[:upper:]' '[:lower:]')"
-  if [[ "$ALLOWED_LOWER" == "none" ]]; then
-    ALLOWED_NORM=",__none__,"
-  else
-    ALLOWED_NORM=",${ALLOWED_COMPACT},"
-  fi
-fi
-
-for crate in $TOUCHED_CRATES_LIST; do
+for crate in ${TOUCHED_CRATES[@]+"${TOUCHED_CRATES[@]}"}; do
   CRATE_COUNT=$((CRATE_COUNT + 1))
   ring="$(crate_to_ring "$crate")"
   if (( ring >= 0 )); then
