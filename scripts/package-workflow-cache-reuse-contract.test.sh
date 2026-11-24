@@ -268,7 +268,10 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
     if image:
         before_cache = body[:cache.start()]
         if name in ("web", "build-web-dist"):
-            prefix = "ecs-web" if name == "web" else "testnet-web"
+            prefix = {
+                ecs: "ecs-web", testnet: "testnet-web",
+                release: "release-web", mainnet: "mainnet-web",
+            }[workflow]
             assert inputs.get("shared-key") == prefix + "-ci-rust-build-" + image[1]
             assert inputs.get("save-if") == "false" and inputs.get("cache-on-failure") == "false"
             assert inputs.get("add-rust-environment-hash-key") == "true"
@@ -458,7 +461,8 @@ for name in ("release_gate_runtime_core", "release_gate_runtime_support", "relea
         )
     expected = cache_identity(release, name)
     actual = cache_identity(mainnet, name)
-    assert actual == expected, (name, "Mainnet cache identity differs from Release", actual, expected)
+    if name != "build-web-dist":
+        assert actual == expected, (name, "Mainnet cache identity differs from Release", actual, expected)
     assert "save-if: false" in job_body(mainnet, name)
     assert "cache-mode: write" not in job_body(mainnet, name)
     if name in native_gates:
@@ -471,11 +475,22 @@ assert cache_identity(rust, "newapi-bridge-package") == cache_identity(bridge, "
 
 web_identity = cache_identity(native_cache, "web-wasm-cache")
 assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
-for workflow, names in ((release, ("release_gate_web", "build-web-dist")), (mainnet, ("release_gate_web", "build-web-dist")),
+for workflow, names in ((release, ("release_gate_web",)), (mainnet, ("release_gate_web",)),
                         (rust, ("viewer-js-required", "viewer-performance-report"))):
     for name in names:
         assert cache_identity(workflow, name) == web_identity, (name, "Web cache inputs differ")
         assert "save-if: false" in job_body(workflow, name)
+package_readers = [cache_identity(workflow, "build-web-dist") for workflow in (release, mainnet)]
+assert all(reader["image"] for reader in package_readers)
+assert len({reader["image"] for reader in package_readers}) == 1
+assert len({reader["shared-key"] for reader in [*package_readers, web_identity]}) == 3
+for workflow in (release, mainnet):
+    body = job_body(workflow, "build-web-dist")
+    job_mode = values(body.split("    steps:", 1)[0], 4).get("cache-mode")
+    workflow_mode = values(workflow.split("\njobs:\n", 1)[0], 0).get("cache-mode")
+    assert (job_mode or workflow_mode) == "read"
+    assert "dependency-cache-tools" not in body and "OASIS7_DEPENDENCY_CACHE_" not in body
+    assert "actions/cache/save@" not in body and "actions/cache@" not in body
 testnet_web_identity = cache_identity(testnet, "build-web-dist")
 testnet_web_build = job_body(testnet, "build-web-dist")
 assert "save-if: false" in testnet_web_build
@@ -620,12 +635,19 @@ for workflow, names in ((release, (*native_gates, "release_gate_web", "build-web
         guarded = [step for step in steps if normalizer in step or "Swatinem/rust-cache@" in step]
         assert len(guarded) == 2, (name, "one normalizer and one cache expected")
         for step in guarded:
-            assert f"if: hashFiles('{normalizer}') != ''" in step, name
+            guard = f"if: hashFiles('{normalizer}') != ''"
+            if name == "build-web-dist" and workflow in (release, mainnet):
+                guard += " && steps.source-toolchain.outputs.image_toolchain == 'true'"
+                assert re.search(r"^        " + re.escape(guard) + "$", step, re.M), name
+            else:
+                assert guard in step, name
         assert body.index(f"python3 {normalizer}") < body.index("Swatinem/rust-cache@"), name
         keeps_wasm_toolchain = (name in native_gates
                                 or (workflow == ecs and name == "web")
-                                or (workflow == testnet and name == "build-web-dist"
-                                    and testnet_web_identity["image"] is not None))
+                                or (name == "build-web-dist" and (
+                                    workflow in (release, mainnet)
+                                    or workflow == testnet and testnet_web_identity["image"] is not None
+                                )))
         for command in re.findall(r"^\s+(?:run: )?python3 scripts/ci-rust-cache-toolchains.py (.*)$", body, re.M):
             assert ('"$OASIS7_WASM_TOOLCHAIN"' in command) == keeps_wasm_toolchain
 
