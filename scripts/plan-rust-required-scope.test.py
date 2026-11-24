@@ -533,12 +533,7 @@ class Selection(unittest.TestCase):
         old = copy.deepcopy(config)
         old['rules'] = [rule for rule in old['rules']
                              if rule.get('reason') != 'quic_patch_consumers']
-        for path in ('vendor-libp2p-quic-0.14.0/src/connection/connecting.rs',
-                     'vendor-libp2p-quic-0.14.0/src/transport.rs',
-                     'vendor-libp2p-quic-0.14.0/tests/smoke.rs',
-                     'vendor-libp2p-quic-0.14.0/LICENSE',
-                     'vendor-libp2p-quic-0.14.0/.gitignore',
-                     'vendor/libp2p-quic-0.15.0/src/connection/connecting.rs',
+        for path in ('vendor/libp2p-quic-0.15.0/src/connection/connecting.rs',
                      'vendor/libp2p-quic-0.15.0/src/transport.rs',
                      'vendor/libp2p-quic-0.15.0/LICENSE',
                      'vendor/libp2p-quic-0.15.0/.gitignore',
@@ -553,7 +548,8 @@ class Selection(unittest.TestCase):
                 self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
                 with self.assertRaises(selector.UnknownInputsError):
                     selector.select(old, base, head)
-        for path in ('vendor-libp2p-quic-0.15.0/src/transport.rs',
+        for path in ('vendor-libp2p-quic-0.14.0/src/transport.rs',
+                     'vendor-libp2p-quic-0.15.0/src/transport.rs',
                      'vendor/libp2p-quic-0.16.0/src/transport.rs',
                      'vendor/unregistered.json'):
             with self.subTest(path=path):
@@ -564,11 +560,7 @@ class Selection(unittest.TestCase):
 
     def test_fixed_swarm_patch_sources_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('vendor-libp2p-swarm-0.48.0/src/lib.rs',
-                     'vendor-libp2p-swarm-0.48.0/src/outbound_attempt.rs',
-                     'vendor-libp2p-swarm-0.48.0/LICENSE',
-                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
-                     'vendor/libp2p-swarm-0.49.0/src/lib.rs',
+        for path in ('vendor/libp2p-swarm-0.49.0/src/lib.rs',
                      'vendor/libp2p-swarm-0.49.0/LICENSE',
                      'vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json'):
             with self.subTest(path=path):
@@ -577,7 +569,8 @@ class Selection(unittest.TestCase):
                 plan = selector.select(config, base, self.commit())
                 self.assertEqual(plan['scope'], 'targeted')
                 self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
-        for path in ('vendor-libp2p-swarm-0.48.0/unregistered.json',
+        for path in ('vendor-libp2p-swarm-0.48.0/src/lib.rs',
+                     'vendor-libp2p-swarm-0.48.0/unregistered.json',
                      'vendor-libp2p-swarm-0.49.0/src/lib.rs',
                      'vendor-libp2p-swarm-0.49.0/LICENSE',
                      'vendor/libp2p-swarm-0.49.0/unregistered.json',
@@ -591,28 +584,20 @@ class Selection(unittest.TestCase):
 
     def test_rendezvous_patch_inputs_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('vendor-libp2p-rendezvous-0.18.1/src/client.rs',
-                     'vendor-libp2p-rendezvous-0.18.1/src/client/tests.rs',
-                     'vendor-libp2p-rendezvous-0.18.1/LICENSE',
-                     'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
-                     'scripts/libp2p-security-source.test.py',
+        for path in ('scripts/libp2p-security-source.test.py',
                      '.dockerignore', 'docker/wasm-builder/Dockerfile'):
             with self.subTest(path=path):
                 case_base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'network patch input')
                 plan = selector.select(config, case_base, self.commit())
-                expected = ({'net', 'node', 'rust_baseline'} if path.startswith('vendor-')
-                            else {'net'} if path.startswith('scripts/')
+                expected = ({'net'} if path.startswith('scripts/')
                             else {'net', 'packaging_contracts'})
                 self.assertTrue(expected.issubset(plan['groups']))
                 self.assertEqual(plan['scope'], 'targeted')
 
     def test_if_watch_patch_inputs_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('vendor-if-watch-3.2.2/src/linux.rs',
-                     'vendor-if-watch-3.2.2/upstream-source-sha256.json',
-                     'vendor-if-watch-3.2.2/Cargo.toml',
-                     'vendor/if-watch-3.2.2/src/linux.rs',
+        for path in ('vendor/if-watch-3.2.2/src/linux.rs',
                      'vendor/if-watch-3.2.2/upstream-source-sha256.json',
                      'vendor/if-watch-3.2.2/Cargo.toml.orig',
                      'vendor/if-watch-3.2.2/Cargo.toml'):
