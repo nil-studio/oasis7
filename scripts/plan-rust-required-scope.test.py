@@ -5148,8 +5148,9 @@ class CustodyExecutionPlans(unittest.TestCase):
                 self.assertEqual(after['custody_compile_proof_version'], 1)
                 self.assertEqual(after['custody_node_shards'], [0, 1, 2])
                 for field in ('custody_execution_version', 'custody_node_shards',
-                              'custody_compile_proof_version', 'custody_policy_tests_version'):
-                    after.pop(field)
+                              'custody_compile_proof_version', 'custody_policy_tests_version',
+                              'workspace_support_direct_gate_version'):
+                    after.pop(field, None)
                 self.assertEqual(after, before)
 
     def test_policy_partition_requires_trusted_and_fixed_tested_capabilities(self):
@@ -8796,6 +8797,57 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         dup_head = self.commit()
         self.assertEqual(selector.select(self.config, fast_head, dup_head, profile='pr-fast')['scope'], 'full')
 
+    def test_ordinary_scope_config_slice_v2_narrows_additive_and_retired_rules_safely(self):
+        # 1) Adding a non-empty, non-full rule (e.g. PR #6768 operational script registration) stays targeted
+        added_cfg = copy.deepcopy(self.config)
+        added_cfg['rules'].append({
+            'match': ['scripts/release-candidate-bundle.sh'],
+            'groups': ['operational_contracts'],
+            'reason': 'release_candidate_bundle_operational_contract',
+        })
+        self.write('scripts/ci-required-scope.json', json.dumps(added_cfg))
+        added_head = self.commit()
+        plan = selector.select(self.config, self.base, added_head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(
+            set(plan['groups']),
+            {'baseline', 'workflow_governance', 'operational_contracts', 'fleet_health', 'windows_rollout'},
+        )
+        self.assertFalse(plan['test_policy_changed'])
+
+        # 2) Under v1 config, any rules edit still conservatively falls back to full
+        v1_policy = copy.deepcopy(self.config)
+        v1_policy['ordinary_scope_config_slice_version'] = 1
+        self.assertEqual(selector.select(v1_policy, self.base, added_head, profile='pr-fast')['scope'], 'full')
+
+        # 3) Removing a rule that matches zero tracked files in both trees stays targeted
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        removed_head = self.commit()
+        plan = selector.select(added_cfg, added_head, removed_head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+
+        # 4) Removing a rule that matches an existing tracked file falls back to full
+        self.write('scripts/release-candidate-bundle.sh', '#!/usr/bin/env bash\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(added_cfg))
+        active_base = self.commit()
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        active_removed = self.commit()
+        self.assertEqual(selector.select(added_cfg, active_base, active_removed, profile='pr-fast')['scope'], 'full')
+
+        # 5) Adding a rule with empty groups (silent ignore) or reordering rules falls back to full
+        empty_groups_cfg = copy.deepcopy(self.config)
+        empty_groups_cfg['rules'].append({'match': ['untracked-candidate/**'], 'groups': [], 'reason': 'ignore'})
+        self.write('scripts/ci-required-scope.json', json.dumps(empty_groups_cfg))
+        empty_head = self.commit()
+        self.assertEqual(selector.select(self.config, active_removed, empty_head, profile='pr-fast')['scope'], 'full')
+
+        reordered_cfg = copy.deepcopy(self.config)
+        reordered_cfg['rules'] = list(reversed(reordered_cfg['rules']))
+        self.write('scripts/ci-required-scope.json', json.dumps(reordered_cfg))
+        reordered_head = self.commit()
+        self.assertEqual(selector.select(self.config, active_removed, reordered_head, profile='pr-fast')['scope'], 'full')
+
     def test_standalone_non_workspace_cargo_manifests_scope_to_owners_and_keep_root_or_patch_full(self):
         cases = {
             'tools/oasis7-command-center/Cargo.toml': (
@@ -8870,12 +8922,12 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
                 selector.validate_config(bad)
 
     def test_workspace_support_direct_gate_capability_emits_only_for_non_custody_image_profiles(self):
-        # Image-only non-custody support crate (oasis7_context) -> direct gate v1 emitted
+        # Live config (v2): image-only non-custody support crate (oasis7_context) -> direct gate v2 emitted
         self.write('crates/oasis7_context/src/lib.rs', 'pub fn changed() {}\n')
         ctx_head = self.commit()
         plan = selector.select(self.config, self.base, ctx_head, profile='pr-fast')
         self.assertEqual(plan['workspace_support_partitions'], ['other'])
-        self.assertEqual(plan.get('workspace_support_direct_gate_version'), 1)
+        self.assertEqual(plan.get('workspace_support_direct_gate_version'), 2)
         self.assertNotIn('custody_execution_version', plan)
 
         # Host-requiring support crate (oasis7_local_signer) -> direct gate NOT emitted
@@ -8885,13 +8937,22 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         signer_plan = selector.select(self.config, self.base, signer_head, profile='pr-fast')
         self.assertNotIn('workspace_support_direct_gate_version', signer_plan)
 
-        # Custody crate -> custody_execution_version=1, direct gate NOT emitted
+        # Live config (v2): custody crate -> custody_execution_version=1 AND direct gate v2 emitted
         self.git('checkout', '-q', self.base)
         self.write('crates/oasis7_custody_worker/src/lib.rs', 'pub fn changed() {}\n')
         custody_head = self.commit()
         custody_plan = selector.select(self.config, self.base, custody_head, profile='pr-fast')
         self.assertEqual(custody_plan.get('custody_execution_version'), 1)
-        self.assertNotIn('workspace_support_direct_gate_version', custody_plan)
+        self.assertEqual(custody_plan.get('workspace_support_direct_gate_version'), 2)
+
+        # Policy v1 compatibility: emits 1 for non-custody other-only, omits for custody-split
+        v1_config = copy.deepcopy(self.config)
+        v1_config['workspace_support_direct_gate_version'] = 1
+        ctx_v1 = selector.select(v1_config, self.base, ctx_head, profile='pr-fast')
+        self.assertEqual(ctx_v1.get('workspace_support_direct_gate_version'), 1)
+        custody_v1 = selector.select(v1_config, self.base, custody_head, profile='pr-fast')
+        self.assertEqual(custody_v1.get('custody_execution_version'), 1)
+        self.assertNotIn('workspace_support_direct_gate_version', custody_v1)
 
 
 class ViewerNpmLockScopeTests(unittest.TestCase):
@@ -9193,7 +9254,9 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         for key, bad_values in (
             ('workspace_member_cargo_manifest_scope_version', (0, 3, True, '1')),
             ('ordinary_controls_in_rust_baseline_version', (0, 2, True, '1')),
-            ('contract_job_consolidation_version', (0, 5, True, '4')),
+            ('contract_job_consolidation_version', (0, 6, True, '5')),
+            ('workspace_support_direct_gate_version', (0, 3, True, '2')),
+            ('ordinary_scope_config_slice_version', (0, 3, True, '2')),
             ('scoped_production_cfg_version', (0, 2, True, '1')),
             ('main_fast_coalesce_concurrency_version', (0, 2, True, '1')),
         ):
