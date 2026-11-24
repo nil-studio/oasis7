@@ -996,6 +996,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-upload-association.test.py
   run python3 ./scripts/security/codeql-platform-observation.test.py
   run python3 ./scripts/security/codeql-acceptance.test.py
+  run python3 ./scripts/security/test_check_pr_boundaries.py
 }
 
 run_workflow_governance_remaining_contract_tests() {
