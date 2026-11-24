@@ -130,7 +130,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         &mut std::io::stderr(),
         b"oasis7 native diagnostic install_replica_endpoint_opened\n",
     );
-    let mut coordinator = native_boxed_stage(|| {
+    let coordinator = native_boxed_stage(|| {
         FormalCoordinator::new(
             *primary_endpoint,
             *replica_endpoint,
@@ -145,9 +145,34 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         &mut std::io::stderr(),
         b"oasis7 native diagnostic install_coordinator_opened\n",
     );
-    // This frame starts only after protected endpoints have been opened on
-    // the default test-thread stack. Preserve every original verifier,
-    // corruption negative, and monotonic seal assertion below.
+    native_install_continuation(
+        &fixture,
+        open,
+        ro,
+        pp,
+        rp,
+        next_dir,
+        coordinator,
+        recover_uncertain_activation,
+    );
+}
+
+// Keep this large post-open proof, copy, activation and cold-reopen phase in
+// a separate default test-thread frame. The preceding protected Primary and
+// Replica opens no longer inherit its unrelated heavy locals on their stacks.
+#[inline(never)]
+fn native_install_continuation(
+    fixture: &Fixture,
+    open: impl Fn(EndpointRole, Arc<dyn MonotonicEndpointProvider>) -> FileFormalEndpoint,
+    ro: Oracle,
+    pp: InstallProvider,
+    rp: InstallProvider,
+    next_dir: std::path::PathBuf,
+    mut coordinator: Box<FormalCoordinator<FileFormalEndpoint, FileFormalEndpoint>>,
+    recover_uncertain_activation: bool,
+) {
+    // Preserve every original verifier, corruption negative, and monotonic
+    // seal assertion on the same default test-thread stack.
     let (sealed, boundary, manifest, pcp) = build_native_install_setup(|| {
         let initial = native_boxed_stage(|| coordinator.submit(fixture.initial.clone()).unwrap());
         let _ = std::io::Write::write_all(
