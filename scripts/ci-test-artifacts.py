@@ -402,7 +402,12 @@ def fast_plan(plan):
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions',
          'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
-         'ordinary_dynamic_partition_version'}.intersection(plan))
+         'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
+         'ordinary_wasm_group'}.intersection(plan))
+    if (isinstance(plan, dict) and 'ordinary_clippy_group' in plan
+            and 'fast_execution_version' not in plan
+            and 'ordinary_controls_in_rust_baseline_version' not in plan):
+        raise ValueError('ordinary Clippy handoff requires inline execution or baseline controls capability')
     distfs_clippy = isinstance(plan, dict) and bool(
         {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
     if distfs_clippy and 'fast_plan_version' not in plan:
@@ -572,6 +577,16 @@ def validate_ordinary_partitions(plan):
         and all(package in plan['oasis7_required_packages'] for package in (
             'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
     )
+    if 'ordinary_controls_in_rust_baseline_version' in plan or 'ordinary_wasm_group' in plan:
+        if (type(plan.get('ordinary_controls_in_rust_baseline_version')) is not int
+                or plan['ordinary_controls_in_rust_baseline_version'] != 1
+                or plan.get('ordinary_artifact_partition_version') not in (1, 2)
+                or 'fast_execution_version' in plan
+                or plan.get('ordinary_execution') == 'inline'
+                or plan.get('ordinary_clippy_group') != 'rust_baseline'
+                or plan.get('ordinary_wasm_group') != 'rust_baseline'
+                or not {'rust_baseline', 'oasis7_required'}.issubset(plan.get('groups', ()))):
+            raise ValueError('invalid ordinary controls in rust-baseline capability')
     if 'ordinary_harness_costs' in plan:
         if plan.get('ordinary_artifact_partition_version') != 2:
             raise ValueError('ordinary harness costs require artifact v2')
@@ -590,13 +605,16 @@ def validate_ordinary_partitions(plan):
             raise ValueError('invalid ordinary artifact delivery capability')
     if 'ordinary_artifact_partition_version' in plan:
         version = plan['ordinary_artifact_partition_version']
-        expected = ORDINARY_ARTIFACT_PARTITIONS if version == 1 else targeted_ordinary_artifact_partitions(plan)
+        base_expected = ORDINARY_ARTIFACT_PARTITIONS if version == 1 else targeted_ordinary_artifact_partitions(plan)
+        expected = ([partition for partition in base_expected if partition != 'controls']
+                    if plan.get('ordinary_controls_in_rust_baseline_version') == 1
+                    else list(base_expected))
         if (type(version) is not int or version not in (1, 2)
                 or 'ordinary_partition_version' in plan
                 or 'fast_execution_version' in plan
                 or plan.get('ordinary_execution') == 'inline'
                 or 'oasis7_required' not in plan.get('groups', [])
-                or plan.get('ordinary_partitions') != list(expected)
+                or plan.get('ordinary_partitions') != expected
                 or (version == 1 and plan.get('scope') not in ('full', 'explicit-full') and not targeted_policy)
                 or (version == 2 and (
                     (plan.get('scope') != 'targeted' and not (
@@ -664,6 +682,10 @@ def validate_ordinary_harness_costs(profile):
 def ordinary_partitions(plan=None):
     selected = fast_plan(plan)
     return list(selected.get('ordinary_partitions', ['all'])) if selected is not None else ['all']
+
+
+def native_ordinary_partitions(plan=None):
+    return [partition for partition in ordinary_partitions(plan) if partition != 'controls']
 
 
 def ordinary_partition_targets(plan=None, partition=None):
@@ -786,9 +808,17 @@ def required_arguments(plan=None, phase='native'):
         return ['distfs']
     if phase == 'clippy-group':
         selected = fast_plan(plan)
-        if selected is not None and selected.get('fast_execution_version') == 1:
-            ordinary_fast_targets(selected)
-            return [selected.get('ordinary_clippy_group', 'oasis7_required')]
+        if selected is not None:
+            if selected.get('fast_execution_version') == 1:
+                ordinary_fast_targets(selected)
+                return [selected.get('ordinary_clippy_group', 'oasis7_required')]
+            if selected.get('ordinary_controls_in_rust_baseline_version') == 1:
+                return [selected['ordinary_clippy_group']]
+        return ['oasis7_required']
+    if phase == 'wasm-group':
+        selected = fast_plan(plan)
+        if selected is not None and selected.get('ordinary_controls_in_rust_baseline_version') == 1:
+            return [selected['ordinary_wasm_group']]
         return ['oasis7_required']
     if phase == 'baseline-checks':
         selected = fast_plan(plan)
@@ -2241,7 +2271,7 @@ def ordinary_delivery_layout(manifest, plan, diagnostic=False):
     included = dependency_closure(manifest, formal_configuration(), 'ordinary')
     if manifest.get('included_binaries') != sorted(included):
         raise ValueError('ordinary delivery requires the complete parent closure')
-    owners = ordinary_partitions(plan)[1:]
+    owners = native_ordinary_partitions(plan)
     layout, ownership, entries = {}, {}, []
     for partition in owners:
         selected = ordinary_artifact_entries(manifest, plan, partition)
@@ -2377,7 +2407,7 @@ def pack_ordinary_delivery(bundle, directory, plan, *, diagnostic=False):
                   execution_items=len(ordinary_entries(manifest)), archives=reports,
                   producer_compressed_bytes=sum(row['compressed_bytes'] for row in reports.values()),
                   consumer_compressed_bytes=sum(reports['common']['compressed_bytes'] + reports[owner]['compressed_bytes']
-                                                for owner in ordinary_partitions(plan)[1:]))
+                                                for owner in native_ordinary_partitions(plan)))
     (directory / 'delivery.json').write_text(json.dumps(report, indent=2) + '\n')
     print('ordinary_artifact_delivery=' + json.dumps(report), flush=True)
     return report
@@ -2436,7 +2466,7 @@ def unpack_ordinary_delivery(common, payload, bundle, plan, partition, *, diagno
             manifest = json.loads(raw)
             validate_artifact_manifest(manifest, 'ordinary', plan=plan)
             layout, files = ordinary_delivery_layout(manifest, plan, diagnostic)
-            if partition not in ordinary_partitions(plan)[1:]:
+            if partition not in native_ordinary_partitions(plan):
                 raise ValueError('unknown ordinary delivery native partition')
             receipt = read_archive_metadata(archive, ORDINARY_DELIVERY_RECEIPTS[0])
             check_delivery_receipt(json.loads(receipt), raw, 'common', layout['common'], diagnostic)
@@ -3413,7 +3443,7 @@ def expand_ordinary_batches(entries, binaries):
 def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
     """Partition real runtime cases, retaining every other complete harness."""
     effective_plan = manifest.get('execution_plan') if plan is None else plan
-    owners = tuple(ordinary_partitions(effective_plan)[1:])
+    owners = tuple(native_ordinary_partitions(effective_plan))
     if owners not in (COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:], TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]):
         raise ValueError('unsupported targeted ordinary native owners')
     entries = expand_ordinary_batches(ordinary_entries(manifest), manifest['binaries'])
@@ -3516,7 +3546,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                               and plan.get('ordinary_artifact_partition_version') in (1, 2)
                               and ordinary_partition is not None)
     if artifact_partition and (suite != 'ordinary' or shard
-                               or ordinary_partition not in ordinary_partitions(plan)[1:]):
+                               or ordinary_partition not in native_ordinary_partitions(plan)):
         raise ValueError('complete ordinary execution requires its native artifact partition')
     if artifact_partition and plan.get('ordinary_artifact_delivery_version') in (1, 2):
         manifest, env = load(bundle, suite, plan=plan, ordinary_artifact_partition=ordinary_partition)
@@ -3654,7 +3684,7 @@ def main():
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--ordinary-partition', help='exact execution owner declared by the complete trusted plan')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'partition'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'wasm-group', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'partition'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'

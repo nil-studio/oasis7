@@ -729,7 +729,8 @@ def validate_candidate_graph(workflow, config):
         'os: ${{ (needs.select.outputs.run_fleet_health == \'true\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'full\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'explicit-full\' || '
-        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3) && '
+        '(fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && '
+        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)) && '
         'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\') }}'
     )
     if (expected_fleet_os not in fleet
@@ -841,7 +842,7 @@ def validate_candidate_graph(workflow, config):
                     or "needs.select.outputs.run_formal_process == 'true'" not in job):
                 raise ValueError('formal aggregation must execute when selected or failed and validate results')
             continue
-        if config.get('contract_job_consolidation_version') in (1, 2, 3) and group in config.get('group_jobs', {}):
+        if config.get('contract_job_consolidation_version') in (1, 2, 3, 4) and group in config.get('group_jobs', {}):
             host_job = jobs[config['group_jobs'][group]]
             version_guard = f"fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != {config['contract_job_consolidation_version']}"
             if (version_guard not in job
@@ -971,22 +972,43 @@ class Workflow(unittest.TestCase):
                     steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                     setup = next(i for i, step in enumerate(steps)
                                  if 'uses: ./.github/actions/setup-linux-mold' in step)
-                    tools = setup - 1
+                    tools_index = setup - 1
                     if (filename == 'rust.yml' and name == 'oasis7-test-build-trusted'
                             and '    container:' in job):
-                        self.assertIn('name: Verify trusted ordinary image and source', steps[tools])
-                        self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', steps[tools])
-                        tools -= 1
-                    self.assertIn('uses: actions/checkout@', steps[tools])
-                    self.assertIn('ref: ${{ github.workflow_sha }}', steps[tools])
+                        self.assertIn('name: Verify trusted ordinary image and source', steps[tools_index])
+                        self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', steps[tools_index])
+                        tools_index -= 1
+                    tools = steps[tools_index]
+                    self.assertIn('uses: actions/checkout@', tools)
+                    self.assertIn('ref: ${{ github.workflow_sha }}', tools)
+                    source_index = setup + 1
                     if (filename == 'rust.yml'
-                            and 'sparse-checkout: .github/actions/setup-linux-mold\n' not in steps[tools]):
-                        validate_mold_checkout_reuse(steps[tools], steps[setup], steps[setup + 1])
+                            and 'sparse-checkout: .github/actions/setup-linux-mold\n' not in tools):
+                        validate_mold_checkout_reuse(tools, steps[setup], steps[source_index])
                     else:
-                        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
-                    self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
-                    self.assertIn('uses: actions/checkout@', steps[setup + 1])
-                    self.assertNotIn('sparse-checkout:', steps[setup + 1])
+                        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', tools)
+                    self.assertNotIn('sparse-checkout-cone-mode: false', tools)
+                    if (filename == 'mainnet-packages.yml' and name == 'build-web-dist'
+                            and '    container:\n' in job):
+                        self.assertIn('persist-credentials: false', tools)
+                        self.assertEqual([line for line in steps[source_index].splitlines()
+                                          if line.strip() and not line.lstrip().startswith("#")], [
+                            "      - name: Stage the executing workflow's pinned Trunk installer",
+                            '        env:',
+                            '          WORKFLOW_TOOLS_SHA: ${{ github.workflow_sha }}',
+                            '        run: |',
+                            '          git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+                            '          test "$(git rev-parse HEAD)" = "$WORKFLOW_TOOLS_SHA"',
+                            '          installer="$RUNNER_TEMP/oasis7-mainnet-install-trunk.sh"',
+                            '          git show HEAD:scripts/install-ci-trunk.sh > "$installer"',
+                            '          test -s "$installer"',
+                            '          chmod 700 "$installer"',
+                        ])
+                        source_index += 1
+                        self.assertIn('ref: ${{ needs.plan.outputs.checkoutSha }}', steps[source_index])
+                        self.assertIn('persist-credentials: false', steps[source_index])
+                    self.assertIn('uses: actions/checkout@', steps[source_index])
+                    self.assertNotIn('sparse-checkout:', steps[source_index])
                     if 'runs-on: ${{ matrix.' in job:
                         self.assertIn("if: runner.os == 'Linux'", steps[setup - 1])
                         self.assertIn("if: runner.os == 'Linux'", steps[setup])
@@ -1560,14 +1582,15 @@ class Workflow(unittest.TestCase):
         def step(job, marker):
             return next(part for part in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                         if marker in part)
-        # Compose the future lane from the independently maintained native
-        # source guard and Release's canonical stable/Trunk preparation.
+        # The host writer owns toolchain installation after the Release reader
+        # moves to a preinstalled compiler. Keep the older layout as a fixture.
+        host_web = workflow_jobs(workflow).get('web-wasm-cache', release_web)
         header = native.split('    steps:', 1)[0]
         preparation = ''.join((step(native, 'uses: actions/checkout@'),
             step(native, 'name: Verify current main cache source\n'),
             step(release_web, 'uses: actions/setup-node@'),
             step(release_web, 'name: Install viewer web dependencies\n'),
-            step(release_web, 'name: Install pinned Rust toolchain\n')))
+            step(host_web, 'name: Install pinned Rust toolchain\n')))
         cache = '''      - name: Normalize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
@@ -1768,7 +1791,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                   'check_inventory_version', 'fast_plan_exceptions'}
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
         self.assertLessEqual(consumers, fields | {
-            'ordinary_dynamic_partition_version', 'ordinary_main_fast_cache_writer_version',
+            'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
+            'ordinary_main_fast_cache_writer_version',
             'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
             'custody_compile_proof_version', 'custody_policy_tests_version', 'selection_sha256'})
         self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
@@ -1906,7 +1930,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                          ORDINARY_ARTIFACT_CHECKOUT=str(translated)), capture_output=True).returncode, 0)
 
 
-        self.assertIn('timeout-minutes: 60', job)
+        self.assertIn('timeout-minutes: 45', job)
         self.assertIn('packages: read', job)
         self.assertNotIn('apt-install.py', job)
         self.assertNotIn('rustup toolchain install', job)
@@ -2331,7 +2355,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 repo = Path(directory) / 'repo'
                 subprocess.run(['git', '-C', str(repo), 'checkout', '-q', policy], check=True)
                 retired = ({group.replace('_', '-') for group in CONFIG.get('group_jobs', {})}
-                           if plan.get('contract_job_consolidation_version') in (1, 2, 3) else set())
+                           if plan.get('contract_job_consolidation_version') in (1, 2, 3, 4) else set())
                 needs = {group.replace('_', '-'): {'result': 'skipped' if group.replace('_', '-') in retired else 'success'}
                          for group in CONFIG['groups']}
                 trusted = source == policy
@@ -6355,31 +6379,46 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
                         self.assertEqual('--split-ordinary' in lines[1], version in ('1', '2'))
         uploads = [step for step in steps if 'uses: actions/upload-artifact@' in step and 'name: native-tests-' in step]
         self.assertEqual(len(uploads), 6)
-        for version, compact in ((None, False), (1, False), (2, False), (2, True)):
+        for version, compact, baseline_controls in (
+                (None, False, None), (1, False, None), (1, False, 1),
+                (2, False, None), (2, False, 1), (2, True, None), (2, True, 1)):
+            native_owners = (
+                [] if version is None
+                else ['runtime', 'component-libs', 'integrations-0', 'integrations-1'] if version == 1
+                else ['native-0', 'native-1'] if compact
+                else ['native-0', 'native-1', 'native-2', 'native-3']
+            )
             owners = (['all'] if version is None
-                      else ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'] if version == 1
-                      else ['controls', 'native-0', 'native-1'] if compact
-                      else ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                      else native_owners if baseline_controls == 1
+                      else ['controls', *native_owners])
             partition_values = {
                 'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': version,
+                'fromJSON(needs.select.outputs.plan).ordinary_controls_in_rust_baseline_version': baseline_controls,
+                'fromJSON(needs.select.outputs.ordinary_partitions)[0]': owners[0] if len(owners) > 0 else None,
+                'fromJSON(needs.select.outputs.ordinary_partitions)[1]': owners[1] if len(owners) > 1 else None,
+                'fromJSON(needs.select.outputs.ordinary_partitions)[2]': owners[2] if len(owners) > 2 else None,
                 'fromJSON(needs.select.outputs.ordinary_partitions)[3]': owners[3] if len(owners) > 3 else None,
                 'fromJSON(needs.select.outputs.ordinary_partitions)[4]': owners[4] if len(owners) > 4 else None,
             }
             selected = [step for step in uploads if effective_job_condition(self.condition(step), partition_values, [])]
-            self.assertEqual(len(selected), 1 if version is None else len(owners))
+            self.assertEqual(len(selected), 1 if version is None else 1 + len(native_owners))
             for step in selected:
                 for required in ('compression-level: 0', 'overwrite: true', 'if-no-files-found: error'):
                     self.assertIn(required, step)
             if version is not None:
                 resolved = '\n'.join(selected)
-                for index, owner in enumerate(owners[1:], 1):
-                    expression = '${{ fromJSON(needs.select.outputs.ordinary_partitions)[' + str(index) + '] }}'
+                for index, owner in enumerate(native_owners):
+                    expression = (
+                        '${{ fromJSON(needs.select.outputs.plan).ordinary_controls_in_rust_baseline_version == 1 && '
+                        f'fromJSON(needs.select.outputs.ordinary_partitions)[{index}] || '
+                        f'fromJSON(needs.select.outputs.ordinary_partitions)[{index + 1}] }}}}'
+                    )
                     self.assertEqual(resolved.count(expression), 2)
                     resolved = resolved.replace(expression, owner)
                 self.assertEqual(set(re.findall(r'/ordinary-archives/(.*)\.tar\.gz', resolved)),
-                                 {'common', *owners[1:]})
+                                 {'common', *native_owners})
                 self.assertEqual(set(re.findall(r'name: native-tests-(.*)-\$\{\{ github.sha \}\}', resolved)),
-                                 {'common', *owners[1:]})
+                                 {'common', *native_owners})
 
     def test_retired_ordinary_delivery_preview_is_absent(self):
         self.assertNotIn('pr-ordinary-delivery-preview', JOBS)
@@ -7068,6 +7107,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'select': 5,
                 'pr-governance-preview': 5,
                 'pr-fast-preview-plan': 5,
+                'pr-fast-preview': 20,
                 'baseline': 5,
                 'codex-agent-config-validation': 5,
                 'macos-package-contract': 5,
@@ -7077,7 +7117,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'compile-metrics': 5,
                 'cargo-tooling-contracts': 5,
                 'windows-rollout': 7,
-                'fleet-health': 15,
+                'fleet-health': 13,
                 'doc-checker-contracts': 10,
                 'workflow-governance': 12,
                 'custody-native-contracts': 12,
@@ -7091,9 +7131,9 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'distfs': 16,
                 'rust-baseline': 25,
                 'launcher-web': 10,
-                'viewer-js-required': 16,
+                'viewer-js-required': 14,
                 'viewer-performance-report': 15,
-                'newapi-bridge-package': 15,
+                'newapi-bridge-package': 10,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 5,
@@ -7127,7 +7167,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'package-linux-x86-64': 10,
             },
             '.github/workflows/hosted-login-linux-build.yml': {
-                'build-linux-x86-64': 45,
+                'build-linux-x86-64': 30,
                 'build-viewer': 12,
                 'assemble': 5,
             },
@@ -7139,7 +7179,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'diagnose': 35,
             },
             '.github/workflows/storage-acceptance.yml': {
-                'build-components': 150,
+                'build-components': 125,
                 'build': 10,
                 'verify': 130,
                 'attempt-release-reference': 50,
@@ -7178,7 +7218,7 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                 'build-web-dist': 25,
                 'package-native': 180,
                 'package-native-trusted': 180,
-                'package-installers': 120,
+                'package-installers': 90,
             },
             '.github/workflows/mainnet-packages.yml': {
                 'plan': 5,
@@ -7224,13 +7264,14 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
         expected_limits = {
             '.github/workflows/rust.yml': {
                 'oasis7-test-build-candidate': 40,
-                'oasis7-test-build-trusted': 60,
-                'formal-debug-build': 60,
-                'formal-debug-build-trusted': 60,
-                'formal-endpoint-build': 60,
-                'formal-endpoint-build-trusted': 60,
-                'formal-test-build': 60,
-                'formal-test-build-trusted': 60,
+                'oasis7-test-build-trusted': 45,
+                'formal-debug-build': 35,
+                'formal-debug-build-trusted': 35,
+                'formal-endpoint-build': 35,
+                'formal-endpoint-build-trusted': 35,
+                'formal-test-build': 30,
+                'formal-test-build-trusted': 30,
+                'formal-process-tests': 45,
                 'oasis7-required': 35,
                 'workspace-support-legacy': 60,
                 'workspace-support-other': 35,
@@ -7308,7 +7349,9 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         self.assertEqual(CONFIG.get('main_fast_coalesce_concurrency_version'), 1)
         self.assertEqual(CONFIG.get('draft_pr_heavy_ci_skip_version'), 1)
         self.assertEqual(CONFIG.get('auxiliary_workflow_consolidation_version'), 1)
-        self.assertEqual(CONFIG.get('workspace_member_cargo_manifest_scope_version'), 1)
+        self.assertEqual(CONFIG.get('workspace_member_cargo_manifest_scope_version'), 2)
+        self.assertEqual(CONFIG.get('ordinary_controls_in_rust_baseline_version'), 1)
+        self.assertEqual(CONFIG.get('contract_job_consolidation_version'), 4)
         self.assertEqual(CONFIG.get('scoped_production_cfg_version'), 1)
 
         gate = JOBS['required-gate']
@@ -7546,6 +7589,224 @@ class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
                     else:
                         self.assertRegex(value, r'^\$\{\{.+\}\}$')
         self.assertGreater(checked_jobs, 0)
+
+    def test_consolidation_v4_runs_operational_contracts_in_workflow_governance_without_governance_overhead(self):
+        gov_job = JOBS['workflow-governance']
+        op_job = JOBS['operational-contracts']
+        gov_cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', gov_job, re.M | re.S)[1]
+        op_cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', op_job, re.M | re.S)[1]
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', gov_job, re.M | re.S)
+        op_exec = next(s for s in steps if 'name: Execute consolidated operational contracts group\n' in s)
+        op_tools = next(s for s in steps if 'name: Verify preinstalled operational contract tools\n' in s)
+        parser_step = next(s for s in steps if 'name: Install document contract parser\n' in s)
+        authority_step = next(s for s in steps if 'name: Download trusted control authority\n' in s)
+
+        def step_cond(step):
+            return re.search(r'^        if: (.*?)(?=^        \w|\Z)', step, re.M | re.S)[1]
+
+        for version, run_gov, run_op, scope in (
+            (3, 'false', 'true', 'targeted'),
+            (4, 'false', 'true', 'targeted'),
+            (4, 'true', 'false', 'targeted'),
+            (4, 'true', 'true', 'targeted'),
+            (4, 'false', 'false', 'full'),
+        ):
+            vals = {
+                'needs.select.result': 'success',
+                'needs.select.outputs.run_workflow_governance': run_gov,
+                'needs.select.outputs.run_operational_contracts': run_op,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': version,
+                'fromJSON(needs.select.outputs.plan).scope': scope,
+                'fromJSON(needs.select.outputs.plan).python_control_contract_version': 1,
+                'steps.control-mode.outputs.complete_governance': 'true',
+            }
+            with self.subTest(version=version, run_gov=run_gov, run_op=run_op, scope=scope):
+                expect_legacy_op = version != 4 and (run_op == 'true' or scope == 'full')
+                expect_gov_job = (run_gov == 'true' or scope == 'full'
+                                  or (version == 4 and run_op == 'true'))
+                self.assertEqual(effective_job_condition(op_cond, vals, ['success']), expect_legacy_op)
+                self.assertEqual(effective_job_condition(gov_cond, vals, ['success']), expect_gov_job)
+                if expect_gov_job:
+                    expect_gov_steps = run_gov == 'true' or scope in ('full', 'explicit-full') or version != 4
+                    expect_op_steps = version == 4 and (run_op == 'true' or scope in ('full', 'explicit-full'))
+                    self.assertEqual(effective_job_condition(step_cond(parser_step), vals, []), expect_gov_steps)
+                    self.assertEqual(effective_job_condition(step_cond(authority_step), vals, []), expect_gov_steps)
+                    self.assertEqual(effective_job_condition(step_cond(op_tools), vals, []), expect_op_steps)
+                    self.assertEqual(effective_job_condition(step_cond(op_exec), vals, []), expect_op_steps)
+
+
+class DependabotCoverageGuardTests(unittest.TestCase):
+    EXCLUDED_NPM_DIRECTORIES = {}
+    EXCLUDED_CARGO_DIRECTORIES = {
+        '/tests/libp2p-compat/candidate': 'compatibility test fixture',
+        '/tests/libp2p-compat/common': 'compatibility test fixture',
+        '/tests/libp2p-compat/legacy': 'compatibility test fixture',
+        '/tools/wasm_build_suite/templates/minimal_module': 'zero-dependency minimal template',
+        '/vendor/if-watch-3.2.2': 'vendored crate patched by root Cargo.toml',
+        '/vendor/libp2p-quic-0.15.0': 'vendored crate patched by root Cargo.toml',
+        '/vendor/libp2p-swarm-0.49.0': 'vendored crate patched by root Cargo.toml',
+    }
+    EXCLUDED_DOCKER_DIRECTORIES = {
+        '/docker/ci-base': 'UBUNTU_BASE ARG is workflow-supplied with no Dockerfile default',
+    }
+
+    @staticmethod
+    def _parse_dependabot_directories(text):
+        updates = {}
+        current_ecosystem = None
+        in_directories = False
+        for raw_line in text.splitlines():
+            stripped = raw_line.split('#', 1)[0].rstrip()
+            if not stripped.strip():
+                continue
+            eco_match = re.match(r'^  -\s+package-ecosystem:\s*["\']?([^"\'\s]+)["\']?\s*$', stripped)
+            if eco_match:
+                current_ecosystem = eco_match.group(1)
+                updates.setdefault(current_ecosystem, [])
+                in_directories = False
+                continue
+            if current_ecosystem is None:
+                continue
+            dir_match = re.match(r'^    directory:\s*["\']?([^"\'\s]+)["\']?\s*$', stripped)
+            if dir_match:
+                updates[current_ecosystem].append(dir_match.group(1))
+                in_directories = False
+                continue
+            if re.match(r'^    directories:\s*$', stripped):
+                in_directories = True
+                continue
+            if in_directories:
+                item_match = re.match(r'^      -\s*["\']?([^"\'\s]+)["\']?\s*$', stripped)
+                if item_match:
+                    updates[current_ecosystem].append(item_match.group(1))
+                    continue
+                if re.match(r'^    \S', stripped):
+                    in_directories = False
+        return updates
+
+    @staticmethod
+    def _tracked_manifest_directories(filename_pattern):
+        output = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files', '-z'])
+        dirs = set()
+        for raw_path in output.decode('utf-8').split('\0'):
+            if not raw_path:
+                continue
+            name = raw_path.rsplit('/', 1)[-1]
+            if not re.fullmatch(filename_pattern, name):
+                continue
+            parent = raw_path.rsplit('/', 1)[0] if '/' in raw_path else ''
+            dirs.add('/' if not parent else '/' + parent)
+        return dirs
+
+    @staticmethod
+    def _matches_any(directory, patterns):
+        import fnmatch
+        return any(fnmatch.fnmatchcase(directory, pattern) for pattern in patterns)
+
+    @staticmethod
+    def _cargo_workspace_member_directories(workspace_dir):
+        import fnmatch
+        import tomllib
+        manifest = ROOT / (workspace_dir.lstrip('/') + '/Cargo.toml' if workspace_dir != '/' else 'Cargo.toml')
+        data = tomllib.loads(manifest.read_text(encoding='utf-8'))
+        workspace = data.get('workspace')
+        if not isinstance(workspace, dict):
+            return set()
+        members = workspace.get('members') or []
+        base = '' if workspace_dir == '/' else workspace_dir.lstrip('/')
+        member_dirs = set()
+        for member in members:
+            rel = f'{base}/{member}' if base else member
+            if any(ch in rel for ch in '*?['):
+                for candidate in DependabotCoverageGuardTests._tracked_manifest_directories(r'Cargo\.toml'):
+                    if fnmatch.fnmatchcase(candidate.lstrip('/'), rel):
+                        member_dirs.add(candidate)
+            else:
+                member_dirs.add('/' + rel.strip('/'))
+        return member_dirs
+
+    def _assert_ecosystem_coverage(self, ecosystem, manifest_dirs, configured_patterns, excluded):
+        import fnmatch
+        self.assertGreater(len(configured_patterns), 0, f'{ecosystem} must declare at least one directory')
+
+        for pattern in configured_patterns:
+            matched = [d for d in manifest_dirs if fnmatch.fnmatchcase(d, pattern)]
+            self.assertGreater(
+                len(matched),
+                0,
+                f'.github/dependabot.yml {ecosystem} entry {pattern!r} does not match any tracked manifest',
+            )
+
+        excluded_set = set(excluded)
+        stale_exclusions = sorted(excluded_set - manifest_dirs)
+        self.assertEqual(
+            stale_exclusions,
+            [],
+            f'Stale {ecosystem} exclusion allowlist entries: {stale_exclusions}',
+        )
+
+        overlapping = sorted(d for d in excluded_set if self._matches_any(d, configured_patterns))
+        self.assertEqual(
+            overlapping,
+            [],
+            f'{ecosystem} directories are both covered by dependabot.yml and excluded: {overlapping}',
+        )
+
+        uncovered = sorted(
+            d for d in manifest_dirs
+            if d not in excluded_set and not self._matches_any(d, configured_patterns)
+        )
+        self.assertEqual(
+            uncovered,
+            [],
+            f'Uncovered {ecosystem} manifest directories (add to .github/dependabot.yml or explicit exclusion allowlist): {uncovered}',
+        )
+
+    def test_dependabot_covers_all_non_excluded_manifests(self):
+        dependabot_path = ROOT / '.github/dependabot.yml'
+        updates = self._parse_dependabot_directories(dependabot_path.read_text(encoding='utf-8'))
+
+        self.assertIn('/', updates.get('github-actions', []), 'github-actions must cover /')
+
+        npm_dirs = self._tracked_manifest_directories(r'package\.json')
+        self._assert_ecosystem_coverage(
+            'npm',
+            npm_dirs,
+            updates.get('npm', []),
+            self.EXCLUDED_NPM_DIRECTORIES,
+        )
+
+        all_cargo_dirs = self._tracked_manifest_directories(r'Cargo\.toml')
+        cargo_patterns = updates.get('cargo', [])
+        covered_cargo_roots = {d for d in all_cargo_dirs if self._matches_any(d, cargo_patterns)}
+        workspace_members = set()
+        for ws_root in covered_cargo_roots:
+            workspace_members.update(self._cargo_workspace_member_directories(ws_root))
+        standalone_cargo_dirs = all_cargo_dirs - workspace_members
+
+        redundant_member_patterns = sorted(
+            p for p in cargo_patterns
+            if p in workspace_members
+        )
+        self.assertEqual(
+            redundant_member_patterns,
+            [],
+            f'Redundant cargo entries already covered by a parent workspace: {redundant_member_patterns}',
+        )
+        self._assert_ecosystem_coverage(
+            'cargo',
+            standalone_cargo_dirs,
+            cargo_patterns,
+            self.EXCLUDED_CARGO_DIRECTORIES,
+        )
+
+        docker_dirs = self._tracked_manifest_directories(r'Dockerfile(\.[^/]+)?')
+        self._assert_ecosystem_coverage(
+            'docker',
+            docker_dirs,
+            updates.get('docker', []),
+            self.EXCLUDED_DOCKER_DIRECTORIES,
+        )
 
 
 if __name__ == '__main__':

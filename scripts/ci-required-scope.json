@@ -2,7 +2,7 @@
   "fast_scope_version": 1,
   "ordinary_dynamic_partition_version": 1,
   "custody_node_shards_version": 2,
-  "contract_job_consolidation_version": 3,
+  "contract_job_consolidation_version": 4,
   "ordinary_scope_config_slice_version": 1,
   "standalone_cargo_manifest_scope_version": 1,
   "workspace_support_direct_gate_version": 1,
@@ -15,7 +15,8 @@
     "viewer_performance_report": "viewer-js-required",
     "packaging_contracts": "doc-checker-contracts",
     "cargo_tooling_contracts": "scenario-regression",
-    "windows_rollout": "fleet-health"
+    "windows_rollout": "fleet-health",
+    "operational_contracts": "workflow-governance"
   },
   "ordinary_case_prefix_contract_version": 1,
   "ordinary_shared_incremental_contract_version": 1,
@@ -74,12 +75,12 @@
   "ordinary_partition_version": 1,
   "ordinary_artifact_partition_version": 2,
   "ordinary_main_fast_cache_writer_version": 1,
-  "ecs_workspace_upload_budget_version": 2,
   "main_fast_range_recovery_version": 1,
   "main_fast_coalesce_concurrency_version": 1,
   "draft_pr_heavy_ci_skip_version": 1,
   "auxiliary_workflow_consolidation_version": 1,
-  "workspace_member_cargo_manifest_scope_version": 1,
+  "workspace_member_cargo_manifest_scope_version": 2,
+  "ordinary_controls_in_rust_baseline_version": 1,
   "scoped_production_cfg_version": 1,
   "ordinary_harness_costs": {
     "version": 1,
@@ -1002,7 +1003,6 @@
       "match": [
         "crates/oasis7_chain_runtime/src/host/node_lifecycle*",
         "crates/oasis7_chain_runtime/src/host/world_initialization*",
-        "crates/oasis7_chain_runtime/src/host/formal_full_state_sync*",
         "scripts/local-node-lifecycle.test.sh",
         "scripts/legacy-observer-migration.test.sh"
       ],
@@ -1093,7 +1093,6 @@
       "match": [
         "crates/oasis7/src/runtime_host.rs",
         "crates/oasis7/src/runtime_host/**",
-        "crates/oasis7/src/consensus_action_payload*.rs",
         "crates/oasis7_world_service/src/consensus_action_payload*.rs"
       ],
       "suites": [
@@ -2191,7 +2190,6 @@
     },
     {
       "match": [
-        "vendor-libp2p-quic-0.14.0/**",
         "vendor/libp2p-quic-0.15.0/**"
       ],
       "groups": ["rust_baseline", "net", "node"],
@@ -2199,9 +2197,6 @@
     },
     {
       "match": [
-        "vendor-libp2p-swarm-0.48.0/src/**",
-        "vendor-libp2p-swarm-0.48.0/LICENSE",
-        "vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json",
         "vendor/libp2p-swarm-0.49.0/src/**",
         "vendor/libp2p-swarm-0.49.0/LICENSE",
         "vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json"
@@ -2211,18 +2206,10 @@
     },
     {
       "match": [
-        "vendor-if-watch-3.2.2/**",
         "vendor/if-watch-3.2.2/**"
       ],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "if_watch_patch_consumers"
-    },
-    {
-      "match": [
-        "vendor-libp2p-rendezvous-0.18.1/**"
-      ],
-      "groups": ["rust_baseline", "net", "node"],
-      "reason": "retired_rendezvous_patch_consumers"
     },
     {
       "match": ["scripts/libp2p-security-source.test.py"],
@@ -2263,18 +2250,6 @@
       ],
       "groups": [],
       "reason": "documents"
-    },
-    {
-      "match": [
-        "tools/voxel_asset_pipeline/DESIGN.md",
-        "tools/voxel_asset_pipeline/README.md",
-        "tools/voxel_asset_pipeline/requirements.txt",
-        "tools/voxel_asset_pipeline/six_view_to_voxel_model.py",
-        "tools/voxel_asset_pipeline/tests/test_six_view_to_voxel_model.py",
-        "tools/voxel_asset_pipeline/tests/test_source_cleanup_cli.py"
-      ],
-      "groups": [],
-      "reason": "retired_voxel_asset_pipeline"
     },
     {
       "match": [
@@ -2408,6 +2383,8 @@
         "scripts/traffic_monitor_freshness.py",
         "scripts/p2p-*",
         "scripts/provider-remote-https/**",
+        "scripts/ensure-letai-local-token-config.sh",
+        "scripts/with-letai-llm-config.sh",
         "scripts/run-local-letai-game-test*",
         "scripts/game-world-state-sync*",
         "scripts/state-sync-closure*",
@@ -2422,6 +2399,16 @@
         "operational_contracts"
       ],
       "reason": "operational"
+    },
+    {
+      "match": [
+        "scripts/release-candidate-bundle.sh",
+        "scripts/release-candidate-bundle-smoke.sh"
+      ],
+      "groups": [
+        "operational_contracts"
+      ],
+      "reason": "release_candidate_bundle_operational_contract"
     },
     {
       "match": [
@@ -2557,13 +2544,25 @@
     },
     {
       "match": [
-        "scripts/hosted-passkey-virtual-authenticator-smoke.mjs"
+        "scripts/hosted-passkey-virtual-authenticator-smoke.mjs",
+        "scripts/hosted-passkey-world-runtime-smoke.mjs"
       ],
       "groups": [
         "launcher_web",
         "viewer_js_required"
       ],
       "reason": "hosted_identity_browser_smoke"
+    },
+    {
+      "match": [
+        "scripts/playwright-module-loader.mjs",
+        "scripts/playwright-module-loader.test.mjs"
+      ],
+      "groups": [
+        "viewer_js_required",
+        "launcher_web"
+      ],
+      "reason": "shared_playwright_module_resolution"
     },
     {
       "match": [

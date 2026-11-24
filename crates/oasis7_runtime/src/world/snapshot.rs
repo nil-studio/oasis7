@@ -462,6 +462,61 @@ mod tests {
     }
 
     #[test]
+    fn rejected_action_suffix_recovers_next_id_without_reissuing_the_denied_id() {
+        let mut control = World::new();
+        let checkpoint_c = control.snapshot();
+        let envelope_c = control.commitment_envelope_v2().expect("C envelope");
+        let rejected_id = control.submit_action(Action::MoveAgent {
+            agent_id: "absent-agent".into(),
+            to: crate::tests::pos(1, 0),
+        });
+        control.step().expect("rejected action tick");
+        assert!(
+            control.journal().events.iter().any(|event| matches!(
+                &event.body,
+                crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected { action_id, .. })
+                    if *action_id == rejected_id
+            )),
+            "the denial must be a genuine journal disposition"
+        );
+        let next_action_id = control.snapshot().next_action_id;
+        // Denied actions retain a real cause as well as a rejection payload.
+        // A forged disagreement must fail rather than advance the allocator
+        // using whichever identity appeared first.
+        let mut tampered = control.journal().clone();
+        let rejection = tampered.events.iter_mut().find(|event| {
+            matches!(
+                &event.body,
+                crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected { .. })
+            )
+        }).expect("original rejected-action event");
+        rejection.caused_by = Some(crate::CausedBy::Action(rejected_id.saturating_add(1)));
+        assert!(
+            World::from_snapshot_with_commitment_envelope(
+                checkpoint_c.clone(),
+                tampered,
+                Some(&envelope_c),
+            )
+            .is_err(),
+            "replay must reject cause/payload identity mismatch"
+        );
+
+        let mut recovered = World::from_snapshot_with_commitment_envelope(
+            checkpoint_c,
+            control.journal().clone(),
+            Some(&envelope_c),
+        )
+        .expect("replay original rejection");
+        assert_eq!(recovered.snapshot().next_action_id, next_action_id);
+        let after_replay_id = recovered.submit_action(Action::RegisterAgent {
+            agent_id: "new-agent".into(),
+            pos: crate::tests::pos(0, 0),
+        });
+        assert_eq!(after_replay_id, next_action_id);
+        assert_ne!(after_replay_id, rejected_id);
+    }
+
+    #[test]
     fn nonempty_c_to_t_event_suffix_recovery_matches_uninterrupted_branch_on_subsequent_inputs() {
         let mut control = World::new();
         for (id, x) in [("alice", 0), ("bob", 1)] {
@@ -527,8 +582,8 @@ mod tests {
         )
         .expect("recover C -> T with v2 envelope");
 
-        // Align post-C action allocator cursor to T's recorded action count before applying
-        // identical future inputs (verifying C..T state, era, queue, schedule, and sidecars).
+        // The authenticated C..T journal must reconcile the next-action allocator
+        // itself. Do not borrow the uninterrupted branch's cursor as a test fix.
         assert_eq!(recovered.state(), control.state());
         assert_eq!(recovered.journal(), control.journal());
         assert_eq!(recovered.next_event_id, control.next_event_id);
@@ -537,7 +592,10 @@ mod tests {
         assert_eq!(recovered.pending_actions, control.pending_actions);
         assert_eq!(recovered.module_tick_schedule, control.module_tick_schedule);
         assert_eq!(recovered.proposals, control.proposals);
-        recovered.next_action_id = control.next_action_id;
+        assert_eq!(
+            recovered.next_action_id, control.next_action_id,
+            "replay must recover J1 action allocator without a borrowed T cursor",
+        );
         assert_eq!(
             recovered
                 .commitment_envelope_v2()

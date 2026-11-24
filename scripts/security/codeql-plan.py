@@ -48,10 +48,6 @@ ISSUE_METADATA_INPUTS = {
 # Exact non-Rust/non-Markdown files in fixed vendor patches. Neighboring or
 # version-bumped paths remain unregistered and fail closed until reviewed.
 VENDOR_RUST_METADATA_INPUTS = {
-    'vendor-if-watch-3.2.2/Cargo.toml.orig',
-    'vendor-libp2p-quic-0.14.0/.gitignore',
-    'vendor-libp2p-quic-0.14.0/LICENSE',
-    'vendor-libp2p-swarm-0.48.0/LICENSE',
     'vendor/if-watch-3.2.2/Cargo.toml.orig',
     'vendor/libp2p-quic-0.15.0/.gitignore',
     'vendor/libp2p-quic-0.15.0/LICENSE',
@@ -59,12 +55,6 @@ VENDOR_RUST_METADATA_INPUTS = {
 }
 
 VENDOR_PROVENANCE_INPUTS = {
-    'vendor-if-watch-3.2.2/upstream-source-sha256.json',
-    'vendor-libp2p-rendezvous-0.18.1/LICENSE',
-    'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
-    'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
-    'vendor-libp2p-rendezvous-0.18.1/upstream-source-sha256.json',
-    'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
     'vendor/if-watch-3.2.2/upstream-source-sha256.json',
     'vendor/libp2p-quic-0.15.0/local-patch-sha256.json',
     'vendor/libp2p-quic-0.15.0/upstream-source-sha256.json',

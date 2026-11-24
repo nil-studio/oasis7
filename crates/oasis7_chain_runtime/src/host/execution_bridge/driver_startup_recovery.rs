@@ -1,8 +1,9 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use oasis7::simulator::{
-    WorldJournal as SimulatorJournal, WorldKernel, WorldSnapshot as SimulatorSnapshot,
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
+use oasis7_runtime_host::simulator_archive::persist::{
+    WorldJournal as SimulatorJournal, WorldSnapshot as SimulatorSnapshot,
 };
 use oasis7_runtime::{
     BlobStore, ChainResourceDerivationContext, Journal as RuntimeJournal,

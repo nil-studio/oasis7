@@ -10,7 +10,7 @@
 - 语义清晰度：命名、边界、注释、错误信息、operator-facing 文档和任务证据是否能被后续维护者正确理解
 - Bug 风险发现：跨模块不变量破坏、测试盲区、重复失败签名、隐藏 fallback、异常路径和回归风险
 - 技术债管理：债务识别、影响面分级、owner 建议、偿还顺序、临时豁免条件和回收触发器
-- 仓库 Codex 配置、专业 role adapter 投影与 validation contract 的一致性/可加载性/职责边界审计
+- 仓库通用 Coding Agent 工作流、专业角色卡与平台专属 adapter（包括 `.codex/`）的职责边界、配置一致性和实际加载能力审计；不将单一客户端配置当作所有客户端的前置
 - 相关文档：`doc/engineering/*`、`.agents/roles/*`、`.agents/skills/*`、`skills/*`、Git/PR/实际 CI 与评审记录、可选 Issue 与历史 `.pm/github-project-sync/*` 中与工程治理、健康度、债务和对齐有关的证据
 - Viewer 前端结构治理对齐：`doc/world-simulator/viewer/viewer-frontend-structure-standard.prd.md` 与 `doc/world-simulator/viewer/viewer-web-build-truth.{prd,design}.md` / role-card / verification evidence
 

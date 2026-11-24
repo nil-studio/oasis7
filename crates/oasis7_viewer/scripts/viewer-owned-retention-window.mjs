@@ -1,5 +1,5 @@
 // Fixed owned-context consumer of the existing 5617 workload. Not P5/full cache.
-import {createRequire} from 'node:module';
+import {loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
 import {readFileSync,writeFileSync,appendFileSync,mkdirSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -26,7 +26,7 @@ if(Object.keys(assets??{}).length!==18||(Array.isArray(manifest.files)&&manifest
 const out=resolve(process.env.RETENTION_OWNED_OUTPUT);mkdirSync(dirname(out),{recursive:true});mkdirSync(out);
 const names=['viewer-owned-retention-window.mjs','viewer-retention-owned-prepare.mjs','viewer-retention-owned-components.mjs','viewer-retention-owned-input.mjs','world-view-retention-memory.mjs','viewer-retention-components.mjs','viewer-retention-focus.mjs','viewer-owned-fixture-server.mjs','world-view-density-fixture.mjs','viewer-bounded-wire-audit.mjs','viewer-static-files.mjs','viewer-owned-startup-context.mjs','viewer-owned-startup-lifecycle.mjs','viewer-owned-resource-os.mjs','viewer-owned-resource-policy.mjs','viewer-owned-cdp-memory.mjs','viewer-owned-cdp-input.mjs','viewer-owned-cdp-session.mjs','viewer-product-startup-endpoints.mjs','viewer-startup-atlas-oracle.py','world-view-frame-capability.mjs'];
 const summary={source,runnerHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),scripts:Object.fromEntries(names.map(n=>[n,sha(readFileSync(join(here,n)))])),assets,durationMs,formalP6:false,totalApplicationCacheBytes:null,gpuAllocatedBytes:null,status:'running',first:[],last:[],limitations:['WASM is mounted linear capacity, not allocator used heap.','Process RSS overlaps JS/WASM/shared pages; components must not be summed.','Current/retired inflight statistics are scalar coverage, not retained heap attribution.','No forced GC, cache clear, reload or sample retries; polling crossings remain unknown.']};
-const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES||'/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules', {chromium}=createRequire(join(modules,'owned-retention.cjs'))('playwright');
+const {chromium}=loadPlaywright(import.meta.url);
 let server,context,memorySession;
 const timer=setTimeout(()=>{summary.status='failed';summary.error='owned retention hard deadline exceeded; cleanup unproven';try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}finally{process.exit(1);}},durationMs+180000);
 await withObservationCleanup(async()=>{

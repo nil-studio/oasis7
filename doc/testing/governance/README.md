@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 自动化、agent、外部信号各能证明什么；何时可以声称“好玩” | [`../prd.md`](../prd.md) 的 Durable Playability Evidence Governance | 跨层证据栈、`go/watch/hold/block` 组合规则与高层 claim 边界 |
 | `L4A synthetic`、`L4B embodied agent`、`L5` 如何区分，以及如何实际执行 | [`../../../testing-manual.md`](../../../testing-manual.md) 的 L4A/L4B/L5 分层 | operator 入口、可选内部真人校准与非替代边界 |
-| 开发 Codex 如何派试玩 subagent 读玩家 Skill、实际游玩并形成修复回归 | [自主试玩与开发自测设计](agent-runtime-self-playtest.design.md)；[执行手册](../manual/agent-runtime-self-playtest.manual.md) | 承接已有 L4B；区分固定探针、自主试玩、权威验真与有界修复，不新增通用门禁 |
+| 开发 Coding Agent 如何派独立试玩 subagent 读玩家 Skill、实际游玩并形成修复回归 | [自主试玩与开发自测设计](agent-runtime-self-playtest.design.md)；[执行手册](../manual/agent-runtime-self-playtest.manual.md) | 承接已有 L4B；区分固定探针、自主试玩、权威验真与有界修复，不新增通用门禁 |
 | 标准角色与 persona 如何组成内部评审 | [`../prd.md`](../prd.md) 的 Durable Playability Evidence Governance | role/persona card contract、触发、hand-off 与 stop conditions；persona 不是正式角色 |
 | 质量趋势指标如何定义；如何定位不同窗口的样本与结论 | `testing-quality-trend-tracking-2026-03-11.prd.md` 定义口径；`../evidence/testing-quality-trend-baseline-2026-03-11.md` 仅保存其注明窗口的历史样本 | PRD 负责公式、阈值与采集边界；[当前阈值采用缺口](testing-quality-trend-tracking-2026-03-11.prd.md#current-threshold-status)尚未关闭，历史阈值不自动沿用；新窗口另存原始报告，由对应 PR/Task 定位，不覆盖旧窗口或将历史样本标为当前基线，不另设角色 handoff 文档 |
 | release-gate 指标、质量趋势、审计检查或确定性 guard | `doc/testing/prd.index.md` 的 `governance/` 专题表 | 各专项 topic 的精确文件检索；不替代以上 playability authority |

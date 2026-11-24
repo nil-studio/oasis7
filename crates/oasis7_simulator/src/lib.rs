@@ -5,6 +5,7 @@ mod geometry {
     pub use oasis7_agent_api::world_geometry::*;
 }
 mod agent_decision;
+mod agent_memory;
 mod agent_query;
 mod asteroid_fragment;
 mod chain_resource;
@@ -29,6 +30,7 @@ mod source_compiler;
 mod types;
 mod world_model;
 pub use agent_decision::*;
+pub use agent_memory::*;
 pub use agent_query::*;
 pub use asteroid_fragment::*;
 pub use chain_resource::*;

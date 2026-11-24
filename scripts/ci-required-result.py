@@ -16,6 +16,11 @@ LEGACY_V2_CONSOLIDATED_GROUPS = LEGACY_V1_CONSOLIDATED_GROUPS | frozenset({
     'pixel_world_bridge',
     'viewer_performance_report',
 })
+LEGACY_V3_CONSOLIDATED_GROUPS = LEGACY_V2_CONSOLIDATED_GROUPS | frozenset({
+    'packaging_contracts',
+    'cargo_tooling_contracts',
+    'windows_rollout',
+})
 
 
 def _consolidation_overrides(config, plan):
@@ -23,9 +28,9 @@ def _consolidation_overrides(config, plan):
         return None
     version = plan['contract_job_consolidation_version']
     config_version = config.get('contract_job_consolidation_version')
-    if type(version) is not int or version not in (1, 2, 3):
+    if type(version) is not int or version not in (1, 2, 3, 4):
         raise ValueError('unsupported contract job consolidation version')
-    if type(config_version) is not int or config_version not in (1, 2, 3) or version > config_version:
+    if type(config_version) is not int or config_version not in (1, 2, 3, 4) or version > config_version:
         raise ValueError('untrusted contract job consolidation capability')
     overrides = config.get('group_jobs')
     if not isinstance(overrides, dict) or not overrides:
@@ -35,10 +40,12 @@ def _consolidation_overrides(config, plan):
         if (group not in config['groups'] or not isinstance(job, str)
                 or job not in default_jobs or job == group.replace('_', '-')):
             raise ValueError('invalid consolidated group job mapping')
-    if version == 1 and config_version in (2, 3):
+    if version == 1 and config_version in (2, 3, 4):
         return {group: job for group, job in overrides.items() if group in LEGACY_V1_CONSOLIDATED_GROUPS}
-    if version == 2 and config_version == 3:
+    if version == 2 and config_version in (3, 4):
         return {group: job for group, job in overrides.items() if group in LEGACY_V2_CONSOLIDATED_GROUPS}
+    if version == 3 and config_version == 4:
+        return {group: job for group, job in overrides.items() if group in LEGACY_V3_CONSOLIDATED_GROUPS}
     return dict(overrides)
 
 

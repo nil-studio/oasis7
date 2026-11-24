@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use oasis7::simulator::Digest32;
+use oasis7_agent_api::Digest32;
 use serde::Serialize;
 
 pub const RECOVERY_METRIC_SCHEMA_VERSION: &str = "recoverable_error_resolution_rate.v1";

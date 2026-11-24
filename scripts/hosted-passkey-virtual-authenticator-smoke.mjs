@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 // Software-authenticator evidence only; this does not certify real device support.
-import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
+import { loadPlaywright } from "./playwright-module-loader.mjs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 
-const runtimeModules = process.env.OASIS7_PLAYWRIGHT_NODE_MODULES || "/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules";
-const require = existsSync(join(runtimeModules, "playwright")) ? createRequire(join(runtimeModules, "oasis7-passkey-smoke.cjs")) : createRequire(import.meta.url);
-const { chromium } = require("playwright");
+const { chromium } = loadPlaywright(import.meta.url);
 const url = process.argv[process.argv.indexOf("--url") + 1];
 if (!url || !url.startsWith("https://")) throw new Error("Usage: node scripts/hosted-passkey-virtual-authenticator-smoke.mjs --url https://localhost:8449/");
 const moduleUrl = new URL("/viewer_passkey_account_module.js", url).toString();

@@ -533,12 +533,7 @@ class Selection(unittest.TestCase):
         old = copy.deepcopy(config)
         old['rules'] = [rule for rule in old['rules']
                              if rule.get('reason') != 'quic_patch_consumers']
-        for path in ('vendor-libp2p-quic-0.14.0/src/connection/connecting.rs',
-                     'vendor-libp2p-quic-0.14.0/src/transport.rs',
-                     'vendor-libp2p-quic-0.14.0/tests/smoke.rs',
-                     'vendor-libp2p-quic-0.14.0/LICENSE',
-                     'vendor-libp2p-quic-0.14.0/.gitignore',
-                     'vendor/libp2p-quic-0.15.0/src/connection/connecting.rs',
+        for path in ('vendor/libp2p-quic-0.15.0/src/connection/connecting.rs',
                      'vendor/libp2p-quic-0.15.0/src/transport.rs',
                      'vendor/libp2p-quic-0.15.0/LICENSE',
                      'vendor/libp2p-quic-0.15.0/.gitignore',
@@ -553,7 +548,8 @@ class Selection(unittest.TestCase):
                 self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
                 with self.assertRaises(selector.UnknownInputsError):
                     selector.select(old, base, head)
-        for path in ('vendor-libp2p-quic-0.15.0/src/transport.rs',
+        for path in ('vendor-libp2p-quic-0.14.0/src/transport.rs',
+                     'vendor-libp2p-quic-0.15.0/src/transport.rs',
                      'vendor/libp2p-quic-0.16.0/src/transport.rs',
                      'vendor/unregistered.json'):
             with self.subTest(path=path):
@@ -564,11 +560,7 @@ class Selection(unittest.TestCase):
 
     def test_fixed_swarm_patch_sources_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('vendor-libp2p-swarm-0.48.0/src/lib.rs',
-                     'vendor-libp2p-swarm-0.48.0/src/outbound_attempt.rs',
-                     'vendor-libp2p-swarm-0.48.0/LICENSE',
-                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
-                     'vendor/libp2p-swarm-0.49.0/src/lib.rs',
+        for path in ('vendor/libp2p-swarm-0.49.0/src/lib.rs',
                      'vendor/libp2p-swarm-0.49.0/LICENSE',
                      'vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json'):
             with self.subTest(path=path):
@@ -577,7 +569,8 @@ class Selection(unittest.TestCase):
                 plan = selector.select(config, base, self.commit())
                 self.assertEqual(plan['scope'], 'targeted')
                 self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
-        for path in ('vendor-libp2p-swarm-0.48.0/unregistered.json',
+        for path in ('vendor-libp2p-swarm-0.48.0/src/lib.rs',
+                     'vendor-libp2p-swarm-0.48.0/unregistered.json',
                      'vendor-libp2p-swarm-0.49.0/src/lib.rs',
                      'vendor-libp2p-swarm-0.49.0/LICENSE',
                      'vendor/libp2p-swarm-0.49.0/unregistered.json',
@@ -591,28 +584,20 @@ class Selection(unittest.TestCase):
 
     def test_rendezvous_patch_inputs_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('vendor-libp2p-rendezvous-0.18.1/src/client.rs',
-                     'vendor-libp2p-rendezvous-0.18.1/src/client/tests.rs',
-                     'vendor-libp2p-rendezvous-0.18.1/LICENSE',
-                     'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
-                     'scripts/libp2p-security-source.test.py',
+        for path in ('scripts/libp2p-security-source.test.py',
                      '.dockerignore', 'docker/wasm-builder/Dockerfile'):
             with self.subTest(path=path):
                 case_base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'network patch input')
                 plan = selector.select(config, case_base, self.commit())
-                expected = ({'net', 'node', 'rust_baseline'} if path.startswith('vendor-')
-                            else {'net'} if path.startswith('scripts/')
+                expected = ({'net'} if path.startswith('scripts/')
                             else {'net', 'packaging_contracts'})
                 self.assertTrue(expected.issubset(plan['groups']))
                 self.assertEqual(plan['scope'], 'targeted')
 
     def test_if_watch_patch_inputs_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('vendor-if-watch-3.2.2/src/linux.rs',
-                     'vendor-if-watch-3.2.2/upstream-source-sha256.json',
-                     'vendor-if-watch-3.2.2/Cargo.toml',
-                     'vendor/if-watch-3.2.2/src/linux.rs',
+        for path in ('vendor/if-watch-3.2.2/src/linux.rs',
                      'vendor/if-watch-3.2.2/upstream-source-sha256.json',
                      'vendor/if-watch-3.2.2/Cargo.toml.orig',
                      'vendor/if-watch-3.2.2/Cargo.toml'):
@@ -4804,8 +4789,11 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertEqual(current['scope'], 'targeted')
                 self.assertEqual(current['ordinary_artifact_partition_version'], 2)
                 self.assertEqual(current['ordinary_dynamic_partition_version'], 1)
+                self.assertEqual(current['ordinary_controls_in_rust_baseline_version'], 1)
+                self.assertEqual(current['ordinary_clippy_group'], 'rust_baseline')
+                self.assertEqual(current['ordinary_wasm_group'], 'rust_baseline')
                 self.assertEqual(current['ordinary_partitions'],
-                                 ['controls', 'native-0', 'native-1'])
+                                 ['native-0', 'native-1'])
                 self.assertEqual(current['oasis7_required_packages'], ['oasis7_chain_runtime'])
                 self.assertIs(current['test_policy_changed'], False)
                 self.assertNotIn('ordinary_fast_targets', current)
@@ -4813,6 +4801,8 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertEqual({key: value for key, value in current.items()
                                   if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
                                                  'ordinary_dynamic_partition_version',
+                                                 'ordinary_controls_in_rust_baseline_version',
+                                                 'ordinary_clippy_group', 'ordinary_wasm_group',
                                                  'ordinary_harness_costs', 'ordinary_artifact_delivery_version')},
                                  legacy)
                 heavy_plan = dict(current)
@@ -4821,6 +4811,15 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 selector.complete_ordinary_partitions(self.config, heavy_plan)
                 self.assertNotIn('ordinary_dynamic_partition_version', heavy_plan)
                 self.assertEqual(heavy_plan['ordinary_partitions'],
+                                 ['native-0', 'native-1', 'native-2', 'native-3'])
+                legacy_controls = dict(heavy_plan)
+                for key in ('ordinary_controls_in_rust_baseline_version', 'ordinary_clippy_group', 'ordinary_wasm_group'):
+                    legacy_controls.pop(key, None)
+                selector.complete_ordinary_partitions(
+                    {k: v for k, v in self.config.items() if k != 'ordinary_controls_in_rust_baseline_version'},
+                    legacy_controls,
+                )
+                self.assertEqual(legacy_controls['ordinary_partitions'],
                                  ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
 
     def test_full_fast_uses_case_partitions_without_changing_the_original_selected_checks(self):
@@ -4839,7 +4838,7 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertEqual(current['ordinary_artifact_partition_version'], 2)
                 self.assertEqual(current['ordinary_artifact_delivery_version'], 2)
                 self.assertEqual(current['ordinary_partitions'],
-                                 ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                                 ['native-0', 'native-1', 'native-2', 'native-3'])
                 self.assertEqual((legacy['ordinary_artifact_partition_version'],
                                   legacy['ordinary_artifact_delivery_version']), (1, 1))
                 self.assertEqual({key: value for key, value in current.items() if key not in physical},
@@ -4913,9 +4912,9 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
             legacy = selector.select(old, self.base, head, profile=execution)
             self.assertEqual(current.pop('ordinary_harness_costs'), profile)
             self.assertEqual(current.pop('ordinary_dynamic_partition_version'), 1)
-            self.assertEqual(current['ordinary_partitions'], ['controls', 'native-0', 'native-1'])
+            self.assertEqual(current['ordinary_partitions'], ['native-0', 'native-1'])
             self.assertEqual(legacy['ordinary_partitions'],
-                             ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                             ['native-0', 'native-1', 'native-2', 'native-3'])
             current['ordinary_partitions'] = legacy['ordinary_partitions']
             self.assertEqual(current, legacy)
         for execution in ('periodic-full', 'candidate-full'):
@@ -4965,7 +4964,7 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertEqual(complete['ordinary_artifact_partition_version'], 1)
                 self.assertEqual(complete['ordinary_artifact_delivery_version'], 1)
                 self.assertEqual(complete['ordinary_partitions'],
-                                 ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+                                 ['runtime', 'component-libs', 'integrations-0', 'integrations-1'])
 
     def test_targeted_policy_change_partitions_preserve_the_complete_original_plan(self):
         for package in ('oasis7', 'oasis7_viewer_runtime'):
@@ -4979,7 +4978,9 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                    '#[cfg(feature="test_tier_full")] #[test] fn added_full_case() {}\n')
         head = self.commit()
         physical = {'ordinary_artifact_partition_version', 'ordinary_partitions',
-                    'ordinary_artifact_delivery_version', 'ordinary_harness_costs'}
+                    'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
+                    'ordinary_controls_in_rust_baseline_version',
+                    'ordinary_clippy_group', 'ordinary_wasm_group'}
         legacy_config = {key: value for key, value in self.config.items() if key not in physical}
         for profile in ('pr-fast', 'main-fast'):
             with self.subTest(profile=profile):
@@ -4992,7 +4993,7 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertEqual(selected['ordinary_artifact_partition_version'], 1)
                 self.assertEqual(selected['ordinary_artifact_delivery_version'], 1)
                 self.assertEqual(selected['ordinary_partitions'],
-                                 ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+                                 ['runtime', 'component-libs', 'integrations-0', 'integrations-1'])
                 self.assertNotIn('ordinary_harness_costs', selected)
                 self.assertNotIn('ordinary_partitions', legacy)
                 self.assertEqual({key: value for key, value in selected.items() if key not in physical}, legacy)
@@ -9078,9 +9079,34 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
                     '[dependencies]\noasis7_runtime={path="../oasis7_runtime"}\nserde={workspace=true, optional=true}\n'
                 ),
             }),
-            ('target_deps_changed', {
+            ('windows_target_deps_changed', {
                 'crates/oasis7_runtime_host/Cargo.toml': (
-                    valid_member + '[target.\'cfg(unix)\'.dependencies]\nserde={workspace=true}\n'
+                    valid_member + '[target.\'cfg(windows)\'.dependencies]\nserde={workspace=true}\n'
+                ),
+            }),
+            ('macos_target_deps_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    valid_member + '[target.\'cfg(target_os = "macos")\'.dependencies]\nserde={workspace=true}\n'
+                ),
+            }),
+            ('target_build_deps_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    valid_member + '[target.\'cfg(not(target_arch = "wasm32"))\'.build-dependencies]\nserde={workspace=true}\n'
+                ),
+            }),
+            ('target_optional_dep_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    valid_member + '[target.\'cfg(not(target_arch = "wasm32"))\'.dependencies]\nserde={workspace=true, optional=true}\n'
+                ),
+            }),
+            ('target_git_dep_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    valid_member + '[target.\'cfg(not(target_arch = "wasm32"))\'.dependencies]\nfoo={git="https://example.invalid/foo.git"}\n'
+                ),
+            }),
+            ('target_outside_path_dep_changed', {
+                'crates/oasis7_runtime_host/Cargo.toml': (
+                    valid_member + '[target.\'cfg(not(target_arch = "wasm32"))\'.dependencies]\noutside={path="../../outside"}\n'
                 ),
             }),
             ('build_deps_changed', {
@@ -9164,14 +9190,66 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         self.assertEqual(selector.select(nested_cfg, cc_base, nested_head, profile='pr-fast')['scope'], 'full')
 
     def test_v5_capability_version_validation(self):
-        for key in ('workspace_member_cargo_manifest_scope_version',
-                    'scoped_production_cfg_version',
-                    'main_fast_coalesce_concurrency_version'):
-            for bad in (0, 2, True, '1'):
+        for key, bad_values in (
+            ('workspace_member_cargo_manifest_scope_version', (0, 3, True, '1')),
+            ('ordinary_controls_in_rust_baseline_version', (0, 2, True, '1')),
+            ('contract_job_consolidation_version', (0, 5, True, '4')),
+            ('scoped_production_cfg_version', (0, 2, True, '1')),
+            ('main_fast_coalesce_concurrency_version', (0, 2, True, '1')),
+        ):
+            for bad in bad_values:
                 with self.subTest(key=key, bad=bad), self.assertRaises(ValueError):
                     cfg = copy.deepcopy(self.config)
                     cfg[key] = bad
                     selector.validate_config(cfg)
+
+    def test_workspace_member_v2_scopes_linux_and_wasm_target_deps_and_preserves_v1_fallback(self):
+        for cfg_pred in ('cfg(not(target_arch = "wasm32"))',
+                         'cfg(target_arch = "wasm32")',
+                         'cfg(unix)',
+                         'cfg(target_os = "linux")',
+                         'wasm32-unknown-unknown'):
+            with self.subTest(cfg=cfg_pred):
+                self.git('checkout', '-q', self.base)
+                self.write(
+                    'crates/oasis7_runtime_host/Cargo.toml',
+                    '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\nedition="2021"\n'
+                    '[dependencies]\noasis7_runtime={path="../oasis7_runtime"}\n'
+                    f'[target.\'{cfg_pred}\'.dependencies]\noasis7_viewer={{path="../oasis7_viewer"}}\n'
+                    f'[target.\'{cfg_pred}\'.dev-dependencies]\nserde={{workspace=true}}\n',
+                )
+                self.write(
+                    'Cargo.lock',
+                    self.BASE_LOCK.replace(
+                        '[[package]]\nname = "oasis7_runtime_host"\nversion = "0.1.0"\ndependencies = ["oasis7_runtime"]\n',
+                        '[[package]]\nname = "oasis7_runtime_host"\nversion = "0.1.0"\n'
+                        'dependencies = ["oasis7_runtime", "oasis7_viewer", "serde"]\n',
+                    ),
+                )
+                head = self.commit()
+                v2_plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(v2_plan['scope'], 'targeted', v2_plan['reasons'])
+                self.assertIn('cargo_tooling_contracts', v2_plan['groups'])
+                self.assertIn('rust_baseline', v2_plan['groups'])
+                self.assertIn('oasis7_chain_runtime', v2_plan['affected_packages'])
+                self.assertNotIn('ordinary_fast_targets', v2_plan)
+                # v1 policy must conservatively fall back to full on target.<cfg> edits
+                v1_cfg = self.config | {'workspace_member_cargo_manifest_scope_version': 1}
+                self.assertEqual(selector.select(v1_cfg, self.base, head, profile='pr-fast')['scope'], 'full')
+
+        # Historical tested_sha without ordinary_controls_in_rust_baseline_version retains controls partition
+        self.git('checkout', '-q', self.base)
+        old_scope_cfg = {k: v for k, v in self.config.items() if k != 'ordinary_controls_in_rust_baseline_version'}
+        self.write('scripts/ci-required-scope.json', json.dumps(old_scope_cfg))
+        self.write('crates/oasis7_chain_runtime/src/lib.rs', 'pub fn chain_updated() {}\n')
+        old_source_head = self.commit()
+        old_source_plan = selector.select(
+            self.config, self.base, old_source_head, old_source_head,
+            profile='pr-fast', policy_ref=self.base,
+        )
+        self.assertNotIn('ordinary_controls_in_rust_baseline_version', old_source_plan)
+        if 'ordinary_partitions' in old_source_plan:
+            self.assertEqual(old_source_plan['ordinary_partitions'][0], 'controls')
 
 
 class MainFastHistoricalRetiredPathsTests(WorkspaceMemberCargoAndScopedCfgTests):

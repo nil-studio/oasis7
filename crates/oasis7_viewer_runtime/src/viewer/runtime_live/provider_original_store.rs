@@ -18,10 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use oasis7::simulator::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
-    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
-    ProviderPendingAttemptPhaseV1, ProviderPendingAttemptSummaryV1, ProviderPendingStateRootsV1,
-    ProviderSpoolReservation,
+    ProviderOriginalMaterialStore, ProviderSpoolReservation,
 };
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget,
@@ -31,6 +28,11 @@ use oasis7_formal_protocol::incremental_state::{
     MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1, StateWriteV1,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
+use oasis7_world_service::provider_material::{
+    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
+    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
+    ProviderPendingAttemptSummaryV1, ProviderPendingStateRootsV1,
+};
 
 use super::provider_original_store_codec::{
     EventPhase, EventRecord, MAX_EVENT_BYTES, MAX_EVENTS, MAX_OPERATION_ID_BYTES,
@@ -700,9 +702,9 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
     }
     fn protected_roots_page(
         &self,
-        cursor: Option<&oasis7::simulator::ProviderPendingRootsCursorV1>,
+        cursor: Option<&oasis7_world_service::provider_material::ProviderPendingRootsCursorV1>,
         limit: usize,
-    ) -> Result<oasis7::simulator::ProviderPendingRootsPageV1, String> {
+    ) -> Result<oasis7_world_service::provider_material::ProviderPendingRootsPageV1, String> {
         self.protected_roots_page_impl(cursor, limit)
     }
     fn validate_request_owner(

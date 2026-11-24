@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONFIG_PATH="${OASIS7_LETAI_CONFIG_PATH:-/Users/scc/Documents/keys/letai.txt}"
+CONFIG_PATH="${OASIS7_LETAI_CONFIG_PATH:-${HOME}/Documents/keys/letai.txt}"
 OUTPUT_PATH=""
 AUTHORITATIVE_MAPPING_PATH=""
 MODEL="${OASIS7_LETAI_CHAT_MODEL:-gpt-5.4}"
@@ -20,7 +20,7 @@ If the input only contains a platform key, it uses LetAI platform APIs to upsert
 a stable local test user/project and writes the returned token_key.
 
 Options:
-  --config <path>              Source LetAI config (default: /Users/scc/Documents/keys/letai.txt)
+  --config <path>              Source LetAI config (default: $HOME/Documents/keys/letai.txt)
   --authoritative-mapping <path>
                                Mapping config whose explicit project token must match the source
   --out <path>                 Output config containing token_key; written 0600

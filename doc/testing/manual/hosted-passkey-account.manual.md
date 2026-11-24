@@ -27,11 +27,11 @@
 
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher --no-default-features hosted_identity:: -- --test-threads=1
-env -u RUSTC_WRAPPER cargo test -p oasis7 --lib --no-default-features hosted_authorization -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib --no-default-features hosted_authorization -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher --no-default-features identity_request_security_tests
 ```
 
-对应源码：身份 `hosted_identity/{store/tests.rs,session_tests.rs,credential_contract_tests.rs,email.rs,recovery.rs,webauthn.rs,world_tests.rs}`、签名授权 `viewer/auth/hosted_authorization_tests.rs`。型别化领域 fixture 只证明事务和权限状态机，不证明未调用的认证器或云服务。
+对应源码：身份 `hosted_identity/{store/tests.rs,session_tests.rs,credential_contract_tests.rs,email.rs,recovery.rs,webauthn.rs,world_tests.rs}`、签名授权 `crates/oasis7_client_api/src/viewer_auth/hosted_authorization_tests.rs`。型别化领域 fixture 只证明事务和权限状态机，不证明未调用的认证器或云服务。
 
 必须观察：旧 ID 和 player 映射保留；失败不发布部分写入；挑战五次失败耗尽；冻结不被认证解开；共享凭证下单独退出会话不删凭证；撤销凭证失效全部派生会话；安全 epoch 和外部 epoch 阻止旧 session；最后凭证保护及策略版本重新核对；第 101 条历史记录仍可分页和定向撤销。
 

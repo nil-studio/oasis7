@@ -16,11 +16,9 @@ use crate::viewer::{
 #[cfg(test)]
 use oasis7::simulator::RuntimePerfHealth;
 use oasis7::simulator::unsupported_runtime_perf_snapshot;
-use oasis7::simulator::{
-    RunnerMetrics, RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot,
-};
+use oasis7::simulator::{RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot};
 use oasis7_observability::emit_stderr_or_event;
-use oasis7_simulator::{PersistError, WorldTime};
+use oasis7_simulator::{PersistError, RunnerMetrics, WorldTime};
 
 #[derive(Debug, Clone)]
 pub struct ViewerServerConfig {

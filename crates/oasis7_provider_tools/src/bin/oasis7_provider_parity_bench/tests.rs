@@ -5,8 +5,9 @@ use super::recovery_ledger::{
 use super::*;
 use oasis7::simulator::{
     ContinuousAgentResponseContextV1, DecisionProvider, DecisionResponse, FeedbackEnvelopeV1,
-    cognition_response_digest, golden_decision_provider_fixtures,
+    golden_decision_provider_fixtures,
 };
+use oasis7_agent_api::cognition_response_digest;
 use oasis7_simulator::Action;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -17,6 +18,19 @@ mod target_context_legacy_tests;
 
 #[path = "provider_info_tests.rs"]
 mod provider_info_tests;
+
+#[test]
+fn provider_parity_original_archive_identity_survives_native_owner() {
+    use std::any::TypeId;
+    assert_eq!(
+        TypeId::of::<oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel>(),
+        TypeId::of::<oasis7::simulator::WorldKernel>(),
+    );
+    assert_eq!(
+        TypeId::of::<WorldEvent>(),
+        TypeId::of::<oasis7::simulator::WorldEvent>()
+    );
+}
 
 const ORIGIN_DIGEST: &str =
     "blake3:0000000000000000000000000000000000000000000000000000000000000000";

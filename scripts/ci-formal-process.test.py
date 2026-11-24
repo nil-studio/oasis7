@@ -7536,6 +7536,99 @@ mod family {
                     with self.assertRaisesRegex(ValueError, 'default-only features'):
                         artifacts.validate_profile(logical, {'features': ['default', leaked]}, 'ordinary')
 
+    def test_ordinary_controls_in_rust_baseline_omits_controls_partition_and_runs_clippy_and_wasm_in_baseline(self):
+        v1_plan = dict(
+            fast_plan_version=1,
+            execution_profile='periodic-full',
+            scope='explicit-full',
+            groups=['baseline', 'rust_baseline', 'oasis7_required'],
+            test_policy_changed=False,
+            ordinary_artifact_partition_version=1,
+            ordinary_artifact_delivery_version=1,
+            ordinary_controls_in_rust_baseline_version=1,
+            ordinary_clippy_group='rust_baseline',
+            ordinary_wasm_group='rust_baseline',
+            ordinary_partitions=['runtime', 'component-libs', 'integrations-0', 'integrations-1'],
+            oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
+            oasis7_required_wasm_packages=['oasis7_agent_api', 'oasis7_simulator'],
+        )
+        self.assertEqual(artifacts.ordinary_partitions(v1_plan),
+                         ['runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+        self.assertEqual(artifacts.native_ordinary_partitions(v1_plan),
+                         ['runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+        self.assertEqual(artifacts.required_arguments(v1_plan, 'clippy-group'), ['rust_baseline'])
+        self.assertEqual(artifacts.required_arguments(v1_plan, 'wasm-group'), ['rust_baseline'])
+
+        v2_plan = dict(
+            fast_plan_version=1,
+            execution_profile='pr-fast',
+            scope='targeted',
+            groups=['baseline', 'rust_baseline', 'oasis7_required'],
+            test_policy_changed=False,
+            ordinary_artifact_partition_version=2,
+            ordinary_artifact_delivery_version=2,
+            ordinary_controls_in_rust_baseline_version=1,
+            ordinary_clippy_group='rust_baseline',
+            ordinary_wasm_group='rust_baseline',
+            ordinary_partitions=['native-0', 'native-1', 'native-2', 'native-3'],
+            oasis7_required_packages=['oasis7_chain_runtime'],
+            oasis7_required_wasm_packages=['oasis7_simulator'],
+        )
+        self.assertEqual(artifacts.ordinary_partitions(v2_plan),
+                         ['native-0', 'native-1', 'native-2', 'native-3'])
+        self.assertEqual(artifacts.native_ordinary_partitions(v2_plan),
+                         ['native-0', 'native-1', 'native-2', 'native-3'])
+        self.assertEqual(artifacts.required_arguments(v2_plan, 'clippy-group'), ['rust_baseline'])
+        self.assertEqual(artifacts.required_arguments(v2_plan, 'wasm-group'), ['rust_baseline'])
+
+        # Reject retaining controls or malformed handoff fields fail-closed
+        for bad in (
+            v2_plan | {'ordinary_partitions': ['controls', 'native-0', 'native-1', 'native-2', 'native-3']},
+            v2_plan | {'ordinary_clippy_group': 'oasis7_required'},
+            v2_plan | {'ordinary_wasm_group': 'oasis7_required'},
+            v2_plan | {'groups': ['baseline', 'oasis7_required']},
+            v2_plan | {'ordinary_controls_in_rust_baseline_version': 2},
+            v2_plan | {'ordinary_controls_in_rust_baseline_version': True},
+            {k: v for k, v in v2_plan.items() if k != 'ordinary_controls_in_rust_baseline_version'},
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                artifacts.fast_plan(bad)
+
+        # Verify shell driver executes Clippy + WASM in rust_baseline and skips WASM in oasis7_required
+        driver = (HERE / 'ci-tests.sh').read_text()
+        bodies = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
+        plan_file = self.root / 'baseline-controls-plan.json'
+        plan_file.write_text(json.dumps(v2_plan | {'source_sha': sha, 'tested_sha': sha}))
+        bundle_dir = self.root / 'dummy-bundle'
+        bundle_dir.mkdir(exist_ok=True)
+        script = (
+            'set -euo pipefail\n'
+            'tier=required; ci_python="$1"; driver_dir="$2"; repo_root="$3"; required_plan="$4"\n'
+            'ordinary_partition="native-0"; export OASIS7_CI_TEST_BUNDLE="$5"\n'
+            'run_oasis7_required_tier_clippy() { echo "CLIPPY_EXECUTED"; }\n'
+            'run_cargo() { printf "CARGO:%s\\n" "$*"; }\n'
+            'run() { printf "RUN:%s\\n" "$*"; }\n'
+            'run_oasis7_required_clippy_for_group() {\n' + bodies['run_oasis7_required_clippy_for_group'] + '}\n'
+            'run_oasis7_required_tier_tests() {\n' + bodies['run_oasis7_required_tier_tests'] + '}\n'
+            'echo "---BASELINE---"\n'
+            'run_oasis7_required_clippy_for_group rust_baseline\n'
+            'echo "---ORDINARY---"\n'
+            'run_oasis7_required_clippy_for_group oasis7_required\n'
+            'run_oasis7_required_tier_tests\n'
+        )
+        res = subprocess.run(
+            ['bash', '-c', script, 'fixture', sys.executable, str(HERE), str(artifacts.ROOT),
+             str(plan_file), str(bundle_dir)],
+            text=True, capture_output=True, env=dict(os.environ, SOURCE_SHA=sha),
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        baseline_out, ordinary_out = res.stdout.split('---ORDINARY---\n', 1)
+        self.assertIn('CLIPPY_EXECUTED', baseline_out)
+        self.assertIn('CARGO:check -p oasis7_simulator --lib --target wasm32-unknown-unknown --locked', baseline_out)
+        self.assertNotIn('CLIPPY_EXECUTED', ordinary_out)
+        self.assertNotIn('CARGO:check', ordinary_out)
+
 
 if __name__ == '__main__':
     unittest.main()

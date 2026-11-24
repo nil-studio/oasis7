@@ -3,7 +3,8 @@ use std::hint::black_box;
 use std::io::Write;
 use std::time::Instant;
 
-use oasis7::simulator::{Agent, WorldEvent, WorldEventKind, WorldKernel};
+use oasis7::simulator::{WorldEvent, WorldKernel};
+use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};
 use oasis7_viewer_codec::{
     ViewerRequest, ViewerResponse, request_from_json, response_to_json, write_response_json,
 };
@@ -105,7 +106,7 @@ fn main() {
             Agent::new(
                 id,
                 "location",
-                oasis7::GeoPos {
+                GeoPos {
                     x_cm: 0,
                     y_cm: 0,
                     z_cm: 0,
@@ -119,7 +120,7 @@ fn main() {
             id: 1,
             time: 1,
             kind: WorldEventKind::ActionRejected {
-                reason: oasis7::simulator::RejectReason::RuleDenied {
+                reason: RejectReason::RuleDenied {
                     notes: vec!["x".repeat(1 << 20)],
                 },
             },

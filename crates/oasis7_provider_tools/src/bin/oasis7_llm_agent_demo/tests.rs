@@ -1,10 +1,17 @@
 use super::*;
 #[cfg(feature = "test_tier_full")]
 use oasis7_runtime::{EconomicContractStatus, GovernanceProposalStatus};
-use oasis7::simulator::{AgentDecision, AgentDecisionTrace, LlmStepTrace, WorldEvent};
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
 #[cfg(feature = "test_tier_full")]
 use oasis7_agent_api::world_action::ResourceKind;
-use oasis7_simulator::{Action, WorldEventKind};
+use oasis7_simulator::{Action, AgentDecision, AgentDecisionTrace, LlmStepTrace, WorldEventKind};
+
+#[test]
+fn demo_original_archive_has_single_native_host_identity() {
+    use std::any::TypeId;
+    assert_eq!(TypeId::of::<WorldKernel>(), TypeId::of::<oasis7::simulator::WorldKernel>());
+    assert_eq!(TypeId::of::<WorldEvent>(), TypeId::of::<oasis7::simulator::WorldEvent>());
+}
 
 #[cfg(feature = "test_tier_full")]
 fn tracked_baseline_fixture_dir() -> std::path::PathBuf {
@@ -658,7 +665,7 @@ fn gameplay_coverage_bootstrap_records_required_action_kinds() {
 #[test]
 fn runtime_bridge_continues_governance_from_tracked_baseline_fixture() {
     let fixture_dir = tracked_baseline_fixture_dir();
-    let mut kernel = oasis7::simulator::WorldKernel::load_from_dir(&fixture_dir)
+    let mut kernel = WorldKernel::load_from_dir(&fixture_dir)
         .expect("load tracked baseline fixture");
     let mut runtime_bridge =
         RuntimeGameplayBridge::from_kernel(&kernel).expect("bootstrap runtime gameplay bridge");
@@ -881,7 +888,7 @@ fn runtime_bridge_continues_governance_from_tracked_baseline_fixture() {
 #[test]
 fn runtime_bridge_civic_hotspot_preset_seeds_followup_handles() {
     let fixture_dir = tracked_baseline_fixture_dir();
-    let kernel = oasis7::simulator::WorldKernel::load_from_dir(&fixture_dir)
+    let kernel = WorldKernel::load_from_dir(&fixture_dir)
         .expect("load tracked baseline fixture");
     let mut runtime_bridge =
         RuntimeGameplayBridge::from_kernel(&kernel).expect("bootstrap runtime gameplay bridge");

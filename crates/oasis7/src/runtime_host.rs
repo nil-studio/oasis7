@@ -9,10 +9,7 @@ mod agent_chat_projection_tests;
 #[cfg(test)]
 mod game_task_projection_tests;
 
-pub mod provider_context;
-
 pub mod bootstrap;
-pub use oasis7_runtime_host::gameplay_actions;
 pub mod harness_authority;
 pub mod ordinary_starter;
 
