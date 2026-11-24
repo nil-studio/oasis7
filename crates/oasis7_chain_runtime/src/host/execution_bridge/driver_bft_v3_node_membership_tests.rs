@@ -9,6 +9,7 @@ use oasis7_world_service::consensus_action_payload::{
 
 #[path = "driver_bft_v3_node_membership_fault_tests.rs"]
 mod fault_cases;
+#[cfg(feature = "test_tier_full")]
 #[path = "driver_bft_v3_node_membership_rotation_tests.rs"]
 mod rotation_cases;
 
