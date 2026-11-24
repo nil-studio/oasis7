@@ -35,7 +35,7 @@ fn invalid(reason: &str) -> WorldError {
     }
 }
 
-fn wall_now_ms() -> Result<i64, WorldError> {
+pub(super) fn wall_now_ms() -> Result<i64, WorldError> {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| invalid("wall clock precedes Unix epoch"))?;
@@ -47,10 +47,6 @@ impl DiscoveryClock {
     /// UTC lower bound is installed. This does NOT authenticate that bound or
     /// implement cross-process antirollback custody; the caller must supply a
     /// genuine external verifier before it is wired into production consumers.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "L0 trusted-clock adapter is not yet provisioned")
-    )]
     pub(super) fn requiring_independent_floor() -> Self {
         Self(Arc::new(Mutex::new(ClockState {
             requires_independent_floor: true,
@@ -58,13 +54,33 @@ impl DiscoveryClock {
         })))
     }
 
+    pub(super) fn preflight_independent_floor(
+        &self,
+        floor_ms: i64,
+        wall_ms: i64,
+    ) -> Result<(), WorldError> {
+        let state = self.0.lock().map_err(|_| invalid("clock lock poisoned"))?;
+        if !state.requires_independent_floor || state.independent_floor_initialized {
+            return Err(invalid("independent floor bootstrap unavailable"));
+        }
+        if floor_ms <= 0 {
+            return Err(invalid("independent UTC floor must be positive"));
+        }
+        if wall_ms < floor_ms {
+            return Err(invalid("wall time precedes independent UTC floor"));
+        }
+        if state
+            .wall_highwater
+            .is_some_and(|previous| wall_ms < previous)
+        {
+            return Err(invalid("wall clock moved backward"));
+        }
+        Ok(())
+    }
+
     /// Complete one recovery bootstrap without exposing an unanchored lease.
     /// `floor_ms` must be verified by an independent authority before calling.
     /// It is deliberately impossible to seed a legacy/default clock here.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "L0 trusted-clock adapter is not yet provisioned")
-    )]
     pub(super) fn install_independently_verified_floor(
         &self,
         floor_ms: i64,
@@ -78,12 +94,35 @@ impl DiscoveryClock {
         if floor_ms < 0 || wall_ms < floor_ms {
             return Err(invalid("wall time precedes independent UTC floor"));
         }
+        if state
+            .wall_highwater
+            .is_some_and(|previous| wall_ms < previous)
+        {
+            return Err(invalid("wall clock moved backward"));
+        }
         // Mutate only after all refusals, so bad external material leaves the
         // new recovery clock blocked rather than permitting legacy fallback.
         state.wall_highwater = Some(wall_ms);
         state.anchor = Some((wall_ms, instant));
         state.last_instant = Some(instant);
         state.independent_floor_initialized = true;
+        Ok(())
+    }
+
+    pub(super) fn ensure_trusted_floor_ready(&self, floor_ms: i64) -> Result<(), WorldError> {
+        let state = self.0.lock().map_err(|_| invalid("clock lock poisoned"))?;
+        if state.requires_independent_floor && !state.independent_floor_initialized {
+            return Err(invalid("independent UTC floor has not been established"));
+        }
+        if floor_ms <= 0 {
+            return Err(invalid("trusted time floor must be positive"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn seed_persisted_floor(&self, floor_ms: i64) -> Result<(), WorldError> {
+        let mut state = self.0.lock().map_err(|_| invalid("clock lock poisoned"))?;
+        state.wall_highwater = Some(state.wall_highwater.map_or(floor_ms, |p| p.max(floor_ms)));
         Ok(())
     }
 

@@ -46,6 +46,8 @@ pub(super) struct ReceiverLedgerV2 {
     mode: PeerRecordReceiverMode,
     pub(super) floors: BTreeMap<String, PeerFloorV2>,
     pub(super) pruned_trusted_time_watermark_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) trusted_time_floor_ms: Option<i64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) pre_migration_v1_expiries: BTreeMap<String, i64>,
 }
@@ -71,6 +73,53 @@ pub(super) struct DurableReceiver {
     pub(super) ledger: ReceiverLedgerV2,
     pub(super) poisoned: bool,
     pub(super) last_trusted_now_ms: Option<i64>,
+}
+
+impl DurableReceiver {
+    pub(super) fn persisted_time_floor_ms(&self) -> Option<i64> {
+        self.ledger
+            .pruned_trusted_time_watermark_ms
+            .into_iter()
+            .chain(self.ledger.trusted_time_floor_ms)
+            .max()
+    }
+
+    pub(super) fn effective_time_floor_ms(&self) -> Option<i64> {
+        self.persisted_time_floor_ms()
+            .into_iter()
+            .chain(self.last_trusted_now_ms)
+            .max()
+    }
+
+    pub(super) fn ensure_unexpired(&self, expiry: i64, legacy: bool) -> Result<(), WorldError> {
+        if self
+            .effective_time_floor_ms()
+            .is_some_and(|floor| expiry <= floor)
+        {
+            let prefix = if legacy {
+                "legacy peer record"
+            } else {
+                "peer record"
+            };
+            return Err(protocol_error(format!(
+                "{prefix} expired before receiver trusted time floor"
+            )));
+        }
+        Ok(())
+    }
+
+    pub(super) fn ensure_record_unexpired(
+        &self,
+        record: &SignedPeerRecord,
+        legacy: bool,
+    ) -> Result<i64, WorldError> {
+        let expiry = record
+            .record
+            .expires_at_ms()
+            .map_err(|reason| protocol_error(format!("invalid record expiry: {reason}")))?;
+        self.ensure_unexpired(expiry, legacy)?;
+        Ok(expiry)
+    }
 }
 
 #[derive(Debug)]
@@ -109,6 +158,7 @@ pub(super) struct ReceiverLeaseGuard {
     receiver: SharedPeerRecordReceiver,
     peer_id: String,
     identity: RecordIdentity,
+    expires_at_ms: i64,
 }
 
 impl std::fmt::Debug for ReceiverLeaseGuard {
@@ -116,6 +166,7 @@ impl std::fmt::Debug for ReceiverLeaseGuard {
         f.debug_struct("ReceiverLeaseGuard")
             .field("peer_id", &self.peer_id)
             .field("identity", &self.identity)
+            .field("expires_at_ms", &self.expires_at_ms)
             .finish_non_exhaustive()
     }
 }
@@ -125,6 +176,7 @@ impl PartialEq for ReceiverLeaseGuard {
         Arc::ptr_eq(&self.receiver, &other.receiver)
             && self.peer_id == other.peer_id
             && self.identity == other.identity
+            && self.expires_at_ms == other.expires_at_ms
     }
 }
 
@@ -267,6 +319,7 @@ impl PeerRecordReceiver {
                         ));
                     }
                 }
+                durable.ensure_record_unexpired(record, true)?;
                 Ok(())
             }
             (_, Some(publication)) => {
@@ -284,6 +337,7 @@ impl PeerRecordReceiver {
                         ));
                     }
                 }
+                let mut same_sequence_conflict = false;
                 if let Some(current) = durable.ledger.floors.get(&record.record.peer_id) {
                     if current.isolated {
                         return Err(protocol_error(
@@ -293,6 +347,14 @@ impl PeerRecordReceiver {
                     if publication.sequence < current.sequence {
                         return Err(protocol_error("peer-record V2 sequence regressed".into()));
                     }
+                    if publication.sequence == current.sequence {
+                        let identity = record_identity(record, publication)?;
+                        same_sequence_conflict =
+                            current.signing_payload_digest_hex != encode_digest(&identity);
+                    }
+                }
+                if !same_sequence_conflict {
+                    durable.ensure_record_unexpired(record, false)?;
                 }
                 Ok(())
             }
@@ -347,6 +409,7 @@ impl PeerRecordReceiver {
                         "legacy peer record expired before receiver pruning watermark".into(),
                     ));
                 }
+                durable.ensure_unexpired(expiry, true)?;
                 let peer_id = record.record.peer_id.clone();
                 let existing_v1 = durable
                     .ledger
@@ -412,6 +475,7 @@ impl PeerRecordReceiver {
                         ));
                     }
                 }
+                durable.ensure_record_unexpired(record, false)?;
                 ReceiverAdmission::Accepted
             }
             Some(current) if current.isolated => {
@@ -429,14 +493,18 @@ impl PeerRecordReceiver {
             }
             Some(current) if publication.sequence == current.sequence => {
                 if current.signing_payload_digest_hex == signing_payload_digest_hex {
+                    durable.ensure_record_unexpired(record, false)?;
                     return Ok(ReceiverAdmission::Duplicate);
                 }
                 ReceiverAdmission::Conflict
             }
-            Some(_) => ReceiverAdmission::Accepted,
+            Some(_) => {
+                durable.ensure_record_unexpired(record, false)?;
+                ReceiverAdmission::Accepted
+            }
         };
 
-        let admission_time = match durable.last_trusted_now_ms {
+        let admission_time = match durable.effective_time_floor_ms() {
             Some(trusted) if trusted < record.record.published_at_ms => {
                 // Trusted time observation is stale relative to the published record.
                 // Do not manufacture a prematurely expiring admission bound.
@@ -540,6 +608,10 @@ impl PeerRecordReceiver {
         record: &SignedPeerRecord,
     ) -> Result<ReceiverLeaseGuard, WorldError> {
         let peer_id = record.record.peer_id.clone();
+        let expires_at_ms = record
+            .record
+            .expires_at_ms()
+            .map_err(|reason| protocol_error(format!("invalid record expiry: {reason}")))?;
         match &record.publication {
             None => {
                 if self.state.mode == PeerRecordReceiverMode::V2Only {
@@ -566,11 +638,13 @@ impl PeerRecordReceiver {
                             "legacy peer record rejected after V2 floor migration".into(),
                         ));
                     }
+                    durable.ensure_unexpired(expires_at_ms, true)?;
                 }
                 Ok(ReceiverLeaseGuard {
                     receiver: Arc::clone(self),
                     peer_id,
                     identity: RecordIdentity::V1,
+                    expires_at_ms,
                 })
             }
             Some(publication) => {
@@ -600,11 +674,13 @@ impl PeerRecordReceiver {
                             "peer record does not match the current receiver floor".into(),
                         ));
                     }
+                    durable.ensure_unexpired(expires_at_ms, false)?;
                 }
                 Ok(ReceiverLeaseGuard {
                     receiver: Arc::clone(self),
                     peer_id,
                     identity,
+                    expires_at_ms,
                 })
             }
         }
@@ -628,6 +704,9 @@ impl PeerRecordReceiver {
             return Ok(None);
         }
         let signed = decode_stored_record(&floor.primary_signed_record_cbor)?;
+        if durable.ensure_record_unexpired(&signed, false).is_err() {
+            return Ok(None);
+        }
         let Some(publication) = signed.publication.as_ref() else {
             return Err(protocol_error(
                 "receiver floor primary is not a V2 signed record".into(),
@@ -643,6 +722,40 @@ impl PeerRecordReceiver {
             return Ok(None);
         }
         Ok(Some(signed))
+    }
+
+    pub(super) fn persisted_time_floor_ms(&self) -> Result<Option<i64>, WorldError> {
+        let Some(durable) = self.durable_lock()? else {
+            return Ok(None);
+        };
+        ensure_durable_usable(&durable)?;
+        Ok(durable.persisted_time_floor_ms())
+    }
+
+    pub(super) fn record_verified_time_floor(&self, floor_ms: i64) -> Result<i64, WorldError> {
+        if floor_ms <= 0 {
+            return Err(protocol_error("trusted time must be positive".into()));
+        }
+        if self.state.mode == PeerRecordReceiverMode::Legacy {
+            return Ok(floor_ms);
+        }
+        let _ingress = self.begin_ingress()?;
+        let mut durable = self.durable_lock_required()?;
+        ensure_durable_usable(&durable)?;
+        if let Some(existing) = durable.effective_time_floor_ms()
+            && floor_ms < existing
+        {
+            return Err(protocol_error(
+                "verified UTC floor regressed behind durable receiver floor".into(),
+            ));
+        }
+        if durable.ledger.trusted_time_floor_ms != Some(floor_ms) {
+            let mut next = durable.ledger.clone();
+            next.trusted_time_floor_ms = Some(floor_ms);
+            persist_next(&mut durable, next)?;
+        }
+        durable.last_trusted_now_ms = Some(floor_ms);
+        Ok(floor_ms)
     }
 
     pub(super) fn durable_lock(
@@ -789,6 +902,7 @@ impl ReceiverLeaseGuard {
                     if durable.ledger.floors.contains_key(&self.peer_id) {
                         return Err(protocol_error("legacy lease revoked by V2 floor".into()));
                     }
+                    durable.ensure_unexpired(self.expires_at_ms, true)?;
                 }
             }
             RecordIdentity::V2 {
@@ -813,6 +927,7 @@ impl ReceiverLeaseGuard {
                     {
                         return Err(protocol_error("peer lease is stale or isolated".into()));
                     }
+                    durable.ensure_unexpired(self.expires_at_ms, false)?;
                 }
             }
         }

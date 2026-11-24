@@ -57,10 +57,32 @@ impl Libp2pNetwork {
             &keypair,
             config.peer_record.as_ref(),
         )?;
-        let mut opened_local_peer_record_publisher = LocalPeerRecordPublisher::open(
+        let discovery_clock = if config.require_independent_discovery_clock_floor
+            || config.verified_discovery_clock_floor_ms.is_some()
+        {
+            let clock = peer_record_time::DiscoveryClock::requiring_independent_floor();
+            if let Some(floor_ms) = config.verified_discovery_clock_floor_ms {
+                api::install_verified_discovery_floor(
+                    &clock,
+                    &peer_record_receiver,
+                    floor_ms,
+                    peer_record_time::wall_now_ms()?,
+                    std::time::Instant::now(),
+                )?;
+            }
+            clock
+        } else {
+            let clock = peer_record_time::DiscoveryClock::default();
+            if let Some(persisted_floor) = peer_record_receiver.persisted_time_floor_ms()? {
+                clock.seed_persisted_floor(persisted_floor)?;
+            }
+            clock
+        };
+        let mut opened_local_peer_record_publisher = LocalPeerRecordPublisher::open_with_clock(
             config.peer_record_publication_directory.as_deref(),
             &keypair,
             config.peer_record.as_ref(),
+            discovery_clock.clone(),
         )?;
         if opened_local_peer_record_publisher.is_withdrawn()
             && config.peer_record_receiver.mode == PeerRecordReceiverMode::Legacy
@@ -107,6 +129,7 @@ impl Libp2pNetwork {
         let event_reachability = Arc::clone(&reachability);
         let event_local_peer_record_publisher = Arc::clone(&local_peer_record_publisher);
         let event_peer_record_receiver = Arc::clone(&peer_record_receiver);
+        let event_discovery_clock = discovery_clock.clone();
         let event_traffic_metrics = Arc::clone(&traffic_metrics);
         let event_wire_byte_counters = Arc::clone(&wire_byte_counters);
         let connection_budget = resource_budget
@@ -125,13 +148,14 @@ impl Libp2pNetwork {
         std::thread::spawn(move || {
             let runtime = runtime_support::new_current_thread_runtime("build libp2p tokio runtime");
             runtime.block_on(async move {
-            let mut swarm = swarm_behaviour::build_swarm_with_receiver(
+            let mut swarm = swarm_behaviour::build_swarm_with_receiver_and_clock(
                 &keypair_clone,
                 enable_rendezvous,
                 config_clone.enable_autonat,
                 config_clone.request_response_timeout,
                 Arc::clone(&event_wire_byte_counters),
                 Arc::clone(&event_peer_record_receiver),
+                event_discovery_clock.clone(),
                 connection_budget,
             );
             let mut subscriptions = HashSet::new();
@@ -154,7 +178,7 @@ impl Libp2pNetwork {
             let dial_policy = swarm.behaviour().discovery_dial_policy();
             dial_policy.set_configured(&config_clone.bootstrap_peers);
             let mut discovered_peer_records = PeerRecordCache::with_dial_policy_and_receiver(
-                swarm.behaviour_mut().kademlia.store_mut().clock().clone(),
+                event_discovery_clock,
                 dial_policy,
                 Arc::clone(&event_peer_record_receiver),
             );
@@ -1172,6 +1196,7 @@ impl Libp2pNetwork {
             traffic_metrics,
             wire_byte_counters,
             peer_record_receiver,
+            discovery_clock,
             resource_budget,
             _shutdown_guard: Arc::new(drop_support::ShutdownGuard::new(command_tx)),
         })
