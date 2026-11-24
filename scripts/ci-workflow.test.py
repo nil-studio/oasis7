@@ -389,6 +389,30 @@ def image_cache_admission_layout(job, cache, save_condition):
     assert '          save-if: ${{ ' + save_condition + ' }}\n' in cache
 
 
+def ordinary_image_cache_admission(job):
+    cache = rust_cache_steps(job)
+    assert len(cache) == 1, 'ordinary image must use one admitted dependency cache'
+    cache = cache[0]
+    for field in (
+        '          OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image\n',
+        '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}\n',
+        '          GH_TOKEN: ${{ github.token }}\n',
+        '          cache-on-failure: false\n',
+    ):
+        assert cache.count(field) == 1, 'ordinary image cache needs its exact bounded writer environment'
+    save = "job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha"
+    # Reuse the complete installer/preload/interpreter/provider/save transition;
+    # only the ordinary producer's independent step ID differs.
+    image_cache_admission_layout(job.replace('ordinary-dependency-cache-tools', 'dependency-cache-tools'),
+                                 cache.replace('ordinary-dependency-cache-tools', 'dependency-cache-tools'), save)
+    assert 'run: python3 scripts/ci-rust-cache-admission.py install-release\n' in job
+    preflight = workflow_step_script(job, 'Verify trusted ordinary image and source')
+    for guard in ('test "$GITHUB_REF" = refs/heads/main',
+                  'test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"',
+                  'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"'):
+        assert guard in preflight, 'ordinary cache source must match the actual trusted main checkout'
+
+
 def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     """Bind each complete writer row to the actual reader cache environment."""
     header, steps = job.split('    steps:', 1)
@@ -1831,7 +1855,27 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', cache)
         self.assertIn('cache-provider: github', cache)
         self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image', cache)
-        self.assertIn('guard_ready', cache)
+        ordinary_image_cache_admission(job)
+        save = re.search(r'^          save-if: .+$', cache, re.M).group()
+        mutations = (
+            job.replace(save, '          save-if: true', 1),
+            job.replace('python3 scripts/ci-rust-cache-admission.py install-release', 'echo guard_ready', 1),
+            job.replace('          NODE_OPTIONS: ${{ steps.ordinary-dependency-cache-tools.outputs.node_options }}\n', '', 1),
+            job.replace('          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.ordinary-dependency-cache-tools.outputs.python }}\n', '', 1),
+            job.replace('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
+                        'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: 999999999999', 1),
+            job.replace('GH_TOKEN: ${{ github.token }}', 'GH_TOKEN: unrelated', 1),
+            job.replace('cache-provider: github', 'cache-provider: other', 1),
+            job.replace('cache-on-failure: false', 'cache-on-failure: true', 1),
+            job.replace('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', ': # no actual source check', 1),
+            job.replace(" && github.workflow_sha == github.sha }}", " }}", 1),
+        )
+        for changed in mutations:
+            # A disconnected marker must never substitute for the real post hook.
+            changed = changed.replace('OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image',
+                                      'guard_ready: ignored\n          OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image', 1)
+            with self.subTest(cache_admission=changed), self.assertRaises(AssertionError):
+                ordinary_image_cache_admission(changed)
         candidate = JOBS['oasis7-test-build-candidate']
         self.assertNotIn('    container:', candidate)
         host_cache = rust_cache_steps(candidate)[0]
