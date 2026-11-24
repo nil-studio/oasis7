@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::observability::emit_stderr_or_event;
+use oasis7_observability::emit_stderr_or_event;
 use oasis7_node::{NodeCommittedActionBatchesHandle, NodeRuntime};
 use tracing::Level;
 
@@ -19,8 +19,9 @@ use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
 use oasis7_runtime_host::simulator_archive::kernel_host::{WorldKernel, initialize_kernel};
 use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;
 use oasis7_simulator::{
-    Action, ActionSubmitter, AgentDecision, AgentDecisionTrace, AgentPromptProfile, PromptUpdateOperation, ResourceOwner, WorldConfig,
-    RunnerMetrics, WorldEventKind, WorldInitConfig, WorldInitError, WorldScenario,
+    Action, ActionSubmitter, AgentDecision, AgentDecisionTrace, AgentPromptProfile,
+    PromptUpdateOperation, ResourceOwner, RunnerMetrics, WorldConfig, WorldEventKind,
+    WorldInitConfig, WorldInitError, WorldScenario,
 };
 
 #[path = "live/consensus_bridge.rs"]

@@ -6094,7 +6094,6 @@ dependencies = [
  "oasis7_formal_protocol",
  "oasis7_hosted_access",
  "oasis7_model_provider",
- "oasis7_observability",
  "oasis7_proto",
  "oasis7_runtime",
  "oasis7_runtime_host",
@@ -6258,7 +6257,6 @@ dependencies = [
  "oasis7_simulator",
  "oasis7_viewer_runtime",
  "oasis7_world_service",
- "reqwest 0.13.5",
  "serde",
  "serde_json",
 ]
@@ -6385,7 +6383,6 @@ name = "oasis7_dev_test_worker"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "hex",
  "js-sys",
  "oasis7_agent_api",
  "oasis7_client_api",
@@ -6574,9 +6571,7 @@ dependencies = [
 name = "oasis7_local_signer"
 version = "0.1.0"
 dependencies = [
- "argon2",
  "base64 0.23.1",
- "chacha20poly1305 0.11.0",
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
@@ -6650,7 +6645,6 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "ed25519-dalek",
- "futures",
  "getrandom 0.4.3",
  "hex",
  "libp2p",
@@ -6678,13 +6672,11 @@ dependencies = [
 name = "oasis7_ops_tools"
 version = "0.1.0"
 dependencies = [
- "ed25519-dalek",
  "hex",
  "oasis7",
  "oasis7_agent_api",
  "oasis7_client_api",
  "oasis7_hosted_access",
- "oasis7_proto",
  "oasis7_runtime",
  "oasis7_runtime_host",
  "oasis7_simulator",
@@ -6786,8 +6778,6 @@ dependencies = [
  "serde_cbor_2",
  "serde_json",
  "sha2 0.11.0",
- "unicode-normalization",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6888,7 +6878,6 @@ dependencies = [
  "oasis7_world_projection",
  "oasis7_world_service",
  "oasis7_world_state",
- "reqwest 0.13.5",
  "serde",
  "serde_cbor_2",
  "serde_ignored",
@@ -6995,7 +6984,6 @@ name = "oasis7_world_service"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "cap-fs-ext",
  "cap-std",
  "chacha20poly1305 0.11.0",
  "ed25519-dalek",
@@ -7013,13 +7001,9 @@ dependencies = [
  "oasis7_wasm_abi",
  "oasis7_world_projection",
  "oasis7_world_state",
- "reqwest 0.13.5",
  "serde",
  "serde_cbor_2",
- "serde_ignored",
  "serde_json",
- "sha2 0.11.0",
- "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -7028,12 +7012,8 @@ name = "oasis7_world_state"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "cap-fs-ext",
- "cap-std",
  "ed25519-dalek",
  "hex",
- "hmac 0.13.0",
- "libc",
  "oasis7_agent_api",
  "oasis7_cas",
  "oasis7_client_api",

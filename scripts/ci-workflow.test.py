@@ -614,7 +614,10 @@ def viewer_cache_kind(job):
     expected = '"$RUST_TOOLCHAIN"' + (' "$OASIS7_WASM_TOOLCHAIN"' if inputs == native else '')
     assert re.search(r'^        run: python3 scripts/ci-rust-cache-toolchains.py ' +
                      re.escape(expected) + r'$', prepare, re.M)
-    assert 'if:' not in prepare and 'continue-on-error:' not in prepare
+    assert 'continue-on-error:' not in prepare
+    prepare_if = re.search(r'^        if: .*?(?=^        [a-z-]+:|\Z)', prepare, re.M | re.S)
+    cache_if = re.search(r'^        if: .*?(?=^        [a-z-]+:|\Z)', cache, re.M | re.S)
+    assert (prepare_if.group(0) if prepare_if else None) == (cache_if.group(0) if cache_if else None)
     assert job.index('rustup default') < job.index(prepare) < job.index(cache)
     before_cache = job[:job.index(cache)]
     assert 'rustup target add wasm32-unknown-unknown' in before_cache
@@ -718,8 +721,10 @@ def validate_candidate_graph(workflow, config):
     gate = jobs['required-gate']
     dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
-    if config.get('workspace_support_direct_gate_version') == 1:
+    if config.get('workspace_support_direct_gate_version') in (1, 2):
         expected.add('workspace-support-other')
+    if config.get('workspace_support_direct_gate_version') == 2:
+        expected.update(('custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-node'))
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
@@ -730,7 +735,8 @@ def validate_candidate_graph(workflow, config):
         'fromJSON(needs.select.outputs.plan).scope == \'full\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'explicit-full\' || '
         '(fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && '
-        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)) && '
+        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && '
+        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && '
         'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\') }}'
     )
     if (expected_fleet_os not in fleet
@@ -758,8 +764,10 @@ def validate_candidate_graph(workflow, config):
                     or 'include:' in header or 'exclude:' in header
                     or "workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '[\"all\"]' }}" not in jobs['select']
                     or 'custody_execution_version != 1' not in header
-                    or (config.get('workspace_support_direct_gate_version') == 1
-                        and 'workspace_support_direct_gate_version != 1' not in header)
+                    or (config.get('workspace_support_direct_gate_version') in (1, 2)
+                        and ('workspace_support_direct_gate_version != 1' not in header
+                             or (config.get('workspace_support_direct_gate_version') == 2
+                                 and 'workspace_support_direct_gate_version != 2' not in header)))
                     or '--support-partition "$SUPPORT_PARTITION"' not in legacy):
                 raise ValueError('support legacy must retain every trusted partition and old BASE fallback')
             node = jobs['custody-node']
@@ -833,16 +841,22 @@ def validate_candidate_graph(workflow, config):
                         raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
             if ('    needs: select' not in jobs['workspace-support-other']
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
-                    or (config.get('workspace_support_direct_gate_version') == 1
-                        and 'workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other'])):
+                    or (config.get('workspace_support_direct_gate_version') in (1, 2)
+                        and ('workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other']
+                             or (config.get('workspace_support_direct_gate_version') == 2
+                                 and 'workspace_support_direct_gate_version == 2' not in jobs['workspace-support-other'])))):
                 raise ValueError('other support must remain independent of custody builds')
+            if (config.get('workspace_support_direct_gate_version') == 2
+                    and ('workspace_support_direct_gate_version != 2' not in summary
+                         or 'ci-custody-platform.py" validate' not in jobs['required-gate'])):
+                raise ValueError('direct gate v2 must bypass support summary and validate custody in required-gate')
             continue
         if group == 'formal_process':
             if ('always()' not in job or 'ci-formal-plan.py" --selected' not in job
                     or "needs.select.outputs.run_formal_process == 'true'" not in job):
                 raise ValueError('formal aggregation must execute when selected or failed and validate results')
             continue
-        if config.get('contract_job_consolidation_version') in (1, 2, 3, 4) and group in config.get('group_jobs', {}):
+        if config.get('contract_job_consolidation_version') in (1, 2, 3, 4, 5) and group in config.get('group_jobs', {}):
             host_job = jobs[config['group_jobs'][group]]
             version_guard = f"fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != {config['contract_job_consolidation_version']}"
             if (version_guard not in job
@@ -878,6 +892,24 @@ def validate_candidate_graph(workflow, config):
     return True
 
 
+def validate_mold_identity_order(steps, *, trusted_image=False):
+    action = 'uses: ./.github/actions/setup-linux-mold'
+    assert steps.count(action) == 1
+    assert steps.index('uses: actions/checkout@') < steps.index(action)
+    preflight = '          python3 scripts/ci-test-artifacts.py ordinary-image-preflight\n'
+    exempt = None
+    if trusted_image:
+        assert steps.count(preflight) == 1
+        exempt = steps.index(preflight) + preflight.index('ci-test-artifacts.py')
+    for boundary in re.finditer(
+            r'Swatinem/rust-cache@|actions/cache(?:/restore)?@|'
+            r'ci-workspace-cache\.py|ci-ecs-cache\.py|ci-test-artifacts\.py', steps):
+        # This exact command checks cwd/source/OS, without deriving a cache or
+        # artifact identity. Every actual identity operation still follows mold.
+        if boundary.start() != exempt:
+            assert steps.index(action) < boundary.start()
+
+
 class Workflow(unittest.TestCase):
     def test_linux_mold_precedes_cache_identity_in_builders_warmers_and_formal_merger(self):
         # Missing one producer/merger or a warmer silently changes the cache or
@@ -904,13 +936,28 @@ class Workflow(unittest.TestCase):
             for name in names:
                 with self.subTest(workflow=filename, job=name):
                     steps = jobs[name].split('    steps:', 1)[1]
-                    self.assertEqual(steps.count(action), 1)
-                    self.assertLess(steps.index('uses: actions/checkout@'), steps.index(action))
-                    boundaries = re.finditer(
-                        r'Swatinem/rust-cache@|actions/cache(?:/restore)?@|'
-                        r'ci-workspace-cache\.py|ci-ecs-cache\.py|ci-test-artifacts\.py', steps)
-                    for boundary in boundaries:
-                        self.assertLess(steps.index(action), boundary.start())
+                    validate_mold_identity_order(steps, trusted_image=(
+                        filename == 'rust.yml' and name == 'oasis7-test-build-trusted'
+                        and '    container:' in jobs[name]))
+
+    def test_mold_identity_order_only_exempts_exact_trusted_image_preflight(self):
+        steps = ('uses: actions/checkout@pin\n'
+                 '          python3 scripts/ci-test-artifacts.py ordinary-image-preflight\n'
+                 'uses: ./.github/actions/setup-linux-mold\n'
+                 'python3 scripts/ci-workspace-cache.py identify\n'
+                 'python3 scripts/ci-test-artifacts.py build\n')
+        validate_mold_identity_order(steps, trusted_image=True)
+        for broken, trusted in (
+                (steps, False),
+                (steps.replace('ordinary-image-preflight', 'build'), True),
+                (steps.replace('python3 scripts/ci-workspace-cache.py identify\n', '')
+                 .replace('uses: ./.github/actions/setup-linux-mold\n',
+                          'python3 scripts/ci-workspace-cache.py identify\n'
+                          'uses: ./.github/actions/setup-linux-mold\n'), True),
+                (steps.replace('uses: ./.github/actions/setup-linux-mold\n', '')
+                 + 'uses: ./.github/actions/setup-linux-mold\n', True)):
+            with self.subTest(trusted=trusted, steps=broken), self.assertRaises(AssertionError):
+                validate_mold_identity_order(broken, trusted_image=trusted)
 
     def test_mold_checkout_reuse_rejects_skipping_a_different_source(self):
         ref = 'needs.select.outputs.tested_sha'
@@ -1865,7 +1912,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest
         self.assertIn('container:\n      image: ' + image, job)
         self.assertIn('ORDINARY_BUILD_IMAGE: ' + image, job)
-        self.assertIn('timeout-minutes: 60', job)
+        self.assertIn('timeout-minutes: 45', job)
         self.assertIn('packages: read', job)
         self.assertNotIn('apt-install.py', job)
         self.assertNotIn('rustup toolchain install', job)
@@ -2290,7 +2337,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 repo = Path(directory) / 'repo'
                 subprocess.run(['git', '-C', str(repo), 'checkout', '-q', policy], check=True)
                 retired = ({group.replace('_', '-') for group in CONFIG.get('group_jobs', {})}
-                           if plan.get('contract_job_consolidation_version') in (1, 2, 3, 4) else set())
+                           if plan.get('contract_job_consolidation_version') in (1, 2, 3, 4, 5) else set())
                 needs = {group.replace('_', '-'): {'result': 'skipped' if group.replace('_', '-') in retired else 'success'}
                          for group in CONFIG['groups']}
                 trusted = source == policy
@@ -4839,8 +4886,10 @@ run_cargo() {
         gate = JOBS['required-gate']
         dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
         expected_gate = {'select', *(g.replace('_', '-') for g in CONFIG['groups'])}
-        if CONFIG.get('workspace_support_direct_gate_version') == 1:
+        if CONFIG.get('workspace_support_direct_gate_version') in (1, 2):
             expected_gate.add('workspace-support-other')
+        if CONFIG.get('workspace_support_direct_gate_version') == 2:
+            expected_gate.update(('custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-node'))
         self.assertEqual(set(dependencies), expected_gate)
         self.assertIn('always()', gate)
         self.assertIn('ci-required-result.py', gate)
@@ -5229,9 +5278,9 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                      WORKFLOW.replace('    if: always()', '    if: success()'),
                      WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1),
                      WORKFLOW.replace('needs.select.outputs.run_operational_contracts', 'needs.select.outputs.run_other_contracts', 1),
-                     WORKFLOW.replace('needs.select.outputs.run_packaging_contracts', 'needs.select.outputs.run_other_contracts', 1),
+                     WORKFLOW.replace('needs.select.outputs.run_packaging_contracts', 'needs.select.outputs.run_other_contracts'),
                      WORKFLOW.replace('required --group "operational_contracts"', 'required --group "other_contracts"', 1),
-                     WORKFLOW.replace('required --group "packaging_contracts"', 'required --group "other_contracts"', 1)]
+                     WORKFLOW.replace('required --group "packaging_contracts"', 'required --group "other_contracts"')]
         for workflow in mutations:
             self.assertNotEqual(workflow, WORKFLOW, 'mutation must exercise the current workflow')
             with self.subTest(workflow=workflow[-100:]), self.assertRaises(ValueError):
@@ -6180,6 +6229,64 @@ class AptWorkflow(unittest.TestCase):
 # It uses that module's existing JOBS, os, Path, subprocess, tempfile,
 # textwrap and unittest imports. Root owns the shared workflow test file.
 class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
+    def test_prebuilt_native_consumer_is_limited_to_v2_artifact_partitions(self):
+        job = JOBS['oasis7-required']
+        image = re.search(r"^      image: >-\n(.*?)^      options:", job, re.M | re.S)[1].strip()
+        condition, image_pin = re.fullmatch(
+            r"\$\{\{ (.*) &&\s+'(ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64})' \|\| '' \}\}",
+            image, re.S).groups()
+        owner_list = re.search(r"fromJSON\('([^']+)'\)", condition)[1]
+        for execution, partition_version, delivery_version, owner in itertools.product(
+                (None, 'inline'), (None, 1, 2), (None, 1, 2),
+                ('controls', 'all', 'runtime', 'component-libs', 'integrations-0',
+                 'native-0', 'native-1', 'native-2', 'native-3', 'native-4')):
+            values = {
+                'fromJSON(needs.select.outputs.plan).ordinary_execution': execution,
+                'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': partition_version,
+                'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': delivery_version,
+                f"fromJSON('{owner_list}')": json.loads(owner_list),
+                'matrix.partition': owner,
+            }
+            expected = (execution != 'inline' and partition_version == delivery_version == 2
+                        and owner in ('native-0', 'native-1', 'native-2', 'native-3'))
+            with self.subTest(execution=execution, partition_version=partition_version,
+                              delivery_version=delivery_version, owner=owner):
+                self.assertEqual(effective_job_condition(condition, values, []), expected)
+        self.assertIn(image_pin, job)
+        self.assertIn('options: --user 1001:1001 --init', job)
+        self.assertIn('\ncache-mode: read\n', WORKFLOW)
+        self.assertNotIn('uses: actions/cache/save@', job)
+        self.assertEqual(len(rust_cache_steps(job)), 1)
+        self.assertIn('          save-if: false\n', rust_cache_steps(job)[0])
+        for step in ('Install pinned Rust toolchains', 'Install native libraries'):
+            script = workflow_step_script(job, step)
+            image = subprocess.run(['/bin/bash', '-e', '-c', script], capture_output=True,
+                                   env={'NATIVE_CONTAINER': 'true', 'PATH': '/no-tools'})
+            self.assertEqual(image.returncode, 0, image.stderr)
+
+    def test_native_path_hook_does_not_change_child_shell_working_directories(self):
+        job = JOBS['oasis7-required']
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        hooks = [step.splitlines()[0] for step in steps if '          BASH_ENV:' in step]
+        self.assertEqual(hooks, ['      - name: Unpack exact ordinary consumption closure',
+                                 '      - name: Execute selected group'])
+        preflight = workflow_step_script(job, 'Verify prebuilt native artifact consumer environment')
+        hook = preflight.split("<<'NATIVE_ENV'\n", 1)[1].split('\nNATIVE_ENV', 1)[0]
+        canonical = '/home/runner/work/oasis7/oasis7'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / 'child').mkdir()
+            path = root / 'hook'
+            path.write_text(hook.replace(canonical, str(root)))
+            result = subprocess.run(['bash', '-e', '-c', """
+                test "$PWD" = "$GITHUB_WORKSPACE"
+                test "$ImageOS" = ubuntu24
+                test -z "${BASH_ENV+x}"
+                cd child
+                bash -c 'test "$PWD" = "$GITHUB_WORKSPACE/child"'
+                """], cwd=root / 'child', env=dict(os.environ, BASH_ENV=str(path)), capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_only_chain_runtime_native_artifact_owners_skip_compiler_preparation(self):
         job = JOBS['oasis7-required']
         steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
@@ -7043,7 +7150,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'pr-governance-preview': 5,
                 'pr-fast-preview-plan': 5,
                 'pr-fast-preview': 20,
-                'baseline': 5,
+                'baseline': 10,
                 'codex-agent-config-validation': 5,
                 'macos-package-contract': 5,
                 'site-quality': 5,
@@ -7286,7 +7393,9 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         self.assertEqual(CONFIG.get('auxiliary_workflow_consolidation_version'), 1)
         self.assertEqual(CONFIG.get('workspace_member_cargo_manifest_scope_version'), 2)
         self.assertEqual(CONFIG.get('ordinary_controls_in_rust_baseline_version'), 1)
-        self.assertEqual(CONFIG.get('contract_job_consolidation_version'), 4)
+        self.assertEqual(CONFIG.get('contract_job_consolidation_version'), 5)
+        self.assertEqual(CONFIG.get('workspace_support_direct_gate_version'), 2)
+        self.assertEqual(CONFIG.get('ordinary_scope_config_slice_version'), 2)
         self.assertEqual(CONFIG.get('scoped_production_cfg_version'), 1)
 
         gate = JOBS['required-gate']

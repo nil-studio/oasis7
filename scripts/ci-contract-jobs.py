@@ -102,11 +102,15 @@ def render_job(group: str) -> str:
         )
     consolidation_guard = ""
     if group == "operational_contracts":
-        consolidation_guard = "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&\n"
+        consolidation_guard = (
+            "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&\n"
+            "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&\n"
+        )
     elif group == "packaging_contracts":
         consolidation_guard = (
             "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&\n"
             "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&\n"
+            "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&\n"
         )
     return (
         f"  {job_id}:\n"

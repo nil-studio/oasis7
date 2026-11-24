@@ -1,4 +1,5 @@
 //! Trusted setup scope for the private WorldRule gameplay fixture only.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code))]
 use super::*;
 
 pub(super) fn install_provider_fixture(world: &mut oasis7_runtime::World, world_rule: bool) {
@@ -52,6 +53,7 @@ fn assert_cas_scope(dir: &std::path::Path, height: u64, identity: &WorldIdentity
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_rule_resource_scope_survives_commit_cas_and_restart() {
     let _permit = super::super::private_task_resource_permit();
@@ -148,6 +150,7 @@ fn signed_agent_view(dir: &std::path::Path, identity: &WorldIdentity, owner: &st
     })
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_rule_finite_provider_lifetime_keeps_signed_task_read_live_then_expires() {
     let _permit = super::super::private_task_resource_permit();
