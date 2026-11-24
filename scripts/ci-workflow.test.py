@@ -165,6 +165,12 @@ def workspace_support_image_matrix(job):
         expected_matrix = expected_matrix.replace(
             'fromJSON(', 'fromJSON(needs.select.outputs.workspace_support_signer_only == \'true\' '
             "&& '[\"signer-image\"]' || ")
+    if container[1] and 'workspace_support_signer_context' in job:
+        expected_matrix = expected_matrix.replace(
+            "needs.select.outputs.workspace_support_signer_only == 'true'",
+            "(needs.select.outputs.workspace_support_signer_only == 'true' || "
+            "needs.select.outputs.workspace_support_signer_context == 'true')",
+        )
     assert expected_matrix in job and '      fail-fast: false\n' in job
     assert '--support-execution "$SUPPORT_EXECUTION"' in job
     assert '          SUPPORT_EXECUTION: ${{ matrix.execution }}\n' in job
