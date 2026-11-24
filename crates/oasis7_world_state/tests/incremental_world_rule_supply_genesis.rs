@@ -177,7 +177,12 @@ fn roots(root: &StateRootV1) -> RootSetV1 {
 }
 #[test]
 fn borrowed_supply_genesis_preserves_all_literal_fields_and_cold_root_only_closure() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("literal");
         let memory = MemoryBudget::new(64 << 20, 1 << 20).unwrap();

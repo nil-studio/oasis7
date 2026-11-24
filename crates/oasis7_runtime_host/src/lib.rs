@@ -2,6 +2,7 @@
 pub mod bootstrap;
 pub mod gameplay_actions;
 pub mod gameplay_service;
+pub mod provider_json_shape;
 pub mod provider_transport_url;
 pub mod simulator_archive;
 
