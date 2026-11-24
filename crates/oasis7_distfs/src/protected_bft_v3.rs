@@ -14,6 +14,7 @@ mod luna_key;
 #[cfg(feature = "protected-bft-luna-key")]
 pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
+mod private_retention_alternatives;
 mod private_retention_input;
 mod rotation;
 mod service;
@@ -74,6 +75,8 @@ pub use successor_manifest::{
     BftSuccessorWindowArchiveKindV1, BftSuccessorWindowArchiveManifestV1,
     BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowCutV1, BftSuccessorWindowPublicIndexV1,
 };
+
+pub use private_retention_alternatives::BftOriginalAlternativesInventoryV1;
 
 pub use private_retention_input::{
     BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1,
