@@ -1,6 +1,6 @@
 //! Application-only provider exercise: no node directory or execution driver handle.
 use super::*;
-use oasis7::simulator::MemoryWriteIntent;
+use oasis7_agent_api::MemoryWriteIntent;
 use oasis7_world_service::client::WorldServiceAgentSignerConfig;
 use oasis7_simulator::WorldScenario;
 use oasis7_viewer_runtime::viewer::{

@@ -86,7 +86,7 @@ pub(super) fn observation(
         let mut logical = incoming.clone();
         logical.transport_attempt = 1;
         let context_digest =
-            oasis7::simulator::h_v1("oasis7.cognition.context.v1", &logical).to_string();
+            oasis7_agent_api::h_v1("oasis7.cognition.context.v1", &logical).to_string();
         let incoming_bytes = serde_cbor::to_vec(incoming).expect("encode original host request");
         let prefix = results.iter().find(|result| matches!(&result.request.signed_payload,
             WorldServicePayloadV1::Scheduler(signed) if matches!(&signed.request.operation,

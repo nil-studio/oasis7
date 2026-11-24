@@ -1029,7 +1029,7 @@ fn cognition_request(fixture: &Fixture) -> SubmitIntentRequest<WorldServicePaylo
     use oasis7_runtime::{RuntimeCognitionCommitRequestV1, RuntimeCognitionResponseArtifactV1};
     let world = fixture.driver.lock().unwrap().execution_world.clone();
     let digest =
-        |label: &str| oasis7::simulator::h_v1("oasis7.test.qa-conformance.v1", &label).to_string();
+        |label: &str| oasis7_agent_api::h_v1("oasis7.test.qa-conformance.v1", &label).to_string();
     let request = RuntimeCognitionCommitRequestV1 {
         agent_id: "agent-a".into(),
         agent_session_id: "qa-session".into(),
@@ -1040,12 +1040,12 @@ fn cognition_request(fixture: &Fixture) -> SubmitIntentRequest<WorldServicePaylo
         request_digest: digest("request"),
         observation_digest: digest("observation"),
         context_digest: digest("context"),
-        capability_snapshot_hash: oasis7::simulator::h_v1(
+        capability_snapshot_hash: oasis7_agent_api::h_v1(
             "oasis7.runtime.manifest.v1",
             &world.capability_authorization_root(),
         )
         .to_string(),
-        authority_context_hash: oasis7::simulator::h_v1(
+        authority_context_hash: oasis7_agent_api::h_v1(
             "oasis7.runtime.authority-context.v1",
             &world.capability_authorization_root(),
         )
