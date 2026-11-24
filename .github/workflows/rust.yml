@@ -1239,6 +1239,7 @@ jobs:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+          OASIS7_SKIP_RUSTFMT: ${{ github.event_name == 'pull_request' && needs.fast-preflight.result == 'success' && fromJSON(needs.select.outputs.plan).scope != 'full' && '1' || '0' }}
         run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --plan "$RUNNER_TEMP/selection.json" --repo-root "$GITHUB_WORKSPACE"
 
   cache-bootstrap-maintenance:
@@ -2774,9 +2775,10 @@ jobs:
         run: bash ./scripts/ci-tests.sh required --group "consensus" --repo-root "$GITHUB_WORKSPACE"
 
   distfs:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2855,9 +2857,10 @@ jobs:
           bash ./scripts/ci-tests.sh required --group "distfs" "${plan_args[@]}" --repo-root "$GITHUB_WORKSPACE"
 
   node:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_node == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
@@ -2937,9 +2940,10 @@ jobs:
           fi
 
   net:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_net == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -3400,9 +3404,10 @@ jobs:
         run: bash ./scripts/ci-tests.sh required --group "pixel_world_bridge" --repo-root "$GITHUB_WORKSPACE"
 
   launcher-web:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4414,9 +4419,10 @@ jobs:
           python3 scripts/ci-custody-platform.py validate --plan "$RUNNER_TEMP/selection.json" --needs "$support_needs" --results "$RUNNER_TEMP/custody-results" --capture-workerd-faults
 
   scenario-regression:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_scenario_regression == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||

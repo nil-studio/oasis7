@@ -4989,7 +4989,7 @@ run_cargo() {
                 ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]',
                  'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]')
                 if group == 'oasis7_required'
-                else (('needs: select', 'needs: [select, fast-preflight]')
+                else (('needs: [select, fast-preflight]',)
                       if group in preflight_groups else ('needs: select',))
             )
             self.assertTrue(any(dep in job for dep in allowed), (group, allowed))
@@ -7794,9 +7794,15 @@ print({m0!r})
         self.assertIn("github.event_name == 'pull_request'", preflight)
         self.assertIn('cargo +"$RUST_TOOLCHAIN" fmt --all -- --check', preflight)
         self.assertNotIn('fast-preflight', JOBS['required-gate'].split('    steps:', 1)[0])
+        self.assertEqual(
+            re.search(r'^\s+image:\s*(\S+)\s*$', preflight, re.M).group(1),
+            re.search(r'^\s+image:\s*(\S+)\s*$', JOBS['rust-baseline'], re.M).group(1),
+            'fast-preflight and rust-baseline must share the same container image when skipping duplicate rustfmt',
+        )
 
         for heavy in ('rust-baseline', 'oasis7-test-build-candidate', 'workspace-support-other',
-                      'custody-native-contracts', 'custody-native', 'custody-wasm-production'):
+                      'custody-native-contracts', 'custody-native', 'custody-wasm-production',
+                      'distfs', 'node', 'net', 'launcher-web', 'scenario-regression'):
             job = JOBS[heavy]
             self.assertIn('needs: [select, fast-preflight]', job)
             self.assertIn("(needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped')", job)
@@ -7805,6 +7811,14 @@ print({m0!r})
                 'needs.select.result': 'success',
                 'needs.select.outputs.run_rust_baseline': 'true',
                 'needs.select.outputs.run_oasis7_required': 'true',
+                'needs.select.outputs.run_distfs': 'true',
+                'needs.select.outputs.run_node': 'true',
+                'needs.select.outputs.run_consensus': 'false',
+                'needs.select.outputs.run_net': 'true',
+                'needs.select.outputs.run_launcher_web': 'true',
+                'needs.select.outputs.run_scenario_regression': 'true',
+                'needs.select.outputs.run_pixel_world_bridge': 'false',
+                'needs.select.outputs.run_cargo_tooling_contracts': 'false',
                 'needs.select.outputs.trusted_source': 'false',
                 'needs.select.outputs.workspace_support_partitions': ['other'],
                 'fromJSON(needs.select.outputs.workspace_support_partitions)': ['other'],
@@ -7816,6 +7830,7 @@ print({m0!r})
                 'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'fromJSON(needs.select.outputs.plan).custody_execution_version': 1,
                 'fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version': 2,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
                 'github.event_name': 'pull_request',
                 'github.ref': 'refs/pull/1/merge',
                 'github.workflow_sha': 'a',
@@ -7831,6 +7846,51 @@ print({m0!r})
             self.assertTrue(effective_job_condition(
                 cond, dict(base_vals, **{'needs.fast-preflight.result': 'skipped'}), ('success', 'skipped'),
             ), f'{heavy} must run when fast-preflight is skipped')
+
+        for host_job, overrides in (
+            ('node', {'needs.select.outputs.run_node': 'false', 'needs.select.outputs.run_consensus': 'true'}),
+            ('scenario-regression', {
+                'needs.select.outputs.run_scenario_regression': 'false',
+                'needs.select.outputs.run_pixel_world_bridge': 'true',
+            }),
+            ('scenario-regression', {
+                'needs.select.outputs.run_scenario_regression': 'false',
+                'needs.select.outputs.run_cargo_tooling_contracts': 'true',
+            }),
+        ):
+            cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', JOBS[host_job], re.M | re.S).group(1)
+            vals = dict(base_vals, **overrides)
+            self.assertFalse(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'failure'}), ('success', 'failure'),
+            ), f'{host_job} consolidated trigger must skip when fast-preflight fails')
+            self.assertTrue(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'success'}), ('success', 'success'),
+            ), f'{host_job} consolidated trigger must run when fast-preflight succeeds')
+            self.assertTrue(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'skipped'}), ('success', 'skipped'),
+            ), f'{host_job} consolidated trigger must run when fast-preflight is skipped')
+
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('ci_required_result', ROOT / 'scripts/ci-required-result.py')
+        required_result = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(required_result)
+        plan = {'scope': 'targeted', 'contract_job_consolidation_version': 5, 'groups': ['baseline']}
+        group_jobs = required_result.configured_group_jobs(CONFIG, plan)
+        retired_jobs = required_result.retired_group_jobs(CONFIG, plan)
+        for selected_group in ('rust_baseline', 'distfs', 'node', 'consensus', 'net',
+                               'launcher_web', 'scenario_regression', 'pixel_world_bridge',
+                               'cargo_tooling_contracts'):
+            plan_with_group = dict(plan, groups=['baseline', selected_group])
+            needs = {'select': {'result': 'success'}}
+            for grp, job_name in group_jobs.items():
+                needs[job_name] = {'result': 'skipped'}
+            needs['baseline'] = {'result': 'success'}
+            for rj in retired_jobs:
+                needs[rj] = {'result': 'skipped'}
+            with self.subTest(skipped_group=selected_group), self.assertRaisesRegex(
+                ValueError, rf'{selected_group}: unexpected result \'skipped\'',
+            ):
+                required_result.validate(plan_with_group, needs, group_jobs, retired_jobs=retired_jobs)
 
         inline_job = JOBS['oasis7-required']
         self.assertIn('needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]', inline_job)
@@ -7856,6 +7916,62 @@ print({m0!r})
             inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'skipped'}),
             ('success', 'skipped', 'skipped', 'skipped'),
         ), 'inline oasis7-required must run when fast-preflight is skipped')
+
+        skip_fmt_match = re.search(
+            r'OASIS7_SKIP_RUSTFMT:\s*\$\{\{\s*(.+?)\s*\}\}',
+            JOBS['rust-baseline'],
+        )
+        self.assertIsNotNone(skip_fmt_match, 'rust-baseline must wire OASIS7_SKIP_RUSTFMT')
+        skip_expr_raw = skip_fmt_match.group(1)
+        for event_name, preflight_res, scope, expected_flag in (
+            ('pull_request', 'success', 'targeted', '1'),
+            ('pull_request', 'skipped', 'targeted', '0'),
+            ('pull_request', 'success', 'full', '0'),
+            ('push', 'skipped', 'targeted', '0'),
+            ('schedule', 'skipped', 'explicit-full', '0'),
+            ('workflow_dispatch', 'skipped', 'explicit-full', '0'),
+        ):
+            py_expr = skip_expr_raw
+            for token, val in {
+                'github.event_name': repr(event_name),
+                'needs.fast-preflight.result': repr(preflight_res),
+                'fromJSON(needs.select.outputs.plan).scope': repr(scope),
+            }.items():
+                py_expr = py_expr.replace(token, val)
+            py_expr = py_expr.replace('&&', ' and ').replace('||', ' or ').replace('!=', ' != ').replace('==', ' == ')
+            with self.subTest(event_name=event_name, preflight=preflight_res, scope=scope):
+                self.assertEqual(eval(py_expr, {'__builtins__': {}}, {}), expected_flag)
+
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_rust_baseline']
+        script = (
+            'set -euo pipefail\ntier=required; required_plan=""\n'
+            'run() { printf "run:%s\\n" "$*"; }\n'
+            'run_cargo() { printf "cargo:%s\\n" "$*"; }\n'
+            'run_rustsec_advisory_check() { echo advisories; }\n'
+            'run_oasis7_required_clippy_for_group() { echo clippy; }\n'
+            'run_newapi_bridge_service_accounting_tests() { echo newapi; }\n'
+            'run_standalone_tool_lockfiles_checks() { echo lockfiles; }\n'
+            'run_rust_baseline() {\n' + body + '}\nrun_rust_baseline\n'
+        )
+        for env_override, expect_fmt in (
+            ({}, True),
+            ({'OASIS7_SKIP_RUSTFMT': '0'}, True),
+            ({'OASIS7_SKIP_RUSTFMT': '1'}, False),
+        ):
+            env = dict(os.environ)
+            env.pop('OASIS7_SKIP_RUSTFMT', None)
+            env.update(env_override)
+            res = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=env, check=True)
+            lines = res.stdout.splitlines()
+            self.assertEqual(
+                'run:env -u RUSTC_WRAPPER cargo fmt --all -- --check' in lines,
+                expect_fmt,
+                (env_override, lines),
+            )
+            self.assertIn('cargo:fetch --locked', lines)
+            self.assertIn('advisories', lines)
+            self.assertIn('clippy', lines)
 
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
