@@ -2,11 +2,10 @@
 // Disposable loopback runtime + real HTTP/WebAuthn adapter contract evidence.
 // Virtual authenticators and the debug minimal world do not certify gameplay.
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
-import { mkdtempSync, writeFileSync, readFileSync, openSync, chmodSync, existsSync } from 'node:fs';
+import { loadPlaywright } from './playwright-module-loader.mjs';
+import { mkdtempSync, writeFileSync, readFileSync, openSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { generateKeyPairSync, randomBytes, sign, createHash } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import net from 'node:net';
@@ -176,9 +175,7 @@ try {
       tls: 8449
     }
   }));
-  const modules = process.env.OASIS7_PLAYWRIGHT_NODE_MODULES || join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules');
-  const require = existsSync(join(modules, 'playwright')) ? createRequire(join(modules, 'smoke.cjs')) : createRequire(import.meta.url);
-  browser = await require('playwright').chromium.launch({
+  browser = await loadPlaywright(import.meta.url).chromium.launch({
     channel: 'chrome',
     headless: true
   });
