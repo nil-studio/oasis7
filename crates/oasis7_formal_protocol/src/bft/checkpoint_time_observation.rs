@@ -146,7 +146,8 @@ impl AuthenticatedBftCheckpointTimeObservationV1 {
         let mut key_bytes = [0; 32];
         hex::decode_to_slice(&clock.time_public_key, &mut key_bytes)
             .map_err(|_| "invalid checkpoint time key")?;
-        let key = VerifyingKey::from_bytes(&key_bytes).map_err(|_| "invalid checkpoint time key")?;
+        let key =
+            VerifyingKey::from_bytes(&key_bytes).map_err(|_| "invalid checkpoint time key")?;
         let mut signature = [0; 64];
         hex::decode_to_slice(&signature_hex, &mut signature)
             .map_err(|_| "invalid checkpoint time observation signature")?;

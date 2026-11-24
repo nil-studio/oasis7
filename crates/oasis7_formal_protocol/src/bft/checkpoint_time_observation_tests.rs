@@ -1,8 +1,8 @@
 //! Signed protocol fixtures only: no protected clock or production authority.
 use super::*;
 use crate::bft::checkpoint_issuer_status::{
-    AuthenticatedBftCheckpointIssuerStatusV1, BftCheckpointIssuerStatusBodyV1,
-    BftCheckpointIssuerRevocationV1,
+    AuthenticatedBftCheckpointIssuerStatusV1, BftCheckpointIssuerRevocationV1,
+    BftCheckpointIssuerStatusBodyV1,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
@@ -141,7 +141,10 @@ fn signed_clock_exact_retry_and_refusals() {
         }),
     };
     let interval = observed.candidate_interval(Some(&sample)).unwrap();
-    assert_eq!((interval.earliest_unix_ms(), interval.latest_unix_ms()), (41, 45));
+    assert_eq!(
+        (interval.earliest_unix_ms(), interval.latest_unix_ms()),
+        (41, 45)
+    );
     assert!(interval.within_window(41, 46));
     assert!(!interval.within_window(41, 45));
     sample.elapsed_upper_ms = 4;
@@ -153,11 +156,26 @@ fn signed_clock_exact_retry_and_refusals() {
     let previous = sample.previous_observation.as_mut().unwrap();
     previous.time_generation = 8;
     assert!(observed.candidate_interval(Some(&sample)).is_err());
-    sample.previous_observation.as_mut().unwrap().time_generation = 7;
-    sample.previous_observation.as_mut().unwrap().observation_digest = h(99);
+    sample
+        .previous_observation
+        .as_mut()
+        .unwrap()
+        .time_generation = 7;
+    sample
+        .previous_observation
+        .as_mut()
+        .unwrap()
+        .observation_digest = h(99);
     assert!(observed.candidate_interval(Some(&sample)).is_err());
-    sample.previous_observation.as_mut().unwrap().observation_digest = observed.digest().to_owned();
-    assert_eq!(observed.candidate_interval(Some(&sample)).unwrap(), interval);
+    sample
+        .previous_observation
+        .as_mut()
+        .unwrap()
+        .observation_digest = observed.digest().to_owned();
+    assert_eq!(
+        observed.candidate_interval(Some(&sample)).unwrap(),
+        interval
+    );
     for (field, value) in [
         ("schema_version", json!(2)),
         ("origin_digest", json!(h(99))),
@@ -174,7 +192,10 @@ fn signed_clock_exact_retry_and_refusals() {
     ] {
         let mut changed = serde_json::to_value(&original).unwrap();
         changed[field] = value;
-        assert!(read(&signed("time-observation", &changed, 119)).is_err(), "{field}");
+        assert!(
+            read(&signed("time-observation", &changed, 119)).is_err(),
+            "{field}"
+        );
     }
     assert!(read(&signed("time-observation", &original, 118)).is_err());
     let mut trailing = bytes.clone();
@@ -197,7 +218,9 @@ fn issuer_status_elapsed_and_irreversible_revocation() {
     .unwrap();
     let read = |body: &BftCheckpointIssuerStatusBodyV1| {
         AuthenticatedBftCheckpointIssuerStatusV1::decode(
-            &signed("issuer-status", body, 118), &policy, &pin,
+            &signed("issuer-status", body, 118),
+            &policy,
+            &pin,
         )
         .unwrap()
     };
@@ -210,15 +233,27 @@ fn issuer_status_elapsed_and_irreversible_revocation() {
         previous_observation: None,
     };
     previous.check_predecessor(&read(&original)).unwrap();
-    previous.check_candidate_window(&policy, &observation, Some(&sample)).unwrap();
-    assert!(previous.check_candidate_window(&policy, &observation, None).is_err());
-    for (issued, expiry) in [(40,45),(39,46)] {
+    previous
+        .check_candidate_window(&policy, &observation, Some(&sample))
+        .unwrap();
+    assert!(
+        previous
+            .check_candidate_window(&policy, &observation, None)
+            .is_err()
+    );
+    for (issued, expiry) in [(40, 45), (39, 46)] {
         let mut altered = original.clone();
         altered.issued_at_unix_ms = issued;
         altered.expires_at_unix_ms = expiry;
         let changed = read(&altered);
-        changed.check_signed_observation_window(&policy, &observation).unwrap();
-        assert!(changed.check_candidate_window(&policy, &observation, Some(&sample)).is_err());
+        changed
+            .check_signed_observation_window(&policy, &observation)
+            .unwrap();
+        assert!(
+            changed
+                .check_candidate_window(&policy, &observation, Some(&sample))
+                .is_err()
+        );
         assert!(changed.check_predecessor(&previous).is_err());
     }
     let mut successor = original.clone();
@@ -227,7 +262,11 @@ fn issuer_status_elapsed_and_irreversible_revocation() {
     successor.issuer_keys[0].revoked_at_unix_ms = Some(40);
     let revoked = read(&successor);
     revoked.check_predecessor(&previous).unwrap();
-    assert!(revoked.check_signed_observation_window(&policy, &observation).is_err());
+    assert!(
+        revoked
+            .check_signed_observation_window(&policy, &observation)
+            .is_err()
+    );
     assert!(previous.check_predecessor(&revoked).is_err());
     successor.status_sequence = 4;
     successor.policy_revoked = false;
@@ -238,22 +277,27 @@ fn issuer_status_elapsed_and_irreversible_revocation() {
     successor.issuer_keys[0].revoked_at_unix_ms = Some(39);
     assert!(read(&successor).check_predecessor(&revoked).is_err());
     read(&original).check_predecessor(&previous).unwrap();
-    read(&original).check_candidate_window(&policy, &observation, Some(&sample)).unwrap();
+    read(&original)
+        .check_candidate_window(&policy, &observation, Some(&sample))
+        .unwrap();
 }
 
 #[test]
 fn exact_safety_originals_and_capacity() {
     let policy = policy();
     let pin = policy.digest().unwrap();
-    policy.check_safety_constraint_originals(&pin, b"old", b"stake").unwrap();
+    let check = |pin: &str, old: &[u8], stake: &[u8]| {
+        policy.check_safety_constraint_originals(pin, old, stake)
+    };
+    check(&pin, b"old", b"stake").unwrap();
     for (old, stake) in [
         (b"".as_slice(), b"stake".as_slice()),
         (b"bad".as_slice(), b"stake".as_slice()),
         (b"old".as_slice(), b"bad".as_slice()),
         (b"old".as_slice(), vec![1; 65_536].as_slice()),
     ] {
-        assert!(policy.check_safety_constraint_originals(&pin, old, stake).is_err());
+        assert!(check(&pin, old, stake).is_err());
     }
-    assert!(policy.check_safety_constraint_originals(&h(99), b"old", b"stake").is_err());
-    policy.check_safety_constraint_originals(&pin, b"old", b"stake").unwrap();
+    assert!(check(&h(99), b"old", b"stake").is_err());
+    check(&pin, b"old", b"stake").unwrap();
 }

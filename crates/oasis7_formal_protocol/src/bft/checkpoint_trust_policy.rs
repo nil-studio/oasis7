@@ -7,8 +7,8 @@
 mod bounds;
 use super::formal_handoff::{canonical_bytes, decode_canonical, domain_digest, validate_hash};
 use crate::controlled_authority::formal::{FormalHeadRefV1, FormalWorldIdentityV1};
-pub(super) use bounds::{issuer_status_bounds, time_observation_bounds};
 pub use bounds::preflight as preflight_checkpoint_config;
+pub(super) use bounds::{issuer_status_bounds, time_observation_bounds};
 use oasis7_proto::distributed_bft::v2::BftScopeV2;
 use serde::{
     Deserialize, Deserializer, Serialize,
@@ -423,7 +423,9 @@ impl BftCheckpointTrustPolicyV1 {
                 .checked_add(stake_constraints.len())
                 .is_none_or(|total| total > maximum)
         {
-            return Err("checkpoint safety constraint originals missing or exceed byte bound".into());
+            return Err(
+                "checkpoint safety constraint originals missing or exceed byte bound".into(),
+            );
         }
         // The design fixes bare BLAKE3 CAS addresses for the two originals,
         // not the domain-separated hash of the eventual safety evidence.

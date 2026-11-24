@@ -150,13 +150,17 @@ impl AuthenticatedBftCheckpointIssuerStatusV1 {
             return Err("checkpoint issuer status cannot revive revoked policy".into());
         }
         if new.issuer_keys.len() != old.issuer_keys.len()
-            || new.issuer_keys.iter().zip(&old.issuer_keys).any(|(next, prior)| {
-                next.key_id != prior.key_id
-                    || next.issuer_generation != prior.issuer_generation
-                    || prior.revoked_at_unix_ms.is_some_and(|revoked| {
-                        next.revoked_at_unix_ms != Some(revoked)
-                    })
-            })
+            || new
+                .issuer_keys
+                .iter()
+                .zip(&old.issuer_keys)
+                .any(|(next, prior)| {
+                    next.key_id != prior.key_id
+                        || next.issuer_generation != prior.issuer_generation
+                        || prior
+                            .revoked_at_unix_ms
+                            .is_some_and(|revoked| next.revoked_at_unix_ms != Some(revoked))
+                })
         {
             return Err("checkpoint issuer status cannot revise a revoked key".into());
         }
