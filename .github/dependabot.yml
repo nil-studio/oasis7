@@ -1,6 +1,7 @@
 # Twice-weekly version updates use ordinary PR review and CI; no automatic merging.
-# Compatibility fixtures and vendored/third_party sources are intentionally
-# excluded. Root Cargo workspace members are covered by the root manifest.
+# Compatibility fixtures, vendored/third_party sources, minimal templates, and
+# docker/ci-base (workflow-supplied UBUNTU_BASE ARG) are intentionally excluded.
+# Cargo workspace members are covered by their workspace root manifest.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -8,7 +9,8 @@ updates:
       - "/"
       - "/crates/oasis7_builtin_wasm_modules/m*"
       - "/crates/oasis7_builtin_wasm_modules/local_test_provider"
-      - "/tools/scenario_test_runner"
+      - "/docker/wasm-builder"
+      - "/tools/oasis7-command-center"
     schedule:
       interval: cron
       cronjob: "0 9 * * 1,3"
@@ -20,7 +22,13 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: npm
-    directory: "/crates/oasis7_viewer"
+    directories:
+      - "/crates/oasis7_viewer"
+      - "/crates/oasis7_agent_api/protocol_conformance"
+      - "/crates/oasis7_custody_worker"
+      - "/crates/oasis7_dev_test_worker"
+      - "/scripts/ci-browser-tools"
+      - "/tools/oasis7-command-center/ui"
     schedule:
       interval: cron
       cronjob: "0 9 * * 1,3"

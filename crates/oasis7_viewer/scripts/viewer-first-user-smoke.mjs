@@ -1,22 +1,9 @@
 #!/usr/bin/env node
-import { createRequire } from "node:module";
+import { browserExecutablePath, loadPlaywright } from "../../../scripts/playwright-module-loader.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-function loadPlaywright() {
-  const moduleDirs = [
-    process.env.OASIS7_PLAYWRIGHT_NODE_MODULES || "",
-    "/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules",
-  ].filter(Boolean);
-  for (const moduleDir of moduleDirs) {
-    if (!existsSync(join(moduleDir, "playwright"))) continue;
-    return createRequire(join(moduleDir, "oasis7-viewer-first-user-smoke.cjs"))("playwright");
-  }
-  return createRequire(import.meta.url)("playwright");
-}
-
-const { chromium } = loadPlaywright();
+const { chromium } = loadPlaywright(import.meta.url);
 
 function usage() {
   console.log(`Usage: node crates/oasis7_viewer/scripts/viewer-first-user-smoke.mjs --url <url> --out-dir <path> [options]
@@ -238,13 +225,6 @@ async function clickClaimFirstAgent(page) {
   return { clicked: false, selector: "missing" };
 }
 
-function chromeExecutablePath(requestedPath) {
-  if (requestedPath && existsSync(requestedPath)) return requestedPath;
-  const macChrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  if (existsSync(macChrome)) return macChrome;
-  return undefined;
-}
-
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   options.url = viewerUrl(options.url);
@@ -253,7 +233,7 @@ async function main() {
 
   const browser = await chromium.launch({
     headless: !options.headed,
-    executablePath: chromeExecutablePath(options.chromePath),
+    executablePath: browserExecutablePath(options.chromePath),
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await installWebSocketRecorder(page);

@@ -1104,6 +1104,34 @@ for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(
 });
 
 
+for(const ticket of [4,5])test(`actual paid role ticket${ticket} SQL failure prevents Directory and Fence I/O`,{timeout:300000},async()=>{
+  await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
+    paidDirectoryBarrier={ticket,mode:'prepay_sql_fail'};
+    try{
+      await runtime.restart(selectedMode);const before=runtime.nativeRequests();
+      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
+      const status=response.status;await response.arrayBuffer();
+      const facts=await runtime.paidDirectoryFenceStatus();const after=runtime.nativeRequests();
+      assert.equal(status,503,'real selected prepay SQL rejection must fail closed');
+      // These prove the actual target candidate reached the real SQLite UPDATE,
+      // not a fixture assertPaid throwing before Rust tried to pay.
+      if(facts.candidate_source_fresh!==true)console.error(JSON.stringify({paid_sql_candidate_freshness:{source_present:facts.candidate_source_present,observed_at:facts.candidate_observed_at,expires_at:facts.candidate_expires_at,checked_at:facts.candidate_checked_at}}));
+      assert.equal(facts.target_candidate_seen,true);assert.equal(facts.candidate_source_fresh,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
+      assert.equal(facts.oracle_before,ticket-1);assert.equal(facts.source_before,ticket-1);
+      assert.equal(facts.oracle_after,ticket-1);assert.equal(facts.source_after,ticket-1);
+      assert.equal(facts.record_unchanged,true);assert.equal(facts.roots_unchanged,true);assert.equal(facts.audit_unchanged,true);assert.equal(facts.trigger_removed,true);
+      // In this mode observers only count+forward: they do NOT assert paid state
+      // or block a remote call. Zero therefore comes from production sequencing.
+      assert.equal(facts.gate_reads,0);assert.equal(facts.fence_reads,0);assert.equal(facts.paid_confirmations,0);
+      assert.equal((after['/custody/managed-bindings/session-lifetime']??0)-(before['/custody/managed-bindings/session-lifetime']??0),0);
+      assert.equal((after['/participant/owner-view']??0)-(before['/participant/owner-view']??0),0);
+      const saved=stored(runtime,basis.session_id);assert.equal(saved.approved,false);assert.deepEqual(saved.roots,[]);
+    }finally{paidDirectoryBarrier=null;}
+  }});
+});
+
+},
+paidRole(){
 for(const ticket of [4,5])for(const fault of ['together','reject_gate','freeze_fence','over_window'])test(`actual paid role Directory and Fence overlap ${fault} after SQL ticket${ticket}`,{timeout:300000},async()=>{
   await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
     paidDirectoryBarrier={ticket,mode:fault};
@@ -1143,34 +1171,6 @@ for(const ticket of [4,5])for(const fault of ['together','reject_gate','freeze_f
     }finally{paidDirectoryBarrier=null;}
   }});
 });
-
-
-for(const ticket of [4,5])test(`actual paid role ticket${ticket} SQL failure prevents Directory and Fence I/O`,{timeout:300000},async()=>{
-  await withActiveSession(async()=>assert.fail('controlled preflight owns this case'),{preflightCase:async(runtime,basis,selectedMode)=>{
-    paidDirectoryBarrier={ticket,mode:'prepay_sql_fail'};
-    try{
-      await runtime.restart(selectedMode);const before=runtime.nativeRequests();
-      const response=await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id});
-      const status=response.status;await response.arrayBuffer();
-      const facts=await runtime.paidDirectoryFenceStatus();const after=runtime.nativeRequests();
-      assert.equal(status,503,'real selected prepay SQL rejection must fail closed');
-      // These prove the actual target candidate reached the real SQLite UPDATE,
-      // not a fixture assertPaid throwing before Rust tried to pay.
-      if(facts.candidate_source_fresh!==true)console.error(JSON.stringify({paid_sql_candidate_freshness:{source_present:facts.candidate_source_present,observed_at:facts.candidate_observed_at,expires_at:facts.candidate_expires_at,checked_at:facts.candidate_checked_at}}));
-      assert.equal(facts.target_candidate_seen,true);assert.equal(facts.candidate_source_fresh,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
-      assert.equal(facts.oracle_before,ticket-1);assert.equal(facts.source_before,ticket-1);
-      assert.equal(facts.oracle_after,ticket-1);assert.equal(facts.source_after,ticket-1);
-      assert.equal(facts.record_unchanged,true);assert.equal(facts.roots_unchanged,true);assert.equal(facts.audit_unchanged,true);assert.equal(facts.trigger_removed,true);
-      // In this mode observers only count+forward: they do NOT assert paid state
-      // or block a remote call. Zero therefore comes from production sequencing.
-      assert.equal(facts.gate_reads,0);assert.equal(facts.fence_reads,0);assert.equal(facts.paid_confirmations,0);
-      assert.equal((after['/custody/managed-bindings/session-lifetime']??0)-(before['/custody/managed-bindings/session-lifetime']??0),0);
-      assert.equal((after['/participant/owner-view']??0)-(before['/participant/owner-view']??0),0);
-      const saved=stored(runtime,basis.session_id);assert.equal(saved.approved,false);assert.deepEqual(saved.roots,[]);
-    }finally{paidDirectoryBarrier=null;}
-  }});
-});
-
 },
 tools(){
 test('public Tool metadata nonce charges three execution hops and replays the original nonce without Native authority',{timeout:300000},async()=>{

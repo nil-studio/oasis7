@@ -241,6 +241,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("upload: never", WORKFLOW)
         self.assertIn("wait-for-processing: true", WORKFLOW)
 
+    def test_actions_analyzer_container_preserves_shared_matrix_and_upload_identity(self):
+        analyze = WORKFLOW.split("\n  analyze:\n", 1)[1]
+        header = analyze.split("    steps:\n", 1)[0]
+        self.assertRegex(header, r"(?m)^      image: \$\{\{ matrix.language == 'actions' && "
+                                r"'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:[0-9a-f]{64}' \|\| '' \}\}$")
+        permissions = header.split("    permissions:\n", 1)[1].split("    container:\n", 1)[0]
+        self.assertEqual(permissions.splitlines(), [
+            "      contents: read", "      security-events: write", "      actions: read", "      packages: read",
+        ])
+        self.assertIn("      options: --user 1001:1001\n", header)
+        self.assertIn("      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}\n", header)
+        self.assertIn("      max-parallel: 2\n", header)
+        preflight = analyze.split("      - name: Verify Actions image prerequisites\n", 1)[1]
+        self.assertTrue(preflight.startswith("        if: matrix.language == 'actions'\n"))
+        upload = analyze.split("      - id: upload\n", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("category: ${{ matrix.category }}", upload)
+        self.assertIn("sha: ${{ needs.plan.outputs.checkout }}", upload)
+
     def test_javascript_minified_source_opt_in_is_language_scoped(self):
         scan_env = WORKFLOW.split("    env:\n      RUSTC_WRAPPER:", 1)[1].split("    steps:", 1)[0]
         self.assertIn("CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES: ${{ matrix.language == 'javascript-typescript' && 'true' || 'false' }}", scan_env)

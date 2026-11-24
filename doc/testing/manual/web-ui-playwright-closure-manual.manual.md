@@ -125,12 +125,14 @@ lsof -nP -iTCP:4173 -iTCP:5011 -iTCP:5023 -iTCP:5841 -sTCP:LISTEN || true
 bash -n scripts/viewer-real-agent-chat-regression.sh
 ```
 
-如果当前 shell 没有 `node`，脚本会尝试使用 Codex bundled Node。若在非 Codex 环境运行，需要设置：
+脚本优先使用 `PATH` 中的 `node`，也允许显式指定 `OASIS7_NODE_BIN`。Viewer 和 Hosted 脚本共用 Playwright 加载器，依次读取 `OASIS7_PLAYWRIGHT_NODE_MODULES`（包含 `playwright` 的目录）、`OASIS7_PLAYWRIGHT_MODULE`（CI 提供的包目录）、仓库固定依赖和调用方本地依赖。显式路径不可用会直接报错，不回退到其他环境。
 
 ```bash
-export OASIS7_NODE_BIN=/path/to/node
-export OASIS7_PLAYWRIGHT_NODE_MODULES=/path/to/node_modules
+# 尚未提供 Playwright 时，在仓库根目录安装固定版本
+npm ci --prefix scripts/ci-browser-tools --ignore-scripts
 ```
+
+普通无头探针可使用 headless shell。自有持久 profile 与 Hosted passkey 探针需要完整 Chromium：提前执行 `scripts/ci-browser-tools/node_modules/.bin/playwright install chromium`，或通过 `OASIS7_PLAYWRIGHT_CHROME_PATH` 指定已安装的 Chrome/Chromium 可执行文件。探针不自动下载浏览器。
 
 ## 证据判读
 

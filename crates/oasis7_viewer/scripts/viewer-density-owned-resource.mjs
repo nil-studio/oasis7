@@ -1,5 +1,5 @@
 // One bounded real-Viewer resource sample, not a 30-minute or P6 acceptance run.
-import {createRequire} from 'node:module';
+import {browserExecutablePath,loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -22,19 +22,19 @@ assert(/^[0-9a-f]{40}$/.test(manifest.source)&&Array.isArray(manifest.files)&&ma
 const assets={};for(const row of manifest.files){assert(typeof row.path==='string'&&!Object.hasOwn(assets,row.path)&&Number.isSafeInteger(row.size)&&row.size>=0&&/^[0-9a-f]{64}$/.test(row.sha256),'invalid or duplicate asset receipt');assets[row.path]={bytes:row.size,sha256:row.sha256};}
 execFileSync('git',['cat-file','-e',manifest.source+'^{commit}'],{cwd:repo});
 const root=resolve(process.env.VIEWER_DENSITY_RSS_ARTIFACT_ROOT||manifest.root),out=resolve(process.env.VIEWER_DENSITY_RSS_OUTPUT);mkdirSync(dirname(out),{recursive:true});mkdirSync(out);
-const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES||'/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
-const {chromium}=createRequire(join(modules,'density-resource.cjs'))('playwright');
+const {chromium}=loadPlaywright(import.meta.url);
 const started=performance.now(),summary={builtSource:manifest.source,runnerHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),assets,scripts:{},resource:{},controlledTransport:true,realServiceAuthority:false,hardStopMs:120000,limits:['single short controlled observer/debug scene; not genuine hosted player/P5','RSS/JS/WASM capacity overlap and must not be summed','GPU total, complete cache, 30min/8GiB/A-B/P6 remain unaccepted']};
 summary.limits.push('owned renderer process roles are not a proven one-page-to-one-native-renderer-PID mapping');
 summary.host={platform:process.platform,arch:process.arch,node:process.version,osRelease:release(),totalMemoryBytes:totalmem(),cpuModel:cpus()[0]?.model??null};
 for(const name of ['viewer-density-owned-resource.mjs','viewer-density-resource-observation.mjs','viewer-density-resource-stamp.mjs','viewer-owned-resource-os.mjs','viewer-owned-resource-policy.mjs','viewer-owned-startup-context.mjs','viewer-owned-startup-lifecycle.mjs','viewer-owned-fixture-server.mjs','viewer-product-startup-endpoints.mjs','viewer-startup-atlas-oracle.py','world-view-density-fixture.mjs','viewer-owned-cdp-memory.mjs','world-view-frame-capability.mjs','viewer-bounded-wire-audit.mjs','viewer-static-files.mjs','viewer-owned-cdp-input.mjs','viewer-owned-cdp-session.mjs'])summary.scripts[name]=sha(readFileSync(join(here,name)));
+summary.scripts['scripts/playwright-module-loader.mjs']=sha(readFileSync(new URL('../../../scripts/playwright-module-loader.mjs',import.meta.url)));
 const timer=setTimeout(()=>{summary.error='120s whole-case deadline; cleanup unproven';summary.elapsedMs=performance.now()-started;try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}catch(error){console.error(error);}process.exit(1);},120000);
 let server,context;
 await withObservationCleanup(async()=>{
  try{
   server=await startOwnedViewerFixtureServer({artifactRoot:root,source:manifest.source,out,expectedAssets:assets});server.beginCase('real-viewer-rss');
   const lease=createStartupProfile();summary.profile=lease.path;
-  context=await launchOwnedStartupContext(chromium,process.env.OASIS7_PLAYWRIGHT_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',lease);
+  context=await launchOwnedStartupContext(chromium,browserExecutablePath(),lease);
   summary.browserVersion=context.browser().version();
   summary.nativeIdentity=await identifyOwnedStartupContext(context,summary);
   assert(context.pages().length===1,'fresh owned Viewer page count invalid');const page=context.pages()[0];

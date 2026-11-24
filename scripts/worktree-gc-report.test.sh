@@ -13,10 +13,10 @@ printf 'target\nsecret\n.pm/\n' >"$REPO/.gitignore"
 git -C "$REPO" add .
 git -C "$REPO" commit -qm initial
 git -C "$REPO" update-ref refs/remotes/origin/main HEAD
-git -C "$REPO" worktree add -qb codex/facts "$TMP/topic"
+git -C "$REPO" worktree add -qb task/facts "$TMP/topic"
 NEWLINE_PATH="$TMP/line
 break"
-git -C "$REPO" worktree add -qb codex/newline "$NEWLINE_PATH"
+git -C "$REPO" worktree add -qb task/newline "$NEWLINE_PATH"
 git -C "$REPO" worktree add -qb codex/missing "$TMP/missing"
 rm -rf "$TMP/missing"
 git -C "$REPO" worktree lock "$TMP/topic" --reason test
@@ -45,12 +45,12 @@ from pathlib import Path
 root=Path(sys.argv[1])
 p=json.loads((root/'after').read_text())
 e={Path(v['path']).name:v for v in p['entries']}
-newline=next(v for v in p['entries'] if v['branch']=='codex/newline')
+newline=next(v for v in p['entries'] if v['branch']=='task/newline')
 assert newline['exists'] and newline['path']==str((root/'line\nbreak').resolve())
 t=e['topic']
 before=json.loads((root/'before').read_text())
 assert t==next(v for v in before['entries'] if Path(v['path']).name=='topic')
-assert t['branch']=='codex/facts' and t['exists'] and t['locked']
+assert t['branch']=='task/facts' and t['exists'] and t['locked']
 assert t['dirty'] and t['untracked_count']==1 and t['ignored_count']==2
 assert t['merged_to_main'] and t['merged_to_origin_main']
 assert not e['missing']['exists'] and e['missing']['prunable']

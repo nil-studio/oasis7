@@ -12,7 +12,9 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import tomllib
+import zlib
 
 from ci_process_runner import run
 
@@ -27,42 +29,49 @@ SHARDS = [0, 1, 2]
 ALLOWED_SHARDS = ([0, 1, 2], [0, 1, 2, 3])
 ROLES = ('identity', 'owner', 'executor', 'recovery-fence', 'native-harness')
 SCHEMA = 'oasis7.custody-platform/v1'
-# Complete Node file durations from run 42934311475, jobs
-# 130245943288/130245943018/130245943112/130245942945. Weights only
-# determine placement; every discovered file still executes exactly once.
+ZLIB_CHUNK_BYTES = 4 * 1024 * 1024
+MAX_RAW_BINARY_BYTES = 2 * 1024 * 1024 * 1024
+# Complete serial Node file durations from run 45283513119, jobs
+# 138082922714/138082922769/138082922743 (with test-session-paid split 6/8).
+# Weights only determine shard placement; every discovered file still executes
+# serially and without local contention exactly once.
 FILE_SECONDS = {
-    'approval.test.mjs': 19.848,
-    'client-abuse.integration.test.mjs': 1.410,
-    'client-enrollment.integration.test.mjs': 1.410,
-    'context-body-crypto.integration.test.mjs': 7.415,
-    'context-body-signatures.integration.test.mjs': 2.011,
-    'context-body.integration.test.mjs': 5.616,
-    'contract.test.mjs': 1.209,
-    'host-control-https.integration.test.mjs': 0.809,
-    'live-context-read.integration.test.mjs': 1.609,
-    'management-metadata.integration.test.mjs': 2.210,
-    'native-continuation-reference.test.mjs': 31.037,
-    'native-identity.integration.test.mjs': 29.234,
-    'native-provision.integration.test.mjs': 75.466,
-    'native-runtime-manifest.integration.test.mjs': 4.412,
-    'owner-directory.test.mjs': 51.057,
-    'owner-setup.integration.test.mjs': 183.737,
-    'participant-provision.integration.test.mjs': 60.076,
-    'participant-role-capability.test.mjs': 4.813,
-    'platform.test.mjs': 2.210,
-    'recovery-activation.integration.test.mjs': 15.619,
-    'rejection-diagnostic.test.mjs': 0.208,
-    'role-runtime-negative.integration.test.mjs': 14.020,
-    'role-runtime-options.test.mjs': 0.612,
-    'setup-baseline-settlement.test.mjs': 0.208,
-    'storage.test.mjs': 2.212,
-    'test-session-activation.integration.test.mjs': 186.354,
-    'test-session-alarm.integration.test.mjs': 130.904,
-    'test-session-alarm.test.mjs': 0.209,
-    'test-session-paid.integration.test.mjs': 357.084,
-    'test-session-results.integration.test.mjs': 157.919,
-    'test-session-tools.integration.test.mjs': 170.361,
-    'test-session.integration.test.mjs': 265.218,
+    'approval.test.mjs': 13.700,
+    'client-abuse.integration.test.mjs': 0.300,
+    'client-enrollment.integration.test.mjs': 3.200,
+    'context-body-crypto.integration.test.mjs': 5.400,
+    'context-body-signatures.integration.test.mjs': 1.300,
+    'context-body.integration.test.mjs': 3.800,
+    'contract.test.mjs': 0.700,
+    'host-control-https.integration.test.mjs': 0.100,
+    'live-context-read.integration.test.mjs': 1.100,
+    'management-metadata.integration.test.mjs': 1.400,
+    'native-continuation-reference.test.mjs': 25.300,
+    'native-identity.integration.test.mjs': 22.800,
+    'native-provision.integration.test.mjs': 65.600,
+    'native-response-diagnostics.test.mjs': 0.400,
+    'native-runtime-manifest.integration.test.mjs': 3.200,
+    'native-stage-diagnostics.test.mjs': 0.300,
+    'owner-directory.test.mjs': 34.300,
+    'owner-setup.integration.test.mjs': 170.000,
+    'participant-provision.integration.test.mjs': 42.800,
+    'participant-role-capability.test.mjs': 3.500,
+    'participant-stage-diagnostics.test.mjs': 1.300,
+    'platform.test.mjs': 0.400,
+    'recovery-activation.integration.test.mjs': 10.500,
+    'rejection-diagnostic.test.mjs': 0.100,
+    'role-runtime-negative.integration.test.mjs': 10.000,
+    'role-runtime-options.test.mjs': 0.400,
+    'setup-baseline-settlement.test.mjs': 0.100,
+    'storage.test.mjs': 1.400,
+    'test-session-activation.integration.test.mjs': 139.200,
+    'test-session-alarm.integration.test.mjs': 106.800,
+    'test-session-alarm.test.mjs': 0.100,
+    'test-session-paid-role.integration.test.mjs': 147.700,
+    'test-session-paid.integration.test.mjs': 110.800,
+    'test-session-results.integration.test.mjs': 120.400,
+    'test-session-tools.integration.test.mjs': 122.800,
+    'test-session.integration.test.mjs': 199.300,
 }
 BUILD_CONTRACTS = {
     'native': ['launcher:custody', 'world:commit-barrier', 'contract:check', 'context-body:export'],
@@ -252,6 +261,92 @@ def minimum_files(component):
         {'approval-fixture.json'} if component == 'wasm-approval' else set())
 
 
+def strip_elf_unneeded(path):
+    """Drop non-alloc symbol/string/DWARF sections from staged Linux ELF copies while keeping target/ intact."""
+    if platform.system() != 'Linux':
+        return
+    with path.open('rb') as stream:
+        if stream.read(4) != b'\x7fELF':
+            return
+    strip_bin = shutil.which('strip')
+    if strip_bin is None:
+        return
+    subprocess.run([strip_bin, '--strip-unneeded', str(path)], check=True)
+
+
+def compress_zlib_inplace(path):
+    """Stream-compress a staged binary in place for compression-level=0 artifact transport."""
+    raw_size = 0
+    raw_hasher = hashlib.sha256()
+    compressor = zlib.compressobj(level=1)
+    fd, tmp_name = tempfile.mkstemp(prefix='.pack-', dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, 'wb') as writer, path.open('rb') as reader:
+            while True:
+                chunk = reader.read(ZLIB_CHUNK_BYTES)
+                if not chunk:
+                    break
+                raw_size += len(chunk)
+                if raw_size > MAX_RAW_BINARY_BYTES:
+                    raise ValueError('oversized custody native binary')
+                raw_hasher.update(chunk)
+                encoded = compressor.compress(chunk)
+                if encoded:
+                    writer.write(encoded)
+            tail = compressor.flush()
+            if tail:
+                writer.write(tail)
+        tmp_path.replace(path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return raw_size, raw_hasher.hexdigest()
+
+
+def decompress_zlib_checked(source, destination, expected_size, expected_sha256):
+    if type(expected_size) is not int or not 0 <= expected_size <= MAX_RAW_BINARY_BYTES:
+        raise ValueError('invalid custody raw payload size')
+    decompressor = zlib.decompressobj()
+    hasher = hashlib.sha256()
+    written = 0
+    try:
+        with source.open('rb') as reader, destination.open('wb') as writer:
+            while True:
+                chunk = reader.read(ZLIB_CHUNK_BYTES)
+                if not chunk:
+                    remaining = min(expected_size, MAX_RAW_BINARY_BYTES) - written
+                    tail = decompressor.flush(min(ZLIB_CHUNK_BYTES, max(1, remaining + 1)))
+                    if tail:
+                        written += len(tail)
+                        if written > expected_size or written > MAX_RAW_BINARY_BYTES:
+                            raise ValueError('custody compressed payload exceeds raw size')
+                        hasher.update(tail)
+                        writer.write(tail)
+                    break
+                pending = chunk
+                while pending:
+                    remaining = min(expected_size, MAX_RAW_BINARY_BYTES) - written
+                    if remaining < 0:
+                        raise ValueError('custody compressed payload exceeds raw size')
+                    step_limit = min(ZLIB_CHUNK_BYTES, remaining + 1)
+                    out = decompressor.decompress(pending, step_limit)
+                    if out:
+                        written += len(out)
+                        if written > expected_size or written > MAX_RAW_BINARY_BYTES:
+                            raise ValueError('custody compressed payload exceeds raw size')
+                        hasher.update(out)
+                        writer.write(out)
+                    pending = decompressor.unconsumed_tail
+                    if pending and not out:
+                        raise ValueError('custody compressed payload stalled before completion')
+    except zlib.error as error:
+        raise ValueError('corrupt custody compressed payload') from error
+    if (not decompressor.eof or decompressor.unused_data
+            or written != expected_size or hasher.hexdigest() != expected_sha256):
+        raise ValueError('custody raw payload content or size mismatch')
+
+
 def pack(root, plan, component, bundle, run_id, attempt):
     context = identity(root, plan, run_id)
     positive_attempt(attempt)
@@ -290,8 +385,13 @@ def pack(root, plan, component, bundle, run_id, attempt):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination)
         mode = 0o755 if name.startswith('bin/') else 0o644
+        extra = {}
+        if component == 'native' and name.startswith('bin/'):
+            strip_elf_unneeded(destination)
+            raw_size, raw_sha256 = compress_zlib_inplace(destination)
+            extra = dict(encoding='zlib', raw_size=raw_size, raw_sha256=raw_sha256)
         destination.chmod(mode)
-        rows.append(dict(path=name, size=destination.stat().st_size, sha256=digest(destination), mode=mode))
+        rows.append(dict(path=name, size=destination.stat().st_size, sha256=digest(destination), mode=mode, **extra))
     manifest = dict(schema=SCHEMA, context=context, component=component,
                     producer_attempt=attempt, build_contract=build_contract(plan, component), files=rows)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True) + '\n')
@@ -316,6 +416,17 @@ def check_bundle(root, plan, component, bundle, run_id, attempt):
         name = row.get('path')
         if not allowed_file(component, name) or name in names:
             raise ValueError('unsafe or duplicate custody file')
+        expect_compressed = component == 'native' and name.startswith('bin/')
+        expected_keys = ({'path', 'size', 'sha256', 'mode', 'encoding', 'raw_size', 'raw_sha256'}
+                         if expect_compressed else {'path', 'size', 'sha256', 'mode'})
+        if set(row) != expected_keys:
+            raise ValueError('invalid custody file entry')
+        if expect_compressed and (row.get('encoding') != 'zlib'
+                                  or type(row.get('raw_size')) is not int
+                                  or not 0 <= row['raw_size'] <= MAX_RAW_BINARY_BYTES
+                                  or not isinstance(row.get('raw_sha256'), str)
+                                  or not re.fullmatch(r'[0-9a-f]{64}', row['raw_sha256'])):
+            raise ValueError('invalid custody compressed file metadata')
         names.add(name)
         path = regular(bundle / 'files' / name, bundle)
         if (type(row.get('size')) is not int or path.stat().st_size != row['size']
@@ -345,15 +456,28 @@ def restore(root, plan, bundles, run_id, attempts, current_attempt):
     artifacts = root / WORKER / 'artifacts'
     if artifacts.is_symlink() or (artifacts.exists() and any(artifacts.iterdir())):
         raise ValueError('restore requires empty custody artifacts')
-    artifacts.mkdir(parents=True, exist_ok=True)
-    for component, manifest in manifests.items():
-        for row in manifest['files']:
-            destination = artifacts / row['path']
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(bundles[component] / 'files' / row['path'], destination)
-            destination.chmod(row['mode'])
-    for name in ('native', 'world'):
-        (artifacts / f'{name}-test-binary.txt').write_text(str(artifacts / 'bin' / name) + '\n')
+    artifacts.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix='.restore-', dir=str(artifacts.parent)))
+    try:
+        for component, manifest in manifests.items():
+            for row in manifest['files']:
+                source = bundles[component] / 'files' / row['path']
+                destination = staging / row['path']
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if row.get('encoding') == 'zlib':
+                    decompress_zlib_checked(source, destination, row['raw_size'], row['raw_sha256'])
+                else:
+                    shutil.copyfile(source, destination)
+                destination.chmod(row['mode'])
+        for name in ('native', 'world'):
+            (staging / f'{name}-test-binary.txt').write_text(str(artifacts / 'bin' / name) + '\n')
+        staging.chmod(0o755)
+        if artifacts.exists():
+            artifacts.rmdir()
+        staging.replace(artifacts)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
 
 def tap_summary(text, filename):

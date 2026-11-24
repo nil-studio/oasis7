@@ -33,19 +33,19 @@ emit_if_supported() {
   fi
 }
 
+# An explicit interpreter works across Coding Agent environments that do not
+# expose their bundled Python on PATH. A bad override must not silently fall back.
+if [[ -n "${OASIS7_PYTHON_BIN:-}" ]]; then
+  if ! supports_module "$OASIS7_PYTHON_BIN"; then
+    echo "find-python-with-module: OASIS7_PYTHON_BIN cannot import ${MODULE}" >&2
+    exit 1
+  fi
+  emit_if_supported "$OASIS7_PYTHON_BIN"
+fi
+
 for generic_name in python python3; do
   if candidate="$(command -v "$generic_name" 2>/dev/null)"; then
     emit_if_supported "$candidate"
-  fi
-done
-
-codex_runtime_root="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python"
-for codex_runtime_python in \
-  "$codex_runtime_root/python.exe" \
-  "$codex_runtime_root/bin/python3" \
-  "$codex_runtime_root/bin/python"; do
-  if [[ -x "$codex_runtime_python" ]]; then
-    emit_if_supported "$codex_runtime_python"
   fi
 done
 
@@ -57,5 +57,5 @@ while IFS= read -r path_dir; do
   done
 done < <(printf '%s' "$PATH" | tr ':' '\n')
 
-echo "find-python-with-module: no Python interpreter on PATH can import ${MODULE}" >&2
+echo "find-python-with-module: no Python interpreter on PATH can import ${MODULE}; set OASIS7_PYTHON_BIN to an explicit interpreter path" >&2
 exit 1

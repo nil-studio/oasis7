@@ -248,7 +248,7 @@ run_oasis7_test_tier_with_viewer() {
 }
 
 run_oasis7_required_tier_tests() {
-  local plan_args=() wasm_args=() partition_args=() argument selected
+  local plan_args=() wasm_args=() partition_args=() argument selected wasm_owner=oasis7_required
   if [[ -n "${ordinary_partition:-}" && "$ordinary_partition" != all ]]; then
     partition_args=(--ordinary-partition "$ordinary_partition")
   fi
@@ -258,11 +258,21 @@ run_oasis7_required_tier_tests() {
       run python3 "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" "${plan_args[@]}" \
         --phase partition --ordinary-partition "$ordinary_partition" || return
     fi
-    selected=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" "${plan_args[@]}" --phase wasm) || return
-    while IFS= read -r argument; do
-      [[ -z "$argument" ]] || wasm_args+=("$argument")
-    done <<< "$selected"
-    if [[ ${#wasm_args[@]} -gt 0 ]]; then run_cargo check "${wasm_args[@]}"; fi
+    if [[ "${tier:-}" == required ]]; then
+      wasm_owner=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+        "${plan_args[@]}" --phase wasm-group) || return
+    fi
+    case "${wasm_owner:-oasis7_required}" in
+      'oasis7_required')
+        selected=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" "${plan_args[@]}" --phase wasm) || return
+        while IFS= read -r argument; do
+          [[ -z "$argument" ]] || wasm_args+=("$argument")
+        done <<< "$selected"
+        if [[ ${#wasm_args[@]} -gt 0 ]]; then run_cargo check "${wasm_args[@]}"; fi
+        ;;
+      'rust_baseline') ;;
+      *) echo "Unknown ordinary WASM group: $wasm_owner" >&2; return 2 ;;
+    esac
   else
     run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked
   fi
@@ -322,17 +332,31 @@ for command in commands:
 }
 
 run_oasis7_required_clippy_for_group() {
-  local selected_group=oasis7_required
+  local selected_group=oasis7_required wasm_group=oasis7_required selected argument wasm_args=()
   if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
     selected_group=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
       --plan "$required_plan" --phase clippy-group) || return
+    wasm_group=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase wasm-group) || return
   fi
   case "$selected_group" in
     oasis7_required|rust_baseline) ;;
     *) echo "Unknown ordinary Clippy group: $selected_group" >&2; return 2 ;;
   esac
+  case "${wasm_group:-oasis7_required}" in
+    oasis7_required|rust_baseline) ;;
+    *) echo "Unknown ordinary WASM group: $wasm_group" >&2; return 2 ;;
+  esac
   if [[ "$selected_group" == "$1" ]]; then
-    run_oasis7_required_tier_clippy
+    run_oasis7_required_tier_clippy || return
+  fi
+  if [[ "$1" == rust_baseline && "${wasm_group:-oasis7_required}" == rust_baseline && -n "${required_plan:-}" ]]; then
+    selected=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase wasm) || return
+    while IFS= read -r argument; do
+      [[ -z "$argument" ]] || wasm_args+=("$argument")
+    done <<< "$selected"
+    if [[ ${#wasm_args[@]} -gt 0 ]]; then run_cargo check "${wasm_args[@]}"; fi
   fi
 }
 
@@ -1031,6 +1055,7 @@ run_operational_node_contract_tests() {
   run ./scripts/state-sync-closure-evidence-template.test.sh
   run ./scripts/s10-five-node-game-soak-summary.test.sh
   run ./scripts/release-gate-bash-preflight.test.sh
+  run bash ./scripts/release-candidate-bundle-smoke.sh
   run python3 ./scripts/release-web-startup.test.py
   run bash ./scripts/p2p-public-testnet-local-observer-sync.test.sh
   run bash ./scripts/build-game-launcher-bundle-dev-cache.test.sh

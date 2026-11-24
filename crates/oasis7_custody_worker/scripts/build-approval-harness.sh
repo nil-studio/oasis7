@@ -10,7 +10,12 @@ mkdir .role-build-lock 2>/dev/null || { echo 'another role build is running' >&2
 trap 'rmdir .role-build-lock' EXIT
 mkdir -p artifacts
 OASIS7_CUSTODY_ADMISSION_FIXTURE_OUTPUT="$PWD/artifacts/approval-fixture.json" env -u RUSTC_WRAPPER cargo test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked
-env -u RUSTC_WRAPPER worker-build --release --no-opt -- --locked --no-default-features --features owner,approval-harness
+# Keep identical release profile flags as build-role.sh so wasm32 deps stay shared.
+env -u RUSTC_WRAPPER worker-build --release --no-opt -- \
+  --locked --no-default-features --features owner,approval-harness \
+  --config 'profile.release.lto="off"' \
+  --config 'profile.release.package.oasis7_custody_core.opt-level="s"' \
+  --config 'profile.release.package.oasis7_custody_worker.opt-level="s"'
 mkdir -p artifacts
 if [[ -e artifacts/approval-harness ]]; then rm -rf artifacts/approval-harness; fi
 cp -R build artifacts/approval-harness
