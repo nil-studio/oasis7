@@ -1,9 +1,9 @@
-use oasis7_agent_api::CapabilityInvocationContext;
 use oasis7::simulator::{
     ContinuationBudgetV1, ContinuationProposalV1, ContinuousAgentRequestContextV1,
     ContinuousAgentTurnContextV1, DecisionRequest, Digest32, GoalSnapshotInputV1,
     GoalSnapshotProjector, MemoryContextSnapshotV1, RuntimeBindingV1, WakeConditionV1,
 };
+use oasis7_agent_api::CapabilityInvocationContext;
 use oasis7_agent_api::{
     BudgetContractV1, COGNITION_CAPABILITY_CATALOG_DOMAIN,
     COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR,
