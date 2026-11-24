@@ -39,8 +39,8 @@ Trace refs: O7-REQ-f1388c2b-6f64-4ebd-886e-0b741bfe176c
 先检查暂停、已有开发会话、Issue 和 PR，再领取唯一 type:code 且 implementation:ready、设计/bug依据和授权完整的代码实现任务。
 父项可先由协调者接手拆分；每个拆出的开发任务创建或复用 type:code Issue，建立并回读 GitHub 原生父子关系后，按具体子 Issue 自身的 ready 与领取情况派发。已 active 的父项复用原认领与分工，但不替代子项认领；共享文件和接口明确唯一写入者。
 
-派发、归并和收回成果时按 doc/engineering/workflow/source-of-truth.md#code-task-file-limit、#small-complete-pr 与 #planned-pr-scope 复核预计及实际范围：拆单/派工前确认每个子 Issue 已明确预计 PR 交付形态与批次边界（尽量不超过 30 个代码文件且建议规模内默认单 PR 完整收口，触达同一 CI 受影响范围的同构迁移、同源边界修复或同类配置先归并成批；确需拆多 PR 时预先列出各批范围，不留给实施期临场切分；偶发较大原子单 PR 或极小解阻 PR 在原说明写清原因），同任务跨 PR 累计观察，不因文件或 PR 数量单独阻断派发或归并。
-使用已获准的独立开发会话承接就绪子 Issue，不默认派发嵌套 subagent；每个子任务默认只保持一个在途开放 PR（含草稿 PR，解阻前置除外），高扇出共享 crate 批次串行或归并，CI 排队拥堵时暂停新开非关键路径的细碎 PR；同一子任务的 CI、评审和测试反馈继续交给原会话。
+派发、归并和收回成果时按 doc/engineering/workflow/source-of-truth.md#code-task-file-limit、#small-complete-pr、#planned-pr-scope 与 doc/engineering/workflow/pr-slicing-and-circuit-breaker.md 复核预计及实际范围：拆单/派工前确认每个子 Issue 已明确预计 PR 交付形态与计划切片序列（显式给出每片的 Slice-Type、Allowed-Crates 与职责边界；跨层或 >300 行改动按 Dark -> Adapter -> Cutover 串行切片，单片不超过 3 个 Crate 与 2 个相邻架构环），同任务跨 PR 累计观察。
+使用已获准的独立开发会话承接就绪子 Issue，不默认派发嵌套 subagent；每个子任务默认只保持一个在途开放 PR（含零改动契约 Draft PR，解阻前置除外），高扇出共享 crate 批次串行或归并，CI 排队拥堵时暂停新开非关键路径的细碎 PR；触发 check-pr-boundaries.sh 或陈旧冲突熔断时停止原地叠提交，转走只读标本拆骨流程。
 活跃工作期间约每 5 分钟检查一次队列，有结果或用户指令时及时处理。
 结果不明确先查询，不重复创建；暂停后停止新派工并核对在途执行。
 持续推进本次范围内可做的工作，只汇报实质进展、阻塞和需要我决定的事项。
