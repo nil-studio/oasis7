@@ -14,6 +14,7 @@ import textwrap
 
 root = Path(sys.argv[1])
 workflow = (root / ".github/workflows/release-packages.yml").read_text()
+mainnet = (root / ".github/workflows/mainnet-packages.yml").read_text()
 testnet = (root / ".github/workflows/testnet-packages.yml").read_text()
 rust = (root / ".github/workflows/rust.yml").read_text()
 installer = (root / "scripts/install-ci-trunk.sh").read_text()
@@ -142,6 +143,134 @@ assert [testnet_web.index(name) for name in (
 ))
 for body in (testnet_preflight, testnet_cache, testnet_install, step(testnet_web, "Verify pinned trunk")):
     assert not re.search(r"^        (?:if|continue-on-error):", body, re.MULTILINE)
+
+mainnet_web = job(mainnet, "build-web-dist")
+assert field(mainnet_web, "TRUNK_VERSION", 6) == version
+assert "ref: ${{ github.workflow_sha }}" in mainnet_web
+assert "sparse-checkout: .github/actions/setup-linux-mold" in mainnet_web
+assert "sparse-checkout-cone-mode: false" not in mainnet_web
+stage_name = "Stage the executing workflow's pinned Trunk installer"
+assert mainnet_web.index("ref: ${{ github.workflow_sha }}") < mainnet_web.index(stage_name)
+assert mainnet_web.index(stage_name) < mainnet_web.index("ref: ${{ needs.plan.outputs.checkoutSha }}")
+stage = step(mainnet_web, stage_name)
+assert 'WORKFLOW_TOOLS_SHA: ${{ github.workflow_sha }}' in stage
+assert 'test "$(git rev-parse HEAD)" = "$WORKFLOW_TOOLS_SHA"' in run(stage)
+assert 'git show HEAD:scripts/install-ci-trunk.sh > "$installer"' in run(stage)
+assert run(step(mainnet_web, "Install verified pinned Trunk")) == expected_install.replace(
+    "bash scripts/install-ci-trunk.sh", 'bash "$RUNNER_TEMP/oasis7-mainnet-install-trunk.sh"')
+assert run(step(mainnet_web, "Verify pinned trunk")) == run(verify)
+assert not re.search(r"\bcargo\s+install\s+trunk\b", mainnet_web)
+testnet_build = run(step(testnet_web, "Build web dists"))
+for package_job, outdir in ((web, "release"), (mainnet_web, "mainnet-packages")):
+    assert run(step(package_job, "Build web dists")) == testnet_build.replace(
+        "output/testnet-packages/", f"output/{outdir}/")
+
+legacy_name = "Keep the planned source's Rust toolchain"
+legacy_toolchain = run(step(mainnet_web, legacy_name))
+assert run(step(web, legacy_name)) == legacy_toolchain
+for package_job in (web, mainnet_web):
+    assert package_job.index("Verify planned source HEAD") < package_job.index("Verify complete planned Web checkout")
+    assert package_job.index("Verify complete planned Web checkout") < package_job.index("Install viewer web dependencies")
+    assert 'git ls-files -t' in run(step(package_job, "Verify complete planned Web checkout"))
+    assert 'git diff --exit-code HEAD --' in run(step(package_job, "Verify complete planned Web checkout"))
+    assert package_job.index("Verify planned source HEAD") < package_job.index(legacy_name)
+    assert package_job.index(legacy_name) < package_job.index("Normalize Rust cache toolchains")
+
+# A matching HEAD is insufficient if checkout left files sparse or missing.
+with tempfile.TemporaryDirectory(prefix="package-web-checkout-") as directory:
+    temp = Path(directory)
+    repo = temp / "repo"
+    repo.mkdir()
+    install_blob = b"#!/bin/bash\n# immutable workflow installer\n"
+    lockfile = repo / "crates/oasis7_viewer/package-lock.json"
+    lockfile.parent.mkdir(parents=True)
+    linker = repo / ".github/actions/setup-linux-mold/action.yml"
+    linker.parent.mkdir(parents=True)
+    linker.write_text("workflow tool\n")
+    installer_path = repo / "scripts/install-ci-trunk.sh"
+    installer_path.parent.mkdir()
+    installer_path.write_bytes(install_blob)
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=str(temp / "git-config"), RUNNER_TEMP=str(temp),
+               GITHUB_WORKSPACE=str(repo))
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=repo, env=env, text=True).strip()
+
+    def shell(script):
+        return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], cwd=repo,
+                              env=env, capture_output=True, text=True)
+
+    git("init", "-q")
+    git("config", "user.name", "CI fixture")
+    git("config", "user.email", "fixture@example.invalid")
+    lockfile.write_text("business lock\n")
+    git("add", ".")
+    git("commit", "-qm", "business source")
+    business = git("rev-parse", "HEAD")
+    lockfile.write_text("workflow revision lock\n")
+    git("commit", "-qam", "workflow revision")
+    tooling = git("rev-parse", "HEAD")
+    git("sparse-checkout", "set", "--cone", ".github/actions/setup-linux-mold")
+    assert not installer_path.exists()
+    env["WORKFLOW_TOOLS_SHA"] = business
+    assert shell(run(stage)).returncode != 0
+    env["WORKFLOW_TOOLS_SHA"] = tooling
+    assert shell(run(stage)).returncode == 0
+    assert (temp / "oasis7-mainnet-install-trunk.sh").read_bytes() == install_blob
+
+    verify_checkout = run(step(mainnet_web, "Verify complete planned Web checkout"))
+    assert shell(verify_checkout).returncode != 0
+    git("sparse-checkout", "disable")
+    git("checkout", "--detach", business)
+    assert shell(verify_checkout).returncode == 0
+    assert lockfile.read_text() == "business lock\n"
+    lockfile.unlink()
+    assert shell(verify_checkout).returncode != 0
+
+# Both jobs must keep the active source pin and skip image cache on the compatibility path.
+with tempfile.TemporaryDirectory(prefix="package-web-rustup-") as directory:
+    temp = Path(directory)
+    image_home = temp / "image-rustup"
+    (image_home / "toolchains/image-default").mkdir(parents=True)
+    (image_home / "settings.toml").write_text('default_toolchain = "image-default"\n')
+    binary_dir = temp / "bin"
+    binary_dir.mkdir()
+    rustup = binary_dir / "rustup"
+    rustup.write_text(textwrap.dedent("""\
+        #!/bin/bash
+        set -euo pipefail
+        if [[ "$*" == "show active-toolchain" ]]; then
+          if [[ -z "${RUSTUP_AUTO_INSTALL:-}" && "$RUSTUP_HOME" == "$IMAGE_HOME" ]]; then exit 88; fi
+          if [[ "$HISTORICAL" == no || -f "$RUSTUP_HOME/legacy-installed" ]]; then exit 0; fi
+          exit 1
+        fi
+        [[ "$HISTORICAL" == yes && "$RUSTUP_HOME" != "$IMAGE_HOME" ]]
+        [[ "$*" == "toolchain install --no-self-update --no-update --profile default --target wasm32-unknown-unknown" ]]
+        test -L "$RUSTUP_HOME/toolchains/image-default"
+        cmp "$IMAGE_HOME/settings.toml" "$RUSTUP_HOME/settings.toml"
+        [[ "$INSTALL_FAIL" == no ]] || exit 19
+        touch "$RUSTUP_HOME/legacy-installed"
+        """))
+    rustup.chmod(0o755)
+    for historical, install_fail in (("no", "no"), ("yes", "no"), ("yes", "yes")):
+        github_env, github_output = temp / "env", temp / "out"
+        github_env.write_text("")
+        github_output.write_text("")
+        env = dict(os.environ, PATH=str(binary_dir) + os.pathsep + os.environ["PATH"],
+                   RUSTUP_HOME=str(image_home), IMAGE_HOME=str(image_home), RUNNER_TEMP=str(temp),
+                   HISTORICAL=historical, INSTALL_FAIL=install_fail, GITHUB_ENV=str(github_env),
+                   GITHUB_OUTPUT=str(github_output))
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", legacy_toolchain], cwd=temp,
+                                env=env, capture_output=True, text=True)
+        assert (result.returncode == 0) == (install_fail == "no"), (historical, install_fail, result)
+        assert github_output.read_text() == ("image_toolchain=true\n" if historical == "no" else "")
+        receipt = github_env.read_text()
+        if historical == "yes" and install_fail == "no":
+            task_home = Path(receipt.strip().removeprefix("RUSTUP_HOME="))
+            assert task_home.parent == temp and (task_home / "legacy-installed").is_file()
+        else:
+            assert not receipt
+        assert list((image_home / "toolchains").iterdir()) == [image_home / "toolchains/image-default"]
 
 # Exercise the actual workflow shell with a local installer spy, without downloads.
 with tempfile.TemporaryDirectory(prefix="release-trunk-contract-") as directory:
