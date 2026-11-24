@@ -2,20 +2,23 @@
   "fast_scope_version": 1,
   "ordinary_dynamic_partition_version": 1,
   "custody_node_shards_version": 2,
-  "contract_job_consolidation_version": 3,
-  "ordinary_scope_config_slice_version": 1,
+  "contract_job_consolidation_version": 5,
+  "ordinary_scope_config_slice_version": 2,
   "standalone_cargo_manifest_scope_version": 1,
-  "workspace_support_direct_gate_version": 1,
+  "workspace_support_direct_gate_version": 2,
   "group_jobs": {
     "codex_agent_config_validation": "baseline",
     "macos_package_contract": "baseline",
-    "compile_metrics": "doc-checker-contracts",
+    "doc_checker_contracts": "baseline",
+    "compile_metrics": "baseline",
     "consensus": "node",
     "pixel_world_bridge": "scenario-regression",
     "viewer_performance_report": "viewer-js-required",
-    "packaging_contracts": "doc-checker-contracts",
+    "site_quality": "viewer-js-required",
+    "packaging_contracts": "baseline",
     "cargo_tooling_contracts": "scenario-regression",
-    "windows_rollout": "fleet-health"
+    "windows_rollout": "fleet-health",
+    "operational_contracts": "workflow-governance"
   },
   "ordinary_case_prefix_contract_version": 1,
   "ordinary_shared_incremental_contract_version": 1,
@@ -78,7 +81,8 @@
   "main_fast_coalesce_concurrency_version": 1,
   "draft_pr_heavy_ci_skip_version": 1,
   "auxiliary_workflow_consolidation_version": 1,
-  "workspace_member_cargo_manifest_scope_version": 1,
+  "workspace_member_cargo_manifest_scope_version": 2,
+  "ordinary_controls_in_rust_baseline_version": 1,
   "scoped_production_cfg_version": 1,
   "ordinary_harness_costs": {
     "version": 1,
@@ -912,7 +916,7 @@
     }
   ],
   "oasis7_required_packages": [
-    "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_world_state",
+    "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_runtime_host", "oasis7_world_state",
     "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",
     "oasis7_chain_runtime", "oasis7_executable_image", "oasis7_client_cli", "oasis7_protocol_tools",
     "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
@@ -1256,6 +1260,7 @@
     ".github/workflows/native-cache-diagnostic.yml": ["workflow_governance"],
     ".github/workflows/newapi-bridge-service-package.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/pages.yml": ["workflow_governance", "site_quality"],
+    ".github/workflows/pr-boundary-gate.yml": ["workflow_governance"],
     ".github/workflows/pr-fast-preview.yml": ["workflow_governance"],
     ".github/workflows/release-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/rust-cache.yml": ["workflow_governance", "packaging_contracts"],
@@ -2391,12 +2396,24 @@
         "scripts/build-game-launcher-bundle*",
         "scripts/testnet-packages-linux*",
         "scripts/testnet-packages-windows*",
-        "scripts/fixtures/oasis7-governance-root*"
+        "scripts/fixtures/oasis7-governance-root*",
+        "scripts/public-testnet-rehearsal-blocker-packet.sh",
+        "scripts/legacy-*-provenance-smoke.sh"
       ],
       "groups": [
         "operational_contracts"
       ],
       "reason": "operational"
+    },
+    {
+      "match": [
+        "scripts/release-candidate-bundle.sh",
+        "scripts/release-candidate-bundle-smoke.sh"
+      ],
+      "groups": [
+        "operational_contracts"
+      ],
+      "reason": "release_candidate_bundle_operational_contract"
     },
     {
       "match": [
@@ -2523,7 +2540,8 @@
         "scripts/viewer-*",
         "scripts/copy-viewer-*",
         "scripts/bundle-freshness*",
-        "scripts/agent-browser-*"
+        "scripts/agent-browser-*",
+        "scripts/verify-gameplay-attraction-automation.sh"
       ],
       "groups": [
         "viewer_js_required"
@@ -2540,6 +2558,17 @@
         "viewer_js_required"
       ],
       "reason": "hosted_identity_browser_smoke"
+    },
+    {
+      "match": [
+        "scripts/playwright-module-loader.mjs",
+        "scripts/playwright-module-loader.test.mjs"
+      ],
+      "groups": [
+        "viewer_js_required",
+        "launcher_web"
+      ],
+      "reason": "shared_playwright_module_resolution"
     },
     {
       "match": [
@@ -2685,6 +2714,51 @@
       "match": ["scripts/wasm-summary-bundle-smoke.sh"],
       "groups": ["packaging_contracts"],
       "reason": "wasm_summary_bundle_fixture_consumer"
+    },
+    {
+      "match": [
+        "scripts/check-pr-boundaries.sh"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "pr_boundary_gate"
+    },
+    {
+      "match": [
+        "scripts/governance/**"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "governance_scripts"
+    },
+    {
+      "match": [
+        "scripts/ops/**"
+      ],
+      "groups": [
+        "operational_contracts"
+      ],
+      "reason": "ops_scripts"
+    },
+    {
+      "match": [
+        "scripts/packaging/**"
+      ],
+      "groups": [
+        "packaging_contracts"
+      ],
+      "reason": "packaging_scripts"
+    },
+    {
+      "match": [
+        "scripts/viewer/**"
+      ],
+      "groups": [
+        "viewer_js_required"
+      ],
+      "reason": "viewer_scripts"
     }
   ]
 }

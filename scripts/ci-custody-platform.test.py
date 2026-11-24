@@ -804,6 +804,152 @@ else: record([name, *a])
                     with self.subTest(job=job, state=state), self.assertRaises(ValueError):
                         C.validate_jobs(plan, changed)
 
+    @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('gcc') and shutil.which('strip'),
+                         'requires Linux gcc and strip')
+    def test_pack_strips_unneeded_elf_symbols_and_zlib_compresses_without_mutating_source(self):
+        # Match hosted CI (`CARGO_PROFILE_TEST_DEBUG=0`): compile with `-g0` (no DWARF)
+        # plus realistic symbol/code payload so both `--strip-unneeded` and zlib compression
+        # are exercised against the real server failure mode.
+        c_source = Path(self.temporary.name) / 'fixture.c'
+        funcs = '\n'.join(
+            f'int custody_verbose_symbol_entry_{i:04d}(int x) {{ return (x * 31) ^ {i}; }}'
+            for i in range(600)
+        )
+        calls = '+'.join(f'custody_verbose_symbol_entry_{i:04d}(0)' for i in range(600))
+        c_source.write_text(
+            f'{funcs}\n'
+            f'int main(void) {{ return ({calls}) == -999999 ? 1 : 0; }}\n'
+        )
+        elf_binary = self.root / 'target/native-elf'
+        subprocess.run(['gcc', '-g0', '-O0', str(c_source), '-o', str(elf_binary)], check=True)
+        source_size = elf_binary.stat().st_size
+        source_digest = C.digest(elf_binary)
+        if shutil.which('readelf'):
+            before_sections = subprocess.check_output(['readelf', '-S', str(elf_binary)], text=True)
+            self.assertNotIn('.debug_info', before_sections)
+            self.assertIn('.symtab', before_sections)
+        (self.worker / 'artifacts/native-test-binary.txt').write_text(str(elf_binary) + '\n')
+
+        bundle = Path(self.temporary.name) / 'stripped-native-bundle'
+        manifest = C.pack(self.root, self.plan, 'native', bundle, '71', 2)
+        staged = bundle / 'files/bin/native'
+        # Source binary inside target/ must remain byte-for-byte untouched.
+        self.assertEqual(elf_binary.stat().st_size, source_size)
+        self.assertEqual(C.digest(elf_binary), source_digest)
+
+        native_entry = next(row for row in manifest['files'] if row['path'] == 'bin/native')
+        self.assertEqual(native_entry['encoding'], 'zlib')
+        # `--strip-unneeded` shrinks raw_size below `-g0` source_size, and zlib shrinks staged size further.
+        self.assertLess(native_entry['raw_size'], source_size)
+        self.assertLess(staged.stat().st_size, native_entry['raw_size'])
+        self.assertEqual(native_entry['size'], staged.stat().st_size)
+        self.assertEqual(native_entry['sha256'], C.digest(staged))
+        C.check_bundle(self.root, self.plan, 'native', bundle, '71', 2)
+
+        bundles = {'native': bundle}
+        for component in ('wasm-production', 'wasm-approval'):
+            other = Path(self.temporary.name) / f'stripped-{component}'
+            C.pack(self.root, self.plan, component, other, '71', 2)
+            bundles[component] = other
+
+        # Tampered raw_sha256, raw_size, corrupt zlib bytes, or trailing garbage must fail atomically before creating artifacts/.
+        consumer = Path(self.temporary.name) / 'stripped-consumer'
+        shutil.copytree(self.root, consumer, ignore=shutil.ignore_patterns('artifacts', 'target'))
+        original_manifest = C.load(bundle / 'manifest.json')
+        original_staged_bytes = staged.read_bytes()
+        for kind in ('bad_raw_sha', 'bad_raw_size_small', 'trailing_garbage', 'corrupt_zlib'):
+            tampered = copy.deepcopy(original_manifest)
+            row = next(r for r in tampered['files'] if r['path'] == 'bin/native')
+            if kind == 'bad_raw_sha':
+                row['raw_sha256'] = '0' * 64
+            elif kind == 'bad_raw_size_small':
+                row['raw_size'] = max(1, row['raw_size'] - 1)
+            elif kind == 'trailing_garbage':
+                staged.write_bytes(original_staged_bytes + b'extra')
+                row['size'] = staged.stat().st_size
+                row['sha256'] = C.digest(staged)
+            else:
+                staged.write_bytes(b'not-valid-zlib-stream')
+                row['size'] = staged.stat().st_size
+                row['sha256'] = C.digest(staged)
+            (bundle / 'manifest.json').write_text(json.dumps(tampered))
+            with self.subTest(tamper=kind), self.assertRaises(ValueError):
+                C.restore(consumer, self.plan, bundles, '71', {k: 2 for k in C.COMPONENTS}, 2)
+            self.assertFalse((consumer / C.WORKER / 'artifacts').exists())
+            staged.write_bytes(original_staged_bytes)
+            (bundle / 'manifest.json').write_text(json.dumps(original_manifest))
+
+        C.restore(consumer, self.plan, bundles, '71', {k: 2 for k in C.COMPONENTS}, 2)
+        restored = consumer / 'crates/oasis7_custody_worker/artifacts/bin/native'
+        self.assertEqual(restored.stat().st_size, native_entry['raw_size'])
+        self.assertEqual(C.digest(restored), native_entry['raw_sha256'])
+        if shutil.which('readelf'):
+            restored_sections = subprocess.check_output(['readelf', '-S', str(restored)], text=True)
+            self.assertNotIn('.symtab', restored_sections)
+            self.assertIn('.eh_frame', restored_sections)
+        subprocess.run([str(restored)], check=True)
+
+    def test_refreshed_file_weights_cover_repo_inventory_and_balance_three_shards(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        rows = C.inventory(repo_root)
+        discovered = {row['path'] for row in rows}
+        self.assertEqual(set(C.FILE_SECONDS), discovered)
+        batches = C.partition(rows, [0, 1, 2])
+        totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
+        self.assertLessEqual(max(totals) - min(totals), 15.0, f'expected balanced 3-shard weights, got {totals}')
+
+    def test_export_inventory_and_zero_checkout_context_validation(self):
+        script = Path(__file__).with_name('ci-custody-platform.py')
+        subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=self.root, check=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=self.root, check=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.invalid'], cwd=self.root, check=True)
+        subprocess.run(['git', 'add', 'rust-toolchain.toml', 'crates/oasis7_custody_worker/tests'], cwd=self.root, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'custody fixture'], cwd=self.root, check=True)
+        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=self.root, text=True).strip()
+        plan = dict(self.plan, tested_sha=head)
+        plan_path = Path(self.temporary.name) / 'plan.json'
+        plan_path.write_text(json.dumps(plan), encoding='utf-8')
+        context_path = Path(self.temporary.name) / 'custody-inventory.json'
+        subprocess.run([
+            sys.executable, str(script), 'export-inventory',
+            '--repo-root', str(self.root), '--ref', head,
+            '--output', str(context_path),
+        ], check=True)
+        exported = json.loads(context_path.read_text(encoding='utf-8'))
+        self.assertEqual(exported['tested_sha'], head)
+        self.assertEqual(exported['tests'], C.inventory(self.root))
+
+        results_root = Path(self.temporary.name) / 'direct-results'
+        for shard in C.SHARDS:
+            C.execute(self.root, plan, shard, results_root / f'shard-{shard}', '71', 2)
+        needs = {
+            'select': {'result': 'success'},
+            'workspace-support-legacy': {'result': 'skipped'},
+            'workspace-support-other': {'result': 'skipped'},
+            'custody-native-contracts': {'result': 'success'},
+            'custody-native': {'result': 'success'},
+            'custody-wasm-production': {'result': 'success'},
+            'custody-wasm-approval': {'result': 'success'},
+            'custody-node': {'result': 'success'},
+        }
+        empty_dir = Path(self.temporary.name) / 'no-checkout'
+        empty_dir.mkdir()
+        subprocess.run([
+            sys.executable, str(script), 'validate',
+            '--repo-root', str(empty_dir), '--plan', str(plan_path),
+            '--context-file', str(context_path), '--needs', json.dumps(needs),
+            '--results', str(results_root), '--run-id', '71', '--attempt', '2',
+        ], check=True)
+        bad_context = Path(self.temporary.name) / 'bad-inventory.json'
+        bad_context.write_text(json.dumps(exported | {'tested_sha': '0' * 40}), encoding='utf-8')
+        bad = subprocess.run([
+            sys.executable, str(script), 'validate',
+            '--repo-root', str(empty_dir), '--plan', str(plan_path),
+            '--context-file', str(bad_context), '--needs', json.dumps(needs),
+            '--results', str(results_root), '--run-id', '71', '--attempt', '2',
+        ], capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0)
+
 
 if __name__ == '__main__':
     unittest.main()

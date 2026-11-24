@@ -159,8 +159,6 @@ node_bin="${OASIS7_NODE_BIN:-}"
 if [[ -z "$node_bin" ]]; then
   if command -v node >/dev/null 2>&1; then
     node_bin="$(command -v node)"
-  elif [[ -x "${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node" ]]; then
-    node_bin="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
   else
     echo "error: missing required command: node; set OASIS7_NODE_BIN to a Node.js executable" >&2
     exit 1
@@ -305,13 +303,6 @@ if [[ -z "$GAME_URL" ]]; then
   fi
 fi
 
-playwright_node_modules="${OASIS7_PLAYWRIGHT_NODE_MODULES:-${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules}"
-if [[ ! -d "$playwright_node_modules" ]]; then
-  echo "error: Playwright node_modules not found: $playwright_node_modules" >&2
-  echo "hint: set OASIS7_PLAYWRIGHT_NODE_MODULES to a node_modules directory containing playwright" >&2
-  exit 1
-fi
-
 chat_args=(
   "$node_bin"
   "$repo_root/crates/oasis7_viewer/scripts/real-agent-chat-regression.mjs"
@@ -331,7 +322,7 @@ for needle in "${FORBID_CONTAINS[@]}"; do
   chat_args+=(--forbid-contains "$needle")
 done
 
-NODE_PATH="$playwright_node_modules" "${chat_args[@]}" | tee "$out_dir/viewer-real-agent-chat-regression.log"
+"${chat_args[@]}" | tee "$out_dir/viewer-real-agent-chat-regression.log"
 
 cat >"$out_dir/viewer-real-agent-chat-regression-summary.md" <<EOF
 # Viewer real Agent chat regression

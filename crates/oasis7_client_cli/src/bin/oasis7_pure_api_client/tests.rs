@@ -6,8 +6,38 @@ use std::time::Duration;
 
 use super::*;
 
+#[test]
+fn native_viewer_trace_metrics_preserve_original_wire_type_identity() {
+    use std::any::TypeId;
+    assert_eq!(
+        TypeId::of::<oasis7_simulator::AgentDecisionTrace>(),
+        TypeId::of::<oasis7::simulator::AgentDecisionTrace>(),
+    );
+    assert_eq!(
+        TypeId::of::<oasis7_simulator::RunnerMetrics>(),
+        TypeId::of::<oasis7::simulator::RunnerMetrics>(),
+    );
+    assert_eq!(
+        TypeId::of::<oasis7_runtime_host::simulator_archive::persist::WorldSnapshot>(),
+        TypeId::of::<oasis7::simulator::WorldSnapshot>(),
+    );
+    assert_eq!(
+        TypeId::of::<oasis7_runtime_host::simulator_archive::archive::WorldEvent>(),
+        TypeId::of::<oasis7::simulator::WorldEvent>(),
+    );
+    type NativeWire = oasis7_proto::viewer::ViewerResponse<
+        oasis7_runtime_host::simulator_archive::persist::WorldSnapshot,
+        oasis7_runtime_host::simulator_archive::archive::WorldEvent,
+        oasis7_simulator::AgentDecisionTrace,
+        oasis7_simulator::RunnerMetrics,
+        oasis7_simulator::WorldTime,
+    >;
+    assert_eq!(TypeId::of::<ViewerResponse>(), TypeId::of::<NativeWire>());
+}
+
 fn governance_snapshot_response() -> Value {
-    let mut snapshot = oasis7::simulator::WorldKernel::new().snapshot();
+    let mut snapshot =
+        oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new().snapshot();
     let mut runtime = oasis7_runtime::World::new().snapshot();
     runtime.governance_finality_epoch_snapshots.insert(
         0,

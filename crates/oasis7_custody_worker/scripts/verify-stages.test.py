@@ -329,6 +329,56 @@ class VerifyStagesTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(any(command[0] == "node" for command in commands))
 
+    def test_wasm_build_scripts_share_release_profile_config_flags(self):
+        real_scripts = Path(__file__).resolve().parent
+        worker_root = self.root / "crates/oasis7_custody_worker"
+        (worker_root / "platform").mkdir(parents=True, exist_ok=True)
+        for name in ("identity-entry.mjs", "owner-entry.mjs", "executor-entry.mjs", "fence-entry.mjs"):
+            (worker_root / "platform" / name).write_text(f"// {name}\n")
+        (worker_root / "build").mkdir(parents=True, exist_ok=True)
+        (worker_root / "build/index.js").write_text("export {};\n")
+        for script in ("build-role.sh", "build-approval-harness.sh", "build-native-runtime-harness.sh"):
+            shutil.copyfile(real_scripts / script, self.scripts / script)
+        expected_tail = [
+            "--config", 'profile.release.lto="off"',
+            "--config", 'profile.release.package.oasis7_custody_core.opt-level="s"',
+            "--config", 'profile.release.package.oasis7_custody_worker.opt-level="s"',
+        ]
+        cases = [
+            ("build-role.sh", ["identity"], "identity", "artifacts/identity/entry.mjs"),
+            ("build-role.sh", ["owner"], "owner", "artifacts/owner/entry.mjs"),
+            ("build-role.sh", ["executor"], "executor", "artifacts/executor/entry.mjs"),
+            ("build-role.sh", ["recovery-fence"], "recovery-fence", "artifacts/recovery-fence/entry.mjs"),
+            ("build-approval-harness.sh", [], "owner,approval-harness", "artifacts/approval-harness/entry.mjs"),
+            ("build-native-runtime-harness.sh", [], "identity,native-runtime-harness", "artifacts/native-harness/entry.mjs"),
+        ]
+        for script, args, expected_features, expected_entry in cases:
+            with self.subTest(script=script, args=args):
+                self.log.write_text("")
+                result = subprocess.run(
+                    ["bash", str(self.scripts / script), *args],
+                    cwd=self.root,
+                    env=self.environment,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assert_success(result)
+                commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+                builds = [c for c in commands if c[:3] == ["worker-build", "--release", "--no-opt"]]
+                self.assertEqual(len(builds), 1, commands)
+                self.assertEqual(
+                    builds[0],
+                    [
+                        "worker-build", "--release", "--no-opt", "--",
+                        "--locked", "--no-default-features", "--features", expected_features,
+                        *expected_tail,
+                    ],
+                )
+                # Global profile.release.opt-level must never be lowered so crypto deps stay opt-level=3.
+                self.assertFalse(any("profile.release.opt-level" in token for token in builds[0]))
+                self.assertTrue((worker_root / expected_entry).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

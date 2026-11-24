@@ -188,7 +188,12 @@ fn expected(
 }
 #[test]
 fn material_genesis_root_only_qualification_and_all_column_reads_preserve_originals() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let roots = {
@@ -358,7 +363,12 @@ fn material_genesis_root_only_qualification_and_all_column_reads_preserve_origin
 
 #[test]
 fn material_family_cold_roots_qualify_both_namespaces() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("family-pages");
         let roots = {
@@ -420,6 +430,7 @@ mod points;
 
 #[path = "support/incremental_material_boundaries.rs"]
 mod boundaries;
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_material_pages.rs"]
 mod pages;
 

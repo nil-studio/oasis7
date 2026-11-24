@@ -2192,7 +2192,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
             ["git", "-C", str(self.repo), *args], text=True, stderr=subprocess.PIPE
         ).strip()
 
-    def make_api(self, runs):
+    def make_api(self, runs, deferred_run_ids=()):
+        deferred_ids = set(deferred_run_ids)
         api = mock.Mock()
         def fake_get(path):
             if path == "actions/workflows/rust.yml":
@@ -2202,6 +2203,11 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                 page = int(query["page"][0])
                 batch = runs[(page - 1) * 100: page * 100]
                 return {"total_count": len(runs), "workflow_runs": batch}
+            if path.startswith("actions/runs/") and path.endswith("/artifacts?per_page=100"):
+                run_id = int(path.split("/")[2])
+                if run_id in deferred_ids:
+                    return {"total_count": 1, "artifacts": [{"name": f"ci-main-fast-deferred-{run_id}-1"}]}
+                return {"total_count": 0, "artifacts": []}
             raise AssertionError(f"unexpected path: {path}")
         api.get.side_effect = fake_get
         return api
@@ -2275,6 +2281,7 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                           "ordinary_dynamic_partition_version", "contract_job_consolidation_version",
                           "ordinary_scope_config_slice_version", "standalone_cargo_manifest_scope_version",
                           "workspace_member_cargo_manifest_scope_version", "scoped_production_cfg_version",
+                          "ordinary_controls_in_rust_baseline_version",
                           "workspace_support_direct_gate_version",
                           "custody_node_shards_version"):
             bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 9})).encode()
@@ -2299,7 +2306,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                                          workflow_id=7, config=CONFIG, digest="definition")
         self.assertEqual(verified, receipt)
         for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report",
-                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout"):
+                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout",
+                            "operational-contracts"):
             broken = copy.deepcopy(receipt)
             broken["needs"][retired_job] = {"result": "success"}
             with self.subTest(retired_job=retired_job), self.assertRaises(ValueError):

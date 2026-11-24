@@ -4,17 +4,13 @@ use std::net::TcpStream;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::SigningKey;
-use oasis7::simulator::WorldSnapshot;
 use oasis7_client_api::{viewer_auth::*, viewer_protocol::*};
-type ViewerResponse = oasis7_proto::viewer::ViewerResponse<
-    WorldSnapshot,
-    oasis7::simulator::WorldEvent,
-    oasis7::simulator::AgentDecisionTrace,
-    oasis7::simulator::RunnerMetrics,
-    oasis7_simulator::WorldTime,
->;
-
-use oasis7_simulator::WorldEventKind;
+use oasis7_proto::viewer as proto;
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;
+use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldEventKind, WorldTime};
+type ViewerResponse =
+    proto::ViewerResponse<WorldSnapshot, WorldEvent, AgentDecisionTrace, RunnerMetrics, WorldTime>;
 use serde_json::{Value, json};
 
 const DEFAULT_ADDR: &str = "127.0.0.1:5023";

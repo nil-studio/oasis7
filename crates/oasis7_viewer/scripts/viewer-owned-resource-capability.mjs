@@ -1,7 +1,7 @@
 // Three short groups in one exclusive, sandboxed, disposable browser profile.
 // Requested texture storage is a diagnostic input, never measured GPU memory.
 import {createServer} from 'node:http';
-import {createRequire} from 'node:module';
+import {browserExecutablePath,loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
 import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {createHash} from 'node:crypto';
@@ -9,12 +9,12 @@ import {execFileSync} from 'node:child_process';
 import {createStartupProfile,launchOwnedStartupContext} from './viewer-owned-startup-context.mjs';
 import {readOwnedProcessRss} from './viewer-owned-resource-os.mjs';
 import {withObservationCleanup} from './world-view-frame-capability.mjs';
-const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES||'/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
-const {chromium}=createRequire(join(modules,'resource-capability.cjs'))('playwright');
+const {chromium}=loadPlaywright(import.meta.url);
 if(!process.env.VIEWER_RESOURCE_OUTPUT)throw Error('declare fresh VIEWER_RESOURCE_OUTPUT');
 const out=resolve(process.env.VIEWER_RESOURCE_OUTPUT);mkdirSync(dirname(out),{recursive:true});mkdirSync(out);
 const summary={source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),groups:[],limitations:['Owned process RSS sum may count shared pages repeatedly.','No application cache, GPU total allocation, physical presentation or P6 verdict.'],scripts:{}};
 for(const file of ['viewer-owned-resource-capability.mjs','viewer-owned-resource-os.mjs','viewer-owned-resource-policy.mjs','viewer-owned-startup-context.mjs','world-view-frame-capability.mjs'])summary.scripts[file]=createHash('sha256').update(readFileSync(new URL(file,import.meta.url))).digest('hex');
+summary.scripts['scripts/playwright-module-loader.mjs']=createHash('sha256').update(readFileSync(new URL('../../../scripts/playwright-module-loader.mjs',import.meta.url))).digest('hex');
 const timer=setTimeout(()=>{summary.error='120s hard stop; owned cleanup unproven';try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}catch(error){console.error(error);}process.exit(1);},120000);
 let server,context;
 const boundedClose=async()=>{let timer;try{await Promise.race([context.close(),new Promise((_,no)=>{timer=setTimeout(()=>no(Error('owned browser close exceeded 10s')),10000);})]);}finally{clearTimeout(timer);}};
@@ -24,7 +24,7 @@ await withObservationCleanup(async()=>{
  await new Promise((yes,no)=>{server.once('error',no);server.listen(0,'127.0.0.1',yes);});
  const url=`http://127.0.0.1:${server.address().port}/`;
  const profile=createStartupProfile();summary.profile=profile.path;
- context=await launchOwnedStartupContext(chromium,process.env.OASIS7_PLAYWRIGHT_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',profile);
+ context=await launchOwnedStartupContext(chromium,browserExecutablePath(),profile);
  if(context.pages().length!==1)throw Error('fresh owned page count invalid');
  const page=context.pages()[0];await page.goto(url,{timeout:10000});
  summary.groups.push({name:'blank',rss:await readOwnedProcessRss(context,url)});

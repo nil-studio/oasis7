@@ -13,6 +13,7 @@ use oasis7_proto::distributed_bft::{
     BFT_MAX_ACTIONS_CBOR_BYTES_V1, BFT_MAX_COMMIT_HISTORY_CBOR_BYTES_V1,
     BFT_MAX_COMMIT_HISTORY_HEIGHTS_V1, BFT_MAX_COMMIT_HISTORY_PAGE_ENTRIES_V1,
 };
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_runtime::{
     BlobStore, ChainResourceDerivationContext, LocalCasStore, RuntimeCommittedTickContext,
     World as RuntimeWorld, blake3_hex,
@@ -102,7 +103,7 @@ impl NodeRuntimeExecutionDriver {
             // authenticated genesis snapshot.
             self.execution_world = genesis_world;
             self.state = super::ExecutionBridgeState::default();
-            self.simulator_mirror = oasis7::simulator::WorldKernel::new();
+            self.simulator_mirror = WorldKernel::new();
             self.bft_mode_required = true;
             return Ok(head);
         }
@@ -124,7 +125,7 @@ impl NodeRuntimeExecutionDriver {
         validate_world_scope(&genesis_world, config)?;
         self.execution_world = genesis_world;
         self.state = super::ExecutionBridgeState::default();
-        self.simulator_mirror = oasis7::simulator::WorldKernel::new();
+        self.simulator_mirror = WorldKernel::new();
         let head = ledger.head();
         self.bft_mode_required = true;
         self.bft_execution = Some(BftExecutionState {

@@ -5,6 +5,7 @@ FROM ${RUST_BASE} AS rust-tools
 FROM ${NODE_BASE} AS node-tools
 
 FROM ${UBUNTU_BASE} AS runtime
+COPY --from=node-tools /usr/local/bin/node /usr/local/bin/node
 COPY runtime-packages.txt /tmp/ci-packages.txt
 RUN apt-get update \
     && xargs apt-get install -y --no-install-recommends </tmp/ci-packages.txt \
@@ -17,7 +18,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* /tmp/ci-packages.txt
 
 FROM runtime AS browser
-COPY --from=node-tools /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-tools /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 COPY --from=browser-tools package.json package-lock.json /opt/oasis7-browser/
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/oasis7-playwright
@@ -40,7 +40,6 @@ RUN curl -fsSL --retry 3 https://www.kernel.org/pub/software/scm/git/git-2.56.1.
     && make prefix=/usr/local NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease DESTDIR=/tmp/git-install install
 
 FROM build AS rust-build
-COPY --from=node-tools /usr/local/bin/node /usr/local/bin/node
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ruby \
     && rm -rf /var/lib/apt/lists/*
@@ -66,3 +65,16 @@ FROM rust-build AS rust-wasm-build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends clang llvm \
     && rm -rf /var/lib/apt/lists/*
+
+FROM build AS codeql-rust
+COPY codeql-rust-packages.txt /tmp/ci-packages.txt
+RUN apt-get update \
+    && xargs apt-get install -y --no-install-recommends </tmp/ci-packages.txt \
+    && rm -rf /var/lib/apt/lists/* /tmp/ci-packages.txt
+ARG CODEQL_RUST_TOOLCHAIN
+COPY --from=rust-tools /usr/local/cargo/bin/ /opt/oasis7-rust/bin/
+COPY --from=rust-tools /usr/local/rustup/ /opt/oasis7-rust/rustup/
+ENV RUSTUP_HOME=/opt/oasis7-rust/rustup
+ENV PATH=/opt/oasis7-rust/bin:$PATH
+ENV RUSTUP_TOOLCHAIN=${CODEQL_RUST_TOOLCHAIN}
+ENV RUSTUP_AUTO_INSTALL=0

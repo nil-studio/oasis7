@@ -312,7 +312,7 @@ def fetch_snapshot_via_fresh_connection(live_addr: str) -> dict:
                     return payload
             raise TimeoutError(f"timed out waiting for {expected_type} on fresh snapshot connection")
 
-        send({"type": "hello", "client": "codex-headless-smoke-snapshot", "version": 1})
+        send({"type": "hello", "client": "oasis7-headless-smoke-snapshot", "version": 1})
         read_until("hello_ack", 5)
         send({"type": "request_snapshot"})
         snapshot_payload = read_until("snapshot", 10)
@@ -393,7 +393,7 @@ with socket.create_connection((host, port), timeout=5) as sock:
             }
         raise TimeoutError("timed out waiting for control completion or authoritative live progress")
 
-    send({"type": "hello", "client": "codex-headless-smoke", "version": 1})
+    send({"type": "hello", "client": "oasis7-headless-smoke", "version": 1})
     hello_window = collect_until("hello_ack", 5)
     hello_ack = hello_window[-1]
 

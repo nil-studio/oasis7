@@ -48,14 +48,25 @@ CUSTODY_NODE_SHARDS = (0, 1, 2)
 LEGACY_CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 CUSTODY_NODE_SHARDS_VERSION = 2
 ORDINARY_DYNAMIC_PARTITION_VERSION = 1
-CONTRACT_JOB_CONSOLIDATION_VERSION = 3
-CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3)
-ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 1
+CONTRACT_JOB_CONSOLIDATION_VERSION = 5
+CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3, 4, 5)
+ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 2
+ORDINARY_SCOPE_CONFIG_SLICE_VERSIONS = (1, 2)
 STANDALONE_CARGO_MANIFEST_SCOPE_VERSION = 1
-WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION = 1
+WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION = 2
+WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSIONS = (1, 2)
+SCOPED_MEMBER_TARGET_CFGS = frozenset((
+    'cfg(not(target_arch = "wasm32"))',
+    'cfg(target_arch = "wasm32")',
+    'cfg(unix)',
+    'cfg(target_os = "linux")',
+    'wasm32-unknown-unknown',
+))
+ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION = 1
 SCOPED_PRODUCTION_CFG_VERSION = 1
 MAIN_FAST_COALESCE_CONCURRENCY_VERSION = 1
-WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 1
+WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 2
+WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS = (1, 2)
 ORDINARY_SCOPE_SLICE_KEYS = frozenset((
     'ordinary_harness_costs',
     'ordinary_fast_targets',
@@ -97,11 +108,12 @@ SUPPORT_PROFILES = (
 # The distfs group runs these lib harnesses and the registered industry
 # integration target with Cargo defaults on Ubuntu.
 # This proves native target predicates only, never expanded feature activation.
-# The net group similarly runs the oasis7_net lib with Cargo defaults on Ubuntu.
-# Keep synchronized with run_oasis7_distfs_tests/run_oasis7_net_tests and their
+# The net and node groups run their libs with Cargo defaults on Ubuntu.
+# Keep synchronized with run_oasis7_distfs_tests/run_oasis7_net_tests/
+# run_oasis7_node_tests and their
 # rust.yml runners; this does not authorize package bins or optional features.
 NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
-    'oasis7_cas', 'oasis7_formal_protocol', 'oasis7_distfs', 'oasis7_net',
+    'oasis7_cas', 'oasis7_formal_protocol', 'oasis7_distfs', 'oasis7_net', 'oasis7_node',
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
@@ -279,15 +291,28 @@ def _git_regular_blob_bytes(ref, path, *, max_bytes=4 * 1024 * 1024, repo=None):
     return git('cat-file', 'blob', oid, repo=repo)
 
 
+def _tracked_tree_paths(ref, *, repo=None):
+    raw = git('ls-tree', '-r', '--name-only', '-z', ref, repo=repo)
+    return tuple(entry.decode('utf-8', 'surrogateescape') for entry in raw.split(b'\0') if entry)
+
+
+def _rule_matches_path(rule, path):
+    return (any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])
+            and not any(fnmatch.fnmatchcase(path, pattern) for pattern in rule.get('exclude', ())))
+
+
 def scoped_scope_config_groups(config, comparisons, paths, *, repo=None):
-    """Narrow ci-required-scope.json only when changed top-level keys stay inside ordinary test slices."""
+    """Narrow ci-required-scope.json only when changed top-level keys stay inside ordinary test slices or v2 controlled rules."""
     target = 'scripts/ci-required-scope.json'
     version = config.get('ordinary_scope_config_slice_version')
     if (target not in paths or 'scripts/ci-tests.sh' in paths or not comparisons
-            or type(version) is not int or version != ORDINARY_SCOPE_CONFIG_SLICE_VERSION):
+            or type(version) is not int or version not in ORDINARY_SCOPE_CONFIG_SLICE_VERSIONS):
         return None
+    allowed_keys = ORDINARY_SCOPE_SLICE_KEYS | ({'rules'} if version == 2 else set())
     try:
         changed_keys = set()
+        added_rule_groups = set()
+        tree_cache = {}
         for before, after in comparisons:
             old_raw = _git_regular_blob_bytes(before, target, repo=repo)
             new_raw = _git_regular_blob_bytes(after, target, repo=repo)
@@ -295,16 +320,50 @@ def scoped_scope_config_groups(config, comparisons, paths, *, repo=None):
                 return None
             old_cfg = validate_config(_strict_json_object(old_raw))
             new_cfg = validate_config(_strict_json_object(new_raw))
-            changed_keys.update(
+            pair_changed = {
                 key for key in set(old_cfg) | set(new_cfg)
                 if old_cfg.get(key) != new_cfg.get(key)
-            )
-        if not changed_keys or not changed_keys <= ORDINARY_SCOPE_SLICE_KEYS:
+            }
+            changed_keys.update(pair_changed)
+            if 'rules' in pair_changed:
+                if version != 2:
+                    return None
+                old_rules = old_cfg['rules']
+                new_rules = new_cfg['rules']
+                old_keys = [json.dumps(rule, sort_keys=True) for rule in old_rules]
+                new_keys = [json.dumps(rule, sort_keys=True) for rule in new_rules]
+                if len(old_keys) != len(set(old_keys)) or len(new_keys) != len(set(new_keys)):
+                    return None
+                new_set = set(new_keys)
+                old_set = set(old_keys)
+                kept_old = [key for key in old_keys if key in new_set]
+                kept_new = [key for key in new_keys if key in old_set]
+                if kept_old != kept_new:
+                    return None
+                removed = [rule for rule, key in zip(old_rules, old_keys) if key not in new_set]
+                added = [rule for rule, key in zip(new_rules, new_keys) if key not in old_set]
+                if removed:
+                    for ref in (before, after):
+                        if ref not in tree_cache:
+                            tree_cache[ref] = _tracked_tree_paths(ref, repo=repo)
+                    for rule in removed:
+                        if any(_rule_matches_path(rule, tracked)
+                               for ref in (before, after) for tracked in tree_cache[ref]):
+                            return None
+                for rule in added:
+                    if rule.get('full', False) or not rule.get('groups'):
+                        return None
+                    added_rule_groups.update(rule['groups'])
+        if not changed_keys or not changed_keys <= allowed_keys:
             return None
-        selected = {'workflow_governance', 'rust_baseline', 'oasis7_required'}
-        widens_policy = bool(changed_keys - {'ordinary_harness_costs'})
-        if widens_policy:
-            selected.update(('consensus', 'node', 'distfs'))
+        slice_keys_changed = changed_keys & ORDINARY_SCOPE_SLICE_KEYS
+        selected = {'workflow_governance', *added_rule_groups}
+        widens_policy = False
+        if slice_keys_changed:
+            selected.update(('rust_baseline', 'oasis7_required'))
+            widens_policy = bool(slice_keys_changed - {'ordinary_harness_costs'})
+            if widens_policy:
+                selected.update(('consensus', 'node', 'distfs'))
         return selected, widens_policy
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
         return None
@@ -388,48 +447,92 @@ def standalone_cargo_manifest_selection(config, graphs, graph_refs, comparisons,
         return {}
 
 
-def _strip_member_normal_dev_deps(manifest):
-    return {key: value for key, value in manifest.items() if key not in ('dependencies', 'dev-dependencies')}
+def _strip_member_normal_dev_deps(manifest, *, allow_scoped_target_deps=False):
+    stripped = {key: value for key, value in manifest.items() if key not in ('dependencies', 'dev-dependencies')}
+    if allow_scoped_target_deps and 'target' in stripped and isinstance(stripped['target'], dict):
+        rem_target = {}
+        for cfg_key, cfg_table in stripped['target'].items():
+            if cfg_key in SCOPED_MEMBER_TARGET_CFGS and isinstance(cfg_table, dict):
+                rem_cfg = {key: value for key, value in cfg_table.items()
+                           if key not in ('dependencies', 'dev-dependencies')}
+                if rem_cfg:
+                    rem_target[cfg_key] = rem_cfg
+            else:
+                rem_target[cfg_key] = cfg_table
+        if rem_target or any(cfg_key not in SCOPED_MEMBER_TARGET_CFGS for cfg_key in stripped['target']):
+            stripped['target'] = rem_target
+        else:
+            stripped.pop('target', None)
+    return stripped
 
 
-def _optional_member_deps(manifest):
+def _optional_member_deps(manifest, *, allow_scoped_target_deps=False):
     deps = manifest.get('dependencies')
-    if not isinstance(deps, dict):
-        return {}
-    return {key: value for key, value in deps.items()
-            if isinstance(value, dict) and value.get('optional') is True}
+    optional = (
+        {('', key): value for key, value in deps.items()
+         if isinstance(value, dict) and value.get('optional') is True}
+        if isinstance(deps, dict) else {}
+    )
+    if allow_scoped_target_deps and isinstance(manifest.get('target'), dict):
+        for cfg_key, cfg_table in manifest['target'].items():
+            if cfg_key not in SCOPED_MEMBER_TARGET_CFGS or not isinstance(cfg_table, dict):
+                continue
+            target_deps = cfg_table.get('dependencies')
+            if isinstance(target_deps, dict):
+                for key, value in target_deps.items():
+                    if isinstance(value, dict) and value.get('optional') is True:
+                        optional[(cfg_key, key)] = value
+    return optional
 
 
-def _validate_member_dep_specs(manifest, directory, by_directory, workspace_dep_keys):
-    for kind in ('dependencies', 'dev-dependencies'):
-        table = manifest.get(kind)
-        if table is None:
-            continue
-        if not isinstance(table, dict):
+def _validate_dep_table(table, kind, directory, by_directory, workspace_dep_keys):
+    if table is None:
+        return True
+    if not isinstance(table, dict):
+        return False
+    for alias, spec in table.items():
+        if not isinstance(alias, str) or not alias:
             return False
-        for alias, spec in table.items():
-            if not isinstance(alias, str) or not alias:
+        if isinstance(spec, str):
+            continue
+        if not isinstance(spec, dict):
+            return False
+        if 'optional' in spec and (type(spec['optional']) is not bool
+                                   or (kind == 'dev-dependencies' and spec['optional'])):
+            return False
+        if any(key in spec for key in ('git', 'registry', 'registry-index')):
+            return False
+        if spec.get('workspace') is True:
+            if alias not in workspace_dep_keys or 'path' in spec:
                 return False
-            if isinstance(spec, str):
+            continue
+        if 'path' in spec:
+            raw_path = spec['path']
+            if not isinstance(raw_path, str) or not raw_path or posixpath.isabs(raw_path) or '\\' in raw_path:
+                return False
+            target_dir = posixpath.normpath(posixpath.join(directory, raw_path))
+            target_pkg = by_directory.get(target_dir)
+            if target_pkg is None or spec.get('package', target_pkg) != target_pkg:
+                return False
+    return True
+
+
+def _validate_member_dep_specs(manifest, directory, by_directory, workspace_dep_keys, *,
+                               allow_scoped_target_deps=False):
+    for kind in ('dependencies', 'dev-dependencies'):
+        if not _validate_dep_table(manifest.get(kind), kind, directory, by_directory, workspace_dep_keys):
+            return False
+    if allow_scoped_target_deps and 'target' in manifest:
+        target_tables = manifest['target']
+        if not isinstance(target_tables, dict):
+            return False
+        for cfg_key, cfg_table in target_tables.items():
+            if not isinstance(cfg_key, str) or not isinstance(cfg_table, dict):
+                return False
+            if cfg_key not in SCOPED_MEMBER_TARGET_CFGS:
                 continue
-            if not isinstance(spec, dict):
-                return False
-            if 'optional' in spec and (type(spec['optional']) is not bool
-                                       or (kind == 'dev-dependencies' and spec['optional'])):
-                return False
-            if any(key in spec for key in ('git', 'registry', 'registry-index')):
-                return False
-            if spec.get('workspace') is True:
-                if alias not in workspace_dep_keys or 'path' in spec:
-                    return False
-                continue
-            if 'path' in spec:
-                raw_path = spec['path']
-                if not isinstance(raw_path, str) or not raw_path or posixpath.isabs(raw_path) or '\\' in raw_path:
-                    return False
-                target_dir = posixpath.normpath(posixpath.join(directory, raw_path))
-                target_pkg = by_directory.get(target_dir)
-                if target_pkg is None or spec.get('package', target_pkg) != target_pkg:
+            for kind in ('dependencies', 'dev-dependencies'):
+                if not _validate_dep_table(cfg_table.get(kind), kind, directory, by_directory, workspace_dep_keys):
                     return False
     return True
 
@@ -441,8 +544,9 @@ def workspace_member_cargo_manifest_selection(config, graphs, graph_refs, compar
     unique_refs = list(dict.fromkeys(graph_refs))
     standalone = standalone_manifests or {}
     if (not comparisons or not graphs or len(graphs) != len(unique_refs)
-            or type(version) is not int or version != WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION):
+            or type(version) is not int or version not in WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSIONS):
         return {}
+    allow_scoped_target_deps = version >= 2
     cargo_paths = [path for path in paths
                    if posixpath.basename(path) in ('Cargo.toml', 'Cargo.lock') and path not in standalone]
     if not cargo_paths:
@@ -504,14 +608,20 @@ def workspace_member_cargo_manifest_selection(config, graphs, graph_refs, compar
                         or 'proc-macro' in lib_cfg.get('crate-type', ())
                         or 'proc-macro' in lib_cfg.get('crate_type', ()))):
                     return {}
-                if not _validate_member_dep_specs(parsed, directory, by_directory, workspace_dep_keys_by_ref[ref]):
+                if not _validate_member_dep_specs(
+                        parsed, directory, by_directory, workspace_dep_keys_by_ref[ref],
+                        allow_scoped_target_deps=allow_scoped_target_deps):
                     return {}
                 parsed_by_ref[ref] = parsed
             for before, after in comparisons:
-                if (_strip_member_normal_dev_deps(parsed_by_ref[before])
-                        != _strip_member_normal_dev_deps(parsed_by_ref[after])
-                        or _optional_member_deps(parsed_by_ref[before])
-                        != _optional_member_deps(parsed_by_ref[after])):
+                if (_strip_member_normal_dev_deps(parsed_by_ref[before],
+                                                  allow_scoped_target_deps=allow_scoped_target_deps)
+                        != _strip_member_normal_dev_deps(parsed_by_ref[after],
+                                                         allow_scoped_target_deps=allow_scoped_target_deps)
+                        or _optional_member_deps(parsed_by_ref[before],
+                                                 allow_scoped_target_deps=allow_scoped_target_deps)
+                        != _optional_member_deps(parsed_by_ref[after],
+                                                 allow_scoped_target_deps=allow_scoped_target_deps)):
                     return {}
             changed_members.add(pkg_name)
 
@@ -1541,7 +1651,7 @@ def validate_config(config):
                 raise ValueError('invalid consolidated group job mapping')
     if 'ordinary_scope_config_slice_version' in config:
         if (type(config['ordinary_scope_config_slice_version']) is not int
-                or config['ordinary_scope_config_slice_version'] != ORDINARY_SCOPE_CONFIG_SLICE_VERSION
+                or config['ordinary_scope_config_slice_version'] not in ORDINARY_SCOPE_CONFIG_SLICE_VERSIONS
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid ordinary scope config slice capability')
     if 'standalone_cargo_manifest_scope_version' in config:
@@ -1551,9 +1661,14 @@ def validate_config(config):
             raise ValueError('invalid standalone Cargo manifest scope capability')
     if 'workspace_member_cargo_manifest_scope_version' in config:
         if (type(config['workspace_member_cargo_manifest_scope_version']) is not int
-                or config['workspace_member_cargo_manifest_scope_version'] != WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION
+                or config['workspace_member_cargo_manifest_scope_version'] not in WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSIONS
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid workspace member Cargo manifest scope capability')
+    if 'ordinary_controls_in_rust_baseline_version' in config:
+        if (type(config['ordinary_controls_in_rust_baseline_version']) is not int
+                or config['ordinary_controls_in_rust_baseline_version'] != ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid ordinary controls in rust-baseline capability')
     if 'scoped_production_cfg_version' in config:
         if (type(config['scoped_production_cfg_version']) is not int
                 or config['scoped_production_cfg_version'] != SCOPED_PRODUCTION_CFG_VERSION
@@ -1565,7 +1680,7 @@ def validate_config(config):
             raise ValueError('invalid main-fast coalesce concurrency capability')
     if 'workspace_support_direct_gate_version' in config:
         if (type(config['workspace_support_direct_gate_version']) is not int
-                or config['workspace_support_direct_gate_version'] != WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+                or config['workspace_support_direct_gate_version'] not in WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS
                 or type(config.get('workspace_support_partition_version')) is not int
                 or config['workspace_support_partition_version'] != 1
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
@@ -4217,16 +4332,41 @@ def complete_ordinary_partitions(config, plan):
                     plan['custody_compile_proof_version'] = CUSTODY_COMPILE_PROOF_VERSION
                 else:
                     plan['reasons'].append('tested source retains complete legacy custody approval proofs')
+            if (type(config.get('workspace_support_direct_gate_version')) is int
+                    and config['workspace_support_direct_gate_version'] == 2
+                    and plan.get('fast_plan_version') == FAST_PLAN_VERSION
+                    and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                    and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version', 2)):
+                plan['workspace_support_direct_gate_version'] = 2
         elif (type(config.get('workspace_support_direct_gate_version')) is int
-                and config['workspace_support_direct_gate_version'] == WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+                and config['workspace_support_direct_gate_version'] in WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS
                 and plan.get('fast_plan_version') == FAST_PLAN_VERSION
                 and plan.get('execution_profile') in ('pr-fast', 'main-fast')
                 and plan.get('workspace_support_partitions') == ['other']
                 and 'oasis7_custody_worker' not in plan.get('workspace_support_profiles', ())
-                and not workspace_support_requires_host(plan)
-                and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version',
-                                                      WORKSPACE_SUPPORT_DIRECT_GATE_VERSION)):
-            plan['workspace_support_direct_gate_version'] = WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+                and (not workspace_support_requires_host(plan)
+                     or workspace_support_selects_signer_image(plan))):
+            direct_ver = config['workspace_support_direct_gate_version']
+            if direct_ver == 2 and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version', 2):
+                plan['workspace_support_direct_gate_version'] = 2
+            elif tested_source_supports_capability(plan, 'workspace_support_direct_gate_version', 1):
+                plan['workspace_support_direct_gate_version'] = 1
+    if (type(config.get('ordinary_controls_in_rust_baseline_version')) is int
+            and config['ordinary_controls_in_rust_baseline_version'] == ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION
+            and plan.get('fast_plan_version') == FAST_PLAN_VERSION
+            and plan.get('ordinary_artifact_partition_version') in (1, 2)
+            and 'fast_execution_version' not in plan
+            and plan.get('ordinary_execution') != 'inline'
+            and {'rust_baseline', 'oasis7_required'}.issubset(plan.get('groups', ()))
+            and tested_source_supports_capability(plan, 'ordinary_controls_in_rust_baseline_version',
+                                                  ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION)):
+        plan.update(
+            ordinary_controls_in_rust_baseline_version=ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION,
+            ordinary_clippy_group='rust_baseline',
+            ordinary_wasm_group='rust_baseline',
+            ordinary_partitions=[partition for partition in plan['ordinary_partitions']
+                                 if partition != 'controls'],
+        )
 
 
 def tested_source_supports_capability(plan, field, expected_version):
@@ -4241,7 +4381,14 @@ def tested_source_supports_capability(plan, field, expected_version):
         raise ValueError(f'invalid tested protocol configuration for {field}')
     if field not in source_config:
         return False
-    if type(source_config[field]) is not int or source_config[field] != expected_version:
+    actual = source_config[field]
+    if type(actual) is not int or actual < 1:
+        raise ValueError(f'invalid tested capability: {field}')
+    if actual < expected_version:
+        return False
+    if actual != expected_version and not (
+            field == 'workspace_support_direct_gate_version'
+            and actual in WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS):
         raise ValueError(f'invalid tested capability: {field}')
     return True
 
@@ -4281,6 +4428,15 @@ def workspace_support_requires_host(plan):
     """Keep non-root native contracts and the full-profile fallback."""
     return (plan.get('scope') == 'full'
             or bool(WORKSPACE_SUPPORT_HOST_PROFILES.intersection(plan.get('workspace_support_profiles', ()))))
+
+
+def workspace_support_selects_signer_image(plan):
+    """Only the complete signer selection can replace the host provisioner."""
+    return (plan.get('scope') == 'targeted'
+            and plan.get('test_policy_changed') is False
+            and type(plan.get('workspace_support_profile_version')) is int
+            and plan['workspace_support_profile_version'] == 1
+            and plan.get('workspace_support_profiles') == ['oasis7_local_signer'])
 
 
 def support_partitions(profiles):
@@ -4964,6 +5120,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
             elif path == 'scripts/ci-required-scope.json' and scope_config_slice is not None:
                 chosen.update(scope_config_slice[0])
                 path_rules[path].update(scope_config_slice[0])
+                support_rule |= 'workspace_support' in scope_config_slice[0]
                 reasons.append('scoped ordinary CI configuration slice changed: ' + path)
             elif path in standalone_manifests:
                 manifest_groups, manifest_profiles = standalone_manifests[path]

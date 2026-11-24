@@ -58,8 +58,8 @@ Options:
   --reuse-local-provider-bridge
                               Reuse an already-listening local provider bridge instead of starting one
   --no-ensure-token-config     Use --local-provider-config directly; do not generate local token config first
-  --proxy <url>                HTTP/HTTPS proxy for local LetAI bridge startup (default: http://127.0.0.1:7897)
-  --socks-proxy <url>          all_proxy value for local LetAI bridge startup (default: socks5://127.0.0.1:7897)
+  --proxy <url>                HTTP/HTTPS proxy for local LetAI bridge startup (or $OASIS7_LOCAL_TEST_PROXY_URL; unset by default)
+  --socks-proxy <url>          all_proxy value for local LetAI bridge startup (or $OASIS7_LOCAL_TEST_SOCKS_PROXY_URL; unset by default)
   --no-default-proxy           Do not set local proxy defaults for bridge startup
   --agent-provider-connect-timeout-ms <n>
                               Provider bridge connect timeout passed to demo (default: 60000)
@@ -228,9 +228,15 @@ configure_local_provider_proxy_env() {
     return 0
   fi
 
-  export https_proxy="${https_proxy:-$proxy_url}"
-  export http_proxy="${http_proxy:-$proxy_url}"
-  export all_proxy="${all_proxy:-$socks_proxy_url}"
+  if [[ -n "$proxy_url" && -z "${https_proxy:-${HTTPS_PROXY:-}}" ]]; then
+    export https_proxy="$proxy_url"
+  fi
+  if [[ -n "$proxy_url" && -z "${http_proxy:-${HTTP_PROXY:-}}" ]]; then
+    export http_proxy="$proxy_url"
+  fi
+  if [[ -n "$socks_proxy_url" && -z "${all_proxy:-${ALL_PROXY:-}}" ]]; then
+    export all_proxy="$socks_proxy_url"
+  fi
 
   local loopback_no_proxy="127.0.0.1,localhost,::1"
   if [[ -n "${no_proxy:-}" ]]; then
@@ -1193,8 +1199,8 @@ local_provider_config=""
 local_provider_model=""
 local_provider_auto_topup_usd="0.1"
 ensure_token_config=1
-proxy_url="http://127.0.0.1:7897"
-socks_proxy_url="socks5://127.0.0.1:7897"
+proxy_url="${OASIS7_LOCAL_TEST_PROXY_URL:-}"
+socks_proxy_url="${OASIS7_LOCAL_TEST_SOCKS_PROXY_URL:-}"
 use_default_proxy=1
 agent_provider_connect_timeout_ms="60000"
 agent_provider_decision_timeout_ms="60000"

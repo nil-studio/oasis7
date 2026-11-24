@@ -20,7 +20,7 @@
     "@tauri-apps/cli": "^2.11.3",
     "@testing-library/jest-dom": "^6.9.1",
     "jsdom": "^27.0.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^7.1.9",
     "vite-plugin-solid": "^2.11.9",
     "vitest": "^5.0.3"

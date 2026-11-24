@@ -383,6 +383,140 @@ class Results(unittest.TestCase):
             with self.subTest(retired_job=retired_job), self.assertRaises(ValueError):
                 result.validate(v3_plan, broken, v3_jobs, retired_jobs=v3_retired)
 
+    def test_v4_consolidation_and_v1_v2_v3_transitions(self):
+        config = {
+            'groups': [
+                'baseline', 'doc_checker_contracts', 'codex_agent_config_validation',
+                'macos_package_contract', 'compile_metrics',
+                'node', 'consensus', 'scenario_regression', 'pixel_world_bridge',
+                'viewer_js_required', 'viewer_performance_report',
+                'packaging_contracts', 'cargo_tooling_contracts',
+                'fleet_health', 'windows_rollout',
+                'workflow_governance', 'operational_contracts',
+            ],
+            'contract_job_consolidation_version': 4,
+            'group_jobs': {
+                'codex_agent_config_validation': 'baseline',
+                'macos_package_contract': 'baseline',
+                'compile_metrics': 'doc-checker-contracts',
+                'consensus': 'node',
+                'pixel_world_bridge': 'scenario-regression',
+                'viewer_performance_report': 'viewer-js-required',
+                'packaging_contracts': 'doc-checker-contracts',
+                'cargo_tooling_contracts': 'scenario-regression',
+                'windows_rollout': 'fleet-health',
+                'operational_contracts': 'workflow-governance',
+            },
+        }
+        v3_jobs = result.configured_group_jobs(config, {'groups': ['baseline'], 'contract_job_consolidation_version': 3})
+        self.assertEqual(v3_jobs['packaging_contracts'], 'doc-checker-contracts')
+        self.assertEqual(v3_jobs['operational_contracts'], 'operational-contracts')
+
+        v4_plan = {'groups': ['baseline', 'operational_contracts'], 'contract_job_consolidation_version': 4}
+        v4_jobs = result.configured_group_jobs(config, v4_plan)
+        v4_retired = result.retired_group_jobs(config, v4_plan)
+        self.assertEqual(v4_jobs['operational_contracts'], 'workflow-governance')
+        self.assertIn('operational-contracts', v4_retired)
+        needs = {
+            'select': {'result': 'success'},
+            'baseline': {'result': 'success'},
+            'doc-checker-contracts': {'result': 'skipped'},
+            'fleet-health': {'result': 'skipped'},
+            'node': {'result': 'skipped'},
+            'scenario-regression': {'result': 'skipped'},
+            'viewer-js-required': {'result': 'skipped'},
+            'workflow-governance': {'result': 'success'},
+            **{job: {'result': 'skipped'} for job in v4_retired},
+        }
+        self.assertTrue(result.validate(v4_plan, needs, v4_jobs, retired_jobs=v4_retired))
+        for bad in ('skipped', 'failure', 'cancelled', None):
+            broken = copy.deepcopy(needs)
+            broken['workflow-governance'] = {'result': bad}
+            with self.subTest(host_state=bad), self.assertRaises(ValueError):
+                result.validate(v4_plan, broken, v4_jobs, retired_jobs=v4_retired)
+        broken_legacy = copy.deepcopy(needs)
+        broken_legacy['operational-contracts'] = {'result': 'success'}
+        with self.assertRaisesRegex(ValueError, 'operational-contracts: retired'):
+            result.validate(v4_plan, broken_legacy, v4_jobs, retired_jobs=v4_retired)
+
+    def test_v5_consolidation_and_direct_gate_v2_custody_validation(self):
+        config = {
+            'groups': [
+                'baseline', 'doc_checker_contracts', 'codex_agent_config_validation',
+                'macos_package_contract', 'compile_metrics',
+                'node', 'consensus', 'scenario_regression', 'pixel_world_bridge',
+                'viewer_js_required', 'viewer_performance_report', 'site_quality',
+                'packaging_contracts', 'cargo_tooling_contracts',
+                'fleet_health', 'windows_rollout',
+                'workflow_governance', 'operational_contracts', 'workspace_support',
+            ],
+            'contract_job_consolidation_version': 5,
+            'workspace_support_direct_gate_version': 2,
+            'group_jobs': {
+                'codex_agent_config_validation': 'baseline',
+                'macos_package_contract': 'baseline',
+                'doc_checker_contracts': 'baseline',
+                'compile_metrics': 'baseline',
+                'packaging_contracts': 'baseline',
+                'consensus': 'node',
+                'pixel_world_bridge': 'scenario-regression',
+                'viewer_performance_report': 'viewer-js-required',
+                'site_quality': 'viewer-js-required',
+                'cargo_tooling_contracts': 'scenario-regression',
+                'windows_rollout': 'fleet-health',
+                'operational_contracts': 'workflow-governance',
+            },
+        }
+        # Legacy v3/v4 plans under v5 config still route compile_metrics & packaging_contracts to doc-checker-contracts.
+        v4_jobs = result.configured_group_jobs(config, {'groups': ['baseline'], 'contract_job_consolidation_version': 4})
+        self.assertEqual(v4_jobs['compile_metrics'], 'doc-checker-contracts')
+        self.assertEqual(v4_jobs['packaging_contracts'], 'doc-checker-contracts')
+        self.assertEqual(v4_jobs['doc_checker_contracts'], 'doc-checker-contracts')
+        self.assertEqual(v4_jobs['site_quality'], 'site-quality')
+        self.assertEqual(v4_jobs['operational_contracts'], 'workflow-governance')
+
+        # v5 + direct gate v2 custody plan retires doc-checker-contracts, site-quality, and workspace-support.
+        v5_plan = {
+            'groups': ['baseline', 'doc_checker_contracts', 'site_quality', 'workspace_support'],
+            'contract_job_consolidation_version': 5,
+            'workspace_support_direct_gate_version': 2,
+            'workspace_support_partition_version': 1,
+            'workspace_support_partitions': ['custody', 'other'],
+            'custody_execution_version': 1,
+        }
+        v5_jobs = result.configured_group_jobs(config, v5_plan)
+        v5_retired = result.retired_group_jobs(config, v5_plan)
+        self.assertEqual(v5_jobs['doc_checker_contracts'], 'baseline')
+        self.assertEqual(v5_jobs['packaging_contracts'], 'baseline')
+        self.assertEqual(v5_jobs['site_quality'], 'viewer-js-required')
+        self.assertEqual(v5_jobs['workspace_support'], 'custody-node')
+        self.assertTrue({'doc-checker-contracts', 'site-quality', 'workspace-support'}.issubset(v5_retired))
+        needs = {
+            'select': {'result': 'success'},
+            'baseline': {'result': 'success'},
+            'fleet-health': {'result': 'skipped'},
+            'node': {'result': 'skipped'},
+            'scenario-regression': {'result': 'skipped'},
+            'viewer-js-required': {'result': 'success'},
+            'workflow-governance': {'result': 'skipped'},
+            'workspace-support-other': {'result': 'success'},
+            'custody-native-contracts': {'result': 'success'},
+            'custody-native': {'result': 'success'},
+            'custody-wasm-production': {'result': 'success'},
+            'custody-node': {'result': 'success'},
+            **{job: {'result': 'skipped'} for job in v5_retired},
+        }
+        self.assertTrue(result.validate(v5_plan, needs, v5_jobs, retired_jobs=v5_retired))
+        for bad_job in ('custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-node', 'workspace-support-other'):
+            broken = copy.deepcopy(needs)
+            broken[bad_job] = {'result': 'skipped'}
+            with self.subTest(missing_custody=bad_job), self.assertRaises(ValueError):
+                result.validate(v5_plan, broken, v5_jobs, retired_jobs=v5_retired)
+        broken_legacy = copy.deepcopy(needs)
+        broken_legacy['workspace-support'] = {'result': 'success'}
+        with self.assertRaisesRegex(ValueError, 'workspace-support: retired'):
+            result.validate(v5_plan, broken_legacy, v5_jobs, retired_jobs=v5_retired)
+
 
 if __name__ == '__main__':
     unittest.main()

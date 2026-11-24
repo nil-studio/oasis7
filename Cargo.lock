@@ -497,9 +497,9 @@ dependencies = [
 
 [[package]]
 name = "async-openai"
-version = "0.42.2"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "174e979f1e2ffe94b88d584740c11fd071f6d829c29120b1ba88bcaeb3374063"
+checksum = "2c30702b56c3a8e7d9b01c94b0d7927019f3fe6aa2d7af7d2f1968bbdb858eec"
 dependencies = [
  "async-openai-macros",
  "base64 0.22.1",
@@ -1438,7 +1438,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-time",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2174,7 +2174,7 @@ dependencies = [
  "cap-primitives",
  "cap-std",
  "io-lifetimes 3.0.1",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2191,7 +2191,7 @@ dependencies = [
  "maybe-owned",
  "rustix 1.1.6",
  "rustix-linux-procfs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
  "winx",
 ]
 
@@ -3494,7 +3494,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6016,7 +6016,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6094,7 +6094,6 @@ dependencies = [
  "oasis7_formal_protocol",
  "oasis7_hosted_access",
  "oasis7_model_provider",
- "oasis7_observability",
  "oasis7_proto",
  "oasis7_runtime",
  "oasis7_runtime_host",
@@ -6259,7 +6258,6 @@ dependencies = [
  "oasis7_simulator",
  "oasis7_viewer_runtime",
  "oasis7_world_service",
- "reqwest 0.13.5",
  "serde",
  "serde_json",
 ]
@@ -6386,7 +6384,6 @@ name = "oasis7_dev_test_worker"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "hex",
  "js-sys",
  "oasis7_agent_api",
  "oasis7_client_api",
@@ -6575,9 +6572,7 @@ dependencies = [
 name = "oasis7_local_signer"
 version = "0.1.0"
 dependencies = [
- "argon2",
  "base64 0.23.1",
- "chacha20poly1305 0.11.0",
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
@@ -6651,7 +6646,6 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "ed25519-dalek",
- "futures",
  "getrandom 0.4.3",
  "hex",
  "libp2p",
@@ -6679,13 +6673,11 @@ dependencies = [
 name = "oasis7_ops_tools"
 version = "0.1.0"
 dependencies = [
- "ed25519-dalek",
  "hex",
  "oasis7",
  "oasis7_agent_api",
  "oasis7_client_api",
  "oasis7_hosted_access",
- "oasis7_proto",
  "oasis7_runtime",
  "oasis7_runtime_host",
  "oasis7_simulator",
@@ -6787,8 +6779,6 @@ dependencies = [
  "serde_cbor_2",
  "serde_json",
  "sha2 0.11.0",
- "unicode-normalization",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6796,6 +6786,7 @@ name = "oasis7_runtime_host"
 version = "0.1.0"
 dependencies = [
  "oasis7_agent_api",
+ "oasis7_agent_harness",
  "oasis7_client_api",
  "oasis7_formal_protocol",
  "oasis7_proto",
@@ -6803,6 +6794,8 @@ dependencies = [
  "oasis7_simulator",
  "oasis7_wasm_abi",
  "oasis7_world_service",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -6852,6 +6845,7 @@ dependencies = [
  "oasis7",
  "oasis7_client_api",
  "oasis7_proto",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "serde",
  "serde_json",
@@ -6884,13 +6878,11 @@ dependencies = [
  "oasis7_world_projection",
  "oasis7_world_service",
  "oasis7_world_state",
- "reqwest 0.13.5",
  "serde",
  "serde_cbor_2",
  "serde_ignored",
  "serde_json",
  "sha2 0.11.0",
- "toml",
  "tracing",
  "tungstenite",
  "unicode-normalization",
@@ -6991,7 +6983,6 @@ name = "oasis7_world_service"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "cap-fs-ext",
  "cap-std",
  "chacha20poly1305 0.11.0",
  "ed25519-dalek",
@@ -7009,13 +7000,9 @@ dependencies = [
  "oasis7_wasm_abi",
  "oasis7_world_projection",
  "oasis7_world_state",
- "reqwest 0.13.5",
  "serde",
  "serde_cbor_2",
- "serde_ignored",
  "serde_json",
- "sha2 0.11.0",
- "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -7024,12 +7011,8 @@ name = "oasis7_world_state"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "cap-fs-ext",
- "cap-std",
  "ed25519-dalek",
  "hex",
- "hmac 0.13.0",
- "libc",
  "oasis7_agent_api",
  "oasis7_cas",
  "oasis7_client_api",
@@ -8053,7 +8036,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8571,7 +8554,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8640,7 +8623,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9179,7 +9162,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9365,10 +9348,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.6",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10862,7 +10845,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

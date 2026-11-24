@@ -4,22 +4,22 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser|rust-build|rust-wasm-build) ;;
-  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build" >&2; exit 2 ;;
+  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
 digest=$(docker buildx imagetools inspect "$base" --format "{{json .Manifest}}" | jq -er .digest)
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
 image="oasis7-ci-${target}:candidate"
-options=()
-if [[ "$target" == browser || "$target" == rust-build || "$target" == rust-wasm-build ]]; then
-  node_base=node:24-bookworm-slim
-  node_digest=$(docker buildx imagetools inspect "$node_base" --format "{{json .Manifest}}" | jq -er .digest)
-  [[ "$node_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-  options+=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
-            --label "org.oasis7.ci.node-base.digest=$node_digest")
-fi
+node_base=node:24-bookworm-slim
+node_digest=$(docker buildx imagetools inspect "$node_base" --format "{{json .Manifest}}" | jq -er .digest)
+[[ "$node_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+  echo "Invalid Node base digest" >&2
+  exit 1
+}
+options=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
+         --label "org.oasis7.ci.node-base.digest=$node_digest")
 if [[ "$target" == browser ]]; then
   options+=(--build-context browser-tools=../../scripts/ci-browser-tools)
 fi
@@ -31,12 +31,21 @@ if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
   [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
   [[ "$nightly" =~ ^nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
   [[ "$wasm_target" == wasm32-unknown-unknown ]]
+  options+=(--build-arg "RUST_TOOLCHAIN=$stable" --build-arg "WASM_TOOLCHAIN=$nightly"
+            --build-arg "WASM_TARGET=$wasm_target")
+elif [[ "$target" == codeql-rust ]]; then
+  stable=$(sed -n "s/^      RUSTUP_TOOLCHAIN: '\([0-9]*\.[0-9]*\.[0-9]*\)'$/\1/p" ../../.github/workflows/codeql.yml)
+  [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  options+=(--build-arg "CODEQL_RUST_TOOLCHAIN=$stable")
+fi
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust ]]; then
   rust_base="rust:${stable}-bookworm"
   rust_digest=$(docker buildx imagetools inspect "$rust_base" --format "{{json .Manifest}}" | jq -er .digest)
-  [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+  [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+    echo "Invalid Rust base digest" >&2
+    exit 1
+  }
   options+=(--build-arg "RUST_BASE=${rust_base}@${rust_digest}"
-            --build-arg "RUST_TOOLCHAIN=$stable" --build-arg "WASM_TOOLCHAIN=$nightly"
-            --build-arg "WASM_TARGET=$wasm_target"
             --label "org.oasis7.ci.rust-base.digest=$rust_digest")
 fi
 docker build "${options[@]}" --platform linux/amd64 --target "$target" \
@@ -60,9 +69,30 @@ docker run --rm --platform linux/amd64 "$image" bash -ec '
   ldconfig -p | grep libwayland-client.so.0
   dpkg-query -W
 '
+# Verify the inherited executable without runner toolcache or network access.
+docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+  --env HOME=/tmp "$image" bash -ec '
+    test "$(command -v node)" = /usr/local/bin/node
+    node --version
+    smoke=$(mktemp --suffix=.ts)
+    trap "rm -- \"$smoke\"" EXIT
+    cat > "$smoke" <<EOF
+const expectedMajor: number = 24;
+if (Number(process.versions.node.split(".")[0]) !== expectedMajor || process.getuid() !== 1001) {
+  process.exit(1);
+}
+EOF
+    node "$smoke"
+  '
+
 if [[ "$target" == runtime ]]; then
   docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
-    "$image" bash -ec 'jq -e ".ready == true" <<< "{\"ready\":true}" >/dev/null'
+    "$image" bash -ec 'jq -e ".ready == true" <<< "{\"ready\":true}" >/dev/null
+    if command -v npm >/dev/null; then
+      echo "npm belongs to the browser image" >&2
+      exit 1
+    fi
+  '
 fi
 
 if [[ "$target" == build ]]; then
@@ -145,4 +175,33 @@ if [[ "$target" == rust-wasm-build ]]; then
       llvm-ar rcs /tmp/wasm-smoke.a /tmp/wasm-smoke.o
       test "$(llvm-ar t /tmp/wasm-smoke.a)" = wasm-smoke.o
     '
+fi
+
+if [[ "$target" == codeql-rust ]]; then
+  repository=$(git rev-parse --show-toplevel)
+  docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+    --env HOME=/tmp --env "CODEQL_EXPECTED_RUST=$stable" \
+    --mount "type=bind,src=$repository/scripts/security,dst=/codeql-check,readonly" \
+    "$image" bash -ec '
+      test "$(id -u)" = 1001
+      test "$(rustc --version | cut -d" " -f2)" = "$CODEQL_EXPECTED_RUST"
+      test "$(cargo --version | cut -d" " -f2)" = "$CODEQL_EXPECTED_RUST"
+      test "$(rustup toolchain list | wc -l)" = 1
+      scratch=$(mktemp -d)
+      trap "rm -rf -- \"$scratch\"" EXIT
+      printf "fn main() {}\n" > "$scratch/probe.rs"
+      rustc --crate-name probe "$scratch/probe.rs" -o "$scratch/probe"
+      "$scratch/probe"
+      PYTHONPATH=/codeql-check python3 -B - <<PY
+import importlib.util
+import subprocess
+
+spec = importlib.util.spec_from_file_location("native", "/codeql-check/codeql-rust-cargo-check.py")
+native = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(native)
+subprocess.run(["dpkg-query", "-W", *native.NATIVE_PACKAGES], check=True)
+subprocess.run(["pkg-config", "--print-errors", "--modversion", *native.NATIVE_MODULES], check=True)
+PY
+    '
+  docker image inspect --format 'CodeQL Rust image local bytes: {{.Size}}' "$image"
 fi

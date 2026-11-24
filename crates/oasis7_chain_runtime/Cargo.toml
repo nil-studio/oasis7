@@ -19,7 +19,6 @@ oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_consensus = { path = "../oasis7_consensus" }
 oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7 = { path = "../oasis7", default-features = false }
-oasis7_agent_harness = { version = "0.1.0", path = "../oasis7_agent_harness" }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
 oasis7_agent_api = { version = "0.1.0", path = "../oasis7_agent_api" }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
@@ -50,7 +49,6 @@ ctrlc = { version = "3.4", features = ["termination"] }
 reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 toml = "0.9.12"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "tracing-log"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
@@ -73,7 +71,11 @@ oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test
 oasis7_viewer_runtime = { path = "../oasis7_viewer_runtime", default-features = false, features = ["test_tier_required"] }
 # Keep fixture helpers available to the moved harness without enabling them in production builds.
 oasis7 = { path = "../oasis7", default-features = false, features = ["test_tier_required"] }
+oasis7_agent_harness = { version = "0.1.0", path = "../oasis7_agent_harness" }
 oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false, features = ["test-hooks"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "tracing-log"] }
 
 [target.'cfg(unix)'.dependencies]
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio", "system-config"] }
