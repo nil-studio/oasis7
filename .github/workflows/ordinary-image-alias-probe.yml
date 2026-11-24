@@ -147,8 +147,16 @@ jobs:
               assert manifest['producer_run_id'] == os.environ['GITHUB_RUN_ID']
               assert manifest['producer_attempt'] == os.environ['GITHUB_RUN_ATTEMPT']
               assert manifest['rustc_version'].startswith('rustc 1.96.0 ')
-              assert len(manifest['binaries']) == 4
-              for binary in manifest['binaries'].values():
+              included = {'required-executable-oasis7_chain_runtime-bin-oasis7_chain_runtime',
+                          'required-test-oasis7_chain_runtime-test-process', 'runtime-tests', 'viewer'}
+              empty = 'required-test-oasis7_chain_runtime-bin-oasis7_chain_runtime'
+              assert set(manifest['included_binaries']) == included
+              assert set(manifest['binaries']) == included | {empty}
+              assert manifest['binaries'][empty]['tests'] == [] and manifest['binaries'][empty]['ignored_tests'] == []
+              assert {name for name, binary in manifest['binaries'].items()
+                      if (fixture.consumer / binary['path']).exists()} == included
+              for name in sorted(included):
+                  binary = manifest['binaries'][name]
                   assert (fixture.consumer / binary['path']).read_bytes().startswith(b'\x7fELF')
                   assert Path(binary['original_executable']).is_relative_to(fixture.root / 'target')
               mapped_target = Path(os.environ['GITHUB_WORKSPACE']) / relative / 'target'
@@ -181,7 +189,8 @@ jobs:
                   cache_read_only=True, cache_hit=os.environ.get('CACHE_HIT', ''),
                   default_workspace=os.environ['GITHUB_WORKSPACE'], target_device=target.stat().st_dev,
                   target_inode=target.stat().st_ino, fixture_target_same_inode=True,
-                  action_target_same_inode=True, binaries=len(manifest['binaries']))
+                  action_target_same_inode=True, binaries=len(included), inventory_binaries=len(manifest['binaries']),
+                  included_binaries=sorted(included))
               assert receipt['cache_hit'] in ('', 'true', 'false')
               (out / 'receipt.json').write_text(json.dumps(receipt, sort_keys=True))
               print(json.dumps(receipt, sort_keys=True))
@@ -264,13 +273,21 @@ jobs:
           manifest = json.loads((bundle / 'manifest.json').read_text())
           assert digest(bundle / 'manifest.json') == receipt['manifest_sha256']
           assert manifest['checkout'] == str(fixture) and manifest['image'] == receipt['image']
-          assert len(manifest['binaries']) == receipt['binaries'] == 4
+          included = {'required-executable-oasis7_chain_runtime-bin-oasis7_chain_runtime',
+                      'required-test-oasis7_chain_runtime-test-process', 'runtime-tests', 'viewer'}
+          empty = 'required-test-oasis7_chain_runtime-bin-oasis7_chain_runtime'
+          assert set(manifest['included_binaries']) == set(receipt['included_binaries']) == included
+          assert set(manifest['binaries']) == included | {empty}
+          assert len(included) == receipt['binaries'] == 4
+          assert len(manifest['binaries']) == receipt['inventory_binaries'] == 5
+          assert manifest['binaries'][empty]['tests'] == [] and manifest['binaries'][empty]['ignored_tests'] == []
           for binary in manifest['binaries'].values():
               assert not Path(binary['original_executable']).exists()
           mold = json.loads((out / 'mold.json').read_text())
           assert mold['version'] == '3.0.0'
           assert mold['linker'] == '/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc'
-          for binary in manifest['binaries'].values():
+          for name in sorted(included):
+              binary = manifest['binaries'][name]
               assert (bundle / binary['path']).read_bytes().startswith(b'\x7fELF')
           tools = out / 'blocked-compilers'
           tools.mkdir()
