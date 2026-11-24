@@ -775,7 +775,7 @@ def validate_candidate_graph(workflow, config):
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
         raise ValueError('failure propagation must remain intact')
     fleet = jobs['fleet-health']
-    expected_fleet_os = (
+    legacy_fleet_os = (
         'os: ${{ (needs.select.outputs.run_fleet_health == \'true\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'full\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'explicit-full\' || '
@@ -784,10 +784,25 @@ def validate_candidate_graph(workflow, config):
         'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && '
         'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\') }}'
     )
-    if (expected_fleet_os not in fleet
+    subcontract_fleet_os = (
+        'os: ${{ (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 && '
+        'fromJSON(needs.select.outputs.plan).scope != \'full\' && '
+        'fromJSON(needs.select.outputs.plan).scope != \'explicit-full\' && '
+        'join(fromJSON(needs.select.outputs.plan).fleet_health_oses, \',\') != \'\') && '
+        'fromJSON(needs.select.outputs.plan).fleet_health_oses || '
+        '((needs.select.outputs.run_fleet_health == \'true\' || '
+        'fromJSON(needs.select.outputs.plan).scope == \'full\' || '
+        'fromJSON(needs.select.outputs.plan).scope == \'explicit-full\' || '
+        '(fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && '
+        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && '
+        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && '
+        'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\')) }}'
+    )
+    if ((legacy_fleet_os not in fleet and subcontract_fleet_os not in fleet)
             or 'runs-on: ${{ matrix.os }}' not in fleet
             or 'fail-fast: false' not in fleet or 'include:' in fleet or 'exclude:' in fleet
-            or "if: runner.os != 'Windows'" not in fleet or '--host-smoke' not in fleet
+            or not re.search(r"if:\s*(?:>-\s*)?runner\.os != 'Windows'", fleet)
+            or '--host-smoke' not in fleet
             or 'p2p-public-testnet-package-rollout.test.sh' not in fleet):
         raise ValueError('fleet must run all three hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
     for group in config['groups']:
@@ -3982,7 +3997,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_local_signer_and_new_contracts_are_connected_once(self):
         fleet = JOBS['fleet-health']
-        self.assertIn("if: runner.os == 'macOS'", fleet)
+        self.assertRegex(fleet, r"if:\s*(?:>-\s*)?runner\.os == 'macOS'")
         self.assertIn('TMPDIR: /private/tmp', fleet)
         self.assertIn('python3 scripts/ci-local-signer-tests.py --require-darwin', fleet)
         self.assertLess(fleet.index('rustup default "$RUST_TOOLCHAIN"'),
@@ -5305,7 +5320,16 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertLess(prepare, hosted)
         self.assertLess(hosted, verify)
         preparation = fleet[prepare:hosted]
-        self.assertNotIn('runner.os', preparation)
+        prep_cond = re.search(r'^        if: (.*?)(?=^        [a-z-]+:|\Z)', preparation, re.M | re.S).group(1)
+        for runner_os in ('Linux', 'Windows', 'macOS'):
+            self.assertTrue(effective_job_condition(prep_cond, {
+                'runner.os': runner_os,
+                'needs.select.outputs.run_fleet_health': 'true',
+                'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
+                'fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version': 1,
+                'fromJSON(needs.select.outputs.plan).fleet_health_checks': ['hosted_access'],
+            }, ('success',)), f'hosted_access must prepare Rust toolchain on {runner_os}')
         self.assertIn("needs.select.outputs.run_fleet_health == 'true'", preparation)
         hosted_validation = fleet[hosted:verify]
         self.assertNotIn('runner.os', hosted_validation)
@@ -5316,7 +5340,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertIn('rustup default "$RUST_TOOLCHAIN"', preparation)
         self.assertTrue((ROOT / 'rust-toolchain.toml').is_file())
         validation = fleet[verify:fleet.index('name: Ensure Linux process inspection dependency')]
-        self.assertIn("if: runner.os == 'macOS'", validation)
+        self.assertRegex(validation, r"if:\s*(?:>-\s*)?runner\.os == 'macOS'")
         self.assertIn('cargo test --locked -p oasis7_context -p oasis7_secure_envelope --all-targets', validation)
         self.assertIn('cargo test --locked -p oasis7_local_signer --test context_cli', validation)
 

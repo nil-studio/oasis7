@@ -692,7 +692,7 @@ class Selection(unittest.TestCase):
     def test_existing_manual_and_launcher_audit_inputs_have_exact_owners(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         manual = {'baseline', 'doc_checker_contracts'}
-        launcher = {'baseline', 'launcher_web', 'operational_contracts', 'windows_rollout', 'fleet_health'}
+        launcher = {'baseline', 'launcher_web', 'operational_contracts'}
         expected = {
             'scripts/testing-manual-active-contract.test.sh': manual,
             'scripts/run-launcher-stack-hosted-local-mock-funding.test.sh': launcher,
@@ -1727,7 +1727,7 @@ class Selection(unittest.TestCase):
         common = {'baseline', 'packaging_contracts', 'macos_package_contract', 'fleet_health'}
         cases = {
             'scripts/local-signer/tests/test_future.py': common,
-            'doc/p2p/blockchain/local-file-signing-backend.runbook.md': common,
+            'doc/p2p/blockchain/local-file-signing-backend.runbook.md': {'baseline', 'packaging_contracts', 'macos_package_contract'},
             **{'scripts/local-signer/' + name: common | {'workspace_support'}
                for name in ['installer.py', 'macos_host.py', 'install-release.py', 'package-release.py']},
         }
@@ -8865,7 +8865,7 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         self.assertEqual(plan['scope'], 'targeted')
         self.assertEqual(
             set(plan['groups']),
-            {'baseline', 'workflow_governance', 'operational_contracts', 'fleet_health', 'windows_rollout'},
+            {'baseline', 'workflow_governance', 'operational_contracts'},
         )
         self.assertFalse(plan['test_policy_changed'])
 
@@ -9613,6 +9613,147 @@ class MainFastHistoricalRetiredPathsTests(WorkspaceMemberCargoAndScopedCfgTests)
         unregistered_head = self.commit()
         with self.assertRaises(selector.UnknownInputsError):
             selector.select(self.config, self.base, unregistered_head, profile='pr-fast')
+
+    def test_operational_decoupling_and_fleet_health_subcontracts_v1(self):
+        self.write(
+            'Cargo.toml',
+            self.ROOT_TOML.replace(
+                '"crates/oasis7_viewer"]',
+                '"crates/oasis7_viewer", "crates/oasis7_domain_types", '
+                '"crates/oasis7_local_signer", "crates/oasis7_hosted_access"]',
+            ),
+        )
+        self.write(
+            'crates/oasis7_domain_types/Cargo.toml',
+            '[package]\nname="oasis7_domain_types"\nversion="0.1.0"\nedition="2021"\n',
+        )
+        self.write('crates/oasis7_domain_types/src/lib.rs', 'pub fn domain() {}\n')
+        self.write(
+            'crates/oasis7_local_signer/Cargo.toml',
+            '[package]\nname="oasis7_local_signer"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\noasis7_domain_types={path="../oasis7_domain_types"}\n',
+        )
+        self.write('crates/oasis7_local_signer/src/lib.rs', 'pub fn signer() {}\n')
+        self.write(
+            'crates/oasis7_hosted_access/Cargo.toml',
+            '[package]\nname="oasis7_hosted_access"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\noasis7_domain_types={path="../oasis7_domain_types"}\n',
+        )
+        self.write('crates/oasis7_hosted_access/src/lib.rs', 'pub fn hosted() {}\n')
+        self.base = self.commit()
+
+        # 1) Unrelated operational scripts and local-signer runbook no longer drag fleet_health or windows_rollout
+        decoupled_cases = (
+            ('scripts/ops/new-drill.sh', {'operational_contracts'}),
+            ('scripts/traffic-monitor-summary.sh', {'operational_contracts'}),
+            ('scripts/provider-remote-https/smoke.sh', {'operational_contracts'}),
+            ('scripts/run-launcher-stack.sh', {'launcher_web', 'operational_contracts'}),
+            ('doc/p2p/blockchain/local-file-signing-backend.runbook.md',
+             {'packaging_contracts', 'macos_package_contract'}),
+        )
+        for path, required_groups in decoupled_cases:
+            with self.subTest(decoupled=path):
+                self.git('checkout', '-q', self.base)
+                self.write(path, '# fixture\n')
+                head = self.commit()
+                plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+                self.assertTrue(required_groups.issubset(plan['groups']))
+                self.assertNotIn('fleet_health', plan['groups'])
+                self.assertNotIn('windows_rollout', plan['groups'])
+                self.assertEqual(plan['fleet_health_subcontracts_version'], 1)
+                self.assertEqual(plan['fleet_health_checks'], [])
+                self.assertEqual(plan['fleet_health_oses'], [])
+
+        # 2) Exact OS & subcontract slices for each real consumer
+        slice_cases = (
+            ('scripts/p2p-public-testnet-package-rollout.py',
+             {'operational_contracts', 'windows_rollout'}, False,
+             [], ['windows-2022']),
+            ('.github/workflows/testnet-packages.yml',
+             {'workflow_governance', 'packaging_contracts', 'operational_contracts', 'windows_rollout'}, False,
+             [], ['windows-2022']),
+            ('scripts/p2p-public-testnet-fleet-health.test.py',
+             {'operational_contracts', 'fleet_health'}, True,
+             ['fleet_script'], ['ubuntu-24.04', 'windows-2022', 'macos-15']),
+            ('scripts/public-testnet-validator-triad-inventory.v1.json',
+             {'operational_contracts', 'fleet_health'}, True,
+             ['fleet_script'], ['ubuntu-24.04', 'windows-2022', 'macos-15']),
+            ('scripts/resource-cleanup-executor.py',
+             {'workflow_governance', 'fleet_health'}, True,
+             ['host_cleanup'], ['ubuntu-24.04', 'macos-15']),
+            ('scripts/new-task-worktree.sh',
+             {'cargo_tooling_contracts', 'fleet_health'}, True,
+             ['host_cleanup'], ['ubuntu-24.04', 'macos-15']),
+            ('scripts/local-signer/installer.py',
+             {'packaging_contracts', 'fleet_health', 'workspace_support'}, True,
+             ['macos_signer'], ['macos-15']),
+            ('scripts/ci-local-signer-tests.py',
+             {'workflow_governance', 'packaging_contracts', 'fleet_health'}, True,
+             ['macos_signer'], ['macos-15']),
+            ('crates/oasis7_local_signer/src/lib.rs',
+             {'packaging_contracts', 'fleet_health', 'workspace_support'}, True,
+             ['macos_signer'], ['macos-15']),
+            ('crates/oasis7_hosted_access/src/lib.rs',
+             {'oasis7_required', 'fleet_health'}, True,
+             ['hosted_access'], ['ubuntu-24.04', 'windows-2022', 'macos-15']),
+        )
+        for path, required_groups, has_fleet, expected_checks, expected_oses in slice_cases:
+            with self.subTest(slice_path=path):
+                self.git('checkout', '-q', self.base)
+                self.write(path, '// fixture\n')
+                head = self.commit()
+                plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+                self.assertTrue(required_groups.issubset(plan['groups']))
+                self.assertEqual('fleet_health' in plan['groups'], has_fleet)
+                self.assertEqual(plan['fleet_health_subcontracts_version'], 1)
+                self.assertEqual(plan['fleet_health_checks'], expected_checks)
+                self.assertEqual(plan['fleet_health_oses'], expected_oses)
+
+        # 3) Mixed changes take the exact union of subcontracts and host OSes
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/resource-cleanup-executor.py', '# cleanup\n')
+        self.write('scripts/p2p-public-testnet-package-rollout.py', '# rollout\n')
+        union_head = self.commit()
+        union_plan = selector.select(self.config, self.base, union_head, profile='pr-fast')
+        self.assertEqual(union_plan['fleet_health_checks'], ['host_cleanup'])
+        self.assertEqual(union_plan['fleet_health_oses'], ['ubuntu-24.04', 'windows-2022', 'macos-15'])
+
+        # 4) Shared upstream Rust crate affecting both oasis7_hosted_access and oasis7_local_signer selects both checks
+        self.git('checkout', '-q', self.base)
+        self.write('crates/oasis7_domain_types/src/lib.rs', '// shared upstream\n')
+        shared_head = self.commit()
+        shared_plan = selector.select(self.config, self.base, shared_head, profile='pr-fast')
+        self.assertEqual(shared_plan['fleet_health_checks'], ['hosted_access', 'macos_signer'])
+        self.assertEqual(shared_plan['fleet_health_oses'], ['ubuntu-24.04', 'windows-2022', 'macos-15'])
+
+        # 5) Full profiles, explicit --add-group, and unmapped rules retain all 4 checks across all 3 OSes
+        full_checks = ['fleet_script', 'hosted_access', 'macos_signer', 'host_cleanup']
+        full_oses = ['ubuntu-24.04', 'windows-2022', 'macos-15']
+        explicit_full = selector.full_plan(self.config, 'periodic-full', self.base)
+        self.assertEqual(explicit_full['fleet_health_checks'], full_checks)
+        self.assertEqual(explicit_full['fleet_health_oses'], full_oses)
+
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/ops/new-drill.sh', '#!/usr/bin/env bash\n')
+        add_head = self.commit()
+        added_plan = selector.select(self.config, self.base, add_head, additions=('fleet_health',), profile='pr-fast')
+        self.assertEqual(added_plan['fleet_health_checks'], full_checks)
+        self.assertEqual(added_plan['fleet_health_oses'], full_oses)
+
+        unmapped_cfg = copy.deepcopy(self.config)
+        unmapped_cfg['rules'].append({
+            'match': ['scripts/ops/custom-fleet-probe.sh'],
+            'groups': ['fleet_health'],
+            'reason': 'custom_unmapped_fleet_probe',
+        })
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/ops/custom-fleet-probe.sh', '#!/usr/bin/env bash\n')
+        unmapped_head = self.commit()
+        unmapped_plan = selector.select(unmapped_cfg, self.base, unmapped_head, profile='pr-fast')
+        self.assertEqual(unmapped_plan['fleet_health_checks'], full_checks)
+        self.assertEqual(unmapped_plan['fleet_health_oses'], full_oses)
 
 
 if __name__ == '__main__':
