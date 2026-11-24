@@ -6,6 +6,7 @@ mod geometry {
 }
 mod agent_decision;
 mod agent_memory;
+pub mod agent_memory_selector;
 mod agent_query;
 mod asteroid_fragment;
 mod chain_resource;

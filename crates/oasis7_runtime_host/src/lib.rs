@@ -4,6 +4,9 @@ pub mod gameplay_actions;
 pub mod gameplay_service;
 pub mod simulator_archive;
 
+#[path = "agent_execution/llm_agent/decision_flow/field_identity.rs"]
+pub mod llm_decision_field_identity;
+
 use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, WorldError, WorldState};
 use std::{path::Path, sync::Arc};
 
