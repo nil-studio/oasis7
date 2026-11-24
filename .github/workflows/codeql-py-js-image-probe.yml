@@ -107,6 +107,7 @@ jobs:
         env:
           SARIF_ID: ${{ steps.analyze.outputs.sarif-id }}
           SARIF_OUTPUT: ${{ steps.analyze.outputs.sarif-output }}
+          CODEQL_BIN: ${{ steps.init.outputs.codeql-path }}
         run: |
           test -z "$SARIF_ID"
           test "$(git rev-parse HEAD)" = "$SOURCE"
@@ -124,6 +125,13 @@ jobs:
           data = json.loads(report.read_bytes())
           assert data['version'] == '2.1.0' and data['runs']
           workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          runner_temp = Path(os.environ['RUNNER_TEMP']).resolve()
+          bundle = Path(os.environ['CODEQL_BIN']).resolve().parent
+          assert bundle.is_relative_to(runner_temp) and bundle.name == 'codeql'
+          paths = ((workspace, 'workspace'), (bundle, 'codeql-bundle'), (runner_temp, 'runner-temp'))
+
+          def digest(value):
+              return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
           def normalize(item):
               if isinstance(item, dict):
@@ -131,8 +139,10 @@ jobs:
               if isinstance(item, list):
                   return [normalize(value) for value in item]
               if isinstance(item, str):
-                  return item.replace(workspace.as_uri() + '/', 'file:///workspace/').replace(
-                      str(workspace) + '/', '/workspace/')
+                  for path, label in paths:
+                      item = item.replace(path.as_uri() + '/', f'file:///{label}/').replace(
+                          str(path) + '/', f'/{label}/')
+                  return item
               return item
 
           comparison = []
@@ -158,16 +168,26 @@ jobs:
                   assert isinstance(rule_id, str) and rule_id in rule_ids, 'unknown SARIF result rule'
                   assert reference.get('id', rule_id) == rule_id, 'inconsistent SARIF result rule'
               print(f'SARIF rules={rule_count} results={len(results)}')
-              comparison.append({'tool': normalize(tool),
-                                 'results': sorted(normalize(results), key=lambda row: json.dumps(row, sort_keys=True))})
+              normalized_tool = normalize(tool)
+              normalized_results = sorted(normalize(results), key=lambda row: json.dumps(row, sort_keys=True))
+              tool_fields = sorted({key for component in [driver, *extensions] for key in component})
+              result_fields = sorted({key for result in results for key in result})
+              normalized_components = [normalized_tool['driver'], *normalized_tool.get('extensions', [])]
+              for key in tool_fields:
+                  print('SARIF tool field', key, digest([component.get(key) for component in normalized_components]))
+              for key in result_fields:
+                  values = sorted((result.get(key) for result in normalized_results),
+                                  key=lambda value: json.dumps(value, sort_keys=True))
+                  print('SARIF result field', key, digest(values))
+              comparison.append({'tool': normalized_tool, 'results': normalized_results})
           evidence = {'source': os.environ['SOURCE'], 'selection': json.loads(os.environ['SELECTION']),
                       'language': os.environ['LANGUAGE'],
                       'minified': os.environ['CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES'],
                       'sarif': comparison}
-          digest = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
+          result_digest = digest(evidence)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as outputs:
-              outputs.write('result=' + digest + '\n')
-          print('Local SARIF comparison digest:', digest)
+              outputs.write('result=' + result_digest + '\n')
+          print('Local SARIF comparison digest:', result_digest)
           PY
 
   python-image:
