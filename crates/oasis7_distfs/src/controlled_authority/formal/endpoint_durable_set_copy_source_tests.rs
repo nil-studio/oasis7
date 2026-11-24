@@ -77,6 +77,15 @@ fn healthy_copy_source_fetches_shared_history_index_once() {
     );
 }
 
+
+// Keep each original signed fixture stage observable even if a later native
+// test aborts the libtest process before buffered panic output is flushed.
+#[inline(never)]
+fn inline_copy_stage(stage: &'static str) {
+    let message = format!("oasis7 native diagnostic inline_copy_signed_stage={stage}\\n");
+    let _ = std::io::Write::write_all(&mut std::io::stderr(), message.as_bytes());
+}
+
 // This profile-2 source cannot use seal_epoch: the native endpoint requires
 // a signed Qualified H boundary and a real normal durable-set transition.
 #[inline(never)]
@@ -86,9 +95,13 @@ fn seal_profile2_inline_business_source(
 ) {
     use crate::controlled_authority::formal::business_index::{
         BusinessIndexDeltaV1, BusinessIndexLeafKindV1, BusinessIndexLeafV1,
+        metadata_key_digest,
     };
+    inline_copy_stage("initial_coordinator");
     let mut coordinator = fixture.coordinator();
+    inline_copy_stage("initial_submit");
     let original_proof = coordinator.submit(fixture.initial.clone()).unwrap();
+    inline_copy_stage("initial_qualified");
     let predecessor =
         verify_formal_qualified(&original_proof, &fixture.authority, None, None).unwrap();
     let mut successor = fixture.authority.definition().clone();
@@ -121,14 +134,22 @@ fn seal_profile2_inline_business_source(
         ),
         body,
     };
+    inline_copy_stage("freeze_input");
     let (frozen, material) = fixture.frozen(&predecessor, 61);
+    inline_copy_stage("freeze");
     let executable = coordinator.freeze(frozen, material).unwrap();
     let mut candidate = fixture.candidate(&executable);
     candidate.candidate.record.schema_version = 2;
     candidate.candidate.record.durable_set_transition_digest =
         Some(signed_transition.body.digest().unwrap());
     let primary = coordinator.endpoints_mut().0;
+    // Preserve the real profile-2 current metadata leaf while adding the
+    // independently authenticated successor outcome and historical cut.
     let mut updates = vec![BusinessIndexLeafV1 {
+        key_digest: metadata_key_digest(),
+        kind: BusinessIndexLeafKindV1::CommitMetadata,
+        canonical_value: b"next metadata".to_vec(),
+    }, BusinessIndexLeafV1 {
         key_digest: h(92),
         kind: BusinessIndexLeafKindV1::Outcome,
         canonical_value: b"authenticated successor receipt".to_vec(),
@@ -140,6 +161,7 @@ fn seal_profile2_inline_business_source(
             .unwrap(),
     );
     updates.sort_by(|a, b| a.key_digest.cmp(&b.key_digest));
+    inline_copy_stage("business_delta");
     let delta =
         BusinessIndexDeltaV1::build(original.delta.new.clone(), updates, &primary.store).unwrap();
     let envelope = super::business_tests::envelope(delta);
@@ -150,7 +172,9 @@ fn seal_profile2_inline_business_source(
         canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
         4,
     );
+    inline_copy_stage("signed_candidate_submit");
     let proof = coordinator.submit(candidate).unwrap();
+    inline_copy_stage("boundary_qualification");
     let boundary =
         verify_formal_qualified(&proof, &fixture.authority, Some(&predecessor), None).unwrap();
     let transition = verify_normal_durable_set_transition(
@@ -160,9 +184,12 @@ fn seal_profile2_inline_business_source(
         &boundary,
     )
     .unwrap();
+    inline_copy_stage("checkpoint");
     let primary = coordinator.endpoints_mut().0;
     let checkpoint = primary.checkpoint().unwrap();
+    inline_copy_stage("native_seal");
     primary.seal_durable_set(&transition, &checkpoint).unwrap();
+    inline_copy_stage("native_sealed");
 }
 
 #[test]
