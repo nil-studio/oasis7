@@ -146,17 +146,38 @@ class Workspace(unittest.TestCase):
                                      'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER'):
                         with self.subTest(scope=scope, variable=variable), patch.dict(os.environ, {variable: 'changed'}):
                             self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
+                    ordinary_stable = ('scripts/ci-test-artifacts.py',
+                                       'scripts/ci-formal-process-suites.json',
+                                       'crates/leaf/Cargo.toml')
                     for name in (*inputs, *operational):
                         path = root / name
                         before = path.read_text()
                         path.write_text(before + ' changed')
+                        expected_unchanged = name in operational or (scope == 'ordinary' and name in ordinary_stable)
                         with self.subTest(scope=scope, path=name):
-                            self.assertEqual(cache.identity(scope)['prefix'] == baseline, name in operational)
+                            self.assertEqual(cache.identity(scope)['prefix'] == baseline, expected_unchanged)
                         path.write_text(before)
+                    with patch.object(cache.units, 'CACHE_SCHEMA', cache.units.CACHE_SCHEMA + 1):
+                        self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
                     with patch.dict(os.environ, CI_CACHE_REPOSITORY_BUDGET_BYTES='20000000000'):
                         self.assertEqual(cache.identity(scope)['prefix'], baseline)
                     with patch.object(cache.units, 'build_variants', return_value=[('different', ['build'], [])]):
                         self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
+                # Adding a new workspace member manifest path still rotates ordinary prefix.
+                extra_manifest = root / 'crates/extra/Cargo.toml'
+                extra_manifest.parent.mkdir(parents=True, exist_ok=True)
+                extra_manifest.write_text('extra')
+
+                def output_with_extra(command, **kwargs):
+                    if command[:2] == ['cargo', 'metadata']:
+                        return json.dumps({'packages': [
+                            {'manifest_path': str(root / 'crates/leaf/Cargo.toml')},
+                            {'manifest_path': str(extra_manifest)},
+                        ]})
+                    return output(command, **kwargs)
+
+                with patch.object(cache.subprocess, 'check_output', side_effect=output_with_extra):
+                    self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'])
                 with patch.object(cache.platform, 'machine', return_value='different-architecture'):
                     self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'])
                 (root / 'Cargo.toml').unlink()
