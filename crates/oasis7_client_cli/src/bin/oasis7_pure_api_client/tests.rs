@@ -6,6 +6,27 @@ use std::time::Duration;
 
 use super::*;
 
+#[test]
+fn native_viewer_trace_metrics_preserve_original_wire_type_identity() {
+    use std::any::TypeId;
+    assert_eq!(
+        TypeId::of::<oasis7_simulator::AgentDecisionTrace>(),
+        TypeId::of::<oasis7::simulator::AgentDecisionTrace>(),
+    );
+    assert_eq!(
+        TypeId::of::<oasis7_simulator::RunnerMetrics>(),
+        TypeId::of::<oasis7::simulator::RunnerMetrics>(),
+    );
+    type NativeWire = oasis7_proto::viewer::ViewerResponse<
+        oasis7::simulator::WorldSnapshot,
+        oasis7::simulator::WorldEvent,
+        oasis7_simulator::AgentDecisionTrace,
+        oasis7_simulator::RunnerMetrics,
+        oasis7_simulator::WorldTime,
+    >;
+    assert_eq!(TypeId::of::<ViewerResponse>(), TypeId::of::<NativeWire>());
+}
+
 fn governance_snapshot_response() -> Value {
     let mut snapshot = oasis7::simulator::WorldKernel::new().snapshot();
     let mut runtime = oasis7_runtime::World::new().snapshot();
