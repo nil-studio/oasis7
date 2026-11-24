@@ -5,6 +5,7 @@ use oasis7_world_service::private_task_context::*;
 use oasis7_world_service::task_factory_quote::*;
 use oasis7_world_service::task_recipe_quote::*;
 use oasis7_runtime::*;
+#[cfg(feature = "test_tier_full")]
 #[path = "world_service_task_starter_chain_expiry_recovery.rs"]
 mod expiry_recovery;
 #[path = "world_service_task_starter_chain_factory_quote_retry.rs"]
