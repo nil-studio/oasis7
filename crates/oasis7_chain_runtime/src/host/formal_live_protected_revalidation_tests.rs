@@ -145,9 +145,9 @@ pub(crate) fn prepare_world(
         }
         RevalidationCondition::Deadline => {
             let now = now_ms()?;
-            if !request
+            if request
                 .deadline_unix_ms
-                .is_some_and(|deadline| deadline < now)
+                .is_none_or(|deadline| deadline >= now)
             {
                 return Err("paired pending request has not naturally expired".into());
             }

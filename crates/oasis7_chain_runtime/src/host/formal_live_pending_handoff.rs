@@ -205,7 +205,7 @@ fn entries(state: &PendingState) -> Vec<RecoveryPendingRequestV1> {
 
 pub(crate) fn request_identity(
     request: &oasis7_client_api::world_service::SubmitIntentRequest<
-        oasis7::world_service::wire::WorldServicePayloadV1,
+        oasis7_world_service::wire::WorldServicePayloadV1,
     >,
 ) -> LocalRequestIdentity {
     let key = &request.correlation.key;

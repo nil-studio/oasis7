@@ -364,7 +364,7 @@ pub(super) fn run_crash_recovery(
             ArtifactRole::Wasm,
             ArtifactRole::Rules,
         ] {
-            if actual_candidate.material.roots.get(&role).is_none()
+            if !actual_candidate.material.roots.contains_key(&role)
                 || actual_candidate.material.roots.get(&role) != oracle.material.roots.get(&role)
             {
                 return Err(format!(
