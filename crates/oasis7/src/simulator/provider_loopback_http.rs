@@ -822,6 +822,8 @@ pub fn validate_provider_http_base_url(
     base_url: &str,
     transport: &str,
 ) -> Result<Url, ProviderLoopbackHttpError> {
-    oasis7_runtime_host::provider_transport_url::validate_provider_http_base_url(base_url, transport)
-        .map_err(|error| ProviderLoopbackHttpError::InvalidBaseUrl(error.0))
+    oasis7_runtime_host::provider_transport_url::validate_provider_http_base_url(
+        base_url, transport,
+    )
+    .map_err(|error| ProviderLoopbackHttpError::InvalidBaseUrl(error.0))
 }
