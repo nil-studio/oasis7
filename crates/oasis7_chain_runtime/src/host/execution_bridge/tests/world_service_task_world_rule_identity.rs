@@ -53,6 +53,7 @@ fn assert_cas_scope(dir: &std::path::Path, height: u64, identity: &WorldIdentity
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_rule_resource_scope_survives_commit_cas_and_restart() {
     let _permit = super::super::private_task_resource_permit();
