@@ -215,9 +215,7 @@ impl MetadataServer {
                                 },
                             };
                             let response = oasis7_runtime_host::agent_execution::ContinuousAgentResponseContextV1 {
-                                response_digest: oasis7::simulator::cognition_response_digest(
-                                    &base,
-                                ),
+                                response_digest: oasis7_agent_api::cognition_response_digest(&base),
                                 base_decision_response: base,
                                 context_discriminator: incoming.context_discriminator,
                                 context_version: incoming.context_version,
