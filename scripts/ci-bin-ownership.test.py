@@ -363,7 +363,7 @@ class Ownership(unittest.TestCase):
         archive = native.parent / 'simulator_archive'
         legacy_sim = ROOT / 'crates/oasis7/src/simulator'
         archive_owners = (
-            ('archive', 'pub struct WorldEvent {', 'mod archive;'),
+            ('archive', 'pub struct WorldEvent {', 'pub mod archive;'),
             ('persist', 'pub struct WorldSnapshot {', 'pub(crate) mod persist;'),
             ('kernel_host', 'pub struct WorldKernel {', 'mod kernel_host;'),
         )
@@ -374,7 +374,7 @@ class Ownership(unittest.TestCase):
             self.assertEqual(host_deps['serde'], {'version': '1', 'features': ['derive']})
             self.assertEqual(host_deps['serde_json'], '1')
             simulator_module = (legacy_sim / 'mod.rs').read_text()
-            for name, signature, _ in archive_owners:
+            for name, signature, declaration in archive_owners:
                 self.assertIn(signature, (archive / (name + '.rs')).read_text())
                 self.assertIn(signature, (legacy_sim / (name + '.rs')).read_text())
                 self.assertIn('pub mod ' + name + ';', (archive / 'mod.rs').read_text())
@@ -382,10 +382,10 @@ class Ownership(unittest.TestCase):
                 self.assertIn('pub use oasis7_runtime_host::simulator_archive::' + name + '::*;',
                               (legacy_sim / facade).read_text())
                 self.assertNotIn(signature, (legacy_sim / facade).read_text())
-                self.assertIn('#[cfg(not(target_arch = "wasm32"))]\n#[path = "' + facade + '"]',
+                self.assertIn('#[cfg(not(target_arch = "wasm32"))]\n#[path = "' + facade + '"]\n' + declaration,
                               simulator_module)
-                self.assertRegex(simulator_module,
-                                 r'#\[cfg\(target_arch = "wasm32"\)\]\n(?:pub\(crate\) )?mod ' + name + r';')
+                self.assertIn('#[cfg(target_arch = "wasm32")]\n' + declaration,
+                              simulator_module)
             for name in ('archive_origin', 'codec', 'forwarding', 'journal_view'):
                 self.assertTrue((archive / 'kernel_host' / (name + '.rs')).is_file())
             self.assertIn('archive/tests.rs', (legacy_sim / 'archive_host_facade.rs').read_text())
