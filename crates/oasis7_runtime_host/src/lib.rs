@@ -7,6 +7,7 @@ pub mod gameplay_actions;
 pub mod gameplay_service;
 pub mod llm_request_budget;
 pub mod provider_json_shape;
+pub mod provider_transport_url;
 pub mod simulator_archive;
 
 #[path = "agent_execution/llm_agent/decision_flow/field_identity.rs"]
