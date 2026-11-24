@@ -3,7 +3,7 @@ use super::recovery_ledger::{
     RecoveryLedger, RecoveryLineage, assess_recovery_events, metric_summary,
 };
 use super::*;
-use oasis7::simulator::{
+use oasis7_runtime_host::agent_execution::{
     ContinuousAgentResponseContextV1, DecisionProvider, DecisionResponse, FeedbackEnvelopeV1,
     golden_decision_provider_fixtures,
 };

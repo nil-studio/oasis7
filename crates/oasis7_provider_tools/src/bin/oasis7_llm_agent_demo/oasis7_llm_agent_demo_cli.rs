@@ -5,12 +5,11 @@ use std::path::Path;
 use std::process;
 use std::time::Instant;
 
-use oasis7::simulator::{
-    AgentBehavior, AgentRunner, LlmAgentBehavior, OpenAiChatCompletionClient,
-    ProviderBackedAgentBehavior, ProviderLoopbackAdapter,
-};
+use oasis7::simulator::{LlmAgentBehavior, OpenAiChatCompletionClient};
 use oasis7_agent_api::{ActionCatalogEntry, ProviderExecutionMode};
-use oasis7_runtime_host::agent_execution::ActionResult;
+use oasis7_runtime_host::agent_execution::{
+    ActionResult, AgentBehavior, AgentRunner, ProviderBackedAgentBehavior, ProviderLoopbackAdapter,
+};
 use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
 use oasis7_runtime_host::simulator_archive::kernel_host::{WorldKernel, initialize_kernel};
 use oasis7_simulator::{

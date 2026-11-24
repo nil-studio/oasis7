@@ -12,16 +12,15 @@ use oasis7_node::{NodeCommittedActionBatchesHandle, NodeRuntime};
 use tracing::Level;
 
 use crate::geometry::space_distance_cm;
-use crate::simulator::{
-    AgentDecision, AgentDecisionTrace, AgentRunner, LlmAgentBehavior, LlmAgentBuildError,
-    LlmAgentConfig, OpenAiChatCompletionClient, RunnerMetrics, WorldEvent, WorldKernel,
-    WorldSnapshot, initialize_kernel,
-};
+use crate::simulator::{LlmAgentBehavior, LlmAgentBuildError, LlmAgentConfig, OpenAiChatCompletionClient};
 use oasis7_agent_api::world_action::ResourceKind;
-use oasis7_runtime_host::agent_execution::ActionResult;
+use oasis7_runtime_host::agent_execution::{ActionResult, AgentRunner};
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+use oasis7_runtime_host::simulator_archive::kernel_host::{WorldKernel, initialize_kernel};
+use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;
 use oasis7_simulator::{
-    Action, ActionSubmitter, AgentPromptProfile, PromptUpdateOperation, ResourceOwner, WorldConfig,
-    WorldEventKind, WorldInitConfig, WorldInitError, WorldScenario,
+    Action, ActionSubmitter, AgentDecision, AgentDecisionTrace, AgentPromptProfile, PromptUpdateOperation, ResourceOwner, WorldConfig,
+    RunnerMetrics, WorldEventKind, WorldInitConfig, WorldInitError, WorldScenario,
 };
 
 #[path = "live/consensus_bridge.rs"]
