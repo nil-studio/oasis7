@@ -41,7 +41,12 @@ impl<R: ValueNodeReader> ValueNodeReader for Counted<'_, R> {
     }
 }
 pub(super) fn fixed_scalar_receiver_cost_excludes_unchanged_text_and_vectors() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let mut observed = Vec::new();
         for (text_bytes, tags) in [(8_000, 4), (420_000, 64)] {
             let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();

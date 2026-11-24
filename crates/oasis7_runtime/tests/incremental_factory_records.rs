@@ -464,7 +464,12 @@ fn seed(
 }
 #[test]
 fn full_factory_and_build_source_oracle_survives_cold_roots() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let dir = Directory::new();
         let path = dir.0.join("pages");
         let (source, factory, build) = source();

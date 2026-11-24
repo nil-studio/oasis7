@@ -567,7 +567,12 @@ fn unsigned_cell(
 
 #[test]
 fn artifact_roots_and_typed_member_read_survive_raw_and_zstd_reopen() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let (canonical, _producer_memory) = roots(&path, compression, None);
@@ -673,7 +678,12 @@ fn artifact_roots_and_typed_member_read_survive_raw_and_zstd_reopen() {
 
 #[test]
 fn material_ledger_identity_and_empty_group_survive_nested_cold_read() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let mut manifest = ChainResourceManifest::empty_at_height("world", 9, 0);
         let ledger_id = MaterialLedgerId::agent("agent-1");
         let material = String::from("ore\0λ");
