@@ -44,7 +44,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   - SC-14: 专业职责按需参考 `.agents/roles/*.md`；根 `AGENTS.md` 保留必要规则与导航，不规定固定角色数量。
   - SC-15: 协作交接复用 Issue/PR 的已有内容，补充必要上下文、允许范围和期望结果；可参考 `.agents/roles/templates/handoff-brief.md`，不强制模板或回执。
   - SC-16: `AGENTS.md` 与开发流程规范一致，简单任务由当前会话完成，并行代码开发默认使用多个独立会话；每项负责人完成实现、自测与 PR/CI 跟进，专业角色按需参考。
-  - SC-20: `engineering` 模块治理专题标题对外统一使用 `oasis7` 品牌，不再在活跃/历史治理入口中混用 `oasis7` 标题。
+  - SC-20: `engineering` 模块治理专题标题对外统一使用 `oasis7` 品牌，不再在活跃/历史治理入口中混用旧品牌标题。
   - SC-24D: 可按需使用仓库的 review-thread 工具查询线程或显式 resolve，并回读实际结果；线程关闭只证明讨论状态，是否合入按[开发流程规范](workflow/source-of-truth.md#42-评审与合入)核对当前版本、检查、评审和用户限制。
   - SC-24G（历史）：旧 `.pm/**` 冲突分类与 canonical task/memory/stage 模型仅保留历史含义。当前冲突按 Git 真实改动处置，保留用户资料，不恢复退休文件或任务身份；main 前进本身不要求 rebase 或重测。
   - SC-29: 文档阅读面遵循现有[文档组织规范](doc-governance/doc-structure-standard.design.md)中的职责、权威、生命周期与入口规则；高密度模块的默认阅读面只保留理解当前能力、入口、下一步和风险所需内容，历史材料按需追溯。
