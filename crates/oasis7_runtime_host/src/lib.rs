@@ -2,6 +2,7 @@
 pub mod bootstrap;
 pub mod gameplay_actions;
 pub mod gameplay_service;
+pub mod provider_json_shape;
 pub mod simulator_archive;
 
 #[path = "agent_execution/llm_agent/decision_flow/field_identity.rs"]
