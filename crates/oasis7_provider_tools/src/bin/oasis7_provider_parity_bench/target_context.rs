@@ -3,10 +3,11 @@ use oasis7::simulator::{
     GoalSnapshotInputV1, GoalSnapshotProjector,
 };
 use oasis7_agent_api::{
-    BudgetContractV1, CapabilityInvocationContext, ContinuationBudgetV1, ContinuationProposalV1,
-    Digest32, MemoryContextSnapshotV1, RuntimeBindingV1, WakeConditionV1,
-    COGNITION_CAPABILITY_CATALOG_DOMAIN, COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
-    CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION, h_v1,
+    BudgetContractV1, COGNITION_CAPABILITY_CATALOG_DOMAIN,
+    COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR,
+    CONTINUOUS_AGENT_CONTEXT_VERSION, CapabilityInvocationContext, ContinuationBudgetV1,
+    ContinuationProposalV1, Digest32, MemoryContextSnapshotV1, RuntimeBindingV1, WakeConditionV1,
+    h_v1,
 };
 use oasis7_simulator::Observation;
 use oasis7_wasm_abi::CapabilityCatalogSnapshot;
@@ -323,7 +324,10 @@ mod native_cognition_type_identity_tests {
 
     #[test]
     fn parity_cognition_wire_types_are_the_canonical_agent_api_types() {
-        assert_eq!(TypeId::of::<Digest32>(), TypeId::of::<oasis7::simulator::Digest32>());
+        assert_eq!(
+            TypeId::of::<Digest32>(),
+            TypeId::of::<oasis7::simulator::Digest32>()
+        );
         assert_eq!(
             TypeId::of::<RuntimeBindingV1>(),
             TypeId::of::<oasis7::simulator::RuntimeBindingV1>(),
