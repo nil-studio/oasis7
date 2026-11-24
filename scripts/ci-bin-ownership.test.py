@@ -790,7 +790,10 @@ class Ownership(unittest.TestCase):
                 actual = rust.read_text()
                 self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
                 self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
-                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_generated_sidecar_runtime_world', actual, str(rust))
+                # Chain must retire the direct legacy edge in this slice. The
+                # Viewer compatibility export is removed and checked in #6786.
+                if package == 'oasis7_chain_runtime':
+                    self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_generated_sidecar_runtime_world', actual, str(rust))
         host = manifest('oasis7_runtime_host')['dependencies']
         self.assertIn('oasis7_simulator', host)
         self.assertNotIn('oasis7', host)
