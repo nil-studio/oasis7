@@ -26,6 +26,10 @@ mod llm_agent;
 mod memory;
 #[cfg(not(target_arch = "wasm32"))]
 mod model_provider;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod persist;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "persist_host_facade.rs"]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod provider_json_admission;
@@ -281,10 +285,18 @@ pub use oasis7_simulator::{
     merge_kernel_rule_decisions,
 };
 
+#[cfg(target_arch = "wasm32")]
+pub mod archive;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "archive_host_facade.rs"]
 pub mod archive;
 pub use archive::WorldSnapshotExtensions;
 pub use oasis7_simulator::{KernelEvent, KernelJournal, KernelSnapshot};
 
+#[cfg(target_arch = "wasm32")]
+mod kernel_host;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "kernel_host_host_facade.rs"]
 mod kernel_host;
 pub use archive::WorldEvent;
 pub use kernel_host::{WorldEventRef, WorldJournalView};

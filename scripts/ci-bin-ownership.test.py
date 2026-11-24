@@ -201,6 +201,32 @@ class Ownership(unittest.TestCase):
             {'path': '../oasis7_runtime', 'default-features': False},
         )
 
+    def test_composite_archive_native_owner_and_legacy_consumer_contracts(self):
+        """Historical archive belongs to L4, while the wasm legacy branch is preserved."""
+        native = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+        for component, signature in (
+            ('kernel_host.rs', 'pub struct WorldKernel {'),
+            ('persist.rs', 'pub struct WorldSnapshot {'),
+            ('archive.rs', 'pub struct WorldEvent {'),
+        ):
+            self.assertIn(signature, (native / component).read_text())
+        deps = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', deps)
+        self.assertIn('oasis7_runtime', deps)
+        self.assertNotIn('oasis7', deps)
+        old = ROOT / 'crates/oasis7/src/simulator'
+        for file, native_path in (
+            ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+            ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+        ):
+            self.assertIn(native_path, (old / file).read_text())
+        self.assertIn('archive/retention_tests.rs', (old / 'archive_host_facade.rs').read_text())
+        mod = (old / 'mod.rs').read_text()
+        self.assertIn('#[cfg(target_arch = "wasm32")]', mod)
+        for x in ('archive_host_facade.rs', 'persist_host_facade.rs', 'kernel_host_host_facade.rs'):
+            self.assertIn(x, mod)
+
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
         self.assertIs(core['package']['autobins'], False)
