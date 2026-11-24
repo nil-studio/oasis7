@@ -2,18 +2,20 @@
   "fast_scope_version": 1,
   "ordinary_dynamic_partition_version": 1,
   "custody_node_shards_version": 2,
-  "contract_job_consolidation_version": 4,
-  "ordinary_scope_config_slice_version": 1,
+  "contract_job_consolidation_version": 5,
+  "ordinary_scope_config_slice_version": 2,
   "standalone_cargo_manifest_scope_version": 1,
-  "workspace_support_direct_gate_version": 1,
+  "workspace_support_direct_gate_version": 2,
   "group_jobs": {
     "codex_agent_config_validation": "baseline",
     "macos_package_contract": "baseline",
-    "compile_metrics": "doc-checker-contracts",
+    "doc_checker_contracts": "baseline",
+    "compile_metrics": "baseline",
     "consensus": "node",
     "pixel_world_bridge": "scenario-regression",
     "viewer_performance_report": "viewer-js-required",
-    "packaging_contracts": "doc-checker-contracts",
+    "site_quality": "viewer-js-required",
+    "packaging_contracts": "baseline",
     "cargo_tooling_contracts": "scenario-regression",
     "windows_rollout": "fleet-health",
     "operational_contracts": "workflow-governance"
@@ -1258,6 +1260,7 @@
     ".github/workflows/native-cache-diagnostic.yml": ["workflow_governance"],
     ".github/workflows/newapi-bridge-service-package.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/pages.yml": ["workflow_governance", "site_quality"],
+    ".github/workflows/pr-boundary-gate.yml": ["workflow_governance"],
     ".github/workflows/pr-fast-preview.yml": ["workflow_governance"],
     ".github/workflows/release-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/rust-cache.yml": ["workflow_governance", "packaging_contracts"],
@@ -2711,6 +2714,15 @@
       "match": ["scripts/wasm-summary-bundle-smoke.sh"],
       "groups": ["packaging_contracts"],
       "reason": "wasm_summary_bundle_fixture_consumer"
+    },
+    {
+      "match": [
+        "scripts/check-pr-boundaries.sh"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "pr_boundary_gate"
     }
   ]
 }

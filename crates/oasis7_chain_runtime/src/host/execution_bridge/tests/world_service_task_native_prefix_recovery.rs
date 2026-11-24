@@ -113,6 +113,7 @@ impl ModelProvider for NoInference {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn native_prefix_pending_stops_without_resubmit_then_recovers_exact_committed_original() {
     let _slot = prepared_world_probe_slot();

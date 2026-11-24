@@ -479,8 +479,8 @@ run() {
     def test_exact_consumer_variants_are_compiled_without_executing_tests(self):
         legacy = {compile_context(call) for call in self.frozen_full_and_legacy_calls()}
         # Preserve the historical driver byte-for-byte. The current complete
-        # inventory additionally owns the extracted leaf and native runtime host
-        # in all four original whole-package feature/target combinations.
+        # inventory additionally owns the extracted leaves in all four original
+        # whole-package feature/target combinations.
         whole_package = {context for context in legacy
                          if 'oasis7' in context[1] and 'oasis7_chain_runtime' in context[1]}
         self.assertEqual(len(whole_package), 4)

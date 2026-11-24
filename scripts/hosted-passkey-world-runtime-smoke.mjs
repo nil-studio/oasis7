@@ -2,7 +2,7 @@
 // Disposable loopback runtime + real HTTP/WebAuthn adapter contract evidence.
 // Virtual authenticators and the debug minimal world do not certify gameplay.
 import assert from 'node:assert/strict';
-import { loadPlaywright } from './playwright-module-loader.mjs';
+import { browserExecutablePath, fullBrowserLaunchOptions, loadPlaywright } from './playwright-module-loader.mjs';
 import { mkdtempSync, writeFileSync, readFileSync, openSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -176,7 +176,7 @@ try {
     }
   }));
   browser = await loadPlaywright(import.meta.url).chromium.launch({
-    channel: 'chrome',
+    ...fullBrowserLaunchOptions(browserExecutablePath()),
     headless: true
   });
   async function client(credential) {
