@@ -6884,6 +6884,10 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 5,
             },
+            '.github/workflows/pr-fast-preview.yml': {
+                'pr-fast-preview-plan': 5,
+                'pr-fast-preview': 20,
+            },
             '.github/workflows/command-center.yml': {
                 'desktop': 16,
             },
@@ -6906,19 +6910,22 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'publish-preview': 10,
             },
             '.github/workflows/newapi-bridge-service-package.yml': {
-                'package-linux-x86-64': 15,
+                'package-linux-x86-64': 10,
             },
             '.github/workflows/hosted-login-linux-build.yml': {
                 'build-linux-x86-64': 45,
+                'build-viewer': 12,
+                'assemble': 5,
             },
             '.github/workflows/ci-base-images.yml': {
                 'build': 40,
-                'publish': 15,
+                'publish': 10,
             },
             '.github/workflows/native-cache-diagnostic.yml': {
                 'diagnose': 35,
             },
             '.github/workflows/storage-acceptance.yml': {
+                'build-components': 150,
                 'build': 10,
                 'verify': 130,
                 'attempt-release-reference': 50,
@@ -6954,20 +6961,20 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
         expected_limits = {
             '.github/workflows/testnet-packages.yml': {
                 'plan': 5,
-                'build-web-dist': 35,
+                'build-web-dist': 25,
                 'package-native': 180,
                 'package-native-trusted': 180,
                 'package-installers': 120,
             },
             '.github/workflows/mainnet-packages.yml': {
                 'plan': 5,
-                'release_gate_runtime_core': 60,
-                'release_gate_runtime_support': 60,
-                'release_gate_runtime_sync': 60,
-                'release_gate_web': 35,
-                'release_gate_soak': 45,
+                'release_gate_runtime_core': 40,
+                'release_gate_runtime_support': 25,
+                'release_gate_runtime_sync': 35,
+                'release_gate_web': 25,
+                'release_gate_soak': 25,
                 'release_gate': 5,
-                'build-web-dist': 35,
+                'build-web-dist': 20,
                 'package-native': 180,
                 'package-index': 5,
             },
@@ -6975,13 +6982,13 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                 'cache-bootstrap-maintenance': 5,
                 'cache-maintenance': 5,
                 'plan': 5,
-                'release_gate_runtime_core': 60,
-                'release_gate_runtime_support': 60,
-                'release_gate_runtime_sync': 60,
-                'release_gate_web': 35,
-                'release_gate_soak': 45,
+                'release_gate_runtime_core': 40,
+                'release_gate_runtime_support': 25,
+                'release_gate_runtime_sync': 35,
+                'release_gate_web': 25,
+                'release_gate_soak': 25,
                 'release_gate': 5,
-                'build-web-dist': 35,
+                'build-web-dist': 20,
                 'package-native': 180,
                 'publish-release': 10,
             },
@@ -7016,7 +7023,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'operational-contracts': 12,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
-                'collect-wasm-summaries': 30,
+                'collect-wasm-summaries': 22,
             },
         }
         for rel_path, limits in expected_limits.items():
