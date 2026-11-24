@@ -8,9 +8,9 @@ use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1,
 };
 use super::decision_provider::MemoryWriteIntent;
-use oasis7_simulator::{Observation, WorldTime};
 #[cfg(target_arch = "wasm32")]
 use oasis7_simulator::{Action, ActionId, RejectReason, WorldEventKind};
+use oasis7_simulator::{Observation, WorldTime};
 
 // ============================================================================
 // Agent Interface (observe → decide → act)
@@ -130,7 +130,6 @@ pub use oasis7_simulator::{
     LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics, LlmEffectIntentTrace,
     LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace, MicroDepotQuoteRequest,
 };
-
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use oasis7_runtime_host::agent_execution::ActionResult;

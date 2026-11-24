@@ -58,7 +58,10 @@ mod canonical_contract_owner_tests {
         use oasis7_runtime_host::agent_execution as native;
         use std::any::TypeId;
 
-        assert_eq!(TypeId::of::<ActionResult>(), TypeId::of::<native::ActionResult>());
+        assert_eq!(
+            TypeId::of::<ActionResult>(),
+            TypeId::of::<native::ActionResult>()
+        );
         assert_eq!(
             TypeId::of::<dyn AgentBehavior>(),
             TypeId::of::<dyn native::AgentBehavior>()

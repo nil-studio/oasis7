@@ -8,16 +8,19 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use oasis7::simulator::{
-    ActionResult, AgentBehavior, AgentRunner, ContinuousAgentRequestContextV1,
+    AgentBehavior, AgentRunner, ContinuousAgentRequestContextV1,
     ContinuousAgentTurnContextV1, LlmAgentBehavior, MockDecisionProvider,
     OpenAiChatCompletionClient, ProviderCompatibilityStatus, ProviderLoopbackAdapter,
-    ProviderLoopbackHttpClient, WorldEvent, evaluate_provider_compatibility, initialize_kernel,
-    provider_phase1_required_actions, provider_phase1_required_capabilities,
+    ProviderLoopbackHttpClient, evaluate_provider_compatibility, provider_phase1_required_actions,
+    provider_phase1_required_capabilities,
 };
 use oasis7_agent_api::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
     ProviderExecutionMode,
 };
+use oasis7_runtime_host::agent_execution::ActionResult;
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+use oasis7_runtime_host::simulator_archive::kernel_host::initialize_kernel;
 use oasis7_simulator::{
     AgentDecision, AgentDecisionTrace, Observation, RuntimePerfSnapshot, WorldConfig,
     WorldInitConfig, WorldScenario,
