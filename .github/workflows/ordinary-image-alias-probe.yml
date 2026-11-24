@@ -1,0 +1,322 @@
+name: Ordinary Image Alias Probe
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+cache-mode: none
+concurrency:
+  group: ordinary-image-alias-probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+env:
+  CODE_SHA: c0b2bed7a18350fcb915aa55b4462f0eccb5ba05
+  CONTROLLER_SHA: ${{ github.event.pull_request.head.sha }}
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  PYTHONDONTWRITEBYTECODE: "1"
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
+  CARGO_NET_RETRY: 10
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_TOOLCHAIN: 1.96.0
+  TRUNK_VERSION: 0.21.14
+  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+  OASIS7_WASM_TARGET: wasm32-unknown-unknown
+  OASIS7_WASM_BUILD_STD: "1"
+  OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+jobs:
+  produce:
+    if: >-
+      github.repository == 'nil-studio/oasis7' && github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/engineering-ordinary-image-alias-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    cache-mode: read
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    env:
+      ORDINARY_BUILD_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+      ORDINARY_ARTIFACT_CHECKOUT: /home/runner/work/oasis7/oasis7
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CODE_SHA }}
+          persist-credentials: false
+      - name: Run frozen production path and tool preflight without main authorization
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$CODE_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os, re, subprocess, textwrap
+          canonical = Path('/home/runner/work/oasis7/oasis7')
+          source = (canonical / '.github/workflows/rust.yml').read_text()
+          job = source.split('  oasis7-test-build-trusted:\n', 1)[1].split('\n  formal-debug-build:', 1)[0]
+          image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c'
+          assert '      image: ' + image + '\n' in job
+          assert '        - ' + str(canonical) + ':' + str(canonical) + '\n' in job
+          match = re.search(r'^      - name: Verify trusted ordinary image and source\n        run: \|\n(.*?)(?=^      - |\Z)', job, re.M | re.S)
+          assert match
+          script = textwrap.dedent(match[1])
+          for guard in ('test "$GITHUB_REF" = refs/heads/main\n', 'test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"\n'):
+              assert script.count(guard) == 1
+              script = script.replace(guard, '', 1)
+          old = 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"\n'
+          assert script.count(old) == 1
+          script = script.replace(old, 'test "$(git rev-parse HEAD)" = "$CODE_SHA"\n', 1)
+          path = Path(os.environ['RUNNER_TEMP']) / 'ordinary-production-preflight-probe.sh'
+          path.write_text(script)
+          path.chmod(0o600)
+          result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', str(path)],
+                                  text=True, capture_output=True)
+          print(result.stdout, end='')
+          print(result.stderr, end='')
+          assert result.returncode == 0, result.returncode
+          records = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
+          assert len(records) == 1 and records[0]['same_directory'] is True
+          assert records[0]['checkout'] == str(canonical) and records[0]['image'] == image
+          out = canonical / 'output/ordinary-image-probe'
+          out.mkdir(parents=True)
+          (out / 'preflight.json').write_text(json.dumps(dict(diagnostic_only=True, probe_only=True,
+              main_authorization_exercised=False, source_sha=os.environ['CODE_SHA'],
+              controller_sha=os.environ['CONTROLLER_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
+              attempt=os.environ['GITHUB_RUN_ATTEMPT'], mapping=records[0]), sort_keys=True))
+          PY
+      - name: Configure the same pinned mold backend without tool cache writes
+        run: python3 .github/actions/setup-linux-mold/setup.py --json > output/ordinary-image-probe/mold.json
+      - name: Stabilize the same Rust cache toolchains
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        id: readonly-cache
+        with:
+          shared-key: ci-ordinary-image-f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-provider: github
+          save-if: false
+          cache-on-failure: false
+      - name: Compile only the tiny existing ordinary fixture and seal its bundle
+        env:
+          CACHE_HIT: ${{ steps.readonly-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          test "$(pwd -P)" = /home/runner/work/oasis7/oasis7
+          test "$ORDINARY_ARTIFACT_CHECKOUT" = /home/runner/work/oasis7/oasis7
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, importlib.util, json, os, re, shutil, stat, subprocess, sys, tarfile, tempfile
+          canonical = Path('/home/runner/work/oasis7/oasis7')
+          assert Path.cwd() == canonical
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['CODE_SHA']
+          out = canonical / 'output/ordinary-image-probe'
+          temporary = canonical / 'output/ordinary-probe-tmp'
+          temporary.mkdir(mode=0o700)
+          os.environ['TMPDIR'] = str(temporary)
+          os.environ['CARGO_NET_OFFLINE'] = 'true'
+          tempfile.tempdir = None
+          spec = importlib.util.spec_from_file_location('ordinary_probe_fixture', canonical / 'scripts/ci-formal-process.test.py')
+          fixture_module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(fixture_module)
+          fixture = fixture_module.TargetedArtifactProcess
+          try:
+              fixture.setUpClass()
+              relative = fixture.root.relative_to(canonical).as_posix()
+              assert re.fullmatch(r'output/ordinary-probe-tmp/tmp[a-zA-Z0-9_-]+', relative)
+              manifest = json.loads((fixture.consumer / 'manifest.json').read_text())
+              assert manifest['checkout'] == str(fixture.root)
+              assert manifest['image'] == os.environ['ORDINARY_BUILD_IMAGE']
+              assert manifest['source_sha'] == fixture.sha and manifest['tested_sha'] == fixture.sha
+              assert manifest['producer_run_id'] == os.environ['GITHUB_RUN_ID']
+              assert manifest['producer_attempt'] == os.environ['GITHUB_RUN_ATTEMPT']
+              assert manifest['rustc_version'].startswith('rustc 1.96.0 ')
+              assert len(manifest['binaries']) == 4
+              for binary in manifest['binaries'].values():
+                  assert (fixture.consumer / binary['path']).read_bytes().startswith(b'\x7fELF')
+                  assert Path(binary['original_executable']).is_relative_to(fixture.root / 'target')
+              mapped_target = Path(os.environ['GITHUB_WORKSPACE']) / relative / 'target'
+              native_target = fixture.root / 'target'
+              assert (mapped_target.stat().st_dev, mapped_target.stat().st_ino) == (native_target.stat().st_dev, native_target.stat().st_ino)
+              target = canonical / 'target'
+              target.mkdir(exist_ok=True)
+              sentinel = target / 'ordinary-image-probe-path'
+              sentinel.write_text(os.environ['CODE_SHA'])
+              default_target = Path(os.environ['GITHUB_WORKSPACE']) / 'target'
+              assert (target.stat().st_dev, target.stat().st_ino) == (default_target.stat().st_dev, default_target.stat().st_ino)
+              assert (default_target / sentinel.name).read_text() == os.environ['CODE_SHA']
+              shutil.copyfile(fixture.root / 'ordinary.tar.gz', out / 'bundle.tar.gz')
+              (out / 'plan.json').write_text(json.dumps(fixture.selected, sort_keys=True))
+              with tarfile.open(out / 'fixture.tar.gz', 'w:gz') as compressed:
+                  for path in sorted(fixture.root.rglob('*')):
+                      item = path.relative_to(fixture.root)
+                      if item.parts[0] in ('target', 'bundle', 'consumer', 'ordinary.tar.gz'):
+                          continue
+                      assert not path.is_symlink() and (path.is_file() or path.is_dir())
+                      compressed.add(path, arcname=item.as_posix(), recursive=False)
+              digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+              receipt = dict(diagnostic_only=True, probe_only=True, production_acceptance=False,
+                  main_writer_exercised=False, source_sha=os.environ['CODE_SHA'],
+                  controller_sha=os.environ['CONTROLLER_SHA'], workflow_sha=os.environ['GITHUB_WORKFLOW_SHA'],
+                  run_id=os.environ['GITHUB_RUN_ID'], attempt=os.environ['GITHUB_RUN_ATTEMPT'],
+                  image=os.environ['ORDINARY_BUILD_IMAGE'], checkout=str(canonical), fixture_relative=relative,
+                  fixture_sha=fixture.sha, manifest_sha256=digest(fixture.consumer / 'manifest.json'),
+                  files={name: digest(out / name) for name in ('bundle.tar.gz', 'fixture.tar.gz', 'plan.json', 'preflight.json', 'mold.json')},
+                  cache_read_only=True, cache_hit=os.environ.get('CACHE_HIT', ''),
+                  default_workspace=os.environ['GITHUB_WORKSPACE'], target_device=target.stat().st_dev,
+                  target_inode=target.stat().st_ino, fixture_target_same_inode=True,
+                  action_target_same_inode=True, binaries=len(manifest['binaries']))
+              assert receipt['cache_hit'] in ('', 'true', 'false')
+              (out / 'receipt.json').write_text(json.dumps(receipt, sort_keys=True))
+              print(json.dumps(receipt, sort_keys=True))
+          finally:
+              fixture.doClassCleanups()
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: upload
+        with:
+          name: ordinary-image-alias-probe
+          path: output/ordinary-image-probe/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 2
+  consume-on-host:
+    needs: produce
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CODE_SHA }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.produce.outputs.artifact_id }}
+          path: output/ordinary-image-probe/
+      - name: Verify hashes and strict host checkout then execute without compilers
+        run: |
+          set -euo pipefail
+          test "$(pwd -P)" = /home/runner/work/oasis7/oasis7
+          test "$GITHUB_WORKSPACE" = /home/runner/work/oasis7/oasis7
+          test "$(git rev-parse HEAD)" = "$CODE_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, os, re, shutil, stat, subprocess, sys, tarfile
+          canonical = Path('/home/runner/work/oasis7/oasis7')
+          out = canonical / 'output/ordinary-image-probe'
+          receipt = json.loads((out / 'receipt.json').read_text())
+          assert receipt['diagnostic_only'] is True and receipt['probe_only'] is True
+          assert receipt['production_acceptance'] is False and receipt['main_writer_exercised'] is False
+          for key, value in dict(source_sha=os.environ['CODE_SHA'], controller_sha=os.environ['CONTROLLER_SHA'],
+                  run_id=os.environ['GITHUB_RUN_ID'], attempt=os.environ['GITHUB_RUN_ATTEMPT'], checkout=str(canonical),
+                  image='ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c').items():
+              assert receipt[key] == value, key
+          assert receipt['cache_read_only'] is True and receipt['action_target_same_inode'] is True
+          assert receipt['fixture_target_same_inode'] is True
+          assert re.fullmatch(r'output/ordinary-probe-tmp/tmp[a-zA-Z0-9_-]+', receipt['fixture_relative'])
+          assert re.fullmatch(r'[0-9a-f]{40}', receipt['fixture_sha'])
+          digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+          assert set(receipt['files']) == {'bundle.tar.gz', 'fixture.tar.gz', 'plan.json', 'preflight.json', 'mold.json'}
+          for name, expected in receipt['files'].items():
+              assert digest(out / name) == expected, name
+          fixture = canonical / receipt['fixture_relative']
+          fixture.mkdir(parents=True)
+          assert not (fixture / 'target').exists()
+          bundle = out / 'bundle'
+          bundle.mkdir()
+          def unpack(path, destination):
+              with tarfile.open(path) as compressed:
+                  members = compressed.getmembers()
+                  assert len(members) <= 512 and sum(member.size for member in members) <= 64 * 1024 * 1024
+                  names = set()
+                  for member in members:
+                      name = Path(member.name)
+                      assert not name.is_absolute() and '..' not in name.parts and member.name not in names
+                      assert member.isdir() or member.isfile()
+                      assert not member.mode & 0o6000
+                      names.add(member.name)
+                  compressed.extractall(destination, filter='data')
+          unpack(out / 'fixture.tar.gz', fixture)
+          unpack(out / 'bundle.tar.gz', bundle)
+          assert subprocess.check_output(['git', '-C', str(fixture), 'rev-parse', 'HEAD'], text=True).strip() == receipt['fixture_sha']
+          manifest = json.loads((bundle / 'manifest.json').read_text())
+          assert digest(bundle / 'manifest.json') == receipt['manifest_sha256']
+          assert manifest['checkout'] == str(fixture) and manifest['image'] == receipt['image']
+          assert len(manifest['binaries']) == receipt['binaries'] == 4
+          for binary in manifest['binaries'].values():
+              assert not Path(binary['original_executable']).exists()
+          mold = json.loads((out / 'mold.json').read_text())
+          assert mold['version'] == '3.0.0'
+          assert mold['linker'] == '/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc'
+          for binary in manifest['binaries'].values():
+              assert (bundle / binary['path']).read_bytes().startswith(b'\x7fELF')
+          tools = out / 'blocked-compilers'
+          tools.mkdir()
+          unexpected = out / 'unexpected-compiler'
+          for tool in ('cargo', 'rustc', 'rustup'):
+              path = tools / tool
+              path.write_text('#!' + sys.executable + '\nfrom pathlib import Path\n'
+                              + 'Path(' + repr(str(unexpected)) + ').write_text("unexpected compiler")\nraise SystemExit(97)\n')
+              path.chmod(0o755)
+          environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'],
+              SOURCE_SHA=receipt['fixture_sha'], FIXTURE_PYTHON=sys.executable)
+          command = [sys.executable, str(canonical / 'scripts/ci-test-artifacts.py'), 'run',
+              '--repo-root', str(fixture), '--bundle', str(bundle), '--suite', 'ordinary', '--plan', str(out / 'plan.json')]
+          plan = json.loads((out / 'plan.json').read_text())
+          records = []
+          for owner in ['baseline', *plan['ordinary_partitions'][1:]]:
+              markers = out / ('markers-baseline' if owner == 'baseline' else 'markers-partitioned')
+              markers.mkdir(exist_ok=True)
+              result = out / (owner + '.jsonl')
+              arguments = command + ['--results', str(result)]
+              if owner != 'baseline':
+                  arguments += ['--ordinary-partition', owner]
+              subprocess.run(arguments, env=environment | {'FIXTURE_RECORDS': str(markers)}, check=True)
+              entries = [json.loads(line) for line in result.read_text().splitlines()]
+              assert entries and all(entry['passed'] and entry['count_ok'] and entry['cleanup_result'] == 'clean'
+                                     and not entry['timeout'] and not entry['leaked_processes'] for entry in entries)
+              records.append((owner, sum(entry['expected_count'] for entry in entries)))
+          assert records[0][1] == sum(count for _, count in records[1:])
+          assert (out / 'markers-baseline/complete_integration').is_file()
+          assert (out / 'markers-partitioned/complete_integration').is_file()
+          assert not unexpected.exists()
+          report = dict(diagnostic_only=True, probe_only=True, production_acceptance=False,
+              source_sha=os.environ['CODE_SHA'], controller_sha=os.environ['CONTROLLER_SHA'],
+              run_id=os.environ['GITHUB_RUN_ID'], attempt=os.environ['GITHUB_RUN_ATTEMPT'],
+              receipt_sha256=digest(out / 'receipt.json'), fixture_checkout=str(fixture), fixture_sha=receipt['fixture_sha'],
+              strict_loader=True, compiled_manifest_dir_and_bin_exe_passed=True, compiler_called=False,
+              action_target_same_inode=receipt['action_target_same_inode'], owners=records)
+          (out / 'host-receipt.json').write_text(json.dumps(report, sort_keys=True))
+          print(json.dumps(report, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: ordinary-image-alias-host-receipt
+          path: |
+            output/ordinary-image-probe/host-receipt.json
+            output/ordinary-image-probe/*.jsonl
+          if-no-files-found: error
+          retention-days: 2
