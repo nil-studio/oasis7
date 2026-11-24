@@ -383,6 +383,9 @@ class Ownership(unittest.TestCase):
         self.assertEqual(set(host_deps), {
             'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
             'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+            # The archive-bearing Host now owns real persisted JSON types and
+            # reuses the original Harness memory correction wire contract.
+            'oasis7_agent_harness', 'serde', 'serde_json',
         })
         self.assertNotIn('oasis7', host_deps)
         for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):

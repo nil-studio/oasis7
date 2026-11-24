@@ -104,5 +104,3 @@ impl WorldEvent {
         }
     }
 }
-
-
