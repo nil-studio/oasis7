@@ -806,16 +806,28 @@ else: record([name, *a])
 
     @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('gcc') and shutil.which('strip'),
                          'requires Linux gcc and strip')
-    def test_pack_strips_elf_debug_sections_without_mutating_source_binary_and_preserves_restore(self):
+    def test_pack_strips_unneeded_elf_symbols_and_zlib_compresses_without_mutating_source(self):
+        # Match hosted CI (`CARGO_PROFILE_TEST_DEBUG=0`): compile with `-g0` (no DWARF)
+        # plus realistic symbol/code payload so both `--strip-unneeded` and zlib compression
+        # are exercised against the real server failure mode.
         c_source = Path(self.temporary.name) / 'fixture.c'
+        funcs = '\n'.join(
+            f'int custody_verbose_symbol_entry_{i:04d}(int x) {{ return (x * 31) ^ {i}; }}'
+            for i in range(600)
+        )
+        calls = '+'.join(f'custody_verbose_symbol_entry_{i:04d}(0)' for i in range(600))
         c_source.write_text(
-            'int custody_symbol_anchor(int x) { return x + 7; }\n'
-            'int main(void) { return custody_symbol_anchor(0) - 7; }\n'
+            f'{funcs}\n'
+            f'int main(void) {{ return ({calls}) == -999999 ? 1 : 0; }}\n'
         )
         elf_binary = self.root / 'target/native-elf'
-        subprocess.run(['gcc', '-g', '-O0', str(c_source), '-o', str(elf_binary)], check=True)
+        subprocess.run(['gcc', '-g0', '-O0', str(c_source), '-o', str(elf_binary)], check=True)
         source_size = elf_binary.stat().st_size
         source_digest = C.digest(elf_binary)
+        if shutil.which('readelf'):
+            before_sections = subprocess.check_output(['readelf', '-S', str(elf_binary)], text=True)
+            self.assertNotIn('.debug_info', before_sections)
+            self.assertIn('.symtab', before_sections)
         (self.worker / 'artifacts/native-test-binary.txt').write_text(str(elf_binary) + '\n')
 
         bundle = Path(self.temporary.name) / 'stripped-native-bundle'
@@ -824,15 +836,12 @@ else: record([name, *a])
         # Source binary inside target/ must remain byte-for-byte untouched.
         self.assertEqual(elf_binary.stat().st_size, source_size)
         self.assertEqual(C.digest(elf_binary), source_digest)
-        # Staged bundle binary must drop DWARF sections, shrink, keep symbol table, and execute cleanly.
-        self.assertLess(staged.stat().st_size, source_size)
-        if shutil.which('readelf'):
-            sections = subprocess.check_output(['readelf', '-S', str(staged)], text=True)
-            self.assertNotIn('.debug_info', sections)
-            self.assertIn('.symtab', sections)
-        subprocess.run([str(staged)], check=True)
-        # Manifest digests must match the stripped bundle and pass check_bundle + restore.
+
         native_entry = next(row for row in manifest['files'] if row['path'] == 'bin/native')
+        self.assertEqual(native_entry['encoding'], 'zlib')
+        # `--strip-unneeded` shrinks raw_size below `-g0` source_size, and zlib shrinks staged size further.
+        self.assertLess(native_entry['raw_size'], source_size)
+        self.assertLess(staged.stat().st_size, native_entry['raw_size'])
         self.assertEqual(native_entry['size'], staged.stat().st_size)
         self.assertEqual(native_entry['sha256'], C.digest(staged))
         C.check_bundle(self.root, self.plan, 'native', bundle, '71', 2)
@@ -842,12 +851,42 @@ else: record([name, *a])
             other = Path(self.temporary.name) / f'stripped-{component}'
             C.pack(self.root, self.plan, component, other, '71', 2)
             bundles[component] = other
+
+        # Tampered raw_sha256, raw_size, corrupt zlib bytes, or trailing garbage must fail atomically before creating artifacts/.
         consumer = Path(self.temporary.name) / 'stripped-consumer'
-        shutil.copytree(self.root, consumer)
-        shutil.rmtree(consumer / 'crates/oasis7_custody_worker/artifacts')
+        shutil.copytree(self.root, consumer, ignore=shutil.ignore_patterns('artifacts', 'target'))
+        original_manifest = C.load(bundle / 'manifest.json')
+        original_staged_bytes = staged.read_bytes()
+        for kind in ('bad_raw_sha', 'bad_raw_size_small', 'trailing_garbage', 'corrupt_zlib'):
+            tampered = copy.deepcopy(original_manifest)
+            row = next(r for r in tampered['files'] if r['path'] == 'bin/native')
+            if kind == 'bad_raw_sha':
+                row['raw_sha256'] = '0' * 64
+            elif kind == 'bad_raw_size_small':
+                row['raw_size'] = max(1, row['raw_size'] - 1)
+            elif kind == 'trailing_garbage':
+                staged.write_bytes(original_staged_bytes + b'extra')
+                row['size'] = staged.stat().st_size
+                row['sha256'] = C.digest(staged)
+            else:
+                staged.write_bytes(b'not-valid-zlib-stream')
+                row['size'] = staged.stat().st_size
+                row['sha256'] = C.digest(staged)
+            (bundle / 'manifest.json').write_text(json.dumps(tampered))
+            with self.subTest(tamper=kind), self.assertRaises(ValueError):
+                C.restore(consumer, self.plan, bundles, '71', {k: 2 for k in C.COMPONENTS}, 2)
+            self.assertFalse((consumer / C.WORKER / 'artifacts').exists())
+            staged.write_bytes(original_staged_bytes)
+            (bundle / 'manifest.json').write_text(json.dumps(original_manifest))
+
         C.restore(consumer, self.plan, bundles, '71', {k: 2 for k in C.COMPONENTS}, 2)
         restored = consumer / 'crates/oasis7_custody_worker/artifacts/bin/native'
-        self.assertEqual(C.digest(restored), C.digest(staged))
+        self.assertEqual(restored.stat().st_size, native_entry['raw_size'])
+        self.assertEqual(C.digest(restored), native_entry['raw_sha256'])
+        if shutil.which('readelf'):
+            restored_sections = subprocess.check_output(['readelf', '-S', str(restored)], text=True)
+            self.assertNotIn('.symtab', restored_sections)
+            self.assertIn('.eh_frame', restored_sections)
         subprocess.run([str(restored)], check=True)
 
     def test_refreshed_file_weights_cover_repo_inventory_and_balance_three_shards(self):

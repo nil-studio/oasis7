@@ -12,7 +12,9 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import tomllib
+import zlib
 
 from ci_process_runner import run
 
@@ -27,6 +29,8 @@ SHARDS = [0, 1, 2]
 ALLOWED_SHARDS = ([0, 1, 2], [0, 1, 2, 3])
 ROLES = ('identity', 'owner', 'executor', 'recovery-fence', 'native-harness')
 SCHEMA = 'oasis7.custody-platform/v1'
+ZLIB_CHUNK_BYTES = 4 * 1024 * 1024
+MAX_RAW_BINARY_BYTES = 2 * 1024 * 1024 * 1024
 # Complete serial Node file durations from run 45283513119, jobs
 # 138082922714/138082922769/138082922743 (with test-session-paid split 6/8).
 # Weights only determine shard placement; every discovered file still executes
@@ -257,8 +261,8 @@ def minimum_files(component):
         {'approval-fixture.json'} if component == 'wasm-approval' else set())
 
 
-def strip_elf_debug(path):
-    """Drop multi-GB DWARF sections from staged ELF copies while preserving symbol tables and target/."""
+def strip_elf_unneeded(path):
+    """Drop non-alloc symbol/string/DWARF sections from staged Linux ELF copies while keeping target/ intact."""
     if platform.system() != 'Linux':
         return
     with path.open('rb') as stream:
@@ -267,7 +271,80 @@ def strip_elf_debug(path):
     strip_bin = shutil.which('strip')
     if strip_bin is None:
         return
-    subprocess.run([strip_bin, '--strip-debug', str(path)], check=True)
+    subprocess.run([strip_bin, '--strip-unneeded', str(path)], check=True)
+
+
+def compress_zlib_inplace(path):
+    """Stream-compress a staged binary in place for compression-level=0 artifact transport."""
+    raw_size = 0
+    raw_hasher = hashlib.sha256()
+    compressor = zlib.compressobj(level=1)
+    fd, tmp_name = tempfile.mkstemp(prefix='.pack-', dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, 'wb') as writer, path.open('rb') as reader:
+            while True:
+                chunk = reader.read(ZLIB_CHUNK_BYTES)
+                if not chunk:
+                    break
+                raw_size += len(chunk)
+                if raw_size > MAX_RAW_BINARY_BYTES:
+                    raise ValueError('oversized custody native binary')
+                raw_hasher.update(chunk)
+                encoded = compressor.compress(chunk)
+                if encoded:
+                    writer.write(encoded)
+            tail = compressor.flush()
+            if tail:
+                writer.write(tail)
+        tmp_path.replace(path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return raw_size, raw_hasher.hexdigest()
+
+
+def decompress_zlib_checked(source, destination, expected_size, expected_sha256):
+    if type(expected_size) is not int or not 0 <= expected_size <= MAX_RAW_BINARY_BYTES:
+        raise ValueError('invalid custody raw payload size')
+    decompressor = zlib.decompressobj()
+    hasher = hashlib.sha256()
+    written = 0
+    try:
+        with source.open('rb') as reader, destination.open('wb') as writer:
+            while True:
+                chunk = reader.read(ZLIB_CHUNK_BYTES)
+                if not chunk:
+                    remaining = min(expected_size, MAX_RAW_BINARY_BYTES) - written
+                    tail = decompressor.flush(min(ZLIB_CHUNK_BYTES, max(1, remaining + 1)))
+                    if tail:
+                        written += len(tail)
+                        if written > expected_size or written > MAX_RAW_BINARY_BYTES:
+                            raise ValueError('custody compressed payload exceeds raw size')
+                        hasher.update(tail)
+                        writer.write(tail)
+                    break
+                pending = chunk
+                while pending:
+                    remaining = min(expected_size, MAX_RAW_BINARY_BYTES) - written
+                    if remaining < 0:
+                        raise ValueError('custody compressed payload exceeds raw size')
+                    step_limit = min(ZLIB_CHUNK_BYTES, remaining + 1)
+                    out = decompressor.decompress(pending, step_limit)
+                    if out:
+                        written += len(out)
+                        if written > expected_size or written > MAX_RAW_BINARY_BYTES:
+                            raise ValueError('custody compressed payload exceeds raw size')
+                        hasher.update(out)
+                        writer.write(out)
+                    pending = decompressor.unconsumed_tail
+                    if pending and not out:
+                        raise ValueError('custody compressed payload stalled before completion')
+    except zlib.error as error:
+        raise ValueError('corrupt custody compressed payload') from error
+    if (not decompressor.eof or decompressor.unused_data
+            or written != expected_size or hasher.hexdigest() != expected_sha256):
+        raise ValueError('custody raw payload content or size mismatch')
 
 
 def pack(root, plan, component, bundle, run_id, attempt):
@@ -307,11 +384,14 @@ def pack(root, plan, component, bundle, run_id, attempt):
         destination = bundle / 'files' / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination)
-        if component == 'native' and name.startswith('bin/'):
-            strip_elf_debug(destination)
         mode = 0o755 if name.startswith('bin/') else 0o644
+        extra = {}
+        if component == 'native' and name.startswith('bin/'):
+            strip_elf_unneeded(destination)
+            raw_size, raw_sha256 = compress_zlib_inplace(destination)
+            extra = dict(encoding='zlib', raw_size=raw_size, raw_sha256=raw_sha256)
         destination.chmod(mode)
-        rows.append(dict(path=name, size=destination.stat().st_size, sha256=digest(destination), mode=mode))
+        rows.append(dict(path=name, size=destination.stat().st_size, sha256=digest(destination), mode=mode, **extra))
     manifest = dict(schema=SCHEMA, context=context, component=component,
                     producer_attempt=attempt, build_contract=build_contract(plan, component), files=rows)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True) + '\n')
@@ -336,6 +416,17 @@ def check_bundle(root, plan, component, bundle, run_id, attempt):
         name = row.get('path')
         if not allowed_file(component, name) or name in names:
             raise ValueError('unsafe or duplicate custody file')
+        expect_compressed = component == 'native' and name.startswith('bin/')
+        expected_keys = ({'path', 'size', 'sha256', 'mode', 'encoding', 'raw_size', 'raw_sha256'}
+                         if expect_compressed else {'path', 'size', 'sha256', 'mode'})
+        if set(row) != expected_keys:
+            raise ValueError('invalid custody file entry')
+        if expect_compressed and (row.get('encoding') != 'zlib'
+                                  or type(row.get('raw_size')) is not int
+                                  or not 0 <= row['raw_size'] <= MAX_RAW_BINARY_BYTES
+                                  or not isinstance(row.get('raw_sha256'), str)
+                                  or not re.fullmatch(r'[0-9a-f]{64}', row['raw_sha256'])):
+            raise ValueError('invalid custody compressed file metadata')
         names.add(name)
         path = regular(bundle / 'files' / name, bundle)
         if (type(row.get('size')) is not int or path.stat().st_size != row['size']
@@ -365,15 +456,28 @@ def restore(root, plan, bundles, run_id, attempts, current_attempt):
     artifacts = root / WORKER / 'artifacts'
     if artifacts.is_symlink() or (artifacts.exists() and any(artifacts.iterdir())):
         raise ValueError('restore requires empty custody artifacts')
-    artifacts.mkdir(parents=True, exist_ok=True)
-    for component, manifest in manifests.items():
-        for row in manifest['files']:
-            destination = artifacts / row['path']
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(bundles[component] / 'files' / row['path'], destination)
-            destination.chmod(row['mode'])
-    for name in ('native', 'world'):
-        (artifacts / f'{name}-test-binary.txt').write_text(str(artifacts / 'bin' / name) + '\n')
+    artifacts.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix='.restore-', dir=str(artifacts.parent)))
+    try:
+        for component, manifest in manifests.items():
+            for row in manifest['files']:
+                source = bundles[component] / 'files' / row['path']
+                destination = staging / row['path']
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if row.get('encoding') == 'zlib':
+                    decompress_zlib_checked(source, destination, row['raw_size'], row['raw_sha256'])
+                else:
+                    shutil.copyfile(source, destination)
+                destination.chmod(row['mode'])
+        for name in ('native', 'world'):
+            (staging / f'{name}-test-binary.txt').write_text(str(artifacts / 'bin' / name) + '\n')
+        staging.chmod(0o755)
+        if artifacts.exists():
+            artifacts.rmdir()
+        staging.replace(artifacts)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
 
 def tap_summary(text, filename):
