@@ -33,10 +33,10 @@ pub mod private_goal_prepare;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod private_goal_store;
 pub mod projection;
-pub mod provider_material;
-pub mod provider_material_codec;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod provider_context;
+pub mod provider_material;
+pub mod provider_material_codec;
 pub mod verified_view;
 pub mod wire;
 pub use authority::*;

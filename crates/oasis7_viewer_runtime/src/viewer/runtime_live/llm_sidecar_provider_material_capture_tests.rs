@@ -4,11 +4,11 @@ use crate::simulator::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
     ProviderOriginalMaterialStore, ProviderSpoolReservation, cognition_response_digest,
 };
+use crate::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 use oasis7_world_service::provider_material::{
     ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1,
 };
-use crate::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -138,20 +138,22 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
             oasis7_formal_protocol::incremental_state::StateNamespaceV1::Effects,
         )
         .map_err(|error| error.to_string())?;
-        Ok(oasis7_world_service::provider_material::ProviderPendingRootsPageV1 {
-            owner: std::sync::Arc::new(owner_charge.retain(self.binding.clone())),
-            pending_root: [0x44; 32],
-            object_ids: std::sync::Arc::new(charge.retain(Vec::new())),
-            attempts: std::sync::Arc::new(attempt_charge.retain(Vec::new())),
-            state_roots: std::sync::Arc::new(roots_charge.retain(
-                oasis7_world_service::provider_material::ProviderPendingStateRootsV1 {
-                    events: empty.clone(),
-                    pending: empty.clone(),
-                    seen: empty,
-                },
-            )),
-            next_cursor: None,
-        })
+        Ok(
+            oasis7_world_service::provider_material::ProviderPendingRootsPageV1 {
+                owner: std::sync::Arc::new(owner_charge.retain(self.binding.clone())),
+                pending_root: [0x44; 32],
+                object_ids: std::sync::Arc::new(charge.retain(Vec::new())),
+                attempts: std::sync::Arc::new(attempt_charge.retain(Vec::new())),
+                state_roots: std::sync::Arc::new(roots_charge.retain(
+                    oasis7_world_service::provider_material::ProviderPendingStateRootsV1 {
+                        events: empty.clone(),
+                        pending: empty.clone(),
+                        seen: empty,
+                    },
+                )),
+                next_cursor: None,
+            },
+        )
     }
 
     fn validate_request_owner(

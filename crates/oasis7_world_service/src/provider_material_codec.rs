@@ -585,6 +585,9 @@ mod tests {
         let mut tampered = encoded;
         let position = tampered.len() - 40;
         tampered[position] ^= 0x01;
-        assert!(decode_event(&tampered).is_err(), "do not accept altered event bytes");
+        assert!(
+            decode_event(&tampered).is_err(),
+            "do not accept altered event bytes"
+        );
     }
 }

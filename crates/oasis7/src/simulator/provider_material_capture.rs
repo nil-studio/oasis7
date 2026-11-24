@@ -2,18 +2,17 @@
 //! The immutable material identities and protected-root DTOs now have a
 //! canonical WorldService owner. Reexports preserve exact historical types.
 #[cfg(not(target_arch = "wasm32"))]
-use std::io::Read;
+use super::{ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1};
 #[cfg(not(target_arch = "wasm32"))]
 use oasis7_proto::memory_budget::MemoryBudget;
 #[cfg(not(target_arch = "wasm32"))]
-use super::{ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1};
+use std::io::Read;
 
 pub use oasis7_world_service::provider_material::{
-    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1,
-    ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1,
-    ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
-    ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1,
-    ProviderPendingRootsPageV1, ProviderPendingStateRootsV1,
+    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
+    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
+    ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1, ProviderPendingRootsPageV1,
+    ProviderPendingStateRootsV1,
 };
 
 /// Trusted new-format owner seam. Implementations verify the exact parent and

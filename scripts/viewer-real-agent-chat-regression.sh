@@ -159,8 +159,8 @@ node_bin="${OASIS7_NODE_BIN:-}"
 if [[ -z "$node_bin" ]]; then
   if command -v node >/dev/null 2>&1; then
     node_bin="$(command -v node)"
-  elif [[ -x "/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node" ]]; then
-    node_bin="/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+  elif [[ -x "${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node" ]]; then
+    node_bin="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
   else
     echo "error: missing required command: node; set OASIS7_NODE_BIN to a Node.js executable" >&2
     exit 1
@@ -305,7 +305,7 @@ if [[ -z "$GAME_URL" ]]; then
   fi
 fi
 
-playwright_node_modules="${OASIS7_PLAYWRIGHT_NODE_MODULES:-/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules}"
+playwright_node_modules="${OASIS7_PLAYWRIGHT_NODE_MODULES:-${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules}"
 if [[ ! -d "$playwright_node_modules" ]]; then
   echo "error: Playwright node_modules not found: $playwright_node_modules" >&2
   echo "hint: set OASIS7_PLAYWRIGHT_NODE_MODULES to a node_modules directory containing playwright" >&2

@@ -36,7 +36,7 @@ jobs:
     name: Build Hosted Login native binaries
     if: inputs.run_mode != 'release-deps'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     outputs:
       artifact-id: ${{ steps.stage.outputs.artifact-id }}
     permissions:

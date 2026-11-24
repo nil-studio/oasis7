@@ -165,7 +165,6 @@ pub struct ProviderPendingRootsPageV1 {
     pub next_cursor: Option<Arc<ReservedValue<ProviderPendingRootsCursorV1>>>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

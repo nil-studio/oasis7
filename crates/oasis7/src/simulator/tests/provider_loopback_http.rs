@@ -18,8 +18,7 @@ fn original_provider_material_owner_types_are_world_service_nominal_types() {
         };
     let legacy: ProviderMaterialOwnerBindingV1 = native;
     assert!(legacy.validate().is_ok());
-    let roundtrip: oasis7_world_service::provider_material::ProviderMaterialOwnerBindingV1 =
-        legacy;
+    let roundtrip: oasis7_world_service::provider_material::ProviderMaterialOwnerBindingV1 = legacy;
     assert_eq!(roundtrip.owner_id, [0x44; 32]);
 }
 

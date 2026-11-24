@@ -177,8 +177,9 @@ impl ProviderOriginalMaterialOwnerV1 {
             let cursor_charge = self
                 .memory
                 .reserve(
-                    std::mem::size_of::<oasis7_world_service::provider_material::ProviderPendingRootsCursorV1>()
-                        + std::mem::size_of::<ProtectedRootsCursorState>(),
+                    std::mem::size_of::<
+                        oasis7_world_service::provider_material::ProviderPendingRootsCursorV1,
+                    >() + std::mem::size_of::<ProtectedRootsCursorState>(),
                     MemoryClass::Recovery,
                 )
                 .map_err(|error| error.to_string())?;
@@ -280,17 +281,19 @@ impl ProviderOriginalMaterialOwnerV1 {
         }
         object_ids.sort_unstable();
         object_ids.dedup();
-        Ok(oasis7_world_service::provider_material::ProviderPendingRootsPageV1 {
-            owner: Arc::new(owner_charge.retain(self.owner.clone())),
-            pending_root: root_digest,
-            object_ids: Arc::new(object_charge.retain(object_ids)),
-            attempts: Arc::new(attempt_charge.retain(attempts)),
-            state_roots: Arc::new(roots_charge.retain(ProviderPendingStateRootsV1 {
-                events: inner.head.events.clone(),
-                pending: inner.head.pending.clone(),
-                seen: inner.head.seen.clone(),
-            })),
-            next_cursor,
-        })
+        Ok(
+            oasis7_world_service::provider_material::ProviderPendingRootsPageV1 {
+                owner: Arc::new(owner_charge.retain(self.owner.clone())),
+                pending_root: root_digest,
+                object_ids: Arc::new(object_charge.retain(object_ids)),
+                attempts: Arc::new(attempt_charge.retain(attempts)),
+                state_roots: Arc::new(roots_charge.retain(ProviderPendingStateRootsV1 {
+                    events: inner.head.events.clone(),
+                    pending: inner.head.pending.clone(),
+                    seen: inner.head.seen.clone(),
+                })),
+                next_cursor,
+            },
+        )
     }
 }
