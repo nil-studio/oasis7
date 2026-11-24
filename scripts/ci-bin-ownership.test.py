@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Executable ownership and lightweight service dependency contracts."""
 from pathlib import Path
+import json
 import re
 import tomllib
 import unittest
@@ -201,6 +202,24 @@ class Ownership(unittest.TestCase):
         }
         with self.assertRaises(KeyError):
             self.require_native_viewer_codec_archive_owner(codec, removed)
+
+    def test_native_runtime_host_is_registered_in_required_test_drivers(self):
+        """Archive and migrated host behavior must run as the real package, not only a dependency."""
+        owner = 'oasis7_runtime_host'
+        cfg = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        self.assertIn(owner, cfg['oasis7_required_packages'])
+        features = manifest(owner)['features']
+        self.assertIn('test_tier_required', features)
+        self.assertIn('test_tier_required', features['test_tier_full'])
+        shell = (ROOT / 'scripts/ci-tests.sh').read_text()
+        for command in ('run_cargo test -p oasis7 ', 'run_cargo_clippy -p oasis7 '):
+            lines = [line for line in shell.splitlines() if command in line]
+            self.assertTrue(lines)
+            self.assertTrue(all('-p oasis7_runtime_host ' in line for line in lines))
+        artifacts = (ROOT / 'scripts/ci-test-artifacts.py').read_text()
+        required = [line for line in artifacts.splitlines() if "('required', ['test', '-p', 'oasis7'," in line]
+        self.assertEqual(len(required), 1)
+        self.assertIn("'-p', 'oasis7_runtime_host',", required[0])
 
     def test_provider_original_material_contract_has_portable_owner(self):
         """Portable pending-root DTOs have one owner; native service keeps the codec."""
