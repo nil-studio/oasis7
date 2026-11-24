@@ -89,7 +89,10 @@ class Ownership(unittest.TestCase):
         store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
         codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
         self.assertIn('use oasis7_world_service::provider_material::{', store)
-        self.assertIn('use oasis7_world_service::provider_material::ProviderMaterialOwnerBindingV1;', codec)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
 
     def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
         """Fail closed for both accepted two-argument host seams during native migration.
