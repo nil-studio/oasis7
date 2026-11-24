@@ -64,8 +64,8 @@ mod node_bft_v3_peer_transport;
 #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
 pub use node_bft_v3_peer_transport::NodeBftLibp2pPeerTransportV3;
 pub use node_bft_v3_peer_transport::{NodeBftPeerTransportV3, NodeBftReceivedPublicV3};
-mod node_bft_v3_runtime;
 mod node_bft_v3_observation_validation;
+mod node_bft_v3_runtime;
 mod node_bft_wal;
 mod node_engine_core;
 mod node_engine_execution;
