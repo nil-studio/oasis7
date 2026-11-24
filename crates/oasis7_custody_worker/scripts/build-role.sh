@@ -11,7 +11,13 @@ fi
 # then retain each complete generated module in a separate role directory.
 mkdir .role-build-lock 2>/dev/null || { echo 'another role build is running' >&2; exit 2; }
 trap 'rmdir .role-build-lock' EXIT
-env -u RUSTC_WRAPPER worker-build --release --no-opt -- --locked --no-default-features --features "$role"
+# Disable thin-local LTO and optimize custody glue crates for size (`-Os`),
+# keeping third-party crypto dependencies at default release `opt-level = 3`.
+env -u RUSTC_WRAPPER worker-build --release --no-opt -- \
+  --locked --no-default-features --features "$role" \
+  --config 'profile.release.lto="off"' \
+  --config 'profile.release.package.oasis7_custody_core.opt-level="s"' \
+  --config 'profile.release.package.oasis7_custody_worker.opt-level="s"'
 mkdir -p artifacts
 if [[ -e "artifacts/$role" ]]; then rm -rf "artifacts/$role"; fi
 cp -R build "artifacts/$role"
