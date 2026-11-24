@@ -2,6 +2,7 @@
 pub mod bootstrap;
 pub mod gameplay_actions;
 pub mod gameplay_service;
+pub mod simulator_archive;
 
 use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, WorldError, WorldState};
 use std::{path::Path, sync::Arc};
