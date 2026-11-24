@@ -15,7 +15,6 @@ oasis7_agent_api = { path = "../oasis7_agent_api" }
 serde.workspace = true
 serde_json.workspace = true
 blake3 = "1"
-hex.workspace = true
 subtle = "2"
 zeroize = "1"
 
