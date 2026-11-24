@@ -21,10 +21,6 @@ serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 blake3 = "1"
 unicode-normalization = "0.1"
 ed25519-dalek = { version = "3", features = ["rand_core"] }
-hmac = "0.13"
-cap-std = "4"
-cap-fs-ext = "4"
-libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }

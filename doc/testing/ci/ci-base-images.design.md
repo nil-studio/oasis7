@@ -16,10 +16,12 @@ Linux CI 共用一套 Ubuntu 24.04 底座、一份多阶段 Dockerfile 和一条
 
 | 目标 | 增量依赖与消费者 | 验收边界 |
 | --- | --- | --- |
-| `runtime` | 原生运行库与通用执行工具。用于执行预编译产物和适合容器化的轻量检查 | 核对 ELF 动态依赖、实际子进程与测试结果 |
+| `runtime` | 原生运行库、通用执行工具和 Node 24 可执行文件。用于预编译产物、轻量检查和需要 PATH 上 Node 的分析器 | 核对 ELF 动态依赖、实际子进程与测试结果，并以 UID 1001 离线执行 PATH 中的 Node |
 | `build` | 在 runtime 上增加 GCC、pkg-config 和系统开发包。用于需要本地 C 编译或链接的任务。custody 首批用 build，因为分片 0 的 workerd GDB 合同需编译 C fixture | 四个 custody 分片全部执行，保留 GDB、类型检查、产物身份和结果收集 |
 | `rust-build` | 在 build 上预装仓库固定的 Rust stable、WASM nightly、组件和 targets。用于 Rust 编译、Clippy、编译指标和适用的缓存预热及打包任务 | 核对 rustc 版本、组件、targets、链接器、profile、缓存身份和实际产物消费 |
-| `browser` | 在 runtime 上预装 Node、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
+| `browser` | 复用 runtime 的 Node，在其上提供 npm、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
+
+五个目标从同一 Node 24 官方镜像来源构建，构建时固定来源 digest 并记录在镜像标签。通用层提供 Node 可执行文件，browser 层提供 npm 及其锁文件依赖。镜像 smoke 验证离线工具能力，CodeQL 的 JavaScript/TypeScript 提取由实际分析 job 验证所用的正式摘要。
 
 Rust 或 Node 依赖仍沿用仓库锁文件和相应的缓存策略。预装 rustup 工具链减少每个 job 下载编译器的开销，Cargo registry 下载与缓存缺失仍按现有机制处理。预编译产物消费者按实际需要选择 runtime 或 build，包括两条 storage-recovery 路径。依赖宿主网络、挂载、内核权限、Docker、签名或目标环境的任务先核对平台合同。现有 WASM canonical builder、macOS 和 Windows 原生验证继续承担各自既定验收。
 
@@ -39,6 +41,14 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 2. 使用同一候选源码和测试选择，分别执行原 runner 路径与镜像路径。按 job 比较冷拉取和原安装耗时、总时长与失败类型，多次采样并报告样本数、中位数及尾部耗时。记录构建、扫描、发布频率与镜像大小，判断节省能否覆盖镜像维护成本。
 3. 首批验收要求宿主平台合同、测试覆盖和真实结果等价，普通路径无系统包现场安装，且镜像引入的冷启动成本有可接受的实测结果。采用 rust-build 后，常规编译 job 无需现场执行 rustup 工具链或组件安装。候选镜像现场构建的结果可以证明测试兼容，需另用已发布 digest 验证冷拉取。对拉取拒绝、缺库与缓存不匹配验证可观测的失败及回退路径。
 4. 普通 Linux 编译、缓存和指标采纳同一镜像后，再逐工作流迁移打包与验收。发布类任务逐一核对 SOURCEPLAN、BUILDINFO、签名边界和实际目标系统启动，保持 source HEAD 与被测产物绑定。任何依赖宿主能力的例外都记录在相应工作流设计。
+
+### Ordinary 原生测试构件消费
+
+`oasis7-required` 的 v2 归档只将 `native-0` 至 `native-3` 迁到预制 Rust 镜像。保留原分区矩阵、每个分区的超时和 priority runner 路由。inline、controls 和旧版归档继续使用各自原执行环境。
+
+构件中的 `CARGO_BIN_EXE_*` 和编译清单包含生产者的绝对路径。镜像只增加当前 checkout 到该原路径的同目录绑定，现有临时目录继续接收构件。预检确认两个 checkout 路径的设备及 inode 一致、Ubuntu 24.04 身份、UID/GID 1001 和 Docker init。仅解包和执行步骤使用该 checkout 路径及相同 `ImageOS`，原加载器继续验证源码、运行、路径和构件摘要。Bash 初始化只作用于这两个步骤，子进程可以按测试选择的目录运行。
+
+原 mold 链接器 使用固定摘要校验后安装到本 job 可写临时位置。镜像为此链路提供库和 Rust 工具链，现有只读缓存权限、宿主依赖缓存和 inline 工作区缓存路径保持。需记录真实原生分片的完整执行结果、绝对路径加载、进程清理和镜像冷拉取；环境预检失败使原分片失败。
 
 ### Storage Acceptance 冷构建拆分
 

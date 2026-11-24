@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Software-authenticator evidence only; this does not certify real device support.
-import { loadPlaywright } from "./playwright-module-loader.mjs";
+import { browserExecutablePath, fullBrowserLaunchOptions, loadPlaywright } from "./playwright-module-loader.mjs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 
@@ -8,7 +8,7 @@ const { chromium } = loadPlaywright(import.meta.url);
 const url = process.argv[process.argv.indexOf("--url") + 1];
 if (!url || !url.startsWith("https://")) throw new Error("Usage: node scripts/hosted-passkey-virtual-authenticator-smoke.mjs --url https://localhost:8449/");
 const moduleUrl = new URL("/viewer_passkey_account_module.js", url).toString();
-const browser = await chromium.launch({ channel: "chrome", headless: !process.argv.includes("--headed") });
+const browser = await chromium.launch({ ...fullBrowserLaunchOptions(browserExecutablePath()), headless: !process.argv.includes("--headed") });
 try {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const page = await context.newPage();

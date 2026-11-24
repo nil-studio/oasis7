@@ -4687,11 +4687,11 @@ if [[ "$package_contract_failed" -ne 0 ]]; then
   exit 1
 fi
 
-python3 -W error::SyntaxWarning "$ROOT_DIR/scripts/p2p-public-testnet-package-rollout.py" --help >/tmp/oasis7-package-rollout-help.out
-grep -q "mode is plan-only" /tmp/oasis7-package-rollout-help.out
-grep -q "Mutation requires" /tmp/oasis7-package-rollout-help.out
-grep -q "never reads or stores credentials" /tmp/oasis7-package-rollout-help.out
-grep -q -- "--readiness-policy" /tmp/oasis7-package-rollout-help.out
+python3 -W error::SyntaxWarning "$ROOT_DIR/scripts/p2p-public-testnet-package-rollout.py" --help >"$TMP_DIR/oasis7-package-rollout-help.out"
+grep -q "mode is plan-only" "$TMP_DIR/oasis7-package-rollout-help.out"
+grep -q "Mutation requires" "$TMP_DIR/oasis7-package-rollout-help.out"
+grep -q "never reads or stores credentials" "$TMP_DIR/oasis7-package-rollout-help.out"
+grep -q -- "--readiness-policy" "$TMP_DIR/oasis7-package-rollout-help.out"
 
 bad_package_dir="$TMP_DIR/bad-package"
 cp -R "$package_dir" "$bad_package_dir"
