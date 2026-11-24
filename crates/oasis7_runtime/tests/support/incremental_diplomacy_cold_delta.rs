@@ -7,15 +7,13 @@ use oasis7_formal_protocol::{
     incremental_value::ValueNodeWriter,
 };
 use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
-#[test]
-fn member_delta_skips_unchanged_text_larger_than_the_cold_pool() {
-    const TEXT: usize = 32 << 20;
+fn exercise_member_delta_unchanged_text(text_len: usize) {
     let directory = Directory::new();
     let path = directory.0.join("large");
     let canonical = {
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let _source = memory
-            .reserve(TEXT + (1 << 20), MemoryClass::Ordinary)
+            .reserve(text_len + (1 << 20), MemoryClass::Ordinary)
             .unwrap();
         let store =
             IncrementalPageStore::create(&path, memory.clone(), PageCompression::Zstd).unwrap();
@@ -23,15 +21,15 @@ fn member_delta_skips_unchanged_text_larger_than_the_cold_pool() {
         source.wars.clear();
         source.crises.clear();
         source.economic_contracts.clear();
-        source.alliances.get_mut(KEY).unwrap().charter = "x".repeat(TEXT);
+        source.alliances.get_mut(KEY).unwrap().charter = "x".repeat(text_len);
         let rows = produce_with_limits(
             &store,
             &memory,
             &source,
             MemberRecordLimitsV1 {
                 semantic_bytes: 1024,
-                payload_bytes: TEXT as u64,
-                record_bytes: (TEXT + 8192) as u64,
+                payload_bytes: text_len as u64,
+                record_bytes: (text_len + 8192) as u64,
             },
         );
         roots(&build(&store, &memory, &rows))
@@ -74,7 +72,7 @@ fn member_delta_skips_unchanged_text_larger_than_the_cold_pool() {
             },
             key_work: &mut keys,
             semantic_bytes: 1024,
-            record_bytes: (TEXT + 8192) as u64,
+            record_bytes: (text_len + 8192) as u64,
             take_state_error: || state.take_read_error().map(state_error),
             cancelled: || false,
         };
@@ -84,7 +82,7 @@ fn member_delta_skips_unchanged_text_larger_than_the_cold_pool() {
             &mut scan(),
             &mut scan(),
             &mut 8192,
-            TEXT as u64,
+            text_len as u64,
         )
         .unwrap();
         let proof = open_qualified_diplomacy_record_v1(
@@ -141,7 +139,7 @@ fn member_delta_skips_unchanged_text_larger_than_the_cold_pool() {
         },
         key_work: &mut keys,
         semantic_bytes: 1024,
-        record_bytes: (TEXT + 8192) as u64,
+        record_bytes: (text_len + 8192) as u64,
         take_state_error: || state.take_read_error().map(state_error),
         cancelled: || false,
     };
@@ -227,21 +225,33 @@ fn member_delta_skips_unchanged_text_larger_than_the_cold_pool() {
     let bytes = initial_bytes - ctx.values.io.read_bytes_remaining;
     let nodes = initial_nodes - ctx.values.io.nodes_remaining;
     eprintln!(
-        "fixed member delta receiver logical reads: {nodes}nodes {bytes}bytes; unchanged Text={TEXT}"
+        "fixed member delta receiver logical reads: {nodes}nodes {bytes}bytes; unchanged Text={text_len}"
     );
     assert!(bytes < 512 << 10);
+    assert!(bytes < text_len as u64);
     assert!(nodes < 4096);
 }
 
 #[test]
-fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
-    const TEXT: usize = 32 << 20;
+fn member_delta_skips_unchanged_text_across_value_chunks() {
+    exercise_member_delta_unchanged_text(
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    );
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn member_delta_skips_unchanged_text_larger_than_the_cold_pool() {
+    exercise_member_delta_unchanged_text(32 << 20);
+}
+
+fn exercise_formed_at_point_unchanged_text(text_len: usize) {
     let directory = Directory::new();
     let path = directory.0.join("large");
     let canonical = {
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let _source = memory
-            .reserve(TEXT + (1 << 20), MemoryClass::Ordinary)
+            .reserve(text_len + (1 << 20), MemoryClass::Ordinary)
             .unwrap();
         let store =
             IncrementalPageStore::create(&path, memory.clone(), PageCompression::Zstd).unwrap();
@@ -249,15 +259,15 @@ fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
         source.wars.clear();
         source.crises.clear();
         source.economic_contracts.clear();
-        source.alliances.get_mut(KEY).unwrap().charter = "x".repeat(TEXT);
+        source.alliances.get_mut(KEY).unwrap().charter = "x".repeat(text_len);
         let rows = produce_with_limits(
             &store,
             &memory,
             &source,
             MemberRecordLimitsV1 {
                 semantic_bytes: 1024,
-                payload_bytes: TEXT as u64,
-                record_bytes: (TEXT + 8192) as u64,
+                payload_bytes: text_len as u64,
+                record_bytes: (text_len + 8192) as u64,
             },
         );
         roots(&build(&store, &memory, &rows))
@@ -300,7 +310,7 @@ fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
             },
             key_work: &mut keys,
             semantic_bytes: 1024,
-            record_bytes: (TEXT + 8192) as u64,
+            record_bytes: (text_len + 8192) as u64,
             take_state_error: || state.take_read_error().map(state_error),
             cancelled: || false,
         };
@@ -310,7 +320,7 @@ fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
             &mut scan(),
             &mut scan(),
             &mut 8192,
-            TEXT as u64,
+            text_len as u64,
         )
         .unwrap();
         let proof = open_qualified_diplomacy_record_v1(
@@ -367,7 +377,7 @@ fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
         },
         key_work: &mut keys,
         semantic_bytes: 1024,
-        record_bytes: (TEXT + 8192) as u64,
+        record_bytes: (text_len + 8192) as u64,
         take_state_error: || state.take_read_error().map(state_error),
         cancelled: || false,
     };
@@ -479,8 +489,22 @@ fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
     let bytes = initial_bytes - ctx.values.io.read_bytes_remaining;
     let nodes = initial_nodes - ctx.values.io.nodes_remaining;
     eprintln!(
-        "fixed formed_at delta receiver logical reads: {nodes}nodes {bytes}bytes; unchanged Text={TEXT}"
+        "fixed formed_at delta receiver logical reads: {nodes}nodes {bytes}bytes; unchanged Text={text_len}"
     );
     assert!(bytes < 512 << 10);
+    assert!(bytes < text_len as u64);
     assert!(nodes < 4096);
+}
+
+#[test]
+fn formed_at_point_skips_unchanged_text_across_value_chunks() {
+    exercise_formed_at_point_unchanged_text(
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    );
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
+    exercise_formed_at_point_unchanged_text(32 << 20);
 }
