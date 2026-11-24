@@ -2,7 +2,6 @@ use std::error::Error;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::net::IpAddr;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -823,62 +822,6 @@ pub fn validate_provider_http_base_url(
     base_url: &str,
     transport: &str,
 ) -> Result<Url, ProviderLoopbackHttpError> {
-    let trimmed = base_url.trim();
-    if trimmed.is_empty() {
-        return Err(ProviderLoopbackHttpError::InvalidBaseUrl(
-            "base url cannot be empty".to_string(),
-        ));
-    }
-    let url = Url::parse(trimmed)
-        .map_err(|err| ProviderLoopbackHttpError::InvalidBaseUrl(err.to_string()))?;
-    let Some(host) = url.host_str() else {
-        return Err(ProviderLoopbackHttpError::InvalidBaseUrl(
-            "host is required".to_string(),
-        ));
-    };
-    match transport.trim() {
-        LOOPBACK_HTTP_PROVIDER_TRANSPORT => {
-            if url.scheme() != "http" {
-                return Err(ProviderLoopbackHttpError::InvalidBaseUrl(
-                    "scheme must be http for localhost provider".to_string(),
-                ));
-            }
-            if !matches!(host, "127.0.0.1" | "localhost" | "::1") {
-                return Err(ProviderLoopbackHttpError::InvalidBaseUrl(
-                    "host must be loopback (127.0.0.1 / localhost / ::1)".to_string(),
-                ));
-            }
-        }
-        REMOTE_HTTPS_PROVIDER_TRANSPORT => {
-            if url.scheme() != "https" {
-                return Err(ProviderLoopbackHttpError::InvalidBaseUrl(
-                    "scheme must be https for remote provider transport".to_string(),
-                ));
-            }
-            if !is_public_remote_https_host(host) {
-                return Err(ProviderLoopbackHttpError::InvalidBaseUrl(
-                    "host must be a public remote https host".to_string(),
-                ));
-            }
-        }
-        _ => {
-            return Err(ProviderLoopbackHttpError::InvalidBaseUrl(format!(
-                "unsupported provider transport `{transport}`"
-            )));
-        }
-    }
-    Ok(url)
-}
-
-fn is_public_remote_https_host(host: &str) -> bool {
-    if matches!(host.trim(), "127.0.0.1" | "localhost" | "::1") {
-        return false;
-    }
-    let Ok(ip) = host.parse::<IpAddr>() else {
-        return true;
-    };
-    match ip {
-        IpAddr::V4(ipv4) => !ipv4.is_private() && !ipv4.is_loopback() && !ipv4.is_link_local(),
-        IpAddr::V6(ipv6) => !ipv6.is_loopback() && !ipv6.is_unicast_link_local(),
-    }
+    oasis7_runtime_host::provider_transport_url::validate_provider_http_base_url(base_url, transport)
+        .map_err(|error| ProviderLoopbackHttpError::InvalidBaseUrl(error.0))
 }
