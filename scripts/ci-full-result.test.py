@@ -2192,7 +2192,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
             ["git", "-C", str(self.repo), *args], text=True, stderr=subprocess.PIPE
         ).strip()
 
-    def make_api(self, runs):
+    def make_api(self, runs, deferred_run_ids=()):
+        deferred_ids = set(deferred_run_ids)
         api = mock.Mock()
         def fake_get(path):
             if path == "actions/workflows/rust.yml":
@@ -2202,6 +2203,11 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                 page = int(query["page"][0])
                 batch = runs[(page - 1) * 100: page * 100]
                 return {"total_count": len(runs), "workflow_runs": batch}
+            if path.startswith("actions/runs/") and path.endswith("/artifacts?per_page=100"):
+                run_id = int(path.split("/")[2])
+                if run_id in deferred_ids:
+                    return {"total_count": 1, "artifacts": [{"name": f"ci-main-fast-deferred-{run_id}-1"}]}
+                return {"total_count": 0, "artifacts": []}
             raise AssertionError(f"unexpected path: {path}")
         api.get.side_effect = fake_get
         return api
