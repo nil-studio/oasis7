@@ -7506,5 +7506,179 @@ class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
         self.assertGreater(checked_jobs, 0)
 
 
+class DependabotCoverageGuardTests(unittest.TestCase):
+    EXCLUDED_NPM_DIRECTORIES = {}
+    EXCLUDED_CARGO_DIRECTORIES = {
+        '/tests/libp2p-compat/candidate': 'compatibility test fixture',
+        '/tests/libp2p-compat/common': 'compatibility test fixture',
+        '/tests/libp2p-compat/legacy': 'compatibility test fixture',
+        '/tools/wasm_build_suite/templates/minimal_module': 'zero-dependency minimal template',
+        '/vendor/if-watch-3.2.2': 'vendored crate patched by root Cargo.toml',
+        '/vendor/libp2p-quic-0.15.0': 'vendored crate patched by root Cargo.toml',
+        '/vendor/libp2p-swarm-0.49.0': 'vendored crate patched by root Cargo.toml',
+    }
+    EXCLUDED_DOCKER_DIRECTORIES = {
+        '/docker/ci-base': 'UBUNTU_BASE ARG is workflow-supplied with no Dockerfile default',
+    }
+
+    @staticmethod
+    def _parse_dependabot_directories(text):
+        updates = {}
+        current_ecosystem = None
+        in_directories = False
+        for raw_line in text.splitlines():
+            stripped = raw_line.split('#', 1)[0].rstrip()
+            if not stripped.strip():
+                continue
+            eco_match = re.match(r'^  -\s+package-ecosystem:\s*["\']?([^"\'\s]+)["\']?\s*$', stripped)
+            if eco_match:
+                current_ecosystem = eco_match.group(1)
+                updates.setdefault(current_ecosystem, [])
+                in_directories = False
+                continue
+            if current_ecosystem is None:
+                continue
+            dir_match = re.match(r'^    directory:\s*["\']?([^"\'\s]+)["\']?\s*$', stripped)
+            if dir_match:
+                updates[current_ecosystem].append(dir_match.group(1))
+                in_directories = False
+                continue
+            if re.match(r'^    directories:\s*$', stripped):
+                in_directories = True
+                continue
+            if in_directories:
+                item_match = re.match(r'^      -\s*["\']?([^"\'\s]+)["\']?\s*$', stripped)
+                if item_match:
+                    updates[current_ecosystem].append(item_match.group(1))
+                    continue
+                if re.match(r'^    \S', stripped):
+                    in_directories = False
+        return updates
+
+    @staticmethod
+    def _tracked_manifest_directories(filename_pattern):
+        output = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files', '-z'])
+        dirs = set()
+        for raw_path in output.decode('utf-8').split('\0'):
+            if not raw_path:
+                continue
+            name = raw_path.rsplit('/', 1)[-1]
+            if not re.fullmatch(filename_pattern, name):
+                continue
+            parent = raw_path.rsplit('/', 1)[0] if '/' in raw_path else ''
+            dirs.add('/' if not parent else '/' + parent)
+        return dirs
+
+    @staticmethod
+    def _matches_any(directory, patterns):
+        import fnmatch
+        return any(fnmatch.fnmatchcase(directory, pattern) for pattern in patterns)
+
+    @staticmethod
+    def _cargo_workspace_member_directories(workspace_dir):
+        import fnmatch
+        import tomllib
+        manifest = ROOT / (workspace_dir.lstrip('/') + '/Cargo.toml' if workspace_dir != '/' else 'Cargo.toml')
+        data = tomllib.loads(manifest.read_text(encoding='utf-8'))
+        workspace = data.get('workspace')
+        if not isinstance(workspace, dict):
+            return set()
+        members = workspace.get('members') or []
+        base = '' if workspace_dir == '/' else workspace_dir.lstrip('/')
+        member_dirs = set()
+        for member in members:
+            rel = f'{base}/{member}' if base else member
+            if any(ch in rel for ch in '*?['):
+                for candidate in DependabotCoverageGuardTests._tracked_manifest_directories(r'Cargo\.toml'):
+                    if fnmatch.fnmatchcase(candidate.lstrip('/'), rel):
+                        member_dirs.add(candidate)
+            else:
+                member_dirs.add('/' + rel.strip('/'))
+        return member_dirs
+
+    def _assert_ecosystem_coverage(self, ecosystem, manifest_dirs, configured_patterns, excluded):
+        import fnmatch
+        self.assertGreater(len(configured_patterns), 0, f'{ecosystem} must declare at least one directory')
+
+        for pattern in configured_patterns:
+            matched = [d for d in manifest_dirs if fnmatch.fnmatchcase(d, pattern)]
+            self.assertGreater(
+                len(matched),
+                0,
+                f'.github/dependabot.yml {ecosystem} entry {pattern!r} does not match any tracked manifest',
+            )
+
+        excluded_set = set(excluded)
+        stale_exclusions = sorted(excluded_set - manifest_dirs)
+        self.assertEqual(
+            stale_exclusions,
+            [],
+            f'Stale {ecosystem} exclusion allowlist entries: {stale_exclusions}',
+        )
+
+        overlapping = sorted(d for d in excluded_set if self._matches_any(d, configured_patterns))
+        self.assertEqual(
+            overlapping,
+            [],
+            f'{ecosystem} directories are both covered by dependabot.yml and excluded: {overlapping}',
+        )
+
+        uncovered = sorted(
+            d for d in manifest_dirs
+            if d not in excluded_set and not self._matches_any(d, configured_patterns)
+        )
+        self.assertEqual(
+            uncovered,
+            [],
+            f'Uncovered {ecosystem} manifest directories (add to .github/dependabot.yml or explicit exclusion allowlist): {uncovered}',
+        )
+
+    def test_dependabot_covers_all_non_excluded_manifests(self):
+        dependabot_path = ROOT / '.github/dependabot.yml'
+        updates = self._parse_dependabot_directories(dependabot_path.read_text(encoding='utf-8'))
+
+        self.assertIn('/', updates.get('github-actions', []), 'github-actions must cover /')
+
+        npm_dirs = self._tracked_manifest_directories(r'package\.json')
+        self._assert_ecosystem_coverage(
+            'npm',
+            npm_dirs,
+            updates.get('npm', []),
+            self.EXCLUDED_NPM_DIRECTORIES,
+        )
+
+        all_cargo_dirs = self._tracked_manifest_directories(r'Cargo\.toml')
+        cargo_patterns = updates.get('cargo', [])
+        covered_cargo_roots = {d for d in all_cargo_dirs if self._matches_any(d, cargo_patterns)}
+        workspace_members = set()
+        for ws_root in covered_cargo_roots:
+            workspace_members.update(self._cargo_workspace_member_directories(ws_root))
+        standalone_cargo_dirs = all_cargo_dirs - workspace_members
+
+        redundant_member_patterns = sorted(
+            p for p in cargo_patterns
+            if p in workspace_members
+        )
+        self.assertEqual(
+            redundant_member_patterns,
+            [],
+            f'Redundant cargo entries already covered by a parent workspace: {redundant_member_patterns}',
+        )
+        self._assert_ecosystem_coverage(
+            'cargo',
+            standalone_cargo_dirs,
+            cargo_patterns,
+            self.EXCLUDED_CARGO_DIRECTORIES,
+        )
+
+        docker_dirs = self._tracked_manifest_directories(r'Dockerfile(\.[^/]+)?')
+        self._assert_ecosystem_coverage(
+            'docker',
+            docker_dirs,
+            updates.get('docker', []),
+            self.EXCLUDED_DOCKER_DIRECTORIES,
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
