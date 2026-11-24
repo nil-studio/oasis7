@@ -1,4 +1,4 @@
-use super::super::memory::{AgentMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind};
+use oasis7_simulator::{AgentMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind};
 use oasis7_simulator::WorldTime;
 use std::cmp::Ordering;
 
