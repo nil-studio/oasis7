@@ -55,7 +55,10 @@ pub fn validate_bft_node_observation_v1(
             .is_none_or(|n| n > observed.height - observed.window_start_height)
         || observed.observed_lease_generation == 0
         || !digest(&observed.active_set_hash)
-        || observed.pending_set_hash.as_deref().is_some_and(|h| !digest(h))
+        || observed
+            .pending_set_hash
+            .as_deref()
+            .is_some_and(|h| !digest(h))
     {
         return Err("wire-3 diagnostic window, lease or digest invalid");
     }
@@ -63,7 +66,10 @@ pub fn validate_bft_node_observation_v1(
         || observed
             .last_applied_height
             .is_some_and(|applied| applied > observed.height)
-        || observed.last_applied_header_id.as_deref().is_some_and(|h| !digest(h))
+        || observed
+            .last_applied_header_id
+            .as_deref()
+            .is_some_and(|h| !digest(h))
         || observed.pending_driver_apply && observed.last_applied_height == Some(observed.height)
     {
         return Err("wire-3 diagnostic applied cut inconsistent");
@@ -80,9 +86,7 @@ pub fn validate_bft_node_observation_v1(
 }
 
 fn valid_text(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 256
-        && !value.bytes().any(|b| b.is_ascii_control())
+    !value.is_empty() && value.len() <= 256 && !value.bytes().any(|b| b.is_ascii_control())
 }
 
 fn digest(value: &str) -> bool {
