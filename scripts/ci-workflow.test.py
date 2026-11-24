@@ -6213,6 +6213,64 @@ class AptWorkflow(unittest.TestCase):
 # It uses that module's existing JOBS, os, Path, subprocess, tempfile,
 # textwrap and unittest imports. Root owns the shared workflow test file.
 class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
+    def test_prebuilt_native_consumer_is_limited_to_v2_artifact_partitions(self):
+        job = JOBS['oasis7-required']
+        image = re.search(r"^      image: >-\n(.*?)^      options:", job, re.M | re.S)[1].strip()
+        condition, image_pin = re.fullmatch(
+            r"\$\{\{ (.*) &&\s+'(ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64})' \|\| '' \}\}",
+            image, re.S).groups()
+        owner_list = re.search(r"fromJSON\('([^']+)'\)", condition)[1]
+        for execution, partition_version, delivery_version, owner in itertools.product(
+                (None, 'inline'), (None, 1, 2), (None, 1, 2),
+                ('controls', 'all', 'runtime', 'component-libs', 'integrations-0',
+                 'native-0', 'native-1', 'native-2', 'native-3', 'native-4')):
+            values = {
+                'fromJSON(needs.select.outputs.plan).ordinary_execution': execution,
+                'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': partition_version,
+                'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': delivery_version,
+                f"fromJSON('{owner_list}')": json.loads(owner_list),
+                'matrix.partition': owner,
+            }
+            expected = (execution != 'inline' and partition_version == delivery_version == 2
+                        and owner in ('native-0', 'native-1', 'native-2', 'native-3'))
+            with self.subTest(execution=execution, partition_version=partition_version,
+                              delivery_version=delivery_version, owner=owner):
+                self.assertEqual(effective_job_condition(condition, values, []), expected)
+        self.assertIn(image_pin, job)
+        self.assertIn('options: --user 1001:1001 --init', job)
+        self.assertIn('\ncache-mode: read\n', WORKFLOW)
+        self.assertNotIn('uses: actions/cache/save@', job)
+        self.assertEqual(len(rust_cache_steps(job)), 1)
+        self.assertIn('          save-if: false\n', rust_cache_steps(job)[0])
+        for step in ('Install pinned Rust toolchains', 'Install native libraries'):
+            script = workflow_step_script(job, step)
+            image = subprocess.run(['/bin/bash', '-e', '-c', script], capture_output=True,
+                                   env={'NATIVE_CONTAINER': 'true', 'PATH': '/no-tools'})
+            self.assertEqual(image.returncode, 0, image.stderr)
+
+    def test_native_path_hook_does_not_change_child_shell_working_directories(self):
+        job = JOBS['oasis7-required']
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        hooks = [step.splitlines()[0] for step in steps if '          BASH_ENV:' in step]
+        self.assertEqual(hooks, ['      - name: Unpack exact ordinary consumption closure',
+                                 '      - name: Execute selected group'])
+        preflight = workflow_step_script(job, 'Verify prebuilt native artifact consumer environment')
+        hook = preflight.split("<<'NATIVE_ENV'\n", 1)[1].split('\nNATIVE_ENV', 1)[0]
+        canonical = '/home/runner/work/oasis7/oasis7'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / 'child').mkdir()
+            path = root / 'hook'
+            path.write_text(hook.replace(canonical, str(root)))
+            result = subprocess.run(['bash', '-e', '-c', """
+                test "$PWD" = "$GITHUB_WORKSPACE"
+                test "$ImageOS" = ubuntu24
+                test -z "${BASH_ENV+x}"
+                cd child
+                bash -c 'test "$PWD" = "$GITHUB_WORKSPACE/child"'
+                """], cwd=root / 'child', env=dict(os.environ, BASH_ENV=str(path)), capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_only_chain_runtime_native_artifact_owners_skip_compiler_preparation(self):
         job = JOBS['oasis7-required']
         steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
