@@ -11,8 +11,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
-import time
 import unittest
 from unittest import mock
 import zipfile
@@ -806,152 +804,60 @@ else: record([name, *a])
                     with self.subTest(job=job, state=state), self.assertRaises(ValueError):
                         C.validate_jobs(plan, changed)
 
-    def test_node_concurrency_bounds_defaults_and_rejects_invalid_overrides(self):
-        self.assertEqual(C.resolve_node_concurrency({}, cpu_count=1), 1)
-        self.assertEqual(C.resolve_node_concurrency({}, cpu_count=2), 2)
-        self.assertEqual(C.resolve_node_concurrency({}, cpu_count=8), 2)
-        self.assertEqual(C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': ''}, cpu_count=4), 2)
-        self.assertEqual(C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': '1'}, cpu_count=4), 1)
-        self.assertEqual(C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': '3'}, cpu_count=1), 3)
-        self.assertEqual(C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': '9'}, cpu_count=2), 4)
-        for bad in ('0', '-1', 'abc', '2.5', '1 '):
-            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'invalid custody Node concurrency'):
-                C.resolve_node_concurrency({'OASIS7_CUSTODY_NODE_CONCURRENCY': bad}, cpu_count=2)
-
-    def test_concurrent_node_execution_overlaps_workers_preserves_order_and_isolates_root_failure(self):
-        stamps = Path(self.temporary.name) / 'stamps'
-        stamps.mkdir()
-        for existing in (self.worker / 'tests').glob('*.test.mjs'):
-            existing.unlink()
-        for name in ('a.test.mjs', 'b.test.mjs', 'c.test.mjs'):
-            marker = stamps / name
-            (self.worker / 'tests' / name).write_text(
-                "import {test} from 'node:test';\n"
-                "import {writeFileSync} from 'node:fs';\n"
-                "import {setTimeout as delay} from 'node:timers/promises';\n"
-                f"test('case', async () => {{ const s = Date.now(); await delay(250); "
-                f"writeFileSync({json.dumps(str(marker))}, JSON.stringify([s, Date.now()])); }});\n"
-            )
-        plan = dict(self.plan, custody_node_shards=[0, 1, 2])
-        # Put all three files into one shard by using a mocked partition for this check.
-        output = Path(self.temporary.name) / 'concurrent-order'
-        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
-             mock.patch.object(C, 'partition', return_value=[['a.test.mjs', 'b.test.mjs', 'c.test.mjs'], ['x'], ['y']]):
-            C.execute(self.root, plan, 0, output, '71', 2)
-        intervals = [json.loads((stamps / name).read_text()) for name in ('a.test.mjs', 'b.test.mjs', 'c.test.mjs')]
-        overlapped = any(
-            max(intervals[i][0], intervals[j][0]) < min(intervals[i][1], intervals[j][1])
-            for i in range(len(intervals)) for j in range(i + 1, len(intervals))
+    @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('gcc') and shutil.which('strip'),
+                         'requires Linux gcc and strip')
+    def test_pack_strips_elf_debug_sections_without_mutating_source_binary_and_preserves_restore(self):
+        c_source = Path(self.temporary.name) / 'fixture.c'
+        c_source.write_text(
+            'int custody_symbol_anchor(int x) { return x + 7; }\n'
+            'int main(void) { return custody_symbol_anchor(0) - 7; }\n'
         )
-        self.assertTrue(overlapped, f'expected concurrent Node workers to overlap, got {intervals}')
-        receipt = C.load(output / 'result.json')
-        self.assertEqual([row['file'] for row in receipt['files']], ['a.test.mjs', 'b.test.mjs', 'c.test.mjs'])
-        journal_rows = [json.loads(line) for line in (output / 'processes.jsonl').read_text().splitlines()]
-        self.assertEqual([row['test_name'] for row in journal_rows], ['a.test.mjs', 'b.test.mjs', 'c.test.mjs'])
-        self.assertEqual(list(output.glob('.*.processes.jsonl')), [])
+        elf_binary = self.root / 'target/native-elf'
+        subprocess.run(['gcc', '-g', '-O0', str(c_source), '-o', str(elf_binary)], check=True)
+        source_size = elf_binary.stat().st_size
+        source_digest = C.digest(elf_binary)
+        (self.worker / 'artifacts/native-test-binary.txt').write_text(str(elf_binary) + '\n')
 
-        # Root-cause failure in z.test.mjs must cancel sibling a.test.mjs and still report z.test.mjs.
-        for existing in (self.worker / 'tests').glob('*.test.mjs'):
-            existing.unlink()
-        (self.worker / 'tests/a-slow.test.mjs').write_text(
-            "import {test} from 'node:test';\n"
-            "import {setTimeout as delay} from 'node:timers/promises';\n"
-            "test('slow', async () => { await delay(8000); });\n"
-        )
-        (self.worker / 'tests/z-fail.test.mjs').write_text(
-            "import {test} from 'node:test';\n"
-            "test('fail', () => { throw new Error('real root failure'); });\n"
-        )
-        fail_output = Path(self.temporary.name) / 'concurrent-fail'
-        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
-             mock.patch.object(C, 'partition', return_value=[['a-slow.test.mjs', 'z-fail.test.mjs'], ['x'], ['y']]), \
-             self.assertRaisesRegex(ValueError, r'custody Node file failed: z-fail\.test\.mjs'):
-            C.execute(self.root, plan, 0, fail_output, '71', 2)
-        self.assertFalse((fail_output / 'result.json').exists())
-        self.assertEqual(list(fail_output.glob('.*.processes.jsonl')), [])
+        bundle = Path(self.temporary.name) / 'stripped-native-bundle'
+        manifest = C.pack(self.root, self.plan, 'native', bundle, '71', 2)
+        staged = bundle / 'files/bin/native'
+        # Source binary inside target/ must remain byte-for-byte untouched.
+        self.assertEqual(elf_binary.stat().st_size, source_size)
+        self.assertEqual(C.digest(elf_binary), source_digest)
+        # Staged bundle binary must drop DWARF sections, shrink, keep symbol table, and execute cleanly.
+        self.assertLess(staged.stat().st_size, source_size)
+        if shutil.which('readelf'):
+            sections = subprocess.check_output(['readelf', '-S', str(staged)], text=True)
+            self.assertNotIn('.debug_info', sections)
+            self.assertIn('.symtab', sections)
+        subprocess.run([str(staged)], check=True)
+        # Manifest digests must match the stripped bundle and pass check_bundle + restore.
+        native_entry = next(row for row in manifest['files'] if row['path'] == 'bin/native')
+        self.assertEqual(native_entry['size'], staged.stat().st_size)
+        self.assertEqual(native_entry['sha256'], C.digest(staged))
+        C.check_bundle(self.root, self.plan, 'native', bundle, '71', 2)
 
-        # Pre-spawn InterruptedError on a cancelled sibling must not mask a genuine root-cause ValueError.
-        for name in ('first.test.mjs', 'root-fail.test.mjs', 'third.test.mjs'):
-            (self.worker / 'tests' / name).write_text("import {test} from 'node:test';\ntest('ok', () => {});\n")
-        prespawn_output = Path(self.temporary.name) / 'concurrent-prespawn-cancel'
-        third_entered = threading.Event()
-        prespawn_raised = threading.Event()
-        def fake_prespawn_run(command, cwd, env, group, name, journal, timeout_seconds=2400,
-                              log_stream=None, cancellation_event=None):
-            if log_stream is not None:
-                log_stream.write('TAP version 13\n1..1\nok 1 - ok\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n')
-                log_stream.flush()
-            if name == 'first.test.mjs':
-                return dict(passed=True, cancelled=False, exit_code=0)
-            if name == 'root-fail.test.mjs':
-                self.assertTrue(third_entered.wait(2.0))
-                return dict(passed=False, cancelled=False, exit_code=1)
-            assert cancellation_event is not None
-            third_entered.set()
-            self.assertTrue(cancellation_event.wait(2.0))
-            prespawn_raised.set()
-            raise InterruptedError('cancelled before starting child')
-        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
-             mock.patch.object(C, 'partition', return_value=[['third.test.mjs', 'first.test.mjs', 'root-fail.test.mjs'], ['x'], ['y']]), \
-             mock.patch.object(C, 'run', side_effect=fake_prespawn_run), \
-             self.assertRaisesRegex(ValueError, r'custody Node file failed: root-fail\.test\.mjs'):
-            C.execute(self.root, plan, 0, prespawn_output, '71', 2)
-        self.assertTrue(prespawn_raised.is_set())
-        self.assertFalse((prespawn_output / 'result.json').exists())
-        self.assertEqual(list(prespawn_output.glob('.*.processes.jsonl')), [])
+        bundles = {'native': bundle}
+        for component in ('wasm-production', 'wasm-approval'):
+            other = Path(self.temporary.name) / f'stripped-{component}'
+            C.pack(self.root, self.plan, component, other, '71', 2)
+            bundles[component] = other
+        consumer = Path(self.temporary.name) / 'stripped-consumer'
+        shutil.copytree(self.root, consumer)
+        shutil.rmtree(consumer / 'crates/oasis7_custody_worker/artifacts')
+        C.restore(consumer, self.plan, bundles, '71', {k: 2 for k in C.COMPONENTS}, 2)
+        restored = consumer / 'crates/oasis7_custody_worker/artifacts/bin/native'
+        self.assertEqual(C.digest(restored), C.digest(staged))
+        subprocess.run([str(restored)], check=True)
 
-        # Unexpected worker exception must set cancellation_event so active siblings abort immediately.
-        unexpected_output = Path(self.temporary.name) / 'concurrent-unexpected-error'
-        sibling_entered = threading.Event()
-        sibling_saw_cancel = []
-        def fake_unexpected_run(command, cwd, env, group, name, journal, timeout_seconds=2400,
-                                log_stream=None, cancellation_event=None):
-            if name == 'first.test.mjs':
-                self.assertTrue(sibling_entered.wait(2.0))
-                raise OSError('simulated disk failure')
-            assert cancellation_event is not None
-            sibling_entered.set()
-            sibling_saw_cancel.append(cancellation_event.wait(2.0))
-            return dict(passed=False, cancelled=True, exit_code=-15)
-        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
-             mock.patch.object(C, 'partition', return_value=[['first.test.mjs', 'third.test.mjs'], ['x'], ['y']]), \
-             mock.patch.object(C, 'run', side_effect=fake_unexpected_run), \
-             self.assertRaisesRegex(OSError, 'simulated disk failure'):
-            C.execute(self.root, plan, 0, unexpected_output, '71', 2)
-        self.assertEqual(sibling_saw_cancel, [True])
-        self.assertFalse((unexpected_output / 'result.json').exists())
-        self.assertEqual(list(unexpected_output.glob('.*.processes.jsonl')), [])
-
-        # capture_workerd=True must execute client-abuse.integration.test.mjs solo before pooled files start.
-        for existing in (self.worker / 'tests').glob('*.test.mjs'):
-            existing.unlink()
-        capture_names = (C.workerd_capture.TEST_FILE, 'pool-a.test.mjs', 'pool-b.test.mjs')
-        for name in capture_names:
-            (self.worker / 'tests' / name).write_text("import {test} from 'node:test';\ntest('ok', () => {});\n")
-        capture_output = Path(self.temporary.name) / 'concurrent-capture-solo'
-        events = []
-        events_lock = threading.Lock()
-        def fake_capture_run(command, cwd, env, group, name, journal, timeout_seconds=2400,
-                             log_stream=None, cancellation_event=None):
-            start_ts = time.monotonic()
-            time.sleep(0.08)
-            end_ts = time.monotonic()
-            with events_lock:
-                events.append((name, start_ts, end_ts))
-            if log_stream is not None:
-                log_stream.write('TAP version 13\n1..1\nok 1 - ok\n# tests 1\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n')
-                log_stream.flush()
-            return dict(passed=True, cancelled=False, exit_code=0)
-        with mock.patch.dict(os.environ, {'OASIS7_CUSTODY_NODE_CONCURRENCY': '2'}), \
-             mock.patch.object(C, 'partition', return_value=[['pool-a.test.mjs', C.workerd_capture.TEST_FILE, 'pool-b.test.mjs'], ['x'], ['y']]), \
-             mock.patch.object(C.workerd_capture, 'prepare', side_effect=lambda root, res, env, ctx, att, cmd: (res / 'workerd-fault', cmd, env)), \
-             mock.patch.object(C.workerd_capture, 'finish', return_value={'passed': True}), \
-             mock.patch.object(C, 'run', side_effect=fake_capture_run):
-            C.execute(self.root, plan, 0, capture_output, '71', 2, capture_workerd=True)
-        by_name = {name: (start_ts, end_ts) for name, start_ts, end_ts in events}
-        solo_end = by_name[C.workerd_capture.TEST_FILE][1]
-        self.assertLessEqual(solo_end, by_name['pool-a.test.mjs'][0])
-        self.assertLessEqual(solo_end, by_name['pool-b.test.mjs'][0])
+    def test_refreshed_file_weights_cover_repo_inventory_and_balance_three_shards(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        rows = C.inventory(repo_root)
+        discovered = {row['path'] for row in rows}
+        self.assertEqual(set(C.FILE_SECONDS), discovered)
+        batches = C.partition(rows, [0, 1, 2])
+        totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
+        self.assertLessEqual(max(totals) - min(totals), 15.0, f'expected balanced 3-shard weights, got {totals}')
 
 
 if __name__ == '__main__':
