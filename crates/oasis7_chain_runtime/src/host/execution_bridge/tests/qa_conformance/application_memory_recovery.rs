@@ -232,7 +232,7 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
             .test_prepare_canonical_provider_response_with_memory(
                 "agent-a",
                 action.clone(),
-                vec![oasis7::simulator::MemoryWriteIntent {
+                vec![oasis7_agent_api::MemoryWriteIntent {
                     scope: "session_private".into(),
                     summary: MEMORY.into(),
                     tags: vec!["process-recovery".into()],

@@ -62,7 +62,7 @@ pub(super) fn preflight(client: &RemoteWorldServiceClient, root: &std::path::Pat
     assert_eq!(response.request_digest, request.request_digest);
     assert_eq!(
         response.response_digest,
-        oasis7::simulator::cognition_response_digest(&response.base_decision_response)
+        oasis7_agent_api::cognition_response_digest(&response.base_decision_response)
     );
     drop(preflight);
     fs::write(
