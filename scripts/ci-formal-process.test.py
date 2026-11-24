@@ -3167,6 +3167,14 @@ pub fn mark(name: &str) {
                              sum(record['expected_count'] for record in baseline_records))
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
 
+    def test_real_ordinary_artifact_still_rejects_another_consumer_checkout(self):
+        manifest = json.loads((self.bundle / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)):
+            with patch.object(artifacts, 'ROOT', self.root / 'different-consumer'), \
+                 patch.object(artifacts, 'output', return_value=self.sha), \
+                 self.assertRaisesRegex(ValueError, 'artifact identity mismatch: checkout'):
+                artifacts.validate_artifact_manifest(manifest, suite='ordinary', plan=self.selected)
+
     def test_real_v1_delivery_preserves_behavior_and_restores_cargo_binary_paths_without_compiling(self):
         selected = self.selected | dict(scope='full', ordinary_artifact_partition_version=1,
             ordinary_artifact_delivery_version=1, ordinary_partitions=list(artifacts.ORDINARY_ARTIFACT_PARTITIONS))
@@ -5118,6 +5126,40 @@ class ParallelFormalExecution(unittest.TestCase):
 
 
 class BuildAndBundles(unittest.TestCase):
+    def test_ordinary_image_preflight_preserves_canonical_real_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            checkout, other = root / 'checkout', root / 'other'
+            checkout.mkdir()
+            other.mkdir()
+            alias = root / 'symlink'
+            alias.symlink_to(checkout, target_is_directory=True)
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(checkout)
+                with patch.object(artifacts, 'ROOT', checkout), \
+                     patch.object(artifacts, 'ORDINARY_HOST_CHECKOUT', checkout), \
+                     patch.dict(os.environ, ORDINARY_ARTIFACT_CHECKOUT=str(checkout),
+                                GITHUB_WORKSPACE=str(checkout),
+                                ORDINARY_BUILD_IMAGE='ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64):
+                    report = artifacts.ordinary_image_preflight()
+                    self.assertTrue(report['same_directory'])
+                    self.assertEqual((report['device'], report['inode']),
+                                     (checkout.stat().st_dev, checkout.stat().st_ino))
+                    for changes in ({'GITHUB_WORKSPACE': str(other)},
+                                    {'GITHUB_WORKSPACE': str(alias)}, {'GITHUB_WORKSPACE': ''},
+                                    {'ORDINARY_ARTIFACT_CHECKOUT': str(other)},
+                                    {'ORDINARY_BUILD_IMAGE': 'rust-build:latest'}):
+                        with self.subTest(changes=changes), patch.dict(os.environ, changes), self.assertRaises(ValueError):
+                            artifacts.ordinary_image_preflight()
+                    with patch.object(artifacts, 'ROOT', other), self.assertRaises(ValueError):
+                        artifacts.ordinary_image_preflight()
+                    os.chdir(other)
+                    with self.assertRaises(ValueError):
+                        artifacts.ordinary_image_preflight()
+            finally:
+                os.chdir(original_cwd)
+
     def test_build_timings_include_dependency_freshness_per_variant(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

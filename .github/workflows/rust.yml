@@ -1330,15 +1330,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
+      ORDINARY_ARTIFACT_CHECKOUT: /home/runner/work/oasis7/oasis7
       ORDINARY_BUILD_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
     container:
       image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
     defaults:
       run:
         shell: bash
+        working-directory: /home/runner/work/oasis7/oasis7
     steps:
       - &linux-mold-event-tools-checkout
         name: Check out workflow linker setup
@@ -1352,6 +1356,8 @@ jobs:
         run: |
           set -euo pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$ORDINARY_ARTIFACT_CHECKOUT"
+          python3 scripts/ci-test-artifacts.py ordinary-image-preflight
           test "$GITHUB_REF" = refs/heads/main
           test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"

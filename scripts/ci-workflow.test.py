@@ -1841,6 +1841,12 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest
         self.assertIn('container:\n      image: ' + image, job)
         self.assertIn('ORDINARY_BUILD_IMAGE: ' + image, job)
+        checkout = '/home/runner/work/oasis7/oasis7'
+        self.assertIn('ORDINARY_ARTIFACT_CHECKOUT: ' + checkout, job)
+        self.assertIn('      volumes:\n        - ' + checkout + ':' + checkout + '\n', job)
+        self.assertIn('        working-directory: ' + checkout + '\n', job)
+        self.assertIn('python3 scripts/ci-test-artifacts.py ordinary-image-preflight\n', job)
+
         self.assertIn('timeout-minutes: 60', job)
         self.assertIn('packages: read', job)
         self.assertNotIn('apt-install.py', job)

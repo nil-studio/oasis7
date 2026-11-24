@@ -281,6 +281,7 @@ def preview_provider_required(manifest):
 
 
 ROOT = Path(__file__).resolve().parent.parent
+ORDINARY_HOST_CHECKOUT = Path('/home/runner/work/oasis7/oasis7')
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 FORMAL_AUTHORITY = None
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
@@ -1889,6 +1890,24 @@ def formal_component_targets(scope):
     if not expected:
         raise ValueError('Formal component has no selected Cargo targets')
     return expected
+
+
+def ordinary_image_preflight():
+    """Keep compiled-in ordinary paths identical to the existing host consumers."""
+    checkout = ORDINARY_HOST_CHECKOUT
+    workspace = Path(os.environ.get('GITHUB_WORKSPACE', ''))
+    if (os.environ.get('ORDINARY_ARTIFACT_CHECKOUT') != str(checkout)
+            or ROOT != checkout or Path.cwd() != checkout):
+        raise ValueError('ordinary image requires the actual canonical host checkout')
+    if (not workspace.is_absolute() or workspace.resolve() != workspace
+            or checkout.resolve() != checkout):
+        raise ValueError('ordinary image checkout paths must not be symlinks')
+    original, alias = workspace.stat(), checkout.stat()
+    if (not stat.S_ISDIR(original.st_mode) or not stat.S_ISDIR(alias.st_mode)
+            or (original.st_dev, original.st_ino) != (alias.st_dev, alias.st_ino)):
+        raise ValueError('ordinary image alias must bind the same runner workspace directory')
+    return dict(image=ordinary_build_image(), checkout=str(checkout), workspace=str(workspace),
+                device=alias.st_dev, inode=alias.st_ino, same_directory=True)
 
 
 def ordinary_build_image():
@@ -3603,7 +3622,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
 def main():
     global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare-provider', 'build', 'merge-formal', 'run', 'pack',
+    parser.add_argument('action', choices=['ordinary-image-preflight', 'prepare-provider', 'build', 'merge-formal', 'run', 'pack',
                         'unpack-ordinary', 'shards', 'required-args',
                         'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
@@ -3635,6 +3654,9 @@ def main():
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
     FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
     plan = json.loads(args.plan.read_text()) if args.plan else None
+    if args.action == 'ordinary-image-preflight':
+        print(json.dumps(ordinary_image_preflight(), sort_keys=True))
+        return
     if (args.ordinary_partition is not None and args.action not in ('build', 'run', 'unpack-ordinary')
             and not (args.action == 'required-args' and args.phase == 'partition')):
         parser.error('--ordinary-partition requires build, run, or partition validation')
