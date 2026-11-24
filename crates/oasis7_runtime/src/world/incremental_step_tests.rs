@@ -637,10 +637,9 @@ impl ValueNodeReader for ForbidValueRoot {
     }
 }
 
-#[test]
-fn root_step_does_not_read_unmodified_large_agent_summary() {
+fn exercise_unmodified_agent_summary(sizes: &[usize]) {
     let mut measured = None;
-    for size in [64, 32 << 20] {
+    for &size in sizes {
         // Setup is excluded from the bounded operation, and its retained pages
         // remain charged. This in-memory fixture does not claim total C<S.
         let memory = MemoryBudget::new(256 << 20, 4 << 20).unwrap();
@@ -733,6 +732,20 @@ fn root_step_does_not_read_unmodified_large_agent_summary() {
             measured = Some(current);
         }
     }
+}
+
+#[test]
+fn root_step_does_not_read_unmodified_agent_summary_across_value_chunks() {
+    exercise_unmodified_agent_summary(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn root_step_does_not_read_unmodified_large_agent_summary() {
+    exercise_unmodified_agent_summary(&[64, 32 << 20]);
 }
 
 #[path = "incremental_module_state_step_tests.rs"]

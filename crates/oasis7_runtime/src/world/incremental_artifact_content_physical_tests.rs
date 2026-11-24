@@ -94,6 +94,18 @@ impl<A: ValueNodeWriter, B: ValueNodeWriter> ValueNodeWriter for Dual<'_, A, B> 
     }
 }
 #[test]
+fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_originals_across_value_chunks()
+ {
+    for length in [
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ] {
+        run_artifact_physical_case(length);
+    }
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
 fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_originals() {
     for length in [64, 1 << 20, 32 << 20] {
         run_artifact_physical_case(length);

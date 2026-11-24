@@ -665,6 +665,22 @@ class Ownership(unittest.TestCase):
         self.assertIn('oasis7_simulator', host)
         self.assertNotIn('oasis7', host)
 
+    def test_viewer_codec_native_archive_owner_preserves_wasm_compatibility(self):
+        spec = manifest('oasis7_viewer_codec')
+        self.assertNotIn('oasis7', spec['dependencies'])
+        native = spec['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        wasm = spec['target']['cfg(target_arch = "wasm32")']['dependencies']
+        self.assertEqual(native['oasis7_runtime_host'], {'path': '../oasis7_runtime_host'})
+        self.assertNotIn('oasis7', native)
+        self.assertIn('oasis7', wasm)
+        self.assertNotIn('oasis7_runtime_host', wasm)
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::simulator_archive::archive::WorldEvent;', codec)
+        self.assertIn('use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;', codec)
+        tests = (ROOT / 'crates/oasis7_viewer_codec/src/tests.rs').read_text()
+        self.assertIn('fn native_composite_archive_and_simulator_values_keep_viewer_wire_type()', tests)
+        self.assertIn('fn concrete_writer_and_string_preserve_legacy_compact_bytes()', tests)
+
     def test_chain_runtime_final_umbrella_retirement(self):
         spec = manifest('oasis7_chain_runtime')
         tables = [spec, *spec.get('target', {}).values()]
