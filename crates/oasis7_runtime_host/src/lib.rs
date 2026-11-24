@@ -1,8 +1,8 @@
 //! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
-pub mod llm_request_budget;
 pub mod bootstrap;
 pub mod gameplay_actions;
 pub mod gameplay_service;
+pub mod llm_request_budget;
 pub mod simulator_archive;
 
 use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, WorldError, WorldState};
