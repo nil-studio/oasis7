@@ -8,7 +8,7 @@
 
 ## 1. 问题、目标与非目标
 
-开发 Codex 不能只读源码和跑固定请求就宣称“Agent 可以玩”。目标是：游戏 Skill/API 及受支持 Runtime 可用后，开发主 Agent 派出独立试玩 subagent。试玩者读取同一份玩家 Skill，启动或连接隔离候选，实际自主游玩并记录失败与体验反馈；主 Agent 再复现、修复、增加普通回归，并针对新候选复测。
+开发 Coding Agent 不能只读源码和跑固定请求就宣称“Agent 可以玩”。目标是：游戏 Skill/API 及受支持 Runtime 可用后，开发主 Agent 派出独立试玩 subagent。试玩者读取同一份玩家 Skill，启动或连接隔离候选，实际自主游玩并记录失败与体验反馈；主 Agent 再复现、修复、增加普通回归，并针对新候选复测。
 
 本设计承接既有 L4B embodied-agent 自测，不新增证据等级、正式 player 角色、通用任务平台或所有 PR 必跑的模型门禁。脚本探针、L4A 静态/模拟评审、真实自主试玩、真实 Web/native 操作和 L5 外部玩家证据不能互相代签。试玩通过不证明游戏有趣、安全完备或可发行。仓库合入规则仍由[开发流程](../../engineering/workflow/source-of-truth.md)拥有。
 
@@ -40,7 +40,7 @@
 | L4 工具 | `scripts/prepare-playability-l4-review.sh`、`scripts/run-playability-l4b-agent.sh` 已存在；后者默认指定 `build_factory_smelter_mk1` | 复用启动、artifact 和卡片；固定动作不能证明新 Skill/外部 Runtime 自主策略 |
 | Game API 与 worker | #4521 是 target 系统设计，已有 World Service 不等于所有 `/v1/game` 端点和 worker 就绪 | 每轮预检实际能力、发行资产和底层权威；不得从设计文档生成假的健康或完成结果 |
 | 玩家 Skill | 基线读取 `skills/oasis7-play/SKILL.md` 未找到；旧 `site/skills/oasis7.md` 是另一条 Bridge 路径 | 指定真实交付的玩家 Skill 及 hash；未交付先记 blocked，不能临时写“测试专用玩家 Skill”自证成功 |
-| 编排能力 | Codex 是否能创建 subagent、隔离环境和操作 GUI 取决于实际客户端和配置 | 记录 runtime/profile/工具能力；没有 subagent 时只能明确降级为人工/主 Agent 自测，不称独立 subagent 通过 |
+| 编排能力 | 是否能创建独立 subagent、隔离环境和操作 GUI 取决于实际 Coding Agent 客户端和配置 | 记录 runtime/profile/工具能力；没有 subagent 时只能明确降级为人工/主 Agent 自测，不称独立 subagent 通过 |
 
 当前 runner 的继续意愿/杠杆评分仍是保留的实现缺口：`scripts/run-playability-l4b-agent.sh` 从 step/progress/ACK/player match 推导 `agent_continue_observed`、杠杆 5 分及 `world_activity_only=no`，尚不满足 [L4 自动事实与体验判断](../prd.md#l4-evidence-judgment)要求的独立逐项评审。关系规范化不修复或验收该行为；固定路线、自动评分和文档检查不能变成自主试玩/玩家价值证据。
 
@@ -71,12 +71,12 @@
 
 两种启动测试须分开：`cold_entry` 让试玩者仅按已交付玩家 Skill，经预批准的受限启动/连接工具自行进入；`prepared_world` 由 setup 先准备世界再交给试玩者。后者可以证明游戏行为，不能代签自助启动。如果玩家发行入口不能安全选择测试世界，cold_entry 保持 blocked，不能给 subagent 任意 shell 权限解决。
 
-派工前固定场景、目标、预算、角色/权限、证据路径和停止条件；使用实际 Codex 提供的 subagent 能力创建任务，记录真实子会话引用。不能把脚本、另一段主 Agent 文本或没有返回记录的“已派工”当作独立子任务。采用[试玩任务模板](../templates/agent-runtime-playtester-task.template.md)，显式让子任务先读取玩家 Skill。
+派工前固定场景、目标、预算、角色/权限、证据路径和停止条件；使用当前获准开发客户端实际提供的 subagent 能力创建任务，记录真实子会话引用。不能把脚本、另一段主 Agent 文本或没有返回记录的“已派工”当作独立子任务。采用[试玩任务模板](../templates/agent-runtime-playtester-task.template.md)，显式让子任务先读取玩家 Skill。
 
 <a id="selftest-gameplay"></a>
 ### 5.2 自主游玩与可信判定
 
-默认 `attached_codex_subagent`：试玩子会话本身作为候选明确支持的 attached Runtime，读取 Skill、取得有效 executor 绑定、经 Game API 自主规划并行动；不再套一层额外 Codex worker 以人为增加费用。该 profile 必须先通过 #4521 的 attached 合同，不能把 Codex 子会话能力推定为 supervised app-server profile 已通过。
+`attached_codex_subagent` 是既有 Codex 专项 profile，不是任意 Coding Agent 的默认运行模式：仅在候选明确支持时，试玩子会话本身作为 attached Runtime，读取 Skill、取得有效 executor 绑定、经 Game API 自主规划并行动；不再套一层额外模型 worker 以人为增加费用。该 profile 必须先通过 #4521 的 attached 合同，不能把任意开发子会话的能力推定为 supervised app-server profile 已通过；其他 Coding Agent 必须另行证明有等价受支持的 attached profile，否则如实 blocked/降级，不伪报通过。
 
 `supervised_runtime` 场景则由明确的 worker 驱动 OpenClaw 或 Codex；试玩/observer 子任务通过对应玩家入口交互，不接管其 executor。同一 Agent 仅一个当前决策执行方；验证 OpenClaw 需实际启动被授权 OpenClaw，而不是由 Codex 模仿它。两条路径的实际模型费用分别进入同一总账。
 
@@ -199,6 +199,6 @@ Skill、游戏文本、消息和工具响应均不能修改测试授权、请求
 
 选择“现有测试体系 + 自测操作手册与模板 + 真实玩家 Skill + 受权验真”，拒绝仅让模型读日志评价，也拒绝每次改文档都跑多模型长局。首期优先一条小闭环，再按实际缺陷增加测试；不为追求 Agent 数量建立复杂角色审批链。
 
-agent/qa owner 负责在实现中锁定可用的 Codex subagent 与 attached/supervised profile、隔离能力及受限启动工具；Runtime owner 负责可靠结果读回；Viewer owner 负责真实 Web/native 驱动。任一缺失明确影响哪些场景；不能默认偷偷安装软件、改用户配置或调用付费模型。
+agent/qa owner 负责在实现中锁定所选开发客户端可用的独立 subagent 与实际 attached/supervised profile、隔离能力及受限启动工具；Runtime owner 负责可靠结果读回；Viewer owner 负责真实 Web/native 驱动。任一缺失明确影响哪些场景；不能默认偷偷安装软件、改用户配置或调用付费模型。
 
-官方参考：[Codex subagents](https://developers.openai.com/codex/subagents)、[Codex skills](https://developers.openai.com/codex/skills)（2026-10-10 核对）。使用宿主实际提供的派工接口，不发明通用 `codex subagent` 命令；文档说明不能替代目标版本能力探测。持久技术真值沿 #4521 的 API/协作/adapter/world-view，日常结果在 PR 和实际 artifact，不回写成本/进度到本长期设计。
+Codex 平台适配参考（仅使用该客户端时）：[Codex subagents](https://developers.openai.com/codex/subagents)、[Codex skills](https://developers.openai.com/codex/skills)（2026-10-10 核对）。使用宿主实际提供的派工接口，不发明通用 `codex subagent` 命令；文档说明不能替代目标版本能力探测。持久技术真值沿 #4521 的 API/协作/adapter/world-view，日常结果在 PR 和实际 artifact，不回写成本/进度到本长期设计。
