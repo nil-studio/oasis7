@@ -52,6 +52,36 @@ impl World {
         }
     }
 
+    /// Reconcile one authenticated C-to-T event with the original action
+    /// allocator. Ordinary Move/Transfer can have a causal action without
+    /// the optional accepted/rejected disposition; both carriers agree when
+    /// present. A missing ID or gap cannot synthesize a queued action.
+    pub(super) fn reconcile_replayed_action_event(
+        &mut self,
+        event: &crate::WorldEvent,
+        seen: &mut std::collections::BTreeSet<ActionId>,
+    ) -> Result<(), crate::WorldError> {
+        if let Some(crate::CausedBy::Action(causal_id)) = &event.caused_by {
+            if let crate::WorldEventBody::Domain(
+                crate::DomainEvent::ActionAccepted { action_id, .. }
+                | crate::DomainEvent::ActionRejected { action_id, .. },
+            ) = &event.body
+                && causal_id != action_id
+            {
+                return Err(crate::WorldError::JournalMismatch);
+            }
+            self.reconcile_replayed_action_allocator(*causal_id, seen);
+        }
+        if let crate::WorldEventBody::Domain(
+            crate::DomainEvent::ActionAccepted { action_id, .. }
+            | crate::DomainEvent::ActionRejected { action_id, .. },
+        ) = &event.body
+        {
+            self.reconcile_replayed_action_allocator(*action_id, seen);
+        }
+        Ok(())
+    }
+
     pub(crate) fn allocate_next_intent_seq(&mut self) -> IntentSeq {
         Self::allocate_rolling_sequence_id(&mut self.next_intent_id, &mut self.next_intent_id_era)
     }

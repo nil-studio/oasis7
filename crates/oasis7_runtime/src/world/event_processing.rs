@@ -208,29 +208,8 @@ impl World {
             {
                 self.record_tick_consensus_for_tick(tick)?;
             }
-            // Ordinary move/transfer results do not always emit an
-            // ActionAccepted event. Their authenticated journal causality is
-            // the original allocation witness. Consume that exact ID once,
-            // preserving the existing rolling allocator without inventing
-            // missing queue entries or advancing through unproven gaps.
-            if let Some(CausedBy::Action(causal_id)) = &event.caused_by {
-                if let WorldEventBody::Domain(
-                    DomainEvent::ActionAccepted { action_id, .. }
-                    | DomainEvent::ActionRejected { action_id, .. },
-                ) = &event.body
-                    && causal_id != action_id
-                {
-                    return Err(WorldError::JournalMismatch);
-                }
-                self.reconcile_replayed_action_allocator(*causal_id, &mut replayed_action_ids);
-            }
+            self.reconcile_replayed_action_event(&event, &mut replayed_action_ids)?;
             match &event.body {
-                WorldEventBody::Domain(
-                    DomainEvent::ActionAccepted { action_id, .. }
-                    | DomainEvent::ActionRejected { action_id, .. },
-                ) => {
-                    self.reconcile_replayed_action_allocator(*action_id, &mut replayed_action_ids);
-                }
                 WorldEventBody::PolicyDecisionRecorded(record) => {
                     self.reconcile_replayed_intent_allocator(
                         record.intent_id.as_str(),
