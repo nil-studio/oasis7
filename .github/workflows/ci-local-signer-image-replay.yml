@@ -1,4 +1,4 @@
-# Replay of c0eddfbb3b25ec29f23344367a645ed7a46f5342 signer steps.
+# Replay of 4ce2c36d0462137176d87d5c6281bf6c66e04979 signer steps.
 name: Local signer non-root image replay
 on:
   pull_request:
@@ -146,7 +146,7 @@ jobs:
               export PATH="$WORKER_TOOL_ROOT/bin:$PATH"
             fi
           fi
-          if [[ "$SIGNER_IMAGE" == true ]]; then
+          if [[ "$SUPPORT_EXECUTION" == signer-image ]]; then
             # Reuse the original host profile filter without host provisioning.
             SUPPORT_EXECUTION=host
           fi
