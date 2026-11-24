@@ -35,6 +35,7 @@ fn boxed_retained_reader<T>(make: impl FnOnce() -> T) -> Box<T> {
 }
 
 pub(super) fn exercise() {
+    retained_e3_phase(b"oasis7 native diagnostic game_outer_stage_enter\n");
     let (
         world,
         trust,
@@ -48,8 +49,8 @@ pub(super) fn exercise() {
         step2,
         step3,
         completion,
-    retained_e3_phase(b"oasis7 native diagnostic game_outer_stage_enter\n");
     ) = build_retained_recovery_setup(|| {
+        retained_e3_phase(b"oasis7 native diagnostic game_recovery_steps_enter\n");
         let (
             world,
             trust,
@@ -65,7 +66,6 @@ pub(super) fn exercise() {
             step2,
             step3,
             recovery3,
-        retained_e3_phase(b"oasis7 native diagnostic game_recovery_steps_enter\n");
         ) = build_retained_recovery_steps(|| {
             retained_e3_phase(b"oasis7 native diagnostic game_initial_fixture_begin\n");
             let (world, trust, anchor, initial_proof) = protocol_initial_fixture();
