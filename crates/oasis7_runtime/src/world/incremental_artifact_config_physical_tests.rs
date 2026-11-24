@@ -207,10 +207,9 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
     }
 }
 
-#[test]
-fn raw_zstd_cold_config_and_scalar_delta_do_not_scan_growing_json() {
+fn exercise_growing_json(sizes: &[usize]) {
     let mut baseline = [None, None];
-    for length in [64, 1 << 20, 32 << 20, 64 << 20] {
+    for &length in sizes {
         for (index, compression) in [PageCompression::Raw, PageCompression::Zstd]
             .into_iter()
             .enumerate()
@@ -226,6 +225,20 @@ fn raw_zstd_cold_config_and_scalar_delta_do_not_scan_growing_json() {
             }
         }
     }
+}
+
+#[test]
+fn raw_zstd_cold_config_and_scalar_delta_do_not_scan_json_across_value_chunks() {
+    exercise_growing_json(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn raw_zstd_cold_config_and_scalar_delta_do_not_scan_growing_json() {
+    exercise_growing_json(&[64, 1 << 20, 32 << 20, 64 << 20]);
 }
 fn run(length: usize, compression: PageCompression) -> [u64; 8] {
     let directory = Directory::new();
