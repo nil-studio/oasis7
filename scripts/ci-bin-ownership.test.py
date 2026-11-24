@@ -354,11 +354,47 @@ class Ownership(unittest.TestCase):
         self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
         self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
         host_deps = manifest('oasis7_runtime_host')['dependencies']
-        self.assertEqual(set(host_deps), {
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
             'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
             'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
-        })
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
         self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
         for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
             for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
                 source = rust.read_text()
