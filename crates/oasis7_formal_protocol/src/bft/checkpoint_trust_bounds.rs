@@ -13,7 +13,14 @@ impl<'a> Cursor<'a> {
     }
     fn head(&mut self) -> Result<(u8, u64), String> {
         let byte = self.take(1)?[0];
-        let value = match byte & 31 {
+        let kind = byte >> 5;
+        let additional = byte & 31;
+        // Major type 7 uses these bits as a simple value or float marker,
+        // not a length. Float payloads must never alias false/true/null.
+        if kind == 7 && !matches!(additional, 20..=22) {
+            return Err("unsupported checkpoint CBOR simple value or float".into());
+        }
+        let value = match additional {
             n @ 0..=23 => u64::from(n),
             24 => u64::from(self.take(1)?[0]),
             25 => u64::from(u16::from_be_bytes(self.take(2)?.try_into().unwrap())),
@@ -21,7 +28,17 @@ impl<'a> Cursor<'a> {
             27 => u64::from_be_bytes(self.take(8)?.try_into().unwrap()),
             _ => return Err("indefinite or reserved CBOR framing".into()),
         };
-        Ok((byte >> 5, value))
+        let minimum = match additional {
+            24 => 24,
+            25 => 1 << 8,
+            26 => 1 << 16,
+            27 => 1 << 32,
+            _ => 0,
+        };
+        if value < minimum {
+            return Err("noncanonical checkpoint CBOR head".into());
+        }
+        Ok((kind, value))
     }
     fn map_count(&mut self) -> Result<u64, String> {
         let (kind, count) = self.head()?;
@@ -161,12 +178,17 @@ pub fn issuer_status_bounds(
         return Err("invalid bounded checkpoint issuer status framing".into());
     }
     let mut c = Cursor { bytes, at: 3 };
+    let mut found_body = false;
     let mut found_issuers = false;
     for _ in 0..c.map_count()? {
         if c.text_key()? != b"body" {
             c.item(0)?;
             continue;
         }
+        if found_body {
+            return Err("duplicate checkpoint issuer status body".into());
+        }
+        found_body = true;
         for _ in 0..c.map_count()? {
             if c.text_key()? != b"issuer_keys" {
                 c.item(0)?;
@@ -221,6 +243,50 @@ mod tests {
                 .unwrap_err()
                 .contains("exact issuer count")
         );
+    }
+
+    #[test]
+    fn rejects_noncanonical_heads_and_floats_before_decode() {
+        // Canonical false, true, null and unsigned 24 remain admissible.
+        for value in [&[0xf4][..], &[0xf5], &[0xf6], &[0x18, 24]] {
+            let mut bytes = vec![0xd9, 0xd9, 0xf7];
+            bytes.extend_from_slice(value);
+            assert!(time_observation_bounds(&bytes, 64).is_ok());
+        }
+        for value in [
+            &[0xf9, 0x00, 0x14][..],
+            &[0xf8, 20],
+            &[0x18, 23],
+            &[0x19, 0, 24],
+            &[0x98, 0],
+        ] {
+            let mut bytes = vec![0xd9, 0xd9, 0xf7];
+            bytes.extend_from_slice(value);
+            assert!(time_observation_bounds(&bytes, 64).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_status_envelope_body_before_decode() {
+        let mut bytes = vec![0xd9, 0xd9, 0xf7, 0xa2, 0x64];
+        bytes.extend_from_slice(b"body");
+        bytes.extend_from_slice(&[0xa0, 0x64]);
+        bytes.extend_from_slice(b"body");
+        bytes.extend_from_slice(&[0xa1, 0x6b]);
+        bytes.extend_from_slice(b"issuer_keys");
+        bytes.extend_from_slice(&[0x81, 0xf6]);
+        assert!(
+            issuer_status_bounds(&bytes, 64, 1)
+                .unwrap_err()
+                .contains("duplicate")
+        );
+
+        let mut original = vec![0xd9, 0xd9, 0xf7, 0xa1, 0x64];
+        original.extend_from_slice(b"body");
+        original.extend_from_slice(&[0xa1, 0x6b]);
+        original.extend_from_slice(b"issuer_keys");
+        original.extend_from_slice(&[0x81, 0xf6]);
+        assert!(issuer_status_bounds(&original, 64, 1).is_ok());
     }
 
     #[test]
