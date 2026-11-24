@@ -111,17 +111,6 @@ export function buildTaskGame076ScenarioSnapshot({ variant = "attraction_evidenc
   };
 }
 
-export function buildTaskGame076RenderInput({ variant = "attraction_evidence" } = {}) {
-  const snapshot = buildTaskGame076ScenarioSnapshot({ variant });
-  return {
-    scenarioVersion: TASK_GAME_076_SCENARIO_VERSION,
-    provenance: "visual_only",
-    renderStateSource: "task_game_076_scenario",
-    snapshot,
-    selection: { kind: "agent", id: "agent-0" },
-  };
-}
-
 function truthyText(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
