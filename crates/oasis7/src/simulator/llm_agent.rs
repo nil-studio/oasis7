@@ -33,8 +33,6 @@ mod behavior_runtime_helpers;
 mod config_helpers;
 mod decision_flow;
 mod execution_controls;
-#[cfg(test)]
-mod openai_payload;
 mod prompt_assembly;
 mod recipe_coverage;
 use recipe_coverage::RecipeCoverageProgress;
@@ -62,16 +60,15 @@ use config_helpers::{
 #[cfg(test)]
 use oasis7_model_provider::legacy_tool_names::*;
 #[cfg(test)]
-use oasis7_model_provider::openai_payload::normalize_openai_api_base_url;
+use oasis7_model_provider::openai_payload::{
+    build_responses_request_payload, completion_result_from_sdk_stream_events,
+    normalize_openai_api_base_url, output_item_to_completion_turn, responses_tools,
+    responses_tools_with_debug_mode,
+};
 #[cfg(test)]
 pub(super) use oasis7_model_provider::openai_stream_diagnostics::StreamTransportMetadata;
 #[cfg(test)]
 use oasis7_model_provider::openai_stream_diagnostics::format_stream_transport_diagnostics;
-#[cfg(test)]
-use openai_payload::{
-    build_responses_request_payload, completion_result_from_sdk_stream_events,
-    output_item_to_completion_turn, responses_tools, responses_tools_with_debug_mode,
-};
 
 pub use oasis7_model_provider::config_constants::*;
 

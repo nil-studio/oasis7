@@ -819,12 +819,6 @@ impl ProviderLoopbackHttpClient {
     }
 }
 
-pub fn validate_provider_loopback_http_base_url(
-    base_url: &str,
-) -> Result<Url, ProviderLoopbackHttpError> {
-    validate_provider_http_base_url(base_url, LOOPBACK_HTTP_PROVIDER_TRANSPORT)
-}
-
 pub fn validate_provider_http_base_url(
     base_url: &str,
     transport: &str,
