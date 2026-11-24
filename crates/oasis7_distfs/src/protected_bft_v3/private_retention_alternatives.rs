@@ -59,7 +59,9 @@ impl BftOriginalAlternativesInventoryV1 {
             // Strict ordering rejects repeated keys, including same-header
             // entries with different original payloads/digests.
             if previous.is_some_and(|old| old >= alternative.key.header_id.as_str()) {
-                return Err(invalid("original alternatives duplicate or ambiguous order"));
+                return Err(invalid(
+                    "original alternatives duplicate or ambiguous order",
+                ));
             }
             previous = Some(&alternative.key.header_id);
         }
@@ -90,9 +92,7 @@ impl BftOriginalAlternativesInventoryV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protected_bft_v3::{
-        BftPrivateRetentionKeyV1, BftSuccessorWindowArchiveRefV1,
-    };
+    use crate::protected_bft_v3::{BftPrivateRetentionKeyV1, BftSuccessorWindowArchiveRefV1};
 
     fn h(n: u8) -> String {
         hex::encode([n; 32])
@@ -183,8 +183,7 @@ mod tests {
     fn canonical_roundtrip_keeps_exact_descriptors_without_promotion() {
         let original = inventory();
         let encoded = serde_cbor::to_vec(&original).unwrap();
-        let decoded: BftOriginalAlternativesInventoryV1 =
-            serde_cbor::from_slice(&encoded).unwrap();
+        let decoded: BftOriginalAlternativesInventoryV1 = serde_cbor::from_slice(&encoded).unwrap();
         assert_eq!(decoded, original);
         decoded.validate().unwrap();
         // Deliberately no selection authority, signer lease, or Ready flag.

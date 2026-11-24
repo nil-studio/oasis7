@@ -14,8 +14,8 @@ mod luna_key;
 #[cfg(feature = "protected-bft-luna-key")]
 pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
-mod private_retention_input;
 mod private_retention_alternatives;
+mod private_retention_input;
 mod rotation;
 mod service;
 mod state;
