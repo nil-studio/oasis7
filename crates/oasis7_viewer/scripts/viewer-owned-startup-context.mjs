@@ -1,6 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fullBrowserLaunchOptions } from '../../../scripts/playwright-module-loader.mjs';
 const leases = new WeakSet();
 const contexts = new WeakMap();
 // Only directories created by this factory may be used, including warm reopens.
@@ -10,7 +11,7 @@ export function createStartupProfile() {
 }
 export async function launchOwnedStartupContext(chromium, executablePath, lease) {
   if (!leases.has(lease)) throw Error('startup profile was not created by owned factory');
-  const context = await chromium.launchPersistentContext(lease.path, { executablePath, chromiumSandbox: true, args: ['--enable-automation'], headless: true, viewport: { width: 1440, height: 1000 }, timeout: 15000 });
+  const context = await chromium.launchPersistentContext(lease.path, { ...fullBrowserLaunchOptions(executablePath), chromiumSandbox: true, args: ['--enable-automation'], headless: true, viewport: { width: 1440, height: 1000 }, timeout: 15000 });
   contexts.set(context, lease);
   context.once('close', () => contexts.delete(context));
   return context;

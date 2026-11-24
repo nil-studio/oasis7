@@ -203,8 +203,10 @@ rtk ./scripts/cargo-dev.sh build \
 准备本地状态路径和 pricing rule。真实 platform key 只能来自本机 secret store 或 operator shell，不要写入仓库：
 
 ```bash
-export OASIS7_NEWAPI_BRIDGE_STATE_PATH=/tmp/oasis7-newapi-bridge-state.json
-export OASIS7_PROVIDER_FEEDBACK_STATE_PATH=/tmp/oasis7-provider-feedback-state.json
+# Preserve this shell's selected root when restarting the same test.
+export OASIS7_LOCAL_TEST_STATE_DIR="${OASIS7_LOCAL_TEST_STATE_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/oasis7-bridge-state.XXXXXX")}"
+export OASIS7_NEWAPI_BRIDGE_STATE_PATH="$OASIS7_LOCAL_TEST_STATE_DIR/bridge-state.json"
+export OASIS7_PROVIDER_FEEDBACK_STATE_PATH="$OASIS7_LOCAL_TEST_STATE_DIR/provider-feedback-state.json"
 export OASIS7_NEWAPI_BRIDGE_CHAIN_BASE_URL=http://127.0.0.1:19083
 export OASIS7_NEWAPI_BRIDGE_LETAI_BASE_URL=https://api.letai.run
 export OASIS7_NEWAPI_BRIDGE_PRICING_VERSION=pv-1
@@ -213,6 +215,12 @@ export OASIS7_NEWAPI_BRIDGE_PRICING_RULES="$(
     scripts/newapi-bridge-service/pricing-rules.example.env
 )"
 ```
+
+不同 worktree 或并行测试使用不同目录；仅重启本轮服务时复用已选目录。如果显式提供
+`OASIS7_LOCAL_TEST_STATE_DIR`，必须事先建好 owner-only 私有目录，且不能位于静态站点或
+归档输出目录。自动启动脚本的默认 bridge state 则位于私有的
+`<output-dir>/newapi-private/bridge-state.json`。两端必须读取同一本轮文件，旧的全局
+`/tmp` 状态不自动迁移。
 
 `OASIS7_PROVIDER_FEEDBACK_STATE_PATH` 是可选的 provider-local persistence 配置；配置后可在
 provider bridge 进程重启后保留有界的 request/feedback lineage。它不等价于 Runtime
@@ -298,14 +306,14 @@ rtk curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/bind" \
     \"project_metadata\": {
       \"purpose\": \"local-public-testnet-full-bridge-e2e\"
     }
-  }" | tee /tmp/oasis7-newapi-bind-response.json
+  }" > "$OASIS7_LOCAL_TEST_STATE_DIR/newapi-bind-response.json"
 ```
 
 分配 deposit route：
 
 ```bash
 export TEST_BRIDGE_USER_ID="$(
-  jq -r '.bridge_user_id' /tmp/oasis7-newapi-bind-response.json
+  jq -r '.bridge_user_id' "$OASIS7_LOCAL_TEST_STATE_DIR/newapi-bind-response.json"
 )"
 
 rtk curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/deposit-route" \
@@ -313,7 +321,7 @@ rtk curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/deposit-route" \
   -d "{
     \"bridge_user_id\": \"$TEST_BRIDGE_USER_ID\",
     \"pricing_version\": \"$PRICING_VERSION\"
-  }" | tee /tmp/oasis7-newapi-deposit-route-response.json
+  }" > "$OASIS7_LOCAL_TEST_STATE_DIR/newapi-deposit-route-response.json"
 ```
 
 提交 signed testnet OC transfer。金额必须等于 pricing rule 中该版本的 OC amount；`pv-1:100:100000:0` 对应 `--amount 100`。`--memo` 必须使用 route 返回的 `deposit_token`。
@@ -322,10 +330,10 @@ rtk curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/deposit-route" \
 
 ```bash
 export TEST_DEPOSIT_ACCOUNT_ID="$(
-  jq -r '.deposit_account_id' /tmp/oasis7-newapi-deposit-route-response.json
+  jq -r '.deposit_account_id' "$OASIS7_LOCAL_TEST_STATE_DIR/newapi-deposit-route-response.json"
 )"
 export TEST_DEPOSIT_TOKEN="$(
-  jq -r '.deposit_token' /tmp/oasis7-newapi-deposit-route-response.json
+  jq -r '.deposit_token' "$OASIS7_LOCAL_TEST_STATE_DIR/newapi-deposit-route-response.json"
 )"
 
 rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); \
@@ -574,15 +582,13 @@ rtk ./scripts/run-local-letai-provider-bridge.sh \
 
 ## 10. 启动 LetAI provider bridge
 
-低余额或充值传播测试建议先用较小输出上限，避免预扣费额度过高掩盖真实链路。若本轮目标包含 OC -> NewAPI/LetAI 充值，provider 必须读取第 7 节的 bridge state，并通过 `newapi_user_ref:<ref>` bearer selector 消费刚发出的 project token：
+低余额或充值传播测试建议先用较小输出上限，避免预扣费额度过高掩盖真实链路。若本轮目标包含 OC -> NewAPI/LetAI 充值，provider 必须读取第 7 节的 bridge state，并通过 `newapi_user_ref:<ref>` bearer selector 消费刚发出的 project token。默认不注入代理；
+确有网络需要时，按 §9.2 在同一个 shell 中显式配置已授权的代理，并保留本地回环 bypass：
 
 ```bash
 rtk env \
-  http_proxy=http://127.0.0.1:7897 \
-  https_proxy=http://127.0.0.1:7897 \
-  all_proxy=socks5://127.0.0.1:7897 \
-  OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH=/tmp/oasis7-newapi-bridge-state.json \
-  OASIS7_PROVIDER_FEEDBACK_STATE_PATH=/tmp/oasis7-provider-feedback-state.json \
+  OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH="${OASIS7_NEWAPI_BRIDGE_STATE_PATH:?先完成第 7 节状态配置}" \
+  OASIS7_PROVIDER_FEEDBACK_STATE_PATH="${OASIS7_PROVIDER_FEEDBACK_STATE_PATH:-}" \
   OASIS7_REMOTE_LLM_MAX_OUTPUT_TOKENS=64 \
   ./scripts/run-local-letai-provider-bridge.sh \
     --config "$LETAI_TOKEN_FILE" \

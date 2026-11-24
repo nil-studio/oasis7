@@ -272,7 +272,7 @@ pub(super) fn sync_llm_runner_long_term_memory(
         };
         let entries = agent.behavior.export_long_term_memory_entries();
         if let Err(message) = kernel.set_agent_long_term_memory(agent_id.as_str(), entries) {
-            crate::observability::emit_stderr_or_event(
+            oasis7_observability::emit_stderr_or_event(
                 tracing::Level::WARN,
                 format!(
                     "viewer live: skip long-term memory sync for {}: {}",

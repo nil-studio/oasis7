@@ -16,10 +16,12 @@ Linux CI 共用一套 Ubuntu 24.04 底座、一份多阶段 Dockerfile 和一条
 
 | 目标 | 增量依赖与消费者 | 验收边界 |
 | --- | --- | --- |
-| `runtime` | 原生运行库与通用执行工具。用于执行预编译产物和适合容器化的轻量检查 | 核对 ELF 动态依赖、实际子进程与测试结果 |
+| `runtime` | 原生运行库、通用执行工具和 Node 24 可执行文件。用于预编译产物、轻量检查和需要 PATH 上 Node 的分析器 | 核对 ELF 动态依赖、实际子进程与测试结果，并以 UID 1001 离线执行 PATH 中的 Node |
 | `build` | 在 runtime 上增加 GCC、pkg-config 和系统开发包。用于需要本地 C 编译或链接的任务。custody 首批用 build，因为分片 0 的 workerd GDB 合同需编译 C fixture | 四个 custody 分片全部执行，保留 GDB、类型检查、产物身份和结果收集 |
 | `rust-build` | 在 build 上预装仓库固定的 Rust stable、WASM nightly、组件和 targets。用于 Rust 编译、Clippy、编译指标和适用的缓存预热及打包任务 | 核对 rustc 版本、组件、targets、链接器、profile、缓存身份和实际产物消费 |
-| `browser` | 在 runtime 上预装 Node、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
+| `browser` | 复用 runtime 的 Node，在其上提供 npm、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
+
+五个目标从同一 Node 24 官方镜像来源构建，构建时固定来源 digest 并记录在镜像标签。通用层提供 Node 可执行文件，browser 层提供 npm 及其锁文件依赖。镜像 smoke 验证离线工具能力，CodeQL 的 JavaScript/TypeScript 提取由实际分析 job 验证所用的正式摘要。
 
 Rust 或 Node 依赖仍沿用仓库锁文件和相应的缓存策略。预装 rustup 工具链减少每个 job 下载编译器的开销，Cargo registry 下载与缓存缺失仍按现有机制处理。预编译产物消费者按实际需要选择 runtime 或 build，包括两条 storage-recovery 路径。依赖宿主网络、挂载、内核权限、Docker、签名或目标环境的任务先核对平台合同。现有 WASM canonical builder、macOS 和 Windows 原生验证继续承担各自既定验收。
 
@@ -42,7 +44,7 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 
 ### ordinary trusted producer 的镜像与缓存
 
-仅可信 main 的 `oasis7-test-build-trusted` 先迁移到固定完整摘要的 `rust-build`，保留原 selector 准入、60 分钟 job 边界、实际 Cargo 变体、features、分包格式及下游 required 执行。预检核对 Python、stable/nightly 工具链、组件和 WASM targets、native pkg-config 依赖，mold 沿原固定路径实际验证。该路径不执行现场 apt/rustup；候选 producer 的真实宿主 SDK 回收保持独立，不借本迁移改选测或权限。
+仅可信 main 的 `oasis7-test-build-trusted` 先迁移到固定完整摘要的 `rust-build`，保留原 selector 准入、45 分钟 job 边界、实际 Cargo 变体、features、分包格式及下游 required 执行。预检核对 Python、stable/nightly 工具链、组件和 WASM targets、native pkg-config 依赖，mold 沿原固定路径实际验证。该路径不执行现场 apt/rustup；候选 producer 的真实宿主 SDK 回收保持独立，不借本迁移改选测或权限。
 
 同一 producer 作为镜像 dependency cache 的 writer 和后续 reader，使用单独包含完整 digest 的命名空间、原固定 Swatinem 动作及相同环境 hash；只在构建成功后，经真实归档 post 容量准入保存。新增 family 绑定原 Rust workflow 和 trusted job，只允许当前 main/source/实际 Git HEAD、一致 workflow SHA、适用 push/schedule 或 `run_mode=full` 手动事件，校验固定 image 与 GitHub provider。普通 PR、错误 job/source/digest/mode 均拒绝。命名空间进入现仓库容量/保留规划，不增加配额或绕过上传时点的检查。
 
@@ -51,6 +53,14 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 普通 artifact 继续严格要求生产与消费的绝对 checkout 相同，且 Cargo 会将原二进制和 manifest 路径嵌入测试产物。可信 producer 固定使用现 Ubuntu hosted consumer 的 `/home/runner/work/oasis7/oasis7` 作为实际编译目录；容器将 runner 的同一 workspace 另行 bind 到该原路径，首个预检在 shell 内声明固定原路径并显式 cd，随后通过仅含相同路径声明与 cd 的 mode 0600 Bash 启动文件，让全部后续 run 步骤也在该路径执行。不能只依赖 defaults.run.working-directory 或 job env 的 host 路径值：[runner 的容器路径映射](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Worker/Handlers/StepHost.cs)会把 host workspace 前缀转换回 `/__w`。启动前核对声明路径、脚本解析 ROOT、实际 cwd、默认 workspace 与 alias 的 directory device/inode，以及原 Git HEAD；拒绝 symlink、不同目录或任何身份不一致。不能只改 manifest、放宽 loader 的 checkout 比较或假造原二进制路径。该 bind 只提供已挂载 workspace 的另一入口，不增加宿主目录范围、capability 或 host PID 权限；真实容器路径及宿主消费仍须实测。
 
 ordinary workspace 保留当前 v1 格式与宿主兼容输入的计算方式，脚本内容变更仍按原规则改变兼容 hash；镜像路径在兼容 hash 中额外加入完整 image，并在产物 manifest 记录 image，拒绝不完整摘要。宿主与不同 digest 不共享该 workspace 兼容组。原 `shared-native-cache` 仍服务尚未迁移的 full/support/production 与宿主消费者，不为预热 ordinary 另起广泛 full 编译。真实验收分别核可信写入与后续同环境恢复、实际 ELF 与所选测试消费、mold/profile/环境 hash、冷拉取和总成本；本地合同或一次 producer 绿色不能代签跨 run 精确命中。
+
+### Ordinary 原生测试构件消费
+
+`oasis7-required` 的 v2 归档只将 `native-0` 至 `native-3` 迁到预制 Rust 镜像。保留原分区矩阵、每个分区的超时和 priority runner 路由。inline、controls 和旧版归档继续使用各自原执行环境。
+
+构件中的 `CARGO_BIN_EXE_*` 和编译清单包含生产者的绝对路径。镜像只增加当前 checkout 到该原路径的同目录绑定，现有临时目录继续接收构件。预检确认两个 checkout 路径的设备及 inode 一致、Ubuntu 24.04 身份、UID/GID 1001 和 Docker init。仅解包和执行步骤使用该 checkout 路径及相同 `ImageOS`，原加载器继续验证源码、运行、路径和构件摘要。Bash 初始化只作用于这两个步骤，子进程可以按测试选择的目录运行。
+
+原 mold 链接器 使用固定摘要校验后安装到本 job 可写临时位置。镜像为此链路提供库和 Rust 工具链，现有只读缓存权限、宿主依赖缓存和 inline 工作区缓存路径保持。需记录真实原生分片的完整执行结果、绝对路径加载、进程清理和镜像冷拉取；环境预检失败使原分片失败。
 
 ### Storage Acceptance 冷构建拆分
 
