@@ -7,10 +7,6 @@
 //! grant any authority to provider output and do not cover deferred
 //! GoalGraph, shared memory, beliefs, preference correction, or billing.
 
-use oasis7_runtime::{
-    AgentContinuation, ContinuationBudgetV1, ContinuationStatusV1, RuntimeReceiptLineageV1,
-    WakeConditionV1,
-};
 use crate::agent_execution::{
     ActionCatalogEntry, AsyncAgentRunner, AsyncTurnFeedback, AsyncTurnLifecycle, AsyncWorldEffect,
     ContinuationProposalV1, ContinuousAgentTurnContextV1, DecisionProviderError, DecisionResponse,
@@ -19,6 +15,10 @@ use crate::agent_execution::{
     ProviderBackedAgentBehavior, ProviderDecision, ProviderDiagnostics, ProviderExecutionMode,
     ProviderTraceEnvelope, ProviderTranscriptEntry, ResponseArtifactIdentityV1,
     RuntimeReceiptReadbackHandleV1, RuntimeReceiptReadbackVerifier,
+};
+use oasis7_runtime::{
+    AgentContinuation, ContinuationBudgetV1, ContinuationStatusV1, RuntimeReceiptLineageV1,
+    WakeConditionV1,
 };
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
