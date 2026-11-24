@@ -30,7 +30,9 @@ impl BudgetExhausted {
     pub fn message(self) -> String {
         format!(
             "budget_exhausted: {} used={} max={}",
-            self.kind.name(), self.used, self.limit
+            self.kind.name(),
+            self.used,
+            self.limit
         )
     }
 }
@@ -62,10 +64,7 @@ impl RequestBudgetLedger {
         }
     }
 
-    pub fn admit_model_call(
-        &mut self,
-        budget: &BudgetContractV1,
-    ) -> Result<(), BudgetExhausted> {
+    pub fn admit_model_call(&mut self, budget: &BudgetContractV1) -> Result<(), BudgetExhausted> {
         Self::admit(
             BudgetKind::ModelCall,
             &mut self.model_calls,
@@ -73,10 +72,7 @@ impl RequestBudgetLedger {
         )
     }
 
-    pub fn admit_tool_call(
-        &mut self,
-        budget: &BudgetContractV1,
-    ) -> Result<(), BudgetExhausted> {
+    pub fn admit_tool_call(&mut self, budget: &BudgetContractV1) -> Result<(), BudgetExhausted> {
         Self::admit(
             BudgetKind::ToolCall,
             &mut self.tool_calls,
@@ -131,7 +127,10 @@ mod tests {
         let tool_error = ledger.admit_tool_call(&allowed).unwrap_err();
         assert_eq!(model_error.kind, BudgetKind::ModelCall);
         assert_eq!(tool_error.kind, BudgetKind::ToolCall);
-        assert_eq!(model_error.message(), "budget_exhausted: max_model_calls used=1 max=1");
+        assert_eq!(
+            model_error.message(),
+            "budget_exhausted: max_model_calls used=1 max=1"
+        );
         assert_eq!(ledger.snapshot(&allowed).model_calls_used, 1);
         assert_eq!(ledger.snapshot(&allowed).tool_calls_used, 1);
     }
