@@ -653,14 +653,19 @@ class Ownership(unittest.TestCase):
         ):
             self.assertIn(symbol, source)
         self.assertNotIn('crate::runtime_host::', source)
-        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
-        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', source)
+        self.assertIn('WorldKernel::load_from_dir(', source)
+        self.assertIn('fn generated_sidecar_rejects_missing_provenance_before_archive_open()', source)
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertNotIn('WorldKernel::load_from_dir(', legacy.read_text())
         self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
         for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
             for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
                 actual = rust.read_text()
                 self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
                 self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_generated_sidecar_runtime_world', actual, str(rust))
         host = manifest('oasis7_runtime_host')['dependencies']
         self.assertIn('oasis7_simulator', host)
         self.assertNotIn('oasis7', host)
