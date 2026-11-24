@@ -1,0 +1,88 @@
+name: CodeQL Rust image capabilities
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-codeql-rust-image-probe-base]
+    paths: [.github/workflows/codeql-rust-image-probe.yml]
+
+permissions:
+  contents: read
+  packages: read
+
+cache-mode: none
+
+jobs:
+  observe:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/engineering-codeql-rust-image-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      IMAGE: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      SOURCE: 2452875260e5264df43ad1308b0f7134a37fea16
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE }}
+          persist-credentials: false
+      - name: Verify the original dependencies and measure the first registry pull
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          git diff --exit-code HEAD --
+          [[ "$IMAGE" =~ ^ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[0-9a-f]{64}$ ]]
+          test "$(id -u)" = 1001
+          scratch=$(mktemp -d)
+          trap 'rm -rf -- "$scratch"' EXIT
+          export DOCKER_CONFIG="$scratch/docker"
+          mkdir "$DOCKER_CONFIG" "$scratch/assets" "$scratch/work"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          unset GHCR_TOKEN
+          if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+            echo 'A cold image sample requires an absent image before pulling' >&2
+            exit 1
+          fi
+          bytes=$(docker buildx imagetools inspect --raw "$IMAGE" | jq -er '[.layers[].size] | select(length > 0) | add')
+          printf 'Compressed registry layers: %s bytes\n' "$bytes"
+          /usr/bin/time -f 'First job image pull: %e s' docker pull --platform linux/amd64 "$IMAGE" |
+            tee "$scratch/pull.log"
+          printf 'Previously cached layers reported by Docker: %s\n' "$(grep -c 'Already exists' "$scratch/pull.log" || true)"
+          docker logout ghcr.io
+          unset DOCKER_CONFIG
+          curl -fsSL --retry 2 --max-time 180 \
+            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst \
+            -o "$scratch/assets/codeql.tar.zst"
+          printf '%s  %s\n' 1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b \
+            "$scratch/assets/codeql.tar.zst" | sha256sum --check
+          tar --zstd -xf "$scratch/assets/codeql.tar.zst" -C "$scratch/assets"
+          rm "$scratch/assets/codeql.tar.zst"
+          curl -fsSL --retry 2 --max-time 120 \
+            https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
+            -o "$scratch/assets/mold.tar.gz"
+          docker run --rm --init --network none --user 1001:1001 --platform linux/amd64 \
+            --env HOME=/work --env CARGO_HOME=/work/cargo --env RUSTUP_TOOLCHAIN=1.96.0 \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/source,readonly" \
+            --mount "type=bind,src=$scratch/assets,dst=/assets,readonly" \
+            --mount "type=bind,src=$scratch/work,dst=/work" \
+            "$IMAGE" bash -ec '
+              test "$(id -u)" = 1001
+              rustc -vV
+              cargo -vV
+              python3 /source/.github/actions/setup-linux-mold/setup.py \
+                --install-dir /work/mold --archive /assets/mold.tar.gz
+              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/work/mold/bin/oasis7-mold-gcc
+              mkdir -p /work/sample/src
+              printf "[package]\nname = \"codeql-image-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n" >/work/sample/Cargo.toml
+              printf "fn main() { println!(\"CodeQL image fixture\"); }\n" >/work/sample/src/main.rs
+              cd /work/sample
+              cargo generate-lockfile --offline
+              cargo run --offline --locked
+              /assets/codeql/codeql version
+              /assets/codeql/codeql database create /work/rust-db --language=rust --build-mode=none \
+                --source-root=/work/sample --threads=2 --ram=4096
+              test -f /work/rust-db/codeql-database.yml
+              find /work/rust-db/db-rust -type f -print -quit | grep -q .
+            '
