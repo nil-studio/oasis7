@@ -3169,6 +3169,17 @@ pub fn mark(name: &str) {
                              sum(record['expected_count'] for record in baseline_records))
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
 
+    def test_ordinary_runner_image_identity_remains_exact(self):
+        manifest = json.loads((self.consumer / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)), \
+             patch.dict(os.environ, ImageOS='ubuntu24'):
+            generic = dict(manifest, runner_image='linux')
+            with self.assertRaisesRegex(ValueError, 'artifact identity mismatch: runner_image'):
+                artifacts.validate_artifact_manifest(generic, suite='ordinary', plan=self.selected)
+            verified = dict(manifest, runner_image='ubuntu24')
+            self.assertEqual(artifacts.validate_artifact_manifest(verified, suite='ordinary', plan=self.selected),
+                             set(manifest['included_binaries']))
+
     def test_real_ordinary_artifact_still_rejects_another_consumer_checkout(self):
         manifest = json.loads((self.bundle / 'manifest.json').read_text())
         with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)):
@@ -5141,7 +5152,9 @@ class BuildAndBundles(unittest.TestCase):
                 os.chdir(checkout)
                 with patch.object(artifacts, 'ROOT', checkout), \
                      patch.object(artifacts, 'ORDINARY_HOST_CHECKOUT', checkout), \
-                     patch.dict(os.environ, ORDINARY_ARTIFACT_CHECKOUT=str(checkout),
+                     patch.object(artifacts.platform, 'freedesktop_os_release',
+                                  return_value={'ID': 'ubuntu', 'VERSION_ID': '24.04'}), \
+                     patch.dict(os.environ, ImageOS='ubuntu24', ORDINARY_ARTIFACT_CHECKOUT=str(checkout),
                                 GITHUB_WORKSPACE=str(checkout),
                                 ORDINARY_BUILD_IMAGE='ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64):
                     report = artifacts.ordinary_image_preflight()
@@ -5151,8 +5164,14 @@ class BuildAndBundles(unittest.TestCase):
                     for changes in ({'GITHUB_WORKSPACE': str(other)},
                                     {'GITHUB_WORKSPACE': str(alias)}, {'GITHUB_WORKSPACE': ''},
                                     {'ORDINARY_ARTIFACT_CHECKOUT': str(other)},
-                                    {'ORDINARY_BUILD_IMAGE': 'rust-build:latest'}):
+                                    {'ORDINARY_BUILD_IMAGE': 'rust-build:latest'},
+                                    {'ImageOS': ''}, {'ImageOS': 'linux'}):
                         with self.subTest(changes=changes), patch.dict(os.environ, changes), self.assertRaises(ValueError):
+                            artifacts.ordinary_image_preflight()
+                    self.assertEqual(report['runner_image'], 'ubuntu24')
+                    for release in ({'ID': 'debian', 'VERSION_ID': '24.04'},
+                                    {'ID': 'ubuntu', 'VERSION_ID': '22.04'}, {}):
+                        with patch.object(artifacts.platform, 'freedesktop_os_release', return_value=release), self.assertRaises(ValueError):
                             artifacts.ordinary_image_preflight()
                     with patch.object(artifacts, 'ROOT', other), self.assertRaises(ValueError):
                         artifacts.ordinary_image_preflight()

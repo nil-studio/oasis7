@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import shutil
@@ -1906,8 +1907,13 @@ def ordinary_image_preflight():
     if (not stat.S_ISDIR(original.st_mode) or not stat.S_ISDIR(alias.st_mode)
             or (original.st_dev, original.st_ino) != (alias.st_dev, alias.st_ino)):
         raise ValueError('ordinary image alias must bind the same runner workspace directory')
+    release = platform.freedesktop_os_release()
+    if (os.environ.get('ImageOS') != 'ubuntu24' or release.get('ID') != 'ubuntu'
+            or release.get('VERSION_ID') != '24.04'):
+        raise ValueError('ordinary image requires the verified Ubuntu 24.04 runner identity')
     return dict(image=ordinary_build_image(), checkout=str(checkout), workspace=str(workspace),
-                device=alias.st_dev, inode=alias.st_ino, same_directory=True)
+                device=alias.st_dev, inode=alias.st_ino, same_directory=True,
+                runner_image='ubuntu24', os_release={key: release[key] for key in ('ID', 'VERSION_ID')})
 
 
 def ordinary_build_image():

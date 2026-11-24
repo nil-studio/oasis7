@@ -46,6 +46,8 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 
 同一 producer 作为镜像 dependency cache 的 writer 和后续 reader，使用单独包含完整 digest 的命名空间、原固定 Swatinem 动作及相同环境 hash；只在构建成功后，经真实归档 post 容量准入保存。新增 family 绑定原 Rust workflow 和 trusted job，只允许当前 main/source/实际 Git HEAD、一致 workflow SHA、适用 push/schedule 或 `run_mode=full` 手动事件，校验固定 image 与 GitHub provider。普通 PR、错误 job/source/digest/mode 均拒绝。命名空间进入现仓库容量/保留规划，不增加配额或绕过上传时点的检查。
 
+普通 artifact 的既有 runner_image 身份同样不能因容器化改成 `sys.platform` 的通用 `linux`。trusted job 固定 Ubuntu 24.04，容器显式声明既有 `ImageOS=ubuntu24`，并在路径预检中用实际 os-release 核对 Ubuntu 24.04 后才进入构建；不修改 host consumer 期望或放宽 loader。镜像完整摘要继续单独绑定实际工具及 native 库版本。
+
 普通 artifact 继续严格要求生产与消费的绝对 checkout 相同，且 Cargo 会将原二进制和 manifest 路径嵌入测试产物。可信 producer 固定使用现 Ubuntu hosted consumer 的 `/home/runner/work/oasis7/oasis7` 作为实际编译目录；容器将 runner 的同一 workspace 另行 bind 到该原路径，首个预检在 shell 内声明固定原路径并显式 cd，随后通过仅含相同路径声明与 cd 的 mode 0600 Bash 启动文件，让全部后续 run 步骤也在该路径执行。不能只依赖 defaults.run.working-directory 或 job env 的 host 路径值：[runner 的容器路径映射](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Worker/Handlers/StepHost.cs)会把 host workspace 前缀转换回 `/__w`。启动前核对声明路径、脚本解析 ROOT、实际 cwd、默认 workspace 与 alias 的 directory device/inode，以及原 Git HEAD；拒绝 symlink、不同目录或任何身份不一致。不能只改 manifest、放宽 loader 的 checkout 比较或假造原二进制路径。该 bind 只提供已挂载 workspace 的另一入口，不增加宿主目录范围、capability 或 host PID 权限；真实容器路径及宿主消费仍须实测。
 
 ordinary workspace 保留当前 v1 格式与宿主兼容输入的计算方式，脚本内容变更仍按原规则改变兼容 hash；镜像路径在兼容 hash 中额外加入完整 image，并在产物 manifest 记录 image，拒绝不完整摘要。宿主与不同 digest 不共享该 workspace 兼容组。原 `shared-native-cache` 仍服务尚未迁移的 full/support/production 与宿主消费者，不为预热 ordinary 另起广泛 full 编译。真实验收分别核可信写入与后续同环境恢复、实际 ELF 与所选测试消费、mold/profile/环境 hash、冷拉取和总成本；本地合同或一次 producer 绿色不能代签跨 run 精确命中。

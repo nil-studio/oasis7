@@ -1330,6 +1330,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
+      ImageOS: ubuntu24
       ORDINARY_ARTIFACT_CHECKOUT: /home/runner/work/oasis7/oasis7
       ORDINARY_BUILD_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
     container:
