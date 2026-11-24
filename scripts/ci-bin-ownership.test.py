@@ -311,6 +311,23 @@ class Ownership(unittest.TestCase):
         mirror = (root / 'execution_bridge/simulator_mirror.rs').read_text()
         self.assertIn('use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;', mirror)
 
+    def test_agent_memory_original_store_and_real_llm_consumers_share_native_l2_owner(self):
+        """No legacy memory algorithm, shadow representation or host-owned duplicate."""
+        native = (ROOT / 'crates/oasis7_simulator/src/agent_memory.rs').read_text()
+        legacy = (ROOT / 'crates/oasis7/src/simulator/memory.rs').read_text()
+        llm = (ROOT / 'crates/oasis7/src/simulator/llm_agent.rs').read_text()
+        selector = (ROOT / 'crates/oasis7/src/simulator/llm_agent/memory_selector.rs').read_text()
+        tests = (ROOT / 'crates/oasis7_simulator/src/agent_memory_tests.rs').read_text()
+        self.assertIn('pub struct AgentMemory', native)
+        self.assertIn('pub struct ShortTermMemory', native)
+        self.assertIn('pub struct LongTermMemory', native)
+        self.assertIn('pub use oasis7_simulator::{', legacy)
+        self.assertNotIn('pub struct AgentMemory', legacy)
+        self.assertIn('use oasis7_simulator::{AgentMemory, LongTermMemoryEntry, MemoryEntry};', llm)
+        self.assertIn('use oasis7_simulator::{AgentMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind};', selector)
+        self.assertIn('fn long_term_memory_export_restore_roundtrip_preserves_entries_and_next_id()', tests)
+        self.assertIn('fn agent_memory_restores_long_term_entries()', tests)
+
     def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
         """Fail closed for both accepted two-argument host seams during native migration.
 
