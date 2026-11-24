@@ -5,20 +5,15 @@
 //! The caller must supply independently authenticated root/proof pins.
 use super::*;
 use oasis7_formal_protocol::controlled_authority::formal::{
-    FormalQualifiedCommitProofV1, RecoveryPendingHandoffV1,
-    VerifiedFormalCommitV1, VerifiedRecovery, VerifiedRecoveryPlanLegacyCutV1,
-    RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1,
+    FormalQualifiedCommitProofV1, RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1,
+    RecoveryPendingHandoffV1, VerifiedFormalCommitV1, VerifiedRecovery,
+    VerifiedRecoveryPlanLegacyCutV1,
 };
-use std::{
-    fs::File,
-    io::Read,
-    path::Path,
-};
+use std::{fs::File, io::Read, path::Path};
 
 /// Bound the encoded representation, not just the total raw signed payloads.
 /// The protocol's 16 MiB raw budget allows up to 34 MiB of CBOR byte strings.
-pub const NATIVE_RECOVERY_ORIGINAL_FILE_LIMIT_V1: usize =
-    RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1;
+pub const NATIVE_RECOVERY_ORIGINAL_FILE_LIMIT_V1: usize = RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1;
 
 /// An original pending handoff whose *exact* canonical file was verified
 /// against an independent caller-supplied root. It is not an execution grant.
@@ -61,19 +56,20 @@ impl VerifiedNativeRecoveryPendingV1 {
             return Err(invalid("native original recovery encoded byte limit"));
         }
 
-        let handoff: RecoveryPendingHandoffV1 = serde_cbor::from_slice(&original_bytes)
-            .map_err(|error| invalid(error.to_string()))?;
+        let handoff: RecoveryPendingHandoffV1 =
+            serde_cbor::from_slice(&original_bytes).map_err(|error| invalid(error.to_string()))?;
         // Reject alternative encodings rather than silently replacing the
         // exact persisted original with a normalized reinterpretation.
-        if serde_cbor::to_vec(&handoff)
-            .map_err(|error| invalid(error.to_string()))?
+        if serde_cbor::to_vec(&handoff).map_err(|error| invalid(error.to_string()))?
             != original_bytes
         {
             return Err(invalid("native original recovery noncanonical original"));
         }
         let root = handoff.root()?; // enforces identity/order/duplicates/raw budget
         if root != independent_root {
-            return Err(invalid("native original recovery independent root mismatch"));
+            return Err(invalid(
+                "native original recovery independent root mismatch",
+            ));
         }
         Ok(Self { handoff, root })
     }
@@ -91,7 +87,9 @@ pub fn verify_native_recovery_original_legacy_cut(
     let checked =
         VerifiedRecoveryPlanLegacyCutV1::verify(proof, original_recovery, original_parent)?;
     if checked.proof_digest() != independent_proof_digest {
-        return Err(invalid("native recovery original Qualified proof pin mismatch"));
+        return Err(invalid(
+            "native recovery original Qualified proof pin mismatch",
+        ));
     }
     Ok(checked)
 }
@@ -110,10 +108,10 @@ mod tests {
     impl TestFile {
         fn new() -> Self {
             let n = NEXT_TEST_FILE.fetch_add(1, Ordering::Relaxed);
-            Self(std::env::temp_dir().join(format!(
-                "o7-original-cold-{}-{n}.cbor",
-                std::process::id()
-            )))
+            Self(
+                std::env::temp_dir()
+                    .join(format!("o7-original-cold-{}-{n}.cbor", std::process::id())),
+            )
         }
     }
     impl Drop for TestFile {
@@ -161,11 +159,9 @@ mod tests {
     #[test]
     fn cold_reader_rejects_reorder_duplicate_corruption_and_oversized_file() {
         let file = TestFile::new();
-        let handoff = RecoveryPendingHandoffV1::from_requests(vec![
-            request("a", &[1]),
-            request("b", &[2]),
-        ])
-        .unwrap();
+        let handoff =
+            RecoveryPendingHandoffV1::from_requests(vec![request("a", &[1]), request("b", &[2])])
+                .unwrap();
         let root = handoff.root().unwrap();
         let mut reversed = handoff.clone();
         reversed.requests.reverse();
