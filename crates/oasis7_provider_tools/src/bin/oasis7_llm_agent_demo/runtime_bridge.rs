@@ -3,8 +3,10 @@ use oasis7_runtime::{
     EconomicContractFulfillmentKind, RejectReason as RuntimeRejectReason, World as RuntimeWorld,
     WorldEventBody as RuntimeWorldEventBody,
 };
-use oasis7::simulator::{ActionResult, WorldEvent, WorldKernel};
 use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_runtime_host::agent_execution::ActionResult;
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_simulator::{Action as SimulatorAction, RejectReason, ResourceOwner, WorldEventKind};
 
 fn simulator_gameplay_action_to_runtime(action: &SimulatorAction) -> Option<RuntimeAction> {

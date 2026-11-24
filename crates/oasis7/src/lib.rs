@@ -14,8 +14,6 @@ pub mod runtime_host;
 pub mod simulator;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod world_service;
-#[cfg(not(target_arch = "wasm32"))]
-mod world_service_feedback_host;
 
 pub use geometry::{
     DEFAULT_CLOUD_DEPTH_CM, DEFAULT_CLOUD_DEPTH_KM, DEFAULT_CLOUD_HEIGHT_CM,

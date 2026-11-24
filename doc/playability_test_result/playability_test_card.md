@@ -16,7 +16,7 @@
 
 ## 运行结果与评审归属
 
-复用 [RunResult](https://github.com/eng-cc/oasis7/blob/main/doc/testing/governance/agent-runtime-self-playtest.design.md#6-接口与数据合同)与 [L4 执行结果](https://github.com/eng-cc/oasis7/blob/main/doc/testing/prd.md#l4-execution-result)。本节在现有卡片中引用运行结果，不新增通用门禁或要求另建报告。
+复用 [RunResult](https://github.com/nil-studio/oasis7/blob/main/doc/testing/governance/agent-runtime-self-playtest.design.md#6-接口与数据合同)与 [L4 执行结果](https://github.com/nil-studio/oasis7/blob/main/doc/testing/prd.md#l4-execution-result)。本节在现有卡片中引用运行结果，不新增通用门禁或要求另建报告。
 
 - `current_attempt` / `run_result_ref`：
 - 实际候选 / build / `viewer_build_profile`：
@@ -28,7 +28,7 @@
 
 阶段及每项 `pass / fail / blocked / inconclusive / not_applicable` 沿用 RunResult；缺构建、登录或其他前置记 blocked，未执行不能写玩法失败，也不能填“玩家不愿继续”。仅有部分观察时保留未知和已采事实。每次尝试单独保存，旧成功不覆盖当前阻断。
 
-自动回填仅限实际命令/动作、状态、返回值、时间及证据路径。按 [L4 判断合同](https://github.com/eng-cc/oasis7/blob/main/doc/testing/prd.md#l4-evidence-judgment)，继续结论、五项玩家杠杆和 `world_activity_only` 由 producer/QA 根据当前尝试的证据填写；人类原始回答仍保留来源，不以模型代填。
+自动回填仅限实际命令/动作、状态、返回值、时间及证据路径。按 [L4 判断合同](https://github.com/nil-studio/oasis7/blob/main/doc/testing/prd.md#l4-evidence-judgment)，继续结论、五项玩家杠杆和 `world_activity_only` 由 producer/QA 根据当前尝试的证据填写；人类原始回答仍保留来源，不以模型代填。
 
 旧 runner 可能仍自动填写这些判断字段，该输出统一视为 `unreviewed`，不能直接引用为评审结论。复核完成后记录 `review_status=reviewed` 与具体 attempt；重跑使用新 artifact，保留已评卡片，不让自动预填覆盖最终判定。
 

@@ -108,7 +108,7 @@ fn restore_or_reject_original_memory_checkpoint(
         if !mode.starts_with("memory-reject-ack-") {
             assert_eq!(
                 disk["provider_memory_store"],
-                serde_json::to_value(oasis7::simulator::MemoryWriteStore::default()).unwrap(),
+                serde_json::to_value(oasis7_runtime_host::agent_execution::MemoryWriteStore::default()).unwrap(),
                 "constructor refusal cannot release memory"
             );
         }

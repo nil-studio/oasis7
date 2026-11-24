@@ -5,11 +5,13 @@ use std::path::Path;
 use std::process;
 use std::time::Instant;
 
-use oasis7::simulator::{
-    ActionResult, AgentBehavior, AgentRunner, LlmAgentBehavior, OpenAiChatCompletionClient,
-    ProviderBackedAgentBehavior, ProviderLoopbackAdapter, WorldEvent, initialize_kernel,
-};
+use oasis7::simulator::{LlmAgentBehavior, OpenAiChatCompletionClient};
 use oasis7_agent_api::{ActionCatalogEntry, ProviderExecutionMode};
+use oasis7_runtime_host::agent_execution::{
+    ActionResult, AgentBehavior, AgentRunner, ProviderBackedAgentBehavior, ProviderLoopbackAdapter,
+};
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+use oasis7_runtime_host::simulator_archive::kernel_host::{WorldKernel, initialize_kernel};
 use oasis7_simulator::{
     Action as SimulatorAction, AgentDecision, AgentDecisionTrace, RejectReason, RuntimePerfSnapshot,
     WorldConfig, WorldInitConfig, WorldScenario,
@@ -615,7 +617,7 @@ fn bootstrap_error_from_action_result(label: &str, result: &ActionResult) -> Str
 }
 
 fn execute_required_kernel_bootstrap_action(
-    kernel: &mut oasis7::simulator::WorldKernel,
+    kernel: &mut WorldKernel,
     actor_agent_id: &str,
     action: SimulatorAction,
     run_report: &mut DemoRunReport,
@@ -631,7 +633,7 @@ fn execute_required_kernel_bootstrap_action(
 }
 
 fn grant_agent_resource_for_bootstrap(
-    kernel: &mut oasis7::simulator::WorldKernel,
+    kernel: &mut WorldKernel,
     owner: &oasis7_simulator::ResourceOwner,
     kind: oasis7_agent_api::world_action::ResourceKind,
     amount: i64,
@@ -653,7 +655,7 @@ fn grant_agent_resource_for_bootstrap(
 }
 
 fn run_industrial_coverage_bootstrap(
-    kernel: &mut oasis7::simulator::WorldKernel,
+    kernel: &mut WorldKernel,
     run_report: &mut DemoRunReport,
 ) -> Result<u64, String> {
     let mut agent_ids: Vec<String> = kernel.model().agents.keys().cloned().collect();
@@ -789,7 +791,7 @@ fn run_industrial_coverage_bootstrap(
 }
 
 fn execute_required_runtime_bridge_bootstrap_action(
-    kernel: &mut oasis7::simulator::WorldKernel,
+    kernel: &mut WorldKernel,
     runtime_bridge: &mut RuntimeGameplayBridge,
     actor_agent_id: &str,
     tick: u64,
@@ -810,7 +812,7 @@ fn execute_required_runtime_bridge_bootstrap_action(
 }
 
 fn run_gameplay_coverage_bootstrap(
-    kernel: &mut oasis7::simulator::WorldKernel,
+    kernel: &mut WorldKernel,
     runtime_bridge: &mut RuntimeGameplayBridge,
     runtime_gameplay_preset_handles: &mut RuntimeGameplayPresetHandles,
     run_report: &mut DemoRunReport,
@@ -910,7 +912,7 @@ fn run_gameplay_coverage_bootstrap(
 
 fn run_coverage_bootstrap(
     profile: CoverageBootstrapProfile,
-    kernel: &mut oasis7::simulator::WorldKernel,
+    kernel: &mut WorldKernel,
     runtime_gameplay_bridge: &mut Option<RuntimeGameplayBridge>,
     runtime_gameplay_preset_handles: &mut RuntimeGameplayPresetHandles,
     run_report: &mut DemoRunReport,

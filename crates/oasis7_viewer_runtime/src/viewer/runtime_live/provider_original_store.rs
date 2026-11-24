@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use oasis7::simulator::{
+use oasis7_runtime_host::agent_execution::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
     ProviderOriginalMaterialStore, ProviderSpoolReservation,
 };
@@ -86,7 +86,7 @@ pub struct ProviderOriginalMaterialOwnerV1 {
     memory: MemoryBudget,
     pages: IncrementalPageStore,
     files: OwnerFiles,
-    authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
+    authority: Arc<dyn oasis7_runtime_host::agent_execution::ProviderMaterialAuthority>,
     inner: Mutex<Inner>,
     cancelled: Arc<AtomicBool>,
     writable: bool,
@@ -100,7 +100,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         owner: ProviderMaterialOwnerBindingV1,
         memory: MemoryBudget,
         compression: PageCompression,
-        authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
+        authority: Arc<dyn oasis7_runtime_host::agent_execution::ProviderMaterialAuthority>,
     ) -> Result<Arc<Self>, String> {
         authority.verify_owner_scope(&owner)?;
         let root = root.as_ref();
@@ -146,7 +146,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         memory: MemoryBudget,
         compression: PageCompression,
         class: MemoryClass,
-        authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
+        authority: Arc<dyn oasis7_runtime_host::agent_execution::ProviderMaterialAuthority>,
     ) -> Result<Arc<Self>, String> {
         authority.verify_owner_scope(expected_owner)?;
         let root = root.as_ref();

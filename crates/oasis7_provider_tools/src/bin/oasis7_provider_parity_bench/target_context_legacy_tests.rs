@@ -1,6 +1,6 @@
 use super::super::target_context::build_target_context;
 use super::sample_patrol_observation;
-use oasis7::simulator::{
+use oasis7_runtime_host::agent_execution::{
     ContinuousAgentResponseContextV1, DecisionProvider, DecisionResponse, ProviderLoopbackAdapter,
     cognition_legacy_response_digest, golden_decision_provider_fixtures,
 };

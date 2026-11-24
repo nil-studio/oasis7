@@ -10,16 +10,35 @@
 //! - `runner`: AgentRunner, quota, rate limiting, metrics
 //! - `power`: Power system (M4 social system)
 
+#[cfg(target_arch = "wasm32")]
 mod agent;
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::agent_execution::agent;
+#[cfg(target_arch = "wasm32")]
 pub(crate) mod agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
-mod async_agent_pilot;
+#[allow(unused_imports)]
+pub(crate) mod agent_api_compat {
+    pub use oasis7_runtime_host::feedback::{feedback_to_api, request_context_to_api};
+}
 #[cfg(not(target_arch = "wasm32"))]
-mod async_agent_runner;
+use oasis7_runtime_host::agent_execution::async_agent_runner;
+#[cfg(target_arch = "wasm32")]
 mod cognition_policy;
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::agent_execution::cognition_policy;
+#[cfg(target_arch = "wasm32")]
 mod cognition_response_identity;
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::agent_execution::cognition_response_identity;
+#[cfg(target_arch = "wasm32")]
 mod continuous_agent_harness;
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::agent_execution::continuous_agent_harness;
+#[cfg(target_arch = "wasm32")]
 mod decision_provider;
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::agent_execution::decision_provider;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod llm_agent;
@@ -32,16 +51,22 @@ pub(crate) mod persist;
 #[path = "persist_host_facade.rs"]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod provider_json_admission;
+pub use oasis7_runtime_host::agent_execution::provider_json_admission;
 #[cfg(not(target_arch = "wasm32"))]
-mod provider_loopback_adapter;
+use oasis7_runtime_host::agent_execution::provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
-mod provider_loopback_http;
+use oasis7_runtime_host::agent_execution::provider_loopback_http;
+#[cfg(target_arch = "wasm32")]
 mod provider_material_capture;
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::agent_execution::provider_material_capture;
+#[cfg(target_arch = "wasm32")]
 mod runner;
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime_host::agent_execution::runner;
 pub(crate) mod runtime_perf;
 #[cfg(not(target_arch = "wasm32"))]
-mod turn_engine;
+use oasis7_runtime_host::agent_execution::turn_engine;
 
 #[cfg(test)]
 mod tests;
@@ -51,6 +76,39 @@ mod tests;
 #[cfg(test)]
 mod canonical_contract_owner_tests {
     use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_host_agent_execution_preserves_original_type_identity() {
+        use oasis7_runtime_host::agent_execution as native;
+        use std::any::TypeId;
+
+        assert_eq!(
+            TypeId::of::<ActionResult>(),
+            TypeId::of::<native::ActionResult>()
+        );
+        assert_eq!(
+            TypeId::of::<dyn AgentBehavior>(),
+            TypeId::of::<dyn native::AgentBehavior>()
+        );
+        assert_eq!(
+            TypeId::of::<AsyncAgentRunner>(),
+            TypeId::of::<native::AsyncAgentRunner>()
+        );
+        assert_eq!(TypeId::of::<TurnEngine>(), TypeId::of::<native::TurnEngine>());
+        assert_eq!(
+            TypeId::of::<ContinuousAgentRequestContextV1>(),
+            TypeId::of::<native::ContinuousAgentRequestContextV1>()
+        );
+        assert_eq!(
+            TypeId::of::<MemoryWriteStore>(),
+            TypeId::of::<native::MemoryWriteStore>()
+        );
+        assert_eq!(
+            TypeId::of::<ProviderLoopbackHttpClient>(),
+            TypeId::of::<native::ProviderLoopbackHttpClient>()
+        );
+    }
 
     #[test]
     fn old_simulator_exports_are_canonical_owner_contracts() {
@@ -85,9 +143,6 @@ pub use agent::{
 pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::project_receipt_memory;
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(unused_imports)] // Retained for the B3 Harness adapter boundary.
-pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
