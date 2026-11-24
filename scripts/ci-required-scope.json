@@ -916,7 +916,7 @@
     }
   ],
   "oasis7_required_packages": [
-    "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_world_state",
+    "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_runtime_host", "oasis7_world_state",
     "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",
     "oasis7_chain_runtime", "oasis7_executable_image", "oasis7_client_cli", "oasis7_protocol_tools",
     "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
@@ -1260,6 +1260,7 @@
     ".github/workflows/native-cache-diagnostic.yml": ["workflow_governance"],
     ".github/workflows/newapi-bridge-service-package.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/pages.yml": ["workflow_governance", "site_quality"],
+    ".github/workflows/pr-boundary-gate.yml": ["workflow_governance"],
     ".github/workflows/pr-fast-preview.yml": ["workflow_governance"],
     ".github/workflows/release-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/rust-cache.yml": ["workflow_governance", "packaging_contracts"],
@@ -2713,6 +2714,15 @@
       "match": ["scripts/wasm-summary-bundle-smoke.sh"],
       "groups": ["packaging_contracts"],
       "reason": "wasm_summary_bundle_fixture_consumer"
+    },
+    {
+      "match": [
+        "scripts/check-pr-boundaries.sh"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "pr_boundary_gate"
     }
   ]
 }

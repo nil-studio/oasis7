@@ -363,6 +363,7 @@ mod faults;
 #[path = "support/incremental_main_token_policy_scaling.rs"]
 mod scaling;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_main_token_policy_pages.rs"]
 mod pages;
 

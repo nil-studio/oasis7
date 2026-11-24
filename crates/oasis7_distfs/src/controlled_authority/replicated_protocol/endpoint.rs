@@ -6,7 +6,6 @@ use crate::controlled_authority::fencing::{
     SealedTailV1,
 };
 use ed25519_dalek::SigningKey;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use storage::Fault;
@@ -63,7 +62,7 @@ pub(super) struct State {
 /// these methods to remote writers; direct disk access is outside this contract.
 pub struct FileEndpoint {
     path: PathBuf,
-    _lock: File,
+    _lock: crate::controlled_authority::writer_lock::WriterLock,
     key: SigningKey,
     state: State,
     archive: archive::Store,

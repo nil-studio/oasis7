@@ -19,8 +19,8 @@ use super::super::{
 use super::World;
 use super::capability_authorization_events::validate_authority_record_transition;
 use crate::world::transition::{
-    BorrowedWorldView, DurableCommitConfirmation, PreparedStagedCommit, RootInstallContext,
-    StagedTransition, SubsystemDelta, TransitionContext, TransitionReject,
+    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition, SubsystemDelta,
+    SynchronousEventTransition, TransitionContext, TransitionReject, publish_synchronous_event,
 };
 
 /// The original authorization publication's sparse staged projection. No
@@ -92,6 +92,22 @@ impl StagedTransition for StagedCapabilityAuthorizationBatch<'_> {
     }
 }
 
+// An ordinary capability-authority publication is prepared and installed
+// under one exclusive &mut World borrow. It does not need to hash every
+// unrelated module artifact or journal page merely to ignore that hash.
+// Delayed/external commits still use the full StagedTransition base-head proof.
+impl SynchronousEventTransition for StagedCapabilityAuthorizationBatch<'_> {
+    fn prepare_event(
+        &self,
+        world: &World,
+        _ctx: &TransitionContext,
+    ) -> Result<(WorldEventId, TickConsensusRecord, Self::Delta), TransitionReject> {
+        let (delta, consensus_record) =
+            world.prepare_capability_authorization_event_batch(self.events)?;
+        Ok((delta.last_event_id(), consensus_record, delta))
+    }
+}
+
 pub(super) struct PreparedCapabilityAuthorizationEvent {
     event: CapabilityAuthorizationEvent,
     capability_grants_v2: BTreeMap<String, JsonValue>,
@@ -157,25 +173,13 @@ impl World {
         &mut self,
         events: Vec<CapabilityAuthorizationEvent>,
     ) -> Result<WorldEventId, WorldError> {
-        let prepared = {
-            let view = BorrowedWorldView::new(self)?;
-            StagedCapabilityAuthorizationBatch { events: &events }
-                .prepare(&view, &TransitionContext::new(view.time(), None))
-                .map_err(TransitionReject::into_world_error)?
-        };
-        let event_id = prepared.delta().last_event_id();
-        if self.take_fail_next_append_after_publication_prepare_for_test() {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: "injected append_event failure after publication preparation".to_string(),
-            });
-        }
-        // This is the existing synchronous ordinary publication boundary.
-        // The full tick and external durable confirmation remain root-owner
-        // responsibilities; this does not manufacture an IWS receipt.
-        prepared
-            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
-            .map_err(TransitionReject::into_world_error)?;
-        Ok(event_id)
+        // Ordinary synchronous publication is one exclusive World borrow;
+        // no stale-head window exists. The shared helper preserves the original
+        // post-prepare failure gate, consensus validation, and root installation.
+        // This is NOT a delayed or IWS durable-confirmation path.
+        let context = TransitionContext::new(self.state.time, None);
+        let transition = StagedCapabilityAuthorizationBatch { events: &events };
+        publish_synchronous_event(self, &transition, &context)
     }
 
     fn prepare_capability_authorization_event_batch(

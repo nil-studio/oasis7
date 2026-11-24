@@ -334,7 +334,7 @@ if [[ "$skip_runtime_unit" -eq 0 ]]; then
       -- --nocapture
   run_or_record_failure runtime_persist_backfill \
     oasis7_cargo_dev test -p oasis7 \
-      simulator::tests::persist::snapshot_player_gameplay_execution_state_backfills_from_legacy_fields \
+      simulator::tests::persist::kernel_roundtrip::snapshot_player_gameplay_execution_state_backfills_from_legacy_fields \
       -- --nocapture
 else
   mark_skipped runtime_control_feeling "--skip-runtime-unit"

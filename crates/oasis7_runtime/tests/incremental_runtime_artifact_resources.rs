@@ -16,13 +16,15 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+#[cfg(feature = "test_tier_full")]
+use oasis7_runtime::incremental_runtime_artifact_resources::RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1;
 use oasis7_runtime::incremental_runtime_artifact_resources::{
-    BuiltinReleaseManifestSourceV1, BuiltinReleaseModuleSetSourceV1,
-    RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1, RuntimeArtifactChildRootV1, RuntimeArtifactFieldV1,
-    RuntimeArtifactMemberProfileV1, RuntimeArtifactRecordV1, RuntimeArtifactResourcesRefV1,
-    RuntimeArtifactResourcesWorkV1, RuntimeArtifactRootBindingV1, RuntimeArtifactValueV1,
-    inspect_runtime_artifact_record_root_v1, prepare_runtime_artifact_resources_genesis_v1,
-    read_runtime_artifact_member_v1, read_runtime_artifact_record_reference_v1,
+    BuiltinReleaseManifestSourceV1, BuiltinReleaseModuleSetSourceV1, RuntimeArtifactChildRootV1,
+    RuntimeArtifactFieldV1, RuntimeArtifactMemberProfileV1, RuntimeArtifactRecordV1,
+    RuntimeArtifactResourcesRefV1, RuntimeArtifactResourcesWorkV1, RuntimeArtifactRootBindingV1,
+    RuntimeArtifactValueV1, inspect_runtime_artifact_record_root_v1,
+    prepare_runtime_artifact_resources_genesis_v1, read_runtime_artifact_member_v1,
+    read_runtime_artifact_record_reference_v1,
 };
 use oasis7_runtime::{
     World,

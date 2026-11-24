@@ -457,3 +457,62 @@ fn movement_settlement_legacy_release_entry_cannot_be_relabelled_as_storage_v2()
             ))
     );
 }
+
+#[test]
+fn movement_settlement_insufficient_general_attempt_fee_does_not_charge_distance_or_move() {
+    let (mut world, inner) = movement_world();
+    super::rules::install_rule_modules(&mut world, "action.move_agent", &["movement.test.rule"]);
+    super::gameplay_protocol::authorize_policy_update(&mut world, "a", "attempt-deficit-policy");
+    world.submit_action(Action::UpdateGameplayPolicy {
+        operator_agent_id: "a".into(),
+        electricity_tax_bps: 0,
+        data_tax_bps: 0,
+        power_trade_fee_bps: 0,
+        max_open_contracts_per_agent: 4,
+        blocked_agents: vec![],
+        forbidden_location_ids: vec!["100000:0:0".into()],
+    });
+    world.step().unwrap();
+    world.set_resource_balance(ResourceKind::Data, 1);
+    let electricity = world.resource_balance(ResourceKind::Electricity);
+    let mut sandbox = MovementDirectiveSandbox {
+        inner,
+        deny: false,
+        target: None,
+        non_move: false,
+        attempt_cost: true,
+    };
+    let rejected = world.submit_action(Action::MoveAgent {
+        agent_id: "a".into(),
+        to: pos(100_000, 0),
+    });
+    world.step_with_modules(&mut sandbox).unwrap();
+    assert_eq!(world.resource_balance(ResourceKind::Data), 1);
+    assert_eq!(world.resource_balance(ResourceKind::Electricity), electricity);
+    assert_eq!(world.state().agents["a"].state.pos, pos(0, 0));
+    assert!(world.journal().events.iter().any(|event| matches!(
+        &event.body,
+        WorldEventBody::Domain(DomainEvent::ActionRejected {
+            action_id,
+            reason: RejectReason::InsufficientResources { deficits },
+        }) if *action_id == rejected
+            && deficits.get(&ResourceKind::Data) == Some(&1)
+            && !deficits.contains_key(&ResourceKind::Electricity)
+    )));
+    world.set_resource_balance(ResourceKind::Data, 2);
+    world.submit_action(Action::MoveAgent {
+        agent_id: "a".into(),
+        to: pos(-100_000, 0),
+    });
+    world.step_with_modules(&mut sandbox).unwrap();
+    assert_eq!(world.resource_balance(ResourceKind::Data), 0);
+    assert_eq!(
+        world.resource_balance(ResourceKind::Electricity),
+        electricity - 1
+    );
+    assert_eq!(world.state().agents["a"].state.pos, pos(-100_000, 0));
+    let recovered = World::from_snapshot(world.snapshot(), world.journal().clone()).unwrap();
+    assert_eq!(recovered.resource_balance(ResourceKind::Data), 0);
+    assert_eq!(recovered.state().agents["a"].state.pos, pos(-100_000, 0));
+    assert_eq!(battery(&recovered), battery(&world));
+}

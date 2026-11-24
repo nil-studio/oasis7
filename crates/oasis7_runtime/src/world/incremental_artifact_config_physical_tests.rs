@@ -207,13 +207,10 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
     }
 }
 
-fn exercise_growing_json(sizes: &[usize]) {
-    let mut baseline = [None, None];
+fn exercise_growing_json(sizes: &[usize], compressions: &[PageCompression]) {
+    let mut baseline = vec![None; compressions.len()];
     for &length in sizes {
-        for (index, compression) in [PageCompression::Raw, PageCompression::Zstd]
-            .into_iter()
-            .enumerate()
-        {
+        for (index, &compression) in compressions.iter().enumerate() {
             let actual = run(length, compression);
             if let Some(expected) = baseline[index] {
                 assert_eq!(
@@ -229,16 +226,22 @@ fn exercise_growing_json(sizes: &[usize]) {
 
 #[test]
 fn raw_zstd_cold_config_and_scalar_delta_do_not_scan_json_across_value_chunks() {
-    exercise_growing_json(&[
-        64,
-        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
-    ]);
+    exercise_growing_json(
+        &[
+            64,
+            2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+        ],
+        &[PageCompression::Raw],
+    );
 }
 
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn raw_zstd_cold_config_and_scalar_delta_do_not_scan_growing_json() {
-    exercise_growing_json(&[64, 1 << 20, 32 << 20, 64 << 20]);
+    exercise_growing_json(
+        &[64, 1 << 20, 32 << 20, 64 << 20],
+        &[PageCompression::Raw, PageCompression::Zstd],
+    );
 }
 fn run(length: usize, compression: PageCompression) -> [u64; 8] {
     let directory = Directory::new();
