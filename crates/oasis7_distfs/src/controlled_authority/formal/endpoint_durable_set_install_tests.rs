@@ -77,8 +77,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         &mut std::io::stderr(),
         b"oasis7 native diagnostic install_start_construct\n",
     );
-    let (_po, ro, pp, rp, next_dir, sealed, boundary, manifest, pcp) =
-        build_native_install_setup(|| {
+    // Separate the genuine endpoint constructor from the later signed proof,
+    // freeze, transition, and seal frames. The original single setup closure
+    // kept all of those large native test locals live below protected open.
+    let (_po, ro, pp, rp, next_dir) = build_native_install_setup(|| {
             let po = Oracle::start(&fixture, EndpointRole::Primary);
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
@@ -115,36 +117,43 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_before_coordinator\n",
             );
-            // Do not nest both protected endpoint opens below the large
-            // coordinator constructor frame. These independent, non-inlined
-            // stages retain the original default test-thread stack size.
-            let primary_endpoint = native_boxed_stage(|| open(EndpointRole::Primary, pp.clone()));
-            let _ = std::io::Write::write_all(
-                &mut std::io::stderr(),
-                b"oasis7 native diagnostic install_primary_endpoint_opened\n",
-            );
-            let replica_endpoint =
-                native_boxed_stage(|| open(EndpointRole::Replica, ro.provider(&fixture)));
-            let _ = std::io::Write::write_all(
-                &mut std::io::stderr(),
-                b"oasis7 native diagnostic install_replica_endpoint_opened\n",
-            );
-            let mut coordinator = native_boxed_stage(|| {
-                FormalCoordinator::new(
-                    *primary_endpoint,
-                    *replica_endpoint,
-                    fixture.authority.clone(),
-                    fixture.authority.clone(),
-                    None,
-                    None,
-                )
-                .unwrap()
-            });
-            let _ = std::io::Write::write_all(
-                &mut std::io::stderr(),
-                b"oasis7 native diagnostic install_coordinator_opened\n",
-            );
-            let initial =
+
+            (po, ro, pp, rp, next_dir)
+        });
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_before_coordinator\n",
+    );
+    let primary_endpoint = native_boxed_stage(|| open(EndpointRole::Primary, pp.clone()));
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_primary_endpoint_opened\n",
+    );
+    let replica_endpoint =
+        native_boxed_stage(|| open(EndpointRole::Replica, ro.provider(&fixture)));
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_replica_endpoint_opened\n",
+    );
+    let mut coordinator = native_boxed_stage(|| {
+        FormalCoordinator::new(
+            *primary_endpoint,
+            *replica_endpoint,
+            fixture.authority.clone(),
+            fixture.authority.clone(),
+            None,
+            None,
+        )
+        .unwrap()
+    });
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic install_coordinator_opened\n",
+    );
+    // This frame starts only after protected endpoints have been opened on
+    // the default test-thread stack. Preserve every original verifier,
+    // corruption negative, and monotonic seal assertion below.
+    let (sealed, boundary, manifest, pcp) = build_native_install_setup(|| {            let initial =
                 native_boxed_stage(|| coordinator.submit(fixture.initial.clone()).unwrap());
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
@@ -261,7 +270,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_coordinator_dropped\n",
             );
-            (po, ro, pp, rp, next_dir, sealed, boundary, manifest, pcp)
+            (sealed, boundary, manifest, pcp)
         });
     let _ = std::io::Write::write_all(
         &mut std::io::stderr(),
