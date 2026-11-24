@@ -108,8 +108,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             // Do not nest both protected endpoint opens below the large
             // coordinator constructor frame. These independent, non-inlined
             // stages retain the original default test-thread stack size.
-            let primary_endpoint =
-                native_boxed_stage(|| open(EndpointRole::Primary, pp.clone()));
+            let primary_endpoint = native_boxed_stage(|| open(EndpointRole::Primary, pp.clone()));
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_primary_endpoint_opened\n",
