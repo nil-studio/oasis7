@@ -619,7 +619,12 @@ fn physical_owner_coverage() -> PageIoBudget {
 
 #[test]
 fn marketplace_owner_closure_and_bid_update_survive_raw_zstd_cold_reopen() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let genesis_bytes = prepare_state_roots(&path, compression);

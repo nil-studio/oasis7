@@ -1,5 +1,5 @@
 use super::*;
-use crate::consensus_action_payload::{
+use oasis7_world_service::consensus_action_payload::{
     ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope, decode_consensus_action_payload,
     encode_consensus_action_payload,
 };

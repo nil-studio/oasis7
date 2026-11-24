@@ -453,7 +453,12 @@ fn assert_binding_rejected(
 
 #[test]
 fn factory_record_root_binding_and_child_closure_survive_cold_reopen() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let source = fixture::source();
         let source_dir = fixture::Directory::new("source");
         let source_path = source_dir.0.join("pages");
@@ -597,7 +602,12 @@ fn factory_record_root_binding_and_child_closure_survive_cold_reopen() {
 
 #[test]
 fn rejects_legacy_flat_factory_members() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = fixture::Directory::new("legacy-flat-factory");
         let path = directory.0.join("pages");
         let memory = MemoryBudget::new(48 << 20, 8 << 20).unwrap();

@@ -19,7 +19,7 @@ fn restored_snapshot_keeps_external_cut_exactly_through_no_journal_mutations() {
     assert_eq!(serde_json::to_vec(&host.snapshot()).unwrap(), json);
     assert_eq!(serde_cbor::to_vec(&host.snapshot()).unwrap(), cbor);
     let explicit = host.snapshot_with_chain_resource_context(
-        crate::chain_resource_schema::ChainResourceDerivationContext::simulator_default(
+        oasis7_agent_api::world_resource::ChainResourceDerivationContext::simulator_default(
             host.time(),
         ),
     );
@@ -47,7 +47,7 @@ fn default_chain_evidence_refreshes_after_restore_and_replay() {
     });
     original.step().unwrap();
     let default = original.snapshot_with_chain_resource_context(
-        crate::chain_resource_schema::ChainResourceDerivationContext::simulator_default(
+        oasis7_agent_api::world_resource::ChainResourceDerivationContext::simulator_default(
             original.time(),
         ),
     );

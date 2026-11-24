@@ -152,7 +152,8 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 def workspace_support_image_matrix(job):
     container = re.search(
-        r"^    container:\n      image: \$\{\{ matrix\.execution == 'image' && "
+        r"^    container:\n      image: \$\{\{ (?:matrix\.execution == 'signer-image' && "
+        r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| )?matrix\.execution == 'image' && "
         r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| '' \}\}$",
         job, re.M)
     if not container:
@@ -160,6 +161,10 @@ def workspace_support_image_matrix(job):
     expected_matrix = (
         "        execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' "
         "&& '[\"host\",\"image\"]' || '[\"image\"]') }}\n")
+    if container[1]:
+        expected_matrix = expected_matrix.replace(
+            'fromJSON(', 'fromJSON(needs.select.outputs.workspace_support_signer_only == \'true\' '
+            "&& '[\"signer-image\"]' || ")
     assert expected_matrix in job and '      fail-fast: false\n' in job
     assert '--support-execution "$SUPPORT_EXECUTION"' in job
     assert '          SUPPORT_EXECUTION: ${{ matrix.execution }}\n' in job
@@ -168,7 +173,9 @@ def workspace_support_image_matrix(job):
     assert len(apt) == 1 and "        if: matrix.execution == 'host'\n" in apt[0]
     caches = [step for step in steps if 'Swatinem/rust-cache@' in step]
     keys = {'host': 'ci-shared-native-trusted-v4',
-            'image': 'ci-rust-build-' + container[1]}
+            'image': 'ci-rust-build-' + container[2]}
+    if container[1]:
+        keys['signer-image'] = 'ci-rust-build-' + container[1]
     assert len(caches) == len(keys)
     for mode, key in keys.items():
         matching = [step for step in caches if f"        if: matrix.execution == '{mode}'\n" in step]
@@ -469,8 +476,19 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
             if name == 'workspace-support-other':
                 assert workspace_support_image_matrix(reader) == row['namespace']
                 assert row['options'] == row['mold-dir'] == ''
-                assert not re.search(r'^      options:', reader, re.M)
-                assert 'uses: ./.github/actions/setup-linux-mold\n      - ' in reader
+                if "matrix.execution == 'signer-image'" in reader:
+                    node = rows['node']
+                    assert "matrix.execution == 'signer-image' && '" + node['image'] + "'" in reader
+                    assert "      options: ${{ matrix.execution == 'signer-image' && '" + node['options'] + "' || '' }}\n" in reader
+                    assert "          install-dir: ${{ matrix.execution == 'signer-image' && format('{0}/" + node['mold-dir'] + "', runner.temp) || '' }}\n" in reader
+                    signer = [step for step in rust_cache_steps(reader)
+                              if "        if: matrix.execution == 'signer-image'\n" in step]
+                    assert len(signer) == 1 and 'shared-key: ' + node['namespace'] + '\n' in signer[0]
+                    assert 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' in signer[0]
+                    assert not re.search(r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets):', signer[0], re.M)
+                else:
+                    assert not re.search(r'^      options:', reader, re.M)
+                    assert 'uses: ./.github/actions/setup-linux-mold\n      - ' in reader
                 continue
             assert 'image: ' + row['image'] + '\n' in reader
             caches = rust_cache_steps(reader)
@@ -6654,6 +6672,44 @@ class WorkerToolCache(unittest.TestCase):
                         self.assertEqual(result.returncode, expected if selected else 0,
                                          result.stdout + result.stderr)
                         self.assertEqual(output.exists(), kind == 'regular' and selected)
+
+    def test_signer_image_requires_an_exact_current_targeted_plan(self):
+        job = JOBS['workspace-support-other']
+        if "matrix.execution == 'signer-image'" not in job:
+            # The original two-lane layout remains covered by the image matrix helper.
+            self.assertEqual(len(re.findall(r"shared-key: ci-rust-build-", job)), 1)
+            return
+        self.assertIsNotNone(workspace_support_image_matrix(job))
+        self.assertIn("matrix.execution == 'signer-image' && '--user 1001:1001'", job)
+        self.assertIn("format('{0}/oasis7-node-mold', runner.temp)", job)
+        self.assertIn('SUPPORT_EXECUTION=host', job)
+        self.assertIn('test "$(id -u):$(id -g)" = 1001:1001', job)
+        script = workflow_step_script(JOBS['select'], 'Publish workflow scheduling projection')
+        modern = dict(
+            scope='targeted', groups=['workspace_support'], execution_profile='pr-fast', fast_plan_version=1,
+            workspace_support_direct_gate_version=1, workspace_support_partition_version=1,
+            workspace_support_partitions=['other'], workspace_support_profile_version=1,
+            workspace_support_profiles=['oasis7_local_signer'], test_policy_changed=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / 'output'
+            for overrides, expected in (
+                ({}, True),
+                ({'scope': 'full'}, False),
+                ({'groups': []}, False),
+                ({'workspace_support_profiles': ['oasis7_game_client', 'oasis7_local_signer']}, False),
+                ({'workspace_support_profiles': ['oasis7_local_signer', 'oasis7_context']}, False),
+                ({'workspace_support_profile_version': True}, False),
+                ({'test_policy_changed': True}, False),
+                ({'workspace_support_profile_version': None}, False),
+            ):
+                plan = {key: value for key, value in (modern | overrides).items() if value is not None}
+                (root / 'selection.json').write_text(json.dumps(plan))
+                output.unlink(missing_ok=True)
+                subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                               env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(output)), check=True)
+                self.assertIn('workspace_support_signer_only=' + str(expected).lower(), output.read_text())
 
     def test_image_support_exact_readonly_worker_tool_reader(self):
         job = JOBS['workspace-support-other']

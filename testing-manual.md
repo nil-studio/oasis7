@@ -481,6 +481,17 @@ CI 分层口径：ordinary PR 以 impact-scoped `required-gate` 作为 premerge 
 7. playability / player continue claim：自动化只能证明“没坏/可回归”；`L4A`、`L4B`、`L5` 按 claim 强度升级，不得互相替代。
 8. release candidate：默认完整 release gate；任何 `--skip-*` 都必须写明原因，并在 summary 里保留 claim boundary。带 skip 的结果只能支撑剩余已执行步骤，不能支撑被跳过层级的 release claim。
 
+<a id="pr-slice-verification-mapping"></a>
+### PR 切片分级验证映射（Slice-Type 对齐）
+
+配合[暗发布切片、契约锁边界与熔断规范](doc/engineering/workflow/pr-slicing-and-circuit-breaker.md)与 `./scripts/check-pr-boundaries.sh`，按切片类型选择匹配的本地验证粒度，避免空壳契约建单或未接线的暗代码单无谓拉起全套重型运行栈：
+
+- **Zero-Diff Contract Draft PR（空壳契约态）：** 仅由 `./scripts/check-pr-boundaries.sh` / `.github/workflows/pr-boundary-gate.yml` 校验 `Slice-Type` 与 `Allowed-Crates` 边界元数据契约，自动跳过重型编译与测试。
+- **`[Slice: Dark]`：** 必须跑通 `./scripts/check-pr-boundaries.sh`、受影响 Crate 的 `./scripts/cargo-dev.sh check`（正式验收用 `env -u RUSTC_WRAPPER cargo check`）与新增模块单元测试，以及 CI 选中的 `required-gate` 最小集；未挂载活跃入口时无需启动完整本地 Viewer / LLM 栈。
+- **`[Slice: Adapter]`：** 必须跑通 `./scripts/check-pr-boundaries.sh`、投影/服务/客户端 API 契约转换测试与相关 Fixture 回归。
+- **`[Slice: Cutover]`：** 必须跑通 `./scripts/check-pr-boundaries.sh`，并按实际接线功能影响面执行完整的运行时状态机回归、持久化测试、Viewer/浏览器闭环（S6）或端到端链路验证；命中 Agent 游戏功能时按开发规范 §3.1 执行独立实玩自测。
+- **`[Slice: Bugfix]` / `[Slice: Docs]` / `[Slice: Chore]`：** 先通过 `./scripts/check-pr-boundaries.sh`，再按上方触发矩阵执行对应缺陷回归、文档治理检查（`./scripts/doc-governance-check.sh`）或脚本/CI 契约测试。
+
 <a id="regression-oracle"></a>
 ### 回归用例：公共行为与独立预期值
 

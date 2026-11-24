@@ -271,6 +271,7 @@ mod operations;
 #[path = "support/incremental_runtime_scheduler_schema.rs"]
 mod schema;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_runtime_scheduler_pages.rs"]
 mod pages;
 

@@ -237,6 +237,9 @@ class Ownership(unittest.TestCase):
 
     def test_native_runtime_host_is_registered_in_required_test_drivers(self):
         """Archive and migrated host behavior must run as the real package, not only a dependency."""
+        import importlib.util
+        import subprocess
+        import sys
         owner = 'oasis7_runtime_host'
         cfg = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
         self.assertIn(owner, cfg['oasis7_required_packages'])
@@ -244,18 +247,31 @@ class Ownership(unittest.TestCase):
         self.assertIn('test_tier_required', features)
         self.assertIn('test_tier_required', features['test_tier_full'])
         shell = (ROOT / 'scripts/ci-tests.sh').read_text()
-        # Match the whole-package execution drivers, not the separately
-        # scoped legacy snapshot single-case invocation of the umbrella.
-        for command in ('run_cargo test -p oasis7 ', 'run_cargo_clippy -p oasis7 '):
-            lines = [line for line in shell.splitlines()
-                     if command in line and '-p oasis7_simulator ' in line
-                     and '-p oasis7_runtime ' in line]
-            self.assertEqual(len(lines), 1)
-            self.assertIn('-p oasis7_runtime_host ', lines[0])
-        artifacts = (ROOT / 'scripts/ci-test-artifacts.py').read_text()
-        required = [line for line in artifacts.splitlines() if "('required', ['test', '-p', 'oasis7'," in line]
-        self.assertEqual(len(required), 1)
-        self.assertIn("'-p', 'oasis7_runtime_host',", required[0])
+        functions = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', shell, re.M | re.S))
+        for fn_name, cargo_fn, invocation in (
+            ('run_oasis7_package_tests', 'run_cargo', 'run_oasis7_package_tests test_tier_required --tests'),
+            ('run_oasis7_required_tier_clippy', 'run_cargo_clippy', 'run_oasis7_required_tier_clippy'),
+        ):
+            script = (
+                'set -euo pipefail\n'
+                f'ci_python="{sys.executable}"\n'
+                f'driver_dir="{ROOT / "scripts"}"\n'
+                'required_plan=""\n'
+                f'{cargo_fn}() {{ printf "%s\\n" "$*"; }}\n'
+                f'{fn_name}() {{\n{functions[fn_name]}}}\n'
+                f'{invocation}\n'
+            )
+            result = subprocess.run(['bash', '-c', script], text=True, capture_output=True, check=True)
+            lines = result.stdout.splitlines()
+            self.assertEqual(len(lines), 1, fn_name)
+            self.assertIn(f'-p {owner} ', lines[0], fn_name)
+        spec = importlib.util.spec_from_file_location('ci_test_artifacts', ROOT / 'scripts/ci-test-artifacts.py')
+        artifacts = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(artifacts)
+        required = next(args for name, args, _ in artifacts.build_variants('ordinary') if name == 'required')
+        required_packages = [required[index + 1] for index, value in enumerate(required) if value == '-p']
+        self.assertEqual(required_packages, cfg['oasis7_required_packages'])
+        self.assertIn(owner, required_packages)
 
     def test_provider_original_material_contract_has_portable_owner(self):
         """Portable pending-root DTOs have one owner; native service keeps the codec."""
