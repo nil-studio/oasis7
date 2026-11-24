@@ -17,6 +17,27 @@ fn rebase_test_stage<T>(work: impl FnOnce() -> T) -> T {
     work()
 }
 
+// Keep the heavyweight signed proof's *unboxed* construction in a finished
+// frame before the next signed network-view verifier starts. In the original
+// default-stack regression both frames overlapped: step 1 passed, while the
+// second verify_view overflowed even though the proof itself was valid.
+#[inline(never)]
+fn rebase_boxed_successor_stage(
+    anchor: &VerifiedFormalReadAnchorV1,
+    world: fixtures::protocol_world::ProtocolWorld,
+) -> (
+    fixtures::protocol_world::ProtocolWorld,
+    VerifiedFormalReadAnchorV1,
+    FormalReadStepV1,
+) {
+    let (next_world, next_anchor, proof) = protocol_successor_fixture(anchor, world);
+    (
+        next_world,
+        next_anchor,
+        FormalReadStepV1::Commit(Box::new(proof)),
+    )
+}
+
 #[test]
 fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     rebase_stage_trace("before_initial", 0);
@@ -37,7 +58,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
                 previous_anchor = current_anchor.clone();
                 previous_world = world.clone();
                 let (next_world, next_anchor, proof) =
-                    protocol_successor_fixture(&current_anchor, world);
+                    rebase_boxed_successor_stage(&current_anchor, world);
                 rebase_stage_trace("step_signed", index);
                 let old_anchor = active.anchor_ref().unwrap();
                 let (mut request, mut reply) = response(
@@ -45,7 +66,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
                     &next_anchor,
                     FormalReadHistoryV1 {
                         schema_version: 1,
-                        steps: vec![FormalReadStepV1::Commit(Box::new(proof.clone()))],
+                        steps: vec![proof.clone()],
                     },
                 );
                 request.formal_anchor = Some(old_anchor.clone());
@@ -55,7 +76,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
                 active.verify_view(&reply, &request, &public(7)).unwrap();
                 rebase_stage_trace("step_verified", index);
                 last = Some(reply.version.commit.clone());
-                steps.push(FormalReadStepV1::Commit(Box::new(proof)));
+                steps.push(proof);
                 world = next_world;
                 current_anchor = next_anchor;
             }
