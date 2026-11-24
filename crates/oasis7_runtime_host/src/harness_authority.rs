@@ -13,15 +13,15 @@ use oasis7_agent_harness::{
     FeedbackHistoryProjection, MemoryWritePolicyContextV1, RuntimeAuthority,
 };
 
-use oasis7_runtime::{
-    AgentContinuation, CognitionLeaseStatusV1, CognitionLeaseV1,
-    RuntimeCognitionResponseArtifactV1, RuntimeReceiptLineageV1 as RuntimeOwnedReceiptLineageV1,
-    World as RuntimeWorld,
-};
 use crate::agent_execution::{
     AsyncAgentRunnerError, ContinuousAgentTurnContextV1,
     FeedbackEnvelopeV1 as OasisFeedbackEnvelopeV1, RuntimeReceiptReadbackHandleV1,
     RuntimeReceiptReadbackVerifier, agent_api_compat, validated_cognition_lease_consumption_view,
+};
+use oasis7_runtime::{
+    AgentContinuation, CognitionLeaseStatusV1, CognitionLeaseV1,
+    RuntimeCognitionResponseArtifactV1, RuntimeReceiptLineageV1 as RuntimeOwnedReceiptLineageV1,
+    World as RuntimeWorld,
 };
 
 /// Read-only adapter over one actual Runtime World. Runtime owns this value's
@@ -416,15 +416,15 @@ fn cognition_error(code: &str, error: impl std::fmt::Display) -> CognitionError 
 #[cfg(test)]
 mod world_readback_tests {
     use super::*;
-    use oasis7_simulator::GeoPos;
-    use oasis7_runtime::{
-        Action, RuntimeCognitionBaseBindingV1, RuntimeCognitionCommitRequestV1,
-        RuntimeCognitionResponseArtifactV1,
-    };
     use crate::agent_execution::{
         ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1, GoalSnapshotV1,
         MemoryContextSnapshotV1, ResponseArtifactIdentityV1, RuntimeReceiptReadbackVerifier,
     };
+    use oasis7_runtime::{
+        Action, RuntimeCognitionBaseBindingV1, RuntimeCognitionCommitRequestV1,
+        RuntimeCognitionResponseArtifactV1,
+    };
+    use oasis7_simulator::GeoPos;
 
     fn digest(hex: char) -> String {
         format!("blake3:{}", hex.to_string().repeat(64))
@@ -618,7 +618,9 @@ mod tests {
         let acked = rejected_feedback("agent-a", "session-a", 1);
         let pending = rejected_feedback("agent-a", "session-a", 2);
         world
-            .enqueue_runtime_feedback(crate::agent_execution::agent_api_compat::feedback_to_api(&acked))
+            .enqueue_runtime_feedback(crate::agent_execution::agent_api_compat::feedback_to_api(
+                &acked,
+            ))
             .unwrap();
         world.claim_runtime_feedback(&acked.feedback_id).unwrap();
         world.ack_runtime_feedback(&acked.feedback_id).unwrap();
