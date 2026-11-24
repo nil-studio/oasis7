@@ -38,6 +38,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
 | `python_control_contract_version=1`、`python_control_paths`、`python_control_tests` | 可信精确路径命中的 CI Python 控制输入及按组归并的非空最低合同，由可信基线执行入口针对候选实现验证 |
 | `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
+| `fleet_health_subcontracts_version=1`、`fleet_health_checks`、`fleet_health_oses` | 可信配置启用后，解除 `operational_contracts` 对 `windows_rollout` 与 `fleet_health` 的无条件捆绑，按真实消费输入计算 `fleet-health` 的子契约集合（`fleet_script`、`hosted_access`、`macos_signer`、`host_cleanup`）与最小宿主集合 `fleet_health_oses`（如资源清理脚本仅启动 `ubuntu-24.04` + `macos-15` 且跳过 Rust 安装/冷编译，`local-signer` 仅启动 `macos-15`，组合变更与并入的 `windows_rollout` 取并集）；`scope=full`、`explicit-full`、显式追加或未细分规则保留三平台四项全集，旧 BASE 缺能力时回退原三平台矩阵 |
 | `formal_full_profiles_only_version=1` | 可信 BASE 启用重型 Formal 仅在完整 profile 执行；快速 profile 的组、逻辑 suite 和物理 shard 均不选择 Formal |
 | `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
