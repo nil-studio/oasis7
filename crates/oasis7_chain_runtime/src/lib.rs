@@ -12,3 +12,6 @@ include!("host.rs");
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history_store;
+
+#[cfg(unix)]
+pub mod issuer_evidence_server;
