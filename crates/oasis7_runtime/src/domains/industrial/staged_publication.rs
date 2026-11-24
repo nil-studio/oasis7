@@ -8,10 +8,14 @@ use super::{PreparedEventPublication, PreparedEventStateDelta};
 use crate::state::industry_history_transition::PreparedIndustryHistoryEvent;
 use crate::state::industry_transition::PreparedIndustryEvent;
 use crate::world::transition::{
-    BorrowedWorldView, DurableCommitConfirmation, PreparedStagedCommit, RootInstallContext,
-    StagedTransition, SubsystemDelta, TransitionContext, TransitionReject,
+    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition,
+    SubsystemDelta, SynchronousEventTransition, TransitionContext, TransitionReject,
+    publish_synchronous_event,
 };
-use crate::{CausedBy, DomainEvent, World, WorldError, WorldEvent, WorldEventBody, WorldEventId};
+use crate::{
+    CausedBy, DomainEvent, TickConsensusRecord, World, WorldError, WorldEvent, WorldEventBody,
+    WorldEventId,
+};
 
 pub(super) enum StagedIndustrialPublication<'a> {
     State(&'a DomainEvent),
@@ -91,17 +95,32 @@ impl StagedTransition for StagedIndustrialPublication<'_> {
         view: &BorrowedWorldView<'_>,
         ctx: &TransitionContext,
     ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
+        let (_, consensus_record, delta) = self.prepare_event(view.world(), ctx)?;
+        Ok(PreparedStagedCommit::new(
+            view.base_head().clone(),
+            Some(consensus_record),
+            delta,
+        ))
+    }
+}
+
+impl SynchronousEventTransition for StagedIndustrialPublication<'_> {
+    fn prepare_event(
+        &self,
+        world: &World,
+        ctx: &TransitionContext,
+    ) -> Result<(WorldEventId, TickConsensusRecord, Self::Delta), TransitionReject> {
         let (body, state_delta) = match self {
             Self::State(event) => (
                 WorldEventBody::Domain((*event).clone()),
                 PreparedEventStateDelta::Industry(PreparedIndustryEvent::prepare(
-                    view.state(), event, view.time(),
+                    &world.state, event, world.state.time,
                 )?),
             ),
             Self::History(event) => (
                 WorldEventBody::Domain((*event).clone()),
                 PreparedEventStateDelta::IndustryHistory(PreparedIndustryHistoryEvent::prepare(
-                    view.state(), event, view.time(),
+                    &world.state, event, world.state.time,
                 )?),
             ),
             Self::RouteOnly(event, agent_id) => (
@@ -113,7 +132,7 @@ impl StagedTransition for StagedIndustrialPublication<'_> {
             ),
             Self::DeliveryCursor(body) => (
                 (*body).clone(),
-                PreparedEventStateDelta::for_body(view.world(), body).ok_or_else(|| {
+                PreparedEventStateDelta::for_body(world, body).ok_or_else(|| {
                     WorldError::ResourceBalanceInvalid {
                         reason: "unclassified product validation delivery cursor".to_string(),
                     }
@@ -128,14 +147,10 @@ impl StagedTransition for StagedIndustrialPublication<'_> {
             journal_events_evicted,
             consensus_record,
             state_delta,
-        } = view.world().prepare_event_publication(
-            body,
-            ctx.caused_by.clone(),
-            state_delta,
-        )?;
-        Ok(PreparedStagedCommit::new(
-            view.base_head().clone(),
-            Some(consensus_record),
+        } = world.prepare_event_publication(body, ctx.caused_by.clone(), state_delta)?;
+        Ok((
+            event.id,
+            consensus_record,
             IndustrialPublicationDelta {
                 event,
                 state_delta,
@@ -154,23 +169,64 @@ impl World {
         transition: StagedIndustrialPublication<'_>,
         caused_by: Option<CausedBy>,
     ) -> Result<WorldEventId, WorldError> {
-        let prepared = {
-            let view = BorrowedWorldView::new(self)?;
+        let ctx = TransitionContext::new(self.state.time, caused_by);
+        publish_synchronous_event(self, &transition, &ctx)
+    }
+}
+
+// The durable path retains its exact base-head and Unknown fence while the
+// synchronous path uses only its uninterrupted exclusive borrow.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::LocationAnchorV1;
+    use crate::world::transition::DurableCommitConfirmation;
+
+    #[test]
+    fn industrial_delayed_prepare_still_rejects_unknown_and_stale_head() {
+        let mut world = World::new();
+        let body = WorldEventBody::Domain(DomainEvent::LocationAnchorUpdated {
+            anchor: LocationAnchorV1 {
+                location_id: "staged-industrial-delayed".into(),
+                active: true,
+                authority_revision: 1,
+                effective_at: 0,
+            },
+        });
+        let transition = StagedIndustrialPublication::from_body(&body).unwrap();
+        let prepare = |world: &World| {
+            let view = BorrowedWorldView::new(world).unwrap();
             transition
-                .prepare(&view, &TransitionContext::new(view.time(), caused_by))
-                .map_err(TransitionReject::into_world_error)?
+                .prepare(&view, &TransitionContext::new(view.time(), None))
+                .unwrap()
         };
-        let event_id = prepared.delta().event.id;
-        if self.take_fail_next_append_after_publication_prepare_for_test() {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: "injected append_event failure after publication preparation".into(),
-            });
-        }
-        // Same synchronous ordinary publication boundary used by the module
-        // marketplace owner; no intervening canonical writes or IWS receipt.
-        prepared
-            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
-            .map_err(TransitionReject::into_world_error)?;
-        Ok(event_id)
+        let before = world.snapshot();
+        let unknown = prepare(&world).install_confirmed(
+            &mut world,
+            DurableCommitConfirmation::StatusUnknown {
+                reason: "lost publication acknowledgment".into(),
+            },
+        );
+        assert!(matches!(
+            unknown,
+            Err(TransitionReject::StatusUnknownFenced { .. })
+        ));
+        assert_eq!(world.snapshot(), before);
+
+        let pending = prepare(&world);
+        world
+            .set_location_anchor(LocationAnchorV1 {
+                location_id: "other-staged-industrial-location".into(),
+                active: true,
+                authority_revision: 1,
+                effective_at: 0,
+            })
+            .unwrap();
+        let changed = world.snapshot();
+        assert!(matches!(
+            pending.install_confirmed(&mut world, DurableCommitConfirmation::Confirmed),
+            Err(TransitionReject::BaseHeadStale)
+        ));
+        assert_eq!(world.snapshot(), changed);
     }
 }
