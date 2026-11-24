@@ -1,14 +1,16 @@
 //! Agent interface: AgentBehavior trait, AgentDecision, ActionResult.
 
 use super::archive::WorldEvent;
+#[cfg(target_arch = "wasm32")]
 use serde::{Deserialize, Serialize};
 
 use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1,
 };
 use super::decision_provider::MemoryWriteIntent;
-use oasis7_simulator::{Action, ActionId, WorldTime};
-use oasis7_simulator::{Observation, RejectReason, WorldEventKind};
+use oasis7_simulator::{Observation, WorldTime};
+#[cfg(target_arch = "wasm32")]
+use oasis7_simulator::{Action, ActionId, RejectReason, WorldEventKind};
 
 // ============================================================================
 // Agent Interface (observe → decide → act)
@@ -129,7 +131,12 @@ pub use oasis7_simulator::{
     LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace, MicroDepotQuoteRequest,
 };
 
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use oasis7_runtime_host::agent_execution::ActionResult;
+
 /// Result of an action execution, providing feedback to the agent.
+#[cfg(target_arch = "wasm32")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActionResult {
     /// The action that was executed.
@@ -142,6 +149,7 @@ pub struct ActionResult {
     pub event: WorldEvent,
 }
 
+#[cfg(target_arch = "wasm32")]
 impl ActionResult {
     /// Returns true if the action was rejected.
     pub fn is_rejected(&self) -> bool {
