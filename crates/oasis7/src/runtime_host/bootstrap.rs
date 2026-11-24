@@ -6,14 +6,6 @@ use oasis7_runtime::World as RuntimeWorld;
 pub use oasis7_runtime_host::bootstrap::*;
 use std::path::Path;
 
-pub fn bootstrap_generated_sidecar_runtime_world(
-    generated_world_dir: &Path,
-) -> Result<(RuntimeWorld, WorldConfig, WorldModel), String> {
-    let (world, config, model, _) =
-        bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(generated_world_dir)?;
-    Ok((world, config, model))
-}
-
 pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(
     generated_world_dir: &Path,
 ) -> Result<(RuntimeWorld, WorldConfig, WorldModel, ChunkRuntimeConfig), String> {

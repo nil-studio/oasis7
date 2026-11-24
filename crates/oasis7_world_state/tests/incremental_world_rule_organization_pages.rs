@@ -172,7 +172,12 @@ fn produce_all(store: &IncrementalPageStore, memory: &MemoryBudget, source: &Wor
 
 #[test]
 fn organization_typed_pages_transfer_and_cold_reopen_preserve_nested_records() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let original = Directory::new();
         let destination = Directory::new();
         let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();

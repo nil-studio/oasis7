@@ -135,7 +135,7 @@ mod canonical_contract_owner_tests {
 }
 
 // Re-export all public types
-pub use crate::capability_invocation_context::CapabilityInvocationContext;
+pub use oasis7_agent_api::CapabilityInvocationContext;
 pub use agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionExplanationV1, AgentDecisionTrace,
     AgentQuery, AgentQueryResult, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,

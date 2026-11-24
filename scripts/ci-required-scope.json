@@ -2723,6 +2723,42 @@
         "workflow_governance"
       ],
       "reason": "pr_boundary_gate"
+    },
+    {
+      "match": [
+        "scripts/governance/**"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "governance_scripts"
+    },
+    {
+      "match": [
+        "scripts/ops/**"
+      ],
+      "groups": [
+        "operational_contracts"
+      ],
+      "reason": "ops_scripts"
+    },
+    {
+      "match": [
+        "scripts/packaging/**"
+      ],
+      "groups": [
+        "packaging_contracts"
+      ],
+      "reason": "packaging_scripts"
+    },
+    {
+      "match": [
+        "scripts/viewer/**"
+      ],
+      "groups": [
+        "viewer_js_required"
+      ],
+      "reason": "viewer_scripts"
     }
   ]
 }

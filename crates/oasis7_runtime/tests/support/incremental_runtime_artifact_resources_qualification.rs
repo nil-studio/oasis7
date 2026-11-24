@@ -1147,5 +1147,6 @@ mod change_tests;
 #[path = "incremental_runtime_artifact_resources_readmission_tests.rs"]
 mod readmission_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "incremental_runtime_artifact_resources_pages.rs"]
 mod pages;
