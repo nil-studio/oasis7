@@ -1026,8 +1026,6 @@ jobs:
         shell: bash
         env:
           CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "doc_checker_contracts" --repo-root "$GITHUB_WORKSPACE"
       - name: Verify preinstalled Rust and Ruby for build measurement and packaging contract fixtures
         if: >-
@@ -1053,8 +1051,6 @@ jobs:
         shell: bash
         env:
           CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "compile_metrics" --repo-root "$GITHUB_WORKSPACE"
       - name: Execute consolidated packaging contracts group
         if: >-
@@ -1065,8 +1061,6 @@ jobs:
         shell: bash
         env:
           CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "packaging_contracts" --repo-root "$GITHUB_WORKSPACE"
 
   rust-baseline:
