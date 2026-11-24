@@ -16,6 +16,7 @@ use super::agent::{
     LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace,
 };
 use oasis7_agent_harness::llm_defaults::DEFAULT_LLM_MODEL;
+use oasis7_agent_harness::llm_prompt_assembly as prompt_assembly;
 use oasis7_simulator::{
     Action, CM_PER_KM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY, ModuleInstallTarget, ResourceKind,
     ResourceOwner,
@@ -33,7 +34,6 @@ mod behavior_runtime_helpers;
 mod config_helpers;
 mod decision_flow;
 mod execution_controls;
-mod prompt_assembly;
 mod recipe_coverage;
 use recipe_coverage::RecipeCoverageProgress;
 
@@ -716,5 +716,38 @@ mod memory_selector_owner_tests {
             result,
             canonical::MemorySelector::select(&memory, 0, &config)
         );
+    }
+}
+
+#[cfg(test)]
+mod prompt_assembly_owner_tests {
+    use super::{PromptAssembler, PromptAssemblyInput, PromptBudget, PromptStepContext};
+    use oasis7_agent_harness::llm_prompt_assembly as canonical;
+
+    #[test]
+    fn live_llm_prompt_assembly_uses_canonical_owner() {
+        let budget: canonical::PromptBudget = PromptBudget::default();
+        let input = PromptAssemblyInput {
+            agent_id: "agent-1",
+            base_system_prompt: "base prompt",
+            short_term_goal: "short goal",
+            long_term_goal: "long goal",
+            observation_json: "{}",
+            module_history_json: "[]",
+            conversation_history_json: "[]",
+            memory_digest: None,
+            step_context: PromptStepContext {
+                step_index: 0,
+                max_steps: 4,
+                module_calls_used: 0,
+                module_calls_max: 3,
+            },
+            harvest_max_amount_cap: 100,
+            prompt_budget: budget,
+        };
+        let output: canonical::PromptAssemblyOutput = PromptAssembler::assemble(input);
+        assert!(output.system_prompt.contains("base prompt"));
+        assert!(output.system_prompt.contains("short goal"));
+        assert!(output.user_prompt.contains("observation(json)"));
     }
 }
