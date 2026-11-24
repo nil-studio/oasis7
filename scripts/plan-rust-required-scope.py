@@ -48,11 +48,20 @@ CUSTODY_NODE_SHARDS = (0, 1, 2)
 LEGACY_CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 CUSTODY_NODE_SHARDS_VERSION = 2
 ORDINARY_DYNAMIC_PARTITION_VERSION = 1
-CONTRACT_JOB_CONSOLIDATION_VERSION = 3
-CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3)
+CONTRACT_JOB_CONSOLIDATION_VERSION = 4
+CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3, 4)
 ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 1
 STANDALONE_CARGO_MANIFEST_SCOPE_VERSION = 1
-WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION = 1
+WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION = 2
+WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSIONS = (1, 2)
+SCOPED_MEMBER_TARGET_CFGS = frozenset((
+    'cfg(not(target_arch = "wasm32"))',
+    'cfg(target_arch = "wasm32")',
+    'cfg(unix)',
+    'cfg(target_os = "linux")',
+    'wasm32-unknown-unknown',
+))
+ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION = 1
 SCOPED_PRODUCTION_CFG_VERSION = 1
 MAIN_FAST_COALESCE_CONCURRENCY_VERSION = 1
 WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 1
@@ -388,48 +397,92 @@ def standalone_cargo_manifest_selection(config, graphs, graph_refs, comparisons,
         return {}
 
 
-def _strip_member_normal_dev_deps(manifest):
-    return {key: value for key, value in manifest.items() if key not in ('dependencies', 'dev-dependencies')}
+def _strip_member_normal_dev_deps(manifest, *, allow_scoped_target_deps=False):
+    stripped = {key: value for key, value in manifest.items() if key not in ('dependencies', 'dev-dependencies')}
+    if allow_scoped_target_deps and 'target' in stripped and isinstance(stripped['target'], dict):
+        rem_target = {}
+        for cfg_key, cfg_table in stripped['target'].items():
+            if cfg_key in SCOPED_MEMBER_TARGET_CFGS and isinstance(cfg_table, dict):
+                rem_cfg = {key: value for key, value in cfg_table.items()
+                           if key not in ('dependencies', 'dev-dependencies')}
+                if rem_cfg:
+                    rem_target[cfg_key] = rem_cfg
+            else:
+                rem_target[cfg_key] = cfg_table
+        if rem_target or any(cfg_key not in SCOPED_MEMBER_TARGET_CFGS for cfg_key in stripped['target']):
+            stripped['target'] = rem_target
+        else:
+            stripped.pop('target', None)
+    return stripped
 
 
-def _optional_member_deps(manifest):
+def _optional_member_deps(manifest, *, allow_scoped_target_deps=False):
     deps = manifest.get('dependencies')
-    if not isinstance(deps, dict):
-        return {}
-    return {key: value for key, value in deps.items()
-            if isinstance(value, dict) and value.get('optional') is True}
+    optional = (
+        {('', key): value for key, value in deps.items()
+         if isinstance(value, dict) and value.get('optional') is True}
+        if isinstance(deps, dict) else {}
+    )
+    if allow_scoped_target_deps and isinstance(manifest.get('target'), dict):
+        for cfg_key, cfg_table in manifest['target'].items():
+            if cfg_key not in SCOPED_MEMBER_TARGET_CFGS or not isinstance(cfg_table, dict):
+                continue
+            target_deps = cfg_table.get('dependencies')
+            if isinstance(target_deps, dict):
+                for key, value in target_deps.items():
+                    if isinstance(value, dict) and value.get('optional') is True:
+                        optional[(cfg_key, key)] = value
+    return optional
 
 
-def _validate_member_dep_specs(manifest, directory, by_directory, workspace_dep_keys):
-    for kind in ('dependencies', 'dev-dependencies'):
-        table = manifest.get(kind)
-        if table is None:
-            continue
-        if not isinstance(table, dict):
+def _validate_dep_table(table, kind, directory, by_directory, workspace_dep_keys):
+    if table is None:
+        return True
+    if not isinstance(table, dict):
+        return False
+    for alias, spec in table.items():
+        if not isinstance(alias, str) or not alias:
             return False
-        for alias, spec in table.items():
-            if not isinstance(alias, str) or not alias:
+        if isinstance(spec, str):
+            continue
+        if not isinstance(spec, dict):
+            return False
+        if 'optional' in spec and (type(spec['optional']) is not bool
+                                   or (kind == 'dev-dependencies' and spec['optional'])):
+            return False
+        if any(key in spec for key in ('git', 'registry', 'registry-index')):
+            return False
+        if spec.get('workspace') is True:
+            if alias not in workspace_dep_keys or 'path' in spec:
                 return False
-            if isinstance(spec, str):
+            continue
+        if 'path' in spec:
+            raw_path = spec['path']
+            if not isinstance(raw_path, str) or not raw_path or posixpath.isabs(raw_path) or '\\' in raw_path:
+                return False
+            target_dir = posixpath.normpath(posixpath.join(directory, raw_path))
+            target_pkg = by_directory.get(target_dir)
+            if target_pkg is None or spec.get('package', target_pkg) != target_pkg:
+                return False
+    return True
+
+
+def _validate_member_dep_specs(manifest, directory, by_directory, workspace_dep_keys, *,
+                               allow_scoped_target_deps=False):
+    for kind in ('dependencies', 'dev-dependencies'):
+        if not _validate_dep_table(manifest.get(kind), kind, directory, by_directory, workspace_dep_keys):
+            return False
+    if allow_scoped_target_deps and 'target' in manifest:
+        target_tables = manifest['target']
+        if not isinstance(target_tables, dict):
+            return False
+        for cfg_key, cfg_table in target_tables.items():
+            if not isinstance(cfg_key, str) or not isinstance(cfg_table, dict):
+                return False
+            if cfg_key not in SCOPED_MEMBER_TARGET_CFGS:
                 continue
-            if not isinstance(spec, dict):
-                return False
-            if 'optional' in spec and (type(spec['optional']) is not bool
-                                       or (kind == 'dev-dependencies' and spec['optional'])):
-                return False
-            if any(key in spec for key in ('git', 'registry', 'registry-index')):
-                return False
-            if spec.get('workspace') is True:
-                if alias not in workspace_dep_keys or 'path' in spec:
-                    return False
-                continue
-            if 'path' in spec:
-                raw_path = spec['path']
-                if not isinstance(raw_path, str) or not raw_path or posixpath.isabs(raw_path) or '\\' in raw_path:
-                    return False
-                target_dir = posixpath.normpath(posixpath.join(directory, raw_path))
-                target_pkg = by_directory.get(target_dir)
-                if target_pkg is None or spec.get('package', target_pkg) != target_pkg:
+            for kind in ('dependencies', 'dev-dependencies'):
+                if not _validate_dep_table(cfg_table.get(kind), kind, directory, by_directory, workspace_dep_keys):
                     return False
     return True
 
@@ -441,8 +494,9 @@ def workspace_member_cargo_manifest_selection(config, graphs, graph_refs, compar
     unique_refs = list(dict.fromkeys(graph_refs))
     standalone = standalone_manifests or {}
     if (not comparisons or not graphs or len(graphs) != len(unique_refs)
-            or type(version) is not int or version != WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION):
+            or type(version) is not int or version not in WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSIONS):
         return {}
+    allow_scoped_target_deps = version >= 2
     cargo_paths = [path for path in paths
                    if posixpath.basename(path) in ('Cargo.toml', 'Cargo.lock') and path not in standalone]
     if not cargo_paths:
@@ -504,14 +558,20 @@ def workspace_member_cargo_manifest_selection(config, graphs, graph_refs, compar
                         or 'proc-macro' in lib_cfg.get('crate-type', ())
                         or 'proc-macro' in lib_cfg.get('crate_type', ()))):
                     return {}
-                if not _validate_member_dep_specs(parsed, directory, by_directory, workspace_dep_keys_by_ref[ref]):
+                if not _validate_member_dep_specs(
+                        parsed, directory, by_directory, workspace_dep_keys_by_ref[ref],
+                        allow_scoped_target_deps=allow_scoped_target_deps):
                     return {}
                 parsed_by_ref[ref] = parsed
             for before, after in comparisons:
-                if (_strip_member_normal_dev_deps(parsed_by_ref[before])
-                        != _strip_member_normal_dev_deps(parsed_by_ref[after])
-                        or _optional_member_deps(parsed_by_ref[before])
-                        != _optional_member_deps(parsed_by_ref[after])):
+                if (_strip_member_normal_dev_deps(parsed_by_ref[before],
+                                                  allow_scoped_target_deps=allow_scoped_target_deps)
+                        != _strip_member_normal_dev_deps(parsed_by_ref[after],
+                                                         allow_scoped_target_deps=allow_scoped_target_deps)
+                        or _optional_member_deps(parsed_by_ref[before],
+                                                 allow_scoped_target_deps=allow_scoped_target_deps)
+                        != _optional_member_deps(parsed_by_ref[after],
+                                                 allow_scoped_target_deps=allow_scoped_target_deps)):
                     return {}
             changed_members.add(pkg_name)
 
@@ -1551,9 +1611,14 @@ def validate_config(config):
             raise ValueError('invalid standalone Cargo manifest scope capability')
     if 'workspace_member_cargo_manifest_scope_version' in config:
         if (type(config['workspace_member_cargo_manifest_scope_version']) is not int
-                or config['workspace_member_cargo_manifest_scope_version'] != WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION
+                or config['workspace_member_cargo_manifest_scope_version'] not in WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSIONS
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid workspace member Cargo manifest scope capability')
+    if 'ordinary_controls_in_rust_baseline_version' in config:
+        if (type(config['ordinary_controls_in_rust_baseline_version']) is not int
+                or config['ordinary_controls_in_rust_baseline_version'] != ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid ordinary controls in rust-baseline capability')
     if 'scoped_production_cfg_version' in config:
         if (type(config['scoped_production_cfg_version']) is not int
                 or config['scoped_production_cfg_version'] != SCOPED_PRODUCTION_CFG_VERSION
@@ -4227,6 +4292,22 @@ def complete_ordinary_partitions(config, plan):
                 and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version',
                                                       WORKSPACE_SUPPORT_DIRECT_GATE_VERSION)):
             plan['workspace_support_direct_gate_version'] = WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+    if (type(config.get('ordinary_controls_in_rust_baseline_version')) is int
+            and config['ordinary_controls_in_rust_baseline_version'] == ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION
+            and plan.get('fast_plan_version') == FAST_PLAN_VERSION
+            and plan.get('ordinary_artifact_partition_version') in (1, 2)
+            and 'fast_execution_version' not in plan
+            and plan.get('ordinary_execution') != 'inline'
+            and {'rust_baseline', 'oasis7_required'}.issubset(plan.get('groups', ()))
+            and tested_source_supports_capability(plan, 'ordinary_controls_in_rust_baseline_version',
+                                                  ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION)):
+        plan.update(
+            ordinary_controls_in_rust_baseline_version=ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION,
+            ordinary_clippy_group='rust_baseline',
+            ordinary_wasm_group='rust_baseline',
+            ordinary_partitions=[partition for partition in plan['ordinary_partitions']
+                                 if partition != 'controls'],
+        )
 
 
 def tested_source_supports_capability(plan, field, expected_version):
