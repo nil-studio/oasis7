@@ -53,9 +53,6 @@ ci_formal_uuid = { package = "uuid", version = "1", features = ["serde", "v4"], 
 ci_formal_host_bitflags = { package = "bitflags", version = "2", features = ["std"], optional = true }
 ci_formal_host_indexmap = { package = "indexmap", version = "2", optional = true }
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
-
 [features]
 default = ["wasmtime"]
 wasmtime = ["oasis7_runtime/wasmtime", "oasis7_world_service/wasmtime"]
@@ -76,11 +73,8 @@ ci_formal_required_features = [
 ]
 
 [dev-dependencies]
-oasis7_world_state = { path = "../oasis7_world_state" }
-oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
 oasis7_hosted_access = { path = "../oasis7_hosted_access", features = ["test-support"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-oasis7_wasm_executor = { path = "../oasis7_wasm_executor", default-features = false }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false, features = ["test-support"] }
 async-openai = { version = "0.42.1", default-features = false, features = ["responses", "rustls"] }
