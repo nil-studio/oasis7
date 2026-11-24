@@ -462,10 +462,15 @@ fn receiver_drop_during_persist_requires_writer_completion_before_process_exit()
         let owned = OwnedChild(&mut child);
         let deadline = Instant::now() + Duration::from_secs(20);
         while !directory.join("network-dropped").exists() {
-            assert!(
-                owned.0.try_wait().unwrap().is_none(),
-                "child failed before drop"
-            );
+            if let Some(status) = owned.0.try_wait().unwrap() {
+                // The early-exit control may create its marker and finish
+                // between the first path check and this process-status read.
+                assert!(
+                    status.success() && directory.join("network-dropped").is_file(),
+                    "child failed before controlled drop: {status}"
+                );
+                break;
+            }
             assert!(
                 Instant::now() < deadline,
                 "child did not reach controlled drop"
