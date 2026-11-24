@@ -29,7 +29,7 @@ Trace ID: O7-REQ-4e7f2e0d-9147-43d9-a593-00a8db9b21df
 
 依赖图/Git 输入无法解析时仍保留保守全量，不能将解析失败误报为确定的路径缺口。
 
-规则使用事件基线的可信版本；引入独立目录前先将归属及真实验证入口登记进基线。
+规则使用事件基线的可信版本；引入独立目录前先将归属及真实验证入口登记进基线。新增独立脚本优先放入已登记的受管职责子目录（`scripts/security/`、`scripts/governance/`、`scripts/ops/`、`scripts/packaging/`、`scripts/viewer/`），避免在 `scripts/` 根目录平铺引发前置登记 PR；`oasis7_required_packages` 以 `scripts/ci-required-scope.json` 为单一数据源，由执行驱动直接读取。
 
 候选分支自行新增忽略规则不能为自身放行。该要求属于 CI 专业治理，不新增玩家或游戏行为要求。
 

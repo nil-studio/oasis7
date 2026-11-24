@@ -647,7 +647,7 @@ fn manufactured_checkpoints_compose_multiple_root_rotations_in_one_prepared_batc
         .install_capability_agent_identity("owner", "player", 1)
         .unwrap();
     let snapshot = world.snapshot();
-    let events = [2, u64::MAX]
+    let events: Vec<_> = [2, u64::MAX]
         .into_iter()
         .map(
             |generation| crate::CapabilityAuthorizationEvent::AgentIdentityInstalled {
@@ -659,6 +659,18 @@ fn manufactured_checkpoints_compose_multiple_root_rotations_in_one_prepared_batc
             },
         )
         .collect();
+    let original_journal = world.journal().clone();
+    let original_revocation = world.capability_revocation_state().clone();
+    world.fail_next_append_after_publication_prepare_for_test();
+    let error = world
+        .append_capability_identity_batch_for_test(events.clone())
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("publication preparation"));
+    assert_eq!(world.snapshot(), snapshot);
+    assert_eq!(world.journal(), &original_journal);
+    assert_eq!(world.capability_revocation_state(), &original_revocation);
+    assert_eq!(world.current_agent_identity(&target).unwrap().generation, 1);
+
     world
         .append_capability_identity_batch_for_test(events)
         .unwrap();

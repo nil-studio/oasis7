@@ -26,7 +26,6 @@ sha2 = "0.11"
 serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 blake3 = "1"
 unicode-normalization = "0.1"
-toml = "0.9.12"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
@@ -51,7 +50,6 @@ test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 
 [dev-dependencies]
-reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false, features = ["test_tier_required"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Executable ownership and lightweight service dependency contracts."""
 from pathlib import Path
+import json
 import re
 import tomllib
 import unittest
@@ -147,6 +148,98 @@ class Ownership(unittest.TestCase):
             for source_path in package.rglob('*.rs'):
                 text = source_path.read_text()
                 self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def require_native_viewer_codec_archive_owner(self, source, manifest_data):
+        """Keep the real native archive on L4 without importing native Host in wasm."""
+        self.assertIn(
+            '#[cfg(target_arch = "wasm32")]\n'
+            'use oasis7::simulator::{WorldEvent, WorldSnapshot};',
+            source,
+        )
+        self.assertIn(
+            '#[cfg(not(target_arch = "wasm32"))]\n'
+            'use oasis7_runtime_host::simulator_archive::archive::WorldEvent;',
+            source,
+        )
+        self.assertIn(
+            '#[cfg(not(target_arch = "wasm32"))]\n'
+            'use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;',
+            source,
+        )
+        self.assertEqual(
+            manifest_data['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime_host'],
+            {'path': '../oasis7_runtime_host'},
+        )
+        self.assertNotIn('use oasis7_simulator::{WorldEvent, WorldSnapshot};', source)
+
+    def test_native_viewer_codec_archive_owner_positive_and_negative(self):
+        """Exact actual native owner, original wasm compatibility, and partial-migration rejection."""
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        manifest_data = manifest('oasis7_viewer_codec')
+        self.require_native_viewer_codec_archive_owner(codec, manifest_data)
+        for wrong in (
+            codec.replace(
+                'oasis7_runtime_host::simulator_archive::archive::WorldEvent',
+                'oasis7_simulator::WorldEvent',
+            ),
+            codec.replace(
+                'oasis7_runtime_host::simulator_archive::persist::WorldSnapshot',
+                'oasis7_simulator::WorldSnapshot',
+            ),
+            codec.replace(
+                '#[cfg(target_arch = "wasm32")]',
+                '#[cfg(not(target_arch = "wasm32"))]',
+                1,
+            ),
+        ):
+            with self.assertRaises(AssertionError):
+                self.require_native_viewer_codec_archive_owner(wrong, manifest_data)
+        removed = {
+            **manifest_data,
+            'target': {
+                'cfg(not(target_arch = "wasm32"))': {'dependencies': {}},
+            },
+        }
+        with self.assertRaises(KeyError):
+            self.require_native_viewer_codec_archive_owner(codec, removed)
+
+    def test_native_runtime_host_is_registered_in_required_test_drivers(self):
+        """Archive and migrated host behavior must run as the real package, not only a dependency."""
+        import importlib.util
+        import subprocess
+        import sys
+        owner = 'oasis7_runtime_host'
+        cfg = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        self.assertIn(owner, cfg['oasis7_required_packages'])
+        features = manifest(owner)['features']
+        self.assertIn('test_tier_required', features)
+        self.assertIn('test_tier_required', features['test_tier_full'])
+        shell = (ROOT / 'scripts/ci-tests.sh').read_text()
+        functions = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', shell, re.M | re.S))
+        for fn_name, cargo_fn, invocation in (
+            ('run_oasis7_package_tests', 'run_cargo', 'run_oasis7_package_tests test_tier_required --tests'),
+            ('run_oasis7_required_tier_clippy', 'run_cargo_clippy', 'run_oasis7_required_tier_clippy'),
+        ):
+            script = (
+                'set -euo pipefail\n'
+                f'ci_python="{sys.executable}"\n'
+                f'driver_dir="{ROOT / "scripts"}"\n'
+                'required_plan=""\n'
+                f'{cargo_fn}() {{ printf "%s\\n" "$*"; }}\n'
+                f'{fn_name}() {{\n{functions[fn_name]}}}\n'
+                f'{invocation}\n'
+            )
+            result = subprocess.run(['bash', '-c', script], text=True, capture_output=True, check=True)
+            lines = result.stdout.splitlines()
+            self.assertEqual(len(lines), 1, fn_name)
+            self.assertIn(f'-p {owner} ', lines[0], fn_name)
+        spec = importlib.util.spec_from_file_location('ci_test_artifacts', ROOT / 'scripts/ci-test-artifacts.py')
+        artifacts = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(artifacts)
+        required = next(args for name, args, _ in artifacts.build_variants('ordinary') if name == 'required')
+        required_packages = [required[index + 1] for index, value in enumerate(required) if value == '-p']
+        self.assertEqual(required_packages, cfg['oasis7_required_packages'])
+        self.assertIn(owner, required_packages)
 
     def test_provider_original_material_contract_has_portable_owner(self):
         """Portable pending-root DTOs have one owner; native service keeps the codec."""

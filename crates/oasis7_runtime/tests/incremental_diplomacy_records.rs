@@ -314,6 +314,7 @@ mod transitions;
 #[path = "support/incremental_diplomacy_bad_roots.rs"]
 mod bad_roots;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_diplomacy_pages.rs"]
 mod pages;
 

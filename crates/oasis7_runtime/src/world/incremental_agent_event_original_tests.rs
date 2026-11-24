@@ -2,9 +2,8 @@ use super::*;
 use crate::world::incremental_body_event::original;
 use std::io::Write;
 
-#[test]
-fn borrowed_original_large_reason_fits_small_operation_pool() {
-    for length in [32 << 20, 64 << 20] {
+fn exercise_borrowed_original_reason(sizes: &[usize]) {
+    for &length in sizes {
         // Caller-owned immutable input is admitted separately; the operation
         // cannot reserve an encoded copy of this input in its 8MiB pool.
         let input = MemoryBudget::new(128 << 20, 4 << 20).unwrap();
@@ -62,6 +61,19 @@ fn borrowed_original_large_reason_fits_small_operation_pool() {
         );
         assert_eq!(memory.used(), baseline, "all operation scratch is released");
     }
+}
+
+#[test]
+fn borrowed_original_reason_across_value_chunks_fits_small_operation_pool() {
+    exercise_borrowed_original_reason(&[2
+        * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES
+        + 17]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn borrowed_original_large_reason_fits_small_operation_pool() {
+    exercise_borrowed_original_reason(&[32 << 20, 64 << 20]);
 }
 
 struct Partial;

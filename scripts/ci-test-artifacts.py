@@ -1281,16 +1281,28 @@ STORAGE_COMPONENTS = {
 BUILD_COMPONENTS = (*FORMAL_COMPONENTS, *STORAGE_COMPONENTS)
 
 
+def load_oasis7_required_packages(scope_config=None):
+    config_path = Path(scope_config) if scope_config is not None else Path(__file__).resolve().parent / 'ci-required-scope.json'
+    data = json.loads(config_path.read_text(encoding='utf-8'))
+    packages = data.get('oasis7_required_packages')
+    if (not isinstance(packages, list) or not packages
+            or any(not isinstance(pkg, str) or not pkg or any(ch.isspace() for ch in pkg) for pkg in packages)
+            or len(packages) != len(set(packages))):
+        raise ValueError('invalid oasis7_required_packages in ' + str(config_path))
+    return list(packages)
+
+
 def build_variants(scope, plan=None, ordinary_partition=None):
     if ordinary_partition is not None and scope != 'ordinary':
         raise ValueError('ordinary partition requires ordinary build scope')
     if scope == 'all' and ordinary_risk_targets(plan):
         raise ValueError('ordinary risk contracts require ordinary build scope')
     required_features = ['test_tier_required']
+    required_package_args = [arg for package in load_oasis7_required_packages() for arg in ('-p', package)]
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
         ('viewer', ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live', '--features', 'test_tier_required'], required_features),
-        ('required', ['test', '-p', 'oasis7', '-p', 'oasis7_simulator', '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '-p', 'scenario_test_runner', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_executable_image', '-p', 'oasis7_client_cli', '-p', 'oasis7_protocol_tools', '-p', 'oasis7_launcher_backend', '-p', 'oasis7_newapi_bridge_service', '-p', 'oasis7_ops_tools', '-p', 'oasis7_provider_local_bridge', '-p', 'oasis7_provider_tools', '-p', 'oasis7_viewer_runtime', '-p', 'oasis7_viewer_codec', '-p', 'oasis7_observability', '-p', 'oasis7_hosted_access', '-p', 'oasis7_letai_credit_adapter', '-p', 'oasis7_launcher_config', '-p', 'oasis7_wasm_materializer', '-p', 'oasis7_game_client', '-p', 'oasis7_browser_game_client', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--tests', '--features', 'test_tier_required', '--no-run'], required_features),
+        ('required', ['test', *required_package_args, '--tests', '--features', 'test_tier_required', '--no-run'], required_features),
         ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime', '--features', 'test_tier_required'], required_features),
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),

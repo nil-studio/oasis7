@@ -16,6 +16,7 @@ mod journal;
 pub mod proof;
 pub mod replicated_protocol;
 mod storage;
+mod writer_lock;
 pub use journal::ControlledAuthorityLocalJournal;
 pub use oasis7_formal_protocol::controlled_authority::*;
 #[cfg(test)]

@@ -74,7 +74,6 @@ mod canonical_contract_owner_tests {
 }
 
 // Re-export all public types
-pub use crate::capability_invocation_context::CapabilityInvocationContext;
 pub use agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionExplanationV1, AgentDecisionTrace,
     AgentQuery, AgentQueryResult, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
@@ -86,7 +85,6 @@ pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::project_receipt_memory;
 #[cfg(not(target_arch = "wasm32"))]
-#[allow(unused_imports)] // Retained for the B3 Harness adapter boundary.
 pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::{
@@ -130,6 +128,7 @@ pub use decision_provider::{
     ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage, ProviderTraceEnvelope,
     ProviderTranscriptEntry, golden_decision_provider_fixtures,
 };
+pub use oasis7_agent_api::CapabilityInvocationContext;
 pub use oasis7_agent_api::intent_summary::{
     AGENT_INTENT_SUMMARY_MAX_CHARS, AGENT_INTENT_SUMMARY_SCHEMA_VERSION,
     AUTHORITATIVE_AGENT_INTENT_SOURCES, AgentIntentKindV1, AgentIntentSourceV1,

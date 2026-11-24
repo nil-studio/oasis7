@@ -99,7 +99,12 @@ fn precise_factory_points_coalesce_and_cold_continue_without_large_siblings() {
     let mut work = factory_work();
     use FactoryColumnV1 as C;
     use FactoryValueRefV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let (old, after) = {
