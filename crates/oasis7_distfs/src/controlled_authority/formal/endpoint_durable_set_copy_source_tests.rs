@@ -77,6 +77,103 @@ fn healthy_copy_source_fetches_shared_history_index_once() {
     );
 }
 
+// This profile-2 source cannot use seal_epoch: the native endpoint requires
+// a signed Qualified H boundary and a real normal durable-set transition.
+#[inline(never)]
+fn seal_profile2_inline_business_source(
+    fixture: &Fixture,
+    original: &FormalBusinessResultEnvelopeV1,
+) {
+    use crate::controlled_authority::formal::business_index::{
+        BusinessIndexDeltaV1, BusinessIndexLeafKindV1, BusinessIndexLeafV1,
+    };
+    let mut coordinator = fixture.coordinator();
+    let original_proof = coordinator.submit(fixture.initial.clone()).unwrap();
+    let predecessor =
+        verify_formal_qualified(&original_proof, &fixture.authority, None, None).unwrap();
+    let mut successor = fixture.authority.definition().clone();
+    successor.epoch = 2;
+    successor.valid_from_position = 3;
+    successor.predecessor_authority_id = Some(fixture.authority.authority_id().unwrap());
+    successor.primary.instance.authority_epoch = 2;
+    successor.replica.instance.authority_epoch = 2;
+    successor.replica.instance.endpoint_public_key = public(12);
+    successor.replica.instance.instance_id = h(120);
+    successor.replica.instance.storage_id = h(121);
+    successor.replica.instance.storage_fingerprint = h(122);
+    successor.replica.instance.endpoint_id = "inline-copy-successor-r".into();
+    successor.replica.fault_domain_id = "inline-copy-successor-domain-r".into();
+    let mut body = NormalDurableSetTransitionBodyV1 {
+        schema_version: 1,
+        world: successor.world.clone(),
+        predecessor_authority_id: fixture.authority.authority_id().unwrap(),
+        predecessor: predecessor.head(),
+        boundary_position: 2,
+        operation_id: h(123),
+        successor,
+        independent_closure_root: h(124),
+    };
+    body.independent_closure_root = body.copy_contract_digest().unwrap();
+    let signed_transition = SignedNormalDurableSetTransitionV1 {
+        writer_signature_hex: signed(
+            normal_durable_set_transition_signing_bytes(&body).unwrap(),
+            4,
+        ),
+        body,
+    };
+    let (frozen, material) = fixture.frozen(&predecessor, 61);
+    let executable = coordinator.freeze(frozen, material).unwrap();
+    let mut candidate = fixture.candidate(&executable);
+    candidate.candidate.record.schema_version = 2;
+    candidate.candidate.record.durable_set_transition_digest =
+        Some(signed_transition.body.digest().unwrap());
+    let primary = coordinator.endpoints_mut().0;
+    let mut updates = vec![BusinessIndexLeafV1 {
+        key_digest: h(92),
+        kind: BusinessIndexLeafKindV1::Outcome,
+        canonical_value: b"authenticated successor receipt".to_vec(),
+    }];
+    updates.push(
+        FormalHistoricalCutV1::from_proof(&original_proof)
+            .unwrap()
+            .leaf()
+            .unwrap(),
+    );
+    updates.sort_by(|a, b| a.key_digest.cmp(&b.key_digest));
+    let delta = BusinessIndexDeltaV1::build(
+        original.delta.new.clone(),
+        updates,
+        &primary.store,
+    )
+    .unwrap();
+    let envelope = super::business_tests::envelope(delta);
+    super::business_tests::replace_result(&mut candidate.material, envelope.encode().unwrap());
+    candidate.candidate.record.artifact_roots = candidate.material.roots.clone();
+    candidate.candidate.record.result_root = envelope.delta.new_root;
+    candidate.candidate.writer_signature_hex = signed(
+        canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
+        4,
+    );
+    let proof = coordinator.submit(candidate).unwrap();
+    let boundary = verify_formal_qualified(
+        &proof,
+        &fixture.authority,
+        Some(&predecessor),
+        None,
+    )
+    .unwrap();
+    let transition = verify_normal_durable_set_transition(
+        &signed_transition,
+        &fixture.authority,
+        &predecessor,
+        &boundary,
+    )
+    .unwrap();
+    let primary = coordinator.endpoints_mut().0;
+    let checkpoint = primary.checkpoint().unwrap();
+    primary.seal_durable_set(&transition, &checkpoint).unwrap();
+}
+
 #[test]
 fn healthy_copy_source_reuses_authenticated_inline_business_nodes() {
     let _ = std::io::Write::write_all(
@@ -92,18 +189,10 @@ fn healthy_copy_source_reuses_authenticated_inline_business_nodes() {
         &mut std::io::stderr(),
         b"oasis7 native diagnostic inline_copy_fixture_built\n",
     );
-    let mut coordinator = fixture.coordinator();
-    coordinator.submit(fixture.initial.clone()).unwrap();
+    seal_profile2_inline_business_source(&fixture, &envelope);
     let _ = std::io::Write::write_all(
         &mut std::io::stderr(),
-        b"oasis7 native diagnostic inline_copy_initial_submitted\n",
-    );
-    let primary = coordinator.endpoints_mut().0;
-    let checkpoint = primary.checkpoint().unwrap();
-    primary.seal_epoch(&h(210), 2, &checkpoint).unwrap();
-    let _ = std::io::Write::write_all(
-        &mut std::io::stderr(),
-        b"oasis7 native diagnostic inline_copy_epoch_sealed\n",
+        b"oasis7 native diagnostic inline_copy_profile2_sealed\n",
     );
     let native = Store::read_native_checkpoint(&fixture.pdir).unwrap();
     let source = CountedSource::new(fixture.pdir.clone());
