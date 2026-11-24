@@ -334,14 +334,12 @@ impl RuntimeLlmSidecar {
                 return Ok(());
             };
             if let Some(world) = world {
-                let authority =
-                    oasis7::runtime_host::harness_authority::RuntimeWorldAuthority::new(world);
                 runner
                     .host_consume_feedback_from_outcome(
                         agent_id,
                         feedback,
                         receipt,
-                        &authority,
+                        &oasis7::runtime_host::harness_authority::RuntimeWorldAuthority::new(world),
                         &mut self.provider_memory_store,
                     )
                     .map_err(|error| {
