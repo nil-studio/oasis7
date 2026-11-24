@@ -76,15 +76,6 @@ allowed_snippets = {
         "shared_devnet|shared_network)",
         '{"shared_devnet", "shared_network"}',
     ),
-    "scripts/legacy-shared-devnet-provenance-smoke.sh": (
-        "authority=doc/testing/evidence/legacy-shared-devnet-provenance-2026-07-26.md",
-        '"shared_devnet"',
-        '"shared-devnet-live-reset-20260523-01"',
-        'shared_devnet-',
-        'shared-network-shared-devnet-',
-        'active generated shared_devnet capture reference remains',
-        'legacy-shared-devnet-provenance-smoke',
-    ),
     "doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.prd.md": (
         "doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.prd.md",
         ),
@@ -92,9 +83,7 @@ allowed_snippets = {
         "doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.prd.md",
     ),
 }
-allowed_path_names = {
-    "scripts/legacy-shared-devnet-provenance-smoke.sh",
-}
+allowed_path_names: set[str] = set()
 
 def iter_scan_files() -> list[pathlib.Path]:
     files: list[pathlib.Path] = []
