@@ -4,9 +4,10 @@ use std::net::TcpStream;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::SigningKey;
-use oasis7::simulator::{WorldEvent, WorldSnapshot};
 use oasis7_client_api::{viewer_auth::*, viewer_protocol::*};
 use oasis7_proto::viewer as proto;
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;
 use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldEventKind, WorldTime};
 type ViewerResponse =
     proto::ViewerResponse<WorldSnapshot, WorldEvent, AgentDecisionTrace, RunnerMetrics, WorldTime>;
