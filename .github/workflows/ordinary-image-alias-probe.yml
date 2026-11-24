@@ -10,7 +10,7 @@ concurrency:
   group: ordinary-image-alias-probe-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 env:
-  CODE_SHA: c0b2bed7a18350fcb915aa55b4462f0eccb5ba05
+  CODE_SHA: e4904a34e89789874c2d5c6f9655bf0f180160b9
   CONTROLLER_SHA: ${{ github.event.pull_request.head.sha }}
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
@@ -40,6 +40,7 @@ jobs:
       actions: read
       packages: read
     env:
+      ImageOS: ubuntu24
       ORDINARY_BUILD_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
       ORDINARY_ARTIFACT_CHECKOUT: /home/runner/work/oasis7/oasis7
     container:
@@ -93,6 +94,8 @@ jobs:
           records = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
           assert len(records) == 1 and records[0]['same_directory'] is True
           assert records[0]['checkout'] == str(canonical) and records[0]['image'] == image
+          assert records[0]['runner_image'] == 'ubuntu24'
+          assert records[0]['os_release'] == {'ID': 'ubuntu', 'VERSION_ID': '24.04'}
           out = canonical / 'output/ordinary-image-probe'
           out.mkdir(parents=True)
           (out / 'preflight.json').write_text(json.dumps(dict(diagnostic_only=True, probe_only=True,
@@ -143,6 +146,7 @@ jobs:
               manifest = json.loads((fixture.consumer / 'manifest.json').read_text())
               assert manifest['checkout'] == str(fixture.root)
               assert manifest['image'] == os.environ['ORDINARY_BUILD_IMAGE']
+              assert manifest['runner_image'] == os.environ['ImageOS'] == 'ubuntu24'
               assert manifest['source_sha'] == fixture.sha and manifest['tested_sha'] == fixture.sha
               assert manifest['producer_run_id'] == os.environ['GITHUB_RUN_ID']
               assert manifest['producer_attempt'] == os.environ['GITHUB_RUN_ATTEMPT']
@@ -273,6 +277,9 @@ jobs:
           manifest = json.loads((bundle / 'manifest.json').read_text())
           assert digest(bundle / 'manifest.json') == receipt['manifest_sha256']
           assert manifest['checkout'] == str(fixture) and manifest['image'] == receipt['image']
+          host_image = os.environ.get('ImageOS', sys.platform)
+          print(json.dumps(dict(producer_runner_image=manifest['runner_image'], host_runner_image=host_image)))
+          assert manifest['runner_image'] == host_image, (manifest['runner_image'], host_image)
           included = {'required-executable-oasis7_chain_runtime-bin-oasis7_chain_runtime',
                       'required-test-oasis7_chain_runtime-test-process', 'runtime-tests', 'viewer'}
           empty = 'required-test-oasis7_chain_runtime-bin-oasis7_chain_runtime'
