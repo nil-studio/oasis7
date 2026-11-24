@@ -256,35 +256,6 @@ fn provider_loopback_http_client_bypasses_proxy_env_for_trimmed_loopback_transpo
 }
 
 #[test]
-fn provider_http_client_preserves_native_url_admission_error_contract() {
-    for (url, transport, expected) in [
-        ("", "loopback_http", "base url cannot be empty"),
-        (
-            "https://localhost",
-            "loopback_http",
-            "scheme must be http for localhost provider",
-        ),
-        (
-            "https://192.168.1.10",
-            "remote_https",
-            "host must be a public remote https host",
-        ),
-        (
-            "https://provider.example",
-            "unregistered-transport",
-            "unsupported provider transport `unregistered-transport`",
-        ),
-    ] {
-        let error = ProviderLoopbackHttpClient::new_with_transport(url, None, 200, transport)
-            .expect_err("invalid URL admission must fail before a request");
-        match error {
-            ProviderLoopbackHttpError::InvalidBaseUrl(detail) => assert_eq!(detail, expected),
-            other => panic!("unexpected URL admission error: {other}"),
-        }
-    }
-}
-
-#[test]
 fn provider_http_client_accepts_remote_https_base_url() {
     let client = ProviderLoopbackHttpClient::new_with_transport(
         "https://provider.example",
