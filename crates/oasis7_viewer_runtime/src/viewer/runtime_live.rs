@@ -102,9 +102,6 @@ mod gameplay_validation_preview;
 mod governance_vote_quote;
 mod governance_vote_quote_debug;
 #[cfg(not(target_arch = "wasm32"))]
-#[path = "runtime_live/harness_authority.rs"]
-mod harness_authority;
-#[cfg(not(target_arch = "wasm32"))]
 #[path = "runtime_live/llm_sidecar_feedback_recovery.rs"]
 mod llm_sidecar_feedback_recovery;
 mod mapping;

@@ -334,7 +334,8 @@ impl RuntimeLlmSidecar {
                 return Ok(());
             };
             if let Some(world) = world {
-                let authority = super::super::harness_authority::RuntimeWorldAuthority::new(world);
+                let authority =
+                    oasis7::runtime_host::harness_authority::RuntimeWorldAuthority::new(world);
                 runner
                     .host_consume_feedback_from_outcome(
                         agent_id,
