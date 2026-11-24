@@ -125,12 +125,15 @@ lsof -nP -iTCP:4173 -iTCP:5011 -iTCP:5023 -iTCP:5841 -sTCP:LISTEN || true
 bash -n scripts/viewer-real-agent-chat-regression.sh
 ```
 
-如果当前 shell 没有 `node`，脚本会尝试使用 Codex bundled Node。若在非 Codex 环境运行，需要设置：
+脚本优先使用 `PATH` 中的 `node`，也允许显式指定 `OASIS7_NODE_BIN`；不自动依赖某个 Coding Agent 的私有 Node。Playwright 优先从仓库根目录或 Viewer 的 `node_modules` 查找，外部安装可通过 `OASIS7_PLAYWRIGHT_NODE_MODULES` 指定（该目录需包含 `playwright` 包）：
 
 ```bash
+# 仅缺少自动发现条件时按需设置，不是默认强制项
 export OASIS7_NODE_BIN=/path/to/node
 export OASIS7_PLAYWRIGHT_NODE_MODULES=/path/to/node_modules
 ```
+
+其他直接运行的 Viewer/Hosted Playwright 脚本使用同一显式模块路径约定，并优先通过调用脚本自身的 Node 模块解析寻找 Playwright；缺包应显式报错，不能悄悄回退到其他 Coding Agent 的私有运行时。
 
 ## 证据判读
 
