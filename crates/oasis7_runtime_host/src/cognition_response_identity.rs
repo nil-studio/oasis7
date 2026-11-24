@@ -36,8 +36,8 @@ pub fn validate_host_response_artifact<A: Serialize, Q: Serialize>(
 mod tests {
     use super::*;
     use oasis7_agent_api::{
-        CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION,
-        ProviderDecision, ProviderDiagnostics, ProviderTraceEnvelope, h_v1,
+        CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION, ProviderDecision,
+        ProviderDiagnostics, ProviderTraceEnvelope, h_v1,
     };
 
     fn response() -> DecisionResponse<serde_json::Value, serde_json::Value> {
@@ -73,10 +73,7 @@ mod tests {
         let identity = original.response_artifact_identity();
         validate_host_response_artifact(&original, &identity).unwrap();
         assert_eq!(
-            classify_response_digest(
-                &original.base_decision_response,
-                &original.response_digest
-            ),
+            classify_response_digest(&original.base_decision_response, &original.response_digest),
             CognitionResponseDigestDisposition::Current,
         );
 
