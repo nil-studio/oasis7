@@ -1,4 +1,4 @@
-use crate::runtime::{CognitionLeaseStatusV1, CognitionLeaseV1};
+use oasis7_runtime::{CognitionLeaseStatusV1, CognitionLeaseV1};
 
 use super::super::agent::{AgentDecision, AgentDecisionTrace};
 use super::super::continuous_agent_harness::ContinuousAgentRequestContextV1;
@@ -183,7 +183,7 @@ pub(super) fn default_observation(agent_id: &str, time: WorldTime) -> Observatio
     Observation {
         time,
         agent_id: agent_id.to_string(),
-        pos: crate::geometry::GeoPos::new(0, 0, 0),
+        pos: oasis7_simulator::GeoPos::new(0, 0, 0),
         self_resources: Default::default(),
         visibility_range_cm: 0,
         visible_agents: Vec::new(),
@@ -222,11 +222,11 @@ pub(super) fn validate_cognition_lease_for_request(
         || lease.account_id != lease.quote.payer_id
         || lease.quote.resource != "cognition_units"
         || lease.reserved_amount != 1
-        || lease.quote.resource_version != crate::runtime::COGNITION_RESOURCE_VERSION_V1
+        || lease.quote.resource_version != oasis7_runtime::COGNITION_RESOURCE_VERSION_V1
         || lease.quote.purpose != "provider_cognition"
         || lease.quote.scope != "agent_turn"
         || lease.quote.policy_revision
-            != crate::runtime::COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION
+            != oasis7_runtime::COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION
         || lease.quote.authority_context
             != request_context
                 .capability_invocation_context_digest

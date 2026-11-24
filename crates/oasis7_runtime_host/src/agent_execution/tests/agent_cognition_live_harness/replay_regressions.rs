@@ -160,14 +160,14 @@ fn recovered_committed_replay_requires_exact_authenticated_receipt_lineage() {
         candidate_action_id: Some(7),
         runtime_receipt_id: Some("recovered-receipt-1".into()),
         status: "committed".into(),
-        request_digest: crate::simulator::Digest32(format!("blake3:{}", "a".repeat(64))),
+        request_digest: crate::agent_execution::Digest32(format!("blake3:{}", "a".repeat(64))),
         reject_reason: None,
         provenance: "runtime_authoritative".into(),
     };
     let mut receipt = runtime_receipt_for_feedback(&feedback);
     receipt.action_id = "action:7".into();
     let projection = oasis7_agent_harness::FeedbackHistoryProjection {
-        feedback: crate::simulator::agent_api_compat::feedback_to_api(&feedback),
+        feedback: crate::agent_execution::agent_api_compat::feedback_to_api(&feedback),
         acknowledged: true,
         lineage: Some(oasis7_agent_harness::FeedbackHistoryLineage {
             original_envelope_digest: format!("blake3:{}", "b".repeat(64)),
@@ -221,7 +221,7 @@ impl RuntimeReceiptReadbackVerifier for VerifiedWorldReadback {
         _feedback: &FeedbackEnvelopeV1,
         receipt: &RuntimeReceiptLineageV1,
         response_identity: &ResponseArtifactIdentityV1,
-    ) -> Result<RuntimeReceiptReadbackHandleV1, crate::simulator::AsyncAgentRunnerError> {
+    ) -> Result<RuntimeReceiptReadbackHandleV1, crate::agent_execution::AsyncAgentRunnerError> {
         Ok(RuntimeReceiptReadbackHandleV1::from_durable_world_readback(
             receipt,
             response_identity,
@@ -238,7 +238,7 @@ impl RuntimeReceiptReadbackVerifier for StaleWorldReadback {
         _feedback: &FeedbackEnvelopeV1,
         receipt: &RuntimeReceiptLineageV1,
         response_identity: &ResponseArtifactIdentityV1,
-    ) -> Result<RuntimeReceiptReadbackHandleV1, crate::simulator::AsyncAgentRunnerError> {
+    ) -> Result<RuntimeReceiptReadbackHandleV1, crate::agent_execution::AsyncAgentRunnerError> {
         let mut stale_lineage = receipt.clone();
         stale_lineage.feedback_id.push_str("-stale");
         Ok(RuntimeReceiptReadbackHandleV1::from_durable_world_readback(

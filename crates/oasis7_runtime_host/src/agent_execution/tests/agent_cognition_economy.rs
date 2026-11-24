@@ -1,10 +1,10 @@
 //! Focused Agent-side admission tests for Runtime-owned cognition leases.
 
 use super::restore_runner_feedback_history;
-use crate::runtime::{
+use oasis7_runtime::{
     CognitionLeaseQuoteV1, CognitionLeaseRequestV1, CognitionLeaseStatusV1, CognitionLeaseV1, World,
 };
-use crate::simulator::{
+use crate::agent_execution::{
     ActionCatalogEntry, AsyncAgentRunner, AsyncAgentTurnOutcome, DecisionResponse,
     MockDecisionProvider, ProviderBackedAgentBehavior, ProviderExecutionMode,
 };
@@ -15,30 +15,30 @@ const ACCOUNT_ID: &str = "account-agent-1";
 const RESOURCE: &str = "cognition_units";
 
 fn authority_quote(
-    request: &crate::simulator::ContinuousAgentRequestContextV1,
+    request: &crate::agent_execution::ContinuousAgentRequestContextV1,
     quote_id: &str,
     amount: u64,
 ) -> CognitionLeaseQuoteV1 {
     CognitionLeaseQuoteV1::new(quote_id, RESOURCE, amount).with_authority(
         ACCOUNT_ID,
-        crate::runtime::COGNITION_RESOURCE_VERSION_V1,
+        oasis7_runtime::COGNITION_RESOURCE_VERSION_V1,
         "provider_cognition",
         "agent_turn",
-        crate::runtime::COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
+        oasis7_runtime::COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
         request.capability_invocation_context_digest.to_string(),
         request.runtime_binding.base_world_hash.to_string(),
     )
 }
 
-fn request_context() -> crate::simulator::ContinuousAgentRequestContextV1 {
+fn request_context() -> crate::agent_execution::ContinuousAgentRequestContextV1 {
     let mut fixture = super::agent_cognition_identity::production_request_fixture(1, 60_000);
     fixture["retry_seq"] = serde_json::json!(1);
     super::agent_cognition_identity::request_from_value(fixture)
 }
 
 fn turn_context(
-    request: &crate::simulator::ContinuousAgentRequestContextV1,
-) -> crate::simulator::ContinuousAgentTurnContextV1 {
+    request: &crate::agent_execution::ContinuousAgentRequestContextV1,
+) -> crate::agent_execution::ContinuousAgentTurnContextV1 {
     super::agent_cognition_identity::production_turn_context(request)
 }
 
@@ -48,7 +48,7 @@ fn observation() -> oasis7_simulator::Observation {
 
 fn runner_with_state() -> (
     AsyncAgentRunner,
-    Arc<Mutex<crate::simulator::MockDecisionProviderState>>,
+    Arc<Mutex<crate::agent_execution::MockDecisionProviderState>>,
 ) {
     let provider = MockDecisionProvider::with_scripted_responses(
         "lease-admission-provider",
@@ -69,7 +69,7 @@ fn runner_with_state() -> (
 
 fn reserve_lease(
     world: &mut World,
-    request: &crate::simulator::ContinuousAgentRequestContextV1,
+    request: &crate::agent_execution::ContinuousAgentRequestContextV1,
     idempotency_key: &str,
     quote: CognitionLeaseQuoteV1,
 ) -> CognitionLeaseV1 {
@@ -92,7 +92,7 @@ fn reserve_lease(
 
 fn completed_turn(
     runner: &mut AsyncAgentRunner,
-    turn_id: crate::simulator::AsyncTurnId,
+    turn_id: crate::agent_execution::AsyncTurnId,
 ) -> AsyncAgentTurnOutcome {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -116,7 +116,7 @@ fn completed_turn(
 fn valid_runtime_lease_is_required_before_provider_dispatch_and_carried_to_outcome() {
     let request = request_context();
     let context = turn_context(&request);
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     let lease = reserve_lease(
         &mut world,
         &request,
@@ -139,7 +139,7 @@ fn valid_runtime_lease_is_required_before_provider_dispatch_and_carried_to_outco
     assert_eq!(outcome.cognition_lease, Some(lease.clone()));
     assert_eq!(
         outcome.world_effect,
-        crate::simulator::AsyncWorldEffect::NoEffect
+        crate::agent_execution::AsyncWorldEffect::NoEffect
     );
     assert_eq!(
         state
@@ -180,7 +180,7 @@ fn valid_runtime_lease_is_required_before_provider_dispatch_and_carried_to_outco
 fn invalid_or_closed_lease_fences_dispatch_without_provider_call() {
     let request = request_context();
     let context = turn_context(&request);
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     let lease = reserve_lease(
         &mut world,
         &request,
@@ -226,7 +226,7 @@ fn lease_identity_mismatch_and_expiry_fence_provider_without_world_effect() {
     let request = request_context();
     let context = turn_context(&request);
 
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     let mismatched = world
         .set_cognition_resource_balance(ACCOUNT_ID, RESOURCE, 4)
         .and_then(|_| {
@@ -258,7 +258,7 @@ fn lease_identity_mismatch_and_expiry_fence_provider_without_world_effect() {
             .contains("cognition_lease_identity_mismatch")
     );
 
-    let mut expiring_world = crate::runtime_host::world::new();
+    let mut expiring_world = crate::world::new();
     let expiring = reserve_lease(
         &mut expiring_world,
         &request,
@@ -294,7 +294,7 @@ fn lease_identity_mismatch_and_expiry_fence_provider_without_world_effect() {
 #[test]
 fn api_lease_view_requires_the_complete_runtime_admission_validator() {
     let request = request_context();
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     let lease = reserve_lease(
         &mut world,
         &request,
@@ -302,7 +302,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
         authority_quote(&request, "lease-api-view", 1),
     );
 
-    let view = crate::simulator::validated_cognition_lease_consumption_view(
+    let view = crate::agent_execution::validated_cognition_lease_consumption_view(
         "agent-1", &request, &lease, 42,
     )
     .expect("valid Runtime lease projects to read-only API view");
@@ -310,7 +310,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
     assert_eq!(view.lease_id, lease.lease_id);
     assert_eq!(
         view.status,
-        crate::runtime::CognitionLeaseStatusV1::Reserved
+        oasis7_runtime::CognitionLeaseStatusV1::Reserved
     );
     let wire = serde_json::to_value(view).expect("encode correlation view");
     for authority_field in [
@@ -329,7 +329,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
         );
     }
 
-    let mut mismatched_world = crate::runtime_host::world::new();
+    let mut mismatched_world = crate::world::new();
     mismatched_world
         .set_cognition_resource_balance(ACCOUNT_ID, RESOURCE, 4)
         .expect("seed Runtime cognition balance for mismatched lease");
@@ -346,7 +346,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
         ))
         .expect("reserve valid Runtime lease with a mismatched request digest");
     assert!(
-        crate::simulator::validated_cognition_lease_consumption_view(
+        crate::agent_execution::validated_cognition_lease_consumption_view(
             "agent-1",
             &request,
             &wrong_identity,
@@ -357,7 +357,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
         .contains("cognition_lease_identity_mismatch")
     );
 
-    let mut expired_world = crate::runtime_host::world::new();
+    let mut expired_world = crate::world::new();
     let expired = reserve_lease(
         &mut expired_world,
         &request,
@@ -365,7 +365,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
         authority_quote(&request, "lease-api-view-expired", 1).with_valid_until_tick(41),
     );
     assert!(
-        crate::simulator::validated_cognition_lease_consumption_view(
+        crate::agent_execution::validated_cognition_lease_consumption_view(
             "agent-1", &request, &expired, 42,
         )
         .expect_err("expired quote is not projectable")
@@ -384,7 +384,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
         .cloned()
         .expect("closed Runtime lease remains durable");
     assert!(
-        crate::simulator::validated_cognition_lease_consumption_view(
+        crate::agent_execution::validated_cognition_lease_consumption_view(
             "agent-1", &request, &closed, 42,
         )
         .expect_err("closed lease is not projectable")

@@ -1,7 +1,7 @@
 use super::super::continuous_agent_harness::ResponseArtifactIdentityV1;
 use super::{AsyncAgentRunnerError, ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1};
 
-use crate::runtime::RuntimeReceiptLineageV1;
+use oasis7_runtime::RuntimeReceiptLineageV1;
 
 /// Opaque proof returned by a Runtime-owned world readback verifier. The
 /// simulator can carry and inspect identity, but cannot mint this token from

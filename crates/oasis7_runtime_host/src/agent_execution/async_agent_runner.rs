@@ -23,7 +23,7 @@ use std::thread;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::runtime::{CognitionLeaseV1, RuntimeReceiptLineageV1};
+use oasis7_runtime::{CognitionLeaseV1, RuntimeReceiptLineageV1};
 
 use self::agent_harness_adapter::{
     AdapterControl, BehaviorCallback, BehaviorTurnResult, OasisBehaviorProvider,

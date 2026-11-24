@@ -1,5 +1,5 @@
 use super::*;
-use crate::runtime::RuntimeFeedbackOutboxRecordV1;
+use oasis7_runtime::RuntimeFeedbackOutboxRecordV1;
 use serde_json::json;
 
 fn feedback(agent: &str, session: &str, seq: u64, feedback_id: &str) -> FeedbackEnvelopeV1 {
@@ -20,8 +20,8 @@ fn feedback(agent: &str, session: &str, seq: u64, feedback_id: &str) -> Feedback
 }
 
 fn acked_record(feedback: &FeedbackEnvelopeV1) -> RuntimeFeedbackOutboxRecordV1 {
-    let mut record = crate::runtime_host::world::new()
-        .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
+    let mut record = crate::world::new()
+        .enqueue_runtime_feedback(crate::agent_execution::agent_api_compat::feedback_to_api(
             feedback,
         ))
         .expect("feedback fixture forms a canonical Runtime outbox record");

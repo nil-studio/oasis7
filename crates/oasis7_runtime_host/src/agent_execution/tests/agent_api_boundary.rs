@@ -4,8 +4,8 @@
 //! leave provider execution, Runtime admission, durable receipts, and World
 //! readback authority in their existing Oasis7 owners.
 
-use crate::runtime::{CognitionLeaseStatusV1, RuntimeReceiptLineageV1};
-use crate::simulator::{
+use oasis7_runtime::{CognitionLeaseStatusV1, RuntimeReceiptLineageV1};
+use crate::agent_execution::{
     BudgetContractV1, CognitionError, ContinuationBudgetV1, ContinuationProposalV1,
     ContinuousAgentResponseContextV1, DecisionResponse, Digest32, FeedbackEnvelopeV1,
     GoalSnapshotV1, MemoryContextSnapshotV1, MemoryWriteIntentV1, NormalizedMemoryWriteIntentV1,
@@ -18,7 +18,7 @@ fn unaffected_shared_types_are_api_type_identities() {
     fn same_type<T>(_: Option<T>, _: Option<T>) {}
 
     same_type(
-        None::<crate::capability_invocation_context::CapabilityInvocationContext>,
+        None::<oasis7_agent_api::CapabilityInvocationContext>,
         None::<oasis7_agent_api::CapabilityInvocationContext>,
     );
     same_type(
@@ -108,8 +108,8 @@ fn request_wrapper_round_trip_preserves_wire_bytes_and_request_identities() {
 fn response_wrapper_round_trip_preserves_artifact_identity_and_wire_shape() {
     let response = ContinuousAgentResponseContextV1 {
         base_decision_response: DecisionResponse::wait("boundary-fixture-provider"),
-        context_discriminator: crate::simulator::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.into(),
-        context_version: crate::simulator::CONTINUOUS_AGENT_CONTEXT_VERSION,
+        context_discriminator: crate::agent_execution::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.into(),
+        context_version: crate::agent_execution::CONTINUOUS_AGENT_CONTEXT_VERSION,
         agent_session_id: "session-boundary".into(),
         agent_turn_id: "turn-boundary".into(),
         decision_request_id: "request-boundary".into(),
@@ -225,7 +225,7 @@ fn typed_provider_decision_alias_keeps_generic_payloads_without_erasure() {
         oasis7_simulator::Action,
         oasis7_simulator::AgentQuery,
     > = oasis7_agent_api::ProviderDecision::Wait;
-    let _: crate::simulator::ProviderDecision = decision;
+    let _: crate::agent_execution::ProviderDecision = decision;
 }
 
 #[test]

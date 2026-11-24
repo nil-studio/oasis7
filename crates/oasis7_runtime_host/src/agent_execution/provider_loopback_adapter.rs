@@ -27,7 +27,7 @@ pub trait TrustedModuleCommandExecutor {
     fn execute_trusted_module_command(
         &mut self,
         response: AgentCommandResponse,
-    ) -> Result<crate::runtime::CapabilityAuthorizationAuditReceipt, crate::runtime::WorldError>;
+    ) -> Result<oasis7_runtime::CapabilityAuthorizationAuditReceipt, oasis7_runtime::WorldError>;
 }
 
 /// Concrete runtime adapter used by host loops.  The grant, catalog and
@@ -35,20 +35,20 @@ pub trait TrustedModuleCommandExecutor {
 /// selected from provider output.
 #[cfg(not(target_arch = "wasm32"))]
 pub struct RuntimeTrustedModuleExecutor<'a> {
-    world: &'a mut crate::runtime::World,
+    world: &'a mut oasis7_runtime::World,
     grant: CapabilityGrantV2,
     catalog: CapabilityCatalogSnapshot,
-    invocation: crate::capability_invocation_context::CapabilityInvocationContext,
+    invocation: oasis7_agent_api::CapabilityInvocationContext,
     sandbox: &'a mut dyn oasis7_wasm_abi::ModuleSandbox,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<'a> RuntimeTrustedModuleExecutor<'a> {
     pub fn new(
-        world: &'a mut crate::runtime::World,
+        world: &'a mut oasis7_runtime::World,
         grant: CapabilityGrantV2,
         catalog: CapabilityCatalogSnapshot,
-        invocation: crate::capability_invocation_context::CapabilityInvocationContext,
+        invocation: oasis7_agent_api::CapabilityInvocationContext,
         sandbox: &'a mut dyn oasis7_wasm_abi::ModuleSandbox,
     ) -> Self {
         Self {
@@ -66,14 +66,14 @@ impl<'a> RuntimeTrustedModuleExecutor<'a> {
     pub fn execute(
         &mut self,
         response: AgentCommandResponse,
-    ) -> Result<crate::runtime::CapabilityAuthorizationAuditReceipt, crate::runtime::WorldError>
+    ) -> Result<oasis7_runtime::CapabilityAuthorizationAuditReceipt, oasis7_runtime::WorldError>
     {
         let context = super::ProviderCapabilityContext {
             catalog: self.catalog.clone(),
             invocation: self.invocation.clone(),
         };
         context.validate_response(&response).map_err(|error| {
-            crate::runtime::WorldError::CapabilityAuthorizationDenied {
+            oasis7_runtime::WorldError::CapabilityAuthorizationDenied {
                 reason: error.to_string(),
             }
         })?;
@@ -92,7 +92,7 @@ impl TrustedModuleCommandExecutor for RuntimeTrustedModuleExecutor<'_> {
     fn execute_trusted_module_command(
         &mut self,
         response: AgentCommandResponse,
-    ) -> Result<crate::runtime::CapabilityAuthorizationAuditReceipt, crate::runtime::WorldError>
+    ) -> Result<oasis7_runtime::CapabilityAuthorizationAuditReceipt, oasis7_runtime::WorldError>
     {
         self.execute(response)
     }
@@ -370,7 +370,7 @@ impl ProviderLoopbackAdapter {
         request: &DecisionRequest,
         response: DecisionResponse,
         executor: &mut E,
-    ) -> Result<crate::runtime::CapabilityAuthorizationAuditReceipt, DecisionProviderError> {
+    ) -> Result<oasis7_runtime::CapabilityAuthorizationAuditReceipt, DecisionProviderError> {
         self.validate_response(request, &response)?;
         let ProviderDecision::ModuleCommandResponse { response } = response.decision else {
             return Err(DecisionProviderError::new(

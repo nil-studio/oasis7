@@ -1,11 +1,11 @@
 //! Async runner integration for strict continuation admission and wake handoff.
 
-use crate::runtime::AgentContinuation as RuntimeAgentContinuation;
-use crate::simulator::cognition_policy::{
+use oasis7_runtime::AgentContinuation as RuntimeAgentContinuation;
+use crate::agent_execution::cognition_policy::{
     ContinuationAuthorityContextV1, ContinuationCurrentContextV1, ContinuationHandle,
     ContinuationInvalidationReason, ContinuationProposalV1, RuntimeContinuationStatusV1,
 };
-use crate::simulator::continuous_agent_harness::{
+use crate::agent_execution::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
 };
 use oasis7_simulator::Observation;
@@ -98,7 +98,7 @@ impl AsyncAgentRunner {
             || turn.decision_request_id != request.decision_request_id
             || turn.request_digest != request.request_digest
             || turn.continuation.as_ref() != Some(proposal)
-            || crate::simulator::h_v1("oasis7.cognition.continuation.v1", &turn.continuation)
+            || crate::agent_execution::h_v1("oasis7.cognition.continuation.v1", &turn.continuation)
                 != request.continuation_digest
         {
             return Err(AsyncAgentRunnerError::Cognition(
@@ -580,7 +580,7 @@ impl AsyncAgentRunner {
     where
         F: FnOnce(&Self) -> Result<(), String>,
     {
-        if runtime.status != crate::runtime::ContinuationStatusV1::Rejected {
+        if runtime.status != oasis7_runtime::ContinuationStatusV1::Rejected {
             return Err(AsyncAgentRunnerError::Cognition(
                 "rejected cleanup requires Runtime rejection".into(),
             ));
@@ -673,11 +673,11 @@ impl AsyncAgentRunner {
     ) -> Result<ContinuationHandle, AsyncAgentRunnerError> {
         if !matches!(
             runtime.status,
-            crate::runtime::ContinuationStatusV1::Completed
-                | crate::runtime::ContinuationStatusV1::Cancelled
-                | crate::runtime::ContinuationStatusV1::Invalidated
-                | crate::runtime::ContinuationStatusV1::Expired
-                | crate::runtime::ContinuationStatusV1::Rejected
+            oasis7_runtime::ContinuationStatusV1::Completed
+                | oasis7_runtime::ContinuationStatusV1::Cancelled
+                | oasis7_runtime::ContinuationStatusV1::Invalidated
+                | oasis7_runtime::ContinuationStatusV1::Expired
+                | oasis7_runtime::ContinuationStatusV1::Rejected
         ) {
             return Err(AsyncAgentRunnerError::Cognition(
                 "Runtime terminal continuation projection has a non-terminal status".to_string(),
@@ -751,7 +751,7 @@ impl AsyncAgentRunner {
             .map_err(|error| AsyncAgentRunnerError::Cognition(error.to_string()))?;
         self.continuations.remove(agent_id);
         Ok((
-            runtime.status == crate::runtime::ContinuationStatusV1::Consumed,
+            runtime.status == oasis7_runtime::ContinuationStatusV1::Consumed,
             projection,
         ))
     }

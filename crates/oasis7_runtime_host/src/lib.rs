@@ -1,5 +1,12 @@
 //! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod agent_execution;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod feedback;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod harness_authority;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod runner;
 pub mod bootstrap;
 pub mod gameplay_actions;
 pub mod gameplay_service;

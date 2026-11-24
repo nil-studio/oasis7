@@ -1,5 +1,5 @@
 //! Application Runner adapters for authenticated feedback history read models.
-use crate::simulator::AsyncAgentRunner;
+use crate::agent_execution::AsyncAgentRunner;
 use oasis7_agent_harness::{FeedbackHistoryLineage, FeedbackHistoryProjection};
 use oasis7_client_api::world_service_feedback::WorldServiceFeedbackHistory;
 
@@ -46,7 +46,7 @@ pub fn check_fresh_session(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::runtime::World;
+    use oasis7_runtime::World;
     use oasis7_agent_api::Digest32;
     use oasis7_agent_api::FeedbackEnvelopeV1;
     fn feedback(agent: &str, session: &str, seq: u64) -> FeedbackEnvelopeV1 {
@@ -77,7 +77,7 @@ mod tests {
     }
     #[test]
     fn scoped_feedback_history_uses_actual_world_and_omits_private_other_agent_metadata() {
-        let mut world = crate::runtime_host::world::new();
+        let mut world = crate::world::new();
         enqueue(&mut world, "agent-a", "session-a", 1);
         enqueue(&mut world, "agent-a", "session-a", 2);
         enqueue(&mut world, "agent-b", "session-b", 1);
@@ -107,7 +107,7 @@ mod tests {
     }
     #[test]
     fn actual_canonical_feedback_gap_fences_only_matching_session() {
-        let mut world = crate::runtime_host::world::new();
+        let mut world = crate::world::new();
         enqueue(&mut world, "agent-a", "bad-session", 1);
         enqueue(&mut world, "agent-a", "bad-session", 3);
         let history =
@@ -119,7 +119,7 @@ mod tests {
     }
     #[test]
     fn preverified_metadata_collision_fences_both_sessions_without_outbox_fabrication() {
-        let mut world = crate::runtime_host::world::new();
+        let mut world = crate::world::new();
         enqueue(&mut world, "agent-a", "session-a", 1);
         enqueue(&mut world, "agent-a", "session-b", 1);
         let mut history =

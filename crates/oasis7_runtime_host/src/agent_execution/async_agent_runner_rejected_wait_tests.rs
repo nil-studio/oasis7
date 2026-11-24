@@ -1,7 +1,7 @@
 //! Transactional cleanup of a real provider Wait rejected before Runtime admission.
 use super::super::test_support::BuiltinWaitBehavior;
 use super::*;
-use crate::simulator::{
+use crate::agent_execution::{
     ActionCatalogEntry, COGNITION_CAPABILITY_CATALOG_DOMAIN,
     COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, DecisionResponse, Digest32, GoalSnapshotV1,
     MemoryContextSnapshotV1, MockDecisionProvider, ProviderBackedAgentBehavior,
@@ -207,7 +207,7 @@ fn current_context() -> ContinuationCurrentContextV1 {
         Observation {
             time: 10,
             agent_id: AGENT_ID.to_string(),
-            pos: crate::geometry::GeoPos::new(0, 0, 0),
+            pos: oasis7_simulator::GeoPos::new(0, 0, 0),
             self_resources: Default::default(),
             visibility_range_cm: 100,
             visible_agents: Vec::new(),
@@ -245,7 +245,7 @@ fn fixture() -> (
     ContinuationProposalV1,
     ContinuationCurrentContextV1,
     ContinuousAgentRequestContextV1,
-    std::sync::Arc<std::sync::Mutex<crate::simulator::MockDecisionProviderState>>,
+    std::sync::Arc<std::sync::Mutex<crate::agent_execution::MockDecisionProviderState>>,
 ) {
     let original = request_from_value(production_request_fixture(1, 60_000));
     let mut current = current_context();
@@ -493,7 +493,7 @@ fn rejection_fixture() -> (
     let mut runtime = admitted_projection(&p);
     r.apply_runtime_continuation_projection_with_current_context("agent-1", runtime.clone(), &c)
         .unwrap();
-    runtime.status = crate::runtime::ContinuationStatusV1::Rejected;
+    runtime.status = oasis7_runtime::ContinuationStatusV1::Rejected;
     runtime.terminal_disposition = Some("rejected".into());
     runtime.refresh_status_digest();
     (r, runtime, c)
