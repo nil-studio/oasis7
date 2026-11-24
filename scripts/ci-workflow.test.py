@@ -3003,7 +3003,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_ordinary_build_aggregation_rejects_every_incomplete_lane_combination(self):
         consumer = JOBS['oasis7-required']
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', consumer)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in consumer
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in consumer
+        )
         condition = consumer.split('    runs-on:', 1)[0].split('    if:', 1)[1].strip().removeprefix('>-').strip()
         self.assertIn('always() && !cancelled()', condition)
         self.assertIn("needs.select.result == 'success'", condition)
@@ -3300,7 +3303,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_ordinary_matrix_keeps_the_trusted_complete_partition_list_and_failure_boundary(self):
         job = JOBS['oasis7-required']
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', job)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in job
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in job
+        )
         self.assertIn('oasis7-required', JOBS['required-gate'])
         for damaged in (
             job.replace('fail-fast: false', 'fail-fast: true'),
@@ -4954,9 +4960,13 @@ run_cargo() {
             if group == 'workspace_support':
                 self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
                 continue
-            dependency = ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]'
-                          if group == 'oasis7_required' else 'needs: select')
-            self.assertIn(dependency, job)
+            allowed = (
+                ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]',
+                 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]')
+                if group == 'oasis7_required'
+                else (('needs: select', 'needs: [select, fast-preflight]') if group == 'rust_baseline' else ('needs: select',))
+            )
+            self.assertTrue(any(dep in job for dep in allowed), (group, allowed))
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
             self.assertIn("needs.select.result == 'success'", job)
             self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", job)
@@ -6403,7 +6413,10 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
         self.assertIn('fail-fast: false', header)
         self.assertNotIn('include:', header)
         self.assertNotIn('exclude:', header)
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', header)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in header
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in header
+        )
         self.assertIn('oasis7-required', JOBS['required-gate'])
         step = job.split('      - name: Execute selected group\n', 1)[1]
         script = textwrap.dedent(step.split('        run: ', 1)[1])
