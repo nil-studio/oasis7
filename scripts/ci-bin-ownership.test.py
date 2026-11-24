@@ -148,6 +148,60 @@ class Ownership(unittest.TestCase):
                 text = source_path.read_text()
                 self.assertNotIn('oasis7::world_service::', text, str(source_path))
 
+    def require_native_viewer_codec_archive_owner(self, source, manifest_data):
+        """Keep the real native archive on L4 without importing native Host in wasm."""
+        self.assertIn(
+            '#[cfg(target_arch = "wasm32")]\n'
+            'use oasis7::simulator::{WorldEvent, WorldSnapshot};',
+            source,
+        )
+        self.assertIn(
+            '#[cfg(not(target_arch = "wasm32"))]\n'
+            'use oasis7_runtime_host::simulator_archive::archive::WorldEvent;',
+            source,
+        )
+        self.assertIn(
+            '#[cfg(not(target_arch = "wasm32"))]\n'
+            'use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;',
+            source,
+        )
+        self.assertEqual(
+            manifest_data['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime_host'],
+            {'path': '../oasis7_runtime_host'},
+        )
+        self.assertNotIn('use oasis7_simulator::{WorldEvent, WorldSnapshot};', source)
+
+    def test_native_viewer_codec_archive_owner_positive_and_negative(self):
+        """Exact actual native owner, original wasm compatibility, and partial-migration rejection."""
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        manifest_data = manifest('oasis7_viewer_codec')
+        self.require_native_viewer_codec_archive_owner(codec, manifest_data)
+        for wrong in (
+            codec.replace(
+                'oasis7_runtime_host::simulator_archive::archive::WorldEvent',
+                'oasis7_simulator::WorldEvent',
+            ),
+            codec.replace(
+                'oasis7_runtime_host::simulator_archive::persist::WorldSnapshot',
+                'oasis7_simulator::WorldSnapshot',
+            ),
+            codec.replace(
+                '#[cfg(target_arch = "wasm32")]',
+                '#[cfg(not(target_arch = "wasm32"))]',
+                1,
+            ),
+        ):
+            with self.assertRaises(AssertionError):
+                self.require_native_viewer_codec_archive_owner(wrong, manifest_data)
+        removed = {
+            **manifest_data,
+            'target': {
+                'cfg(not(target_arch = "wasm32"))': {'dependencies': {}},
+            },
+        }
+        with self.assertRaises(KeyError):
+            self.require_native_viewer_codec_archive_owner(codec, removed)
+
     def test_provider_original_material_contract_has_portable_owner(self):
         """Portable pending-root DTOs have one owner; native service keeps the codec."""
         native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
