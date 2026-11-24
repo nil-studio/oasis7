@@ -4,8 +4,8 @@
 //! protected witness. This transport never constructs a witness or an issuer
 //! policy, and a certificate alone does not authorize disclosure.
 use oasis7_distfs::controlled_authority::formal::full_sync_issuer::{
-    DurableFullSyncIssuerV3, FullSyncIssuerHistoryAccessV3, FullSyncIssuerTargetV2,
-    FullSyncIssuerWitnessV3, FullSyncReadEvidenceQueryV3,
+    FullSyncIssuerHistoryAccessV3, FullSyncIssuerTargetV2, FullSyncIssuerWitnessV3,
+    FullSyncReadEvidenceQueryV3, RecoveringFullSyncIssuerV3,
 };
 use rustls::{
     RootCertStore, ServerConfig, ServerConnection, StreamOwned,
@@ -112,10 +112,10 @@ impl IssuerEvidenceServerV3 {
         &self,
         socket: TcpStream,
         deadline: Instant,
-        issuer: &mut DurableFullSyncIssuerV3,
+        issuer: &mut RecoveringFullSyncIssuerV3,
         witness: &mut dyn FullSyncIssuerWitnessV3,
     ) -> Result<(), String> {
-        self.serve_with(socket, deadline, |grant, query| {
+        self.serve_with(socket, deadline, |grant, query, deadline| {
             let access = FullSyncIssuerHistoryAccessV3 {
                 provider_public_key: &grant.provider_public_key,
                 policy_digest: &grant.policy_digest,
@@ -123,7 +123,7 @@ impl IssuerEvidenceServerV3 {
                 target_generation: grant.target_generation,
             };
             let evidence = issuer
-                .read_evidence_for_provider(&access, query, witness)
+                .read_evidence_for_provider(&access, query, deadline, witness)
                 .map_err(|_| "issuer evidence unavailable".to_string())?;
             let mut output = BoundedBody(Vec::new());
             serde_json::to_writer(&mut output, &evidence)
@@ -139,6 +139,7 @@ impl IssuerEvidenceServerV3 {
         dispatch: impl FnOnce(
             &IssuerEvidenceGrantV3,
             FullSyncReadEvidenceQueryV3,
+            Instant,
         ) -> Result<Vec<u8>, String>,
     ) -> Result<(), String> {
         let deadline = deadline.min(Instant::now() + MAX_CONNECTION_TIME);
@@ -175,7 +176,7 @@ impl IssuerEvidenceServerV3 {
             return write_reply(&mut stream, "403 Forbidden", b"{}");
         };
         remaining(deadline).map_err(|_| "issuer connection expired")?;
-        match dispatch(grant, query) {
+        match dispatch(grant, query, deadline) {
             Ok(body) if body.len() <= MAX_RESPONSE => write_reply(&mut stream, "200 OK", &body),
             _ => write_reply(&mut stream, "503 Service Unavailable", b"{}"),
         }

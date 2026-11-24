@@ -117,13 +117,18 @@ fn actual_mtls_listener_rejects_unlisted_leaf_and_mismatched_grant_before_dispat
         let thread = std::thread::spawn(move || {
             let (socket, _) = listener.accept().unwrap();
             server
-                .serve_with(socket, Instant::now() + Duration::from_secs(5), |grant, input| {
-                    assert_eq!(grant.provider_public_key, input.provider_public_key);
-                    assert_eq!(grant.provider_incarnation, input.provider_incarnation);
-                    assert_eq!(grant.policy_digest, input.minimum_anchor.policy_digest);
-                    observed.fetch_add(1, Ordering::SeqCst);
-                    Ok(b"{}".to_vec())
-                })
+                .serve_with(
+                    socket,
+                    Instant::now() + Duration::from_secs(5),
+                    |grant, input, deadline| {
+                        assert!(Instant::now() < deadline);
+                        assert_eq!(grant.provider_public_key, input.provider_public_key);
+                        assert_eq!(grant.provider_incarnation, input.provider_incarnation);
+                        assert_eq!(grant.policy_digest, input.minimum_anchor.policy_digest);
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        Ok(b"{}".to_vec())
+                    },
+                )
                 .unwrap();
         });
         let ca = reqwest::Certificate::from_pem(authority.0.pem().as_bytes()).unwrap();

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 const LEDGER_SCHEMA_V3: u32 = 3;
@@ -97,6 +98,86 @@ pub struct DurableFullSyncIssuerV3 {
     ledger_byte_limit: usize,
     #[cfg(test)]
     fail_next_local_sync: std::cell::Cell<bool>,
+}
+
+/// Serving lifecycle for the provisioned V3 issuer. A failed uncertain write
+/// is returned to the caller; a subsequent authorized request may cold-open
+/// the same directory with the same external minimum and signer. No lease is
+/// silently retried, re-signed, or rebased by the service.
+pub struct RecoveringFullSyncIssuerV3 {
+    directory: PathBuf,
+    v2_policy: VerifiedFullSyncIssuerPolicyV2,
+    policy: VerifiedFullSyncIssuerPolicyV3,
+    lease_signer: SigningKey,
+    minimum_anchor: FullSyncIssuerAnchorV3,
+    store: Option<DurableFullSyncIssuerV3>,
+}
+
+impl RecoveringFullSyncIssuerV3 {
+    pub fn open(
+        directory: &Path,
+        v2_policy: VerifiedFullSyncIssuerPolicyV2,
+        policy: VerifiedFullSyncIssuerPolicyV3,
+        lease_signer: SigningKey,
+        minimum_anchor: FullSyncIssuerAnchorV3,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<Self, FormalError> {
+        let store = DurableFullSyncIssuerV3::open_v3(
+            directory,
+            v2_policy.clone(),
+            policy.clone(),
+            lease_signer.clone(),
+            minimum_anchor.clone(),
+            witness,
+        )?;
+        Ok(Self {
+            directory: directory.into(),
+            v2_policy,
+            policy,
+            lease_signer,
+            minimum_anchor,
+            store: Some(store),
+        })
+    }
+
+    /// Only independently authenticated, policy-valid queries can trigger
+    /// recovery. The transport must additionally enforce its deadline on the
+    /// external witness itself. Never turn an unknown outcome into success.
+    pub fn read_evidence_for_provider(
+        &mut self,
+        access: &FullSyncIssuerHistoryAccessV3<'_>,
+        request: FullSyncReadEvidenceQueryV3,
+        deadline: Instant,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<FullSyncIssuerReadEvidenceV3, FormalError> {
+        request.verify_provider(access, &self.policy)?;
+        if Instant::now() >= deadline {
+            return Err(FormalError::Io("V3 issuer request deadline elapsed".into()));
+        }
+        if self.store.as_ref().is_some_and(|store| store.poisoned) {
+            // Release the original lock before the same cold-open path used
+            // after a process restart. An unavailable or competing owner
+            // must fail closed; never initialize a replacement ledger.
+            drop(self.store.take());
+        }
+        if self.store.is_none() {
+            self.store = Some(DurableFullSyncIssuerV3::open_v3(
+                &self.directory,
+                self.v2_policy.clone(),
+                self.policy.clone(),
+                self.lease_signer.clone(),
+                self.minimum_anchor.clone(),
+                witness,
+            )?);
+        }
+        if Instant::now() >= deadline {
+            return Err(FormalError::Io("V3 issuer request deadline elapsed".into()));
+        }
+        let store = self.store.as_mut().ok_or_else(|| {
+            FormalError::Io("V3 issuer store unavailable after recovery".into())
+        })?;
+        store.read_evidence_for_provider(access, request, witness)
+    }
 }
 
 impl DurableFullSyncIssuerV3 {
