@@ -11,7 +11,7 @@ fn main() {
 
     let config = WorldConfig::default();
     let (mut kernel, seed_label) = if let Some(state_dir) = options.load_state_dir.as_ref() {
-        match oasis7::simulator::WorldKernel::load_from_dir(state_dir) {
+        match WorldKernel::load_from_dir(state_dir) {
             Ok(kernel) => (kernel, "loaded".to_string()),
             Err(err) => {
                 eprintln!("failed to load world state from {}: {err:?}", state_dir);
