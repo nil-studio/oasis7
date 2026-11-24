@@ -12,4 +12,4 @@ futures = "0.3"
 oasis7-libp2p-compat-protocol = { path = "../common" }
 
 [patch.crates-io]
-if-watch = { path = "../../../vendor-if-watch-3.2.2" }
+if-watch = { path = "../../../vendor/if-watch-3.2.2" }

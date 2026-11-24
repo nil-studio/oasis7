@@ -10,7 +10,12 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-PATCH = "vendor-if-watch-3.2.2"
+PATCH = "vendor/if-watch-3.2.2"
+VENDOR_PATCHES = (
+    ("vendor/if-watch-3.2.2", "if-watch"),
+    ("vendor/libp2p-quic-0.15.0", "libp2p-quic"),
+    ("vendor/libp2p-swarm-0.49.0", "libp2p-swarm"),
+)
 
 
 class RustCoverageTests(unittest.TestCase):
@@ -39,9 +44,28 @@ class RustCoverageTests(unittest.TestCase):
 
     def test_existing_nonmember_patch_loads_with_repository_exclusion(self):
         config = tomllib.loads((ROOT / "Cargo.toml").read_text())
+        excludes = config["workspace"].get("exclude", [])
         self.assertEqual(config["patch"]["crates-io"]["if-watch"]["path"], PATCH)
-        self.assertNotIn(PATCH, config["workspace"]["members"])
-        result = self.metadata(config["workspace"].get("exclude", []))
+        tracked = set(
+            subprocess.check_output(["git", "ls-files", "-z", "--", "vendor"], cwd=ROOT, text=True)
+            .split("\0")
+        )
+        for folder, expected_name in VENDOR_PATCHES:
+            self.assertNotIn(folder, config["workspace"]["members"])
+            self.assertIn(folder, excludes)
+            vendor_manifest = ROOT / folder / "Cargo.toml"
+            vendor_lock = ROOT / folder / "Cargo.lock"
+            self.assertIn("workspace", tomllib.loads(vendor_manifest.read_text()))
+            self.assertTrue(vendor_lock.is_file(), f"missing standalone lockfile: {vendor_lock}")
+            self.assertIn(f"{folder}/Cargo.lock", tracked)
+            real = subprocess.run(
+                ["cargo", "metadata", "--format-version=1", "--no-deps", "--locked",
+                 "--offline", "--manifest-path", str(vendor_manifest)],
+                env={**os.environ, "RUSTC_WRAPPER": "", "CARGO_NET_OFFLINE": "true"},
+                text=True, capture_output=True, timeout=20)
+            self.assertEqual(real.returncode, 0, real.stderr)
+            self.assertEqual([p["name"] for p in json.loads(real.stdout)["packages"]], [expected_name])
+        result = self.metadata(excludes)
         self.assertEqual(result.returncode, 0, result.stderr)
         graph = json.loads(result.stdout)
         self.assertEqual([p["name"] for p in graph["packages"]], ["if-watch"])
@@ -59,7 +83,8 @@ class RustCoverageTests(unittest.TestCase):
         self.assertNotIn("needs.plan.outputs.profile", scan_env)
         self.assertNotIn("CODEQL_EXTRACTOR_RUST_OPTION_CARGO_FEATURES:", workflow)
         ignored = workflow.split("paths-ignore:", 1)[1].split("      - id: analyze", 1)[0]
-        self.assertNotIn(PATCH, ignored)
+        for folder, _ in VENDOR_PATCHES:
+            self.assertNotIn(folder, ignored)
         self.assertNotIn("_templates", ignored)
         self.assertNotIn("CODEQL_EXTRACTOR_RUST_OPTION_CARGO_TARGET:", workflow)
 

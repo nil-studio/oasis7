@@ -139,7 +139,7 @@ fn quic_swarm_pending_inbound_policy_rejects_attempt() {
                     .boxed();
                 let policy = connection_limits::Behaviour::new(
                     connection_limits::ConnectionLimits::default()
-                        .with_max_pending_incoming(Some(0)),
+                        .with_max_pending_incoming_per_source(Some(0)),
                 );
                 let mut swarm = Swarm::new(
                     transport,

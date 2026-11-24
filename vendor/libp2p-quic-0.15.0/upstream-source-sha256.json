@@ -1,0 +1,9 @@
+{
+  "src/config.rs": "9d6615247aa944d153e1db81a0021439151c3d7cab89d6bb292d6d5e2c116bd7",
+  "src/connection.rs": "007266c5491d3e2155f996ab31c255eaa94fcb284459f9ced30b40520068fa2b",
+  "src/connection/stream.rs": "381e9faefc20b82238bb40fa9f46d43111b2687af5c767e29d9ec48cfd2d01a0",
+  "src/hole_punching.rs": "0fd5efe2eb146d402127aae2b8958783c3a666cb5d2f05c23a22c77bbd053ceb",
+  "src/lib.rs": "7fb376eaf858f7c06643a5948c3c2a603a8b06d7a054688af0160d4c4cb2d7a0",
+  "src/provider.rs": "7a13653e3996ce0771267bcaee04c0465bb80f50a9c6a0572fcd9e423a3bd4b2",
+  "src/provider/tokio.rs": "5e1cc55e6fb3e8045676cad73830bc5715fb0b7212f6f80843c82a87d80dbfb3"
+}

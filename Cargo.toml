@@ -58,7 +58,7 @@ members = [
     "tools/wasm_build_suite",
     "tools/wasm_module_observe",
 ]
-exclude = ["vendor-if-watch-3.2.2", "tools/oasis7-command-center", "docker/wasm-builder"]
+exclude = ["vendor/if-watch-3.2.2", "vendor/libp2p-quic-0.15.0", "vendor/libp2p-swarm-0.49.0", "tools/oasis7-command-center", "docker/wasm-builder"]
 resolver = "2"
 
 # Shared values are opt-in; package versions and publication policy stay local.
@@ -108,11 +108,11 @@ codegen-units = 16
 debug-assertions = false
 
 [patch.crates-io]
-if-watch = { path = "vendor-if-watch-3.2.2" }
+if-watch = { path = "vendor/if-watch-3.2.2" }
 
 [patch."https://github.com/libp2p/rust-libp2p"]
-libp2p-quic = { path = "vendor-libp2p-quic-0.14.0" }
-libp2p-swarm = { path = "vendor-libp2p-swarm-0.48.0" }
+libp2p-quic = { path = "vendor/libp2p-quic-0.15.0" }
+libp2p-swarm = { path = "vendor/libp2p-swarm-0.49.0" }
 
 # Lifecycle image qualification repeatedly hashes complete executable files.
 # Keep the shipping hash checks affordable in local debug/test builds.
