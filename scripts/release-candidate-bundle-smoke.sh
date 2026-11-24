@@ -12,7 +12,7 @@ run() {
 ensure_file_contains() {
   local file=$1
   local pattern=$2
-  if ! rg -q -- "$pattern" "$file"; then
+  if ! grep -Eq -- "$pattern" "$file"; then
     echo "error: pattern not found: $pattern" >&2
     echo "  file=$file" >&2
     exit 1
