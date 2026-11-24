@@ -1,8 +1,8 @@
-# Replay of fbb29eece55388857be39abf031be63fbc5991ba signer steps.
+# Replay of bf902a7166f9880fce10d672b5000172e5f4ed34 signer steps.
 name: Signer and context non-root image replay
 on:
   pull_request:
-    types: [opened]
+    types: [synchronize]
     branches: [codex/6832-context-image-probe-base]
 cache-mode: read
 permissions: {}
@@ -24,7 +24,7 @@ env:
   OASIS7_WASM_BUILD_STD: "1"
   OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
 jobs:
-  signer-image:
+  signer-context-image:
     if: github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/6832-context-image-probe-head'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -33,7 +33,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
       options: --user 1001:1001
       credentials:
         username: ${{ github.actor }}
@@ -52,7 +52,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
         with:
-          install-dir: ${{ runner.temp }}/oasis7-node-mold
+          install-dir: ${{ runner.temp }}/oasis7-signer-context-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: 2452875260e5264df43ad1308b0f7134a37fea16
@@ -93,7 +93,7 @@ jobs:
           python-version: '3.12'
       - name: Verify the preinstalled Rust toolchains
         env:
-          SUPPORT_EXECUTION: signer-image
+          SUPPORT_EXECUTION: signer-context-image
         run: |
           set -euo pipefail
           if [[ "$SUPPORT_EXECUTION" == image ]]; then
@@ -109,14 +109,6 @@ jobs:
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        id: dependency-cache
-        with:
-          save-if: false
-          shared-key: ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
-          add-rust-environment-hash-key: true
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          cache-on-failure: false
       - name: Confirm ordinary UID cannot read a mode 000 file
         run: |
           set -euo pipefail
@@ -132,12 +124,8 @@ jobs:
           else:
               raise SystemExit('non-root execution unexpectedly bypassed file mode')
           PYTHON
-      - name: Report the dependency restore result
-        env:
-          CACHE_HIT: ${{ steps.dependency-cache.outputs.cache-hit }}
-          CACHE_MATCHED_KEY: ${{ steps.dependency-cache.outputs.cache-matched-key }}
-        run: |
-          printf 'cache-hit=%s\ncache-matched-key=%s\n' "$CACHE_HIT" "$CACHE_MATCHED_KEY"
+      - name: Verify the context Git supports offline inspection
+        run: /usr/local/bin/git --no-lazy-fetch --no-replace-objects --no-pager --no-optional-locks --version
       - name: Confirm the image system Python can create a PTY
         run: |
           /usr/bin/python3 -I - <<'PYTHON'
@@ -155,8 +143,7 @@ jobs:
         env:
           CI_VERBOSE: "1"
           SUPPORT_PARTITION: other
-          SUPPORT_EXECUTION: signer-image
-          SIGNER_WITH_CONTEXT: "true"
+          SUPPORT_EXECUTION: signer-context-image
         run: |
           source scripts/ci-tests.sh
           if [[ "$SUPPORT_EXECUTION" == image ]]; then
@@ -165,14 +152,10 @@ jobs:
               export PATH="$WORKER_TOOL_ROOT/bin:$PATH"
             fi
           fi
-          if [[ "$SUPPORT_EXECUTION" == signer-image ]]; then
-            if [[ "${SIGNER_WITH_CONTEXT:-false}" == true ]]; then
-              # The verified plan contains exactly the two non-root profiles.
-              SUPPORT_EXECUTION=all
-            else
-              SUPPORT_EXECUTION=host
-            fi
-          fi
+          case "$SUPPORT_EXECUTION" in
+            signer-context-image) SUPPORT_EXECUTION=all ;;
+            signer-image) SUPPORT_EXECUTION=host ;;
+          esac
           support_capacity_snapshot after-native-libraries
           bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION" --support-execution "$SUPPORT_EXECUTION"
       - name: Check the original PTY and CLI left no owned child processes
