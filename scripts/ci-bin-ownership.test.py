@@ -27,6 +27,76 @@ def manifest(package):
     return tomllib.loads((ROOT / 'crates' / package / 'Cargo.toml').read_text())
 
 
+def require_materialized_native_archive(root):
+    """The trusted gate requires real L4 archive behavior and selected facades."""
+    native = root / 'crates/oasis7_runtime_host/src/simulator_archive'
+    facade = root / 'crates/oasis7/src/simulator'
+
+    def require(path, patterns):
+        source = path.read_text()
+        for pattern in patterns:
+            if re.search(pattern, source, re.MULTILINE) is None:
+                raise AssertionError(f'incomplete native archive source: {path}: {pattern}')
+        return source
+
+    require(native / 'mod.rs', (
+        r'^pub mod archive;$', r'^pub mod kernel_host;$', r'^pub mod persist;$',
+    ))
+    require(native / 'kernel_host.rs', (
+        r'^pub struct WorldKernel \{$', r'^\s*kernel: NativeKernel,',
+        r'^\s*runtime_events: .*RuntimeWorldEvent',
+        r'^\s*archive_origin: .*ArchiveOrigin',
+        r'^impl WorldKernel \{$', r'^\s*fn assert_journal_sidecar\(',
+        r'^\s*pub fn snapshot\(', r'^\s*pub fn journal_snapshot\(',
+        r'^\s*pub fn replay_from_snapshot\(',
+        r'^\s*pub fn save_to_dir\(', r'^\s*pub fn load_from_dir\(',
+    ))
+    require(native / 'persist.rs', (
+        r'^pub struct WorldSnapshot \{$', r'^pub struct WorldJournal \{$',
+        r'^\s*pub runtime_snapshot: Option<RuntimeSnapshot>,',
+        r'^\s*pub player_gameplay: Option<PlayerGameplaySnapshot>,',
+        r'^\s*pub chain_resource_manifest: ChainResourceManifest,',
+        r'^impl WorldSnapshot \{$', r'^impl WorldJournal \{$',
+    ))
+    require(native / 'archive.rs', (
+        r'^pub struct WorldEvent \{$',
+        r'^\s*pub runtime_event: Option<RuntimeWorldEvent>,',
+        r'^pub struct WorldSnapshotExtensions \{$',
+        r'^impl WorldSnapshot \{$', r'^\s*pub fn into_kernel_parts\(',
+        r'^\s*pub fn from_kernel_parts\(',
+    ))
+    for name, patterns in (
+        ('archive_origin.rs', (r'ArchiveOrigin \{',)),
+        ('codec.rs', (r'^impl Serialize for WorldKernel \{$',)),
+        ('forwarding.rs', (r'^impl WorldKernel \{$', r'self\.kernel\.set_module_source_compiler')),
+        ('journal_view.rs', (r'WorldJournalView',)),
+    ):
+        require(native / 'kernel_host' / name, patterns)
+
+    selected = (facade / 'mod.rs').read_text()
+    for name, module, visibility in (
+        ('archive_host_facade.rs', 'archive', 'pub '),
+        ('persist_host_facade.rs', 'persist', 'pub\(crate\) '),
+        ('kernel_host_host_facade.rs', 'kernel_host', ''),
+    ):
+        native_decl = (r'#\[cfg\(not\(target_arch = "wasm32"\)\)\]\s*'
+                       + re.escape(f'#[path = "{name}"]')
+                       + r'\s*' + visibility + r'mod ' + module + r';')
+        wasm_decl = (r'#\[cfg\(target_arch = "wasm32"\)\]\s*'
+                     + visibility + r'mod ' + module + r';')
+        if re.search(native_decl, selected) is None:
+            raise AssertionError(f'native archive facade not selected: {module}')
+        if re.search(wasm_decl, selected) is None:
+            raise AssertionError(f'original wasm archive removed: {module}')
+        require(facade / name, (
+            r'^pub use oasis7_runtime_host::simulator_archive::' + module + r'::\*;$',
+        ))
+    require(facade / 'archive_host_facade.rs', (
+        r'^#\[path = "archive/tests.rs"\]$',
+        r'^#\[path = "archive/retention_tests.rs"\]$',
+    ))
+
+
 class Ownership(unittest.TestCase):
     def test_chain_and_viewer_observability_use_native_owner(self):
         """The actual process startup and diagnostics must share one native owner."""
@@ -97,6 +167,35 @@ class Ownership(unittest.TestCase):
         self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
         self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
         self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_incomplete_composite_archive_host_cannot_pass_trusted_gate(self):
+        """Original dependency delta cannot be unlocked by empty structs."""
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            owner = root / 'crates/oasis7_runtime_host/src/simulator_archive'
+            facade = root / 'crates/oasis7/src/simulator'
+            (owner / 'kernel_host').mkdir(parents=True)
+            facade.mkdir(parents=True)
+            (owner / 'mod.rs').write_text(
+                'pub mod archive;\npub mod kernel_host;\npub mod persist;\n')
+            for path, typ in (('kernel_host.rs', 'WorldKernel'),
+                              ('persist.rs', 'WorldSnapshot'),
+                              ('archive.rs', 'WorldEvent')):
+                (owner / path).write_text(f'pub struct {typ} {{}}\n')
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                (owner / 'kernel_host' / name).write_text('')
+            for name, target in (('archive_host_facade.rs', 'archive'),
+                                 ('persist_host_facade.rs', 'persist'),
+                                 ('kernel_host_host_facade.rs', 'kernel_host')):
+                (facade / name).write_text(
+                    f'pub use oasis7_runtime_host::simulator_archive::{target}::*;\n')
+            (facade / 'mod.rs').write_text(
+                '#[cfg(target_arch = "wasm32")]\n'
+                'pub mod archive;\npub(crate) mod persist;\nmod kernel_host;\n'
+                '// archive_host_facade.rs persist_host_facade.rs kernel_host_host_facade.rs\n')
+            with self.assertRaises(AssertionError):
+                require_materialized_native_archive(root)
 
     def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
         """Fail closed for both accepted two-argument host seams during native migration.
@@ -200,6 +299,28 @@ class Ownership(unittest.TestCase):
             manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
             {'path': '../oasis7_runtime', 'default-features': False},
         )
+
+    def test_native_composite_archive_original_wasm_and_replay_witnesses(self):
+        """The real extracted L4 owner must retain original wasm and replay witnesses."""
+        archive = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+        original = ROOT / 'crates/oasis7/src/simulator'
+        for filename, symbol in (
+            ('archive.rs', 'pub struct WorldEvent {'),
+            ('persist.rs', 'pub struct WorldSnapshot {'),
+            ('kernel_host.rs', 'pub struct WorldKernel {'),
+        ):
+            self.assertIn(symbol, (archive / filename).read_text())
+            self.assertIn(symbol, (original / filename).read_text())
+        source = (archive / 'tests.rs').read_text()
+        self.assertIn('original_composite_snapshot_extensions_survive_exact_native_split_rejoin', source)
+        self.assertIn('native_composite_event_roundtrip_keeps_rejection_and_host_field', source)
+        facade = (original / 'archive_host_facade.rs').read_text()
+        self.assertIn('archive/tests.rs', facade)
+        self.assertIn('archive/retention_tests.rs', facade)
+        deps = manifest('oasis7_runtime_host')['dependencies']
+        self.assertEqual(deps['oasis7_agent_harness'], {'path': '../oasis7_agent_harness'})
+        self.assertEqual(deps['serde'], {'version': '1', 'features': ['derive']})
+        self.assertEqual(deps['serde_json'], '1')
 
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
@@ -354,52 +475,23 @@ class Ownership(unittest.TestCase):
         self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
         self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
         host_deps = manifest('oasis7_runtime_host')['dependencies']
-        expected_host_deps = {
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
             'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
             'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
         }
-        # The trusted baseline must validate both complete migration states.
-        # Never accept extra dependencies on the strength of a manifest alone.
-        archive = native.parent / 'simulator_archive'
-        legacy_sim = ROOT / 'crates/oasis7/src/simulator'
-        archive_owners = (
-            ('archive', 'pub struct WorldEvent {', 'pub mod archive;'),
-            ('persist', 'pub struct WorldSnapshot {', 'pub(crate) mod persist;'),
-            ('kernel_host', 'pub struct WorldKernel {', 'mod kernel_host;'),
-        )
-        if archive.exists():
-            self.assertIn('pub mod simulator_archive;', native.read_text())
-            expected_host_deps.update({'oasis7_agent_harness', 'serde', 'serde_json'})
-            self.assertEqual(host_deps['oasis7_agent_harness'], {'path': '../oasis7_agent_harness'})
-            self.assertEqual(host_deps['serde'], {'version': '1', 'features': ['derive']})
-            self.assertEqual(host_deps['serde_json'], '1')
-            simulator_module = (legacy_sim / 'mod.rs').read_text()
-            for name, signature, declaration in archive_owners:
-                self.assertIn(signature, (archive / (name + '.rs')).read_text())
-                self.assertIn(signature, (legacy_sim / (name + '.rs')).read_text())
-                self.assertIn('pub mod ' + name + ';', (archive / 'mod.rs').read_text())
-                facade = name + '_host_facade.rs'
-                self.assertIn('pub use oasis7_runtime_host::simulator_archive::' + name + '::*;',
-                              (legacy_sim / facade).read_text())
-                self.assertNotIn(signature, (legacy_sim / facade).read_text())
-                self.assertIn('#[cfg(not(target_arch = "wasm32"))]\n#[path = "' + facade + '"]\n' + declaration,
-                              simulator_module)
-                self.assertIn('#[cfg(target_arch = "wasm32")]\n' + declaration,
-                              simulator_module)
-            for name in ('archive_origin', 'codec', 'forwarding', 'journal_view'):
-                self.assertTrue((archive / 'kernel_host' / (name + '.rs')).is_file())
-            self.assertIn('archive/tests.rs', (legacy_sim / 'archive_host_facade.rs').read_text())
-            self.assertIn('archive/retention_tests.rs', (legacy_sim / 'archive_host_facade.rs').read_text())
-            self.assertIn('original_composite_snapshot_extensions_survive_exact_native_split_rejoin',
-                          (archive / 'tests.rs').read_text())
-            self.assertIn('native_composite_event_roundtrip_keeps_rejection_and_host_field',
-                          (archive / 'tests.rs').read_text())
-        else:
-            self.assertNotIn('pub mod simulator_archive;', native.read_text())
-            for name, _, _ in archive_owners:
-                self.assertFalse((legacy_sim / (name + '_host_facade.rs')).exists())
-        self.assertEqual(set(host_deps), expected_host_deps)
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
         self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # Trusted BASE rejects empty types or unused/unselected facades.
+            self.assertIn('pub mod simulator_archive;', source)
+            require_materialized_native_archive(ROOT)
         for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
             for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
                 source = rust.read_text()
