@@ -1,5 +1,5 @@
 // One bounded real-Viewer resource sample, not a 30-minute or P6 acceptance run.
-import {createRequire} from 'node:module';
+import {loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -22,8 +22,7 @@ assert(/^[0-9a-f]{40}$/.test(manifest.source)&&Array.isArray(manifest.files)&&ma
 const assets={};for(const row of manifest.files){assert(typeof row.path==='string'&&!Object.hasOwn(assets,row.path)&&Number.isSafeInteger(row.size)&&row.size>=0&&/^[0-9a-f]{64}$/.test(row.sha256),'invalid or duplicate asset receipt');assets[row.path]={bytes:row.size,sha256:row.sha256};}
 execFileSync('git',['cat-file','-e',manifest.source+'^{commit}'],{cwd:repo});
 const root=resolve(process.env.VIEWER_DENSITY_RSS_ARTIFACT_ROOT||manifest.root),out=resolve(process.env.VIEWER_DENSITY_RSS_OUTPUT);mkdirSync(dirname(out),{recursive:true});mkdirSync(out);
-const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES||'/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
-const {chromium}=createRequire(join(modules,'density-resource.cjs'))('playwright');
+const {chromium}=loadPlaywright(import.meta.url);
 const started=performance.now(),summary={builtSource:manifest.source,runnerHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),assets,scripts:{},resource:{},controlledTransport:true,realServiceAuthority:false,hardStopMs:120000,limits:['single short controlled observer/debug scene; not genuine hosted player/P5','RSS/JS/WASM capacity overlap and must not be summed','GPU total, complete cache, 30min/8GiB/A-B/P6 remain unaccepted']};
 summary.limits.push('owned renderer process roles are not a proven one-page-to-one-native-renderer-PID mapping');
 summary.host={platform:process.platform,arch:process.arch,node:process.version,osRelease:release(),totalMemoryBytes:totalmem(),cpuModel:cpus()[0]?.model??null};
