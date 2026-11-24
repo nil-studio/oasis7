@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 const LEDGER_SCHEMA_V3: u32 = 3;
@@ -97,6 +98,180 @@ pub struct DurableFullSyncIssuerV3 {
     ledger_byte_limit: usize,
     #[cfg(test)]
     fail_next_local_sync: std::cell::Cell<bool>,
+}
+
+/// Serving lifecycle for the provisioned V3 issuer. A failed uncertain write
+/// is returned to the caller; a subsequent authorized request may cold-open
+/// the same directory with the same external minimum and signer. No lease is
+/// silently retried, re-signed, or rebased by the service.
+pub struct RecoveringFullSyncIssuerV3 {
+    directory: PathBuf,
+    v2_policy: VerifiedFullSyncIssuerPolicyV2,
+    policy: VerifiedFullSyncIssuerPolicyV3,
+    lease_signer: SigningKey,
+    minimum_anchor: FullSyncIssuerAnchorV3,
+    store: Option<DurableFullSyncIssuerV3>,
+}
+
+// This is only a software deadline fence around the provisioned witness.
+// It cannot interrupt a blocked remote call or establish protected UTC.
+// A late CAS receipt is an uncertain outcome; the durable pending intent
+// must remain available for the next independently authorized recovery.
+struct DeadlineWitnessV3<'a> {
+    inner: &'a mut dyn FullSyncIssuerWitnessV3,
+    deadline: Instant,
+}
+
+fn check_serving_deadline(deadline: Instant) -> Result<(), FormalError> {
+    if Instant::now() >= deadline {
+        return Err(FormalError::Io("V3 issuer request deadline elapsed".into()));
+    }
+    Ok(())
+}
+
+impl DeadlineWitnessV3<'_> {
+    fn call<T>(
+        &mut self,
+        operation: impl FnOnce(&mut dyn FullSyncIssuerWitnessV3) -> Result<T, FormalError>,
+    ) -> Result<T, FormalError> {
+        check_serving_deadline(self.deadline)?;
+        let result = operation(&mut *self.inner)?;
+        check_serving_deadline(self.deadline)?;
+        Ok(result)
+    }
+}
+
+impl FullSyncIssuerWitnessV2 for DeadlineWitnessV3<'_> {
+    fn observe(
+        &mut self,
+        query: &SignedFullSyncIssuerQueryV2,
+    ) -> Result<SignedFullSyncIssuerObservationV2, FormalError> {
+        self.call(|witness| witness.observe(query))
+    }
+
+    fn records_after(
+        &mut self,
+        after: &FullSyncIssuerAnchorV2,
+        through: &FullSyncIssuerAnchorV2,
+    ) -> Result<Vec<FullSyncIssuerCommittedEntryV2>, FormalError> {
+        self.call(|witness| witness.records_after(after, through))
+    }
+
+    fn commit(
+        &mut self,
+        observation: &SignedFullSyncIssuerObservationV2,
+        record: &FullSyncIssuerRecordV2,
+    ) -> Result<SignedFullSyncIssuerReceiptV2, FormalError> {
+        self.call(|witness| witness.commit(observation, record))
+    }
+}
+
+impl FullSyncIssuerWitnessV3 for DeadlineWitnessV3<'_> {
+    fn commit_migration_v3(
+        &mut self,
+        observation: &SignedFullSyncIssuerObservationV2,
+        record: &FullSyncIssuerRecordV3,
+    ) -> Result<SignedFullSyncIssuerReceiptV3, FormalError> {
+        self.call(|witness| witness.commit_migration_v3(observation, record))
+    }
+
+    fn observe_v3(
+        &mut self,
+        query: &SignedFullSyncIssuerQueryV3,
+    ) -> Result<SignedFullSyncIssuerObservationV3, FormalError> {
+        self.call(|witness| witness.observe_v3(query))
+    }
+
+    fn history_v3(
+        &mut self,
+        observation: &SignedFullSyncIssuerObservationV3,
+    ) -> Result<FullSyncIssuerHistoryV3, FormalError> {
+        self.call(|witness| witness.history_v3(observation))
+    }
+
+    fn commit_v3(
+        &mut self,
+        observation: &SignedFullSyncIssuerObservationV3,
+        record: &FullSyncIssuerRecordV3,
+    ) -> Result<SignedFullSyncIssuerReceiptV3, FormalError> {
+        self.call(|witness| witness.commit_v3(observation, record))
+    }
+
+    fn resume_migration_v3(
+        &mut self,
+        query: &SignedFullSyncIssuerMigrationResumeQueryV3,
+    ) -> Result<FullSyncIssuerMigrationResumeBundleV3, FormalError> {
+        self.call(|witness| witness.resume_migration_v3(query))
+    }
+}
+
+impl RecoveringFullSyncIssuerV3 {
+    pub fn open(
+        directory: &Path,
+        v2_policy: VerifiedFullSyncIssuerPolicyV2,
+        policy: VerifiedFullSyncIssuerPolicyV3,
+        lease_signer: SigningKey,
+        minimum_anchor: FullSyncIssuerAnchorV3,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<Self, FormalError> {
+        let store = DurableFullSyncIssuerV3::open_v3(
+            directory,
+            v2_policy.clone(),
+            policy.clone(),
+            lease_signer.clone(),
+            minimum_anchor.clone(),
+            witness,
+        )?;
+        Ok(Self {
+            directory: directory.into(),
+            v2_policy,
+            policy,
+            lease_signer,
+            minimum_anchor,
+            store: Some(store),
+        })
+    }
+
+    /// Only independently authenticated, policy-valid queries can trigger
+    /// recovery. The transport must additionally enforce its deadline on the
+    /// external witness itself. Never turn an unknown outcome into success.
+    pub fn read_evidence_for_provider(
+        &mut self,
+        access: &FullSyncIssuerHistoryAccessV3<'_>,
+        request: FullSyncReadEvidenceQueryV3,
+        deadline: Instant,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<FullSyncIssuerReadEvidenceV3, FormalError> {
+        request.verify_provider(access, &self.policy)?;
+        check_serving_deadline(deadline)?;
+        let mut witness = DeadlineWitnessV3 {
+            inner: witness,
+            deadline,
+        };
+        if self.store.as_ref().is_some_and(|store| store.poisoned) {
+            // Release the original lock before the same cold-open path used
+            // after a process restart. An unavailable or competing owner
+            // must fail closed; never initialize a replacement ledger.
+            drop(self.store.take());
+        }
+        if self.store.is_none() {
+            self.store = Some(DurableFullSyncIssuerV3::open_v3(
+                &self.directory,
+                self.v2_policy.clone(),
+                self.policy.clone(),
+                self.lease_signer.clone(),
+                self.minimum_anchor.clone(),
+                &mut witness,
+            )?);
+        }
+        check_serving_deadline(deadline)?;
+        let store = self.store.as_mut().ok_or_else(|| {
+            FormalError::Io("V3 issuer store unavailable after recovery".into())
+        })?;
+        let evidence = store.read_evidence_for_provider(access, request, &mut witness)?;
+        check_serving_deadline(deadline)?;
+        Ok(evidence)
+    }
 }
 
 impl DurableFullSyncIssuerV3 {
