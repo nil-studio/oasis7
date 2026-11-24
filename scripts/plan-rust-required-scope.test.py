@@ -8930,12 +8930,21 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         self.assertEqual(plan.get('workspace_support_direct_gate_version'), 2)
         self.assertNotIn('custody_execution_version', plan)
 
-        # Host-requiring support crate (oasis7_local_signer) -> direct gate NOT emitted
+        # Exact targeted signer support can execute directly in the non-root image.
         self.git('checkout', '-q', self.base)
         self.write('crates/oasis7_local_signer/src/lib.rs', 'pub fn changed() {}\n')
         signer_head = self.commit()
         signer_plan = selector.select(self.config, self.base, signer_head, profile='pr-fast')
-        self.assertNotIn('workspace_support_direct_gate_version', signer_plan)
+        self.assertEqual(signer_plan['workspace_support_profiles'], ['oasis7_local_signer'])
+        self.assertEqual(signer_plan.get('workspace_support_direct_gate_version'), 2)
+        self.assertTrue(selector.workspace_support_selects_signer_image(signer_plan))
+
+        self.write('crates/oasis7_context/src/lib.rs', 'pub fn changed_context() {}\n')
+        mixed_head = self.commit()
+        mixed_plan = selector.select(self.config, self.base, mixed_head, profile='pr-fast')
+        self.assertEqual(mixed_plan['workspace_support_profiles'], ['oasis7_context', 'oasis7_local_signer'])
+        self.assertFalse(selector.workspace_support_selects_signer_image(mixed_plan))
+        self.assertNotIn('workspace_support_direct_gate_version', mixed_plan)
 
         # Live config (v2): custody crate -> custody_execution_version=1 AND direct gate v2 emitted
         self.git('checkout', '-q', self.base)

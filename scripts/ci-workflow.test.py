@@ -476,8 +476,19 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
             if name == 'workspace-support-other':
                 assert workspace_support_image_matrix(reader) == row['namespace']
                 assert row['options'] == row['mold-dir'] == ''
-                assert not re.search(r'^      options:', reader, re.M)
-                assert 'uses: ./.github/actions/setup-linux-mold\n      - ' in reader
+                if "matrix.execution == 'signer-image'" in reader:
+                    node = rows['node']
+                    assert "matrix.execution == 'signer-image' && '" + node['image'] + "'" in reader
+                    assert "      options: ${{ matrix.execution == 'signer-image' && '" + node['options'] + "' || '' }}\n" in reader
+                    assert "          install-dir: ${{ matrix.execution == 'signer-image' && format('{0}/" + node['mold-dir'] + "', runner.temp) || '' }}\n" in reader
+                    signer = [step for step in rust_cache_steps(reader)
+                              if "        if: matrix.execution == 'signer-image'\n" in step]
+                    assert len(signer) == 1 and 'shared-key: ' + node['namespace'] + '\n' in signer[0]
+                    assert 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' in signer[0]
+                    assert not re.search(r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets):', signer[0], re.M)
+                else:
+                    assert not re.search(r'^      options:', reader, re.M)
+                    assert 'uses: ./.github/actions/setup-linux-mold\n      - ' in reader
                 continue
             assert 'image: ' + row['image'] + '\n' in reader
             caches = rust_cache_steps(reader)
