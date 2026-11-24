@@ -18,24 +18,17 @@ oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_cbor = { package = "serde_cbor_2", version = "0.13" }
-serde_ignored = "0.1"
 hex = "0.4"
 blake3 = "1"
-sha2 = "0.11"
 ed25519-dalek = "3"
 getrandom = "0.4"
-reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
 zeroize = "1"
 cap-std = "4"
-cap-fs-ext = "4"
 libc = "0.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oasis7_simulator = { path = "../oasis7_simulator", default-features = false }
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 oasis7_world_state = { path = "../oasis7_world_state", features = ["test-support"] }

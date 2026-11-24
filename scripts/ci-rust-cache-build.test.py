@@ -479,13 +479,13 @@ run() {
     def test_exact_consumer_variants_are_compiled_without_executing_tests(self):
         legacy = {compile_context(call) for call in self.frozen_full_and_legacy_calls()}
         # Preserve the historical driver byte-for-byte. The current complete
-        # inventory additionally owns the extracted leaf in all four original
-        # whole-package feature/target combinations.
+        # inventory additionally owns the extracted leaf and native runtime host
+        # in all four original whole-package feature/target combinations.
         whole_package = {context for context in legacy
                          if 'oasis7' in context[1] and 'oasis7_chain_runtime' in context[1]}
         self.assertEqual(len(whole_package), 4)
         expected = legacy - whole_package | {
-            (context[0], tuple(sorted((*context[1], 'oasis7_executable_image'))), *context[2:])
+            (context[0], tuple(sorted((*context[1], 'oasis7_executable_image', 'oasis7_runtime_host'))), *context[2:])
             for context in whole_package}
         for verbose in ('0', '1'):
             with self.subTest(verbose=verbose):
@@ -539,7 +539,7 @@ run() {
         roots = {context[1] for context in legacy
                  if 'oasis7' in context[1] and 'oasis7_chain_runtime' in context[1]}
         self.assertEqual(len(roots), 1)
-        expected = sorted((*roots.pop(), 'oasis7_executable_image'))
+        expected = sorted((*roots.pop(), 'oasis7_executable_image', 'oasis7_runtime_host'))
         script = r'''set -euo pipefail
 source "$1"
 repo_root="$2"; driver_dir="$3"; ci_python="$4"

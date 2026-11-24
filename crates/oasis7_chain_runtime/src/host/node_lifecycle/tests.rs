@@ -124,6 +124,7 @@ impl Fixture {
             retain_on_failure: false,
         }
     }
+    #[cfg_attr(not(feature = "test_tier_full"), allow(dead_code))]
     pub(super) fn retain_on_failure(&mut self) {
         self.retain_on_failure = true;
     }

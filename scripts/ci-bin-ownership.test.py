@@ -212,10 +212,14 @@ class Ownership(unittest.TestCase):
         self.assertIn('test_tier_required', features)
         self.assertIn('test_tier_required', features['test_tier_full'])
         shell = (ROOT / 'scripts/ci-tests.sh').read_text()
+        # Match the whole-package execution drivers, not the separately
+        # scoped legacy snapshot single-case invocation of the umbrella.
         for command in ('run_cargo test -p oasis7 ', 'run_cargo_clippy -p oasis7 '):
-            lines = [line for line in shell.splitlines() if command in line]
-            self.assertTrue(lines)
-            self.assertTrue(all('-p oasis7_runtime_host ' in line for line in lines))
+            lines = [line for line in shell.splitlines()
+                     if command in line and '-p oasis7_simulator ' in line
+                     and '-p oasis7_runtime ' in line]
+            self.assertEqual(len(lines), 1)
+            self.assertIn('-p oasis7_runtime_host ', lines[0])
         artifacts = (ROOT / 'scripts/ci-test-artifacts.py').read_text()
         required = [line for line in artifacts.splitlines() if "('required', ['test', '-p', 'oasis7'," in line]
         self.assertEqual(len(required), 1)
