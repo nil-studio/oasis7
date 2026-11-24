@@ -92,10 +92,9 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
         self.source.read_node(id, max, memory, class)
     }
 }
-#[test]
-fn append_and_receiver_skip_unchanged_signature_through_thirty_two_mib() {
+fn exercise_unchanged_signature(sizes: &[usize]) {
     let mut samples = Vec::new();
-    for text in [64usize, 1 << 20, 32 << 20] {
+    for &text in sizes {
         let directory = Directory::new();
         let path = directory.0.join("scale");
         let roots = {
@@ -362,4 +361,18 @@ fn append_and_receiver_skip_unchanged_signature_through_thirty_two_mib() {
         samples.windows(2).all(|pair| pair[0] == pair[1]),
         "unchanged signature growth changed append/owner-pass work: {samples:?}"
     );
+}
+
+#[test]
+fn append_and_receiver_skip_unchanged_signature_across_value_chunks() {
+    exercise_unchanged_signature(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn append_and_receiver_skip_unchanged_signature_through_thirty_two_mib() {
+    exercise_unchanged_signature(&[64, 1 << 20, 32 << 20]);
 }
