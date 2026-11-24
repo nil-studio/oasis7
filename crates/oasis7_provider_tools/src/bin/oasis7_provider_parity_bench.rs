@@ -8,15 +8,20 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use oasis7::simulator::{
-    ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentRunner,
-    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
-    DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
-    LlmAgentBehavior, MockDecisionProvider, OpenAiChatCompletionClient,
-    ProviderCompatibilityStatus, ProviderExecutionMode, ProviderLoopbackAdapter,
-    ProviderLoopbackHttpClient, RuntimePerfSnapshot, WorldEvent, evaluate_provider_compatibility,
-    initialize_kernel, provider_phase1_required_actions, provider_phase1_required_capabilities,
+    ActionResult, AgentBehavior, AgentRunner, ContinuousAgentRequestContextV1,
+    ContinuousAgentTurnContextV1, LlmAgentBehavior, MockDecisionProvider,
+    OpenAiChatCompletionClient, ProviderCompatibilityStatus, ProviderLoopbackAdapter,
+    ProviderLoopbackHttpClient, WorldEvent, evaluate_provider_compatibility, initialize_kernel,
+    provider_phase1_required_actions, provider_phase1_required_capabilities,
 };
-use oasis7_simulator::{Observation, WorldConfig, WorldInitConfig, WorldScenario};
+use oasis7_agent_api::{
+    DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
+    ProviderExecutionMode,
+};
+use oasis7_simulator::{
+    AgentDecision, AgentDecisionTrace, Observation, RuntimePerfSnapshot, WorldConfig,
+    WorldInitConfig, WorldScenario,
+};
 use serde::{Deserialize, Serialize};
 
 #[path = "oasis7_provider_parity_bench/behavior_support.rs"]
@@ -341,7 +346,7 @@ impl AgentBehavior for BuiltinParityBehavior {
             && let Some(trace) = trace.as_mut()
         {
             trace.decision = decision.clone();
-            trace.llm_step_trace.push(oasis7::simulator::LlmStepTrace {
+            trace.llm_step_trace.push(oasis7_simulator::LlmStepTrace {
                 step_index: trace.llm_step_trace.len(),
                 step_type: "builtin_parity_guardrail".to_string(),
                 input_summary: decision_label(&original_decision),

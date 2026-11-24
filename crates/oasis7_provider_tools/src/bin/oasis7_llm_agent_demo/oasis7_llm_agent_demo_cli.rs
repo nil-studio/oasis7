@@ -6,13 +6,13 @@ use std::process;
 use std::time::Instant;
 
 use oasis7::simulator::{
-    ActionCatalogEntry, ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace,
-    AgentRunner, LlmAgentBehavior, OpenAiChatCompletionClient, ProviderBackedAgentBehavior,
-    ProviderExecutionMode, ProviderLoopbackAdapter, RuntimePerfSnapshot, WorldEvent,
-    initialize_kernel,
+    ActionResult, AgentBehavior, AgentRunner, LlmAgentBehavior, OpenAiChatCompletionClient,
+    ProviderBackedAgentBehavior, ProviderLoopbackAdapter, WorldEvent, initialize_kernel,
 };
+use oasis7_agent_api::{ActionCatalogEntry, ProviderExecutionMode};
 use oasis7_simulator::{
-    Action as SimulatorAction, RejectReason, WorldConfig, WorldInitConfig, WorldScenario,
+    Action as SimulatorAction, AgentDecision, AgentDecisionTrace, RejectReason, RuntimePerfSnapshot,
+    WorldConfig, WorldInitConfig, WorldScenario,
 };
 use serde::{Deserialize, Serialize};
 

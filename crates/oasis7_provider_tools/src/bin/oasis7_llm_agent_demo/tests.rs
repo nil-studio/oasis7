@@ -1,10 +1,10 @@
 use super::*;
 #[cfg(feature = "test_tier_full")]
 use oasis7_runtime::{EconomicContractStatus, GovernanceProposalStatus};
-use oasis7::simulator::{AgentDecision, AgentDecisionTrace, LlmStepTrace, WorldEvent};
+use oasis7::simulator::WorldEvent;
 #[cfg(feature = "test_tier_full")]
 use oasis7_agent_api::world_action::ResourceKind;
-use oasis7_simulator::{Action, WorldEventKind};
+use oasis7_simulator::{Action, AgentDecision, AgentDecisionTrace, LlmStepTrace, WorldEventKind};
 
 #[cfg(feature = "test_tier_full")]
 fn tracked_baseline_fixture_dir() -> std::path::PathBuf {
