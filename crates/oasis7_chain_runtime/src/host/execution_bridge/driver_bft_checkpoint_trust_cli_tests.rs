@@ -279,6 +279,23 @@ pub(super) fn check_preparation(
         .authenticate_time_observation(&time_bytes, &nonce, &epoch)
         .unwrap();
     assert!(observation.candidate_interval(None).is_err());
+    prepared
+        .check_initial_signed_observation_window(&observation)
+        .expect("signed source interval is within original H validity");
+    // Original H expiry must not erase H or imply that the independent policy
+    // is expired. An authenticated observation at expiry remains a diagnostic.
+    let mut at_h_expiry = time_body.clone();
+    at_h_expiry["utc_earliest_unix_ms"] = serde_json::json!(58);
+    at_h_expiry["utc_latest_unix_ms"] = serde_json::json!(60);
+    let expired_h = prepared
+        .authenticate_time_observation(&signed_time(&at_h_expiry, 119), &nonce, &epoch)
+        .unwrap();
+    assert!(
+        prepared
+            .check_initial_signed_observation_window(&expired_h)
+            .unwrap_err()
+            .contains("original H validity")
+    );
     // This compares signed originals, not protected current authorization.
     use oasis7_formal_protocol::bft::checkpoint_issuer_status::AuthenticatedBftCheckpointIssuerStatusV1;
     let check_status_window = |body: serde_json::Value| {
@@ -381,6 +398,81 @@ pub(super) fn check_preparation(
     assert!(interval.within_window(41, 46));
     assert!(!interval.within_window(41, 45));
     assert!(!interval.within_window(42, 46));
+    // The original source interval was valid at [40,42], but the action
+    // interval is [41,45]. Check status age/expiry again at that boundary.
+    let mut delayed_status = status.clone();
+    delayed_status["status_sequence"] = serde_json::json!(4);
+    delayed_status["issued_at_unix_ms"] = serde_json::json!(40);
+    delayed_status["not_before_unix_ms"] = serde_json::json!(40);
+    delayed_status["expires_at_unix_ms"] = serde_json::json!(46);
+    delayed_status["policy_revoked"] = serde_json::json!(false);
+    delayed_status["issuer_keys"][0]["revoked_at_unix_ms"] = serde_json::Value::Null;
+    let authenticate_status = |body: serde_json::Value| {
+        write_status(body, 118);
+        AuthenticatedBftCheckpointIssuerStatusV1::decode(
+            &std::fs::read(&status_path).unwrap(),
+            &config.policy,
+            &policy_pin,
+        )
+        .unwrap()
+    };
+    let valid = authenticate_status(delayed_status.clone());
+    assert_eq!(
+        valid
+            .check_candidate_window(&config.policy, &observation, Some(&sample))
+            .unwrap(),
+        interval
+    );
+    assert!(
+        valid
+            .check_candidate_window(&config.policy, &observation, None)
+            .is_err()
+    );
+    for (field, value, reason) in [
+        ("expires_at_unix_ms", serde_json::json!(45), "outside issuer status window"),
+        ("issued_at_unix_ms", serde_json::json!(39), "maximum age"),
+    ] {
+        let mut altered = delayed_status.clone();
+        altered[field] = value;
+        let signed = authenticate_status(altered);
+        signed
+            .check_signed_observation_window(&config.policy, &observation)
+            .expect("source interval alone does not detect delayed expiry");
+        assert!(
+            signed
+                .check_candidate_window(&config.policy, &observation, Some(&sample))
+                .unwrap_err()
+                .contains(reason)
+        );
+    }
+    let mut safety_boundary = time_body.clone();
+    safety_boundary["utc_earliest_unix_ms"] = serde_json::json!(88);
+    safety_boundary["utc_latest_unix_ms"] = serde_json::json!(90);
+    let unsafe_time = prepared
+        .authenticate_time_observation(&signed_time(&safety_boundary, 119), &nonce, &epoch)
+        .unwrap();
+    let mut safety_status = delayed_status.clone();
+    safety_status["issued_at_unix_ms"] = serde_json::json!(88);
+    safety_status["not_before_unix_ms"] = serde_json::json!(88);
+    safety_status["expires_at_unix_ms"] = serde_json::json!(95);
+    assert!(
+        authenticate_status(safety_status)
+            .check_signed_observation_window(&config.policy, &unsafe_time)
+            .unwrap_err()
+            .contains("independent security window")
+    );
+    let valid = authenticate_status(delayed_status);
+    assert_eq!(
+        valid
+            .check_candidate_window(&config.policy, &observation, Some(&sample))
+            .unwrap(),
+        interval
+    );
+    // Historical H is still readable after the later observation was rejected.
+    private_file(&time_path, &signed_time(&at_h_expiry, 119));
+    prepare_with_time(&nonce, &epoch).expect("original H remains available at expiry");
+    private_file(&time_path, &time_bytes);
+    prepare_with_time(&nonce, &epoch).expect("original observation remains readable");
     sample.elapsed_upper_ms = 4;
     assert!(observation.candidate_interval(Some(&sample)).is_err());
     sample.elapsed_upper_ms = 6;

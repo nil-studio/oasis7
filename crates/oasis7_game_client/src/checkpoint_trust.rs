@@ -79,6 +79,27 @@ impl PreparedBftCheckpointTrustConfigV1 {
         )
     }
 
+    /// Distinguish the original sequence-zero H window from a later renewal
+    /// policy window. This checks only the signed source interval, not current
+    /// time, issuer authorization, C0-to-H lineage or installation.
+    pub fn check_initial_signed_observation_window(
+        &self,
+        observation: &AuthenticatedBftCheckpointTimeObservationV1,
+    ) -> Result<(), String> {
+        let time = observation.body();
+        if time.policy_digest != self.config.policy_digest
+            || time.consumer_binding_digest != self.config.consumer_binding_digest
+        {
+            return Err("checkpoint initial window observation binding mismatch".into());
+        }
+        if time.utc_earliest_unix_ms < self.config.initial_not_before_unix_ms
+            || time.utc_latest_unix_ms >= self.config.initial_expires_at_unix_ms
+        {
+            return Err("checkpoint observation outside original H validity window".into());
+        }
+        Ok(())
+    }
+
     /// The host must obtain these values by actual qualified-H replay, not DTOs.
     pub fn check_replayed_handoff(
         &self,

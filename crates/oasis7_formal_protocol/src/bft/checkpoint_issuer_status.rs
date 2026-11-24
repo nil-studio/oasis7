@@ -1,7 +1,10 @@
 //! Authentication of a complete renewal issuer status snapshot.
 //!
 //! Current use additionally requires a protected status floor and trusted time.
-use super::checkpoint_time_observation::AuthenticatedBftCheckpointTimeObservationV1;
+use super::checkpoint_time_observation::{
+    AuthenticatedBftCheckpointTimeObservationV1, BftCheckpointTimeContinuityV1,
+    BftCheckpointUtcCandidateV1,
+};
 use super::checkpoint_trust_policy::{BftCheckpointTrustPolicyV1, issuer_status_bounds};
 use super::formal_handoff::{canonical_bytes, decode_canonical, domain_digest};
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -169,6 +172,42 @@ impl AuthenticatedBftCheckpointIssuerStatusV1 {
         observation: &AuthenticatedBftCheckpointTimeObservationV1,
     ) -> Result<(), String> {
         let time = observation.body();
+        self.check_interval(
+            policy,
+            observation,
+            time.utc_earliest_unix_ms,
+            time.utc_latest_unix_ms,
+        )
+    }
+
+    /// Recheck the full elapsed-expanded interval, rather than treating an
+    /// authenticated source observation as a fresh status at the action boundary.
+    /// The supplied continuity is only an arithmetic input here: the caller
+    /// must obtain it and the status floor from the actual protection domain.
+    pub fn check_candidate_window(
+        &self,
+        policy: &BftCheckpointTrustPolicyV1,
+        observation: &AuthenticatedBftCheckpointTimeObservationV1,
+        continuity: Option<&BftCheckpointTimeContinuityV1>,
+    ) -> Result<BftCheckpointUtcCandidateV1, String> {
+        let candidate = observation.candidate_interval(continuity)?;
+        self.check_interval(
+            policy,
+            observation,
+            candidate.earliest_unix_ms(),
+            candidate.latest_unix_ms(),
+        )?;
+        Ok(candidate)
+    }
+
+    fn check_interval(
+        &self,
+        policy: &BftCheckpointTrustPolicyV1,
+        observation: &AuthenticatedBftCheckpointTimeObservationV1,
+        earliest: u64,
+        latest: u64,
+    ) -> Result<(), String> {
+        let time = observation.body();
         if policy.digest()? != self.body.policy_digest
             || time.policy_digest != self.body.policy_digest
             || time.origin_digest != self.body.origin_digest
@@ -178,17 +217,19 @@ impl AuthenticatedBftCheckpointIssuerStatusV1 {
         if self.body.policy_revoked {
             return Err("checkpoint issuer status policy revoked".into());
         }
-        if time.utc_earliest_unix_ms < self.body.not_before_unix_ms
-            || time.utc_latest_unix_ms >= self.body.expires_at_unix_ms
-        {
+        if earliest < self.body.not_before_unix_ms || latest >= self.body.expires_at_unix_ms {
             return Err("checkpoint signed observation outside issuer status window".into());
         }
-        if time
-            .utc_latest_unix_ms
+        if latest
             .checked_sub(self.body.issued_at_unix_ms)
             .is_none_or(|age| age > policy.max_status_age_ms)
         {
             return Err("checkpoint issuer status exceeds maximum age".into());
+        }
+        if earliest < policy.security_policy.security_not_before_unix_ms
+            || latest >= policy.security_policy.absolute_safe_until_unix_ms
+        {
+            return Err("checkpoint observation outside independent security window".into());
         }
         // Potentially eligible keys are not actual verified proof signatures.
         let eligible = policy
@@ -197,8 +238,8 @@ impl AuthenticatedBftCheckpointIssuerStatusV1 {
             .zip(&self.body.issuer_keys)
             .filter(|(key, status)| {
                 status.revoked_at_unix_ms.is_none()
-                    && key.not_before_unix_ms <= time.utc_earliest_unix_ms
-                    && time.utc_latest_unix_ms < key.expires_at_unix_ms
+                    && key.not_before_unix_ms <= earliest
+                    && latest < key.expires_at_unix_ms
             })
             .count() as u64;
         if eligible < policy.threshold {

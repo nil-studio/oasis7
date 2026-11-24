@@ -143,6 +143,12 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
         });
     }
     if let Some(time) = authenticated_time {
+        let initial_window = prepared.check_initial_signed_observation_window(&time);
+        report["initial_h_observation_diagnostic"] = serde_json::json!({
+            "within_original_window_at_observation": initial_window.is_ok(),
+            "blocker": initial_window.err(),
+            "protected_continuity_checked": false,
+        });
         report["authenticated_time_observation"] = serde_json::json!({
             "digest": time.digest(),
             "time_generation": time.body().time_generation,
