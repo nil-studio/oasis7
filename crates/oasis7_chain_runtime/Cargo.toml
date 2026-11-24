@@ -59,9 +59,12 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 [features]
 default = ["wasmtime", "node-libp2p"]
 node-libp2p = ["dep:oasis7_executable_image", "oasis7_node/libp2p", "dep:oasis7_net", "oasis7_net/libp2p"]
-wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
-test_tier_required = ["oasis7/test_tier_required"]
-test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
+# Preserve the historical umbrella's effective feature closure through its
+# native owners. Keep the normal/dev umbrella edges until the actual H1/H2
+# Chain consumers and their recovery tests have been cut over separately.
+wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7_runtime/wasmtime", "oasis7_world_service/wasmtime"]
+test_tier_required = ["oasis7_simulator/test_tier_required", "oasis7_runtime/test_tier_required", "oasis7_world_service/test_tier_required"]
+test_tier_full = ["test_tier_required", "oasis7_simulator/test_tier_full", "oasis7_runtime/test_tier_full", "oasis7_world_service/test_tier_full"]
 # Compile the existing capacity smoke for the standalone Storage producer.
 ci_storage_acceptance = []
 
