@@ -6792,7 +6792,7 @@ class WorkerToolCache(unittest.TestCase):
             (root / 'scripts').mkdir()
             (root / 'scripts/ci-tests.sh').write_text(
                 "support_capacity_snapshot() { :; }\n"
-                "if [[ $# -gt 0 ]]; then printf '%s\\n' \"$@\"; fi\n")
+                "if [[ $# -gt 0 ]]; then printf '%s\\n' \"$@\"; exit \"${FIXTURE_DRIVER_EXIT:-0}\"; fi\n")
             for lane, signer_context, expected in lanes:
                 with self.subTest(lane=lane, signer_context=signer_context):
                     result = subprocess.run(
@@ -6808,6 +6808,15 @@ class WorkerToolCache(unittest.TestCase):
                         '--support-plan-file', str(root / 'selection.json'),
                         '--support-partition', 'other', '--support-execution', expected,
                     ])
+            if 'workspace_support_signer_context' in job:
+                failed = subprocess.run(
+                    ['bash', '-euo', 'pipefail', '-c', script], cwd=root,
+                    env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_WORKSPACE=tmp,
+                             SUPPORT_PARTITION='other', SUPPORT_EXECUTION='signer-image',
+                             SIGNER_WITH_CONTEXT='true', FIXTURE_DRIVER_EXIT='37'),
+                    text=True, capture_output=True,
+                )
+                self.assertEqual(failed.returncode, 37, failed.stderr)
 
     def test_image_support_exact_readonly_worker_tool_reader(self):
         job = JOBS['workspace-support-other']
