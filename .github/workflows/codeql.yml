@@ -219,7 +219,7 @@ jobs:
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
       CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: ${{ matrix.language == 'rust' && 'true' || 'false' }}
-      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: ${{ matrix.language == 'rust' && format('["{0}/crates/oasis7_builtin_wasm_modules/_templates"]', github.workspace) || '[]' }}
+      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '[]'
       CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES: ${{ matrix.language == 'javascript-typescript' && 'true' || 'false' }}
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
@@ -259,6 +259,21 @@ jobs:
         env:
           EXPECTED_CHECKOUT: ${{ needs.plan.outputs.checkout }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_CHECKOUT"
+      - name: Set Rust template inclusion from the actual checkout
+        if: matrix.language == 'rust'
+        shell: bash
+        run: |
+          python3 -I - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          source = Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
+          templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
+          if not templates.is_dir() or templates.resolve(strict=True) != templates:
+              raise SystemExit('Rust template directory is unavailable in the actual checkout')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=' + json.dumps([str(templates)]) + '\n')
+          PY
       - name: Verify the preinstalled Rust extraction toolchain
         if: matrix.language == 'rust'
         shell: bash
