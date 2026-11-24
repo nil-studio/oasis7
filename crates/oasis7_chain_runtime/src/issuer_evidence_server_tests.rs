@@ -94,10 +94,16 @@ fn actual_mtls_listener_rejects_unlisted_leaf_and_mismatched_grant_before_dispat
     wrong.provider_public_key = hash(9);
     let mut wrong_generation = request.clone();
     wrong_generation.target_generation = 2;
+    let mut wrong_policy = request.clone();
+    wrong_policy.minimum_anchor.policy_digest = hash(10);
+    let mut wrong_target = request.clone();
+    wrong_target.target.node_public_key = hash(11);
     for (certificate, key, input, expected_status) in [
         (&other_cert, &other_key, &request, 403),
         (&allowed_cert, &allowed_key, &wrong, 403),
         (&allowed_cert, &allowed_key, &wrong_generation, 403),
+        (&allowed_cert, &allowed_key, &wrong_policy, 403),
+        (&allowed_cert, &allowed_key, &wrong_target, 403),
         (&allowed_cert, &allowed_key, &request, 200),
     ] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -153,10 +159,7 @@ fn framing_rejects_duplicate_length_transfer_encoding_and_overlong_body() {
         bytes.extend_from_slice(&json);
         bytes
     };
-    assert_eq!(
-        read_query(&mut complete("").as_slice()).unwrap(),
-        query()
-    );
+    assert_eq!(read_query(&mut complete("").as_slice()).unwrap(), query());
     for invalid in [
         "Content-Length: 0\r\n",
         "Transfer-Encoding: chunked\r\n",

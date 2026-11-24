@@ -140,8 +140,8 @@ impl IssuerEvidenceServerV3 {
             .set_nonblocking(false)
             .map_err(|_| "issuer socket configuration failed")?;
         let mut io = DeadlineSocket { socket, deadline };
-        let mut tls = ServerConnection::new(self.tls.clone())
-            .map_err(|_| "issuer TLS setup failed")?;
+        let mut tls =
+            ServerConnection::new(self.tls.clone()).map_err(|_| "issuer TLS setup failed")?;
         while tls.is_handshaking() {
             tls.complete_io(&mut io)
                 .map_err(|_| "issuer client authentication failed")?;
@@ -152,19 +152,13 @@ impl IssuerEvidenceServerV3 {
             .ok_or("issuer client certificate missing")?;
         let pin = certificate_pin(leaf.as_ref());
         let mut stream = StreamOwned::new(tls, io);
-        if !self
-            .grants
-            .iter()
-            .any(|grant| grant.client_certificate_sha256 == pin)
-        {
-            return write_reply(&mut stream, "403 Forbidden", b"{}");
-        }
         let query = match read_query(&mut stream) {
             Ok(query) => query,
             Err(_) => return write_reply(&mut stream, "400 Bad Request", b"{}"),
         };
         let grant = self.grants.iter().find(|grant| {
-            grant.client_certificate_sha256 == pin
+            query.schema_version == 3
+                && grant.client_certificate_sha256 == pin
                 && grant.provider_public_key == query.provider_public_key
                 && grant.policy_digest == query.minimum_anchor.policy_digest
                 && grant.target == query.target
@@ -297,11 +291,7 @@ fn read_query(stream: &mut impl Read) -> Result<FullSyncReadEvidenceQueryV3, Str
     serde_json::from_slice(&body).map_err(|_| "invalid issuer request body".into())
 }
 
-fn write_reply(
-    stream: &mut impl Write,
-    status: &str,
-    body: &[u8],
-) -> Result<(), String> {
+fn write_reply(stream: &mut impl Write, status: &str, body: &[u8]) -> Result<(), String> {
     let header = format!(
         "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
