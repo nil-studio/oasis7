@@ -142,6 +142,73 @@ pub(super) fn check_preparation(
         write_status(altered, 118);
         assert!(with_status().is_err(), "{field}");
     }
+    // Compare original signed revocation snapshots through the real host
+    // preparation path. The supplied predecessor is not a protected floor.
+    let previous_path = root.join("checkpoint-previous-issuer-status.cbor");
+    let previous_bytes = canonical(&serde_json::json!({
+        "body": status,
+        "signature_hex": fixtures::sign(
+            hex::decode(digest("issuer-status", &status)).unwrap(),
+            118,
+        ),
+    }));
+    private_file(&previous_path, &previous_bytes);
+    let with_previous = || {
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "prepare-checkpoint-trust",
+                "--config",
+                path.to_str().unwrap(),
+                "--node-config",
+                node_config.to_str().unwrap(),
+                "--policy-pin",
+                &policy_pin,
+                "--consumer-binding",
+                &pin,
+                "--original-c0-pin",
+                &c0_pin,
+                "--issuer-status",
+                status_path.to_str().unwrap(),
+                "--previous-issuer-status",
+                previous_path.to_str().unwrap(),
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+    };
+    write_status(status.clone(), 118);
+    with_previous().expect("exact same status snapshot is a legal retry");
+    let mut next_status = status.clone();
+    next_status["status_sequence"] = serde_json::json!(3);
+    next_status["issued_at_unix_ms"] = serde_json::json!(21);
+    next_status["not_before_unix_ms"] = serde_json::json!(21);
+    write_status(next_status.clone(), 118);
+    with_previous().expect("higher status preserves original revocations");
+    for (field, replacement) in [
+        ("status_sequence", serde_json::json!(1)),
+        ("status_sequence", serde_json::json!(2)),
+        ("policy_revoked", serde_json::json!(false)),
+        (
+            "issuer_keys",
+            serde_json::json!([{"key_id":"issuer-key","issuer_generation":1,"revoked_at_unix_ms":null}]),
+        ),
+        (
+            "issuer_keys",
+            serde_json::json!([{"key_id":"issuer-key","issuer_generation":1,"revoked_at_unix_ms":20}]),
+        ),
+    ] {
+        let mut invalid = next_status.clone();
+        invalid[field] = replacement;
+        write_status(invalid, 118);
+        assert!(with_previous().is_err(), "{field}");
+    }
+    // Re-reading the unchanged original decision remains legal after a
+    // rejected transition; the diagnostic must not rewrite either snapshot.
+    assert_eq!(std::fs::read(&previous_path).unwrap(), previous_bytes);
+    write_status(next_status, 118);
+    with_previous().expect("original signed successor remains readable");
+
     let prepared =
         BftCheckpointTrustConfigV1::decode_and_prepare(&bytes, &policy_pin, &pin, &c0_pin).unwrap();
     assert_eq!(prepared.config(), &config);

@@ -14,6 +14,7 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     let mut consumer_binding = None;
     let mut original_c0_pin = None;
     let mut issuer_status = None;
+    let mut previous_issuer_status = None;
     let mut time_observation = None;
     let mut time_nonce = None;
     let mut clock_epoch = None;
@@ -25,6 +26,7 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             "--consumer-binding" => &mut consumer_binding,
             "--original-c0-pin" => &mut original_c0_pin,
             "--issuer-status" => &mut issuer_status,
+            "--previous-issuer-status" => &mut previous_issuer_status,
             "--time-observation" => &mut time_observation,
             "--time-nonce" => &mut time_nonce,
             "--clock-epoch" => &mut clock_epoch,
@@ -59,19 +61,25 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     let c0 = original_c0_pin
         .ok_or("checkpoint preparation requires independently retained --original-c0-pin")?;
     let prepared = load_checkpoint_trust_preparation(&config, &pin, &consumer, &c0)?;
-    let authenticated_status = issuer_status
-        .map(|path| -> Result<_, String> {
-            let path = PathBuf::from(path);
-            if !path.is_absolute() {
-                return Err("checkpoint issuer status path must be absolute".into());
-            }
-            super::super::controlled_live_config::require_private_owned(&path, false)?;
-            let policy = &prepared.config().policy;
-            let bytes =
-                super::super::controlled_history_cli::read_bounded(&path, policy.max_status_bytes)?;
-            AuthenticatedBftCheckpointIssuerStatusV1::decode(&bytes, policy, &pin)
-        })
-        .transpose()?;
+    if previous_issuer_status.is_some() && issuer_status.is_none() {
+        return Err("previous checkpoint issuer status requires --issuer-status".into());
+    }
+    let authenticate_status = |path: String| -> Result<_, String> {
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            return Err("checkpoint issuer status path must be absolute".into());
+        }
+        super::super::controlled_live_config::require_private_owned(&path, false)?;
+        let policy = &prepared.config().policy;
+        let bytes =
+            super::super::controlled_history_cli::read_bounded(&path, policy.max_status_bytes)?;
+        AuthenticatedBftCheckpointIssuerStatusV1::decode(&bytes, policy, &pin)
+    };
+    let authenticated_status = issuer_status.map(&authenticate_status).transpose()?;
+    let previous_status = previous_issuer_status.map(&authenticate_status).transpose()?;
+    if let (Some(current), Some(previous)) = (&authenticated_status, &previous_status) {
+        current.check_predecessor(previous)?;
+    }
     // These explicit inputs are diagnostic pins only. Neither a local file
     // nor an operator-supplied nonce/epoch proves a protected request start.
     let authenticated_time = match (time_observation, time_nonce, clock_epoch) {
@@ -119,6 +127,8 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             "digest": status.digest(),
             "sequence": status.body().status_sequence,
             "policy_revoked": status.body().policy_revoked,
+            "previous_snapshot_checked": previous_status.is_some(),
+            "protected_status_floor_checked": false,
         });
     }
     if let Some(time) = authenticated_time {

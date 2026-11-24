@@ -125,6 +125,40 @@ impl AuthenticatedBftCheckpointIssuerStatusV1 {
         Ok(Self { body, digest })
     }
 
+    /// Compare two exact root-authenticated snapshots. The caller must obtain
+    /// the previous snapshot from its actual protected floor for current use.
+    /// This comparison alone establishes neither freshness nor persistence.
+    pub fn check_predecessor(&self, previous: &Self) -> Result<(), String> {
+        let old = &previous.body;
+        let new = &self.body;
+        if new.origin_digest != old.origin_digest
+            || new.policy_digest != old.policy_digest
+            || new.root_authorization_generation != old.root_authorization_generation
+        {
+            return Err("checkpoint issuer status predecessor identity mismatch".into());
+        }
+        if new.status_sequence < old.status_sequence
+            || (new.status_sequence == old.status_sequence && self.digest != previous.digest)
+        {
+            return Err("checkpoint issuer status sequence rollback or conflict".into());
+        }
+        if old.policy_revoked && !new.policy_revoked {
+            return Err("checkpoint issuer status cannot revive revoked policy".into());
+        }
+        if new.issuer_keys.len() != old.issuer_keys.len()
+            || new.issuer_keys.iter().zip(&old.issuer_keys).any(|(next, prior)| {
+                next.key_id != prior.key_id
+                    || next.issuer_generation != prior.issuer_generation
+                    || prior.revoked_at_unix_ms.is_some_and(|revoked| {
+                        next.revoked_at_unix_ms != Some(revoked)
+                    })
+            })
+        {
+            return Err("checkpoint issuer status cannot revise a revoked key".into());
+        }
+        Ok(())
+    }
+
     pub fn body(&self) -> &BftCheckpointIssuerStatusBodyV1 {
         &self.body
     }
