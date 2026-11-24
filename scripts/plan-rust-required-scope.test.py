@@ -8997,8 +8997,12 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         mixed_head = self.commit()
         mixed_plan = selector.select(self.config, self.base, mixed_head, profile='pr-fast')
         self.assertEqual(mixed_plan['workspace_support_profiles'], ['oasis7_context', 'oasis7_local_signer'])
-        self.assertFalse(selector.workspace_support_selects_signer_image(mixed_plan))
-        self.assertNotIn('workspace_support_direct_gate_version', mixed_plan)
+        self.assertTrue(selector.workspace_support_selects_signer_image(mixed_plan))
+        self.assertEqual(mixed_plan.get('workspace_support_direct_gate_version'), 2)
+        for extra in ('oasis7_game_client', 'oasis7_dev_test_worker', 'oasis7_secure_envelope'):
+            with self.subTest(extra=extra):
+                self.assertFalse(selector.workspace_support_selects_signer_image(
+                    dict(mixed_plan, workspace_support_profiles=sorted([*mixed_plan['workspace_support_profiles'], extra]))))
 
         # Live config (v2): custody crate -> custody_execution_version=1 AND direct gate v2 emitted
         self.git('checkout', '-q', self.base)
