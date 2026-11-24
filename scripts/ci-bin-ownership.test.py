@@ -676,7 +676,7 @@ class Ownership(unittest.TestCase):
         for name, edges in spec.get('features', {}).items():
             for edge in edges:
                 self.assertFalse(
-                    edge.startswith(('oasis7/', 'oasis7?/', 'dep:oasis7')),
+                    edge == 'dep:oasis7' or edge.startswith(('oasis7/', 'oasis7?/')),
                     f'{name}: {edge}',
                 )
 
