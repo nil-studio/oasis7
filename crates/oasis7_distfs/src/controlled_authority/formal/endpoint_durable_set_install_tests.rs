@@ -105,10 +105,25 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_before_coordinator\n",
             );
+            // Do not nest both protected endpoint opens below the large
+            // coordinator constructor frame. These independent, non-inlined
+            // stages retain the original default test-thread stack size.
+            let primary_endpoint =
+                native_boxed_stage(|| open(EndpointRole::Primary, pp.clone()));
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_primary_endpoint_opened\n",
+            );
+            let replica_endpoint =
+                native_boxed_stage(|| open(EndpointRole::Replica, ro.provider(&fixture)));
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_replica_endpoint_opened\n",
+            );
             let mut coordinator = native_boxed_stage(|| {
                 FormalCoordinator::new(
-                    open(EndpointRole::Primary, pp.clone()),
-                    open(EndpointRole::Replica, ro.provider(&fixture)),
+                    *primary_endpoint,
+                    *replica_endpoint,
                     fixture.authority.clone(),
                     fixture.authority.clone(),
                     None,
@@ -116,6 +131,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 )
                 .unwrap()
             });
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_coordinator_opened\n",
+            );
             let initial =
                 native_boxed_stage(|| coordinator.submit(fixture.initial.clone()).unwrap());
             let _ = std::io::Write::write_all(
