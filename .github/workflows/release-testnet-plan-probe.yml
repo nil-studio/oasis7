@@ -1,0 +1,147 @@
+name: Release and Testnet plan image diagnostic
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-release-testnet-plan-probe-base]
+    paths: [.github/workflows/release-testnet-plan-probe.yml]
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+cache-mode: none
+
+env:
+  PACKAGE_SOURCE: dccb4333902cc692f7758025ff33039c2a3a644d
+  DEFAULT_SOURCE: 26501388c234785f5fb2956e6813e52a2e42d511
+  REQUESTED_REF: v0.0.56
+  HISTORICAL_POLICY: f96212086dca52a4ee8af481f4d84f12f7011677
+
+jobs:
+  host:
+    if: &scoped github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/engineering-release-testnet-plan-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs: &outputs
+      plan: ${{ steps.plan.outputs.plan_sha256 }}
+      qualification: ${{ steps.qualification.outputs.qualification_sha256 }}
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PACKAGE_SOURCE }}
+          fetch-depth: 0
+          persist-credentials: false
+      - &plan
+        name: Compare immutable annotated tag planning
+        id: plan
+        shell: bash
+        run: |
+          test "$(id -u)" -ne 0
+          test "$(git rev-parse HEAD)" = "$PACKAGE_SOURCE"
+          git merge-base --is-ancestor "$DEFAULT_SOURCE" refs/remotes/origin/main
+          git update-ref refs/remotes/origin/main "$DEFAULT_SOURCE"
+          test "$(git rev-parse refs/tags/v0.0.56)" = 1ec4e523c037c81aca7bad303c46f5661740afb6
+          test "$(git rev-parse 'refs/tags/v0.0.56^{commit}')" = 4eb0fe9099aa91af408e5bb41eddd52d3af3ee0f
+          result="$RUNNER_TEMP/source-plan.txt"
+          summary="$RUNNER_TEMP/source-plan.md"
+          export GITHUB_WORKFLOW_SHA="$PACKAGE_SOURCE" GITHUB_SHA="$PACKAGE_SOURCE"
+          GITHUB_OUTPUT="$result" GITHUB_STEP_SUMMARY="$summary" python3 scripts/package-source-plan.py --release
+          grep -Fx 'checkoutSha=4eb0fe9099aa91af408e5bb41eddd52d3af3ee0f' "$result"
+          grep -Fx 'resolvedRef=refs/tags/v0.0.56' "$result"
+          grep -Fx 'version=0.0.56' "$result"
+          grep -q '^sourcePlan=' "$result"
+          testnet="$RUNNER_TEMP/testnet-plan.txt"
+          REQUESTED_REF=refs/heads/main GITHUB_OUTPUT="$testnet" GITHUB_STEP_SUMMARY="$summary" python3 scripts/package-source-plan.py
+          grep -Fx "checkoutSha=$DEFAULT_SOURCE" "$testnet"
+          grep -Fx 'resolvedRef=refs/heads/main' "$testnet"
+          REQUESTED_REF="$PACKAGE_SOURCE" GITHUB_OUTPUT="$testnet" GITHUB_STEP_SUMMARY="$summary" python3 scripts/package-source-plan.py
+          grep -Fx "checkoutSha=$PACKAGE_SOURCE" "$testnet"
+          awk '/^      - id: plan$/{found=1;next}
+               found && /^      - /{exit}
+               found && /^        run: \|$/{body=1;next}
+               body && /^          /{print substr($0,11)}' .github/workflows/testnet-packages.yml > "$RUNNER_TEMP/matrix.sh"
+          test -s "$RUNNER_TEMP/matrix.sh"
+          for spec in linux_only:1 linux_macos_x64:2 linux_macos_arm64:2 all_existing:3; do
+            scope="${spec%%:*}"
+            count="${spec##*:}"
+            matrix="$RUNNER_TEMP/matrix-$scope.txt"
+            INPUT_REF=refs/heads/main INPUT_SCOPE="$scope" GITHUB_OUTPUT="$matrix" bash --noprofile --norc -euo pipefail "$RUNNER_TEMP/matrix.sh"
+            test "$(sed 's/^matrix=//' "$matrix" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')" = "$count"
+            printf '%s\n' "$scope" >> "$testnet"
+            cat "$matrix" >> "$testnet"
+          done
+          if INPUT_REF=refs/heads/main INPUT_SCOPE=invalid GITHUB_OUTPUT="$RUNNER_TEMP/invalid-matrix.txt" \
+            bash --noprofile --norc -euo pipefail "$RUNNER_TEMP/matrix.sh"; then
+            echo 'Unsupported Testnet scope unexpectedly succeeded' >&2
+            exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/invalid-matrix.txt"
+          hash=$(cat "$result" "$testnet" "$summary" | sha256sum)
+          printf 'plan_sha256=%s\n' "${hash%% *}" >> "$GITHUB_OUTPUT"
+      - &qualification
+        name: Replay a separate actual historical full qualification
+        id: qualification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir "$RUNNER_TEMP/historical-verifier"
+          for file in ci-full-result.py ci-required-result.py ci-required-scope.json; do
+            git show "$HISTORICAL_POLICY:scripts/$file" > "$RUNNER_TEMP/historical-verifier/$file"
+          done
+          verifier="$RUNNER_TEMP/historical-verifier/ci-full-result.py"
+          source="$HISTORICAL_POLICY"
+          GITHUB_WORKFLOW_SHA="$source" python3 "$verifier" verify --source "$source" --run-id 44619146209 > "$RUNNER_TEMP/release-qualification.txt"
+          GITHUB_WORKFLOW_SHA="$source" GITHUB_WORKFLOW_REF=nil-studio/oasis7/.github/workflows/testnet-packages.yml@refs/heads/main \
+            python3 "$verifier" verify --source "$source" --run-id 44619146209 --allow-candidate-source > "$RUNNER_TEMP/testnet-qualification.txt"
+          cmp "$RUNNER_TEMP/release-qualification.txt" "$RUNNER_TEMP/testnet-qualification.txt"
+          grep -F "Qualified source $source:" "$RUNNER_TEMP/testnet-qualification.txt"
+          if GITHUB_WORKFLOW_SHA="$source" GITHUB_WORKFLOW_REF=nil-studio/oasis7/.github/workflows/release-packages.yml@refs/heads/main \
+            python3 "$verifier" verify --source "$source" --run-id 44619146209 --allow-candidate-source > "$RUNNER_TEMP/rejected-qualification.txt" 2>&1; then
+            echo 'Wrong workflow unexpectedly received Testnet authority' >&2
+            exit 1
+          fi
+          grep -F 'candidate source is only supported by the trusted main Testnet entry' "$RUNNER_TEMP/rejected-qualification.txt"
+          hash=$(cat "$RUNNER_TEMP/release-qualification.txt" "$RUNNER_TEMP/testnet-qualification.txt" "$RUNNER_TEMP/rejected-qualification.txt" | sha256sum)
+          printf 'qualification_sha256=%s\n' "${hash%% *}" >> "$GITHUB_OUTPUT"
+
+  image:
+    if: *scoped
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs: *outputs
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - *checkout
+      - name: Trust checkout for immutable source planning
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+      - *plan
+      - *qualification
+
+  compare:
+    needs: [host, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require byte-identical host and image results
+        shell: bash
+        env:
+          HOST_PLAN: ${{ needs.host.outputs.plan }}
+          IMAGE_PLAN: ${{ needs.image.outputs.plan }}
+          HOST_QUALIFICATION: ${{ needs.host.outputs.qualification }}
+          IMAGE_QUALIFICATION: ${{ needs.image.outputs.qualification }}
+        run: |
+          [[ "$HOST_PLAN" =~ ^[0-9a-f]{64}$ && "$HOST_PLAN" == "$IMAGE_PLAN" ]]
+          [[ "$HOST_QUALIFICATION" =~ ^[0-9a-f]{64}$ && "$HOST_QUALIFICATION" == "$IMAGE_QUALIFICATION" ]]
+          printf 'Plan and summary SHA-256: %s\nHistorical qualification SHA-256: %s\n' "$HOST_PLAN" "$HOST_QUALIFICATION"
