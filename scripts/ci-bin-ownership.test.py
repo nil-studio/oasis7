@@ -197,6 +197,19 @@ class Ownership(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 require_materialized_native_archive(root)
 
+    def test_viewer_wire_telemetry_uses_native_owner_without_replacing_host_archive(self):
+        """Shipping Server/Client have one type identity; archive-bearing World types stay host-owned."""
+        cli = (ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client.rs').read_text()
+        server = (ROOT / 'crates/oasis7_viewer_runtime/src/server.rs').read_text()
+        test_source = (ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/tests.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldEventKind, WorldTime};', cli)
+        self.assertIn('use oasis7_simulator::{PersistError, RunnerMetrics, WorldTime};', server)
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldSnapshot};', cli)
+        self.assertIn('use oasis7::simulator::{RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot};', server)
+        self.assertNotIn('oasis7::simulator::AgentDecisionTrace', cli)
+        self.assertNotIn('oasis7::simulator::RunnerMetrics', cli)
+        self.assertIn('fn native_viewer_trace_metrics_preserve_original_wire_type_identity()', test_source)
+
     def test_chain_composite_mirror_recovery_uses_native_l4_owner(self):
         """Shipping Chain mirror/legacy restore/BFT and original QA share one archive-bearing L4 type."""
         owner = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'

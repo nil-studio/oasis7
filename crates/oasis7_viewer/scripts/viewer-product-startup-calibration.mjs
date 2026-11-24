@@ -1,5 +1,5 @@
 // Exactly three product calibration cases, not20/30 or formal A/B/P6.
-import {createRequire} from 'node:module';
+import {loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -28,8 +28,7 @@ try{summary.hardware.power=execFileSync('pmset',['-g','batt'],{encoding:'utf8'})
 summary.preRegistration={mode:distribution?'local20cold30warm':'three_calibration',casePlan,hardStopMs:distribution?2700000:180000,p95:'nearest rank; no subset/retry; failure ends suite',coreGoalUi:null,physicalFirstFrame:null};
 summary.cacheIsolation={browserProfiles:'cold uses independent fresh private profile/process; warm reopens same profile/origin',httpDelivery:'actual visual distribution no-store',compiledCode:'unknown',osPageCache:'not isolated'};
 const timer=setTimeout(()=>{summary.status='failed';summary.error='registered hard stop; cleanup unproven';try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}finally{process.exit(1);}},distribution?2700000:180000);
-const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES||'/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
-const {chromium}=createRequire(join(modules,'startup-product.cjs'))('playwright');
+const {chromium}=loadPlaywright(import.meta.url);
 let server;
 await withObservationCleanup(async()=>{
  try{

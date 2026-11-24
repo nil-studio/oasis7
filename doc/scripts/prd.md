@@ -80,7 +80,7 @@
   1. Flow-SCR-001: `调用主入口脚本 -> 执行检查/测试 -> 输出结构化结果`
   2. Flow-SCR-002: `CI 触发脚本 -> 失败定位到参数/环境 -> 修复后重跑`
   3. Flow-SCR-003: `常规链路无法复现 -> 触发 fallback 工具 -> 采集诊断证据`
-  4. Flow-SCR-004: `new-task-worktree.sh <module> <task> -> 创建 codex/<module>-<task> 分支和 worktree -> setup；失败保留 -> --resume-setup 补齐缺失步骤`
+  4. Flow-SCR-004: `new-task-worktree.sh <module> <task> -> 创建默认 task/<module>-<task> 分支和 worktree（旧 codex/* 可显式附加或原位恢复） -> setup；失败保留 -> --resume-setup 补齐缺失步骤`
   6B. Flow-SCR-006B: 按需运行 `pr-review-thread-closeout.sh [pr-number] --unresolved-only` 查询线程 → 处理实际反馈 → 显式指定 PR，运行 `pr-review-thread-closeout.sh <pr-number> --resolve-thread <id>` 或 `pr-review-thread-closeout.sh <pr-number> --resolve-all-unresolved` → 回读线程及本次结果。合入前另按开发规范核对当前候选，不以线程数量代替合入判断。
   6C. Flow-SCR-006C（已退役）: 早期 `.pm/**` rebase 冲突辅助流程已随本地 `.pm` 执行器退役；当前仅保留 Git history 参考。
   7. Flow-SCR-007: `确定独立分支与隔离需求 -> 保留已有工作 -> 实施与验证 -> 正常受保护 PR 合入`

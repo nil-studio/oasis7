@@ -26,7 +26,7 @@
 
 ## 最小使用方式
 
-命中规范时开发主 Agent 应主动执行；需要明确派工意图时，可在开发 Codex 中给出以下提示（不是触发本流程的额外前置）：
+命中规范时开发主 Agent 应主动执行；需要明确派工意图时，可在当前 Coding Agent 开发会话中给出以下提示（不是触发本流程的额外前置）：
 
 ```text
 按 doc/testing/manual/agent-runtime-self-playtest.manual.md，
@@ -39,11 +39,11 @@
 缺依赖、额度或必要工具时停在该边界，不能换旧 Bridge 或另一个模型冒充通过。
 ```
 
-此提示是派工意图，不意味着任何 Codex 版本都具备相同 subagent/GUI 接口；主 Agent 先核对当前工具。显式派工不自动允许新增付费服务或使用用户日常世界。
+此提示是派工意图，不意味着任意 Coding Agent 客户端都具备相同 subagent/GUI 接口；主 Agent 先核对当前工具。显式派工不自动允许新增付费服务或使用用户日常世界。
 
 ## 执行顺序
 
-1. **范围**：读 diff 和相关 AC，固定 targeted 或 ac_ext_010_full 声明及必需 obligation，选用下面的最小场景；沿用当前开发任务/PR 的授权，不创建通用流程登记。选择 `attached_codex_subagent` 或 `supervised_runtime`，记录真正受测 Runtime，避免双重启动 Codex。
+1. **范围**：读 diff 和相关 AC，固定 targeted 或 ac_ext_010_full 声明及必需 obligation，选用下面的最小场景；沿用当前开发任务/PR 的授权，不创建通用流程登记。仅在已证明支持时选择 `attached_codex_subagent`（Codex 专项 profile）或 `supervised_runtime`，记录真正受测 Runtime；其他客户端没有等价受支持 profile 时保留 blocked/降级，避免双重启动模型或跨客户端代签。
 2. **便宜前置**：按现有 `testing-manual.md` 执行受影响包的单元/合同测试；不跳过普通 CI，也不为了文档变更跑模型。候选准备可用当前仓库真实的 bundle/playtest 入口，必须先读其说明和实现，确认可指向本轮私有 fixture。不发明通用 spawn 命令或未实现的 autonomous runner 参数。
 3. **固定候选和许可**：按[来源到场景核对](#source-scene-check)保存精确条款来源、source/base/实际 tested-tree、未提交 patch hash（有则必记）、build/Skill hash、API/driver 版本、世界信任/branch/root/revision/初始条件、执行模式、test tier、evidence level、总预算和 deadline；报告不能只写 main/latest。测试期间源码或 build 改变则结束当前尝试并新建 attempt。
 4. **预检与环境**：确认玩家 Skill 是被测版本交付的同一份；旧 `site/skills/oasis7.md` 不自动替代新路径。验证真实 API/权限、world identity、独占进程/端口/存储、适用执行器能力和最小合法身份/准入前置；既有委托场景验证有效 executor，AC-EXT-018 冷入场则不得预先创建 Agent/task/goal/执行 grant，executor 的合法绑定必须由待测流程完成。测试目录不是生产目录的 symlink。所有模型、GUI 与下游工具均已获准。localhost 可能转发远程生产，须验证实际世界身份；不复用用户日常世界，先记录本轮自有进程/会话。
@@ -124,7 +124,7 @@
 - Test tier：`test_tier_required`（contract）；`test_tier_full`（live），按[分层矩阵](#selftest-test-tiers)分别执行和记录，不能相互代签。
 
 - 准备：固定候选、一个 tester、可选 observer 和受限输入；另准备缺派工工具、继承源码上下文和 build 中途变化的负例。
-- 执行：先 dry preflight，再在真实支持的 Codex 中创建子任务、读 Skill、返回报告；观察主 Agent 是否传入内部解法。
+- 执行：先 dry preflight，再在实际支持 subagent 的获准 Coding Agent 客户端中创建子任务、读 Skill、返回报告；观察主 Agent 是否传入内部解法。
 - 判定：真实子会话/输入/候选可核对；不具备能力或隔离时如实降级，不用主 Agent 文本代签。候选变化后旧报告只归属原版本。
 - 层：确定性 contract 先普通 CI；live 必须有真实 subagent 调度证据且在已有授权内执行。
 

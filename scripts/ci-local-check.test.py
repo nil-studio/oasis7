@@ -1196,7 +1196,7 @@ class WorkflowAdvisoryTests(GitFixture):
     def test_advisory_reminders_cover_main_branch_micro_pr_dirty_and_guideline_without_blocking(self):
         self.git('branch', '-M', 'main')
         self.install_policy(real=True)
-        self.git('switch', '-c', 'codex/micro-slice')
+        self.git('switch', '-c', 'task/micro-slice')
         self.write('crates/sample/src/lib.rs', 'pub fn value() -> usize { 2 }\n')
         self.write('doc/notes.md', '# doc sync\n')
         self.commit()
@@ -1213,7 +1213,7 @@ class WorkflowAdvisoryTests(GitFixture):
         self.assertEqual(report['status'], 'planned')
         advisory = report['workflow_advisory']
         self.assertTrue(advisory['advisory_only'])
-        self.assertEqual(advisory['branch'], 'codex/micro-slice')
+        self.assertEqual(advisory['branch'], 'task/micro-slice')
         self.assertFalse(advisory['on_main_branch'])
         self.assertEqual((advisory['code_file_count'], advisory['doc_file_count'], advisory['commits_ahead']), (2, 1, 1))
         self.assertFalse(advisory['exceeds_code_task_guideline'])
