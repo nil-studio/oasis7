@@ -4982,11 +4982,15 @@ run_cargo() {
             if group == 'workspace_support':
                 self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
                 continue
+            preflight_groups = {
+                'rust_baseline', 'node', 'distfs', 'net', 'launcher_web', 'scenario_regression',
+            }
             allowed = (
                 ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]',
                  'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]')
                 if group == 'oasis7_required'
-                else (('needs: select', 'needs: [select, fast-preflight]') if group == 'rust_baseline' else ('needs: select',))
+                else (('needs: select', 'needs: [select, fast-preflight]')
+                      if group in preflight_groups else ('needs: select',))
             )
             self.assertTrue(any(dep in job for dep in allowed), (group, allowed))
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
