@@ -135,7 +135,6 @@ mod canonical_contract_owner_tests {
 }
 
 // Re-export all public types
-pub use oasis7_agent_api::CapabilityInvocationContext;
 pub use agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionExplanationV1, AgentDecisionTrace,
     AgentQuery, AgentQueryResult, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
@@ -188,6 +187,7 @@ pub use decision_provider::{
     ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage, ProviderTraceEnvelope,
     ProviderTranscriptEntry, golden_decision_provider_fixtures,
 };
+pub use oasis7_agent_api::CapabilityInvocationContext;
 pub use oasis7_agent_api::intent_summary::{
     AGENT_INTENT_SUMMARY_MAX_CHARS, AGENT_INTENT_SUMMARY_SCHEMA_VERSION,
     AUTHORITATIVE_AGENT_INTENT_SOURCES, AgentIntentKindV1, AgentIntentSourceV1,
