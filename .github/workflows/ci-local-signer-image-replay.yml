@@ -1,0 +1,154 @@
+# Replay of c0eddfbb3b25ec29f23344367a645ed7a46f5342 signer steps.
+name: Local signer non-root image replay
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/6832-signer-image-probe-base]
+cache-mode: read
+permissions: {}
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  PYTHONDONTWRITEBYTECODE: "1"
+  # Configured repository cache budget: 20 GB (decimal bytes).
+  # GitHub cache limits and billing budgets must also allow this capacity.
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
+  CARGO_NET_RETRY: 10
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  RUST_TOOLCHAIN: 1.96.0
+  TRUNK_VERSION: 0.21.14
+  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+  OASIS7_WASM_TARGET: wasm32-unknown-unknown
+  OASIS7_WASM_BUILD_STD: "1"
+  OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+jobs:
+  signer-image:
+    if: github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/6832-signer-image-probe-head'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    cache-mode: read
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 633b21e762e68d403dbf75cd49c3b526b9d1ef65
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: .github/actions/setup-linux-mold
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-node-mold
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 633b21e762e68d403dbf75cd49c3b526b9d1ef65
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Verify frozen tested source and recreate the signer-only plan projection
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "633b21e762e68d403dbf75cd49c3b526b9d1ef65"
+          printf '%s\n' '{"scope":"targeted","groups":["baseline","command_center","fleet_health","macos_package_contract","packaging_contracts","rust_baseline","workspace_support"],"execution_profile":"pr-fast","fast_plan_version":1,"workspace_support_profile_version":1,"workspace_support_profiles":["oasis7_local_signer"],"workspace_support_partition_version":1,"workspace_support_partitions":["other"],"workspace_support_direct_gate_version":2,"test_policy_changed":false}' > "$RUNNER_TEMP/selection.json"
+          echo 'This isolated replay uses the protected-main test source and the measured signer-only selection fields. It produces no required-gate result.'
+      - name: Verify the non-root signer execution plan
+        env:
+          SELECTION_SHA256: e76f29275ede8d4968f83ecf22ea616096c12e1ca13639cd180b47e2201818d0
+        run: |
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = 1001:1001
+          python3 - "$RUNNER_TEMP/selection.json" "$SELECTION_SHA256" <<'PYTHON'
+          import hashlib, json, sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_bytes()
+          if hashlib.sha256(raw).hexdigest() != sys.argv[2]:
+              raise SystemExit('non-root signer lane received a different selection artifact')
+          plan = json.loads(raw)
+          if plan.get('scope') != 'targeted' or plan.get('workspace_support_profiles') != ['oasis7_local_signer']:
+              raise SystemExit('non-root signer lane requires an exact targeted signer selection')
+          PYTHON
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Verify the preinstalled Rust toolchains
+        env:
+          SUPPORT_EXECUTION: signer-image
+        run: |
+          set -euo pipefail
+          if [[ "$SUPPORT_EXECUTION" == image ]]; then
+            zstd --version
+            ps -o pid= -p "$$"
+          fi
+          rustc +"$RUST_TOOLCHAIN" -vV
+          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
+          cargo +"$RUST_TOOLCHAIN" clippy --version
+          cargo +"$RUST_TOOLCHAIN" fmt --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+      - name: Stabilize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        id: dependency-cache
+        with:
+          save-if: false
+          shared-key: ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
+      - name: Confirm ordinary UID cannot read a mode 000 file
+        run: |
+          set -euo pipefail
+          file="$(mktemp "$RUNNER_TEMP/signer-permission.XXXXXX")"
+          trap 'rm -f "$file"' EXIT
+          chmod 000 "$file"
+          python3 -I - "$file" <<'PYTHON'
+          import sys
+          try:
+              open(sys.argv[1], 'rb').close()
+          except PermissionError:
+              print('kernel denied read at mode 000')
+          else:
+              raise SystemExit('non-root execution unexpectedly bypassed file mode')
+          PYTHON
+      - name: Report the dependency restore result
+        env:
+          CACHE_HIT: ${{ steps.dependency-cache.outputs.cache-hit }}
+          CACHE_MATCHED_KEY: ${{ steps.dependency-cache.outputs.cache-matched-key }}
+        run: |
+          printf 'cache-hit=%s\ncache-matched-key=%s\n' "$CACHE_HIT" "$CACHE_MATCHED_KEY"
+      - name: Execute selected group
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          SUPPORT_PARTITION: other
+          SUPPORT_EXECUTION: signer-image
+        run: |
+          source scripts/ci-tests.sh
+          if [[ "$SUPPORT_EXECUTION" == image ]]; then
+            export PATH="$PATH:${CARGO_HOME:-$HOME/.cargo}/bin"
+            if [[ -n "${WORKER_TOOL_ROOT:-}" ]]; then
+              export PATH="$WORKER_TOOL_ROOT/bin:$PATH"
+            fi
+          fi
+          if [[ "$SIGNER_IMAGE" == true ]]; then
+            # Reuse the original host profile filter without host provisioning.
+            SUPPORT_EXECUTION=host
+          fi
+          support_capacity_snapshot after-native-libraries
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION" --support-execution "$SUPPORT_EXECUTION"
