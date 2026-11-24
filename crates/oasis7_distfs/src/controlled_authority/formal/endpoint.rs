@@ -55,6 +55,12 @@ pub use durable_set_provider::{
 };
 #[path = "endpoint_recovery.rs"]
 mod native_recovery;
+#[path = "endpoint_recovery_original.rs"]
+mod recovery_original;
+pub use recovery_original::{
+    NATIVE_RECOVERY_ORIGINAL_FILE_LIMIT_V1, VerifiedNativeRecoveryPendingV1,
+    verify_native_recovery_original_legacy_cut,
+};
 #[path = "endpoint_rpc.rs"]
 mod native_rpc;
 #[path = "endpoint_protected.rs"]
