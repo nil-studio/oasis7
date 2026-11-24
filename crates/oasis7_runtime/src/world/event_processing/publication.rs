@@ -10,6 +10,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 #[path = "prepared_state_delta.rs"]
 mod prepared_state_delta;
 pub(super) use prepared_state_delta::PreparedEventStateDelta;
+#[path = "../../domains/industrial/staged_publication.rs"]
+mod staged_industrial;
+use staged_industrial::StagedIndustrialPublication;
 
 struct PreparedEventPublication {
     event: WorldEvent,
@@ -109,6 +112,12 @@ impl World {
         }
         if let WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { .. }) = &body {
             self.validate_world_rule_current_actor(event)?;
+        }
+        // Industrial writes use their original sparse state reducers and the
+        // shared publication preflight, but install only through the root
+        // staged transition boundary.
+        if let Some(transition) = StagedIndustrialPublication::from_body(&body) {
+            return self.append_staged_industrial_event(transition, caused_by);
         }
         let state_delta = match &body {
             WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { world_binding, .. }) => {
@@ -230,14 +239,6 @@ impl World {
             ) => Some(PreparedEventStateDelta::AgentClaimLightLifecycle(
                 PreparedAgentClaimLightLifecycle::prepare(&self.state, event, self.state.time)?,
             )),
-            WorldEventBody::Domain(event @ (DomainEvent::AgentLocationAuthorityUpdated { .. }
-                | DomainEvent::LocationAnchorUpdated { .. }
-                | DomainEvent::FactorySiteAuthorityUpdated { .. }
-                | DomainEvent::FactoryConstructionPowerProfileUpdated { .. }
-                | DomainEvent::ProductValidationRecorded { .. }
-                | DomainEvent::ProductValidationAttemptStarted { .. })) => Some(PreparedEventStateDelta::IndustryHistory(
-                    crate::state::industry_history_transition::PreparedIndustryHistoryEvent::prepare(&self.state, event, self.state.time)?,
-                )),
             WorldEventBody::Domain(event @ (DomainEvent::AgentClaimed { .. } | DomainEvent::AgentClaimUpkeepSettled { .. })) => Some(PreparedEventStateDelta::AgentClaimEconomic(Box::new(super::super::agent_claim_economic_publication::PreparedAgentClaimEconomic::prepare(&self.state,event,self.state.time)?))),
             WorldEventBody::Domain(event @ (DomainEvent::AgentClaimReleased { .. } | DomainEvent::AgentClaimReclaimed { .. })) => Some(PreparedEventStateDelta::AgentClaimTerminal(super::super::agent_claim_terminal_publication::PreparedAgentClaimTerminal::prepare(&self.state,event,self.state.time)?)),
             WorldEventBody::Domain(event @ (DomainEvent::EconomicContractOpened { .. } | DomainEvent::EconomicContractAccepted { .. } | DomainEvent::EconomicContractSettled { .. } | DomainEvent::EconomicContractExpired { .. })) => Some(PreparedEventStateDelta::EconomicContract(super::super::economic_contract_publication::PreparedEconomicContractEvent::prepare(&self.state,event,self.state.time)?)),
@@ -266,29 +267,6 @@ impl World {
                 event: event.clone(),
                 agent_id: requester_agent_id.clone(),
             }),
-            WorldEventBody::Domain(
-                event @ (DomainEvent::LogisticsRouteRegistered { .. }
-                | DomainEvent::LogisticsRouteAvailabilityChanged { .. }
-                | DomainEvent::MaterialTransferred { .. }
-                | DomainEvent::MaterialTransitStarted { .. }
-                | DomainEvent::MaterialTransitCompleted { .. }
-                | DomainEvent::FactoryBuildStarted { .. }
-                | DomainEvent::FactoryBuilt { .. }
-                | DomainEvent::FactoryDurabilityChanged { .. }
-                | DomainEvent::FactoryMaintained { .. }
-                | DomainEvent::FactoryRecycled { .. }
-                | DomainEvent::RecipeStarted { .. }
-                | DomainEvent::RecipeCompleted { .. }
-                | DomainEvent::FactoryProductionBlocked { .. }
-                | DomainEvent::FactoryProductionResumed { .. }
-                | DomainEvent::FactoryProductionPaused { .. }),
-            ) => Some(PreparedEventStateDelta::Industry(
-                crate::state::industry_transition::PreparedIndustryEvent::prepare(
-                    &self.state,
-                    event,
-                    self.state.time,
-                )?,
-            )),
             WorldEventBody::ModuleStateUpdated(update) => {
                 Some(PreparedEventStateDelta::ModuleStateUpdated {
                     module_states: BTreeMap::from([(
