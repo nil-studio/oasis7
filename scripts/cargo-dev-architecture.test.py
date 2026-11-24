@@ -92,6 +92,26 @@ class RepositoryUpstreams(unittest.TestCase):
 
 
 
+    def test_chain_umbrella_retirement_rule_is_registered_in_all_relevant_profiles(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
+        selected = [rule for rule in rules if rule['key'] == 'chain-runtime-umbrella-retirement']
+        self.assertEqual(len(selected), 1)
+        rule = selected[0]
+        self.assertEqual([root['name'] for root in rule['roots']], ['oasis7_chain_runtime'])
+        self.assertEqual({entry['name'] for entry in rule['forbidden']}, {'oasis7'})
+        self.assertEqual(set(rule['declaration_kinds']), {'normal', 'build', 'dev'})
+        self.assertEqual(set(rule['test_kinds']), {'normal', 'build', 'dev'})
+        self.assertEqual(rule['exceptions'], [])
+        profiles = {p['id']: p for p in rule['profiles']}
+        self.assertEqual(set(rule['required_profiles']),
+                         {'default', 'lightweight', 'test_tier_required', 'test_tier_full'})
+        self.assertEqual(set(profiles), set(rule['required_profiles']))
+        self.assertEqual(profiles['test_tier_required']['features'], ['test_tier_required'])
+        self.assertEqual(profiles['test_tier_full']['features'], ['test_tier_full'])
+        self.assertTrue(profiles['lightweight']['default_features'] is False)
+
+
+
 class CargoBoundaries(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='oasis7-architecture-')

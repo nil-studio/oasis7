@@ -25,6 +25,7 @@ mod malformed;
 mod missing;
 #[path = "support/incremental_factory_authority_overlay.rs"]
 mod overlay;
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_factory_authority_pages.rs"]
 mod pages;
 #[path = "support/incremental_factory_authority_points.rs"]

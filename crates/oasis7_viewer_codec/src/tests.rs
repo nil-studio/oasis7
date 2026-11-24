@@ -1,9 +1,6 @@
 use super::*;
-#[cfg(target_arch = "wasm32")]
-use oasis7::simulator::WorldKernel;
-#[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_client_api::viewer_protocol::GameplayActionError;
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_simulator::WorldEventKind;
 
 fn typed_error() -> ViewerResponse {
@@ -17,7 +14,37 @@ fn typed_error() -> ViewerResponse {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[test]
+fn native_archive_owner_retains_exact_original_viewer_response_identity() {
+    use std::any::TypeId;
+    type HostWire = oasis7_proto::viewer::ViewerResponse<
+        oasis7_runtime_host::simulator_archive::persist::WorldSnapshot,
+        oasis7_runtime_host::simulator_archive::archive::WorldEvent,
+        oasis7_simulator::AgentDecisionTrace,
+        oasis7_simulator::RunnerMetrics,
+        oasis7_simulator::WorldTime,
+    >;
+    assert_eq!(
+        TypeId::of::<WorldKernel>(),
+        TypeId::of::<oasis7::simulator::WorldKernel>()
+    );
+    assert_eq!(
+        TypeId::of::<WorldSnapshot>(),
+        TypeId::of::<oasis7::simulator::WorldSnapshot>()
+    );
+    assert_eq!(
+        TypeId::of::<WorldEvent>(),
+        TypeId::of::<oasis7::simulator::WorldEvent>()
+    );
+    assert_eq!(TypeId::of::<ViewerResponse>(), TypeId::of::<HostWire>());
+    let original: oasis7::simulator::WorldSnapshot = WorldKernel::new().snapshot();
+    let current: WorldSnapshot = original.clone();
+    assert_eq!(
+        serde_json::to_vec(&current).expect("native archive JSON"),
+        serde_json::to_vec(&original).expect("original archive JSON")
+    );
+}
+
 #[test]
 fn canonical_simulator_trace_metrics_and_world_time_keep_legacy_viewer_wire_type() {
     // Native L2's telemetry and decision grammar are the exact old public
@@ -42,25 +69,6 @@ fn canonical_simulator_trace_metrics_and_world_time_keep_legacy_viewer_wire_type
         response_to_json(&legacy).unwrap(),
         response_to_json(&typed_error()).unwrap()
     );
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn native_composite_archive_and_simulator_values_keep_viewer_wire_type() {
-    type NativeResponse = oasis7_proto::viewer::ViewerResponse<
-        oasis7_runtime_host::simulator_archive::persist::WorldSnapshot,
-        oasis7_runtime_host::simulator_archive::archive::WorldEvent,
-        oasis7_simulator::AgentDecisionTrace,
-        oasis7_simulator::RunnerMetrics,
-        oasis7_simulator::WorldTime,
-    >;
-    let native: NativeResponse = ViewerResponse::Snapshot {
-        snapshot: WorldKernel::new().snapshot(),
-    };
-    let bytes = serde_json::to_vec(&native).unwrap();
-    let decoded: ViewerResponse = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(response_to_json(&decoded).unwrap().as_bytes(), bytes);
-    assert_eq!(native, decoded);
 }
 
 #[test]

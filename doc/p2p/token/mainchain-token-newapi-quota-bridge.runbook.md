@@ -117,7 +117,7 @@ env -u RUSTC_WRAPPER cargo run -p oasis7_newapi_bridge_service --bin oasis7_newa
   - 公钥或公钥 fingerprint 用作 `newapi_user_ref`，例如 `pk_<fingerprint>`。
   - `oasis_sender_account_id` 使用同一公钥/account id，作为链侧转账来源。
 - 不要从邮箱确定性派生私钥；邮箱只是 human/audit root，链上私钥必须由安全随机源生成。
-- 本地测试密钥材料模板记录在 `~/Documents/keys/test_keys.txt`；公开文档只记录字段形状和假邮箱，不记录真实私钥。
+- 本地测试密钥文件由操作者通过 `OASIS7_TEST_KEYS_FILE` 指定，不预设目录；公开文档只记录字段形状和假邮箱，不记录真实私钥。
 
 建议字段形状：
 
@@ -235,7 +235,7 @@ feedback accepted；该结果仍不是 Runtime committed receipt。上述错误�
 
 ### 6.7 全链路测试步骤矩阵
 
-测试前从 `~/Documents/keys/test_keys.txt` 选择一组 persona，把对应字段临时导出到 operator shell。不要把该文件内容贴进 issue、PR、聊天、CI log 或 public terminal recording。
+测试前将 `OASIS7_TEST_KEYS_FILE` 指向受控的本地测试密钥文件，并从中选择一组 persona，把对应字段临时导出到 operator shell。不要把该文件内容贴进 issue、PR、聊天、CI log 或 public terminal recording。
 
 ```bash
 export BRIDGE_BASE_URL=http://127.0.0.1:5852
@@ -355,7 +355,7 @@ export TEST_ROUTE_EXPIRES_AT_UNIX_MS="$(printf '%s' "${ROUTE_RESPONSE}" | jq -r 
 ```bash
 env -u RUSTC_WRAPPER cargo run -p oasis7_protocol_tools --bin oasis7_chain_transfer_submit_client -- \
   submit \
-  --keys-file ~/Documents/keys/test_keys.txt \
+  --keys-file "${OASIS7_TEST_KEYS_FILE:?先指定受控测试密钥文件}" \
   --persona happy_path \
   --chain-base-url "${CHAIN_BASE_URL}" \
   --to-account-id "${TEST_DEPOSIT_ACCOUNT_ID}" \

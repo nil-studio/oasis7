@@ -17,7 +17,6 @@ use super::protocol::{
     viewer_protocol_supports_revoke_social_fact_quote,
 };
 use crate::geometry::GeoPos;
-use crate::observability::emit_stderr_or_event;
 use crate::runtime::{
     Action as RuntimeAction, DomainEvent as RuntimeDomainEvent, Journal as RuntimeJournal,
     ReleaseSecurityPolicy, Snapshot as RuntimeSnapshot, World as RuntimeWorld,
@@ -27,6 +26,7 @@ use crate::simulator::{
     AgentDecisionTrace, PlayerGameplayRecentFeedback, RunnerMetrics, WorldEvent, WorldSnapshot,
 };
 use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_observability::emit_stderr_or_event;
 #[cfg(test)]
 use oasis7_simulator::WorldInitConfig;
 use oasis7_simulator::{

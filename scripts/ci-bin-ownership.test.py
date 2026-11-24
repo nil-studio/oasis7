@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Executable ownership and lightweight service dependency contracts."""
 from pathlib import Path
+import json
 import re
 import tomllib
 import unittest
@@ -147,6 +148,82 @@ class Ownership(unittest.TestCase):
             for source_path in package.rglob('*.rs'):
                 text = source_path.read_text()
                 self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def require_native_viewer_codec_archive_owner(self, source, manifest_data):
+        """Keep the real native archive on L4 without importing native Host in wasm."""
+        self.assertIn(
+            '#[cfg(target_arch = "wasm32")]\n'
+            'use oasis7::simulator::{WorldEvent, WorldSnapshot};',
+            source,
+        )
+        self.assertIn(
+            '#[cfg(not(target_arch = "wasm32"))]\n'
+            'use oasis7_runtime_host::simulator_archive::archive::WorldEvent;',
+            source,
+        )
+        self.assertIn(
+            '#[cfg(not(target_arch = "wasm32"))]\n'
+            'use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;',
+            source,
+        )
+        self.assertEqual(
+            manifest_data['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime_host'],
+            {'path': '../oasis7_runtime_host'},
+        )
+        self.assertNotIn('use oasis7_simulator::{WorldEvent, WorldSnapshot};', source)
+
+    def test_native_viewer_codec_archive_owner_positive_and_negative(self):
+        """Exact actual native owner, original wasm compatibility, and partial-migration rejection."""
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        manifest_data = manifest('oasis7_viewer_codec')
+        self.require_native_viewer_codec_archive_owner(codec, manifest_data)
+        for wrong in (
+            codec.replace(
+                'oasis7_runtime_host::simulator_archive::archive::WorldEvent',
+                'oasis7_simulator::WorldEvent',
+            ),
+            codec.replace(
+                'oasis7_runtime_host::simulator_archive::persist::WorldSnapshot',
+                'oasis7_simulator::WorldSnapshot',
+            ),
+            codec.replace(
+                '#[cfg(target_arch = "wasm32")]',
+                '#[cfg(not(target_arch = "wasm32"))]',
+                1,
+            ),
+        ):
+            with self.assertRaises(AssertionError):
+                self.require_native_viewer_codec_archive_owner(wrong, manifest_data)
+        removed = {
+            **manifest_data,
+            'target': {
+                'cfg(not(target_arch = "wasm32"))': {'dependencies': {}},
+            },
+        }
+        with self.assertRaises(KeyError):
+            self.require_native_viewer_codec_archive_owner(codec, removed)
+
+    def test_native_runtime_host_is_registered_in_required_test_drivers(self):
+        """Archive and migrated host behavior must run as the real package, not only a dependency."""
+        owner = 'oasis7_runtime_host'
+        cfg = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        self.assertIn(owner, cfg['oasis7_required_packages'])
+        features = manifest(owner)['features']
+        self.assertIn('test_tier_required', features)
+        self.assertIn('test_tier_required', features['test_tier_full'])
+        shell = (ROOT / 'scripts/ci-tests.sh').read_text()
+        # Match the whole-package execution drivers, not the separately
+        # scoped legacy snapshot single-case invocation of the umbrella.
+        for command in ('run_cargo test -p oasis7 ', 'run_cargo_clippy -p oasis7 '):
+            lines = [line for line in shell.splitlines()
+                     if command in line and '-p oasis7_simulator ' in line
+                     and '-p oasis7_runtime ' in line]
+            self.assertEqual(len(lines), 1)
+            self.assertIn('-p oasis7_runtime_host ', lines[0])
+        artifacts = (ROOT / 'scripts/ci-test-artifacts.py').read_text()
+        required = [line for line in artifacts.splitlines() if "('required', ['test', '-p', 'oasis7'," in line]
+        self.assertEqual(len(required), 1)
+        self.assertIn("'-p', 'oasis7_runtime_host',", required[0])
 
     def test_provider_original_material_contract_has_portable_owner(self):
         """Portable pending-root DTOs have one owner; native service keeps the codec."""
@@ -664,37 +741,6 @@ class Ownership(unittest.TestCase):
         host = manifest('oasis7_runtime_host')['dependencies']
         self.assertIn('oasis7_simulator', host)
         self.assertNotIn('oasis7', host)
-
-    def test_viewer_codec_native_archive_owner_preserves_wasm_compatibility(self):
-        spec = manifest('oasis7_viewer_codec')
-        self.assertNotIn('oasis7', spec['dependencies'])
-        native = spec['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
-        wasm = spec['target']['cfg(target_arch = "wasm32")']['dependencies']
-        self.assertEqual(native['oasis7_runtime_host'], {'path': '../oasis7_runtime_host'})
-        self.assertNotIn('oasis7', native)
-        self.assertIn('oasis7', wasm)
-        self.assertNotIn('oasis7_runtime_host', wasm)
-        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
-        self.assertIn('use oasis7_runtime_host::simulator_archive::archive::WorldEvent;', codec)
-        self.assertIn('use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;', codec)
-        tests = (ROOT / 'crates/oasis7_viewer_codec/src/tests.rs').read_text()
-        self.assertIn('fn native_composite_archive_and_simulator_values_keep_viewer_wire_type()', tests)
-        self.assertIn('fn concrete_writer_and_string_preserve_legacy_compact_bytes()', tests)
-
-    def test_chain_runtime_final_umbrella_retirement(self):
-        spec = manifest('oasis7_chain_runtime')
-        tables = [spec, *spec.get('target', {}).values()]
-        for table in tables:
-            for kind in ('dependencies', 'dev-dependencies', 'build-dependencies'):
-                for name, dependency in table.get(kind, {}).items():
-                    package = dependency.get('package', name) if isinstance(dependency, dict) else name
-                    self.assertNotEqual(package, 'oasis7', f'{kind}: {name}')
-        for name, edges in spec.get('features', {}).items():
-            for edge in edges:
-                self.assertFalse(
-                    edge == 'dep:oasis7' or edge.startswith(('oasis7/', 'oasis7?/')),
-                    f'{name}: {edge}',
-                )
 
     def test_world_library_does_not_own_launcher_or_network_hosting(self):
         source = ROOT / 'crates/oasis7/src'

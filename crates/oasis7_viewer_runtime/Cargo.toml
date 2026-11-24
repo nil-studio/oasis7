@@ -51,7 +51,6 @@ test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 
 [dev-dependencies]
-reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false, features = ["test_tier_required"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

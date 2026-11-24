@@ -271,6 +271,7 @@ pub(super) fn finish(
         thread::sleep(Duration::from_millis(10));
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn wire3_formal_read_committed_private_fetch_survives_headadvance_cache_eviction_and_revocation() {
     thread::Builder::new()

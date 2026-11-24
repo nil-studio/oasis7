@@ -6,6 +6,7 @@ rust-version = "1.85"
 license = "MIT"
 
 [dependencies]
+oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
 oasis7_simulator = { path = "../oasis7_simulator" }
@@ -14,9 +15,6 @@ serde_json = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oasis7_runtime_host = { path = "../oasis7_runtime_host" }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false }
 
 [features]
 default = []
