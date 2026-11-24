@@ -27,6 +27,7153 @@ def manifest(package):
     return tomllib.loads((ROOT / 'crates' / package / 'Cargo.toml').read_text())
 
 
+def require_materialized_native_archive(root):
+    """Fail closed on declaration-only Host extraction or unselected facades."""
+    native = root / 'crates/oasis7_runtime_host/src/simulator_archive'
+    facade = root / 'crates/oasis7/src/simulator'
+
+    def require(path, patterns):
+        source = path.read_text()
+        for pattern in patterns:
+            if re.search(pattern, source, flags=re.MULTILINE) is None:
+                raise AssertionError(f'missing real archive owner/wiring: {path}: {pattern}')
+        return source
+
+    require(native / 'mod.rs', (
+        r'^pub mod archive;
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_incomplete_composite_host_migration_cannot_pass_trusted_gate(self):
+        """An empty producer and unused facade must not unlock new Host deps."""
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            native = root / 'crates/oasis7_runtime_host/src/simulator_archive'
+            facade = root / 'crates/oasis7/src/simulator'
+            (native / 'kernel_host').mkdir(parents=True)
+            facade.mkdir(parents=True)
+            (native / 'mod.rs').write_text(
+                'pub mod archive;\npub mod kernel_host;\npub mod persist;\n')
+            for name, typ in (
+                ('kernel_host.rs', 'WorldKernel'),
+                ('persist.rs', 'WorldSnapshot'),
+                ('archive.rs', 'WorldEvent'),
+            ):
+                (native / name).write_text(f'pub struct {typ} {{}}\n')
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                (native / 'kernel_host' / name).write_text('')
+            for name, module in (
+                ('archive_host_facade.rs', 'archive'),
+                ('persist_host_facade.rs', 'persist'),
+                ('kernel_host_host_facade.rs', 'kernel_host'),
+            ):
+                (facade / name).write_text(
+                    f'pub use oasis7_runtime_host::simulator_archive::{module}::*;\n')
+            # Merely mentioning both cfg and all three file names must not
+            # count as real native selection. Legacy remains the active owner.
+            (facade / 'mod.rs').write_text(
+                '#[cfg(target_arch = "wasm32")]\n'
+                'pub mod archive;\npub(crate) mod persist;\nmod kernel_host;\n'
+                '// archive_host_facade.rs persist_host_facade.rs kernel_host_host_facade.rs\n')
+            with self.assertRaisesRegex(AssertionError, 'real archive owner/wiring|not selected'):
+                require_materialized_native_archive(root)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # The trusted BASE verifies real implementation and module
+            # selection, not just source-file names or empty type declarations.
+            self.assertIn('pub mod simulator_archive;', source)
+            require_materialized_native_archive(ROOT)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+, r'^pub mod kernel_host;
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+, r'^pub mod persist;
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+    ))
+    require(native / 'kernel_host.rs', (
+        r'^pub struct WorldKernel \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^\s*kernel: NativeKernel,',
+        r'^\s*runtime_events: .*RuntimeWorldEvent',
+        r'^\s*archive_origin: .*ArchiveOrigin',
+        r'^impl WorldKernel \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^\s*fn assert_journal_sidecar\(',
+        r'^\s*pub fn snapshot\(',
+        r'^\s*pub fn journal_snapshot\(',
+        r'^\s*pub fn replay_from_snapshot\(',
+        r'^\s*pub fn save_to_dir\(',
+        r'^\s*pub fn load_from_dir\(',
+    ))
+    require(native / 'persist.rs', (
+        r'^pub struct WorldSnapshot \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^pub struct WorldJournal \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^\s*pub runtime_snapshot: Option<RuntimeSnapshot>,',
+        r'^\s*pub player_gameplay: Option<PlayerGameplaySnapshot>,',
+        r'^\s*pub chain_resource_manifest: ChainResourceManifest,',
+        r'^impl WorldSnapshot \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^impl WorldJournal \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+    ))
+    require(native / 'archive.rs', (
+        r'^pub struct WorldEvent \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^\s*pub runtime_event: Option<RuntimeWorldEvent>,',
+        r'^pub struct WorldSnapshotExtensions \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^impl WorldSnapshot \{
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^\s*pub fn into_kernel_parts\(',
+        r'^\s*pub fn from_kernel_parts\(',
+    ))
+    for name, patterns in (
+        ('archive_origin.rs', (r'^\s*struct ArchiveOrigin \{',)),
+        ('codec.rs', (r'^impl Serialize for WorldKernel \{',)),
+        ('forwarding.rs', (r'^impl WorldKernel \{', r'self\.kernel\.set_module_source_compiler')),
+        ('journal_view.rs', (r'^pub struct WorldJournalView',)),
+    ):
+        require(native / 'kernel_host' / name, patterns)
+
+    actual = require(facade / 'mod.rs', (
+        r'^#\[cfg\(target_arch = "wasm32"\)\]
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+    ))
+    for name, module, visibility in (
+        ('archive_host_facade.rs', 'archive', 'pub '),
+        ('persist_host_facade.rs', 'persist', 'pub\(crate\) '),
+        ('kernel_host_host_facade.rs', 'kernel_host', ''),
+    ):
+        expected = (r'#\[cfg\(not\(target_arch = "wasm32"\)\)\]\s*'
+                    + re.escape(f'#[path = "{name}"]')
+                    + r'\s*' + visibility + r'mod ' + module + r';')
+        if re.search(expected, actual) is None:
+            raise AssertionError(f'native owner facade not selected: {module}')
+        legacy = (r'#\[cfg\(target_arch = "wasm32"\)\]\s*'
+                  + visibility + r'mod ' + module + r';')
+        if re.search(legacy, actual) is None:
+            raise AssertionError(f'wasm32 original archive path removed: {module}')
+        require(facade / name, (
+            r'^pub use oasis7_runtime_host::simulator_archive::' + module + r'::\*;
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        ))
+    require(facade / 'archive_host_facade.rs', (
+        r'^#\[path = "archive/tests.rs"\]
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+        r'^#\[path = "archive/retention_tests.rs"\]
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
+    def test_native_viewer_value_types_and_retired_service_consumers(self):
+        """Seal native Service consumers, preserve the composite historical kernel."""
+        deps = manifest('oasis7_viewer_codec')['dependencies']
+        self.assertEqual(deps['oasis7_simulator'], {'path': '../oasis7_simulator'})
+        codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
+        self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};', codec)
+        self.assertNotIn('oasis7::simulator::WorldTime', codec)
+        for relative in (
+            'crates/oasis7_viewer_codec/examples/codec_cost.rs',
+            'crates/oasis7_viewer_runtime/src/lib.rs',
+            'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_fixture.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::GeoPos', source, relative)
+            self.assertIn('oasis7_simulator::GeoPos' if relative.endswith('/lib.rs')
+                          or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
+                          source, relative)
+        example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
+        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
+        # The composite old archive WorldKernel/WorldSnapshot is intentionally
+        # not replaced by the non-equivalent pure Simulator kernel.
+        for package in (ROOT / 'crates').iterdir():
+            if not package.is_dir() or package.name == 'oasis7':
+                continue
+            for source_path in package.rglob('*.rs'):
+                text = source_path.read_text()
+                self.assertNotIn('oasis7::world_service::', text, str(source_path))
+
+    def test_provider_original_material_contract_has_portable_owner(self):
+        """Portable pending-root DTOs have one owner; native service keeps the codec."""
+        native = (ROOT / 'crates/oasis7_formal_protocol/src/provider_material.rs').read_text()
+        service = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::*;', service)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', service)
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_formal_protocol::provider_material::{', old)
+        self.assertNotIn('oasis7_world_service::provider_material', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
+        self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
+        self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
+        self.assertIn('pub(super) use oasis7_world_service::provider_material_codec::*;', codec)
+
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Fail closed for both accepted two-argument host seams during native migration.
+
+        A trusted policy may migrate its producer before the consumers; neither
+        the old nor native adapter may accidentally select the generic
+        three-argument Service interface. Both real Chain consumers must use
+        *one identical* adapter owner with matching executable evidence.
+        """
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        legacy_import = 'use oasis7::world_service::gameplay;'
+        native_import = 'use oasis7_runtime_host::gameplay_service as gameplay;'
+        accepted_owners = set()
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+            legacy = legacy_import in source
+            native = native_import in source
+            self.assertNotEqual(legacy, native, relative)
+            accepted_owners.add('legacy' if legacy else 'native')
+        self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
+
+        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        if 'legacy' in accepted_owners:
+            self.assertIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request',
+                old_bridge,
+            )
+        else:
+            native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
+            self.assertTrue(native_path.is_file())
+            native_owner = native_path.read_text()
+            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            self.assertIn('pub fn authenticated_action(', native_owner)
+            self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action(',
+                native_owner,
+            )
+            self.assertIn(
+                'oasis7_world_service::gameplay::authenticated_action_with_origin(',
+                native_owner,
+            )
+            self.assertIn(
+                'crate::gameplay_actions::build_runtime_action_from_gameplay_request',
+                native_owner,
+            )
+            self.assertNotIn('oasis7::', native_owner)
+            self.assertNotIn('oasis7', manifest('oasis7_runtime_host')['dependencies'])
+            nonce = (
+                ROOT / 'crates/oasis7_chain_runtime/src/host'
+                / 'execution_bridge/tests/qa_conformance/legacy_nonce.rs'
+            ).read_text()
+            self.assertIn(
+                'oasis7_runtime_host::gameplay_service::authenticated_action',
+                nonce,
+            )
+
+    def test_provider_tools_and_viewer_use_native_runtime_owner(self):
+        """Reject old umbrella Runtime imports while preserving host Simulator seams."""
+        native = manifest('oasis7_provider_tools')['dependencies']['oasis7_runtime']
+        viewer = manifest('oasis7_viewer_runtime')['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime']
+        self.assertEqual(viewer, {'path': '../oasis7_runtime', 'default-features': False})
+        self.assertEqual(native, {'path': '../oasis7_runtime', 'default-features': False})
+        for relative in (
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/runtime_bridge.rs',
+            'crates/oasis7_provider_tools/src/bin/oasis7_llm_agent_demo/tests.rs',
+            'crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs',
+        ):
+            source = (ROOT / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+
+    def test_chain_client_native_service_runtime_owner_contracts(self):
+        """Keep the real Gameplay/Starter/Chat consumer paths on their canonical owners."""
+        chain = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        client = ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client'
+        for relative in ('gameplay_submit_api.rs', 'execution_bridge/tests/world_service.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::world_service::', source, relative)
+            self.assertIn('oasis7_world_service::', source, relative)
+        for relative in ('preview_world_init.rs', 'execution_bridge/tests/participant_ordinary_starter.rs'):
+            source = (chain / relative).read_text()
+            self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
+            self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
+        for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
+            source = (client / relative).read_text()
+            self.assertNotIn('oasis7::runtime::', source, relative)
+            self.assertIn('oasis7_runtime::', source, relative)
+        self.assertEqual(
+            manifest('oasis7_client_cli')['dependencies']['oasis7_runtime'],
+            {'path': '../oasis7_runtime', 'default-features': False},
+        )
+
+    def test_core_is_library_and_original_executable_names_survive_once(self):
+        core = manifest('oasis7')
+        self.assertIs(core['package']['autobins'], False)
+        self.assertFalse(core.get('bin', []))
+        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        seen = set()
+        for package, names in OWNERS.items():
+            directory = ROOT / 'crates' / package
+            data = manifest(package)
+            declared = {item['name']: item for item in data.get('bin', [])}
+            if (directory / 'src/main.rs').exists():
+                declared.setdefault(package, {'path': 'src/main.rs'})
+            if data['package'].get('autobins', True):
+                for source in (directory / 'src/bin').glob('*.rs'):
+                    declared.setdefault(source.stem, {'path': str(source.relative_to(directory))})
+            self.assertEqual(set(declared), set(names), package)
+            for name, target in declared.items():
+                self.assertNotIn(name, seen)
+                seen.add(name)
+                self.assertTrue((directory / target['path']).is_file(), name)
+
+    def test_newapi_service_has_no_transitive_world_dependency(self):
+        visited = set()
+        pending = ['oasis7_newapi_bridge_service']
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertNotIn('oasis7', visited)
+        self.assertNotIn('oasis7_node', visited)
+        self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
+
+    def test_client_production_does_not_enable_world_execution_features(self):
+        data = manifest('oasis7_client_cli')
+        self.assertEqual(data['features']['default'], [])
+        self.assertIs(data['dependencies']['oasis7']['default-features'], False)
+        self.assertFalse(data['dependencies']['oasis7'].get('features', []))
+
+    def test_storage_and_protocol_consumers_have_direct_owners(self):
+        for package in ('oasis7_consensus', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            dependencies = dict(data.get('dependencies', {}))
+            for target in data.get('target', {}).values():
+                dependencies.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_cas', dependencies)
+            self.assertNotIn('oasis7_distfs', dependencies)
+        dependencies = manifest('oasis7_formal_protocol')['dependencies']
+        self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
+
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
+    def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
+        pending, visited = ['oasis7_game_client'], set()
+        while pending:
+            package = pending.pop()
+            if package in visited:
+                continue
+            visited.add(package)
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                for name, dependency in table.items():
+                    if isinstance(dependency, dict) and 'path' in dependency:
+                        pending.append(dependency.get('package', name))
+        self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
+
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        # Trusted BASE must recognize both the old owner and precisely the
+        # complete replacement L4 archive owner. Candidate tests alone cannot
+        # revise this inventory: reject every partial or extra dependency set.
+        old_owner = {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api',
+            'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
+        }
+        native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
+        actual = set(host_deps)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
+        self.assertNotIn('oasis7', host_deps)
+        if actual == old_owner:
+            self.assertNotIn('pub mod simulator_archive;', source)
+        else:
+            # A declaration-only migration cannot qualify: the real composite
+            # archive producers, runtime replay and both consumer facades must
+            # all exist in the exact candidate checked by the BASE policy.
+            self.assertIn('pub mod simulator_archive;', source)
+            archive_root = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+            for name, symbol in (
+                ('kernel_host.rs', 'pub struct WorldKernel {'),
+                ('persist.rs', 'pub struct WorldSnapshot {'),
+                ('archive.rs', 'pub struct WorldEvent {'),
+            ):
+                self.assertIn(symbol, (archive_root / name).read_text())
+            for name in ('archive_origin.rs', 'codec.rs', 'forwarding.rs', 'journal_view.rs'):
+                self.assertTrue((archive_root / 'kernel_host' / name).is_file())
+            facade = ROOT / 'crates/oasis7/src/simulator'
+            for name, target in (
+                ('archive_host_facade.rs', 'simulator_archive::archive::*'),
+                ('persist_host_facade.rs', 'simulator_archive::persist::*'),
+                ('kernel_host_host_facade.rs', 'simulator_archive::kernel_host::*'),
+            ):
+                self.assertIn(target, (facade / name).read_text())
+            facade_source = (facade / 'mod.rs').read_text()
+            self.assertIn('#[cfg(target_arch = "wasm32")]', facade_source)
+            for name in ('archive_host_facade.rs', 'persist_host_facade.rs',
+                         'kernel_host_host_facade.rs'):
+                self.assertIn(name, facade_source)
+            self.assertIn('archive/retention_tests.rs',
+                          (facade / 'archive_host_facade.rs').read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
+    def test_world_library_does_not_own_launcher_or_network_hosting(self):
+        source = ROOT / 'crates/oasis7/src'
+        self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
+        for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
+            self.assertFalse((source / 'viewer' / name).exists())
+            self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
+        core = manifest('oasis7')
+        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+        self.assertNotIn('multiaddr', core['dependencies'])
+
+    def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
+        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
+            data = manifest(package)
+            tables = [data.get('dependencies', {})]
+            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+            for table in tables:
+                self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
+
+    def test_no_cross_package_source_borrowing_from_binary_directories(self):
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+            directory = ROOT / 'crates' / package
+            for source in (directory / 'src').rglob('*.rs'):
+                for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
+                    target = (source.parent / relative).resolve()
+                    if '/src/bin/' in str(target):
+                        self.assertTrue(target.is_relative_to(directory), f'{source}: {relative}')
+
+
+if __name__ == '__main__':
+    unittest.main()
+,
+    ))
+
+
 class Ownership(unittest.TestCase):
     def test_chain_and_viewer_observability_use_native_owner(self):
         """The actual process startup and diagnostics must share one native owner."""
