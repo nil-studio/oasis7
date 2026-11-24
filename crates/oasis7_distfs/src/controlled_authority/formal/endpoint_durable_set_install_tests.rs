@@ -77,11 +77,11 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 .policy()
                 .authorized_fencing_resource_bindings[0]
                 .clone();
-            let pp = InstallProvider::new(
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_before_primary_provider\n",
             );
+            let pp = InstallProvider::new(
                 fixture.pdir.clone(),
                 5,
                 resource.clone(),
@@ -89,16 +89,16 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             );
             let next_dir = fixture.path.join("new-replica");
             fs::create_dir(&next_dir).unwrap();
-            let rp = InstallProvider::new(
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_before_replica_provider\n",
-            );next_dir.clone(), 12, resource, None);
-            let mut coordinator = FormalCoordinator::new(
+            );
+            let rp = InstallProvider::new(next_dir.clone(), 12, resource, None);
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_before_coordinator\n",
             );
+            let mut coordinator = FormalCoordinator::new(
                 open(EndpointRole::Primary, pp.clone()),
                 open(EndpointRole::Replica, ro.provider(&fixture)),
                 fixture.authority.clone(),
@@ -174,11 +174,11 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             let boundary = Box::new(
                 verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap(),
             );
-            let transition = verify_normal_durable_set_transition(
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_before_transition_verification\n",
             );
+            let transition = verify_normal_durable_set_transition(
                 &signed_transition,
                 &fixture.authority,
                 &parent,
