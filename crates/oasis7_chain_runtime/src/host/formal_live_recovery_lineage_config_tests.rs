@@ -318,26 +318,31 @@ fn formal_recovery_loader_advanced_cut_and_retained_chain_preserve_c0_and_reject
     let first = boxed_recovery_lineage_stage(|| page(&c0, 71));
     let (first_page, cut) = (&first.0, &first.1);
     let initial_floor = issuer::IssuerAnchorV1::initial(c0.authority().policy()).unwrap();
-    let second = boxed_recovery_lineage_stage(|| permission_evidence_at_cut(
-        cut,
-        &trust.initial_trust,
-        2,
-        [10, 11, 12],
-        [5, 6],
-        None,
-        &initial_floor,
-    ));
+    let second = boxed_recovery_lineage_stage(|| {
+        permission_evidence_at_cut(
+            cut,
+            &trust.initial_trust,
+            2,
+            [10, 11, 12],
+            [5, 6],
+            None,
+            &initial_floor,
+        )
+    });
     let (raw2, verified2) = (&second.0, &second.1);
-    let active2 = boxed_recovery_lineage_stage(|| cut.with_empty_recovery(verified2.recovery()).unwrap());
-    let third = boxed_recovery_lineage_stage(|| permission_evidence_at_cut(
-        &active2,
-        &trust.initial_trust,
-        3,
-        [13, 14, 15],
-        [11, 12],
-        Some(verified2),
-        &raw2.issuer_witness.body.current_anchor,
-    ));
+    let active2 =
+        boxed_recovery_lineage_stage(|| cut.with_empty_recovery(verified2.recovery()).unwrap());
+    let third = boxed_recovery_lineage_stage(|| {
+        permission_evidence_at_cut(
+            &active2,
+            &trust.initial_trust,
+            3,
+            [13, 14, 15],
+            [11, 12],
+            Some(verified2),
+            &raw2.issuer_witness.body.current_anchor,
+        )
+    });
     let (raw3, verified3) = (&third.0, &third.1);
     let directory = fixture.root.0.join("origin-pages");
     fs::create_dir(&directory).unwrap();
@@ -380,20 +385,23 @@ fn formal_recovery_loader_advanced_cut_and_retained_chain_preserve_c0_and_reject
     write_private(&page_path, &fork_page.encode_bytes().unwrap());
     assert!(load().is_err());
     write_private(&page_path, &first_page.encode_bytes().unwrap());
-    let fork2 = boxed_recovery_lineage_stage(|| permission_evidence_at_cut(
-        fork_cut,
-        &trust.initial_trust,
-        2,
-        [10, 11, 12],
-        [5, 6],
-        None,
-        &initial_floor,
-    ).0);
-    let mut bad = boxed_recovery_lineage_stage(|| raw3.clone());
+    let fork2 = boxed_recovery_lineage_stage(|| {
+        permission_evidence_at_cut(
+            fork_cut,
+            &trust.initial_trust,
+            2,
+            [10, 11, 12],
+            [5, 6],
+            None,
+            &initial_floor,
+        )
+        .0
+    });
+    let mut bad = boxed_recovery_lineage_stage(|| (*raw3).clone());
     bad.prior_permission = Some(fork2);
     write_private(&permission_path, &serde_json::to_vec(&bad).unwrap());
     assert!(load().is_err());
-    let mut bad = boxed_recovery_lineage_stage(|| raw3.clone());
+    let mut bad = boxed_recovery_lineage_stage(|| (*raw3).clone());
     bad.predecessor_checkpoint.head_record.request_digest = fixtures::h(222);
     write_private(&permission_path, &serde_json::to_vec(&bad).unwrap());
     assert!(load().is_err());
