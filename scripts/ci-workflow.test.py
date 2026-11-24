@@ -1908,8 +1908,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         startup = re.search(r"<<'ORDINARY_CWD'\n(.*?)^          ORDINARY_CWD$", job, re.M | re.S)
         self.assertIsNotNone(startup)
         startup = textwrap.dedent(startup[1])
-        self.assertEqual(startup, 'export ORDINARY_ARTIFACT_CHECKOUT=' + checkout
-                         + '\ncd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1\n')
+        expected_startup = ('export ORDINARY_ARTIFACT_CHECKOUT=' + checkout
+                            + '\ncd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1\n')
+        self.assertEqual(startup, expected_startup)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             canonical = root / 'canonical'
@@ -1917,7 +1918,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             translated = root / 'runner-mapped'
             translated.mkdir()
             script = root / 'startup.bash'
-            script.write_text(startup.replace(checkout, shlex.quote(str(canonical))))
+            script.write_text(expected_startup.replace(checkout, shlex.quote(str(canonical))))
             result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', 'pwd -P'],
                                     cwd=translated, env=dict(os.environ, BASH_ENV=str(script),
                                                             ORDINARY_ARTIFACT_CHECKOUT=str(translated)),
