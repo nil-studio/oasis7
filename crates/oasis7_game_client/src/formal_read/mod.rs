@@ -13,6 +13,7 @@ use oasis7_client_api::formal_projection::{ProjectionAudienceV1, ProjectionInclu
 use oasis7_client_api::world_service::*;
 use oasis7_formal_protocol::controlled_authority::formal::*;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// Projection schema validation belongs to its owning client/domain adapter.
 /// Proof metadata and inclusion are always checked against serialized `Self`,
@@ -202,7 +203,9 @@ pub struct FormalReadVerifier<P: FormalReadProjection> {
     last_recovery: Option<VerifiedRecovery>,
     history: BTreeMap<u64, VerifiedFormalReadAnchorV1>,
     proved_commits: BTreeMap<u64, CommitRef>,
-    qualified_commits: BTreeMap<QualifiedCommitKey, VerifiedHistoricalQualificationV1>,
+    // Immutable proof-bearing entries are shared by transactional verifier snapshots.
+    // Origin rebinding below uses copy-on-write, preserving verifier isolation.
+    qualified_commits: BTreeMap<QualifiedCommitKey, Arc<VerifiedHistoricalQualificationV1>>,
     verified_authorities: BTreeMap<String, VerifiedAuthorityV1>,
     /// Opaque recovery permissions and their exact signed predecessor cuts,
     /// retained from canonical replay independently of the 128-head cache.
@@ -443,14 +446,14 @@ impl<P: FormalReadProjection> FormalReadVerifier<P> {
                 };
                 origin_history.qualified_commits.insert(
                     key.clone(),
-                    VerifiedHistoricalQualificationV1 {
+                    Arc::new(VerifiedHistoricalQualificationV1 {
                         proof: qualification.qualified_proof.clone(),
                         commit,
                         anchor,
                         recovery: None,
                         retained_context: None,
                         origin: origin_history.origin.clone(),
-                    },
+                    }),
                 );
             }
             let qualified = origin_history
@@ -476,7 +479,7 @@ impl<P: FormalReadProjection> FormalReadVerifier<P> {
             verifier.qualified_commits = origin_history.qualified_commits.clone();
             let verifier_origin = verifier.origin.clone();
             for qualified in verifier.qualified_commits.values_mut() {
-                qualified.origin = verifier_origin.clone();
+                Arc::make_mut(qualified).origin = verifier_origin.clone();
             }
             verifier.verified_authorities = origin_history.verified_authorities.clone();
             verifier.verified_recovery_contexts = origin_history.verified_recovery_contexts.clone();
@@ -894,14 +897,14 @@ impl<P: FormalReadProjection> FormalReadVerifier<P> {
                     };
                     self.qualified_commits.insert(
                         key,
-                        VerifiedHistoricalQualificationV1 {
+                        Arc::new(VerifiedHistoricalQualificationV1 {
                             proof: (**proof).clone(),
                             commit: commit.clone(),
                             anchor: self.current.clone(),
                             recovery: qualification_recovery,
                             retained_context: qualification_context,
                             origin: self.origin.clone(),
-                        },
+                        }),
                     );
                     while self.qualified_commits.len() > MAX_CACHED_HEADS {
                         self.qualified_commits.pop_first();
