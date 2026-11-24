@@ -63,13 +63,25 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     let (_po, ro, pp, rp, next_dir, sealed, boundary, manifest, pcp) =
         build_native_install_setup(|| {
             let po = Oracle::start(&fixture, EndpointRole::Primary);
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_primary_oracle_started\n",
+            );
             let ro = Oracle::start(&fixture, EndpointRole::Replica);
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_both_oracles_started\n",
+            );
             let resource = fixture
                 .authority
                 .policy()
                 .authorized_fencing_resource_bindings[0]
                 .clone();
             let pp = InstallProvider::new(
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_before_primary_provider\n",
+            );
                 fixture.pdir.clone(),
                 5,
                 resource.clone(),
@@ -77,8 +89,16 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             );
             let next_dir = fixture.path.join("new-replica");
             fs::create_dir(&next_dir).unwrap();
-            let rp = InstallProvider::new(next_dir.clone(), 12, resource, None);
+            let rp = InstallProvider::new(
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_before_replica_provider\n",
+            );next_dir.clone(), 12, resource, None);
             let mut coordinator = FormalCoordinator::new(
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_before_coordinator\n",
+            );
                 open(EndpointRole::Primary, pp.clone()),
                 open(EndpointRole::Replica, ro.provider(&fixture)),
                 fixture.authority.clone(),
@@ -88,7 +108,15 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             )
             .unwrap();
             let initial = coordinator.submit(fixture.initial.clone()).unwrap();
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_initial_submitted\n",
+            );
             let parent = verify_formal_qualified(&initial, &fixture.authority, None, None).unwrap();
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_initial_verified\n",
+            );
             let mut definition = fixture.authority.definition().clone();
             definition.epoch = 2;
             definition.valid_from_position = 3;
@@ -121,7 +149,15 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 body,
             };
             let (frozen, material) = fixture.frozen(&parent, 61);
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_frozen_built\n",
+            );
             let executable = coordinator.freeze(frozen, material).unwrap();
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_freeze_completed\n",
+            );
             let mut candidate = fixture.candidate(&executable);
             candidate.candidate.record.schema_version = 2;
             candidate.candidate.record.durable_set_transition_digest =
@@ -131,10 +167,18 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 4,
             );
             let proof = coordinator.submit(candidate).unwrap();
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_transition_submitted\n",
+            );
             let boundary = Box::new(
                 verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap(),
             );
             let transition = verify_normal_durable_set_transition(
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_before_transition_verification\n",
+            );
                 &signed_transition,
                 &fixture.authority,
                 &parent,
@@ -142,10 +186,22 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             )
             .unwrap();
             let (p, r) = coordinator.endpoints_mut();
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_transition_verified\n",
+            );
             let pcp = Box::new(p.checkpoint().unwrap());
             let rcp = r.checkpoint().unwrap();
             let primary_seal = p.seal_durable_set(&transition, &pcp).unwrap();
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_primary_sealed\n",
+            );
             let replica_seal = r.seal_durable_set(&transition, &rcp).unwrap();
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_replica_sealed\n",
+            );
             let manifest = Box::new(r.archive_manifest().unwrap());
             let sealed = Arc::new(
                 verify_sealed_durable_set_transition(
@@ -161,6 +217,10 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 .unwrap(),
             );
             drop(coordinator);
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                b"oasis7 native diagnostic install_coordinator_dropped\n",
+            );
             (po, ro, pp, rp, next_dir, sealed, boundary, manifest, pcp)
         });
     let _ = std::io::Write::write_all(
