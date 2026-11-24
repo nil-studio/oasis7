@@ -3,11 +3,26 @@ use super::*;
 #[test]
 fn legacy_memory_api_is_the_single_native_l2_store() {
     use std::any::TypeId;
-    assert_eq!(TypeId::of::<AgentMemory>(), TypeId::of::<oasis7_simulator::AgentMemory>());
-    assert_eq!(TypeId::of::<LongTermMemory>(), TypeId::of::<oasis7_simulator::LongTermMemory>());
-    assert_eq!(TypeId::of::<ShortTermMemory>(), TypeId::of::<oasis7_simulator::ShortTermMemory>());
-    assert_eq!(TypeId::of::<MemoryEntry>(), TypeId::of::<oasis7_simulator::MemoryEntry>());
-    assert_eq!(TypeId::of::<MemoryEntryKind>(), TypeId::of::<oasis7_simulator::MemoryEntryKind>());
+    assert_eq!(
+        TypeId::of::<AgentMemory>(),
+        TypeId::of::<oasis7_simulator::AgentMemory>()
+    );
+    assert_eq!(
+        TypeId::of::<LongTermMemory>(),
+        TypeId::of::<oasis7_simulator::LongTermMemory>()
+    );
+    assert_eq!(
+        TypeId::of::<ShortTermMemory>(),
+        TypeId::of::<oasis7_simulator::ShortTermMemory>()
+    );
+    assert_eq!(
+        TypeId::of::<MemoryEntry>(),
+        TypeId::of::<oasis7_simulator::MemoryEntry>()
+    );
+    assert_eq!(
+        TypeId::of::<MemoryEntryKind>(),
+        TypeId::of::<oasis7_simulator::MemoryEntryKind>()
+    );
 }
 
 #[test]

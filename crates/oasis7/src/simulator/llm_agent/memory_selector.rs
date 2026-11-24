@@ -1,5 +1,5 @@
-use oasis7_simulator::{AgentMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind};
 use oasis7_simulator::WorldTime;
+use oasis7_simulator::{AgentMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind};
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
