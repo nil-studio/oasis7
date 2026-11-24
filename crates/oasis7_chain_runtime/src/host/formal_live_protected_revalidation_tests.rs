@@ -1,7 +1,7 @@
 //! The same signed request in independent, legitimate current-C0 and Frozen branches.
 //! Governance/endpoint custody is supplied by the isolated protected-process fixture.
 use super::*;
-use oasis7::world_service::client::WorldServiceClientError;
+use oasis7_game_client::WorldServiceClientError;
 use oasis7_client_api::world_service::SubmitObservation;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
