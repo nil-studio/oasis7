@@ -15,6 +15,8 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     let mut original_c0_pin = None;
     let mut issuer_status = None;
     let mut previous_issuer_status = None;
+    let mut old_key_constraints = None;
+    let mut stake_constraints = None;
     let mut time_observation = None;
     let mut time_nonce = None;
     let mut clock_epoch = None;
@@ -27,6 +29,8 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             "--original-c0-pin" => &mut original_c0_pin,
             "--issuer-status" => &mut issuer_status,
             "--previous-issuer-status" => &mut previous_issuer_status,
+            "--old-key-constraints" => &mut old_key_constraints,
+            "--stake-constraints" => &mut stake_constraints,
             "--time-observation" => &mut time_observation,
             "--time-nonce" => &mut time_nonce,
             "--clock-epoch" => &mut clock_epoch,
@@ -49,6 +53,9 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             "checkpoint time diagnostics require observation, nonce and epoch together".into(),
         );
     }
+    if old_key_constraints.is_some() != stake_constraints.is_some() {
+        return Err("checkpoint safety constraints require both original files".into());
+    }
     let config = PathBuf::from(config.ok_or("checkpoint preparation requires --config")?);
     let node_config =
         PathBuf::from(node_config.ok_or("checkpoint preparation requires --node-config")?);
@@ -61,6 +68,31 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     let c0 = original_c0_pin
         .ok_or("checkpoint preparation requires independently retained --original-c0-pin")?;
     let prepared = load_checkpoint_trust_preparation(&config, &pin, &consumer, &c0)?;
+    // Constraint originals are bounded as a pair before verification; these
+    // local bytes are not an independent safety attestation or a proof.
+    let safety_constraints_checked = match (old_key_constraints, stake_constraints) {
+        (Some(old), Some(stake)) => {
+            let policy = &prepared.config().policy;
+            let read = |path: String, maximum: u64| -> Result<Vec<u8>, String> {
+                let path = PathBuf::from(path);
+                if !path.is_absolute() {
+                    return Err("checkpoint safety constraint path must be absolute".into());
+                }
+                super::super::controlled_live_config::require_private_owned(&path, false)?;
+                super::super::controlled_history_cli::read_bounded(&path, maximum)
+            };
+            let old = read(old, policy.max_safety_evidence_bytes)?;
+            let remaining = policy
+                .max_safety_evidence_bytes
+                .checked_sub(old.len() as u64)
+                .ok_or("checkpoint safety constraint byte bound exceeded")?;
+            let stake = read(stake, remaining)?;
+            policy.check_safety_constraint_originals(&pin, &old, &stake)?;
+            true
+        }
+        (None, None) => false,
+        _ => return Err("incomplete checkpoint safety constraint input".into()),
+    };
     if previous_issuer_status.is_some() && issuer_status.is_none() {
         return Err("previous checkpoint issuer status requires --issuer-status".into());
     }
@@ -122,6 +154,16 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
         "renewal_ready": false,
         "blocker": "C0-to-H lineage, current status, protected time and installation are not established by preparation",
     });
+    if safety_constraints_checked {
+        report["safety_constraint_originals"] = serde_json::json!({
+            "policy_digest": pin,
+            "old_key_constraints_digest": prepared.config().policy.security_policy.old_key_constraints_digest,
+            "stake_constraints_digest": prepared.config().policy.security_policy.stake_constraints_digest,
+            "original_bytes_checked": true,
+            "target_safety_attestation_checked": false,
+            "issuer_proof_signatures_checked": false,
+        });
+    }
     if let (Some(status), Some(time)) = (&authenticated_status, &authenticated_time) {
         let compatibility =
             status.check_signed_observation_window(&prepared.config().policy, time);

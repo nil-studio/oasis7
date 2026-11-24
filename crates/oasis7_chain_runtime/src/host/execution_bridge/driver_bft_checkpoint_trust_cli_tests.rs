@@ -40,7 +40,9 @@ pub(super) fn check_preparation(
         "handoff_target_digest":source.target_digest,"handoff_activation_digest":source.activation_digest,
         "handoff_raw_snapshot_root":source.handoff_snapshot_root,
     });
-    let security = serde_json::json!({"schema_version":1,"profile":"independent-absolute-bound-v1","origin_digest":digest("origin",&origin),"old_key_constraints_digest":fixtures::h(42),"stake_constraints_digest":fixtures::h(43),"security_not_before_unix_ms":10,"absolute_safe_until_unix_ms":90});
+    let old_key_original = b"fixture old key constraints";
+    let stake_original = b"fixture stake constraints";
+    let security = serde_json::json!({"schema_version":1,"profile":"independent-absolute-bound-v1","origin_digest":digest("origin",&origin),"old_key_constraints_digest":blake3::hash(old_key_original).to_hex().to_string(),"stake_constraints_digest":blake3::hash(stake_original).to_hex().to_string(),"security_not_before_unix_ms":10,"absolute_safe_until_unix_ms":90});
     let clock = serde_json::json!({"schema_version":1,"profile":"bounded-utc-observation-v1","time_source_id":"clock","time_key_id":"clock-key","time_public_key":hex::encode(fixtures::key(119).verifying_key().to_bytes()),"time_key_not_before_unix_ms":10,"time_key_expires_at_unix_ms":100,"max_clock_uncertainty_ms":5,"max_observation_elapsed_ms":5,"elapsed_profile":"protected-elapsed-upper-bound-v1"});
     let policy = serde_json::json!({
         "schema_version":1,"profile":"bft","profile_version":1,"wire_version":3,
@@ -86,6 +88,56 @@ pub(super) fn check_preparation(
     };
     let prepare = || prepare_with_status(None);
     prepare().expect("real host consumes SDK preparation and original Node binding");
+    let old_path = root.join("checkpoint-old-key-constraints");
+    let stake_path = root.join("checkpoint-stake-constraints");
+    private_file(&old_path, old_key_original);
+    private_file(&stake_path, stake_original);
+    let with_constraints = |include_stake: bool| {
+        let mut arguments = vec![
+            "bft-header",
+            "prepare-checkpoint-trust",
+            "--config",
+            path.to_str().unwrap(),
+            "--node-config",
+            node_config.to_str().unwrap(),
+            "--policy-pin",
+            &policy_pin,
+            "--consumer-binding",
+            &pin,
+            "--original-c0-pin",
+            &c0_pin,
+            "--old-key-constraints",
+            old_path.to_str().unwrap(),
+        ];
+        if include_stake {
+            arguments.extend(["--stake-constraints", stake_path.to_str().unwrap()]);
+        }
+        crate::identity_receipt::dispatch(arguments.into_iter()).unwrap()
+    };
+    with_constraints(true).expect("both exact pinned originals are readable");
+    assert!(with_constraints(false).unwrap_err().contains("both original files"));
+    private_file(&old_path, stake_original);
+    assert!(with_constraints(true).unwrap_err().contains("old key constraint original digest"));
+    private_file(&old_path, old_key_original);
+    private_file(&stake_path, old_key_original);
+    assert!(with_constraints(true).unwrap_err().contains("stake constraint original digest"));
+    private_file(&stake_path, b"");
+    assert!(with_constraints(true).unwrap_err().contains("originals missing"));
+    // Each file can fit the individual cap while their combined bytes exceed
+    // it. The actual reader must reject before loading the second oversized file.
+    let capacity = config.policy.max_safety_evidence_bytes as usize;
+    private_file(&old_path, &vec![1; capacity - 1]);
+    private_file(&stake_path, b"xx");
+    assert!(with_constraints(true).unwrap_err().contains("type/size refused"));
+    private_file(&old_path, old_key_original);
+    private_file(&stake_path, stake_original);
+    with_constraints(true).expect("restore original files and reread after refusal");
+    assert_eq!(std::fs::read(&old_path).unwrap(), old_key_original);
+    assert_eq!(std::fs::read(&stake_path).unwrap(), stake_original);
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert!(config.policy.check_safety_constraint_originals(
+        &fixtures::h(99), old_key_original, stake_original
+    ).is_err());
     let status = serde_json::json!({
         "schema_version":1,
         "origin_digest":digest("origin", &value["policy"]["origin"]),
