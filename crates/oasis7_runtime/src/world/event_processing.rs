@@ -193,6 +193,7 @@ impl World {
         let mut capability_command_activity: BTreeSet<(String, String)> = BTreeSet::new();
         let mut capability_command_commits: BTreeSet<(String, String)> = BTreeSet::new();
         let mut replayed_intent_sequences: BTreeSet<u64> = BTreeSet::new();
+        let mut replayed_action_ids: BTreeSet<ActionId> = BTreeSet::new();
         for event in events {
             if event.time < previous_event_time {
                 return Err(WorldError::ResourceBalanceInvalid {
@@ -207,6 +208,7 @@ impl World {
             {
                 self.record_tick_consensus_for_tick(tick)?;
             }
+            self.reconcile_replayed_action_event(&event, &mut replayed_action_ids)?;
             match &event.body {
                 WorldEventBody::PolicyDecisionRecorded(record) => {
                     self.reconcile_replayed_intent_allocator(

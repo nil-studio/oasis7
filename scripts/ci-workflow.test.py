@@ -7153,7 +7153,7 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                 'build-web-dist': 25,
                 'package-native': 180,
                 'package-native-trusted': 180,
-                'package-installers': 120,
+                'package-installers': 90,
             },
             '.github/workflows/mainnet-packages.yml': {
                 'plan': 5,

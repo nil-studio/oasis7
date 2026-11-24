@@ -2,7 +2,7 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use crate::execution_config::ExecutionDriverConfig;
-use oasis7::simulator::WorldKernel;
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_node::{
     EXECUTION_MISSING_PREDECESSOR_RECORD_SIGNATURE, NodeExecutionBootstrap,
     NodeExecutionCheckpointBlob, NodeExecutionCheckpointBundle,
