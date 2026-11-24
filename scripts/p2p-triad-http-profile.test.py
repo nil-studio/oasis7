@@ -543,7 +543,7 @@ print(json.dumps(result))
 
         def collect(extra):
             runtime.write_text(original.replace("print(json.dumps(result))",
-                "import time\\n" + extra + "\\nprint(json.dumps(result))"))
+                "import time\n" + extra + "\nprint(json.dumps(result))"))
             process = self.fixture.start(self.env, options)
             out, err = process.communicate(timeout=20)
             report = json.loads((self.fixture.out / "latest_summary.json").read_text())
@@ -551,7 +551,7 @@ print(json.dumps(result))
             return process.returncode, report["nodes"]["local_node"], markdown, (out, err)
 
         receipt = (
-            'result["authenticated_status_receipt_sha256"] = "4" * 64\\n'
+            'result["authenticated_status_receipt_sha256"] = "4" * 64\n'
             'result["authenticated_status_verified_at_unix_ms"] = time.time_ns() // 1_000_000'
         )
         code, node, markdown, output = collect(receipt)
@@ -577,7 +577,7 @@ print(json.dumps(result))
             'result["authenticated_status_verified_at_unix_ms"] += 60_000',
         ):
             with self.subTest(mutation=mutation):
-                rc, rejected, markdown, output = collect(receipt + "\\n" + mutation)
+                rc, rejected, markdown, output = collect(receipt + "\n" + mutation)
                 self.assertEqual(rc, 1, output)
                 self.assertFalse(rejected["profile_collection"]["complete"])
                 self.assertEqual(rejected["profile_readiness"]["status"], "unknown")
