@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-DEFAULT_LETAI_CONFIG_PATH="/Users/scc/Documents/keys/letai.txt"
-DEFAULT_TOKEN_CONFIG_PATH="${OASIS7_LETAI_TOKEN_CONFIG_PATH:-/Users/scc/Documents/keys/letai-token-local.txt}"
+DEFAULT_LETAI_CONFIG_PATH="${HOME}/Documents/keys/letai.txt"
+DEFAULT_TOKEN_CONFIG_PATH="${OASIS7_LETAI_TOKEN_CONFIG_PATH:-${HOME}/Documents/keys/letai-token-local.txt}"
 if [[ -n "${OASIS7_LETAI_CONFIG_PATH:-}" ]]; then
   CONFIG_PATH="$OASIS7_LETAI_CONFIG_PATH"
 elif [[ -f "$DEFAULT_LETAI_CONFIG_PATH" ]]; then
@@ -71,7 +71,7 @@ Common options:
                               detach, auto-play, ports 48420/48421/48422,
                               --json-ready, and local standalone chain mode.
   --config <path>           LetAI config file (default: $OASIS7_LETAI_CONFIG_PATH,
-                              /Users/scc/Documents/keys/letai.txt, then token-local fallback)
+                              $HOME/Documents/keys/letai.txt, then token-local fallback)
   --output-dir <path>       Launcher output dir; bridge log goes there too
   --preflight-only          Check local prerequisites and print the startup plan without launching
   --dry-run-launch          Print the resolved launcher plan without starting bridge or launcher
@@ -103,7 +103,7 @@ usage_all() {
 
 Advanced/debug/compatibility options:
   --config <path>             LetAI config file (default: $OASIS7_LETAI_CONFIG_PATH,
-                              /Users/scc/Documents/keys/letai.txt, then token-local fallback)
+                              $HOME/Documents/keys/letai.txt, then token-local fallback)
   --model <id>                LetAI model override (default: gpt-5.4 via helper)
   --bind <host:port>          Local provider bind address (default: 127.0.0.1:5841)
   --proxy <url>               HTTP/HTTPS proxy to export if unset (default: http://127.0.0.1:7897)
