@@ -1986,7 +1986,7 @@ class Selection(unittest.TestCase):
         }
         graph = (manifests, reverse, {})
         expected = {'baseline', 'rust_baseline', 'workspace_support',
-                    'oasis7_required', 'launcher_web', 'formal_process'}
+                    'oasis7_required', 'formal_process'}
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for package in ('oasis7_agent_api', 'oasis7_agent_harness'):
                 with self.subTest(package=package):
@@ -2074,7 +2074,7 @@ class Selection(unittest.TestCase):
                         expected_profiles.add('oasis7_client_api')
                     self.assertEqual(set(plan['workspace_support_profiles']), expected_profiles)
                     self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline',
-                                     'workspace_support', 'oasis7_required', 'launcher_web', 'formal_process'})
+                                     'workspace_support', 'oasis7_required', 'formal_process'})
                     base = self.git('rev-parse', 'HEAD')
 
     def test_provider_tests_are_local_and_library_changes_reach_server_consumers(self):
@@ -2104,7 +2104,7 @@ class Selection(unittest.TestCase):
                     self.assertEqual(set(plan['workspace_support_profiles']), expected_profiles)
                     expected = {'baseline', 'rust_baseline', 'workspace_support'}
                     if package == 'oasis7_agent_harness':
-                        expected.update({'oasis7_required', 'launcher_web', 'formal_process'})
+                        expected.update({'oasis7_required', 'formal_process'})
                     self.assertEqual(set(plan['groups']), expected)
                     base = self.git('rev-parse', 'HEAD')
 
@@ -2135,7 +2135,7 @@ class Selection(unittest.TestCase):
             plan = selector.select(config, base, head)
         self.assertEqual(plan['scope'], 'targeted')
         self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'workspace_support',
-                                               'oasis7_required', 'launcher_web', 'formal_process'})
+                                               'oasis7_required', 'formal_process'})
 
 
     def fast_config(self):
@@ -9031,21 +9031,64 @@ class ViewerNpmLockScopeTests(unittest.TestCase):
         base = self.commit()
         graph = ({}, {}, {})
         with patch.object(selector, 'cargo_graph', return_value=graph):
-            for path in ('crates/oasis7_viewer/package.json', 'crates/oasis7_viewer/package-lock.json'):
+            for path in ('crates/oasis7_viewer/package.json', 'crates/oasis7_viewer/package-lock.json',
+                         'crates/oasis7_viewer/src/app.tsx'):
                 with self.subTest(path=path):
                     self.write(path, '{"updated": true}\n')
                     head = self.commit()
                     plan = selector.select(config, base, head)
                     self.assertEqual(plan['scope'], 'targeted')
                     self.assertIn('viewer_js_required', plan['groups'])
+                    self.assertNotIn('launcher_web', plan['groups'])
+                    base = head
+
+    def test_launcher_web_tracks_real_client_launcher_dependency_closure_only(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        real_manifests, real_reverse, _ = selector.cargo_graph(
+            'HEAD', config.get('generated_inputs', []), repo=HERE.parent,
+        )
+        clean_manifests = {pkg: (directory, {}) for pkg, (directory, _) in real_manifests.items()}
+        graph = (clean_manifests, real_reverse, {})
+        true_launcher_inputs = (
+            ('oasis7_client_launcher', 'crates/oasis7_client_launcher/src/main.rs'),
+            ('oasis7_launcher_config', 'crates/oasis7_launcher_config/src/lib.rs'),
+            ('oasis7_launcher_ui', 'crates/oasis7_launcher_ui/src/lib.rs'),
+            ('oasis7_client_api', 'crates/oasis7_client_api/src/lib.rs'),
+            ('oasis7_domain_types', 'crates/oasis7_domain_types/src/lib.rs'),
+            ('oasis7_wasm_abi', 'crates/oasis7_wasm_abi/src/lib.rs'),
+            ('oasis7_agent_api', 'crates/oasis7_agent_api/src/lib.rs'),
+            ('oasis7_proto', 'crates/oasis7_proto/src/lib.rs'),
+        )
+        non_launcher_backend_inputs = (
+            ('oasis7', 'crates/oasis7/src/lib.rs'),
+            ('oasis7_runtime', 'crates/oasis7_runtime/src/lib.rs'),
+            ('oasis7_runtime_host', 'crates/oasis7_runtime_host/src/lib.rs'),
+            ('oasis7_distfs', 'crates/oasis7_distfs/src/lib.rs'),
+            ('oasis7_simulator', 'crates/oasis7_simulator/src/lib.rs'),
+            ('oasis7_world_state', 'crates/oasis7_world_state/src/lib.rs'),
+            ('oasis7_launcher_backend', 'crates/oasis7_launcher_backend/src/lib.rs'),
+            ('oasis7_hosted_access', 'crates/oasis7_hosted_access/src/lib.rs'),
+        )
+        for _, rel_path in (*true_launcher_inputs, *non_launcher_backend_inputs):
+            self.write(rel_path, '// baseline\n')
+        base = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for pkg, rel_path in true_launcher_inputs:
+                with self.subTest(expected_launcher_web=True, package=pkg):
+                    self.write(rel_path, f'// changed {pkg}\n')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
                     self.assertIn('launcher_web', plan['groups'])
                     base = head
-            self.write('crates/oasis7_viewer/src/app.tsx', '// UI edit\n')
-            head = self.commit()
-            plan = selector.select(config, base, head)
-            self.assertEqual(plan['scope'], 'targeted')
-            self.assertIn('viewer_js_required', plan['groups'])
-            self.assertNotIn('launcher_web', plan['groups'])
+            for pkg, rel_path in non_launcher_backend_inputs:
+                with self.subTest(expected_launcher_web=False, package=pkg):
+                    self.write(rel_path, f'// changed {pkg}\n')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertNotIn('launcher_web', plan['groups'])
+                    base = head
 
 
 class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
@@ -9120,7 +9163,7 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
         self.assertEqual(
             set(plan['groups']),
-            {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'oasis7_required', 'launcher_web'},
+            {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'oasis7_required'},
         )
         self.assertEqual(plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
         self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
@@ -9268,7 +9311,7 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         head = self.commit()
         plan = selector.select(self.config, self.base, head, profile='pr-fast')
         self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
-        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required', 'launcher_web'})
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
         self.assertEqual(plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
         self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
         self.assertNotIn('ordinary_fast_targets', plan)
