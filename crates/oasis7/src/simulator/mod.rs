@@ -110,6 +110,21 @@ mod canonical_contract_owner_tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire() {
+        // L4 archive-bearing Host is the original composite type, not pure L2.
+        let native = oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new();
+        let legacy: WorldKernel = native;
+        let snapshot: WorldSnapshot = legacy.snapshot();
+        let previous: WorldSnapshot = snapshot.clone();
+        assert_eq!(
+            serde_json::to_vec(&snapshot).expect("native archive snapshot JSON"),
+            serde_json::to_vec(&previous).expect("legacy archive snapshot JSON"),
+        );
+        let _: oasis7_runtime_host::simulator_archive::persist::WorldJournal = legacy.journal_snapshot();
+    }
+
     #[test]
     fn old_simulator_exports_are_canonical_owner_contracts() {
         assert_eq!(

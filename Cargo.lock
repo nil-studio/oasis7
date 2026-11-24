@@ -6183,7 +6183,6 @@ dependencies = [
  "hex",
  "hickory-resolver",
  "libc",
- "oasis7",
  "oasis7_agent_api",
  "oasis7_agent_harness",
  "oasis7_client_api",
