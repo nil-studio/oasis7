@@ -321,15 +321,15 @@ run_or_record_failure software_safe_ui \
 
 if [[ "$skip_runtime_unit" -eq 0 ]]; then
   run_or_record_failure runtime_control_feeling \
-    oasis7_cargo_dev test -p oasis7 \
+    oasis7_cargo_dev test -p oasis7_viewer_runtime \
       viewer::runtime_live::tests::snapshot_progress::compat_snapshot_surfaces_control_feeling_contract_fields_from_gameplay_feedback \
       -- --nocapture
   run_or_record_failure runtime_no_progress_recovery \
-    oasis7_cargo_dev test -p oasis7 \
-      viewer::runtime_live::tests::snapshot_progress::compat_snapshot_keeps_post_onboarding_no_progress_after_confirmed_progress \
+    oasis7_cargo_dev test -p oasis7_viewer_runtime \
+      viewer::runtime_live::tests::snapshot_player_progress::compat_snapshot_keeps_post_onboarding_no_progress_after_confirmed_progress \
       -- --nocapture
   run_or_record_failure runtime_chain_sync_blocker \
-    oasis7_cargo_dev test -p oasis7 \
+    oasis7_cargo_dev test -p oasis7_viewer_runtime \
       viewer::runtime_live::tests::snapshot_progress::compat_snapshot_blocks_first_session_when_chain_sync_is_unavailable \
       -- --nocapture
   run_or_record_failure runtime_persist_backfill \

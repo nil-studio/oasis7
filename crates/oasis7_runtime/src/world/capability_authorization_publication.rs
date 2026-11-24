@@ -18,8 +18,14 @@ use super::super::{
 };
 use super::World;
 use super::capability_authorization_events::validate_authority_record_transition;
+use crate::world::transition::{
+    BorrowedWorldView, DurableCommitConfirmation, PreparedStagedCommit, RootInstallContext,
+    StagedTransition, SubsystemDelta, TransitionContext, TransitionReject,
+};
 
-struct PreparedCapabilityAuthorizationBatch {
+/// The original authorization publication's sparse staged projection. No
+/// canonical authorization, journal, or queue write occurs in preparation.
+struct CapabilityAuthorizationBatchDelta {
     capability_grants_v2: BTreeMap<String, JsonValue>,
     capability_revocation_state: CapabilityRevocationState,
     capability_invocation_contexts: BTreeMap<String, CapabilityInvocationContext>,
@@ -30,7 +36,60 @@ struct PreparedCapabilityAuthorizationBatch {
     next_event_id_era: u64,
     journal_events: Vec<WorldEvent>,
     journal_events_evicted: u64,
-    consensus_record: TickConsensusRecord,
+}
+
+impl CapabilityAuthorizationBatchDelta {
+    fn last_event_id(&self) -> WorldEventId {
+        self.events
+            .last()
+            .map(|event| event.id)
+            .expect("capability authorization publication contains an event")
+    }
+}
+
+impl SubsystemDelta for CapabilityAuthorizationBatchDelta {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        let world = ctx.world_mut();
+        world.capability_grants_v2 = self.capability_grants_v2;
+        let previous_alternatives = world.capability_revocation_state.safe_alternatives.clone();
+        world.capability_revocation_state = self.capability_revocation_state;
+        let records = world.capability_revocation_state.safe_alternatives.clone();
+        for (key, record) in &records {
+            world.install_safe_alternative_queue(previous_alternatives.get(key), record);
+        }
+        world.capability_invocation_contexts = self.capability_invocation_contexts;
+        world.capability_budget_accounts = self.capability_budget_accounts;
+        world.capability_authorization_root = self.capability_authorization_root;
+        ctx.install_journal_tail(
+            self.next_event_id,
+            self.next_event_id_era,
+            self.journal_events,
+            self.journal_events_evicted,
+        );
+    }
+}
+
+struct StagedCapabilityAuthorizationBatch<'a> {
+    events: &'a [CapabilityAuthorizationEvent],
+}
+
+impl StagedTransition for StagedCapabilityAuthorizationBatch<'_> {
+    type Delta = CapabilityAuthorizationBatchDelta;
+
+    fn prepare(
+        &self,
+        view: &BorrowedWorldView<'_>,
+        _ctx: &TransitionContext,
+    ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
+        let (delta, consensus_record) = view
+            .world()
+            .prepare_capability_authorization_event_batch(self.events)?;
+        Ok(PreparedStagedCommit::new(
+            view.base_head().clone(),
+            Some(consensus_record),
+            delta,
+        ))
+    }
 }
 
 pub(super) struct PreparedCapabilityAuthorizationEvent {
@@ -98,57 +157,31 @@ impl World {
         &mut self,
         events: Vec<CapabilityAuthorizationEvent>,
     ) -> Result<WorldEventId, WorldError> {
-        let prepared = self.prepare_capability_authorization_event_batch(events)?;
+        let prepared = {
+            let view = BorrowedWorldView::new(self)?;
+            StagedCapabilityAuthorizationBatch { events: &events }
+                .prepare(&view, &TransitionContext::new(view.time(), None))
+                .map_err(TransitionReject::into_world_error)?
+        };
+        let event_id = prepared.delta().last_event_id();
         if self.take_fail_next_append_after_publication_prepare_for_test() {
             return Err(WorldError::ResourceBalanceInvalid {
                 reason: "injected append_event failure after publication preparation".to_string(),
             });
         }
-
-        let PreparedCapabilityAuthorizationBatch {
-            capability_grants_v2,
-            capability_revocation_state,
-            capability_invocation_contexts,
-            capability_budget_accounts,
-            capability_authorization_root,
-            events,
-            next_event_id,
-            next_event_id_era,
-            journal_events,
-            journal_events_evicted,
-            consensus_record,
-        } = prepared;
-        let event_id = events
-            .last()
-            .map(|event| event.id)
-            .expect("capability authorization publication contains an event");
-
-        self.install_prepared_tick_consensus_record(consensus_record)?;
-        self.capability_grants_v2 = capability_grants_v2;
-        let previous_alternatives = self.capability_revocation_state.safe_alternatives.clone();
-        self.capability_revocation_state = capability_revocation_state;
-        let records = self.capability_revocation_state.safe_alternatives.clone();
-        for (key, record) in &records {
-            self.install_safe_alternative_queue(previous_alternatives.get(key), record);
-        }
-        self.capability_invocation_contexts = capability_invocation_contexts;
-        self.capability_budget_accounts = capability_budget_accounts;
-        self.capability_authorization_root = capability_authorization_root;
-        self.next_event_id = next_event_id;
-        self.next_event_id_era = next_event_id_era;
-        self.journal.events = journal_events;
-        self.runtime_backpressure_stats.journal_events_evicted = self
-            .runtime_backpressure_stats
-            .journal_events_evicted
-            .saturating_add(journal_events_evicted);
-
+        // This is the existing synchronous ordinary publication boundary.
+        // The full tick and external durable confirmation remain root-owner
+        // responsibilities; this does not manufacture an IWS receipt.
+        prepared
+            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
+            .map_err(TransitionReject::into_world_error)?;
         Ok(event_id)
     }
 
     fn prepare_capability_authorization_event_batch(
         &self,
-        events: Vec<CapabilityAuthorizationEvent>,
-    ) -> Result<PreparedCapabilityAuthorizationBatch, WorldError> {
+        events: &[CapabilityAuthorizationEvent],
+    ) -> Result<(CapabilityAuthorizationBatchDelta, TickConsensusRecord), WorldError> {
         if events.is_empty() {
             return Err(WorldError::ResourceBalanceInvalid {
                 reason: "prepared capability authorization event batch cannot be empty".to_string(),
@@ -166,7 +199,7 @@ impl World {
         let mut next_event_id = self.next_event_id;
         let mut next_event_id_era = self.next_event_id_era;
 
-        for authorization_event in events {
+        for authorization_event in events.iter().cloned() {
             self.validate_and_project_capability_authorization_event(
                 &authorization_event,
                 &mut capability_grants_v2,
@@ -217,19 +250,21 @@ impl World {
                 &capability_budget_accounts,
             )?;
 
-        Ok(PreparedCapabilityAuthorizationBatch {
-            capability_grants_v2,
-            capability_revocation_state,
-            capability_invocation_contexts,
-            capability_budget_accounts,
-            capability_authorization_root,
-            events: prepared_events,
-            next_event_id,
-            next_event_id_era,
-            journal_events,
-            journal_events_evicted: overflow as u64,
+        Ok((
+            CapabilityAuthorizationBatchDelta {
+                capability_grants_v2,
+                capability_revocation_state,
+                capability_invocation_contexts,
+                capability_budget_accounts,
+                capability_authorization_root,
+                events: prepared_events,
+                next_event_id,
+                next_event_id_era,
+                journal_events,
+                journal_events_evicted: overflow as u64,
+            },
             consensus_record,
-        })
+        ))
     }
 
     fn validate_and_project_capability_authorization_event(
