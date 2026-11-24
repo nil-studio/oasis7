@@ -77,12 +77,11 @@ fn healthy_copy_source_fetches_shared_history_index_once() {
     );
 }
 
-
 // Keep each original signed fixture stage observable even if a later native
 // test aborts the libtest process before buffered panic output is flushed.
 #[inline(never)]
 fn inline_copy_stage(stage: &'static str) {
-    let message = format!("oasis7 native diagnostic inline_copy_signed_stage={stage}\\n");
+    let message = format!("oasis7 native diagnostic inline_copy_signed_stage={stage}\n");
     let _ = std::io::Write::write_all(&mut std::io::stderr(), message.as_bytes());
 }
 
@@ -145,15 +144,18 @@ fn seal_profile2_inline_business_source(
     let primary = coordinator.endpoints_mut().0;
     // Preserve the real profile-2 current metadata leaf while adding the
     // independently authenticated successor outcome and historical cut.
-    let mut updates = vec![BusinessIndexLeafV1 {
-        key_digest: metadata_key_digest(),
-        kind: BusinessIndexLeafKindV1::CommitMetadata,
-        canonical_value: b"next metadata".to_vec(),
-    }, BusinessIndexLeafV1 {
-        key_digest: h(92),
-        kind: BusinessIndexLeafKindV1::Outcome,
-        canonical_value: b"authenticated successor receipt".to_vec(),
-    }];
+    let mut updates = vec![
+        BusinessIndexLeafV1 {
+            key_digest: metadata_key_digest(),
+            kind: BusinessIndexLeafKindV1::CommitMetadata,
+            canonical_value: b"next metadata".to_vec(),
+        },
+        BusinessIndexLeafV1 {
+            key_digest: h(92),
+            kind: BusinessIndexLeafKindV1::Outcome,
+            canonical_value: b"authenticated successor receipt".to_vec(),
+        },
+    ];
     updates.push(
         FormalHistoricalCutV1::from_proof(&original_proof)
             .unwrap()
