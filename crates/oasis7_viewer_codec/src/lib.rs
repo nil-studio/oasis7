@@ -6,13 +6,8 @@ use oasis7_proto::viewer as proto;
 use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldTime};
 
 pub use oasis7_client_api::viewer_protocol::ViewerRequest;
-pub type ViewerResponse = proto::ViewerResponse<
-    WorldSnapshot,
-    WorldEvent,
-    AgentDecisionTrace,
-    RunnerMetrics,
-    WorldTime,
->;
+pub type ViewerResponse =
+    proto::ViewerResponse<WorldSnapshot, WorldEvent, AgentDecisionTrace, RunnerMetrics, WorldTime>;
 
 // Both capacities use the same fixed serializer instance. Taking the buffer
 // apart before propagating errors prevents BufWriter's Drop from retrying IO.
