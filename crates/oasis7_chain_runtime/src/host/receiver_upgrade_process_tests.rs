@@ -78,6 +78,65 @@ fn live_receiver_files_skips_only_in_flight_state_temp_file() {
     fs::remove_dir_all(dir).unwrap();
 }
 
+// Network Drop only enqueues shutdown. The receiver owns this lock for the
+// whole lifetime of every shared writer, including synchronous fsync/rename.
+// It can be acquired only after those writers are released. This barrier never
+// opens a receiver or edits persistence evidence. The strict CLI remains the
+// recovery oracle.
+fn wait_for_receiver_writer_release(directory: &Path, deadline: Instant) {
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(directory.join("peer-record-receiver-v2.lock"))
+        .unwrap();
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "receiver writer did not finish shutdown"
+        );
+        match lock.try_lock() {
+            Ok(()) => return,
+            Err(fs::TryLockError::WouldBlock) => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("receiver shutdown lock failed: {error:?}"),
+        }
+    }
+}
+
+#[test]
+fn receiver_shutdown_barrier_rejects_an_unreleased_writer_without_changing_evidence() {
+    let root = std::env::temp_dir().join(format!(
+        "receiver-shutdown-barrier-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir(&root).unwrap();
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(root.join("peer-record-receiver-v2.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    let temp = root.join(STATE_TEMP_FILE_NAME);
+    fs::write(&temp, b"original in-flight evidence").unwrap();
+    let result =
+        std::panic::catch_unwind(|| wait_for_receiver_writer_release(&root, Instant::now()));
+    assert!(
+        result.is_err(),
+        "an unreleased writer cannot be reported as completed"
+    );
+    assert_eq!(fs::read(&temp).unwrap(), b"original in-flight evidence");
+    drop(lock);
+    wait_for_receiver_writer_release(&root, Instant::now() + Duration::from_secs(1));
+    assert_eq!(fs::read(&temp).unwrap(), b"original in-flight evidence");
+    fs::remove_dir_all(root).unwrap();
+}
+
 const CHILD_ENV: &str = "OASIS7_TEST_RECEIVER_UPGRADE_PROCESS";
 
 struct Process(Child);
@@ -180,6 +239,12 @@ fn receiver_upgrade_process_child_entry() {
         "seed" => seed_nonempty(&root),
         "cold" => cold_consume(&root),
         _ => panic!("unknown child role"),
+    }
+    if matches!(role.as_str(), "hold" | "seed" | "cold") {
+        wait_for_receiver_writer_release(
+            &root.join("runtime/p2p/peer-record-receiver"),
+            Instant::now() + Duration::from_secs(10),
+        );
     }
     fs::write(root.join(format!("done-{role}")), b"complete").unwrap();
 }

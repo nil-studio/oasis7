@@ -33,14 +33,13 @@ mod behavior_runtime_helpers;
 mod config_helpers;
 mod decision_flow;
 mod execution_controls;
-mod memory_selector;
 #[cfg(test)]
 mod openai_payload;
 mod prompt_assembly;
 mod recipe_coverage;
 use recipe_coverage::RecipeCoverageProgress;
 
-pub use memory_selector::{MemorySelector, MemorySelectorConfig};
+pub use oasis7_simulator::agent_memory_selector::{MemorySelector, MemorySelectorConfig};
 pub use prompt_assembly::{
     PromptAssembler, PromptAssemblyInput, PromptAssemblyOutput, PromptBudget, PromptStepContext,
 };
@@ -704,3 +703,21 @@ impl Error for LlmAgentBuildError {}
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod memory_selector_owner_tests {
+    use super::{MemorySelector, MemorySelectorConfig};
+    use oasis7_simulator::AgentMemory;
+    use oasis7_simulator::agent_memory_selector as canonical;
+
+    #[test]
+    fn legacy_memory_selector_is_the_canonical_owner() {
+        let config: canonical::MemorySelectorConfig = MemorySelectorConfig::default();
+        let memory = AgentMemory::with_capacities(8, 8);
+        let result: canonical::MemorySelectorResult = MemorySelector::select(&memory, 0, &config);
+        assert_eq!(
+            result,
+            canonical::MemorySelector::select(&memory, 0, &config)
+        );
+    }
+}
