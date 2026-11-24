@@ -45,11 +45,9 @@ impl BftOriginalAlternativesInventoryV1 {
         validate_digest(&self.ledger_origin_digest)?;
         let mut previous: Option<&str> = None;
         for alternative in &self.alternatives {
-            alternative.source.validate()?;
-            alternative.object.validate()?;
-            validate_digest(&alternative.key.ledger_origin_digest)?;
-            validate_digest(&alternative.key.header_id)?;
-            validate_digest(&alternative.admission_digest)?;
+            // Reuse the actual admission reader/store bound, not the wider
+            // generic 512 MiB archive object reference allowance.
+            alternative.validate()?;
             if alternative.source != self.source
                 || alternative.key.ledger_origin_digest != self.ledger_origin_digest
                 || alternative.key.height != self.height
@@ -173,6 +171,11 @@ mod tests {
         assert!(v.validate().is_err());
         let mut v = inventory();
         v.alternatives[1].object.bytes = 0;
+        assert!(v.validate().is_err());
+        let mut v = inventory();
+        // A 70 MiB generic archive ref is legal at the object layer, but
+        // cannot be written or cold-read as an original admission input.
+        v.alternatives[1].object.bytes = 70 * 1024 * 1024;
         assert!(v.validate().is_err());
         let mut v = inventory();
         v.schema_version = 2;
