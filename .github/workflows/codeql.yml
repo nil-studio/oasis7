@@ -203,7 +203,7 @@ jobs:
       packages: read
     container:
       # Empty image keeps the other analysis rows on the host and preserves the shared job key.
-      image: ${{ matrix.language == 'actions' && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9' || '' }}
+      image: ${{ matrix.language == 'python' && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:49a7d25c4ffaae310799afb86bcbe793af02f9b1420ea204ef826bf843f1fafa' || matrix.language == 'actions' && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9' || '' }}
       options: --user 1001:1001
       credentials:
         username: ${{ github.actor }}
@@ -239,8 +239,8 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.checkout }}
           persist-credentials: false
-      - name: Verify Actions image prerequisites
-        if: matrix.language == 'actions'
+      - name: Verify CodeQL image prerequisites
+        if: matrix.language == 'actions' || matrix.language == 'python'
         shell: bash
         run: |
           test "$(id -u)" = 1001
