@@ -12,14 +12,14 @@ base=ubuntu:24.04
 digest=$(docker buildx imagetools inspect "$base" --format "{{json .Manifest}}" | jq -er .digest)
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
 image="oasis7-ci-${target}:candidate"
-options=()
-if [[ "$target" == browser || "$target" == rust-build || "$target" == rust-wasm-build ]]; then
-  node_base=node:24-bookworm-slim
-  node_digest=$(docker buildx imagetools inspect "$node_base" --format "{{json .Manifest}}" | jq -er .digest)
-  [[ "$node_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-  options+=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
-            --label "org.oasis7.ci.node-base.digest=$node_digest")
-fi
+node_base=node:24-bookworm-slim
+node_digest=$(docker buildx imagetools inspect "$node_base" --format "{{json .Manifest}}" | jq -er .digest)
+[[ "$node_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+  echo "Invalid Node base digest" >&2
+  exit 1
+}
+options=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
+         --label "org.oasis7.ci.node-base.digest=$node_digest")
 if [[ "$target" == browser ]]; then
   options+=(--build-context browser-tools=../../scripts/ci-browser-tools)
 fi
@@ -60,9 +60,30 @@ docker run --rm --platform linux/amd64 "$image" bash -ec '
   ldconfig -p | grep libwayland-client.so.0
   dpkg-query -W
 '
+# Verify the inherited executable without runner toolcache or network access.
+docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+  --env HOME=/tmp "$image" bash -ec '
+    test "$(command -v node)" = /usr/local/bin/node
+    node --version
+    smoke=$(mktemp --suffix=.ts)
+    trap "rm -- \"$smoke\"" EXIT
+    cat > "$smoke" <<EOF
+const expectedMajor: number = 24;
+if (Number(process.versions.node.split(".")[0]) !== expectedMajor || process.getuid() !== 1001) {
+  process.exit(1);
+}
+EOF
+    node "$smoke"
+  '
+
 if [[ "$target" == runtime ]]; then
   docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
-    "$image" bash -ec 'jq -e ".ready == true" <<< "{\"ready\":true}" >/dev/null'
+    "$image" bash -ec 'jq -e ".ready == true" <<< "{\"ready\":true}" >/dev/null
+    if command -v npm >/dev/null; then
+      echo "npm belongs to the browser image" >&2
+      exit 1
+    fi
+  '
 fi
 
 if [[ "$target" == build ]]; then

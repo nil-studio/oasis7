@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use ed25519_dalek::SigningKey;
@@ -22,7 +21,7 @@ type RequestIndex = BTreeMap<LocalRequestIdentity, usize>;
 /// Single local storage path writer. Never grants distributed authority.
 pub struct ControlledAuthorityLocalJournal {
     directory: PathBuf,
-    _writer_lock: File,
+    _writer_lock: super::writer_lock::WriterLock,
     signer: SigningKey,
     snapshot: Snapshot,
     head: LocalHeadAnchor,

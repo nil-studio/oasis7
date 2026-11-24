@@ -898,6 +898,58 @@ else: record([name, *a])
         totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
         self.assertLessEqual(max(totals) - min(totals), 15.0, f'expected balanced 3-shard weights, got {totals}')
 
+    def test_export_inventory_and_zero_checkout_context_validation(self):
+        script = Path(__file__).with_name('ci-custody-platform.py')
+        subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=self.root, check=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=self.root, check=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.invalid'], cwd=self.root, check=True)
+        subprocess.run(['git', 'add', 'rust-toolchain.toml', 'crates/oasis7_custody_worker/tests'], cwd=self.root, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'custody fixture'], cwd=self.root, check=True)
+        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=self.root, text=True).strip()
+        plan = dict(self.plan, tested_sha=head)
+        plan_path = Path(self.temporary.name) / 'plan.json'
+        plan_path.write_text(json.dumps(plan), encoding='utf-8')
+        context_path = Path(self.temporary.name) / 'custody-inventory.json'
+        subprocess.run([
+            sys.executable, str(script), 'export-inventory',
+            '--repo-root', str(self.root), '--ref', head,
+            '--output', str(context_path),
+        ], check=True)
+        exported = json.loads(context_path.read_text(encoding='utf-8'))
+        self.assertEqual(exported['tested_sha'], head)
+        self.assertEqual(exported['tests'], C.inventory(self.root))
+
+        results_root = Path(self.temporary.name) / 'direct-results'
+        for shard in C.SHARDS:
+            C.execute(self.root, plan, shard, results_root / f'shard-{shard}', '71', 2)
+        needs = {
+            'select': {'result': 'success'},
+            'workspace-support-legacy': {'result': 'skipped'},
+            'workspace-support-other': {'result': 'skipped'},
+            'custody-native-contracts': {'result': 'success'},
+            'custody-native': {'result': 'success'},
+            'custody-wasm-production': {'result': 'success'},
+            'custody-wasm-approval': {'result': 'success'},
+            'custody-node': {'result': 'success'},
+        }
+        empty_dir = Path(self.temporary.name) / 'no-checkout'
+        empty_dir.mkdir()
+        subprocess.run([
+            sys.executable, str(script), 'validate',
+            '--repo-root', str(empty_dir), '--plan', str(plan_path),
+            '--context-file', str(context_path), '--needs', json.dumps(needs),
+            '--results', str(results_root), '--run-id', '71', '--attempt', '2',
+        ], check=True)
+        bad_context = Path(self.temporary.name) / 'bad-inventory.json'
+        bad_context.write_text(json.dumps(exported | {'tested_sha': '0' * 40}), encoding='utf-8')
+        bad = subprocess.run([
+            sys.executable, str(script), 'validate',
+            '--repo-root', str(empty_dir), '--plan', str(plan_path),
+            '--context-file', str(bad_context), '--needs', json.dumps(needs),
+            '--results', str(results_root), '--run-id', '71', '--attempt', '2',
+        ], capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0)
+
 
 if __name__ == '__main__':
     unittest.main()

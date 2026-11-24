@@ -90,7 +90,7 @@ provider_auth_token=newapi_user_ref:pk_<public-key-fingerprint>
 约束：
 
 - 私钥由测试环境安全随机生成，不能从邮箱派生。
-- 私钥只写入 `~/Documents/keys/test_keys.txt` 或受控 secret store，不写入 repo、bridge state、provider auth token、CI log。
+- 私钥只保存在 `OASIS7_TEST_KEYS_FILE` 指定的受控本地文件或等价 secret store，不写入 repo、bridge state、provider auth token、CI log。
 - `newapi_user_ref` 使用公钥或公钥 fingerprint，避免把邮箱作为 provider bearer 主选择器。
 - `email` 可传给 `POST /v1/bridge/bind`，用于 LetAI platform user metadata / QA 审计。
 - bind response 不能暴露 `platform_user_id`、`platform_project_id` 或 raw `token_key`；这些只允许存在于受控 bridge state。
@@ -141,7 +141,7 @@ provider bridge 会自动解析出对应的 `token_key`。
 
 完整的测试环境全链路步骤以 `doc/p2p/token/mainchain-token-newapi-quota-bridge.runbook.md#67-全链路测试步骤矩阵` 为准，覆盖：
 
-- 从 `~/Documents/keys/test_keys.txt` 选择 fake-email + chain keypair persona。
+- 从 `OASIS7_TEST_KEYS_FILE` 指定的测试密钥文件选择 fake-email + chain keypair persona。
 - `POST /v1/bridge/bind` 建立 `newapi_user_ref -> bridge_user_id -> LetAI project/token_key` 绑定。
 - `POST /v1/bridge/deposit-route` 创建充值路由。
 - 通过已签名的 chain transfer submit / faucet / operator 工具完成 testnet 入账。

@@ -1,4 +1,5 @@
 //! Explicit prepared-world live service for independent formal-Skill gameplay.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_world_service::{
     client::{RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort},
