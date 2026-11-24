@@ -8922,12 +8922,12 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
                 selector.validate_config(bad)
 
     def test_workspace_support_direct_gate_capability_emits_only_for_non_custody_image_profiles(self):
-        # Image-only non-custody support crate (oasis7_context) -> direct gate v1 emitted
+        # Live config (v2): image-only non-custody support crate (oasis7_context) -> direct gate v2 emitted
         self.write('crates/oasis7_context/src/lib.rs', 'pub fn changed() {}\n')
         ctx_head = self.commit()
         plan = selector.select(self.config, self.base, ctx_head, profile='pr-fast')
         self.assertEqual(plan['workspace_support_partitions'], ['other'])
-        self.assertEqual(plan.get('workspace_support_direct_gate_version'), 1)
+        self.assertEqual(plan.get('workspace_support_direct_gate_version'), 2)
         self.assertNotIn('custody_execution_version', plan)
 
         # Host-requiring support crate (oasis7_local_signer) -> direct gate NOT emitted
@@ -8937,13 +8937,22 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         signer_plan = selector.select(self.config, self.base, signer_head, profile='pr-fast')
         self.assertNotIn('workspace_support_direct_gate_version', signer_plan)
 
-        # Custody crate -> custody_execution_version=1, direct gate NOT emitted
+        # Live config (v2): custody crate -> custody_execution_version=1 AND direct gate v2 emitted
         self.git('checkout', '-q', self.base)
         self.write('crates/oasis7_custody_worker/src/lib.rs', 'pub fn changed() {}\n')
         custody_head = self.commit()
         custody_plan = selector.select(self.config, self.base, custody_head, profile='pr-fast')
         self.assertEqual(custody_plan.get('custody_execution_version'), 1)
-        self.assertNotIn('workspace_support_direct_gate_version', custody_plan)
+        self.assertEqual(custody_plan.get('workspace_support_direct_gate_version'), 2)
+
+        # Policy v1 compatibility: emits 1 for non-custody other-only, omits for custody-split
+        v1_config = copy.deepcopy(self.config)
+        v1_config['workspace_support_direct_gate_version'] = 1
+        ctx_v1 = selector.select(v1_config, self.base, ctx_head, profile='pr-fast')
+        self.assertEqual(ctx_v1.get('workspace_support_direct_gate_version'), 1)
+        custody_v1 = selector.select(v1_config, self.base, custody_head, profile='pr-fast')
+        self.assertEqual(custody_v1.get('custody_execution_version'), 1)
+        self.assertNotIn('workspace_support_direct_gate_version', custody_v1)
 
 
 class ViewerNpmLockScopeTests(unittest.TestCase):
@@ -9245,7 +9254,9 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         for key, bad_values in (
             ('workspace_member_cargo_manifest_scope_version', (0, 3, True, '1')),
             ('ordinary_controls_in_rust_baseline_version', (0, 2, True, '1')),
-            ('contract_job_consolidation_version', (0, 5, True, '4')),
+            ('contract_job_consolidation_version', (0, 6, True, '5')),
+            ('workspace_support_direct_gate_version', (0, 3, True, '2')),
+            ('ordinary_scope_config_slice_version', (0, 3, True, '2')),
             ('scoped_production_cfg_version', (0, 2, True, '1')),
             ('main_fast_coalesce_concurrency_version', (0, 2, True, '1')),
         ):

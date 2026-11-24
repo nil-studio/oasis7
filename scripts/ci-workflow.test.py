@@ -764,8 +764,10 @@ def validate_candidate_graph(workflow, config):
                     or 'include:' in header or 'exclude:' in header
                     or "workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '[\"all\"]' }}" not in jobs['select']
                     or 'custody_execution_version != 1' not in header
-                    or (config.get('workspace_support_direct_gate_version') == 1
-                        and 'workspace_support_direct_gate_version != 1' not in header)
+                    or (config.get('workspace_support_direct_gate_version') in (1, 2)
+                        and ('workspace_support_direct_gate_version != 1' not in header
+                             or (config.get('workspace_support_direct_gate_version') == 2
+                                 and 'workspace_support_direct_gate_version != 2' not in header)))
                     or '--support-partition "$SUPPORT_PARTITION"' not in legacy):
                 raise ValueError('support legacy must retain every trusted partition and old BASE fallback')
             node = jobs['custody-node']
@@ -839,9 +841,15 @@ def validate_candidate_graph(workflow, config):
                         raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
             if ('    needs: select' not in jobs['workspace-support-other']
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
-                    or (config.get('workspace_support_direct_gate_version') == 1
-                        and 'workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other'])):
+                    or (config.get('workspace_support_direct_gate_version') in (1, 2)
+                        and ('workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other']
+                             or (config.get('workspace_support_direct_gate_version') == 2
+                                 and 'workspace_support_direct_gate_version == 2' not in jobs['workspace-support-other'])))):
                 raise ValueError('other support must remain independent of custody builds')
+            if (config.get('workspace_support_direct_gate_version') == 2
+                    and ('workspace_support_direct_gate_version != 2' not in summary
+                         or 'ci-custody-platform.py" validate' not in jobs['required-gate'])):
+                raise ValueError('direct gate v2 must bypass support summary and validate custody in required-gate')
             continue
         if group == 'formal_process':
             if ('always()' not in job or 'ci-formal-plan.py" --selected' not in job
