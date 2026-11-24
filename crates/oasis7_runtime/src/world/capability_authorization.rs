@@ -18,41 +18,6 @@ use super::World;
 use super::capability_authorization_state::{capability_budget_key, validate_budget_account};
 
 impl World {
-    /// Legacy compatibility shim.  Authority cannot be installed from a
-    /// process-local key/epoch pair; callers must provide finalized
-    /// governance evidence through
-    /// [`Self::install_capability_authority_record_with_finality_proof`].
-    #[deprecated(note = "install a finalized CapabilityAuthorityRecord")]
-    pub fn set_capability_trusted_issuer(
-        &mut self,
-        _issuer_id: &str,
-        _public_key_hex: &str,
-        _key_epoch: u64,
-    ) -> Result<(), WorldError> {
-        Err(deny(
-            "direct issuer key registration is forbidden; install finalized authority evidence",
-        ))
-    }
-
-    #[deprecated(note = "install a finalized CapabilityAuthorityRecord")]
-    pub fn revoke_capability_grant_v2(&mut self, grant_id: &str) -> Result<(), WorldError> {
-        let _ = grant_id;
-        Err(deny(
-            "direct grant revocation is forbidden; install finalized authority evidence",
-        ))
-    }
-
-    #[deprecated(note = "install a finalized CapabilityAuthorityRecord")]
-    pub fn set_capability_revocation_epoch(
-        &mut self,
-        _epoch: u64,
-        _finalized_receipt_id: impl Into<String>,
-    ) -> Result<(), WorldError> {
-        Err(deny(
-            "direct revocation epoch mutation is forbidden; install finalized authority evidence",
-        ))
-    }
-
     /// Reject the legacy unproven authority import path.
     ///
     /// Authority records are trust roots, so accepting a structurally valid
