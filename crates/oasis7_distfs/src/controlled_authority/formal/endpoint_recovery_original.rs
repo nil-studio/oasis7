@@ -183,4 +183,84 @@ mod tests {
         drop(oversized);
         assert!(VerifiedNativeRecoveryPendingV1::read(&file.0, &root).is_err());
     }
+
+    #[test]
+    fn cold_reader_rejects_noncanonical_encoding_with_correct_root() {
+        let file = TestFile::new();
+        let handoff = RecoveryPendingHandoffV1::from_requests(vec![request("a", &[1])]).unwrap();
+        let root = handoff.root().unwrap();
+        let canonical = serde_cbor::to_vec(&handoff).unwrap();
+        // The same two-entry map with a non-minimal length encoding.
+        assert_eq!(canonical[0], 0xa2);
+        let mut noncanonical = vec![0xb8, 2];
+        noncanonical.extend_from_slice(&canonical[1..]);
+        let decoded: RecoveryPendingHandoffV1 = serde_cbor::from_slice(&noncanonical).unwrap();
+        assert_eq!(decoded, handoff);
+        assert_eq!(decoded.root().unwrap(), root);
+        std::fs::write(&file.0, &canonical).unwrap();
+        assert!(VerifiedNativeRecoveryPendingV1::read(&file.0, &root).is_ok());
+        std::fs::write(&file.0, &noncanonical).unwrap();
+        let error = VerifiedNativeRecoveryPendingV1::read(&file.0, &root).unwrap_err();
+        assert!(error.to_string().contains("noncanonical original"));
+    }
+
+    #[test]
+    fn original_qualified_cut_requires_the_independent_proof_pin() {
+        use oasis7_formal_protocol::controlled_authority::formal::{
+            FormalCompletionBranchV1, formal_qualified_proof_digest,
+            test_fixtures::{proof, recovery_fixture_with_profile, verified_recovery},
+        };
+
+        for branch in [
+            FormalCompletionBranchV1::CompletePrepared,
+            FormalCompletionBranchV1::ReplayFrozen,
+        ] {
+            let (intent, original, parent, frozen, record) =
+                recovery_fixture_with_profile(branch, None, 10, 2);
+            let recovery = verified_recovery(&intent, &original);
+            let completed = proof(
+                record,
+                recovery.successor(),
+                branch,
+                Some(recovery.certificate_digest().into()),
+                Some(frozen),
+                if branch == FormalCompletionBranchV1::CompletePrepared {
+                    4
+                } else {
+                    10
+                },
+                11,
+                12,
+            );
+            let pin = formal_qualified_proof_digest(&completed).unwrap();
+            let checked =
+                verify_native_recovery_original_legacy_cut(&completed, &recovery, &parent, &pin)
+                    .unwrap();
+            assert_eq!(checked.proof_digest(), pin);
+            assert_eq!(checked.cut().record(), &completed.decision.record);
+            let wrong_pin = if pin == "0".repeat(64) {
+                "1".repeat(64)
+            } else {
+                "0".repeat(64)
+            };
+            let error =
+                verify_native_recovery_original_legacy_cut(&completed, &recovery, &parent, &wrong_pin)
+                    .err()
+                    .expect("the independently pinned digest must match");
+            assert!(error.to_string().contains("proof pin mismatch"));
+
+            let mut corrupted = completed;
+            corrupted.replica_complete.signature_hex = "00".repeat(64);
+            let corrupted_pin = formal_qualified_proof_digest(&corrupted).unwrap();
+            assert!(
+                verify_native_recovery_original_legacy_cut(
+                    &corrupted,
+                    &recovery,
+                    &parent,
+                    &corrupted_pin,
+                )
+                .is_err()
+            );
+        }
+    }
 }
