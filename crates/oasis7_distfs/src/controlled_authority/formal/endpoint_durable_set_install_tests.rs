@@ -43,7 +43,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     );
     let fixture = Fixture::new();
     let open = |role, provider: Arc<dyn MonotonicEndpointProvider>| {
-        let opening = match role {
+        let opening: &[u8] = match role {
             EndpointRole::Primary => b"oasis7 native diagnostic install_open_primary_enter\n",
             EndpointRole::Replica => b"oasis7 native diagnostic install_open_replica_enter\n",
         };
