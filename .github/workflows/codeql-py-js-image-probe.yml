@@ -149,6 +149,50 @@ jobs:
                   return item
               return item
 
+          def sort_rule_tables(tool, results):
+              driver = tool['driver']
+              extensions = tool.get('extensions', [])
+              components = [driver, *extensions]
+              rule_tables = [component.get('rules', []) for component in components]
+              ordered_tables = []
+              for rules in rule_tables:
+                  assert len({rule['id'] for rule in rules}) == len(rules), 'ambiguous rule ID within component'
+                  ordered_tables.append(sorted(rules, key=lambda rule: rule['id']))
+
+              for result in results:
+                  reference = result.get('rule', {})
+                  owner = reference.get('toolComponent')
+                  component_index = 0
+                  if owner is not None:
+                      index = owner.get('index')
+                      assert type(index) is int and 0 <= index < len(extensions), 'invalid rule extension index'
+                      component_index = index + 1
+                      component = components[component_index]
+                      for key in ('name', 'guid'):
+                          assert key not in owner or owner[key] == component.get(key), 'inconsistent rule extension identity'
+                  rules = rule_tables[component_index]
+                  index = reference.get('index', result.get('ruleIndex'))
+                  rule_id = result.get('ruleId') or reference.get('id')
+                  if index is None:
+                      matches = [rule for rule in rules if rule['id'] == rule_id]
+                      assert len(matches) == 1, 'unknown rule within component'
+                      descriptor, = matches
+                  else:
+                      assert type(index) is int and 0 <= index < len(rules), 'invalid rule index'
+                      assert result.get('ruleIndex', index) == index, 'inconsistent legacy rule index'
+                      descriptor = rules[index]
+                  assert descriptor['id'] == rule_id, 'rule index does not reference the stated ID'
+                  assert 'guid' not in reference or reference['guid'] == descriptor.get('guid'), 'inconsistent rule GUID'
+                  canonical_index = ordered_tables[component_index].index(descriptor)
+                  if 'index' in reference:
+                      reference['index'] = canonical_index
+                  if 'ruleIndex' in result:
+                      result['ruleIndex'] = canonical_index
+
+              for component, rules in zip(components, ordered_tables, strict=True):
+                  if 'rules' in component:
+                      component['rules'] = rules
+
           comparison = []
           for run in data['runs']:
               tool = run['tool']
@@ -173,7 +217,10 @@ jobs:
                   assert reference.get('id', rule_id) == rule_id, 'inconsistent SARIF result rule'
               print(f'SARIF rules={rule_count} results={len(results)}')
               normalized_tool = normalize(tool)
-              normalized_results = sorted(normalize(results), key=lambda row: json.dumps(row, sort_keys=True))
+              normalized_results = normalize(results)
+              if os.environ['LANGUAGE'] == 'javascript-typescript':
+                  sort_rule_tables(normalized_tool, normalized_results)
+              normalized_results.sort(key=lambda row: json.dumps(row, sort_keys=True))
               tool_fields = sorted({key for component in [driver, *extensions] for key in component})
               result_fields = sorted({key for result in results for key in result})
               normalized_components = [normalized_tool['driver'], *normalized_tool.get('extensions', [])]
