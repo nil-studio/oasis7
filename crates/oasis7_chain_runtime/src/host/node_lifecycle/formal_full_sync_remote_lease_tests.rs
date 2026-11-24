@@ -79,15 +79,27 @@ fn subject_for(f: &IssuerFixture) -> BftCandidateReadSubjectV1 {
 }
 #[test]
 fn remote_provider_lease_retry_keeps_original_signature_head_and_ids() {
-    run_lease_retry(false);
+    run_lease_retry(RetryOutcome::Uncommitted);
 }
 
 #[test]
 fn remote_provider_lease_recovers_after_competing_cas_advances_exact_prefix() {
-    run_lease_retry(true);
+    run_lease_retry(RetryOutcome::CompetingCas);
 }
 
-fn run_lease_retry(competing_cas: bool) {
+#[test]
+fn remote_provider_lease_recovers_committed_original_after_lost_reply() {
+    run_lease_retry(RetryOutcome::Committed);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RetryOutcome {
+    Uncommitted,
+    CompetingCas,
+    Committed,
+}
+
+fn run_lease_retry(outcome: RetryOutcome) {
     let (_, trust, _, _, _) = full_sync_fixture();
     let f = issue_lease_fixture_role(
         trust.initial_trust.clone(),
@@ -110,14 +122,16 @@ fn run_lease_retry(competing_cas: bool) {
             assert!(nonces.insert(query.observation_nonce.clone()));
             let request = query_request(&query);
             let before = server_witness.fetch(&request).unwrap();
-            assert_eq!(query.provider_lease_request.is_none(), index % 2 == 0);
+            let read_only = index % 2 == 0
+                || (index == 3 && outcome == RetryOutcome::Committed);
+            assert_eq!(query.provider_lease_request.is_none(), read_only);
             if let Some(signed) = query.provider_lease_request {
                 signed.verify(&v3).unwrap();
                 assert_eq!(signed.body.provider_incarnation, issuer_hash(29));
                 assert_eq!(signed.body.target, request.target);
                 assert_eq!(signed.body.target_generation, 1);
                 server_captured.lock().unwrap().push(signed.clone());
-                if index == 1 && !competing_cas {
+                if index == 1 && outcome == RetryOutcome::Uncommitted {
                     // The original CAS has not committed. A lost result alone
                     // cannot authorize replacement of its signed request.
                     stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
@@ -138,7 +152,7 @@ fn run_lease_retry(competing_cas: bool) {
                     77 + index,
                     before.observation.body.protected_time.latest_unix_ms,
                 );
-                let signed = if index == 1 {
+                let signed = if index == 1 && outcome == RetryOutcome::CompetingCas {
                     // A different incarnation wins the same exact CAS head.
                     // The original is absent from the resulting signed prefix.
                     let mut competing = signed.body.clone();
@@ -225,19 +239,42 @@ fn run_lease_retry(competing_cas: bool) {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     server.join().unwrap();
     let signed = captured.lock().unwrap();
-    assert_eq!(signed.len(), 2);
+    assert_eq!(
+        signed.len(),
+        if outcome == RetryOutcome::Committed {
+            1
+        } else {
+            2
+        }
+    );
     assert_eq!(
         signed[0].body.expected_head,
         f.history.v3_entries.last().unwrap().record.next_anchor
     );
-    if competing_cas {
+    if outcome == RetryOutcome::CompetingCas {
         assert_ne!(signed[0], signed[1]);
         assert_ne!(signed[0].body.request_id, signed[1].body.request_id);
         assert_eq!(
             signed[1].body.expected_head.revision,
             signed[0].body.expected_head.revision + 1
         );
-    } else {
+    } else if outcome == RetryOutcome::Uncommitted {
         assert_eq!(signed[0], signed[1]);
+    }
+    let history = witness.history.lock().unwrap();
+    let appended = &history.v3_entries[f.history.v3_entries.len()..];
+    assert_eq!(
+        appended.len(),
+        if outcome == RetryOutcome::CompetingCas {
+            2
+        } else {
+            1
+        }
+    );
+    match &appended.last().unwrap().record.event {
+        FullSyncIssuerEventV3::Lease { request, .. } => {
+            assert_eq!(request.as_ref(), signed.last().unwrap());
+        }
+        _ => panic!("recovery did not preserve the original lease operation"),
     }
 }

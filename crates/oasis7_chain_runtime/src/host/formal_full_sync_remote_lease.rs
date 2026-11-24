@@ -16,8 +16,10 @@ pub(super) struct ProviderLeaseClientV3 {
 
 struct PendingLeaseRequestV3 {
     signed: SignedFullSyncProviderLeaseRequestV3,
+    // Keep the verified prefix even if the next transport submission fails.
+    last_verified_head: FullSyncIssuerAnchorV3,
     // Any failed submission requires a read-only reconciliation before retry.
-    last_verified_head: Option<FullSyncIssuerAnchorV3>,
+    submission_verified: bool,
 }
 impl ProviderLeaseClientV3 {
     pub fn new(
@@ -67,11 +69,11 @@ impl ProviderLeaseClientV3 {
         // A previously verified successful submission may replay its exact
         // original receipt. A failed submission cannot loop forever on a stale
         // CAS: first obtain a read-only, independently verified complete prefix.
-        if let Some(head) = pending
+        if pending
             .get(&key)
-            .and_then(|entry| entry.last_verified_head.clone())
+            .is_some_and(|entry| entry.submission_verified)
         {
-            return self.submit_pending(source, request, &mut pending, &key, Some(&head), true);
+            return self.submit_pending(source, request, &mut pending, &key, true);
         }
         // Reserve the caller's nonce for the final authorization response.
         // The preliminary observation must not reuse it across a lease CAS.
@@ -83,7 +85,11 @@ impl ProviderLeaseClientV3 {
             ));
         }
         let evidence = source.fetch_raw(&probe, None)?;
-        let state = self.verify_evidence(&probe, &evidence)?;
+        let state = self.verify_response_at_least(
+            &probe,
+            &evidence,
+            pending.get(&key).map(|entry| &entry.last_verified_head),
+        )?;
         if let Some(original) = pending.get(&key) {
             let committed = state
                 .leases()
@@ -126,14 +132,7 @@ impl ProviderLeaseClientV3 {
         if pending.contains_key(&key) {
             // Its exact head is still current. Preserve all signed bytes,
             // including IDs and nonce, even when the previous reply was lost.
-            return self.submit_pending(
-                source,
-                request,
-                &mut pending,
-                &key,
-                Some(state.anchor()),
-                true,
-            );
+            return self.submit_pending(source, request, &mut pending, &key, true);
         }
         if has_lease {
             let final_evidence = source.fetch_raw(request, None)?;
@@ -179,17 +178,11 @@ impl ProviderLeaseClientV3 {
             key.clone(),
             PendingLeaseRequestV3 {
                 signed,
-                last_verified_head: None,
+                last_verified_head: state.anchor().clone(),
+                submission_verified: false,
             },
         );
-        self.submit_pending(
-            source,
-            request,
-            &mut pending,
-            &key,
-            Some(state.anchor()),
-            false,
-        )
+        self.submit_pending(source, request, &mut pending, &key, false)
     }
 
     fn submit_pending(
@@ -198,7 +191,6 @@ impl ProviderLeaseClientV3 {
         request: &FullSyncIssuerReadEvidenceRequestV3,
         pending: &mut BTreeMap<String, PendingLeaseRequestV3>,
         key: &str,
-        previous: Option<&FullSyncIssuerAnchorV3>,
         retire_on_success: bool,
     ) -> FormalReadResult<FullSyncIssuerReadEvidenceV3> {
         let entry = pending
@@ -206,9 +198,14 @@ impl ProviderLeaseClientV3 {
             .ok_or_else(|| FormalReadError::Internal("missing pending lease request".into()))?;
         // Set uncertainty before sending; neither HTTP success nor a signature
         // alone is proof that the issuer committed this exact operation.
-        entry.last_verified_head = None;
+        entry.submission_verified = false;
         let evidence = source.fetch_raw(request, Some(entry.signed.clone()))?;
-        let state = self.verify_response_at_least(request, &evidence, previous)?;
+        let state = self.verify_response_at_least(
+            request,
+            &evidence,
+            Some(&entry.last_verified_head),
+        )?;
+        entry.last_verified_head = state.anchor().clone();
         if !state
             .leases()
             .values()
@@ -218,7 +215,7 @@ impl ProviderLeaseClientV3 {
                 "issuer history does not contain the exact submitted lease".into(),
             ));
         }
-        entry.last_verified_head = Some(state.anchor().clone());
+        entry.submission_verified = true;
         if retire_on_success {
             pending.remove(key);
         }
