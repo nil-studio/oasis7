@@ -151,11 +151,21 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 
 def workspace_support_image_matrix(job):
+    pair = "matrix.execution == 'signer-context-image'" in job
+    container_job = job
+    if pair:
+        pair_image = (
+            "matrix.execution == 'signer-context-image' && "
+            "'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:"
+            "f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c' || "
+        )
+        assert pair_image in job
+        container_job = job.replace(pair_image, '', 1)
     container = re.search(
         r"^    container:\n      image: \$\{\{ (?:matrix\.execution == 'signer-image' && "
         r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| )?matrix\.execution == 'image' && "
         r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| '' \}\}$",
-        job, re.M)
+        container_job, re.M)
     if not container:
         return None
     expected_matrix = (
@@ -165,6 +175,12 @@ def workspace_support_image_matrix(job):
         expected_matrix = expected_matrix.replace(
             'fromJSON(', 'fromJSON(needs.select.outputs.workspace_support_signer_only == \'true\' '
             "&& '[\"signer-image\"]' || ")
+    if pair:
+        assert container[1]
+        expected_matrix = expected_matrix.replace(
+            'fromJSON(', "fromJSON(needs.select.outputs.workspace_support_signer_context == 'true' "
+            "&& '[\"signer-context-image\"]' || ",
+        )
     assert expected_matrix in job and '      fail-fast: false\n' in job
     assert '--support-execution "$SUPPORT_EXECUTION"' in job
     assert '          SUPPORT_EXECUTION: ${{ matrix.execution }}\n' in job
@@ -481,8 +497,17 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                 if "matrix.execution == 'signer-image'" in reader:
                     node = rows['node']
                     assert "matrix.execution == 'signer-image' && '" + node['image'] + "'" in reader
-                    assert "      options: ${{ matrix.execution == 'signer-image' && '" + node['options'] + "' || '' }}\n" in reader
-                    assert "          install-dir: ${{ matrix.execution == 'signer-image' && format('{0}/" + node['mold-dir'] + "', runner.temp) || '' }}\n" in reader
+                    options_prefix = ''
+                    mold_prefix = ''
+                    if "matrix.execution == 'signer-context-image'" in reader:
+                        options_prefix = "matrix.execution == 'signer-context-image' && '" + node['options'] + "' || "
+                        mold_prefix = ("matrix.execution == 'signer-context-image' && "
+                                       "format('{0}/oasis7-signer-context-mold', runner.temp) || ")
+                    assert ("      options: ${{ " + options_prefix + "matrix.execution == 'signer-image' && '" +
+                            node['options'] + "' || '' }}\n") in reader
+                    assert ("          install-dir: ${{ " + mold_prefix +
+                            "matrix.execution == 'signer-image' && format('{0}/" + node['mold-dir'] +
+                            "', runner.temp) || '' }}\n") in reader
                     signer = [step for step in rust_cache_steps(reader)
                               if "        if: matrix.execution == 'signer-image'\n" in step]
                     assert len(signer) == 1 and 'shared-key: ' + node['namespace'] + '\n' in signer[0]
@@ -800,8 +825,7 @@ def validate_candidate_graph(workflow, config):
                     or 'name: ${{ needs.custody-wasm-production.outputs.approval_artifact }}' not in node):
                 raise ValueError('custody must run the complete trusted file shards and TypeScript consumer')
             proof = jobs['custody-native-contracts']
-            if (('    needs: select\n' not in proof and '    needs: [select, fast-preflight]\n' not in proof)
-                    or 'custody_execution_version == 1' not in proof
+            if ('    needs: [select, fast-preflight]\n' not in proof or 'custody_execution_version == 1' not in proof
                     or 'verify.sh --stage native-contracts' not in proof
                     or 'RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}' not in proof
                     or 'custody-native-contracts' in node):
@@ -831,7 +855,7 @@ def validate_candidate_graph(workflow, config):
                 raise ValueError('WASM proof must preserve selected compile checks without blocking Node consumers')
             for component in ('native', 'wasm-production'):
                 producer = jobs['custody-' + component]
-                if (('    needs: select' not in producer and '    needs: [select, fast-preflight]' not in producer)
+                if ('    needs: [select, fast-preflight]' not in producer
                         or 'custody_execution_version == 1' not in producer
                         or 'CUSTODY_COMPONENT: ' + component not in producer
                         or 'verify.sh --stage "$stage"' not in producer
@@ -860,8 +884,7 @@ def validate_candidate_graph(workflow, config):
                             or '\n          if-no-files-found: error\n' not in upload
                             or '\n          retention-days: 7\n' not in upload):
                         raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
-            if (('    needs: select' not in jobs['workspace-support-other']
-                 and '    needs: [select, fast-preflight]' not in jobs['workspace-support-other'])
+            if ('    needs: [select, fast-preflight]' not in jobs['workspace-support-other']
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
                     or (config.get('workspace_support_direct_gate_version') in (1, 2)
                         and ('workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other']
@@ -2980,7 +3003,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_ordinary_build_aggregation_rejects_every_incomplete_lane_combination(self):
         consumer = JOBS['oasis7-required']
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', consumer)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in consumer
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in consumer
+        )
         condition = consumer.split('    runs-on:', 1)[0].split('    if:', 1)[1].strip().removeprefix('>-').strip()
         self.assertIn('always() && !cancelled()', condition)
         self.assertIn("needs.select.result == 'success'", condition)
@@ -3023,6 +3049,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', 'explicit-full', None)):
                         values = {
                             'always()': True, 'cancelled()': cancelled,
+                            'needs.fast-preflight.result': 'success',
                             'needs.oasis7-test-build-candidate.result': result,
                             'needs.oasis7-test-build-trusted.result': 'skipped',
                             'needs.select.result': 'success' if name == 'oasis7-required' else result,
@@ -3277,7 +3304,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_ordinary_matrix_keeps_the_trusted_complete_partition_list_and_failure_boundary(self):
         job = JOBS['oasis7-required']
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', job)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in job
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in job
+        )
         self.assertIn('oasis7-required', JOBS['required-gate'])
         for damaged in (
             job.replace('fail-fast: false', 'fail-fast: true'),
@@ -4931,9 +4961,13 @@ run_cargo() {
             if group == 'workspace_support':
                 self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
                 continue
-            dependency = ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]'
-                          if group == 'oasis7_required' else 'needs: select')
-            self.assertIn(dependency, job)
+            allowed = (
+                ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]',
+                 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]')
+                if group == 'oasis7_required'
+                else (('needs: select', 'needs: [select, fast-preflight]') if group == 'rust_baseline' else ('needs: select',))
+            )
+            self.assertTrue(any(dep in job for dep in allowed), (group, allowed))
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
             self.assertIn("needs.select.result == 'success'", job)
             self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", job)
@@ -5340,23 +5374,24 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
 
     def test_periodic_observation_gates_full_without_blocking_other_events(self):
         select = JOBS['select']
-        self.assertTrue(
-            'needs: periodic-admission' in select or 'needs: [periodic-admission, main-fast-admission]' in select
-        )
+        self.assertIn('needs: [periodic-admission, main-fast-admission]', select)
         condition = select.split('    if: >-\n', 1)[1].split('    runs-on:', 1)[0]
-        for event, draft, mode, admission, full, expected in (
-                ('pull_request', False, '', 'skipped', '', True),
-                ('pull_request', True, '', 'skipped', '', False),
-                ('push', False, '', 'skipped', '', True),
-                ('workflow_dispatch', False, 'full', 'skipped', '', True),
-                ('workflow_dispatch', False, 'newapi_bridge_package', 'skipped', '', False),
-                ('schedule', False, '', 'success', 'true', True),
-                ('schedule', False, '', 'success', 'false', False),
-                ('schedule', False, '', 'failure', 'true', False),
-                ('schedule', False, '', 'cancelled', 'true', False)):
+        for event, ref, draft, mode, admission, full, mf_adm, mf_run, expected in (
+                ('pull_request', 'refs/pull/1/merge', False, '', 'skipped', '', 'skipped', '', True),
+                ('pull_request', 'refs/pull/1/merge', True, '', 'skipped', '', 'skipped', '', False),
+                ('push', 'refs/heads/main', False, '', 'skipped', '', 'success', 'true', True),
+                ('push', 'refs/heads/main', False, '', 'skipped', '', 'success', 'false', False),
+                ('push', 'refs/heads/main', False, '', 'skipped', '', 'failure', 'true', False),
+                ('push', 'refs/heads/other', False, '', 'skipped', '', 'skipped', '', True),
+                ('workflow_dispatch', 'refs/heads/main', False, 'full', 'skipped', '', 'skipped', '', True),
+                ('workflow_dispatch', 'refs/heads/main', False, 'newapi_bridge_package', 'skipped', '', 'skipped', '', False),
+                ('schedule', 'refs/heads/main', False, '', 'success', 'true', 'skipped', '', True),
+                ('schedule', 'refs/heads/main', False, '', 'success', 'false', 'skipped', '', False),
+                ('schedule', 'refs/heads/main', False, '', 'failure', 'true', 'skipped', '', False),
+                ('schedule', 'refs/heads/main', False, '', 'cancelled', 'true', 'skipped', '', False)):
             expr = condition
             for token, value in {'always()': True, 'cancelled()': False,
-                    'github.event_name': event, 'github.ref': 'refs/heads/main',
+                    'github.event_name': event, 'github.ref': ref,
                     'github.event.pull_request.draft': draft,
                     'github.event.action': 'opened', 'github.event.label.name': '',
                     'github.event.pull_request.head.repo.full_name': 'nil-studio/oasis7',
@@ -5364,11 +5399,11 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                     'inputs.run_mode': mode,
                     'needs.periodic-admission.result': admission,
                     'needs.periodic-admission.outputs.run_full': full,
-                    'needs.main-fast-admission.result': 'success' if event == 'push' else 'skipped',
-                    'needs.main-fast-admission.outputs.run_main_fast': 'true' if event == 'push' else ''}.items():
+                    'needs.main-fast-admission.result': mf_adm,
+                    'needs.main-fast-admission.outputs.run_main_fast': mf_run}.items():
                 expr = expr.replace(token, repr(value))
             expr = re.sub(r'!(?!=)', 'not ', expr.replace('&&', ' and ').replace('||', ' or '))
-            with self.subTest(event=event, draft=draft, admission=admission, run_full=full):
+            with self.subTest(event=event, ref=ref, draft=draft, admission=admission, run_full=full, mf_adm=mf_adm, mf_run=mf_run):
                 self.assertEqual(eval(' '.join(expr.split()), {'__builtins__': {}}, {}), expected)
 
     def test_selected_jobs_survive_skipped_admission_and_keep_failure_boundaries(self):
@@ -5589,7 +5624,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                               ('ci-custody-platform.py stage', 'true'),
                               ('verify.sh --stage "$stage"', 'true'),
                               ('run_worker_wasm_compile_profiles', 'true'),
-                              (native_needs, '    needs: custody-wasm-production\n')]:
+                              ('    needs: [select, fast-preflight]\n', '    needs: custody-wasm-production\n')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), CONFIG)
         for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 2'),
@@ -6379,7 +6414,10 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
         self.assertIn('fail-fast: false', header)
         self.assertNotIn('include:', header)
         self.assertNotIn('exclude:', header)
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', header)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in header
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in header
+        )
         self.assertIn('oasis7-required', JOBS['required-gate'])
         step = job.split('      - name: Execute selected group\n', 1)[1]
         script = textwrap.dedent(step.split('        run: ', 1)[1])
@@ -7501,25 +7539,16 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         self.assertEqual(CONFIG.get('scoped_production_cfg_version'), 1)
 
         gate = JOBS['required-gate']
-        self.assertTrue(
-            (
-                "if: >-\n"
-                "      always() && (github.event_name == 'push' ||\n"
-                "      (github.event_name == 'pull_request' &&\n"
-                "       (github.event.action != 'labeled' ||\n"
-                "        (github.event.label.name == 'ci-priority' &&\n"
-                "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
-                "         !github.event.pull_request.draft))))"
-            ) in gate or (
-                "if: >-\n"
-                "      always() && ((github.event_name == 'push' &&\n"
-                "        (github.ref != 'refs/heads/main' || needs.select.result != 'skipped')) ||\n"
-                "      (github.event_name == 'pull_request' &&\n"
-                "       (github.event.action != 'labeled' ||\n"
-                "        (github.event.label.name == 'ci-priority' &&\n"
-                "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
-                "         !github.event.pull_request.draft))))"
-            ) in gate
+        self.assertIn(
+            "if: >-\n"
+            "      always() && ((github.event_name == 'push' &&\n"
+            "        (github.ref != 'refs/heads/main' || needs.select.result != 'skipped')) ||\n"
+            "      (github.event_name == 'pull_request' &&\n"
+            "       (github.event.action != 'labeled' ||\n"
+            "        (github.event.label.name == 'ci-priority' &&\n"
+            "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
+            "         !github.event.pull_request.draft))))",
+            gate,
         )
         self.assertIn(
             "(github.event.action != 'labeled' ||\n"
@@ -7691,6 +7720,10 @@ print({m0!r})
                 if not actual_run:
                     self.assertNotEqual(actual_name, 'required-gate')
                     self.assertNotEqual(raw_name, 'required-gate')
+        # Cooldown-deferred main push skips select and must also skip required-gate.
+        self.assertFalse(bool(eval_gh_expr(
+            if_expr, event_name='push', ref='refs/heads/main', select_result='skipped',
+        )))
 
         preview_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
         preview_concurrency = preview_workflow.split('concurrency:\n', 1)[1].split('permissions:\n', 1)[0]
@@ -7714,6 +7747,55 @@ print({m0!r})
             py_group = re.sub(r'!(?!=)', 'not ', py_group.replace('&&', ' and ').replace('||', ' or '))
             with self.subTest(preview_label=label, draft=draft):
                 self.assertEqual(eval(py_group, {'__builtins__': {}}, {}), expected_group)
+
+    def test_fast_preflight_and_main_fast_admission_contracts(self):
+        admission = JOBS['main-fast-admission']
+        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", admission)
+        self.assertIn('scripts/ci-full-result.py admit-main-fast', admission)
+        self.assertIn('ci-main-fast-deferred-${{ github.run_id }}-${{ github.run_attempt }}', admission)
+        self.assertIn('ci-main-fast-admission-${{ github.run_id }}-${{ github.run_attempt }}', admission)
+
+        preflight = JOBS['fast-preflight']
+        self.assertIn('needs: select', preflight)
+        self.assertIn("github.event_name == 'pull_request'", preflight)
+        self.assertIn('cargo +"$RUST_TOOLCHAIN" fmt --all -- --check', preflight)
+        self.assertNotIn('fast-preflight', JOBS['required-gate'].split('    steps:', 1)[0])
+
+        for heavy in ('oasis7-test-build-candidate', 'workspace-support-other',
+                      'custody-native-contracts', 'custody-native', 'custody-wasm-production'):
+            job = JOBS[heavy]
+            self.assertIn('needs: [select, fast-preflight]', job)
+            self.assertIn("(needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped')", job)
+            cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', job, re.M | re.S).group(1)
+            base_vals = {
+                'needs.select.result': 'success',
+                'needs.select.outputs.run_oasis7_required': 'true',
+                'needs.select.outputs.trusted_source': 'false',
+                'needs.select.outputs.workspace_support_partitions': ['other'],
+                'fromJSON(needs.select.outputs.workspace_support_partitions)': ['other'],
+                'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+                'fromJSON(needs.select.outputs.plan).execution_profile': 'pr-fast',
+                'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
+                'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
+                'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
+                'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
+                'fromJSON(needs.select.outputs.plan).custody_execution_version': 1,
+                'fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version': 2,
+                'github.event_name': 'pull_request',
+                'github.ref': 'refs/pull/1/merge',
+                'github.workflow_sha': 'a',
+                'github.sha': 'b',
+                'inputs.run_mode': '',
+            }
+            self.assertFalse(effective_job_condition(
+                cond, dict(base_vals, **{'needs.fast-preflight.result': 'failure'}), ('success', 'failure'),
+            ), f'{heavy} must skip when fast-preflight fails')
+            self.assertTrue(effective_job_condition(
+                cond, dict(base_vals, **{'needs.fast-preflight.result': 'success'}), ('success', 'success'),
+            ), f'{heavy} must run when fast-preflight succeeds')
+            self.assertTrue(effective_job_condition(
+                cond, dict(base_vals, **{'needs.fast-preflight.result': 'skipped'}), ('success', 'skipped'),
+            ), f'{heavy} must run when fast-preflight is skipped')
 
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):

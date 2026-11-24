@@ -651,7 +651,12 @@ fn assert_builtin_hash_token(
 
 #[test]
 fn latest_delta_body_none_some_changes_replay_and_cold_qualify() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let (manifest, initial_delta, builtins) = rich_sources();
         let builtin_source = BuiltinSource(&builtins);
         let source = RuntimeArtifactResourcesRefV1 {
@@ -768,7 +773,12 @@ fn latest_delta_body_none_some_changes_replay_and_cold_qualify() {
 
 #[test]
 fn builtin_last_entry_remove_prunes_set_and_create_rebuilds_it_cold() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let (manifest, delta, builtins) = rich_sources();
         let builtin_source = BuiltinSource(&builtins);
         let source = RuntimeArtifactResourcesRefV1 {
@@ -884,7 +894,12 @@ fn builtin_last_entry_remove_prunes_set_and_create_rebuilds_it_cold() {
 fn body_and_builtin_failures_poison_after_expected_mismatch_and_real_value_put() {
     use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1 as Error;
 
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let (manifest, delta, builtins) = rich_sources();
         let builtin_source = BuiltinSource(&builtins);
         let source = RuntimeArtifactResourcesRefV1 {

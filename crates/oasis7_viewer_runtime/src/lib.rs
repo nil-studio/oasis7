@@ -1,7 +1,11 @@
 //! Viewer application, sessions, recovery orchestration and network transports.
-pub use oasis7::{geometry, models, simulator};
+pub(crate) use oasis7::{geometry, simulator};
 #[cfg(not(target_arch = "wasm32"))]
-pub use oasis7::{runtime, runtime_host, world_service};
+pub(crate) use oasis7::{runtime_host, world_service};
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime as runtime;
+#[cfg(test)]
+pub(crate) use oasis7_runtime::agent_state as models;
 pub use oasis7_simulator::GeoPos;
 #[cfg(not(target_arch = "wasm32"))]
 mod game_read_api;
