@@ -279,12 +279,14 @@ def effective_job_condition(condition, values, ancestor_results, *, cancelled=Fa
     expression = condition.strip().removeprefix('>-').strip()
     if not re.search(r'\b(?:always|success|failure|cancelled)\s*\(', expression):
         expression = 'success() && (' + expression + ')'
-    values = dict(values, **{
+    values = {
+        'needs.fast-preflight.result': 'success',
+        **values,
         'always()': True,
         'success()': not cancelled and all(result == 'success' for result in ancestor_results),
         'failure()': 'failure' in ancestor_results,
         'cancelled()': cancelled,
-    })
+    }
     for token, value in sorted(values.items(), key=lambda item: -len(item[0])):
         expression = expression.replace(token, repr(value))
     expression = re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
@@ -804,7 +806,8 @@ def validate_candidate_graph(workflow, config):
                     or 'name: ${{ needs.custody-wasm-production.outputs.approval_artifact }}' not in node):
                 raise ValueError('custody must run the complete trusted file shards and TypeScript consumer')
             proof = jobs['custody-native-contracts']
-            if ('    needs: select\n' not in proof or 'custody_execution_version == 1' not in proof
+            if (('    needs: select\n' not in proof and '    needs: [select, fast-preflight]\n' not in proof)
+                    or 'custody_execution_version == 1' not in proof
                     or 'verify.sh --stage native-contracts' not in proof
                     or 'RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}' not in proof
                     or 'custody-native-contracts' in node):
@@ -834,7 +837,7 @@ def validate_candidate_graph(workflow, config):
                 raise ValueError('WASM proof must preserve selected compile checks without blocking Node consumers')
             for component in ('native', 'wasm-production'):
                 producer = jobs['custody-' + component]
-                if ('    needs: select' not in producer
+                if (('    needs: select' not in producer and '    needs: [select, fast-preflight]' not in producer)
                         or 'custody_execution_version == 1' not in producer
                         or 'CUSTODY_COMPONENT: ' + component not in producer
                         or 'verify.sh --stage "$stage"' not in producer
@@ -863,7 +866,8 @@ def validate_candidate_graph(workflow, config):
                             or '\n          if-no-files-found: error\n' not in upload
                             or '\n          retention-days: 7\n' not in upload):
                         raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
-            if ('    needs: select' not in jobs['workspace-support-other']
+            if (('    needs: select' not in jobs['workspace-support-other']
+                 and '    needs: [select, fast-preflight]' not in jobs['workspace-support-other'])
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
                     or (config.get('workspace_support_direct_gate_version') in (1, 2)
                         and ('workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other']
@@ -3057,6 +3061,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 for cancelled in (False, True):
                     values = {
                         'always()': True, 'cancelled()': cancelled, 'needs.select.result': 'success',
+                        'needs.fast-preflight.result': 'success',
                         'needs.oasis7-test-build-candidate.result': candidate,
                         'needs.oasis7-test-build-trusted.result': trusted,
                         'needs.select.outputs.run_oasis7_required': 'true',
@@ -5341,7 +5346,9 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
 
     def test_periodic_observation_gates_full_without_blocking_other_events(self):
         select = JOBS['select']
-        self.assertIn('needs: periodic-admission', select)
+        self.assertTrue(
+            'needs: periodic-admission' in select or 'needs: [periodic-admission, main-fast-admission]' in select
+        )
         condition = select.split('    if: >-\n', 1)[1].split('    runs-on:', 1)[0]
         for event, draft, mode, admission, full, expected in (
                 ('pull_request', False, '', 'skipped', '', True),
@@ -5355,13 +5362,16 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 ('schedule', False, '', 'cancelled', 'true', False)):
             expr = condition
             for token, value in {'always()': True, 'cancelled()': False,
-                    'github.event_name': event, 'github.event.pull_request.draft': draft,
+                    'github.event_name': event, 'github.ref': 'refs/heads/main',
+                    'github.event.pull_request.draft': draft,
                     'github.event.action': 'opened', 'github.event.label.name': '',
                     'github.event.pull_request.head.repo.full_name': 'nil-studio/oasis7',
                     'github.repository': 'nil-studio/oasis7',
                     'inputs.run_mode': mode,
                     'needs.periodic-admission.result': admission,
-                    'needs.periodic-admission.outputs.run_full': full}.items():
+                    'needs.periodic-admission.outputs.run_full': full,
+                    'needs.main-fast-admission.result': 'success' if event == 'push' else 'skipped',
+                    'needs.main-fast-admission.outputs.run_main_fast': 'true' if event == 'push' else ''}.items():
                 expr = expr.replace(token, repr(value))
             expr = re.sub(r'!(?!=)', 'not ', expr.replace('&&', ' and ').replace('||', ' or '))
             with self.subTest(event=event, draft=draft, admission=admission, run_full=full):
@@ -5579,11 +5589,13 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), CONFIG)
         native = JOBS['custody-native-contracts']
+        native_needs = ('    needs: [select, fast-preflight]\n'
+                        if '    needs: [select, fast-preflight]\n' in native else '    needs: select\n')
         for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 2'),
                               ('ci-custody-platform.py stage', 'true'),
                               ('verify.sh --stage "$stage"', 'true'),
                               ('run_worker_wasm_compile_profiles', 'true'),
-                              ('    needs: select\n', '    needs: custody-wasm-production\n')]:
+                              (native_needs, '    needs: custody-wasm-production\n')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), CONFIG)
         for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 2'),
@@ -5760,6 +5772,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         for profile, version, event, ref, trusted_source, writer_expected in cases:
             values = {
                 'always()': True, 'cancelled()': False, 'needs.select.result': 'success',
+                'needs.fast-preflight.result': 'skipped',
                 'needs.select.outputs.run_oasis7_required': 'true',
                 'needs.select.outputs.run_formal_process': 'true',
                 'needs.select.outputs.trusted_source': str(trusted_source).lower(),
@@ -7494,15 +7507,25 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         self.assertEqual(CONFIG.get('scoped_production_cfg_version'), 1)
 
         gate = JOBS['required-gate']
-        self.assertIn(
-            "if: >-\n"
-            "      always() && (github.event_name == 'push' ||\n"
-            "      (github.event_name == 'pull_request' &&\n"
-            "       (github.event.action != 'labeled' ||\n"
-            "        (github.event.label.name == 'ci-priority' &&\n"
-            "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
-            "         !github.event.pull_request.draft))))",
-            gate,
+        self.assertTrue(
+            (
+                "if: >-\n"
+                "      always() && (github.event_name == 'push' ||\n"
+                "      (github.event_name == 'pull_request' &&\n"
+                "       (github.event.action != 'labeled' ||\n"
+                "        (github.event.label.name == 'ci-priority' &&\n"
+                "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
+                "         !github.event.pull_request.draft))))"
+            ) in gate or (
+                "if: >-\n"
+                "      always() && ((github.event_name == 'push' &&\n"
+                "        (github.ref != 'refs/heads/main' || needs.select.result != 'skipped')) ||\n"
+                "      (github.event_name == 'pull_request' &&\n"
+                "       (github.event.action != 'labeled' ||\n"
+                "        (github.event.label.name == 'ci-priority' &&\n"
+                "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
+                "         !github.event.pull_request.draft))))"
+            ) in gate
         )
         self.assertIn(
             "(github.event.action != 'labeled' ||\n"
@@ -7625,11 +7648,13 @@ print({m0!r})
         if_expr = if_match.group(1).strip().removeprefix('>-').strip()
         name_expr = raw_name.removeprefix('${{').removesuffix('}}').strip()
 
-        def eval_gh_expr(expr, *, event_name, action='', label='', same_repo=True, draft=False):
+        def eval_gh_expr(expr, *, event_name, action='', label='', same_repo=True, draft=False, ref='refs/heads/main', select_result='success'):
             py_expr = ' '.join(expr.split())
             replacements = {
                 'always()': 'True',
                 'github.event_name': repr(event_name),
+                'github.ref': repr(ref),
+                'needs.select.result': repr(select_result),
                 'github.event.action': repr(action),
                 'github.event.label.name': repr(label),
                 'github.event.pull_request.head.repo.full_name': repr('nil-studio/oasis7' if same_repo else 'fork/oasis7'),
