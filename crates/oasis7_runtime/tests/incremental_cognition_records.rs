@@ -37,7 +37,6 @@ mod fixture;
 fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old_pool() {
     run_cognition(false, false, false);
 }
-#[cfg(feature = "test_tier_full")]
 #[test]
 fn cognition_optional_economy_and_delegation_keep_original_state_and_side_routing() {
     run_cognition(true, false, false);
