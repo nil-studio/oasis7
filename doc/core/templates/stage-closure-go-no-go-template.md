@@ -87,4 +87,4 @@
 - `P1` 未完成项是否具备风险、缓解、owner 与复审时间。
 - `conditional-go` / `no-go` / `blocked` 是否具备直接证据支持。
 - 是否存在未登记的例外或口头豁免。
-- 是否已回写 `doc/core/prd.md`、对应模块 PR、实际 CI 与评审记录（Issue 按需） 与对应 PR、实际 CI 与评审记录（Issue 按需）。
+- 是否已回写 `doc/core/prd.md` 与对应模块 PR、实际 CI 及评审记录（Issue 按需）。

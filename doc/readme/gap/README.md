@@ -4,7 +4,7 @@
 
 - 本目录是历史 Gap 收口资料，不是当前部署/启动入口。追溯原需求与未接收约束，读 [历史主文档](readme-gap-distributed-prod-hardening-gap12345.prd.md#historical-retention-and-routing)；当前操作从该节的专业去向进入。
 - 想确认该主收口的完成动作、验证与后续状态：读 PR、实际 CI 与评审记录（Issue 按需）。
-- 原模块安装与缺口增量的来源保留在历史 PRD 和固定 Git / PR / 验证记录；同名 design 仅兼容跳转。现行专业去向不等于所有原要求均已验收。
+- 原模块安装与缺口增量的来源保留在历史 PRD 和固定 Git / PR / 验证记录；同名旧 design 已归并退役。现行专业去向不等于所有原要求均已验收。
 
 ## 权威边界
 

@@ -202,7 +202,7 @@ impl MetadataServer {
                                 memory_write_intents: if !final_budget
                                     && (repeated || (hosted_wait && !first_wait))
                                 {
-                                    vec![oasis7::simulator::MemoryWriteIntent {
+                                    vec![oasis7_agent_api::MemoryWriteIntent {
                                         scope: "session_private".into(),
                                         summary: format!(
                                             "actual repeated turn {}",

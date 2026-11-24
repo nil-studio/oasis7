@@ -32,7 +32,7 @@ env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_governance_regis
 env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_governance_registry_audit -- --world-dir <world-dir> --public-manifest <operator-local-public-manifest.json> --strict-manifest-match
 env -u RUSTC_WRAPPER cargo run -p oasis7_protocol_tools --bin oasis7_rollback_strict_audit_evidence -- --audit-report <exact-audit-report.json> --manifest <exact-public-manifest.json> --output <signed-evidence.json> --authority-id <active-governance-authority-id> --rollback-ticket <ticket> --receipt-id <receipt-id> --canonical-intent-digest <intent-digest> --recovery-snapshot-hash <snapshot-hash> --candidate-state-root <target-root> --reorg-epoch <epoch> --issued-at-ms <issued-ms> --expires-at-ms <expires-ms> --nonce <one-time-audit-nonce> --private-key-file <custody-mounted-governance-key-file>
 ./scripts/governed-rollback-v2-drill.sh
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required runtime::tests::persistence::rollback_with_reconciliation_recovers_from_detected_tick_consensus_drift -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --features test_tier_required rollback_with_reconciliation_recovers_from_detected_tick_consensus_drift -- --nocapture
 ```
 
 `governed-rollback-v2-drill.sh` 是 repo-native 可执行协议演练门禁，覆盖 v2 Hello capability、RollbackV2 协商边界、不可变 receipt/同 nonce 重试、nonce conflict、重启恢复与 `GetRollbackReceipt` 证据链。任一子测试失败即保持 rollback freeze；脚本通过不替代 operator-local manifest import/strict audit 或真实 custody 签名证据。

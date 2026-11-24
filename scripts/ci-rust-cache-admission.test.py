@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -236,7 +237,11 @@ class AdmissionTests(unittest.TestCase):
         namespace, workflow, job = admission.FAMILIES['hosted-login-release']
         definition = (Path(__file__).resolve().parent.parent / workflow).read_text()
         reader, writer = definition.split(f'\n  {job}:\n', 1)
-        self.assertIn('timeout-minutes: 45', reader)
+        native_job = reader.split('\n  build-linux-x86-64:\n', 1)[1].split('\n  build-viewer:\n', 1)[0]
+        timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', native_job, re.M)
+        self.assertIsNotNone(timeout_match)
+        self.assertGreater(int(timeout_match.group(1)), 0)
+        self.assertLessEqual(int(timeout_match.group(1)), 45)
         self.assertIn("if: inputs.run_mode != 'release-deps'", reader)
         self.assertIn(f'shared-key: &hosted-login-cache-key {namespace}', reader)
         self.assertIn('save-if: false', reader)

@@ -194,7 +194,7 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
         candidate_action_id: Some(1),
         runtime_receipt_id: Some("original-receipt".into()),
         status: "committed".into(),
-        request_digest: oasis7::simulator::h_v1("oasis7.cognition.request.v1", &"original-request"),
+        request_digest: oasis7_agent_api::h_v1("oasis7.cognition.request.v1", &"original-request"),
         reject_reason: None,
         provenance: "runtime_authoritative".into(),
     };

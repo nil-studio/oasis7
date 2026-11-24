@@ -373,7 +373,7 @@ pub(in super::super) fn recompute_tampered_private_acceptance(
         .filter(|v| v["receipt_id"] == receipt_id)
         .cloned()
         .collect();
-    let digest=oasis7::simulator::h_v1("oasis7.app.private-feedback-acceptance.v1",&serde_json::json!({
+    let digest=oasis7_agent_api::h_v1("oasis7.app.private-feedback-acceptance.v1",&serde_json::json!({
         "original_cognition":pending["payload"],"original_feedback":ack["original_feedback"],"receipt_lineage":ack["receipt_lineage"],
         "captured_intents":pending["cognition"]["memory_write_intents"],"committed_by_digest":mappings,"receipt_memory_identity":entries
     })).to_string();

@@ -24,8 +24,8 @@
 
 ## `test_tier_required` 前置命令
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 runtime::tests::economy:: -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 viewer::runtime_live::mapping -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime tests::economy:: -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime viewer::runtime_live::mapping -- --nocapture
 ```
 
 覆盖缺口：旧 Rust Viewer package 已退役，原 `ui_text_industrial`、`feedback_tone_for_event_maps_warning_positive_and_info`、`push_feedback_toast_uses_runtime_industry_friendly_detail`、`sync_agent_chatter_bubbles_formats_runtime_industry_feedback` 四项断言尚未找到逐项等价承接测试，不能作为当前可重复执行命令或通过证据。当前 Web UI 可执行 `npm --prefix crates/oasis7_viewer run test:ui` 与 `test:feedback-contract`，但它们不证明这四项工业文案、反馈 tone、toast 与 chatter 断言已恢复；本卡片仍需按下方操作链路采集实际产品证据。Bevy bridge 和后端协议的验证边界另见 `testing-manual.md`，不得用任意新测试替代原断言。

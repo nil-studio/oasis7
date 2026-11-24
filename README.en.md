@@ -74,6 +74,8 @@ The [Chinese root README](./README.md#项目状态) owns the current public stat
 
 ## Local preview
 
+Further development of LetAI-specific features is currently **on hold and is not a primary development path**; the commands below are retained as existing local examples and do not indicate ongoing expansion or a default prerequisite for new features. See [LetAI development status](./doc/p2p/token/mainchain-token-newapi-quota-bridge.prd.md#letai-development-hold) for scope, resumption conditions, and existing security/order obligations. General Provider/BYOK and other provider paths are unaffected by this hold.
+
 Prepare the [repository's Rust toolchain](./rust-toolchain.toml), Node.js/npm, Python 3 and curl. The manual's local real-LLM path currently uses LetAI and requires your own valid configuration. Read the [first-run prerequisites](./doc/world-simulator/viewer/viewer-manual.manual.md#首次运行准备).
 
 ```bash

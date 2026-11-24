@@ -94,8 +94,8 @@ fn world_service_driver_admin_commit_pin_restart_and_stale_fence() {
                 && context.presenter.presenter_kind == "provider"
         })
         .expect("actual Runtime provider invocation");
-    let quote_authority = oasis7::simulator::h_v1(
-        oasis7::simulator::COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
+    let quote_authority = oasis7_agent_api::h_v1(
+        oasis7_agent_api::COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
         provider_invocation,
     )
     .to_string();

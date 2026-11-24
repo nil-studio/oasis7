@@ -92,8 +92,8 @@ fn real_tcp_hosted_settlement_unpublished_original_replays_exactly_once_canonica
     fixture.committed(&registration);
     let world = fixture.driver.lock().unwrap().execution_world.clone();
     let invocation = world.capability_invocation_contexts().values().find(|c| matches!(&c.subject, oasis7_wasm_abi::CapabilitySubject::Agent {agent_id,..} if agent_id=="agent-a") && c.presenter.presenter_kind=="provider").unwrap();
-    let authority = oasis7::simulator::h_v1(
-        oasis7::simulator::COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
+    let authority = oasis7_agent_api::h_v1(
+        oasis7_agent_api::COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
         invocation,
     )
     .to_string();

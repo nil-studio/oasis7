@@ -57,14 +57,14 @@
 
       <section id="quickstart" class="section" data-reveal>
         <h2>本地真实 LLM 游戏测试</h2>
-        <p><a href="https://github.com/eng-cc/oasis7/blob/main/doc/world-simulator/viewer/viewer-manual.manual.md">仓库 Viewer 手册</a>提供日常预览与 Viewer/debug 指引；干净 checkout 的完整首次启动流程尚未验证。此 preset 需要已有构建与可用的 provider 配置，默认复用已有构建，不能作为零配置启动命令。请运行 <code>./scripts/run-local-letai-game-test.sh --help-all</code> 查看受支持的配置文件与代理选项；真实模型调用可能产生 provider 费用。</p>
+        <p><a href="https://github.com/nil-studio/oasis7/blob/main/doc/world-simulator/viewer/viewer-manual.manual.md">仓库 Viewer 手册</a>提供日常预览与 Viewer/debug 指引；干净 checkout 的完整首次启动流程尚未验证。此 preset 需要已有构建与可用的 provider 配置，默认复用已有构建，不能作为零配置启动命令。请运行 <code>./scripts/run-local-letai-game-test.sh --help-all</code> 查看受支持的配置文件与代理选项；真实模型调用可能产生 provider 费用。</p>
         <pre><code>./scripts/run-local-letai-game-test.sh --local-world-playtest</code></pre>
         <p>本地真实 LetAI provider-backed 游戏试玩统一从该 preset 启动。它会处理 token config、provider bridge、launcher/runtime/viewer/local-standalone-chain 启动与日常试玩端口 <code>48420/48421/48422</code>；它不连接 formal/public testnet。脚本输出的 <code>GAME_URL</code> 是手工试玩和 agent-browser 留证入口。</p>
         <p>不要把裸 <code>run-viewer-web.sh</code> 当作本地真实 provider-backed gameplay 启动方式；它只属于下方 Viewer/debug 闭环。</p>
 
         <h2>底层 Viewer Debug 快速开始</h2>
         <h3>1) 启动 live server</h3>
-        <pre><code>env -u RUSTC_WRAPPER cargo run -p oasis7 --bin oasis7_viewer_live -- llm_bootstrap --allow-debug-scenario --llm --bind 127.0.0.1:5023 --web-bind 127.0.0.1:5011</code></pre>
+        <pre><code>env -u RUSTC_WRAPPER cargo run -p oasis7_viewer_runtime --bin oasis7_viewer_live -- llm_bootstrap --allow-debug-scenario --llm --bind 127.0.0.1:5023 --web-bind 127.0.0.1:5011</code></pre>
         <p>该路径仅用于 Viewer/debug；若显式改用 <code>--no-llm</code>，只允许 observer/debug。</p>
 
         <h3>2) 启动 Web Viewer</h3>

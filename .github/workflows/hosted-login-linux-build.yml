@@ -159,7 +159,7 @@ jobs:
     name: Build Hosted Login Viewer web dist
     if: inputs.run_mode != 'release-deps'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 12
     outputs:
       artifact-id: ${{ steps.stage.outputs.artifact-id }}
     permissions:

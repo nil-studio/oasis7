@@ -22,7 +22,7 @@
 - 这是离线 replay demo，不包含 live simulation server。
 - 演示脚本只需保证低摩擦和有事件，不追求复杂玩法。
 - 输出必须可重复生成，避免示例数据每次漂移。
-- UI/Bevy 功能扩展不在本专题范围。
+- Web Viewer UI 功能扩展不在本专题范围。
 
 ## 5. 设计演进计划
 - 先实现 demo 数据生成 API。
@@ -72,7 +72,7 @@ Owner：viewer_engineer；消费者为 demo CLI、离线 Viewer server 与运行
 
 `oasis7_viewer_runtime::viewer` 拥有 Viewer 应用状态、会话与控制、投影、网络监听及恢复编排，直接消费 `oasis7` 的无界面宿主。核心不依赖或重导出 Viewer 应用；仓库消费者使用实际 owner 的 Rust 路径，不保留 `oasis7::viewer` 兼容回边。
 
-核心 `runtime_host` 维护通用世界 bootstrap、Gameplay 请求到 Runtime Action 的组装、进程目录锁与持久 replay ledger、Runtime receipt 回读和 Harness 权威适配。完整 `WorldSnapshot`、事件及 Runtime/Player/Chain 组合归档仍由核心 Simulator 宿主持有。Viewer 的协议响应在应用边界组合该归档；客户端只消费自身所需合同和明确的解析模型。
+核心 `oasis7_runtime_host` 维护通用世界 bootstrap、Gameplay 请求到 Runtime Action 的组装、进程目录锁与持久 replay ledger、Runtime receipt 回读和 Harness 权威适配。完整 `WorldSnapshot`、事件及 Runtime/Player/Chain 组合归档仍由核心 Simulator 宿主持有。Viewer 的协议响应在应用边界组合该归档；客户端只消费自身所需合同和明确的解析模型。
 
 共享进程锁由 `oasis7_hosted_access::auth_storage` 实现，nonce ledger 和 execution world writer 使用相同原语。它只支持同主机 Linux/macOS/Windows 的受信本地文件系统，须提供内核文件锁、原子 rename 和所用持久化操作；不承诺 NFS/SMB、网络共享盘或多机分布式互斥。目录及祖先由部署方控制，不允许运行期间移动、删除、替换或通过不同文件系统别名访问锁锚点；同权限恶意进程和外部文件系统修改不在此协作锁的隔离能力内。
 

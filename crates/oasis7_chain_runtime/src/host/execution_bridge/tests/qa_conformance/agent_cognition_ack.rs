@@ -105,7 +105,7 @@ pub(super) fn run() {
         original_envelope_digest: original_record.envelope_digest.clone(),
         // This core test signs an opaque Agent declaration. Actual native
         // private-memory acceptance ordering is tested by the App path.
-        private_acceptance_digest: oasis7::simulator::h_v1(
+        private_acceptance_digest: oasis7_agent_api::h_v1(
             "oasis7.qa.signed-acceptance-statement.v1",
             &"ack core declaration",
         )
@@ -245,7 +245,7 @@ pub(super) fn run() {
     // Changing a signed acceptance statement cannot resolve to the original
     // published receipt under the same feedback correlation key.
     let mut changed_acceptance = ack.clone();
-    changed_acceptance.private_acceptance_digest = oasis7::simulator::h_v1(
+    changed_acceptance.private_acceptance_digest = oasis7_agent_api::h_v1(
         "oasis7.qa.signed-acceptance-statement.v1",
         &"different declaration",
     )

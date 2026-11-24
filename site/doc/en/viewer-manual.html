@@ -57,14 +57,14 @@
 
       <section id="quickstart" class="section" data-reveal>
         <h2>Local Real LLM Game Test</h2>
-        <p>The <a href="https://github.com/eng-cc/oasis7/blob/main/doc/world-simulator/viewer/viewer-manual.manual.md">repository Viewer manual</a> provides daily preview and Viewer/debug guidance; a complete first-run procedure for a clean checkout has not been verified. This preset requires an existing build and working provider configuration, reuses the existing build by default, and is not a zero-configuration startup command. Run <code>./scripts/run-local-letai-game-test.sh --help-all</code> for supported configuration-file and proxy options. Real model calls may incur provider charges.</p>
+        <p>The <a href="https://github.com/nil-studio/oasis7/blob/main/doc/world-simulator/viewer/viewer-manual.manual.md">repository Viewer manual</a> provides daily preview and Viewer/debug guidance; a complete first-run procedure for a clean checkout has not been verified. This preset requires an existing build and working provider configuration, reuses the existing build by default, and is not a zero-configuration startup command. Run <code>./scripts/run-local-letai-game-test.sh --help-all</code> for supported configuration-file and proxy options. Real model calls may incur provider charges.</p>
         <pre><code>./scripts/run-local-letai-game-test.sh --local-world-playtest</code></pre>
         <p>Use this preset for local real LetAI provider-backed gameplay. It handles token config, provider bridge, launcher/runtime/viewer/local-standalone-chain startup, and the daily playtest ports <code>48420/48421/48422</code>; it does not connect to formal/public testnet. The emitted <code>GAME_URL</code> is the manual play and agent-browser evidence entry.</p>
         <p>Do not treat bare <code>run-viewer-web.sh</code> as the local real provider-backed gameplay startup path; it belongs to the Viewer/debug loop below.</p>
 
         <h2>Lower-Level Viewer Debug Quick Start</h2>
         <h3>1) Start the live server</h3>
-        <pre><code>env -u RUSTC_WRAPPER cargo run -p oasis7 --bin oasis7_viewer_live -- llm_bootstrap --allow-debug-scenario --llm --bind 127.0.0.1:5023 --web-bind 127.0.0.1:5011</code></pre>
+        <pre><code>env -u RUSTC_WRAPPER cargo run -p oasis7_viewer_runtime --bin oasis7_viewer_live -- llm_bootstrap --allow-debug-scenario --llm --bind 127.0.0.1:5023 --web-bind 127.0.0.1:5011</code></pre>
         <p>This route is Viewer/debug only. If you switch to <code>--no-llm</code>, it remains observer/debug only.</p>
 
         <h3>2) Start the web viewer</h3>
