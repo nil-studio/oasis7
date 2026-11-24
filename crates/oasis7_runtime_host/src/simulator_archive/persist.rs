@@ -944,7 +944,7 @@ impl WorldSnapshot {
         Ok(snapshot)
     }
 
-    pub(crate) fn validate_version(&self) -> Result<(), PersistError> {
+    pub fn validate_version(&self) -> Result<(), PersistError> {
         if is_supported_snapshot_version(self.version) {
             Ok(())
         } else {
@@ -996,7 +996,7 @@ impl WorldJournal {
         Ok(journal)
     }
 
-    pub(crate) fn validate_version(&self) -> Result<(), PersistError> {
+    pub fn validate_version(&self) -> Result<(), PersistError> {
         if is_supported_journal_version(self.version) {
             Ok(())
         } else {
