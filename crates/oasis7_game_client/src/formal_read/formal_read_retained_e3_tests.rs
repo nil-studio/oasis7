@@ -20,6 +20,13 @@ fn build_retained_recovery_steps<T>(build: impl FnOnce() -> T) -> T {
     build()
 }
 
+// Direct stderr survives an unrelated test's default-stack SIGABRT and
+// records the last completed signed proof stage without changing assertions.
+#[inline(never)]
+fn retained_e3_phase(label: &'static [u8]) {
+    let _ = std::io::Write::write_all(&mut std::io::stderr(), label);
+}
+
 pub(super) fn exercise() {
     let (
         world,
@@ -34,6 +41,7 @@ pub(super) fn exercise() {
         step2,
         step3,
         completion,
+    retained_e3_phase(b"oasis7 native diagnostic game_outer_stage_enter\n");
     ) = build_retained_recovery_setup(|| {
         let (
             world,
@@ -50,7 +58,9 @@ pub(super) fn exercise() {
             step2,
             step3,
             recovery3,
+        retained_e3_phase(b"oasis7 native diagnostic game_recovery_steps_enter\n");
         ) = build_retained_recovery_steps(|| {
+            retained_e3_phase(b"oasis7 native diagnostic game_initial_fixture_begin\n");
             let (world, trust, anchor, initial_proof) = protocol_initial_fixture();
             let origin_checkpoint = anchor.checkpoint();
             let origin_digest = origin_checkpoint.digest().unwrap();
@@ -99,6 +109,7 @@ pub(super) fn exercise() {
                     body,
                 }
             };
+            retained_e3_phase(b"oasis7 native diagnostic game_frozen_cert_begin\n");
             let frozen = FormalFrozenCertificateV1 {
                 reservation: SignedFormalFrozenV1 {
                     signature_hex: sign(frozen_signing_bytes(&frozen_body).unwrap(), 4),
@@ -110,6 +121,7 @@ pub(super) fn exercise() {
             let witness = RecoveryTailWitnessV1::Frozen(frozen.clone());
             let next2 = successor(original, 2, 13, 14, 15, 2);
             let minimum = issuer::IssuerAnchorV1::initial(original.policy()).unwrap();
+            retained_e3_phase(b"oasis7 native diagnostic game_recovery_step2_begin\n");
             let (step2, issuer_anchor2) = recovery_step(
                 original,
                 anchor.head(),
@@ -120,6 +132,7 @@ pub(super) fn exercise() {
                 minimum,
                 [5, 6],
             );
+            retained_e3_phase(b"oasis7 native diagnostic game_recovery_step2_created\n");
             let recovery2 = history::verify_recovery_step(&step2, &anchor, None)
                 .unwrap()
                 .recovery;
@@ -131,6 +144,7 @@ pub(super) fn exercise() {
             )
             .unwrap();
             let next3 = successor(recovery2.successor(), 3, 23, 24, 25, 2);
+            retained_e3_phase(b"oasis7 native diagnostic game_recovery_step3_begin\n");
             let (step3, _) = recovery_step(
                 recovery2.successor(),
                 anchor.head(),
@@ -141,6 +155,7 @@ pub(super) fn exercise() {
                 issuer_anchor2,
                 [14, 15],
             );
+            retained_e3_phase(b"oasis7 native diagnostic game_recovery_step3_created\n");
             let recovery3 = history::verify_recovery_step(&step3, &anchor, Some(&recovery2))
                 .unwrap()
                 .recovery;
@@ -187,6 +202,7 @@ pub(super) fn exercise() {
         )])
         .unwrap();
         record.projection_root = tree.root().unwrap();
+        retained_e3_phase(b"oasis7 native diagnostic game_candidate_begin\n");
         let candidate = SignedCanonicalCandidateV1 {
             writer_signature_hex: sign(canonical_candidate_signing_bytes(&record).unwrap(), 23),
             record: record.clone(),
@@ -216,6 +232,7 @@ pub(super) fn exercise() {
             primary: final_receipt(EndpointRole::Primary, 24),
             replica: final_receipt(EndpointRole::Replica, 25),
         };
+        retained_e3_phase(b"oasis7 native diagnostic game_verified_decision_begin\n");
         let verified_decision =
             verify_formal_decision(&decision, original, Some(anchor.head()), Some(&recovery3))
                 .unwrap();
@@ -226,6 +243,7 @@ pub(super) fn exercise() {
                 body,
             }
         };
+        retained_e3_phase(b"oasis7 native diagnostic game_completion_begin\n");
         let completion = FormalQualifiedCommitProofV1 {
             schema_version: 1,
             decision,
@@ -305,6 +323,7 @@ pub(super) fn exercise() {
             completion,
         )
     });
+    retained_e3_phase(b"oasis7 native diagnostic game_setup_returned\n");
     let mut without_previous = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
     let before = without_previous.anchor_ref().unwrap();
     let mut skipped = reply.clone();
@@ -322,6 +341,7 @@ pub(super) fn exercise() {
     );
     assert_eq!(without_previous.anchor_ref().unwrap(), before);
 
+    retained_e3_phase(b"oasis7 native diagnostic game_first_reader_begin\n");
     let mut verifier = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
     let observed = verifier.verify_view(&reply, &request, &public(7)).unwrap();
     assert_eq!(observed.commit().record().position, 2);
@@ -338,6 +358,7 @@ pub(super) fn exercise() {
     let checkpoint_v2 = verifier.checkpoint_v2(&origin_digest).unwrap();
     let pinned_v2_digest = checkpoint_v2.digest().unwrap();
     let decoded = FormalReadCheckpointV2::decode_hex(&checkpoint_v2.encode_hex().unwrap()).unwrap();
+    retained_e3_phase(b"oasis7 native diagnostic game_checkpoint_reopen_begin\n");
     let restored = FormalReadVerifier::from_fixed_checkpoint_v2(
         &trust,
         &decoded,
@@ -363,6 +384,7 @@ pub(super) fn exercise() {
         .is_err()
     );
 
+    retained_e3_phase(b"oasis7 native diagnostic game_origin_reader_begin\n");
     let (origin_request, mut origin_reply) = response(
         &world,
         &anchor,
@@ -419,6 +441,7 @@ pub(super) fn exercise() {
         current: schema2_origin,
     };
     let rebased_digest = rebased.digest().unwrap();
+    retained_e3_phase(b"oasis7 native diagnostic game_rebase_reader_begin\n");
     let rebased_reader = FormalReadVerifier::from_fixed_checkpoint_v2(
         &trust,
         &rebased,
@@ -466,6 +489,7 @@ pub(super) fn exercise() {
         current: completed_origin,
     };
     let replayed_non_normal_digest = replayed_non_normal_checkpoint.digest().unwrap();
+    retained_e3_phase(b"oasis7 native diagnostic game_non_normal_reader_begin\n");
     let replayed_non_normal_reader = FormalReadVerifier::from_fixed_checkpoint_v2(
         &trust,
         &replayed_non_normal_checkpoint,
