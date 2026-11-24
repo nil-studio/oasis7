@@ -26,7 +26,10 @@ fn provider_parity_original_archive_identity_survives_native_owner() {
         TypeId::of::<oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel>(),
         TypeId::of::<oasis7::simulator::WorldKernel>(),
     );
-    assert_eq!(TypeId::of::<WorldEvent>(), TypeId::of::<oasis7::simulator::WorldEvent>());
+    assert_eq!(
+        TypeId::of::<WorldEvent>(),
+        TypeId::of::<oasis7::simulator::WorldEvent>()
+    );
 }
 
 const ORIGIN_DIGEST: &str =

@@ -11,8 +11,8 @@ use oasis7::simulator::{
     ActionResult, AgentBehavior, AgentRunner, ContinuousAgentRequestContextV1,
     ContinuousAgentTurnContextV1, LlmAgentBehavior, MockDecisionProvider,
     OpenAiChatCompletionClient, ProviderCompatibilityStatus, ProviderLoopbackAdapter,
-    ProviderLoopbackHttpClient, evaluate_provider_compatibility,
-    provider_phase1_required_actions, provider_phase1_required_capabilities,
+    ProviderLoopbackHttpClient, evaluate_provider_compatibility, provider_phase1_required_actions,
+    provider_phase1_required_capabilities,
 };
 use oasis7_agent_api::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
