@@ -2,7 +2,7 @@
 
 ## Execution Result
 
-Reuse the existing [RunResult contract](https://github.com/eng-cc/oasis7/blob/main/doc/testing/governance/agent-runtime-self-playtest.design.md#6-接口与数据合同) and [source-to-scene records](https://github.com/eng-cc/oasis7/blob/main/doc/testing/governance/agent-runtime-self-playtest.design.md#selftest-source-scene). This is a summary projection in the existing L4 artifact, not a new approval record. Reference the current attempt even when it is blocked; keep earlier attempts and their reviewed conclusions separately.
+Reuse the existing [RunResult contract](https://github.com/nil-studio/oasis7/blob/main/doc/testing/governance/agent-runtime-self-playtest.design.md#6-接口与数据合同) and [source-to-scene records](https://github.com/nil-studio/oasis7/blob/main/doc/testing/governance/agent-runtime-self-playtest.design.md#selftest-source-scene). This is a summary projection in the existing L4 artifact, not a new approval record. Reference the current attempt even when it is blocked; keep earlier attempts and their reviewed conclusions separately.
 
 - `current_attempt`:
 - `run_result_ref`:
@@ -27,7 +27,7 @@ Record actual values and authorized, redacted references; do not copy credential
 - Evidence references and collection times:
 - What the fixed route or selected driver did not observe:
 
-Automatic collection may fill these facts. A tick/progress change, ACK or matching player ID does not establish the five player-leverage criteria or a desire to continue. See [the judgment contract](https://github.com/eng-cc/oasis7/blob/main/doc/testing/prd.md#l4-evidence-judgment).
+Automatic collection may fill these facts. A tick/progress change, ACK or matching player ID does not establish the five player-leverage criteria or a desire to continue. See [the judgment contract](https://github.com/nil-studio/oasis7/blob/main/doc/testing/prd.md#l4-evidence-judgment).
 
 ## Verdict Summary
 
