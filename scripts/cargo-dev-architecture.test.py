@@ -92,6 +92,15 @@ class RepositoryUpstreams(unittest.TestCase):
 
 
 
+    def test_viewer_generated_sidecar_uses_native_archive_owner(self):
+        viewer = HERE.parent / 'crates/oasis7_viewer_runtime/src'
+        legacy = 'oasis7::runtime_host::bootstrap::bootstrap_generated_sidecar_runtime_world'
+        for source in viewer.rglob('*.rs'):
+            self.assertNotIn(legacy, source.read_text(encoding='utf-8'), str(source))
+        support = (viewer / 'viewer/runtime_live/support.rs').read_text(encoding='utf-8')
+        self.assertIn('pub(super) use oasis7_runtime_host::bootstrap::*;', support)
+        self.assertIn('bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', support)
+
     def test_chain_umbrella_retirement_rule_is_registered_in_all_relevant_profiles(self):
         rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
         selected = [rule for rule in rules if rule['key'] == 'chain-runtime-umbrella-retirement']
