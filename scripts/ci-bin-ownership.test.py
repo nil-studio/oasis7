@@ -204,11 +204,83 @@ class Ownership(unittest.TestCase):
         test_source = (ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/tests.rs').read_text()
         self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldEventKind, WorldTime};', cli)
         self.assertIn('use oasis7_simulator::{PersistError, RunnerMetrics, WorldTime};', server)
-        self.assertIn('use oasis7::simulator::{WorldEvent, WorldSnapshot};', cli)
-        self.assertIn('use oasis7::simulator::{RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot};', server)
+        require_materialized_native_archive(ROOT)
+        self.require_viewer_archive_wire_owner(cli, server, test_source)
         self.assertNotIn('oasis7::simulator::AgentDecisionTrace', cli)
         self.assertNotIn('oasis7::simulator::RunnerMetrics', cli)
         self.assertIn('fn native_viewer_trace_metrics_preserve_original_wire_type_identity()', test_source)
+
+    def require_viewer_archive_wire_owner(self, cli, server, test_source):
+        """Accept only the intact old facade or the complete native owner transition."""
+        old_cli = 'use oasis7::simulator::{WorldEvent, WorldSnapshot};'
+        old_server = 'use oasis7::simulator::{RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot};'
+        native_event = 'use oasis7_runtime_host::simulator_archive::archive::WorldEvent;'
+        native_cli = 'use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;'
+        native_server = 'use oasis7_runtime_host::simulator_archive::persist::{WorldJournal, WorldSnapshot};'
+        kernel = 'use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;'
+        if old_cli in cli and old_server in server:
+            self.assertNotIn(native_event, cli)
+            self.assertNotIn(native_event, server)
+            self.assertNotIn(native_cli, cli)
+            self.assertNotIn(native_server, server)
+            return
+        self.assertNotIn(old_cli, cli)
+        self.assertNotIn(old_server, server)
+        for source in (cli, server):
+            self.assertIn(native_event, source)
+        self.assertIn(native_cli, cli)
+        self.assertIn(native_server, server)
+        self.assertIn('use oasis7::simulator::RuntimePerfSnapshot;', server)
+        self.assertIn(kernel, server)
+        for module, name in (('persist', 'WorldSnapshot'), ('archive', 'WorldEvent')):
+            self.assertIn(
+                f'TypeId::of::<oasis7_runtime_host::simulator_archive::{module}::{name}>(),\n'
+                f'        TypeId::of::<oasis7::simulator::{name}>(),',
+                test_source,
+            )
+            self.assertIn(f'oasis7_runtime_host::simulator_archive::{module}::{name},', test_source)
+        self.assertIn('oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new()', test_source)
+
+    def test_viewer_archive_transition_accepts_complete_native_owner(self):
+        """The new native state must pass with actual source newlines, not escaped literals."""
+        cli = (
+            'use oasis7_runtime_host::simulator_archive::archive::WorldEvent;\n'
+            'use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;'
+        )
+        server = (
+            'use oasis7::simulator::RuntimePerfSnapshot;\n'
+            'use oasis7_runtime_host::simulator_archive::archive::WorldEvent;\n'
+            'use oasis7_runtime_host::simulator_archive::persist::{WorldJournal, WorldSnapshot};\n'
+            'use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;'
+        )
+        test_source = (
+            'TypeId::of::<oasis7_runtime_host::simulator_archive::persist::WorldSnapshot>(),\n'
+            '        TypeId::of::<oasis7::simulator::WorldSnapshot>(),\n'
+            'TypeId::of::<oasis7_runtime_host::simulator_archive::archive::WorldEvent>(),\n'
+            '        TypeId::of::<oasis7::simulator::WorldEvent>(),\n'
+            'oasis7_runtime_host::simulator_archive::persist::WorldSnapshot,\n'
+            'oasis7_runtime_host::simulator_archive::archive::WorldEvent,\n'
+            'oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new()'
+        )
+        self.require_viewer_archive_wire_owner(cli, server, test_source)
+
+    def test_viewer_archive_transition_rejects_partial_or_wrong_owner(self):
+        cli = 'use oasis7::simulator::{WorldEvent, WorldSnapshot};'
+        server = 'use oasis7::simulator::{RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot};'
+        self.require_viewer_archive_wire_owner(cli, server, '')
+        with self.assertRaises(AssertionError):
+            self.require_viewer_archive_wire_owner(cli, '', '')
+        with self.assertRaises(AssertionError):
+            self.require_viewer_archive_wire_owner(
+                cli.replace('oasis7::simulator', 'oasis7_simulator'),
+                server.replace('oasis7::simulator', 'oasis7_simulator'),
+                '',
+            )
+        with self.assertRaises(AssertionError):
+            self.require_viewer_archive_wire_owner(
+                'use oasis7_runtime_host::simulator_archive::archive::WorldEvent;',
+                server, '',
+            )
 
     def test_chain_composite_mirror_recovery_uses_native_l4_owner(self):
         """Shipping Chain mirror/legacy restore/BFT and original QA share one archive-bearing L4 type."""
