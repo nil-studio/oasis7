@@ -18,14 +18,9 @@ oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 hex = "0.4"
-sha2 = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 blake3 = "1"
-ed25519-dalek = { version = "3", features = ["rand_core"] }
-
-oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oasis7_runtime_host = { path = "../oasis7_runtime_host" }
@@ -73,6 +68,9 @@ ci_formal_required_features = [
 
 [dev-dependencies]
 oasis7_hosted_access = { path = "../oasis7_hosted_access", features = ["test-support"] }
+sha2 = "0.11"
+serde_cbor = { package = "serde_cbor_2", version = "0.13" }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false, features = ["test-support"] }

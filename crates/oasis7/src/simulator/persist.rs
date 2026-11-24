@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 
 use super::archive::WorldEvent;
-use crate::chain_resource_schema::{ChainResourceDelta, ChainResourceManifest};
+use oasis7_agent_api::world_resource::{ChainResourceDelta, ChainResourceManifest};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::Snapshot as RuntimeSnapshot;
 use oasis7_simulator::{

@@ -7,7 +7,7 @@ use super::archive::RuntimeWorldEvent;
 use super::archive::{WorldEvent, WorldSnapshotExtensions};
 use super::persist::{PersistError, WorldJournal, WorldSnapshot};
 use super::{KernelJournal, KernelSnapshot};
-use crate::chain_resource_schema::ChainResourceDerivationContext;
+use oasis7_agent_api::world_resource::ChainResourceDerivationContext;
 use archive_origin::ArchiveOrigin;
 use journal_view::split_events;
 pub use journal_view::{WorldEventRef, WorldJournalView};

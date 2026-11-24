@@ -1,4 +1,4 @@
-use oasis7::capability_invocation_context::CapabilityInvocationContext;
+use oasis7_agent_api::CapabilityInvocationContext;
 use oasis7::simulator::{
     ContinuationBudgetV1, ContinuationProposalV1, ContinuousAgentRequestContextV1,
     ContinuousAgentTurnContextV1, DecisionRequest, Digest32, GoalSnapshotInputV1,

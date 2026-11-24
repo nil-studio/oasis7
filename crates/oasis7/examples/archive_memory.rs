@@ -1,5 +1,5 @@
 //! Repeat in fresh processes; allocator bytes are live requested bytes, not RSS.
-use oasis7::chain_resource_schema::ChainResourceDerivationContext;
+use oasis7_agent_api::world_resource::ChainResourceDerivationContext;
 use oasis7::simulator::{WorldKernel as Host, WorldSnapshot};
 use oasis7_simulator::{Action, GeoPos, LocationProfile, WorldKernel as Native};
 use sha2::{Digest, Sha256};
