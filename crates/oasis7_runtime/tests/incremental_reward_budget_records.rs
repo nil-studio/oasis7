@@ -342,6 +342,7 @@ mod oracle;
 #[path = "support/incremental_reward_budget_faults.rs"]
 mod faults;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_reward_budget_pages.rs"]
 mod pages;
 

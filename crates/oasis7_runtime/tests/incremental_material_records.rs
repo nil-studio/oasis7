@@ -420,6 +420,7 @@ mod points;
 
 #[path = "support/incremental_material_boundaries.rs"]
 mod boundaries;
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_material_pages.rs"]
 mod pages;
 
