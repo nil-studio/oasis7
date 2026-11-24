@@ -6,12 +6,18 @@ fn every_domain_event_has_an_explicit_fail_closed_publication_classification() {
     let core_source =
         include_str!("../../../oasis7_world_state/src/state/core_policy_transition.rs");
     let industrial_source = include_str!("../domains/industrial/staged_publication.rs");
+    let institutions_source = include_str!("../domains/institutions/staged_publication.rs");
     assert!(
         publication_source.contains("StagedIndustrialPublication::from_body(&body)")
             && publication_source.contains("return self.append_staged_industrial_event("),
         "the classified industrial owner must be used by the real publication entry"
     );
-    let classifier = [publication_source, delta_source, core_source, industrial_source].concat();
+    assert!(
+        publication_source.contains("StagedInstitutionsPublication::from_body(&body)")
+            && publication_source.contains("return self.append_staged_institutions_event("),
+        "the classified institutions owner must be used by the real publication entry"
+    );
+    let classifier = [publication_source, delta_source, core_source, industrial_source, institutions_source].concat();
 
     let enum_body = domain_source
         .split_once("pub enum DomainEvent {")
