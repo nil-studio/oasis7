@@ -299,6 +299,11 @@ jobs:
           if git cat-file -e "${policy_sha}:scripts/ci-python-control-contracts.py" 2>/dev/null; then
             git show "${policy_sha}:scripts/ci-python-control-contracts.py" >"${authority}/ci-python-control-contracts.py"
           fi
+          for file in ci-custody-platform.py ci-custody-workerd-capture.py ci_process_runner.py; do
+            if git cat-file -e "${policy_sha}:scripts/${file}" 2>/dev/null; then
+              git show "${policy_sha}:scripts/${file}" >"${authority}/${file}"
+            fi
+          done
           : > "$RUNNER_TEMP/selection-outputs.txt"
           args=(--head-ref "$source_sha" --test-ref "$tested_sha" --github-output "$RUNNER_TEMP/selection-outputs.txt" --output "$RUNNER_TEMP/selection.json")
           bootstrap_full=false
@@ -345,6 +350,19 @@ jobs:
           else
             python3 "$authority/plan-rust-required-scope.py" "${args[@]}"
           fi
+          if [[ -s "$authority/ci-custody-platform.py" ]]; then
+            if python3 - "$RUNNER_TEMP/selection.json" <<'PY'
+          import json, sys
+          plan = json.load(open(sys.argv[1]))
+          raise SystemExit(0 if (plan.get('workspace_support_direct_gate_version') == 2
+                                 and plan.get('custody_execution_version') == 1) else 1)
+          PY
+            then
+              python3 "$authority/ci-custody-platform.py" export-inventory \
+                --repo-root "$GITHUB_WORKSPACE" --ref "$tested_sha" \
+                --output "$authority/custody-inventory.json"
+            fi
+          fi
           # Keep every trusted scheduling output, but carry the complete plan
           # only in its file. A separate step publishes its scheduling view.
           python3 - "$RUNNER_TEMP/selection-outputs.txt" "$GITHUB_OUTPUT" <<'PY'
@@ -388,17 +406,26 @@ jobs:
                   or plan.get('ordinary_wasm_group') != 'rust_baseline'):
               raise ValueError('invalid ordinary controls in rust-baseline capability')
           capability = 'contract_job_consolidation_version'
-          if capability in plan and (type(plan[capability]) is not int or plan[capability] not in (1, 2, 3, 4)
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] not in (1, 2, 3, 4, 5)
                   or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
               raise ValueError('invalid contract job consolidation capability')
           capability = 'workspace_support_direct_gate_version'
-          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
-                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
-                  or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
-                  or plan.get('custody_execution_version') == 1
-                  or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
-                  or plan.get('workspace_support_partitions') != ['other']):
-              raise ValueError('invalid direct workspace support gate capability')
+          if capability in plan:
+              direct_ver = plan[capability]
+              if (type(direct_ver) is not int or direct_ver not in (1, 2)
+                      or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+                      or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                      or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1):
+                  raise ValueError('invalid direct workspace support gate capability')
+              if direct_ver == 1 and (plan.get('custody_execution_version') == 1
+                      or plan.get('workspace_support_partitions') != ['other']):
+                  raise ValueError('invalid direct workspace support gate capability')
+              if direct_ver == 2:
+                  if plan.get('custody_execution_version') == 1:
+                      if not isinstance(plan.get('workspace_support_partitions'), list) or 'custody' not in plan['workspace_support_partitions']:
+                          raise ValueError('invalid direct workspace support gate capability')
+                  elif plan.get('workspace_support_partitions') != ['other']:
+                      raise ValueError('invalid direct workspace support gate capability')
           capability = 'custody_policy_tests_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
                   or type(plan.get('custody_compile_proof_version')) is not int or plan['custody_compile_proof_version'] != 1
@@ -866,17 +893,22 @@ jobs:
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
         (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
          needs.select.outputs.run_macos_package_contract == 'true')) ||
+       (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+        (needs.select.outputs.run_doc_checker_contracts == 'true' ||
+         needs.select.outputs.run_compile_metrics == 'true' ||
+         needs.select.outputs.run_packaging_contracts == 'true')) ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
     container:
-      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
       options: --user 1001:1001
       credentials:
         username: ${{ github.actor }}
@@ -885,7 +917,13 @@ jobs:
       run:
         shell: bash
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-baseline-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -898,8 +936,11 @@ jobs:
           ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
            needs.select.outputs.run_codex_agent_config_validation == 'true') ||
+          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+           needs.select.outputs.run_doc_checker_contracts == 'true') ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         run: |
@@ -913,7 +954,8 @@ jobs:
           ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
            needs.select.outputs.run_codex_agent_config_validation == 'true') ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
@@ -940,7 +982,8 @@ jobs:
           ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
            needs.select.outputs.run_codex_agent_config_validation == 'true') ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
@@ -954,7 +997,8 @@ jobs:
           (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
           (needs.select.outputs.run_macos_package_contract == 'true' ||
            fromJSON(needs.select.outputs.plan).scope == 'full' ||
            fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
@@ -962,6 +1006,68 @@ jobs:
         run: |
           file --version
           bash ./scripts/testnet-packages-macos-arm64-contract.test.sh
+      - name: Verify preinstalled jq for consolidated doc and packaging contracts
+        if: >-
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+          (needs.select.outputs.run_doc_checker_contracts == 'true' ||
+           needs.select.outputs.run_compile_metrics == 'true' ||
+           needs.select.outputs.run_packaging_contracts == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        run: |
+          jq --version
+          jq -e '.ready == true' <<< '{"ready":true}' >/dev/null
+      - name: Execute consolidated doc checker contracts group
+        if: >-
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+          (needs.select.outputs.run_doc_checker_contracts == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+        run: bash ./scripts/ci-tests.sh required --group "doc_checker_contracts" --repo-root "$GITHUB_WORKSPACE"
+      - name: Verify preinstalled Rust and Ruby for build measurement and packaging contract fixtures
+        if: >-
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+          (needs.select.outputs.run_compile_metrics == 'true' ||
+           needs.select.outputs.run_packaging_contracts == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        run: |
+          set -euo pipefail
+          python3 -c 'import sys, tomllib; assert sys.version_info[:2] == (3, 12)'
+          ruby -ryaml -rjson -e 'exit 0'
+          rustc +"$RUST_TOOLCHAIN" -vV
+          cargo +"$RUST_TOOLCHAIN" --version
+          cargo +"$RUST_TOOLCHAIN" fmt --version
+          cargo +"$RUST_TOOLCHAIN" clippy --version
+      - name: Execute consolidated compile metrics group
+        if: >-
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+          (needs.select.outputs.run_compile_metrics == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+        run: bash ./scripts/ci-tests.sh required --group "compile_metrics" --repo-root "$GITHUB_WORKSPACE"
+      - name: Execute consolidated packaging contracts group
+        if: >-
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+          (needs.select.outputs.run_packaging_contracts == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+        run: bash ./scripts/ci-tests.sh required --group "packaging_contracts" --repo-root "$GITHUB_WORKSPACE"
 
   rust-baseline:
     needs: select
@@ -2438,6 +2544,7 @@ jobs:
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_consensus == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2581,7 +2688,8 @@ jobs:
       (needs.select.outputs.run_node == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
         needs.select.outputs.run_consensus == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2648,10 +2756,10 @@ jobs:
             echo "::error::Node permission tests require an unprivileged user."
             exit 1
           fi
-          if [[ "$RUN_NODE" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || ( "$CONSOLIDATION_VERSION" != 2 && "$CONSOLIDATION_VERSION" != 3 && "$CONSOLIDATION_VERSION" != 4 ) ]]; then
+          if [[ "$RUN_NODE" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || ( "$CONSOLIDATION_VERSION" != 2 && "$CONSOLIDATION_VERSION" != 3 && "$CONSOLIDATION_VERSION" != 4 && "$CONSOLIDATION_VERSION" != 5 ) ]]; then
             bash ./scripts/ci-tests.sh required --group "node" --repo-root "$GITHUB_WORKSPACE"
           fi
-          if [[ ( "$CONSOLIDATION_VERSION" == 2 || "$CONSOLIDATION_VERSION" == 3 || "$CONSOLIDATION_VERSION" == 4 ) && ( "$RUN_CONSENSUS" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
+          if [[ ( "$CONSOLIDATION_VERSION" == 2 || "$CONSOLIDATION_VERSION" == 3 || "$CONSOLIDATION_VERSION" == 4 || "$CONSOLIDATION_VERSION" == 5 ) && ( "$RUN_CONSENSUS" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
             bash ./scripts/ci-tests.sh required --group "consensus" --repo-root "$GITHUB_WORKSPACE"
           fi
 
@@ -2734,8 +2842,11 @@ jobs:
       (needs.select.outputs.run_viewer_js_required == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
         needs.select.outputs.run_viewer_performance_report == 'true') ||
+       (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+        needs.select.outputs.run_site_quality == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 14
@@ -2758,6 +2869,12 @@ jobs:
           cache: npm
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
       - name: Install viewer dependencies
+        if: >-
+          needs.select.outputs.run_viewer_js_required == 'true' ||
+          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned security smoke browser
         uses: ./.github/actions/setup-ci-browser
@@ -2772,15 +2889,33 @@ jobs:
           path: output/viewer-browser-install/diagnostic.json
           if-no-files-found: ignore
       - name: Install pinned Rust toolchain
+        if: >-
+          needs.select.outputs.run_viewer_js_required == 'true' ||
+          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
       - name: Stabilize Rust cache toolchains
+        if: >-
+          needs.select.outputs.run_viewer_js_required == 'true' ||
+          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: >-
+          needs.select.outputs.run_viewer_js_required == 'true' ||
+          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         with:
           save-if: false
           shared-key: release-packages-web-wasm-trusted-v3
@@ -2789,18 +2924,36 @@ jobs:
           cache-on-failure: false
       - name: Resolve wasm-bindgen tool cache metadata
         id: bindgen-meta
+        if: >-
+          needs.select.outputs.run_viewer_js_required == 'true' ||
+          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         shell: bash
         run: |
           source scripts/wasm-bindgen-cli-common.sh
           printf 'version=%s\nroot=%s\n' "$WASM_BINDGEN_LOCK_VERSION" "$WASM_BINDGEN_CACHE_ROOT" >> "$GITHUB_OUTPUT"
       - name: Restore exact wasm-bindgen tool cache
         id: bindgen-cache
+        if: >-
+          needs.select.outputs.run_viewer_js_required == 'true' ||
+          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ steps.bindgen-meta.outputs.root }}
           key: wasm-bindgen-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ steps.bindgen-meta.outputs.version }}-${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
       - name: Prepare exact wasm-bindgen tool directory
         id: prepare-bindgen
+        if: >-
+          needs.select.outputs.run_viewer_js_required == 'true' ||
+          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         shell: bash
         env:
           BINDGEN_CACHE_HIT: ${{ steps.bindgen-cache.outputs.cache-hit }}
@@ -2818,6 +2971,12 @@ jobs:
           test "$("$bindgen_bin" --version)" = "wasm-bindgen $WASM_BINDGEN_LOCK_VERSION"
           printf 'WASM_BINDGEN_BIN=%s\n' "$bindgen_bin" >> "$GITHUB_ENV"
       - name: Install native libraries
+        if: >-
+          needs.select.outputs.run_viewer_js_required == 'true' ||
+          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         shell: bash
         timeout-minutes: 11
         run: |
@@ -2832,7 +2991,7 @@ jobs:
           CI_SCOPE: ${{ fromJSON(needs.select.outputs.plan).scope }}
           CONSOLIDATION_VERSION: ${{ fromJSON(needs.select.outputs.plan).contract_job_consolidation_version }}
         run: |
-          if [[ "$RUN_VIEWER_JS_REQUIRED" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || ( "$CONSOLIDATION_VERSION" != 2 && "$CONSOLIDATION_VERSION" != 3 && "$CONSOLIDATION_VERSION" != 4 ) ]]; then
+          if [[ "$RUN_VIEWER_JS_REQUIRED" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || ( "$CONSOLIDATION_VERSION" != 2 && "$CONSOLIDATION_VERSION" != 3 && "$CONSOLIDATION_VERSION" != 4 && "$CONSOLIDATION_VERSION" != 5 ) ]]; then
             bash ./scripts/ci-tests.sh required --group "viewer_js_required" --repo-root "$GITHUB_WORKSPACE"
           fi
       - name: Execute Viewer performance report
@@ -2840,7 +2999,8 @@ jobs:
         if: >-
           (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
           (needs.select.outputs.run_viewer_performance_report == 'true' ||
            fromJSON(needs.select.outputs.plan).scope == 'full' ||
            fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
@@ -2850,6 +3010,21 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "viewer_performance_report" --repo-root "$GITHUB_WORKSPACE"
+      - name: Execute consolidated site quality group
+        id: site-quality
+        if: >-
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5 &&
+          (needs.select.outputs.run_site_quality == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+          OASIS7_PLAYWRIGHT_MODULE: ${{ github.workspace }}/scripts/ci-browser-tools/node_modules/playwright
+          OASIS7_SITE_QA_BROWSER: ${{ env.AGENT_BROWSER_EXECUTABLE_PATH }}
+        run: bash ./scripts/ci-tests.sh required --group "site_quality" --repo-root "$GITHUB_WORKSPACE"
       - name: Upload browser functional regression evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -2869,6 +3044,17 @@ jobs:
           path: output/ci/viewer-performance/**
           if-no-files-found: error
           retention-days: 7
+      - name: Upload deck browser evidence
+        if: >-
+          always() &&
+          (steps.site-quality.outcome == 'success' ||
+           steps.site-quality.outcome == 'failure')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-deck-security-${{ github.job }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: output/site-deck-security-qa/
+          if-no-files-found: warn
+          retention-days: 7
 
 
   viewer-performance-report:
@@ -2878,6 +3064,7 @@ jobs:
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_viewer_performance_report == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2981,6 +3168,7 @@ jobs:
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_pixel_world_bridge == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -3122,6 +3310,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version != 1 &&
       fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version != 1 &&
+      fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version != 2 &&
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -3254,7 +3443,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       (fromJSON(needs.select.outputs.plan).custody_execution_version == 1 ||
-       fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version == 1) &&
+       fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version == 1 ||
+       fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version == 2) &&
       contains(fromJSON(needs.select.outputs.workspace_support_partitions), 'other')
     strategy:
       fail-fast: false
@@ -3957,6 +4147,7 @@ jobs:
       always() && needs.select.result != 'skipped' &&
       (needs.select.result != 'success' ||
        (fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version != 1 &&
+        fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version != 2 &&
         (needs.select.outputs.run_workspace_support == 'true' ||
          fromJSON(needs.select.outputs.plan).scope == 'full')))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4008,10 +4199,12 @@ jobs:
       (needs.select.outputs.run_scenario_regression == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
         needs.select.outputs.run_pixel_world_bridge == 'true') ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
         needs.select.outputs.run_cargo_tooling_contracts == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4081,13 +4274,13 @@ jobs:
             echo "::error::Scenario tests require an unprivileged user."
             exit 1
           fi
-          if [[ "$RUN_SCENARIO_REGRESSION" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || ( "$CONSOLIDATION_VERSION" != 2 && "$CONSOLIDATION_VERSION" != 3 && "$CONSOLIDATION_VERSION" != 4 ) ]]; then
+          if [[ "$RUN_SCENARIO_REGRESSION" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || ( "$CONSOLIDATION_VERSION" != 2 && "$CONSOLIDATION_VERSION" != 3 && "$CONSOLIDATION_VERSION" != 4 && "$CONSOLIDATION_VERSION" != 5 ) ]]; then
             bash ./scripts/ci-tests.sh required --group "scenario_regression" --repo-root "$GITHUB_WORKSPACE"
           fi
-          if [[ ( "$CONSOLIDATION_VERSION" == 2 || "$CONSOLIDATION_VERSION" == 3 || "$CONSOLIDATION_VERSION" == 4 ) && ( "$RUN_PIXEL_WORLD_BRIDGE" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
+          if [[ ( "$CONSOLIDATION_VERSION" == 2 || "$CONSOLIDATION_VERSION" == 3 || "$CONSOLIDATION_VERSION" == 4 || "$CONSOLIDATION_VERSION" == 5 ) && ( "$RUN_PIXEL_WORLD_BRIDGE" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
             bash ./scripts/ci-tests.sh required --group "pixel_world_bridge" --repo-root "$GITHUB_WORKSPACE"
           fi
-          if [[ ( "$CONSOLIDATION_VERSION" == 3 || "$CONSOLIDATION_VERSION" == 4 ) && ( "$RUN_CARGO_TOOLING_CONTRACTS" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
+          if [[ ( "$CONSOLIDATION_VERSION" == 3 || "$CONSOLIDATION_VERSION" == 4 || "$CONSOLIDATION_VERSION" == 5 ) && ( "$RUN_CARGO_TOOLING_CONTRACTS" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
             bash ./scripts/ci-tests.sh required --group "cargo_tooling_contracts" --repo-root "$GITHUB_WORKSPACE"
           fi
 
@@ -4098,6 +4291,7 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -4148,6 +4342,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_packaging_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -4199,7 +4394,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_workflow_governance == 'true' ||
-       (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 &&
+       ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
         needs.select.outputs.run_operational_contracts == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     permissions:
@@ -4232,20 +4428,20 @@ jobs:
       - name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Download trusted control authority
-        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4
+        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
       - name: Download trusted control selection
-        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4
+        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}/ci-control-selection
       - name: Inspect trusted governance capability
         id: control-mode
-        if: fromJSON(needs.select.outputs.plan).python_control_contract_version == 1 && (needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)
+        if: fromJSON(needs.select.outputs.plan).python_control_contract_version == 1 && (needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5))
         shell: bash
         run: |
           set -euo pipefail
@@ -4257,7 +4453,7 @@ jobs:
             echo 'complete_governance=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Install document contract parser
-        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4
+        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         run: |
           venv="$RUNNER_TEMP/workflow-governance-venv"
           /usr/bin/python3 -m venv "$venv"
@@ -4278,7 +4474,7 @@ jobs:
           command -v zstd
           command -v zstdmt
       - name: Execute trusted baseline Python control contracts
-        if: fromJSON(needs.select.outputs.plan).python_control_contract_version == 1 && (needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)
+        if: fromJSON(needs.select.outputs.plan).python_control_contract_version == 1 && (needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5))
         shell: bash
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
@@ -4299,17 +4495,17 @@ jobs:
             --repo-root "$GITHUB_WORKSPACE" --policy-sha "$POLICY_SHA" \
             --plan "$RUNNER_TEMP/ci-control-selection/selection.json" "${complete[@]}"
       - name: Verify scoped candidate cache permission
-        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4
+        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         uses: ./.github/actions/cache-permission-probe
       - name: Restore trusted cache sentinel
         id: trusted-cache-sentinel
-        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4
+        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/cache-permission-sentinel
           key: oasis7-cache-permission-sentinel-trusted-v2
       - name: Verify trusted cache sentinel when available
-        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4
+        if: needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         env:
           CACHE_HIT: ${{ steps.trusted-cache-sentinel.outputs.cache-hit }}
         run: |
@@ -4320,7 +4516,7 @@ jobs:
             echo 'cache_permission_probe=trusted_writer_not_yet_seeded'
           fi
       - name: Execute selected group
-        if: steps.control-mode.outputs.complete_governance != 'true' && (needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)
+        if: steps.control-mode.outputs.complete_governance != 'true' && (needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5))
         shell: bash
         env:
           CI_VERBOSE: "1"
@@ -4328,14 +4524,15 @@ jobs:
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "workflow_governance" --repo-root "$GITHUB_WORKSPACE"
       - name: Verify new source archive and cache permission contracts
-        if: steps.control-mode.outputs.complete_governance != 'true' && (needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)
+        if: steps.control-mode.outputs.complete_governance != 'true' && (needs.select.outputs.run_workflow_governance == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5))
         run: |
           python3 scripts/package-source-plan.test.py
           python3 scripts/safe-git-archive.test.py
           node scripts/cache-permission-probe.test.cjs
       - name: Verify preinstalled operational contract tools
         if: >-
-          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 &&
+          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
           (needs.select.outputs.run_operational_contracts == 'true' ||
            fromJSON(needs.select.outputs.plan).scope == 'full' ||
            fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
@@ -4347,7 +4544,8 @@ jobs:
           test "$(id -u)" -ne 0
       - name: Execute consolidated operational contracts group
         if: >-
-          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 &&
+          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
           (needs.select.outputs.run_operational_contracts == 'true' ||
            fromJSON(needs.select.outputs.plan).scope == 'full' ||
            fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
@@ -4371,6 +4569,7 @@ jobs:
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4407,6 +4606,7 @@ jobs:
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_compile_metrics == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4456,6 +4656,7 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_site_quality == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4508,6 +4709,7 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_doc_checker_contracts == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
@@ -4623,6 +4825,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_cargo_tooling_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4686,6 +4889,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_windows_rollout == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: windows-2022
@@ -4713,6 +4917,7 @@ jobs:
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
       fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
       (needs.select.outputs.run_macos_package_contract == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4747,7 +4952,8 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_fleet_health == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
         needs.select.outputs.run_windows_rollout == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     name: fleet-health (${{ matrix.os }})
@@ -4756,7 +4962,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ (needs.select.outputs.run_fleet_health == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)) && fromJSON('["ubuntu-24.04","windows-2022","macos-15"]') || fromJSON('["windows-2022"]') }}
+        os: ${{ (needs.select.outputs.run_fleet_health == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && fromJSON('["ubuntu-24.04","windows-2022","macos-15"]') || fromJSON('["windows-2022"]') }}
     steps:
       - name: Check out workflow linker setup
         if: runner.os == 'Linux'
@@ -4784,7 +4990,8 @@ jobs:
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
           (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         shell: bash
         run: python scripts/p2p-public-testnet-fleet-health.test.py
 
@@ -4792,7 +4999,8 @@ jobs:
         if: >-
           runner.os == 'Windows' &&
           (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4 ||
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 5) &&
           (needs.select.outputs.run_windows_rollout == 'true' ||
            fromJSON(needs.select.outputs.plan).scope == 'full' ||
            fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
@@ -4807,7 +5015,8 @@ jobs:
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
           (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -4819,7 +5028,8 @@ jobs:
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
           (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4)
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         shell: bash
         run: env -u RUSTC_WRAPPER cargo test --locked -p oasis7_hosted_access
 
@@ -4858,7 +5068,7 @@ jobs:
          !github.event.pull_request.draft))))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
-    needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, workspace-support-other, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health]
+    needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, workspace-support-other, custody-native-contracts, custody-native, custody-wasm-production, custody-node, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health]
     steps:
       - name: Require successful scope planning
         env:
@@ -4918,17 +5128,26 @@ jobs:
                   or plan.get('ordinary_wasm_group') != 'rust_baseline'):
               raise ValueError('invalid ordinary controls in rust-baseline capability')
           capability = 'contract_job_consolidation_version'
-          if capability in plan and (type(plan[capability]) is not int or plan[capability] not in (1, 2, 3, 4)
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] not in (1, 2, 3, 4, 5)
                   or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
               raise ValueError('invalid contract job consolidation capability')
           capability = 'workspace_support_direct_gate_version'
-          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
-                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
-                  or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
-                  or plan.get('custody_execution_version') == 1
-                  or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
-                  or plan.get('workspace_support_partitions') != ['other']):
-              raise ValueError('invalid direct workspace support gate capability')
+          if capability in plan:
+              direct_ver = plan[capability]
+              if (type(direct_ver) is not int or direct_ver not in (1, 2)
+                      or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+                      or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                      or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1):
+                  raise ValueError('invalid direct workspace support gate capability')
+              if direct_ver == 1 and (plan.get('custody_execution_version') == 1
+                      or plan.get('workspace_support_partitions') != ['other']):
+                  raise ValueError('invalid direct workspace support gate capability')
+              if direct_ver == 2:
+                  if plan.get('custody_execution_version') == 1:
+                      if not isinstance(plan.get('workspace_support_partitions'), list) or 'custody' not in plan['workspace_support_partitions']:
+                          raise ValueError('invalid direct workspace support gate capability')
+                  elif plan.get('workspace_support_partitions') != ['other']:
+                      raise ValueError('invalid direct workspace support gate capability')
           capability = 'custody_policy_tests_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
                   or type(plan.get('custody_compile_proof_version')) is not int or plan['custody_compile_proof_version'] != 1
@@ -4977,6 +5196,43 @@ jobs:
           if actual_identity != identities:
               raise ValueError('complete selection disagrees with independently selected identity')
           PY
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: >-
+          fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version == 2 &&
+          fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+        with:
+          pattern: custody-node-${{ github.run_id }}-*
+          path: ${{ runner.temp }}/custody-results
+      - name: Validate direct custody support stages and complete file inventory
+        if: >-
+          fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version == 2 &&
+          fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+        env:
+          SUPPORT_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          support_needs="$(python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          plan = json.loads((Path(os.environ['RUNNER_TEMP']) / 'selection.json').read_bytes())
+          raw_needs = json.loads(os.environ['SUPPORT_NEEDS'])
+          keys = ('select', 'workspace-support-other', 'custody-native-contracts',
+                  'custody-native', 'custody-wasm-production', 'custody-node')
+          needs = {key: raw_needs[key] for key in keys if key in raw_needs}
+          needs['workspace-support-legacy'] = {'result': 'skipped'}
+          if (isinstance(plan, dict) and plan.get('custody_compile_proof_version') == 1
+                  and 'custody-wasm-contracts' not in needs and 'custody-native-contracts' in needs):
+              needs['custody-wasm-contracts'] = needs['custody-native-contracts']
+          if 'custody-wasm-approval' not in needs and 'custody-wasm-production' in needs:
+              needs['custody-wasm-approval'] = needs['custody-wasm-production']
+          print(json.dumps(needs, separators=(',', ':')))
+          PY
+          )"
+          python3 "$RUNNER_TEMP/ci-authority/ci-custody-platform.py" validate \
+            --plan "$RUNNER_TEMP/selection.json" \
+            --context-file "$RUNNER_TEMP/ci-authority/custody-inventory.json" \
+            --needs "$support_needs" \
+            --results "$RUNNER_TEMP/custody-results" \
+            --capture-workerd-faults
       - name: Validate all expected results
         env:
           NEEDS: ${{ toJSON(needs) }}
