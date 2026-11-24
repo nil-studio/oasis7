@@ -28,10 +28,11 @@ use oasis7_formal_protocol::incremental_state::{
     MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1, StateWriteV1,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
-use oasis7_world_service::provider_material::{
+use oasis7_formal_protocol::provider_material::{
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
     ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
-    ProviderPendingAttemptSummaryV1, ProviderPendingStateRootsV1,
+    ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1, ProviderPendingRootsPageV1,
+    ProviderPendingStateRootsV1,
 };
 
 use super::provider_original_store_codec::{
@@ -702,9 +703,9 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
     }
     fn protected_roots_page(
         &self,
-        cursor: Option<&oasis7_world_service::provider_material::ProviderPendingRootsCursorV1>,
+        cursor: Option<&ProviderPendingRootsCursorV1>,
         limit: usize,
-    ) -> Result<oasis7_world_service::provider_material::ProviderPendingRootsPageV1, String> {
+    ) -> Result<ProviderPendingRootsPageV1, String> {
         self.protected_roots_page_impl(cursor, limit)
     }
     fn validate_request_owner(
