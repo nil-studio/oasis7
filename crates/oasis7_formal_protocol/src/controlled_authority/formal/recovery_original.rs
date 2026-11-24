@@ -39,19 +39,15 @@ impl RecoveryPendingHandoffV1 {
         if requests.len() > PENDING_COUNT_LIMIT {
             return Err(invalid("recovery pending schema/count"));
         }
-        // Bound inputs before allocating identity encodings or sorting.
-        for request in &requests {
-            validate_request_fields(request)?;
+        // Bound the total before retaining more encoded identities or sorting.
+        let mut ordered = Vec::with_capacity(requests.len());
+        let mut size = 0usize;
+        for request in requests {
+            validate_request_fields(&request)?;
+            let encoded_identity = bytes("oasis7.formal.pending_identity.v1", &request.identity)?;
+            size = charge_pending_bytes(size, &request, &encoded_identity)?;
+            ordered.push((encoded_identity, request));
         }
-        let mut ordered = requests
-            .into_iter()
-            .map(|request| {
-                Ok((
-                    bytes("oasis7.formal.pending_identity.v1", &request.identity)?,
-                    request,
-                ))
-            })
-            .collect::<Result<Vec<_>, FormalError>>()?;
         ordered.sort_by(|left, right| left.0.cmp(&right.0));
         let pending = Self {
             schema_version: 1,
@@ -75,13 +71,7 @@ impl RecoveryPendingHandoffV1 {
             {
                 return Err(invalid("recovery pending original identity/order/payload"));
             }
-            size = size
-                .checked_add(request.signed_request.len())
-                .and_then(|total| total.checked_add(encoded_identity.len()))
-                .ok_or_else(|| invalid("recovery pending size overflow"))?;
-            if size > PENDING_LIMIT {
-                return Err(invalid("recovery pending byte bound"));
-            }
+            size = charge_pending_bytes(size, request, &encoded_identity)?;
             previous = Some(encoded_identity);
         }
         Ok(())
@@ -90,6 +80,21 @@ impl RecoveryPendingHandoffV1 {
         self.validate()?;
         hash("oasis7.formal.pending_handoff.v1", self)
     }
+}
+
+fn charge_pending_bytes(
+    size: usize,
+    request: &RecoveryPendingRequestV1,
+    encoded_identity: &[u8],
+) -> Result<usize, FormalError> {
+    let total = size
+        .checked_add(request.signed_request.len())
+        .and_then(|total| total.checked_add(encoded_identity.len()))
+        .ok_or_else(|| invalid("recovery pending size overflow"))?;
+    if total > PENDING_LIMIT {
+        return Err(invalid("recovery pending byte bound"));
+    }
+    Ok(total)
 }
 
 fn validate_request_fields(request: &RecoveryPendingRequestV1) -> Result<(), FormalError> {
@@ -350,6 +355,21 @@ mod pending_tests {
         }
     }
 
+    #[test]
+    fn aggregate_pending_budget_rejects_individually_valid_requests() {
+        let mut a = pending_request("a", &[1]);
+        let mut b = pending_request("b", &[1]);
+        a.signed_request.resize(PENDING_LIMIT / 2, 1);
+        b.signed_request.resize(PENDING_LIMIT / 2, 1);
+        assert!(RecoveryPendingHandoffV1::from_requests(vec![a.clone()]).is_ok());
+        assert!(RecoveryPendingHandoffV1::from_requests(vec![b.clone()]).is_ok());
+        assert!(RecoveryPendingHandoffV1::from_requests(vec![a.clone(), b.clone()]).is_err());
+        let oversized = RecoveryPendingHandoffV1 {
+            schema_version: 1,
+            requests: vec![a, b],
+        };
+        assert!(oversized.validate().is_err());
+    }
 
     #[test]
     fn admitted_high_byte_pending_roundtrips_beyond_the_old_encoded_limit() {
