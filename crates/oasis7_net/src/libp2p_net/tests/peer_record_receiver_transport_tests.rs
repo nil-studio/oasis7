@@ -423,3 +423,151 @@ fn tcp_dht_tombstone_is_forwarded_verbatim_until_higher_live_replaces_it() {
     std::thread::sleep(Duration::from_millis(100));
     std::fs::remove_dir_all(&scratch).expect("remove isolated TCP tombstone fixture");
 }
+
+// Reproduce the real detached-network lifetime in an owned OS process.
+// Exiting that process while persist is paused must leave evidence, never repaired by
+// the upgrade command. Waiting for the writer lock proves the opposite path.
+#[cfg(unix)]
+#[test]
+fn receiver_drop_during_persist_requires_writer_completion_before_process_exit() {
+    use std::process::{Command, Stdio};
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path().canonicalize().unwrap();
+    for drain in [false, true] {
+        let directory = root.join(if drain { "drained" } else { "early" });
+        std::fs::create_dir(&directory).unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "receiver_persist_shutdown_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("OASIS7_RECEIVER_SHUTDOWN_CHILD", &directory)
+            .env(
+                "OASIS7_RECEIVER_SHUTDOWN_DRAIN",
+                if drain { "1" } else { "0" },
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        struct OwnedChild<'a>(&'a mut std::process::Child);
+        impl Drop for OwnedChild<'_> {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let owned = OwnedChild(&mut child);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !directory.join("network-dropped").exists() {
+            assert!(
+                owned.0.try_wait().unwrap().is_none(),
+                "child failed before drop"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "child did not reach controlled drop"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let receiver = directory.join("receiver");
+        let temp = receiver.join("peer-record-receiver-v2.state.cbor.tmp");
+        assert!(directory.join("persist-paused").is_file());
+        assert!(
+            temp.is_file(),
+            "the real atomic write must be paused with durable temp bytes"
+        );
+        if drain {
+            // A same-path lock probe demonstrates that the paused writer still
+            // owns the lifetime after the public network value has been dropped.
+            let lock = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(receiver.join("peer-record-receiver-v2.lock"))
+                .unwrap();
+            assert!(matches!(
+                lock.try_lock(),
+                Err(std::fs::TryLockError::WouldBlock)
+            ));
+            assert!(!directory.join("shutdown-complete").exists());
+            std::fs::write(directory.join("persist-release"), b"continue").unwrap();
+        }
+        loop {
+            if let Some(status) = owned.0.try_wait().unwrap() {
+                assert!(status.success(), "controlled child failed: {status}");
+                break;
+            }
+            assert!(Instant::now() < deadline, "controlled child did not exit");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let key = Keypair::ed25519_from_bytes([91; 32]).unwrap();
+        let template =
+            super::signed_discovery_peer_record(&key, Vec::new(), super::now_ms()).record;
+        let mut cfg = config(&key, Some(template), Vec::new(), Some(receiver));
+        cfg.peer_record_receiver.mode = PeerRecordReceiverMode::V2Only;
+        let upgrade = Libp2pNetwork::upgrade_peer_record_receiver(&cfg);
+        if drain {
+            upgrade.expect("completed writer permits the original strict upgrade");
+            assert!(!temp.exists());
+        } else {
+            assert!(
+                format!("{:?}", upgrade.unwrap_err())
+                    .contains("incomplete initialization material")
+            );
+            assert!(
+                temp.is_file(),
+                "strict rejection must preserve interrupted-write evidence"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn receiver_persist_shutdown_child() {
+    let Some(directory) = std::env::var_os("OASIS7_RECEIVER_SHUTDOWN_CHILD") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    let receiver = directory.join("receiver");
+    let key = Keypair::ed25519_from_bytes([91; 32]).unwrap();
+    let template = super::signed_discovery_peer_record(&key, Vec::new(), super::now_ms()).record;
+    let cfg = config(&key, Some(template), Vec::new(), Some(receiver.clone()));
+    Libp2pNetwork::initialize_peer_record_receiver(&cfg).unwrap();
+    super::super::durable_peer_record_publisher::state_write_test_hook::install(
+        receiver.join("peer-record-receiver-v2.state.cbor.tmp"),
+        directory.clone(),
+    );
+    let network = Libp2pNetwork::try_new(cfg).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !directory.join("persist-paused").exists() {
+        assert!(
+            Instant::now() < deadline,
+            "network did not persist its original local record"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    drop(network);
+    std::fs::write(directory.join("network-dropped"), b"dropped").unwrap();
+    if std::env::var("OASIS7_RECEIVER_SHUTDOWN_DRAIN").as_deref() == Ok("1") {
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(receiver.join("peer-record-receiver-v2.lock"))
+            .unwrap();
+        while let Err(error) = lock.try_lock() {
+            assert!(
+                matches!(error, std::fs::TryLockError::WouldBlock),
+                "writer lock failed: {error:?}"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "writer did not release its original lock"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::fs::write(directory.join("shutdown-complete"), b"drained").unwrap();
+    }
+}
