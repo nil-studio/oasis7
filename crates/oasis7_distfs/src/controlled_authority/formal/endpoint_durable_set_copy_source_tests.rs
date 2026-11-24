@@ -88,14 +88,34 @@ fn healthy_copy_source_reuses_authenticated_inline_business_nodes() {
     }))
     .unwrap();
     let (fixture, envelope) = super::business_tests::fixture_with_snapshot(snapshot);
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_fixture_built\n",
+    );
     let mut coordinator = fixture.coordinator();
     coordinator.submit(fixture.initial.clone()).unwrap();
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_initial_submitted\n",
+    );
     let primary = coordinator.endpoints_mut().0;
     let checkpoint = primary.checkpoint().unwrap();
     primary.seal_epoch(&h(210), 2, &checkpoint).unwrap();
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_epoch_sealed\n",
+    );
     let native = Store::read_native_checkpoint(&fixture.pdir).unwrap();
     let source = CountedSource::new(fixture.pdir.clone());
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_source_created\n",
+    );
     let target = target(&fixture);
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        b"oasis7 native diagnostic inline_copy_target_created\n",
+    );
     let copied = super::super::store::durable_set::copy_authenticated_closure(
         &target,
         &native,
@@ -104,8 +124,15 @@ fn healthy_copy_source_reuses_authenticated_inline_business_nodes() {
         2,
         64 * 1024 * 1024,
         true,
-    )
-    .unwrap();
+    );
+    let copied = match copied {
+        Ok(copied) => copied,
+        Err(error) => {
+            let message = format!("oasis7 native diagnostic inline_copy_walk_error: {error:?}\n");
+            let _ = std::io::Write::write_all(&mut std::io::stderr(), message.as_bytes());
+            panic!("signed inline business closure copy failed: {error:?}");
+        }
+    };
     let _ = std::io::Write::write_all(
         &mut std::io::stderr(),
         b"oasis7 native diagnostic inline_copy_signed_source_walk_passed\n",
