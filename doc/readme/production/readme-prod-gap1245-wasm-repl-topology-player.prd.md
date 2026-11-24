@@ -27,7 +27,7 @@
 重构实现；README 不承载实现级配置，也不增加拓扑角色。现行专业去向是阅读路由，
 不是“所有历史要求均已实现或验收”的声明。缺少逐项接收或当前证据时继续保留，不取消目标。
 
-长 PRD、原任务、数值与历史失败不删除；旧 design URL 暂留兼容。进一步删除须先核清全部引用、
+长 PRD、原任务、数值与历史失败不删除；旧 design 已归并退役。进一步删除须先核清全部引用、
 配对、动态/外部分发消费者。原版本见
 [固定 Git 来源](https://github.com/eng-cc/oasis7/blob/2adfc08706f1905c131adc0597a9ae5e99ceb2dd/doc/readme/production/readme-prod-gap1245-wasm-repl-topology-player.prd.md)。
 
@@ -44,7 +44,6 @@
   - `crates/oasis7_node/src/libp2p_replication_network.rs`
     - gossipsub + request_response 双通道行为。
     - `request` 与 `register_handler` 的真实实现与错误映射。
-  - `crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs`
   - `crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs`
     - 新增跨主机 triad 拓扑模式（单进程单节点角色，三角色静态组网）。
     - 保持现有 `triad`（本机嵌入式）与 `single`（手工）兼容。

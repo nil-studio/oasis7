@@ -508,7 +508,7 @@ Site registration、location anchor、Agent location assignment、ownership/acce
   - SC-9: WASM 构建与发布链路必须通过 pinned Docker canonical builder 收敛为单一 publish hash，保证 `builder_image_digest/source_hash/build_manifest_hash/wasm_hash` 可追溯，且执行层默认只认 canonical binary。
   - SC-10: 生产运行入口必须默认启用 release security policy，关闭 builtin manifest fallback、本地 identity hash 签名、本地 finality signing 与 runtime source compile，保证“只认 canonical binary”不是测试态约定而是产品默认路径。
   - SC-11: `TASK-WORLD_RUNTIME-043` 收口时必须归档真实跨宿主 Docker canonical evidence，至少覆盖 `linux-x86_64` 与一条 Docker-capable `darwin-arm64` 证据输入，不能以 Linux-only gate 宣称跨宿主 closure。
-  - SC-12: `doc/world-runtime/**` 仍可读运行时专题标题统一使用 `oasis7 Runtime` 品牌，不再在模块入口与历史专题中混用 `oasis7 Runtime` 标题。
+  - SC-12: `doc/world-runtime/**` 仍可读运行时专题标题统一使用 `oasis7 Runtime` 品牌，不再在模块入口与历史专题中混用旧品牌标题。
   - SC-13: WASM 构建、同步、CI summary 与 builder image 的 operator env key 必须统一使用 `OASIS7_WASM_*`；repo-owned 脚本、容器镜像与 build suite 不得再接受任何旧品牌前缀作为有效运行入口。
   - SC-14: builtin wasm materializer、release manifest fallback 与 DistFS root override 的 runtime env key 必须统一使用 `OASIS7_BUILTIN_WASM_*`；运行时取件/抓取/回退链路不得再接受任何旧品牌前缀作为有效运行入口。
   - SC-15: `compile_module_artifact_from_source` 及其 source package 限额/超时控制必须统一使用 `OASIS7_MODULE_SOURCE_*`；dev/test source compile 路径、simulator/runtime 回归与沙箱环境隔离断言不得再接受任何旧品牌前缀作为有效运行入口。

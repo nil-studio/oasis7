@@ -206,9 +206,9 @@ Non-goal: 本预览不重平衡治理阈值、投票窗口、票权公式或冷�
 ## 3. 回归测试入口
 
 - 基线动作协议与状态闭环：
-  - `env -u RUSTC_WRAPPER cargo test -p oasis7 runtime::tests::gameplay_protocol:: -- --nocapture`
+  - `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime tests::gameplay_protocol:: -- --nocapture`
 - 模块驱动结算链路：
-  - `env -u RUSTC_WRAPPER cargo test -p oasis7 runtime::tests::gameplay_protocol::step_with_modules_applies_gameplay_directive_emits_to_domain_events -- --nocapture`
+  - `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime step_with_modules_applies_gameplay_directive_emits_to_domain_events -- --nocapture`
 - 全量 required-tier 门禁：
   - `./scripts/ci-tests.sh required`
 

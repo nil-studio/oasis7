@@ -34,7 +34,7 @@
   - SC-2: 新增脚本在合并前通过语法/参数最小校验。
   - SC-3: 脚本入口重复率下降并保留稳定主入口。
   - SC-4: 脚本变更关联实际适用的稳定要求与测试证据；已有 PRD-SCRIPTS-ID 保留需求追踪用途，不作为普通任务准入身份，也不为简单编辑虚构要求。
-  - SC-5: scripts 治理专题标题统一使用 `oasis7` 品牌，不再在脚本治理入口中混用 `oasis7` 标题。
+  - SC-5: scripts 治理专题标题统一使用 `oasis7` 品牌，不再在脚本治理入口中混用旧品牌标题。
   - SC-6: `doc/scripts/precommit/**` 等活跃脚本手册中的当前 crate 命令、依赖说明与 CI 帮助文案必须统一使用 `oasis7*` 口径；旧品牌包名仅允许保留在历史记录或外部原文引用中。
   - SC-7: Viewer Web 相关脚本文档只允许围绕 canonical `viewer` / `viewer.html` 静态入口、freshness gate 与 browser automation 维护当前真值；`software_safe` 仅作为兼容 alias / legacy regression 命名保留；已移除的 native fallback / 贴图质检 / 视觉基线工具不得继续作为活跃脚本入口保留。
   - SC-8: repo-owned provider real-play helper 文档与脚本（公开 `site/skills/oasis7.md` 以及 `scripts/setup-provider-oasis7-runtime.sh`、`scripts/provider-parity-p0.sh`）中的当前 cargo 运行命令与入口路径必须统一使用 `oasis7` / `crates/oasis7*`；旧品牌包名与源码路径仅允许保留在兼容说明、历史证据或外部原文引用中。

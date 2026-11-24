@@ -13,7 +13,7 @@
 ## 2. User Experience & Functionality
 
 ### In Scope
-- A new CLI binary `oasis7_viewer_demo` in `crates/oasis7`.
+- A CLI binary `oasis7_viewer_demo` in `crates/oasis7_viewer_runtime`.
 - Deterministic demo script that produces at least one event.
 - Output directory containing `snapshot.json` and `journal.json` for `oasis7_viewer_server`.
 - Simple CLI flags: scenario selection and output directory.
@@ -21,7 +21,7 @@
 ### Out of Scope
 - Live simulation server or streaming kernel loop.
 - Complex scripting language for demo actions.
-- UI/Bevy feature expansion.
+- Web Viewer UI feature expansion.
 
 ## 3. AI System Requirements (If Applicable)
 - N/A: 本专题不新增 AI 专属要求。
@@ -54,7 +54,7 @@
 
 ### Technical Risks
 - Demo action may be rejected if resources are insufficient (still produces an event).
-- UI build may fail in offline environments due to Bevy dependencies.
+- Web Viewer UI build may fail in offline environments if Node/WASM build dependencies are unavailable.
 - Users may expect live data; this is offline replay only.
 
 ## 6. Validation & Decision Record
