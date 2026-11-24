@@ -8984,12 +8984,21 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         self.assertEqual(plan.get('workspace_support_direct_gate_version'), 2)
         self.assertNotIn('custody_execution_version', plan)
 
-        # Host-requiring support crate (oasis7_local_signer) -> direct gate NOT emitted
+        # Exact targeted signer support can execute directly in the non-root image.
         self.git('checkout', '-q', self.base)
         self.write('crates/oasis7_local_signer/src/lib.rs', 'pub fn changed() {}\n')
         signer_head = self.commit()
         signer_plan = selector.select(self.config, self.base, signer_head, profile='pr-fast')
-        self.assertNotIn('workspace_support_direct_gate_version', signer_plan)
+        self.assertEqual(signer_plan['workspace_support_profiles'], ['oasis7_local_signer'])
+        self.assertEqual(signer_plan.get('workspace_support_direct_gate_version'), 2)
+        self.assertTrue(selector.workspace_support_selects_signer_image(signer_plan))
+
+        self.write('crates/oasis7_context/src/lib.rs', 'pub fn changed_context() {}\n')
+        mixed_head = self.commit()
+        mixed_plan = selector.select(self.config, self.base, mixed_head, profile='pr-fast')
+        self.assertEqual(mixed_plan['workspace_support_profiles'], ['oasis7_context', 'oasis7_local_signer'])
+        self.assertFalse(selector.workspace_support_selects_signer_image(mixed_plan))
+        self.assertNotIn('workspace_support_direct_gate_version', mixed_plan)
 
         # Live config (v2): custody crate -> custody_execution_version=1 AND direct gate v2 emitted
         self.git('checkout', '-q', self.base)
@@ -9524,6 +9533,43 @@ class MainFastHistoricalRetiredPathsTests(WorkspaceMemberCargoAndScopedCfgTests)
         )
         self.assertEqual(policy_paths2, [])
         self.assertEqual(prod_cfg2, [target_path])
+
+    def test_oasis7_required_package_groups_are_registered_in_required_packages(self):
+        cfg = json.loads((HERE / 'ci-required-scope.json').read_text(encoding='utf-8'))
+        required_packages = cfg['oasis7_required_packages']
+        self.assertEqual(len(required_packages), len(set(required_packages)))
+        grouped_required = {
+            package for package, groups in cfg['package_groups'].items()
+            if 'oasis7_required' in groups
+        }
+        missing = sorted(grouped_required - set(required_packages))
+        self.assertEqual(
+            missing,
+            [],
+            'packages mapped to oasis7_required in package_groups must also be in oasis7_required_packages',
+        )
+
+    def test_managed_script_subdirectories_route_without_unknown_inputs(self):
+        cases = (
+            ('scripts/governance/new-gate.sh', 'workflow_governance'),
+            ('scripts/ops/new-drill.sh', 'operational_contracts'),
+            ('scripts/packaging/new-check.sh', 'packaging_contracts'),
+            ('scripts/viewer/new-helper.mjs', 'viewer_js_required'),
+            ('scripts/security/new-guard.py', 'workflow_governance'),
+        )
+        for path, expected_group in cases:
+            with self.subTest(path=path):
+                self.git('checkout', '-q', self.base)
+                self.write(path, '#!/usr/bin/env bash\nexit 0\n')
+                head = self.commit()
+                plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+                self.assertIn(expected_group, plan['groups'])
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/unregistered-root-script.sh', '#!/usr/bin/env bash\nexit 0\n')
+        unregistered_head = self.commit()
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(self.config, self.base, unregistered_head, profile='pr-fast')
 
 
 if __name__ == '__main__':

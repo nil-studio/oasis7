@@ -57,7 +57,12 @@ use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
 
 pub(super) fn exercise_site_scaling(samples: &[(usize, usize)]) {
     assert!(samples.len() >= 2);
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let mut observed = Vec::new();
         // Fixed in advance: the complete generic+typed receiver may grow by

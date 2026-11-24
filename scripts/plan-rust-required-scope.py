@@ -4344,7 +4344,8 @@ def complete_ordinary_partitions(config, plan):
                 and plan.get('execution_profile') in ('pr-fast', 'main-fast')
                 and plan.get('workspace_support_partitions') == ['other']
                 and 'oasis7_custody_worker' not in plan.get('workspace_support_profiles', ())
-                and not workspace_support_requires_host(plan)):
+                and (not workspace_support_requires_host(plan)
+                     or workspace_support_selects_signer_image(plan))):
             direct_ver = config['workspace_support_direct_gate_version']
             if direct_ver == 2 and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version', 2):
                 plan['workspace_support_direct_gate_version'] = 2
@@ -4427,6 +4428,15 @@ def workspace_support_requires_host(plan):
     """Keep non-root native contracts and the full-profile fallback."""
     return (plan.get('scope') == 'full'
             or bool(WORKSPACE_SUPPORT_HOST_PROFILES.intersection(plan.get('workspace_support_profiles', ()))))
+
+
+def workspace_support_selects_signer_image(plan):
+    """Only the complete signer selection can replace the host provisioner."""
+    return (plan.get('scope') == 'targeted'
+            and plan.get('test_policy_changed') is False
+            and type(plan.get('workspace_support_profile_version')) is int
+            and plan['workspace_support_profile_version'] == 1
+            and plan.get('workspace_support_profiles') == ['oasis7_local_signer'])
 
 
 def support_partitions(profiles):

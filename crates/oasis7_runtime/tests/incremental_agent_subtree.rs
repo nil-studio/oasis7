@@ -174,7 +174,12 @@ fn seed_shape(
 }
 #[test]
 fn actual_borrowed_agent_genesis_cold_root_structure_preserves_original_cells() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("agent-subtree-pages");
         let roots = {

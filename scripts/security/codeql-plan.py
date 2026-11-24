@@ -278,6 +278,10 @@ def plan(args):
         elif path in WASM_CANDIDATE_INPUTS:
             add('python-repo', path)
             add('rust-repo', path)
+        elif path == 'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json':
+            # Exact golden payload consumed by the native Rust field identity test.
+            # Other fixtures remain unregistered; batch policy is unchanged.
+            add('rust-repo', path)
         elif path == 'tools/scenario_test_runner/scenarios/triad_p2p.yaml':
             # Exact data fixture read by the Rust scenario runner, not Actions YAML.
             add('rust-repo', path)
