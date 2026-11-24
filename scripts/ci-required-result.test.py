@@ -383,6 +383,62 @@ class Results(unittest.TestCase):
             with self.subTest(retired_job=retired_job), self.assertRaises(ValueError):
                 result.validate(v3_plan, broken, v3_jobs, retired_jobs=v3_retired)
 
+    def test_v4_consolidation_and_v1_v2_v3_transitions(self):
+        config = {
+            'groups': [
+                'baseline', 'doc_checker_contracts', 'codex_agent_config_validation',
+                'macos_package_contract', 'compile_metrics',
+                'node', 'consensus', 'scenario_regression', 'pixel_world_bridge',
+                'viewer_js_required', 'viewer_performance_report',
+                'packaging_contracts', 'cargo_tooling_contracts',
+                'fleet_health', 'windows_rollout',
+                'workflow_governance', 'operational_contracts',
+            ],
+            'contract_job_consolidation_version': 4,
+            'group_jobs': {
+                'codex_agent_config_validation': 'baseline',
+                'macos_package_contract': 'baseline',
+                'compile_metrics': 'doc-checker-contracts',
+                'consensus': 'node',
+                'pixel_world_bridge': 'scenario-regression',
+                'viewer_performance_report': 'viewer-js-required',
+                'packaging_contracts': 'doc-checker-contracts',
+                'cargo_tooling_contracts': 'scenario-regression',
+                'windows_rollout': 'fleet-health',
+                'operational_contracts': 'workflow-governance',
+            },
+        }
+        v3_jobs = result.configured_group_jobs(config, {'groups': ['baseline'], 'contract_job_consolidation_version': 3})
+        self.assertEqual(v3_jobs['packaging_contracts'], 'doc-checker-contracts')
+        self.assertEqual(v3_jobs['operational_contracts'], 'operational-contracts')
+
+        v4_plan = {'groups': ['baseline', 'operational_contracts'], 'contract_job_consolidation_version': 4}
+        v4_jobs = result.configured_group_jobs(config, v4_plan)
+        v4_retired = result.retired_group_jobs(config, v4_plan)
+        self.assertEqual(v4_jobs['operational_contracts'], 'workflow-governance')
+        self.assertIn('operational-contracts', v4_retired)
+        needs = {
+            'select': {'result': 'success'},
+            'baseline': {'result': 'success'},
+            'doc-checker-contracts': {'result': 'skipped'},
+            'fleet-health': {'result': 'skipped'},
+            'node': {'result': 'skipped'},
+            'scenario-regression': {'result': 'skipped'},
+            'viewer-js-required': {'result': 'skipped'},
+            'workflow-governance': {'result': 'success'},
+            **{job: {'result': 'skipped'} for job in v4_retired},
+        }
+        self.assertTrue(result.validate(v4_plan, needs, v4_jobs, retired_jobs=v4_retired))
+        for bad in ('skipped', 'failure', 'cancelled', None):
+            broken = copy.deepcopy(needs)
+            broken['workflow-governance'] = {'result': bad}
+            with self.subTest(host_state=bad), self.assertRaises(ValueError):
+                result.validate(v4_plan, broken, v4_jobs, retired_jobs=v4_retired)
+        broken_legacy = copy.deepcopy(needs)
+        broken_legacy['operational-contracts'] = {'result': 'success'}
+        with self.assertRaisesRegex(ValueError, 'operational-contracts: retired'):
+            result.validate(v4_plan, broken_legacy, v4_jobs, retired_jobs=v4_retired)
+
 
 if __name__ == '__main__':
     unittest.main()

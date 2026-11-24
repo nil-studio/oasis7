@@ -297,6 +297,12 @@ fn start_live_service(
     start_live_service_with_read_gate(world, trust, anchor, material, proof, None)
 }
 
+/// Passive `FormalLiveService` fixtures intentionally run `NodeRuntime` without
+/// an execution hook. Keep the autonomous PoS tick horizon above the full CI job
+/// timeout so multi-cycle tests under shared CPU contention never cross an
+/// arbitrary 60-second tick boundary and flip the fixture into degraded mode.
+const PASSIVE_LIVE_SERVICE_TICK_INTERVAL: Duration = Duration::from_secs(3600);
+
 fn start_live_service_with_read_gate(
     world: World,
     trust: oasis7_world_service::client::FormalReadTrustConfigV1,
@@ -311,7 +317,7 @@ fn start_live_service_with_read_gate(
         NodeRole::Sequencer,
     )
     .unwrap()
-    .with_tick_interval(Duration::from_secs(60))
+    .with_tick_interval(PASSIVE_LIVE_SERVICE_TICK_INTERVAL)
     .unwrap()
     .with_auto_attest_all_validators(false)
     .with_require_execution_on_commit(true)
@@ -1165,6 +1171,29 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
         .unwrap()
         .remove("reopen_timeout_ms");
     assert!(load(&config).is_err());
+}
+
+#[test]
+fn passive_live_service_fixture_suppresses_autonomous_degrading_ticks_and_stops_promptly() {
+    const _: () = assert!(
+        PASSIVE_LIVE_SERVICE_TICK_INTERVAL.as_secs() >= 3600,
+        "passive live service fixture tick horizon must exceed CI job timeout"
+    );
+    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    let (mut server, _endpoint, _service_key, node_runtime, _published, _history) =
+        start_live_service(world, trust, anchor, material, proof);
+    let snapshot = node_runtime.lock().unwrap().snapshot();
+    assert!(snapshot.running);
+    assert_eq!(snapshot.tick_count, 0);
+    assert!(snapshot.last_error.is_none());
+
+    let stop_started = std::time::Instant::now();
+    server.stop().unwrap();
+    node_runtime.lock().unwrap().stop().unwrap();
+    assert!(
+        stop_started.elapsed() < Duration::from_secs(5),
+        "stop channel wakeup must remain immediate despite a 1-hour passive tick interval"
+    );
 }
 #[cfg(unix)]
 #[path = "formal_full_sync_shared_exchange_tests.rs"]

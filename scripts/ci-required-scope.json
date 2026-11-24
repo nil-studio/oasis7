@@ -2,7 +2,7 @@
   "fast_scope_version": 1,
   "ordinary_dynamic_partition_version": 1,
   "custody_node_shards_version": 2,
-  "contract_job_consolidation_version": 3,
+  "contract_job_consolidation_version": 4,
   "ordinary_scope_config_slice_version": 1,
   "standalone_cargo_manifest_scope_version": 1,
   "workspace_support_direct_gate_version": 1,
@@ -15,7 +15,8 @@
     "viewer_performance_report": "viewer-js-required",
     "packaging_contracts": "doc-checker-contracts",
     "cargo_tooling_contracts": "scenario-regression",
-    "windows_rollout": "fleet-health"
+    "windows_rollout": "fleet-health",
+    "operational_contracts": "workflow-governance"
   },
   "ordinary_case_prefix_contract_version": 1,
   "ordinary_shared_incremental_contract_version": 1,
@@ -78,7 +79,8 @@
   "main_fast_coalesce_concurrency_version": 1,
   "draft_pr_heavy_ci_skip_version": 1,
   "auxiliary_workflow_consolidation_version": 1,
-  "workspace_member_cargo_manifest_scope_version": 1,
+  "workspace_member_cargo_manifest_scope_version": 2,
+  "ordinary_controls_in_rust_baseline_version": 1,
   "scoped_production_cfg_version": 1,
   "ordinary_harness_costs": {
     "version": 1,

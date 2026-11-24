@@ -72,7 +72,7 @@ fn runtime_restart_recovers_publication_after_busy_predecessor_without_new_snaps
         NodeRole::Sequencer,
     )
     .expect("runtime config")
-    .with_tick_interval(Duration::from_secs(60))
+    .with_tick_interval(Duration::from_secs(3600))
     .expect("slow deterministic runtime tick")
     .with_replication_root(root.join("replication"))
     .expect("runtime replication root");
@@ -212,7 +212,7 @@ fn runtime_restart_rejects_precheck_predecessor_from_reused_generation() {
         NodeRole::Sequencer,
     )
     .expect("runtime config")
-    .with_tick_interval(Duration::from_secs(60))
+    .with_tick_interval(Duration::from_secs(3600))
     .expect("slow deterministic runtime tick")
     .with_replication_root(root.join("replication"))
     .expect("runtime replication root");

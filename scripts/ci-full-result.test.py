@@ -2275,6 +2275,7 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                           "ordinary_dynamic_partition_version", "contract_job_consolidation_version",
                           "ordinary_scope_config_slice_version", "standalone_cargo_manifest_scope_version",
                           "workspace_member_cargo_manifest_scope_version", "scoped_production_cfg_version",
+                          "ordinary_controls_in_rust_baseline_version",
                           "workspace_support_direct_gate_version",
                           "custody_node_shards_version"):
             bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 9})).encode()
@@ -2299,7 +2300,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                                          workflow_id=7, config=CONFIG, digest="definition")
         self.assertEqual(verified, receipt)
         for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report",
-                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout"):
+                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout",
+                            "operational-contracts"):
             broken = copy.deepcopy(receipt)
             broken["needs"][retired_job] = {"result": "success"}
             with self.subTest(retired_job=retired_job), self.assertRaises(ValueError):
