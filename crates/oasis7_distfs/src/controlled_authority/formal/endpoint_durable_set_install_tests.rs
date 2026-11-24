@@ -148,10 +148,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     native_install_continuation(
         &fixture,
         open,
-        ro,
-        pp,
-        rp,
-        next_dir,
+        (ro, pp, rp, next_dir),
         coordinator,
         recover_uncertain_activation,
     );
@@ -164,13 +161,11 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
 fn native_install_continuation(
     fixture: &Fixture,
     open: impl Fn(EndpointRole, Arc<dyn MonotonicEndpointProvider>) -> FileFormalEndpoint,
-    ro: Oracle,
-    pp: InstallProvider,
-    rp: InstallProvider,
-    next_dir: std::path::PathBuf,
+    setup: (Oracle, InstallProvider, InstallProvider, std::path::PathBuf),
     mut coordinator: Box<FormalCoordinator<FileFormalEndpoint, FileFormalEndpoint>>,
     recover_uncertain_activation: bool,
 ) {
+    let (ro, pp, rp, next_dir) = setup;
     // Preserve every original verifier, corruption negative, and monotonic
     // seal assertion on the same default test-thread stack.
     let (sealed, boundary, manifest, pcp) = build_native_install_setup(|| {
@@ -296,8 +291,8 @@ fn native_install_continuation(
         b"oasis7 native diagnostic install_signed_transition_constructed\n",
     );
     let (source, source_owner) = remote_sealed_source(
-        open(EndpointRole::Replica, ro.provider(&fixture)),
-        &fixture,
+        open(EndpointRole::Replica, ro.provider(fixture)),
+        fixture,
         &boundary,
         &sealed,
     );
@@ -443,7 +438,7 @@ fn native_install_continuation(
     );
     let r = rc.activate(&activation, pi.clone(), ri.clone()).unwrap();
     assert_eq!(p.parent.as_ref().unwrap().head(), boundary.head());
-    verify_remote_activated_boundary(p, &fixture, &activation, false);
+    verify_remote_activated_boundary(p, fixture, &activation, false);
     drop(r);
     // Protected activation can have completed while local publication/reply was
     // lost. Reopen exact transition obtains the same active checkpoint.
@@ -536,7 +531,7 @@ fn native_install_continuation(
         panic!("permanent old result missing");
     };
     assert!(matches!(*old, FormalRequestStateV1::Qualified { .. }));
-    verify_remote_activated_boundary(reopened, &fixture, &activation, true);
+    verify_remote_activated_boundary(reopened, fixture, &activation, true);
 }
 
 fn verify_remote_activated_boundary(
