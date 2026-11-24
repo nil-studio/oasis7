@@ -158,7 +158,12 @@ macro_rules! ctx {
 }
 #[test]
 fn original_epochs_maps_and_ordered_duplicate_mints_cold_recover() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("cold");
         let roots = {

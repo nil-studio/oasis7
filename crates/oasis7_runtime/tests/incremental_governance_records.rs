@@ -155,7 +155,12 @@ fn original_governance_three_families_cold_recover_all_original_member_shapes() 
     use GovernanceColumnV1 as F;
     use GovernanceRecordKindV1 as K;
     use GovernanceSnapshotColumnV1 as S;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("governance-pages");
         let roots = {

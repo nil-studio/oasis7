@@ -106,7 +106,12 @@ fn factory_authority_original_fields_cold_root_only_in_raw_and_zstd() {
     use FactoryAuthorityCellV1 as C;
     use FactoryAuthorityRecordKindV1 as K;
     use FactoryAuthorityValueV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let root = {
             let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
