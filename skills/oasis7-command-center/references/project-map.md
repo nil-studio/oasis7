@@ -37,7 +37,7 @@
 
 独立客户端的目标技术栈、进程和恢复合同在正式 PRD/design 中维护。早期设计快照中“尚无程序”的描述不能覆盖后续实现节与真实 PR；同样，代码目录存在不能证明签名分发、完整系统体验或全部模型任务已通过。
 
-Viewer 的 Director、Agent Activity、Intent 和 Launcher 的 `gui-agent` 面向游戏世界。游戏外部 Runtime 产品从 `doc/product/agents-world-simulation/external-agent-runtime-play.prd.md` 进入；开发 Codex 会话按[外部接续方法](external-handoff.md)识别，不能混用身份、能力或验收结果。
+Viewer 的 Director、Agent Activity、Intent 和 Launcher 的 `gui-agent` 面向游戏世界。游戏外部 Runtime 产品从 `doc/product/agents-world-simulation/external-agent-runtime-play.prd.md` 进入；Coding Agent 开发会话按[外部接续方法](external-handoff.md)识别，不能混用身份、能力或验收结果。
 
 ## 迁移与旧材料
 
