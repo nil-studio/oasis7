@@ -7,7 +7,7 @@ description = "Session-scoped model consumption and explicit legacy simulator co
 
 [dependencies]
 oasis7_agent_api = { path = "../oasis7_agent_api" }
-async-openai = { version = "0.42.1", default-features = false, features = ["responses", "rustls", "middleware"] }
+async-openai = { version = "0.43.0", default-features = false, features = ["responses", "rustls", "middleware"] }
 eventsource-stream = "0.2.3"
 futures-util = "0.3"
 reqwest = { workspace = true, features = ["blocking", "json", "rustls"] }
