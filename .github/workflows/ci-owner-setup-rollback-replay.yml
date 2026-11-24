@@ -1,0 +1,164 @@
+name: Custody owner setup rollback replay
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/6914-owner-rollback-base]
+    paths: [.github/workflows/ci-owner-setup-rollback-replay.yml]
+
+permissions: {}
+cache-mode: none
+
+jobs:
+  rollback:
+    if: github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/6914-owner-rollback-head'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-build@sha256:027eb11ad5c315b7ba3aaf834d3ceff5bd84cf6d4d7dfb196bbe4989fc9aa57c
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      TESTED: b08befefb6359319e85e2e392037978cfad62825
+      SOURCE: fe4dd5ce5a7e4cf995450bd5454f97d57f97701b
+      POLICY: b823a9b424ad4ab4b2a1130adcc6527b626a1cd0
+      ORIGIN_RUN: '45411261651'
+      ORIGIN_ATTEMPT: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TESTED }}
+          persist-credentials: false
+      - name: Verify the original source and Node environment
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$TESTED"
+          git diff --exit-code HEAD --
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.5'
+      - name: Fetch and verify the four exact attempt-one archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/historical"
+          cd "$RUNNER_TEMP/historical"
+          fetch() {
+            local id="$1" size="$2" digest="$3" name="$4" location
+            location="$(printf 'Authorization: Bearer %s\n' "$GH_TOKEN" |
+              curl --fail --silent --show-error --proto '=https' --max-time 30 \
+                --write-out '%{redirect_url}' -H @- -o /dev/null \
+                "https://api.github.com/repos/nil-studio/oasis7/actions/artifacts/$id/zip")"
+            [[ "$location" == https://* ]]
+            curl --fail --silent --show-error --proto '=https' --proto-redir '=https' \
+              --location --max-time 150 --max-filesize "$size" -o "$name.zip" "$location"
+            test "$(stat -c%s "$name.zip")" = "$size"
+            printf '%s  %s\n' "$digest" "$name.zip" | sha256sum --check
+          }
+          fetch 14928265972 4189 508622578acb80ca56a381ea12be5efe3491c11ada50b31e6427e3c62ac518b9 selection
+          fetch 14931610557 220914679 1f15fe3eae48fca47d56af2d229b14bf50cc50022993ac3acd7f305d14eb588c native
+          fetch 14927448504 70259827 cb524cd22d6d01dfc5a9652bf821cc98e27b04763a1c4b34cd236508933bd15d wasm-production
+          fetch 14928757290 35583577 d311c8fbeda63d2e71fdb70c7ffde381ca62a51f2aaf52169504000c19da2d36 wasm-approval
+      - name: Restore the complete artifacts using the original manifest validator
+        run: |
+          set -euo pipefail
+          saved="$RUNNER_TEMP/historical"
+          python3 -I - "$saved" <<'PYTHON'
+          import json, os, sys, zipfile
+          from pathlib import Path
+
+          saved = Path(sys.argv[1])
+          with zipfile.ZipFile(saved / 'selection.zip') as archive:
+              raw = archive.read('selection.json')
+          plan = json.loads(raw)
+          for field, key in [('source_sha', 'SOURCE'), ('tested_sha', 'TESTED'), ('policy_sha', 'POLICY')]:
+              if plan[field] != os.environ[key]:
+                  raise SystemExit('historical selection identity mismatch')
+          if plan.get('custody_execution_version') != 1 or plan.get('custody_node_shards') != [0, 1, 2]:
+              raise SystemExit('historical shard policy mismatch')
+          (saved / 'selection.json').write_bytes(raw)
+          for name in ('native', 'wasm-production', 'wasm-approval'):
+              with zipfile.ZipFile(saved / f'{name}.zip') as archive:
+                  archive.extractall(saved / 'bundles' / name)
+          PYTHON
+          python3 scripts/ci-custody-platform.py restore \
+            --plan "$saved/selection.json" --bundles "$saved/bundles" \
+            --run-id "$ORIGIN_RUN" --attempt "$ORIGIN_ATTEMPT" \
+            --producer-attempts '{"native":1,"wasm-production":1,"wasm-approval":1}'
+      - name: Install the original Node test dependencies
+        run: npm ci --prefix crates/oasis7_custody_worker --ignore-scripts
+      - name: Observe only the original rollback case
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PYTHON'
+          from pathlib import Path
+
+          test = Path('crates/oasis7_custody_worker/tests/owner-setup.integration.test.mjs')
+          fault = Path('crates/oasis7_custody_worker/tests/fixtures/setup_reconcile_audit_fault.mjs')
+
+          def replace(path, old, new):
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'unexpected diagnostic insertion point in {path.name}')
+              path.write_text(text.replace(old, new, 1))
+
+          replace(fault, ' finalAudit=true;', ''' {
+                    finalAudit=true;
+                    console.log('rollback_signal=final_audit_inserted');
+                  }''')
+          replace(fault, '          const row=target.exec(', '''          console.log('rollback_signal=final_state_update_seen');
+                    const row=target.exec(''')
+          replace(fault, '          facts.faults++;', '''          facts.faults++;
+                    console.log('rollback_signal=fault_requested');''')
+          replace(test, '      assert.deepEqual(await runtime.reconcileFault(),{faults:1,attempted_result:true});', '''
+                const faultReceipt=await runtime.reconcileFault();
+                // Only fixed finite counters and booleans; no request or persisted payloads.
+                const receipt={faults:faultReceipt.faults===1?1:0,
+                  attempted_result:faultReceipt.attempted_result===true};
+                const remaining=String(progress.transport_remaining);
+                const stages=runtime.worldResults()
+                  .filter(row=>row.path==='/entry-owner/control').slice(-4)
+                  .map(row=>({http:row.http,outcome_present:!!row.outcome,error_present:!!row.error}));
+                console.log('rollback_route='+JSON.stringify({
+                  transport_remaining:/^[0-9]{1,4}$/.test(remaining)?remaining:null,
+                  world_lookup_delta:(runtime.nativeRequests()['/entry-owner/control']??0)-(before??0),
+                  stages, receipt
+                }));
+                try {
+                  assert.deepEqual(faultReceipt,{faults:1,attempted_result:true});
+                } catch (original) {
+                  try {
+                    await runtime.suspend();
+                    const checkpoint=persistedRuntime(runtime.persist,runtime.account)
+                      .setup_reconciles.flatMap(row=>row.attempts).slice(0,1)
+                      .map(row=>({reads:row.reads, published:row.published, admitted:row.admitted,
+                        lookup_claimed:row.lookup_claimed, has_fact:row.has_fact,
+                        post_claimed:row.post_claimed, has_result:row.has_result}));
+                    console.log('rollback_checkpoint='+JSON.stringify(checkpoint));
+                  } catch {
+                    console.log('rollback_checkpoint=unavailable');
+                  }
+                  throw original;
+                }''')
+          PYTHON
+          cd crates/oasis7_custody_worker
+          node --check tests/owner-setup.integration.test.mjs
+          node --check tests/fixtures/setup_reconcile_audit_fault.mjs
+          node --test --test-concurrency=1 --test-reporter=tap \
+            --test-name-pattern '^reconcile final SQL failure rolls back both old and new results and audit$' \
+            tests/owner-setup.integration.test.mjs | tee "$RUNNER_TEMP/rollback.tap"
+          grep -Fx '# tests 1' "$RUNNER_TEMP/rollback.tap"
+          grep -Fx 'ok 1 - reconcile final SQL failure rolls back both old and new results and audit' \
+            "$RUNNER_TEMP/rollback.tap"
