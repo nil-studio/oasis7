@@ -1,9 +1,17 @@
 //! Mechanical extraction of bounded cursor rebase regression.
 use super::*;
 
+// Long signed histories can create large transient proof/read frames. Keep the
+// construction and later independent cursor checks in distinct ordinary
+// test-thread frames; neither the native thread stack nor its assertions grow.
+#[inline(never)]
+fn rebase_test_stage<T>(work: impl FnOnce() -> T) -> T {
+    work()
+}
+
 #[test]
 fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
-    let (mut world, trust, origin, _) = protocol_initial_fixture();
+    let (mut world, trust, origin, _) = rebase_test_stage(protocol_initial_fixture);
     let mut current_anchor = origin.clone();
     let mut active = FormalReadVerifier::new(&trust, origin.clone()).unwrap();
     let stale_cas = active.replay_cursor().unwrap();
@@ -11,29 +19,42 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     let mut last = None;
     let mut previous_anchor = origin.clone();
     let mut previous_world = world.clone();
-    for index in 1..=33 {
-        previous_anchor = current_anchor.clone();
-        previous_world = world.clone();
-        let (next_world, next_anchor, proof) = protocol_successor_fixture(&current_anchor, world);
-        let old_anchor = active.anchor_ref().unwrap();
-        let (mut request, mut reply) = response(
-            &next_world,
-            &next_anchor,
-            FormalReadHistoryV1 {
-                schema_version: 1,
-                steps: vec![FormalReadStepV1::Commit(Box::new(proof.clone()))],
-            },
-        );
-        request.formal_anchor = Some(old_anchor.clone());
-        request.observation_nonce = Some(format!("{index:064x}"));
-        request.min_commit = last.clone();
-        reply.formal_proof.as_mut().unwrap().anchor = old_anchor;
-        active.verify_view(&reply, &request, &public(7)).unwrap();
-        last = Some(reply.version.commit.clone());
-        steps.push(FormalReadStepV1::Commit(Box::new(proof)));
-        world = next_world;
-        current_anchor = next_anchor;
-    }
+    let (world, current_anchor, mut active, steps, last, previous_anchor, previous_world) =
+        rebase_test_stage(|| {
+            for index in 1..=33 {
+                previous_anchor = current_anchor.clone();
+                previous_world = world.clone();
+                let (next_world, next_anchor, proof) =
+                    protocol_successor_fixture(&current_anchor, world);
+                let old_anchor = active.anchor_ref().unwrap();
+                let (mut request, mut reply) = response(
+                    &next_world,
+                    &next_anchor,
+                    FormalReadHistoryV1 {
+                        schema_version: 1,
+                        steps: vec![FormalReadStepV1::Commit(Box::new(proof.clone()))],
+                    },
+                );
+                request.formal_anchor = Some(old_anchor.clone());
+                request.observation_nonce = Some(format!("{index:064x}"));
+                request.min_commit = last.clone();
+                reply.formal_proof.as_mut().unwrap().anchor = old_anchor;
+                active.verify_view(&reply, &request, &public(7)).unwrap();
+                last = Some(reply.version.commit.clone());
+                steps.push(FormalReadStepV1::Commit(Box::new(proof)));
+                world = next_world;
+                current_anchor = next_anchor;
+            }
+            (
+                world,
+                current_anchor,
+                active,
+                steps,
+                last,
+                previous_anchor,
+                previous_world,
+            )
+        });
     assert!(
         active
             .export_cursor()
@@ -45,7 +66,8 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     let make_fresh = |world: &fixtures::protocol_world::ProtocolWorld,
                       anchor: &VerifiedFormalReadAnchorV1,
                       steps: Vec<FormalReadStepV1>| {
-        let mut fresh = FormalReadVerifier::new(&trust, origin.clone()).unwrap();
+        rebase_test_stage(|| {
+            let mut fresh = FormalReadVerifier::new(&trust, origin.clone()).unwrap();
         let (mut request, mut reply) = response(
             world,
             anchor,
@@ -57,8 +79,9 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
         request.formal_anchor = Some(fresh.anchor_ref().unwrap());
         request.observation_nonce = Some("fe".repeat(32));
         reply.formal_proof.as_mut().unwrap().anchor = request.formal_anchor.clone().unwrap();
-        fresh.verify_view(&reply, &request, &public(7)).unwrap();
-        fresh
+            fresh.verify_view(&reply, &request, &public(7)).unwrap();
+            fresh
+        })
     };
     let fresh = make_fresh(&world, &current_anchor, steps.clone());
     let before = active.replay_cursor().unwrap();
