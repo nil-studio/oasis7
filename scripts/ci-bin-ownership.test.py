@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Executable ownership and lightweight service dependency contracts."""
 from pathlib import Path
+import copy
 import json
 import re
 import tomllib
@@ -26,6 +27,37 @@ OWNERS = {
 
 def manifest(package):
     return tomllib.loads((ROOT / 'crates' / package / 'Cargo.toml').read_text())
+
+
+def require_chain_runtime_without_umbrella(spec):
+    """Enforce exact normal/dev/build + target dependency and test-tier replacement."""
+    tables = [('dependencies', spec.get('dependencies', {})),
+              ('dev-dependencies', spec.get('dev-dependencies', {})),
+              ('build-dependencies', spec.get('build-dependencies', {}))]
+    for target, config in spec.get('target', {}).items():
+        for section in ('dependencies', 'dev-dependencies', 'build-dependencies'):
+            tables.append((target + '/' + section, config.get(section, {})))
+    for where, dependencies in tables:
+        if 'oasis7' in dependencies:
+            raise AssertionError('ChainRuntime directly depends on umbrella: ' + where)
+    expected = {
+        'wasmtime': {'oasis7_wasm_executor/wasmtime', 'oasis7_runtime/wasmtime',
+                     'oasis7_world_service/wasmtime'},
+        'test_tier_required': {'oasis7_runtime_host/test_tier_required',
+                               'oasis7_simulator/test_tier_required',
+                               'oasis7_runtime/test_tier_required',
+                               'oasis7_world_service/test_tier_required'},
+        'test_tier_full': {'test_tier_required', 'oasis7_runtime_host/test_tier_full',
+                           'oasis7_simulator/test_tier_full',
+                           'oasis7_runtime/test_tier_full',
+                           'oasis7_world_service/test_tier_full'},
+    }
+    for feature, forwarded in expected.items():
+        actual = set(spec.get('features', {}).get(feature, ()))
+        if any(item == 'oasis7' or item.startswith('oasis7/') for item in actual):
+            raise AssertionError('ChainRuntime umbrella feature forwarding: ' + feature)
+        if not forwarded.issubset(actual):
+            raise AssertionError('ChainRuntime lost canonical feature forwarding: ' + feature)
 
 
 def require_materialized_native_archive(root):
@@ -746,6 +778,29 @@ class Ownership(unittest.TestCase):
         host = manifest('oasis7_runtime_host')['dependencies']
         self.assertIn('oasis7_simulator', host)
         self.assertNotIn('oasis7', host)
+
+    def test_chain_runtime_normal_dev_feature_umbrella_retirement(self):
+        spec = manifest('oasis7_chain_runtime')
+        require_chain_runtime_without_umbrella(spec)
+        for section in ('dependencies', 'dev-dependencies', 'build-dependencies'):
+            bad = copy.deepcopy(spec)
+            bad.setdefault(section, {})['oasis7'] = {'path': '../oasis7'}
+            with self.subTest(section=section), self.assertRaisesRegex(AssertionError, 'directly depends on umbrella'):
+                require_chain_runtime_without_umbrella(bad)
+        for feature, legacy in (
+            ('wasmtime', 'oasis7/wasmtime'),
+            ('test_tier_required', 'oasis7/test_tier_required'),
+            ('test_tier_full', 'oasis7/test_tier_full'),
+        ):
+            bad = copy.deepcopy(spec)
+            bad['features'][feature].append(legacy)
+            with self.subTest(feature=feature), self.assertRaisesRegex(AssertionError, 'umbrella feature forwarding'):
+                require_chain_runtime_without_umbrella(bad)
+        for feature in ('wasmtime', 'test_tier_required', 'test_tier_full'):
+            bad = copy.deepcopy(spec)
+            bad['features'][feature].clear()
+            with self.subTest(missing_native=feature), self.assertRaisesRegex(AssertionError, 'lost canonical feature forwarding'):
+                require_chain_runtime_without_umbrella(bad)
 
     def test_world_library_does_not_own_launcher_or_network_hosting(self):
         source = ROOT / 'crates/oasis7/src'
