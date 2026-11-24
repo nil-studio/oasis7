@@ -16,10 +16,12 @@ Linux CI 共用一套 Ubuntu 24.04 底座、一份多阶段 Dockerfile 和一条
 
 | 目标 | 增量依赖与消费者 | 验收边界 |
 | --- | --- | --- |
-| `runtime` | 原生运行库与通用执行工具。用于执行预编译产物和适合容器化的轻量检查 | 核对 ELF 动态依赖、实际子进程与测试结果 |
+| `runtime` | 原生运行库、通用执行工具和 Node 24 可执行文件。用于预编译产物、轻量检查和需要 PATH 上 Node 的分析器 | 核对 ELF 动态依赖、实际子进程与测试结果，并以 UID 1001 离线执行 PATH 中的 Node |
 | `build` | 在 runtime 上增加 GCC、pkg-config 和系统开发包。用于需要本地 C 编译或链接的任务。custody 首批用 build，因为分片 0 的 workerd GDB 合同需编译 C fixture | 四个 custody 分片全部执行，保留 GDB、类型检查、产物身份和结果收集 |
 | `rust-build` | 在 build 上预装仓库固定的 Rust stable、WASM nightly、组件和 targets。用于 Rust 编译、Clippy、编译指标和适用的缓存预热及打包任务 | 核对 rustc 版本、组件、targets、链接器、profile、缓存身份和实际产物消费 |
-| `browser` | 在 runtime 上预装 Node、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
+| `browser` | 复用 runtime 的 Node，在其上提供 npm、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
+
+五个目标从同一 Node 24 官方镜像来源构建，构建时固定来源 digest 并记录在镜像标签。通用层提供 Node 可执行文件，browser 层提供 npm 及其锁文件依赖。镜像 smoke 验证离线工具能力，CodeQL 的 JavaScript/TypeScript 提取由实际分析 job 验证所用的正式摘要。
 
 Rust 或 Node 依赖仍沿用仓库锁文件和相应的缓存策略。预装 rustup 工具链减少每个 job 下载编译器的开销，Cargo registry 下载与缓存缺失仍按现有机制处理。预编译产物消费者按实际需要选择 runtime 或 build，包括两条 storage-recovery 路径。依赖宿主网络、挂载、内核权限、Docker、签名或目标环境的任务先核对平台合同。现有 WASM canonical builder、macOS 和 Windows 原生验证继续承担各自既定验收。
 
