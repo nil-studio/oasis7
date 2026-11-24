@@ -19,6 +19,7 @@ use oasis7_node::{
 use oasis7_proto::distributed_bft::v2::{
     BFT_MAX_ACTIONS_CBOR_BYTES_V2, BftValidatorTransitionRefV2,
 };
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_runtime::{
     ChainResourceDerivationContext, LocalCasStore, RuntimeCommittedTickContext,
     World as RuntimeWorld, blake3_hex,
@@ -170,7 +171,7 @@ impl NodeRuntimeExecutionDriver {
     fn install_bft_v2_genesis_world(&mut self, genesis_world: RuntimeWorld) {
         self.execution_world = genesis_world;
         self.state = super::super::ExecutionBridgeState::default();
-        self.simulator_mirror = oasis7::simulator::WorldKernel::new();
+        self.simulator_mirror = WorldKernel::new();
     }
 
     pub(super) fn has_bft_v2_material(records_dir: &Path) -> Result<bool, String> {

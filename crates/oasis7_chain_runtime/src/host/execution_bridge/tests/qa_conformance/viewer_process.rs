@@ -1,4 +1,5 @@
 //! Exercises the shipped viewer main and newline protocol with no node filesystem access.
+use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot as NativeHostSnapshot;
 use super::*;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Stdio};
@@ -185,7 +186,7 @@ impl Protocol {
         self.receive("snapshot")["snapshot"].clone()
     }
 
-    fn request_snapshot(&mut self) -> oasis7::simulator::WorldSnapshot {
+    fn request_snapshot(&mut self) -> NativeHostSnapshot {
         self.send(serde_json::json!({"type":"request_snapshot"}));
         let response: oasis7_viewer_runtime::viewer::ViewerResponse =
             serde_json::from_value(self.receive("snapshot")).expect("valid Viewer response");
@@ -460,7 +461,7 @@ fn verify_collect_data_feedback_isolation(process: &mut ViewerProcess, owner: &m
     }
 
     let mut observer = process.connect();
-    let initial: oasis7::simulator::WorldSnapshot =
+    let initial: NativeHostSnapshot =
         serde_json::from_value(observer.subscribe()).expect("valid anonymous WorldSnapshot");
     assert_snapshot_feedback_absent(initial, "fresh anonymous connection");
     let request = oasis7_viewer_runtime::viewer::AuthoritativeReconnectSyncRequest {
@@ -507,7 +508,7 @@ fn verify_collect_data_feedback_isolation(process: &mut ViewerProcess, owner: &m
     println!("PRE2_SHIPPED_VIEWER_ORIGINAL_TERMINAL_FEEDBACK_ISOLATION_PASSED");
 }
 
-fn assert_snapshot_feedback_absent(snapshot: oasis7::simulator::WorldSnapshot, context: &str) {
+fn assert_snapshot_feedback_absent(snapshot: NativeHostSnapshot, context: &str) {
     let gameplay = snapshot
         .player_gameplay
         .expect("actual observer snapshot contains gameplay");

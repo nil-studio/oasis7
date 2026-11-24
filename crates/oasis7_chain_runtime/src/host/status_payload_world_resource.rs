@@ -1,4 +1,4 @@
-use oasis7::simulator::WorldSnapshot as SimulatorSnapshot;
+use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot as SimulatorSnapshot;
 use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::NodeSnapshot;
 use oasis7_runtime::{
@@ -462,7 +462,7 @@ fn delta_has_nonzero_resource_effect(delta: &ChainResourceDelta) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::simulator::WorldKernel;
+    use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
     use oasis7_agent_api::world_action::GeoPos;
     use oasis7_node::{NodeConsensusSnapshot, NodeRole};
     use oasis7_runtime::{Action, BlobStore, ChainResourceDerivationContext, LocalCasStore};

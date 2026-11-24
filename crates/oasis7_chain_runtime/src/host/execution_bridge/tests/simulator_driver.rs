@@ -4,7 +4,8 @@ use super::super::driver::{
 use super::super::external_effect::load_execution_external_effect_materialization;
 use super::temp_dir;
 use super::*;
-use oasis7::simulator::{WorldSnapshot, initialize_kernel};
+use oasis7_runtime_host::simulator_archive::kernel_host::initialize_kernel;
+use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;
 use oasis7_agent_api::world_geometry::ChunkCoord;
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
 use oasis7_runtime::LocalCasStore;
@@ -15,6 +16,20 @@ use oasis7_world_service::consensus_action_payload::{
     ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
 use std::fs;
+
+#[test]
+fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire() {
+    // L4 archive-bearing Host is the original composite type, not pure L2.
+    let native = oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new();
+    let legacy: oasis7::simulator::WorldKernel = native;
+    let snapshot: WorldSnapshot = legacy.snapshot();
+    let previous: oasis7::simulator::WorldSnapshot = snapshot.clone();
+    assert_eq!(
+        serde_json::to_vec(&snapshot).expect("native archive snapshot JSON"),
+        serde_json::to_vec(&previous).expect("legacy archive snapshot JSON"),
+    );
+    let _: oasis7_runtime_host::simulator_archive::persist::WorldJournal = legacy.journal_snapshot();
+}
 
 #[test]
 fn node_runtime_execution_driver_processes_simulator_payload_envelope() {
