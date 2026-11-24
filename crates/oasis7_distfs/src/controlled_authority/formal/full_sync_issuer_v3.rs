@@ -265,9 +265,10 @@ impl RecoveringFullSyncIssuerV3 {
             )?);
         }
         check_serving_deadline(deadline)?;
-        let store = self.store.as_mut().ok_or_else(|| {
-            FormalError::Io("V3 issuer store unavailable after recovery".into())
-        })?;
+        let store = self
+            .store
+            .as_mut()
+            .ok_or_else(|| FormalError::Io("V3 issuer store unavailable after recovery".into()))?;
         let evidence = store.read_evidence_for_provider(access, request, &mut witness)?;
         check_serving_deadline(deadline)?;
         Ok(evidence)

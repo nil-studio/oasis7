@@ -1111,9 +1111,7 @@ mod rotation_tests;
 
 #[test]
 fn serving_lifecycle_cold_reopens_exact_lease_after_uncertain_cas() {
-    for (committed_before_reply_loss, late_reply) in
-        [(false, false), (true, false), (true, true)]
-    {
+    for (committed_before_reply_loss, late_reply) in [(false, false), (true, false), (true, true)] {
         let (directory, old, new, mut witness, migration_entry) =
             migrate_fixture("serving-lifecycle-uncertain-cas");
         let mut issuer = open_issuer(&directory, &old, &new, &migration_entry, &mut witness);
