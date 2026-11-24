@@ -9048,7 +9048,7 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         removed_plan = selector.select(self.config, self.base, removed_head, profile='pr-fast')
         self.assertEqual(removed_plan['scope'], 'targeted', removed_plan['reasons'])
         self.assertEqual(removed_plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
-        self.assertEqual(removed_plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+        self.assertEqual(removed_plan['oasis7_required_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
 
     def test_workspace_member_manifest_rejects_unsafe_manifest_or_lock_mutations(self):
         valid_member = (
