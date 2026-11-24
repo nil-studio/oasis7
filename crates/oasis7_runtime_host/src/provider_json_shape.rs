@@ -192,7 +192,6 @@ impl JsonShapeScanner {
     }
 }
 
-
 pub fn scan_reader<R: Read + Seek>(
     reader: &mut R,
     max_bytes: u64,
