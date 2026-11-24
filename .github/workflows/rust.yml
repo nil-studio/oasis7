@@ -485,12 +485,27 @@ jobs:
                   or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
                   or not (plan.get('test_policy_changed') is False or 'custody_policy_tests_version' in plan)):
               raise ValueError('invalid custody compile proof capability')
+          fleet_keys = ('fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks')
+          if any(key in plan for key in fleet_keys):
+              oses = plan.get('fleet_health_oses')
+              checks = plan.get('fleet_health_checks')
+              allowed_oses = ('ubuntu-24.04', 'windows-2022', 'macos-15')
+              allowed_checks = ('fleet_script', 'hosted_access', 'macos_signer', 'host_cleanup')
+              if (not all(key in plan for key in fleet_keys)
+                      or type(plan['fleet_health_subcontracts_version']) is not int
+                      or plan['fleet_health_subcontracts_version'] != 1
+                      or not isinstance(oses, list) or not isinstance(checks, list)
+                      or any(not isinstance(item, str) or item not in allowed_oses for item in oses)
+                      or any(not isinstance(item, str) or item not in allowed_checks for item in checks)
+                      or len(oses) != len(set(oses)) or len(checks) != len(set(checks))):
+                  raise ValueError('invalid fleet-health subcontracts capability')
           fields = (
               'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
               'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
               'ordinary_main_fast_cache_writer_version',
               'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
+              'fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks',
               'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version', 'custody_policy_tests_version',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
               'check_inventory_version', 'fast_plan_exceptions',
@@ -1224,6 +1239,7 @@ jobs:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+          OASIS7_SKIP_RUSTFMT: ${{ github.event_name == 'pull_request' && needs.fast-preflight.result == 'success' && fromJSON(needs.select.outputs.plan).scope != 'full' && '1' || '0' }}
         run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --plan "$RUNNER_TEMP/selection.json" --repo-root "$GITHUB_WORKSPACE"
 
   cache-bootstrap-maintenance:
@@ -2759,9 +2775,10 @@ jobs:
         run: bash ./scripts/ci-tests.sh required --group "consensus" --repo-root "$GITHUB_WORKSPACE"
 
   distfs:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2840,9 +2857,10 @@ jobs:
           bash ./scripts/ci-tests.sh required --group "distfs" "${plan_args[@]}" --repo-root "$GITHUB_WORKSPACE"
 
   node:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_node == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
@@ -2922,9 +2940,10 @@ jobs:
           fi
 
   net:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_net == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -3385,9 +3404,10 @@ jobs:
         run: bash ./scripts/ci-tests.sh required --group "pixel_world_bridge" --repo-root "$GITHUB_WORKSPACE"
 
   launcher-web:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -3418,13 +3438,6 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: crates/oasis7_viewer/package-lock.json
-      - name: Install viewer dependencies
-        run: npm ci --prefix crates/oasis7_viewer
       - name: Verify the preinstalled Rust toolchains
         run: |
           set -euo pipefail
@@ -4406,9 +4419,10 @@ jobs:
           python3 scripts/ci-custody-platform.py validate --plan "$RUNNER_TEMP/selection.json" --needs "$support_needs" --results "$RUNNER_TEMP/custody-results" --capture-workerd-faults
 
   scenario-regression:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_scenario_regression == 'true' ||
        ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
@@ -5175,7 +5189,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ (needs.select.outputs.run_fleet_health == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && fromJSON('["ubuntu-24.04","windows-2022","macos-15"]') || fromJSON('["windows-2022"]') }}
+        os: ${{ (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 && fromJSON(needs.select.outputs.plan).scope != 'full' && fromJSON(needs.select.outputs.plan).scope != 'explicit-full' && join(fromJSON(needs.select.outputs.plan).fleet_health_oses, ',') != '') && fromJSON(needs.select.outputs.plan).fleet_health_oses || ((needs.select.outputs.run_fleet_health == 'true' || fromJSON(needs.select.outputs.plan).scope == 'full' || fromJSON(needs.select.outputs.plan).scope == 'explicit-full' || (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && fromJSON('["ubuntu-24.04","windows-2022","macos-15"]') || fromJSON('["windows-2022"]')) }}
     steps:
       - name: Check out workflow linker setup
         if: runner.os == 'Linux'
@@ -5199,12 +5213,15 @@ jobs:
           python-version: '3.12'
       - name: Execute selected group
         if: >-
-          needs.select.outputs.run_fleet_health == 'true' ||
+          (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 &&
+           contains(fromJSON(needs.select.outputs.plan).fleet_health_checks, 'fleet_script')) ||
+          (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version != 1 &&
+           (needs.select.outputs.run_fleet_health == 'true' ||
+            (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
+             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5))) ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
-          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         shell: bash
         run: python scripts/p2p-public-testnet-fleet-health.test.py
 
@@ -5224,12 +5241,17 @@ jobs:
 
       - name: Prepare native filesystem contract Rust toolchain
         if: >-
-          needs.select.outputs.run_fleet_health == 'true' ||
+          (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 &&
+           (contains(fromJSON(needs.select.outputs.plan).fleet_health_checks, 'hosted_access') ||
+            (runner.os == 'macOS' &&
+             contains(fromJSON(needs.select.outputs.plan).fleet_health_checks, 'macos_signer')))) ||
+          (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version != 1 &&
+           (needs.select.outputs.run_fleet_health == 'true' ||
+            (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
+             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5))) ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
-          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -5237,36 +5259,63 @@ jobs:
 
       - name: Verify hosted access cross-process ownership on native host
         if: >-
-          needs.select.outputs.run_fleet_health == 'true' ||
+          (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 &&
+           contains(fromJSON(needs.select.outputs.plan).fleet_health_checks, 'hosted_access')) ||
+          (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version != 1 &&
+           (needs.select.outputs.run_fleet_health == 'true' ||
+            (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
+             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
+             fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5))) ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
-          fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         shell: bash
         run: env -u RUSTC_WRAPPER cargo test --locked -p oasis7_hosted_access
 
       - name: Verify private context filesystem and caller on macOS
-        if: runner.os == 'macOS'
+        if: >-
+          runner.os == 'macOS' &&
+          ((fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 &&
+            contains(fromJSON(needs.select.outputs.plan).fleet_health_checks, 'macos_signer')) ||
+           fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version != 1 ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
         shell: bash
         run: |
           env -u RUSTC_WRAPPER cargo test --locked -p oasis7_context -p oasis7_secure_envelope --all-targets
           env -u RUSTC_WRAPPER cargo test --locked -p oasis7_local_signer --test context_cli
 
       - name: Verify local signer contracts on macOS
-        if: runner.os == 'macOS'
+        if: >-
+          runner.os == 'macOS' &&
+          ((fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 &&
+            contains(fromJSON(needs.select.outputs.plan).fleet_health_checks, 'macos_signer')) ||
+           fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version != 1 ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
         env:
           TMPDIR: /private/tmp
         run: python3 scripts/ci-local-signer-tests.py --require-darwin
 
       - name: Ensure Linux process inspection dependency
-        if: runner.os == 'Linux'
+        if: >-
+          runner.os == 'Linux' &&
+          ((fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 &&
+            contains(fromJSON(needs.select.outputs.plan).fleet_health_checks, 'host_cleanup')) ||
+           fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version != 1 ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
         shell: bash
         timeout-minutes: 11
         run: |
           command -v lsof || sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- lsof
       - name: Verify cleanup on native host
-        if: runner.os != 'Windows'
+        if: >-
+          runner.os != 'Windows' &&
+          ((fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 &&
+            contains(fromJSON(needs.select.outputs.plan).fleet_health_checks, 'host_cleanup')) ||
+           fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version != 1 ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
         shell: bash
         run: python3 ./scripts/resource-cleanup-executor.test.py --host-smoke
 
@@ -5375,6 +5424,20 @@ jobs:
                   or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
                   or not (plan.get('test_policy_changed') is False or 'custody_policy_tests_version' in plan)):
               raise ValueError('invalid custody compile proof capability')
+          fleet_keys = ('fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks')
+          if any(key in plan for key in fleet_keys):
+              oses = plan.get('fleet_health_oses')
+              checks = plan.get('fleet_health_checks')
+              allowed_oses = ('ubuntu-24.04', 'windows-2022', 'macos-15')
+              allowed_checks = ('fleet_script', 'hosted_access', 'macos_signer', 'host_cleanup')
+              if (not all(key in plan for key in fleet_keys)
+                      or type(plan['fleet_health_subcontracts_version']) is not int
+                      or plan['fleet_health_subcontracts_version'] != 1
+                      or not isinstance(oses, list) or not isinstance(checks, list)
+                      or any(not isinstance(item, str) or item not in allowed_oses for item in oses)
+                      or any(not isinstance(item, str) or item not in allowed_checks for item in checks)
+                      or len(oses) != len(set(oses)) or len(checks) != len(set(checks))):
+                  raise ValueError('invalid fleet-health subcontracts capability')
           if (type(projected.get('workflow_projection_version')) is not int
                   or projected['workflow_projection_version'] != 1
                   or projected.get('selection_sha256') != hashlib.sha256(raw).hexdigest()):
@@ -5385,6 +5448,7 @@ jobs:
               'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
               'ordinary_main_fast_cache_writer_version',
               'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
+              'fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks',
               'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version', 'custody_policy_tests_version',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
               'check_inventory_version', 'fast_plan_exceptions',

@@ -255,7 +255,7 @@ class Ownership(unittest.TestCase):
         self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
         store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
         codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
-        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        self.assertIn('use oasis7_formal_protocol::provider_material::{', store)
         native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
         self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
         self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)

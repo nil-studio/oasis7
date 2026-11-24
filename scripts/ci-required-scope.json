@@ -84,6 +84,7 @@
   "workspace_member_cargo_manifest_scope_version": 2,
   "ordinary_controls_in_rust_baseline_version": 1,
   "scoped_production_cfg_version": 1,
+  "fleet_health_subcontracts_version": 1,
   "ordinary_harness_costs": {
     "version": 1,
     "fallback_ms": 60000,
@@ -1170,7 +1171,6 @@
     ],
     "launcher_web": [
       "rust_toolchain",
-      "node",
       "system_deps",
       "wasm_target",
       "trunk"
@@ -1265,7 +1265,7 @@
     ".github/workflows/release-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/rust-cache.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/storage-acceptance.yml": ["workflow_governance"],
-    ".github/workflows/testnet-packages.yml": ["workflow_governance", "packaging_contracts", "operational_contracts"],
+    ".github/workflows/testnet-packages.yml": ["workflow_governance", "packaging_contracts", "operational_contracts", "windows_rollout"],
     ".github/workflows/wasm-darwin-docker-evidence.yml": ["workflow_governance"],
     ".github/workflows/wasm-determinism-gate.yml": ["workflow_governance"],
     "scripts/build-builtin-wasm-candidate-batch.test.sh": ["packaging_contracts"],
@@ -1856,12 +1856,12 @@
     "oasis7_dev_test_worker": ["workspace_support"],
     "oasis7_custody_worker": ["workspace_support"],
     "scenario_test_runner": ["oasis7_required"],
-    "oasis7_world_state": ["oasis7_required", "launcher_web"],
+    "oasis7_world_state": ["oasis7_required"],
     "oasis7_world_projection": ["oasis7_required"],
-    "oasis7_runtime": ["oasis7_required", "launcher_web"],
-    "oasis7_runtime_host": ["oasis7_required", "launcher_web"],
+    "oasis7_runtime": ["oasis7_required"],
+    "oasis7_runtime_host": ["oasis7_required"],
     "oasis7_world_service": ["oasis7_required"],
-    "oasis7_simulator": ["oasis7_required", "launcher_web"],
+    "oasis7_simulator": ["oasis7_required"],
     "oasis7_agent_api": [
       "workspace_support"
     ],
@@ -1872,8 +1872,7 @@
       "workspace_support"
     ],
     "oasis7": [
-      "oasis7_required",
-      "launcher_web"
+      "oasis7_required"
     ],
     "oasis7_consensus": [
       "consensus",
@@ -1972,8 +1971,7 @@
       "oasis7_required"
     ],
     "oasis7_launcher_backend": [
-      "oasis7_required",
-      "launcher_web"
+      "oasis7_required"
     ],
     "oasis7_newapi_bridge_service": [
       "oasis7_required"
@@ -2001,7 +1999,6 @@
     ],
     "oasis7_hosted_access": [
       "oasis7_required",
-      "launcher_web",
       "fleet_health"
     ],
     "oasis7_letai_credit_adapter": [
@@ -2159,7 +2156,8 @@
       ],
       "groups": [
         "workflow_governance",
-        "packaging_contracts"
+        "packaging_contracts",
+        "windows_rollout"
       ],
       "reason": "safe_archive_consumers"
     },
@@ -2361,8 +2359,7 @@
         "crates/oasis7_viewer/package-lock.json"
       ],
       "groups": [
-        "viewer_js_required",
-        "launcher_web"
+        "viewer_js_required"
       ],
       "reason": "viewer_npm_lock_consumers"
     },
@@ -2404,6 +2401,40 @@
         "operational_contracts"
       ],
       "reason": "operational"
+    },
+    {
+      "match": [
+        "scripts/p2p-public-testnet-fleet-health*",
+        "scripts/public-testnet-validator-triad-inventory.v1.json",
+        "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md",
+        "doc/testing/evidence/public-testnet-five-node-inventory-2026-06-23.md",
+        "doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-registry-2026-09-15.json",
+        "doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-bootstrap-peers-2026-09-15.txt"
+      ],
+      "groups": [
+        "operational_contracts",
+        "fleet_health"
+      ],
+      "reason": "fleet_health_collector"
+    },
+    {
+      "match": [
+        "scripts/p2p-public-testnet-package-rollout*",
+        "scripts/p2p-observer-checkpoint-closure-probe*",
+        "scripts/p2p-public-testnet-package-node-upgrade*",
+        "scripts/p2p-safe-extract-tar.py",
+        "scripts/p2p-safe-validate-deb-tree.py",
+        "scripts/p2p-verify-linux-package-bundle.py",
+        "scripts/p2p-rebuild-linux-bundle-checksums.py",
+        "scripts/testnet-packages-windows*",
+        "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md",
+        "doc/testing/evidence/public-testnet-five-node-inventory-2026-06-23.md"
+      ],
+      "groups": [
+        "operational_contracts",
+        "windows_rollout"
+      ],
+      "reason": "windows_package_rollout_contract"
     },
     {
       "match": [
@@ -2635,8 +2666,16 @@
     },
     {
       "match": [
+        "doc/p2p/blockchain/local-file-signing-backend.runbook.md"
+      ],
+      "groups": [
+        "packaging_contracts"
+      ],
+      "reason": "local_signer_runbook"
+    },
+    {
+      "match": [
         "scripts/local-signer/tests/**",
-        "doc/p2p/blockchain/local-file-signing-backend.runbook.md",
         "crates/oasis7_local_signer/**",
         "crates/oasis7_signer_protocol/**",
         "crates/oasis7_context/**",
