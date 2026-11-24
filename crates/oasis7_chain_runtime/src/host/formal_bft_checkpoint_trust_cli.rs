@@ -14,6 +14,9 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     let mut consumer_binding = None;
     let mut original_c0_pin = None;
     let mut issuer_status = None;
+    let mut time_observation = None;
+    let mut time_nonce = None;
+    let mut clock_epoch = None;
     while let Some(option) = args.next() {
         let slot = match option {
             "--config" => &mut config,
@@ -22,6 +25,9 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             "--consumer-binding" => &mut consumer_binding,
             "--original-c0-pin" => &mut original_c0_pin,
             "--issuer-status" => &mut issuer_status,
+            "--time-observation" => &mut time_observation,
+            "--time-nonce" => &mut time_nonce,
+            "--clock-epoch" => &mut clock_epoch,
             _ => return Err("unsupported checkpoint preparation option".into()),
         };
         if slot.is_some() {
@@ -31,6 +37,14 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             args.next()
                 .ok_or("missing checkpoint preparation value")?
                 .to_owned(),
+        );
+    }
+    if !matches!(
+        (&time_observation, &time_nonce, &clock_epoch),
+        (None, None, None) | (Some(_), Some(_), Some(_))
+    ) {
+        return Err(
+            "checkpoint time diagnostics require observation, nonce and epoch together".into(),
         );
     }
     let config = PathBuf::from(config.ok_or("checkpoint preparation requires --config")?);
@@ -58,6 +72,24 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             AuthenticatedBftCheckpointIssuerStatusV1::decode(&bytes, policy, &pin)
         })
         .transpose()?;
+    // These explicit inputs are diagnostic pins only. Neither a local file
+    // nor an operator-supplied nonce/epoch proves a protected request start.
+    let authenticated_time = match (time_observation, time_nonce, clock_epoch) {
+        (Some(path), Some(nonce), Some(epoch)) => {
+            let path = PathBuf::from(path);
+            if !path.is_absolute() {
+                return Err("checkpoint time observation path must be absolute".into());
+            }
+            super::super::controlled_live_config::require_private_owned(&path, false)?;
+            let bytes = super::super::controlled_history_cli::read_bounded(
+                &path,
+                prepared.config().policy.max_time_evidence_bytes,
+            )?;
+            Some(prepared.authenticate_time_observation(&bytes, &nonce, &epoch)?)
+        }
+        (None, None, None) => None,
+        _ => return Err("incomplete checkpoint time diagnostic input".into()),
+    };
     // This path restores actual H material and reconstructs the binding from
     // the original ledger/namespace, rather than trusting source DTO fields.
     let report = super::prepare_node_binding_report(&node_config)?;
@@ -87,6 +119,15 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             "digest": status.digest(),
             "sequence": status.body().status_sequence,
             "policy_revoked": status.body().policy_revoked,
+        });
+    }
+    if let Some(time) = authenticated_time {
+        report["authenticated_time_observation"] = serde_json::json!({
+            "digest": time.digest(),
+            "time_generation": time.body().time_generation,
+            "utc_earliest_unix_ms": time.body().utc_earliest_unix_ms,
+            "utc_latest_unix_ms": time.body().utc_latest_unix_ms,
+            "protected_continuity_checked": false,
         });
     }
     println!("{report}");

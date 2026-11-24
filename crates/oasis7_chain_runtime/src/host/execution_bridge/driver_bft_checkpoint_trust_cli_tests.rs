@@ -145,6 +145,173 @@ pub(super) fn check_preparation(
     let prepared =
         BftCheckpointTrustConfigV1::decode_and_prepare(&bytes, &policy_pin, &pin, &c0_pin).unwrap();
     assert_eq!(prepared.config(), &config);
+    // Independent test key signs exact time evidence over the real prepared H.
+    // This is a diagnostic/portable test, not proof of a protected clock.
+    use oasis7_formal_protocol::bft::checkpoint_time_observation::{
+        BftCheckpointPreviousObservationV1, BftCheckpointTimeChallengeV1,
+        BftCheckpointTimeContinuityV1,
+    };
+    let nonce = fixtures::h(51);
+    let epoch = fixtures::h(52);
+    let time_body = serde_json::json!({
+        "schema_version": 1,
+        "origin_digest": digest("origin", &value["policy"]["origin"]),
+        "policy_digest": policy_pin,
+        "clock_profile_digest": value["policy"]["clock_profile_digest"],
+        "consumer_binding_digest": pin,
+        "observation_nonce": nonce,
+        "clock_epoch": epoch,
+        "time_generation": 7,
+        "utc_earliest_unix_ms": 40,
+        "utc_latest_unix_ms": 42,
+        "time_source_id": "clock",
+        "time_key_id": "clock-key",
+    });
+    let signed_time = |body: &serde_json::Value, signing_key| {
+        canonical(&serde_json::json!({
+            "body": body,
+            "signature_hex": fixtures::sign(
+                hex::decode(digest("time-observation", body)).unwrap(),
+                signing_key,
+            ),
+        }))
+    };
+    let time_bytes = signed_time(&time_body, 119);
+    let time_path = root.join("checkpoint-time-observation.cbor");
+    private_file(&time_path, &time_bytes);
+    let prepare_with_time = |expected_nonce: &str, expected_epoch: &str| {
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "prepare-checkpoint-trust",
+                "--config",
+                path.to_str().unwrap(),
+                "--node-config",
+                node_config.to_str().unwrap(),
+                "--policy-pin",
+                &policy_pin,
+                "--consumer-binding",
+                &pin,
+                "--original-c0-pin",
+                &c0_pin,
+                "--time-observation",
+                time_path.to_str().unwrap(),
+                "--time-nonce",
+                expected_nonce,
+                "--clock-epoch",
+                expected_epoch,
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+    };
+    prepare_with_time(&nonce, &epoch).expect("host authenticates original signed time bytes");
+    assert!(prepare_with_time(&fixtures::h(53), &epoch).is_err());
+    assert!(prepare_with_time(&nonce, &fixtures::h(53)).is_err());
+    let observation = prepared
+        .authenticate_time_observation(&time_bytes, &nonce, &epoch)
+        .unwrap();
+    assert!(observation.candidate_interval(None).is_err());
+    let mut sample = BftCheckpointTimeContinuityV1 {
+        challenge: BftCheckpointTimeChallengeV1 {
+            consumer_binding_digest: pin.clone(),
+            observation_nonce: nonce.clone(),
+            clock_epoch: epoch.clone(),
+        },
+        elapsed_upper_ms: 3,
+        utc_lower_floor_unix_ms: 41,
+        previous_observation: Some(BftCheckpointPreviousObservationV1 {
+            time_generation: 7,
+            clock_epoch: epoch.clone(),
+            observation_nonce: nonce.clone(),
+            observation_digest: observation.digest().to_owned(),
+        }),
+    };
+    let interval = observation.candidate_interval(Some(&sample)).unwrap();
+    assert_eq!(
+        (interval.earliest_unix_ms(), interval.latest_unix_ms()),
+        (41, 45)
+    );
+    assert!(interval.within_window(41, 46));
+    assert!(!interval.within_window(41, 45));
+    assert!(!interval.within_window(42, 46));
+    sample.elapsed_upper_ms = 4;
+    assert!(observation.candidate_interval(Some(&sample)).is_err());
+    sample.elapsed_upper_ms = 6;
+    assert!(observation.candidate_interval(Some(&sample)).is_err());
+    sample.elapsed_upper_ms = 3;
+    sample.utc_lower_floor_unix_ms = 46;
+    assert!(observation.candidate_interval(Some(&sample)).is_err());
+    sample.utc_lower_floor_unix_ms = 41;
+    sample.previous_observation.as_mut().unwrap().time_generation = 8;
+    assert!(observation.candidate_interval(Some(&sample)).is_err());
+    sample.previous_observation.as_mut().unwrap().time_generation = 7;
+    sample.previous_observation.as_mut().unwrap().clock_epoch = fixtures::h(53);
+    assert!(observation.candidate_interval(Some(&sample)).is_err());
+    sample.previous_observation.as_mut().unwrap().clock_epoch = epoch.clone();
+    sample.previous_observation.as_mut().unwrap().observation_digest = fixtures::h(53);
+    assert!(observation.candidate_interval(Some(&sample)).is_err());
+    // The source key may sign an observation just before its own expiry,
+    // but elapsed uncertainty at the action boundary cannot extend that key.
+    let mut near_expiry = time_body.clone();
+    near_expiry["utc_earliest_unix_ms"] = serde_json::json!(96);
+    near_expiry["utc_latest_unix_ms"] = serde_json::json!(98);
+    near_expiry["observation_nonce"] = serde_json::json!(fixtures::h(54));
+    let near = prepared
+        .authenticate_time_observation(
+            &signed_time(&near_expiry, 119),
+            &fixtures::h(54),
+            &epoch,
+        )
+        .unwrap();
+    sample.challenge.observation_nonce = fixtures::h(54);
+    sample.previous_observation.as_mut().unwrap().observation_digest =
+        observation.digest().to_owned();
+    sample.elapsed_upper_ms = 1;
+    assert_eq!(
+        near.candidate_interval(Some(&sample)).unwrap().latest_unix_ms(),
+        99
+    );
+    sample.elapsed_upper_ms = 2;
+    assert!(near.candidate_interval(Some(&sample)).is_err());
+    for (field, replacement) in [
+        ("schema_version", serde_json::json!(2)),
+        ("origin_digest", serde_json::json!(fixtures::h(53))),
+        ("policy_digest", serde_json::json!(fixtures::h(53))),
+        ("clock_profile_digest", serde_json::json!(fixtures::h(53))),
+        ("consumer_binding_digest", serde_json::json!(fixtures::h(53))),
+        ("observation_nonce", serde_json::json!(fixtures::h(53))),
+        ("clock_epoch", serde_json::json!(fixtures::h(53))),
+        ("time_source_id", serde_json::json!("foreign")),
+        ("time_key_id", serde_json::json!("foreign")),
+        ("utc_earliest_unix_ms", serde_json::json!(43)),
+        ("utc_latest_unix_ms", serde_json::json!(46)),
+        ("utc_latest_unix_ms", serde_json::json!(100)),
+    ] {
+        let mut invalid = time_body.clone();
+        invalid[field] = replacement;
+        assert!(
+            prepared
+                .authenticate_time_observation(&signed_time(&invalid, 119), &nonce, &epoch)
+                .is_err(),
+            "{field}"
+        );
+    }
+    let invalid_signature = signed_time(&time_body, 118);
+    private_file(&time_path, &invalid_signature);
+    assert!(prepare_with_time(&nonce, &epoch).is_err());
+    let mut trailing_time = time_bytes.clone();
+    trailing_time.push(0);
+    assert!(
+        prepared
+            .authenticate_time_observation(&trailing_time, &nonce, &epoch)
+            .is_err()
+    );
+    assert!(
+        prepared
+            .authenticate_time_observation(&vec![0; 65_537], &nonce, &epoch)
+            .is_err()
+    );
     assert!(
         BftCheckpointTrustConfigV1::decode_and_prepare(&bytes, &fixtures::h(44), &pin, &c0_pin)
             .is_err()

@@ -2,6 +2,9 @@
 use crate::remote_world_service::FormalReadTrustConfigV1;
 use oasis7_formal_protocol::bft::{
     BftProfileTargetV2, BftSuccessorWindowSourceV1,
+    checkpoint_time_observation::{
+        AuthenticatedBftCheckpointTimeObservationV1, BftCheckpointTimeChallengeV1,
+    },
     checkpoint_trust_policy::{BFT_CHECKPOINT_CONFIG_MAX_BYTES_V1, BftCheckpointTrustPolicyV1},
     verify_formal_bft_handoff_v2,
 };
@@ -56,6 +59,26 @@ impl PreparedBftCheckpointTrustConfigV1 {
     pub fn config(&self) -> &BftCheckpointTrustConfigV1 {
         &self.config
     }
+    /// Authenticate time evidence against the original prepared policy and
+    /// consumer. This does not establish protected request-start continuity.
+    pub fn authenticate_time_observation(
+        &self,
+        bytes: &[u8],
+        observation_nonce: &str,
+        clock_epoch: &str,
+    ) -> Result<AuthenticatedBftCheckpointTimeObservationV1, String> {
+        AuthenticatedBftCheckpointTimeObservationV1::decode(
+            bytes,
+            &self.config.policy,
+            &self.config.policy_digest,
+            &BftCheckpointTimeChallengeV1 {
+                consumer_binding_digest: self.config.consumer_binding_digest.clone(),
+                observation_nonce: observation_nonce.to_owned(),
+                clock_epoch: clock_epoch.to_owned(),
+            },
+        )
+    }
+
     /// The host must obtain these values by actual qualified-H replay, not DTOs.
     pub fn check_replayed_handoff(
         &self,
