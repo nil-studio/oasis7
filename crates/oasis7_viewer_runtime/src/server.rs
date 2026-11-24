@@ -17,9 +17,9 @@ use crate::viewer::{
 use oasis7::simulator::RuntimePerfHealth;
 use oasis7::simulator::unsupported_runtime_perf_snapshot;
 use oasis7::simulator::RuntimePerfSnapshot;
+use oasis7_observability::emit_stderr_or_event;
 use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
 use oasis7_runtime_host::simulator_archive::persist::{WorldJournal, WorldSnapshot};
-use oasis7_observability::emit_stderr_or_event;
 use oasis7_simulator::{PersistError, RunnerMetrics, WorldTime};
 
 #[derive(Debug, Clone)]

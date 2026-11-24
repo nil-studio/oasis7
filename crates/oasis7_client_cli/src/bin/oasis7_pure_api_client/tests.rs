@@ -36,7 +36,8 @@ fn native_viewer_trace_metrics_preserve_original_wire_type_identity() {
 }
 
 fn governance_snapshot_response() -> Value {
-    let mut snapshot = oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new().snapshot();
+    let mut snapshot =
+        oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new().snapshot();
     let mut runtime = oasis7_runtime::World::new().snapshot();
     runtime.governance_finality_epoch_snapshots.insert(
         0,
