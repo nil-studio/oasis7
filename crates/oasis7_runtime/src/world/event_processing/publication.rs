@@ -12,7 +12,10 @@ mod prepared_state_delta;
 pub(super) use prepared_state_delta::PreparedEventStateDelta;
 #[path = "../../domains/industrial/staged_publication.rs"]
 mod staged_industrial;
+#[path = "../../domains/institutions/staged_publication.rs"]
+mod staged_institutions;
 use staged_industrial::StagedIndustrialPublication;
+use staged_institutions::StagedInstitutionsPublication;
 
 struct PreparedEventPublication {
     event: WorldEvent,
@@ -118,6 +121,9 @@ impl World {
         // staged transition boundary.
         if let Some(transition) = StagedIndustrialPublication::from_body(&body) {
             return self.append_staged_industrial_event(transition, caused_by);
+        }
+        if let Some(transition) = StagedInstitutionsPublication::from_body(&body) {
+            return self.append_staged_institutions_event(transition, caused_by);
         }
         let state_delta = match &body {
             WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { world_binding, .. }) => {
@@ -242,8 +248,6 @@ impl World {
             WorldEventBody::Domain(event @ (DomainEvent::AgentClaimed { .. } | DomainEvent::AgentClaimUpkeepSettled { .. })) => Some(PreparedEventStateDelta::AgentClaimEconomic(Box::new(super::super::agent_claim_economic_publication::PreparedAgentClaimEconomic::prepare(&self.state,event,self.state.time)?))),
             WorldEventBody::Domain(event @ (DomainEvent::AgentClaimReleased { .. } | DomainEvent::AgentClaimReclaimed { .. })) => Some(PreparedEventStateDelta::AgentClaimTerminal(super::super::agent_claim_terminal_publication::PreparedAgentClaimTerminal::prepare(&self.state,event,self.state.time)?)),
             WorldEventBody::Domain(event @ (DomainEvent::EconomicContractOpened { .. } | DomainEvent::EconomicContractAccepted { .. } | DomainEvent::EconomicContractSettled { .. } | DomainEvent::EconomicContractExpired { .. })) => Some(PreparedEventStateDelta::EconomicContract(super::super::economic_contract_publication::PreparedEconomicContractEvent::prepare(&self.state,event,self.state.time)?)),
-            WorldEventBody::Domain(event @ (DomainEvent::AllianceFormed { .. } | DomainEvent::AllianceJoined { .. } | DomainEvent::AllianceLeft { .. } | DomainEvent::AllianceDissolved { .. } | DomainEvent::WarDeclared { .. } | DomainEvent::WarConcluded { .. })) => Some(PreparedEventStateDelta::AllianceWar(super::super::alliance_war_publication::PreparedAllianceWarEvent::prepare(&self.state,event,self.state.time)?)),
-            WorldEventBody::Domain(event @ (DomainEvent::GovernanceProposalOpened { .. } | DomainEvent::GovernanceVoteCast { .. } | DomainEvent::GovernanceProposalFinalized { .. } | DomainEvent::CrisisSpawned { .. } | DomainEvent::CrisisResolved { .. } | DomainEvent::CrisisTimedOut { .. } | DomainEvent::MetaProgressGranted { .. } | DomainEvent::ProductValidated { .. })) => Some(PreparedEventStateDelta::GovernanceMeta(super::super::governance_meta_publication::PreparedGovernanceMetaEvent::prepare(&self.state,event,self.state.time)?)),
             WorldEventBody::Domain(DomainEvent::ActionRejected { .. }) => {
                 Some(PreparedEventStateDelta::NoState(body.clone()))
             }

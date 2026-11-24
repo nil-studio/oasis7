@@ -137,7 +137,12 @@ fn expected(pool: bool, source: &Value) -> Rows {
 }
 #[test]
 fn literal_ordered_and_map_keys_preserve_every_original_reward_column_and_member() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("literal");
         let roots = {

@@ -49,6 +49,32 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_llm_golden_fixture_add_modify_delete_routes_rust(self):
+        path = 'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json'
+        for value in ('{"decision":"first"}', '{"decision":"second"}', None):
+            with self.subTest(value=value):
+                self.base = self.git('rev-parse', 'HEAD')
+                if value is None:
+                    (self.root / path).unlink()
+                else:
+                    self.write(path, value)
+                self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['completeness']['diff_paths'], [path])
+                self.assertEqual(result['candidate_units'], ['rust-repo'])
+                self.assertEqual(result['selected_units'], ['rust-repo'])
+                self.assertEqual(result['reasons']['rust-repo'], [path])
+                self.assertEqual(self.run_plan(batch_modes='{}')['selected_units'], [])
+
+    def test_llm_golden_fixture_neighbor_stays_unregistered(self):
+        path = 'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/other.json'
+        self.write(path, '{}')
+        self.commit()
+        for full in (False, True):
+            with self.subTest(full=full):
+                with self.assertRaisesRegex(ValueError, 'unregistered input: ' + path):
+                    self.run_plan(full=full)
+
     def test_triad_fixture_add_modify_delete_routes_only_rust(self):
         path = 'tools/scenario_test_runner/scenarios/triad_p2p.yaml'
         for value in ('name: before', 'name: after', None):

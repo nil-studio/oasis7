@@ -1,7 +1,9 @@
 //! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
 pub mod bootstrap;
+pub mod cognition_response_identity;
 pub mod gameplay_actions;
 pub mod gameplay_service;
+pub mod provider_json_shape;
 pub mod simulator_archive;
 
 use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, WorldError, WorldState};

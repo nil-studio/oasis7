@@ -151,11 +151,21 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 
 def workspace_support_image_matrix(job):
+    pair = "matrix.execution == 'signer-context-image'" in job
+    container_job = job
+    if pair:
+        pair_image = (
+            "matrix.execution == 'signer-context-image' && "
+            "'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:"
+            "f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c' || "
+        )
+        assert pair_image in job
+        container_job = job.replace(pair_image, '', 1)
     container = re.search(
         r"^    container:\n      image: \$\{\{ (?:matrix\.execution == 'signer-image' && "
         r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| )?matrix\.execution == 'image' && "
         r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| '' \}\}$",
-        job, re.M)
+        container_job, re.M)
     if not container:
         return None
     expected_matrix = (
@@ -165,6 +175,12 @@ def workspace_support_image_matrix(job):
         expected_matrix = expected_matrix.replace(
             'fromJSON(', 'fromJSON(needs.select.outputs.workspace_support_signer_only == \'true\' '
             "&& '[\"signer-image\"]' || ")
+    if pair:
+        assert container[1]
+        expected_matrix = expected_matrix.replace(
+            'fromJSON(', "fromJSON(needs.select.outputs.workspace_support_signer_context == 'true' "
+            "&& '[\"signer-context-image\"]' || ",
+        )
     assert expected_matrix in job and '      fail-fast: false\n' in job
     assert '--support-execution "$SUPPORT_EXECUTION"' in job
     assert '          SUPPORT_EXECUTION: ${{ matrix.execution }}\n' in job
@@ -481,8 +497,17 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                 if "matrix.execution == 'signer-image'" in reader:
                     node = rows['node']
                     assert "matrix.execution == 'signer-image' && '" + node['image'] + "'" in reader
-                    assert "      options: ${{ matrix.execution == 'signer-image' && '" + node['options'] + "' || '' }}\n" in reader
-                    assert "          install-dir: ${{ matrix.execution == 'signer-image' && format('{0}/" + node['mold-dir'] + "', runner.temp) || '' }}\n" in reader
+                    options_prefix = ''
+                    mold_prefix = ''
+                    if "matrix.execution == 'signer-context-image'" in reader:
+                        options_prefix = "matrix.execution == 'signer-context-image' && '" + node['options'] + "' || "
+                        mold_prefix = ("matrix.execution == 'signer-context-image' && "
+                                       "format('{0}/oasis7-signer-context-mold', runner.temp) || ")
+                    assert ("      options: ${{ " + options_prefix + "matrix.execution == 'signer-image' && '" +
+                            node['options'] + "' || '' }}\n") in reader
+                    assert ("          install-dir: ${{ " + mold_prefix +
+                            "matrix.execution == 'signer-image' && format('{0}/" + node['mold-dir'] +
+                            "', runner.temp) || '' }}\n") in reader
                     signer = [step for step in rust_cache_steps(reader)
                               if "        if: matrix.execution == 'signer-image'\n" in step]
                     assert len(signer) == 1 and 'shared-key: ' + node['namespace'] + '\n' in signer[0]
