@@ -3695,7 +3695,6 @@ jobs:
         shell: bash
         timeout-minutes: 11
         env:
-          SIGNER_IMAGE: ${{ matrix.execution == 'signer-image' }}
           WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.restored_root }}
           TOOL_CACHE_HIT: ${{ steps.worker-image-cache.outputs.cache-hit }}
         run: |
@@ -3732,7 +3731,7 @@ jobs:
               export PATH="$WORKER_TOOL_ROOT/bin:$PATH"
             fi
           fi
-          if [[ "$SIGNER_IMAGE" == true ]]; then
+          if [[ "$SUPPORT_EXECUTION" == signer-image ]]; then
             # Reuse the original host profile filter without host provisioning.
             SUPPORT_EXECUTION=host
           fi
