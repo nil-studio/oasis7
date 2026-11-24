@@ -1,6 +1,6 @@
 use super::*;
-use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_client_api::viewer_protocol::GameplayActionError;
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_simulator::WorldEventKind;
 
 fn typed_error() -> ViewerResponse {
