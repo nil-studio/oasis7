@@ -92,7 +92,7 @@ jobs:
     needs: pr-fast-preview-plan
     if: needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:

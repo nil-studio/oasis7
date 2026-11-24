@@ -396,7 +396,10 @@ class Contracts(unittest.TestCase):
         self.assertIn('python3 scripts/ci-storage-acceptance.py build --component "$COMPONENT"', original)
         self.assertIn('python3 scripts/ci-storage-acceptance.py pack --component "$COMPONENT"', original)
         build_job = workflow.split('  build-components:\n', 1)[1].split('\n  build:\n', 1)[0]
-        self.assertIn('timeout-minutes: 150', build_job)
+        timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', build_job, re.M)
+        self.assertIsNotNone(timeout_match)
+        self.assertGreater(int(timeout_match.group(1)), 0)
+        self.assertLessEqual(int(timeout_match.group(1)), 150)
         self.assertNotIn('continue-on-error:', build_job)
         self.assertNotIn('actions: write', build_job)
         self.assertNotIn('checks: write', build_job)

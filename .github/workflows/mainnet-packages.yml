@@ -89,7 +89,7 @@ jobs:
     name: release-gate-runtime-core
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 40
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -179,7 +179,7 @@ jobs:
     name: release-gate-runtime-support
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 25
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -267,7 +267,7 @@ jobs:
     name: release-gate-runtime-sync
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 35
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -352,7 +352,7 @@ jobs:
     name: release-gate-web
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -436,7 +436,7 @@ jobs:
     name: release-gate-soak
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -561,7 +561,7 @@ jobs:
       - plan
       - release_gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup

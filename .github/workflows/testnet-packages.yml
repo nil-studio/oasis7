@@ -128,7 +128,7 @@ jobs:
     name: build-web-dist
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 25
     permissions:
       contents: read
       packages: read
