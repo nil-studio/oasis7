@@ -480,6 +480,27 @@ mod tests {
             "the denial must be a genuine journal disposition"
         );
         let next_action_id = control.snapshot().next_action_id;
+        // Denied actions retain a real cause as well as a rejection payload.
+        // A forged disagreement must fail rather than advance the allocator
+        // using whichever identity appeared first.
+        let mut tampered = control.journal().clone();
+        let rejection = tampered.events.iter_mut().find(|event| {
+            matches!(
+                &event.body,
+                crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected { .. })
+            )
+        }).expect("original rejected-action event");
+        rejection.caused_by = Some(crate::CausedBy::Action(rejected_id.saturating_add(1)));
+        assert!(
+            World::from_snapshot_with_commitment_envelope(
+                checkpoint_c.clone(),
+                tampered,
+                Some(&envelope_c),
+            )
+            .is_err(),
+            "replay must reject cause/payload identity mismatch"
+        );
+
         let mut recovered = World::from_snapshot_with_commitment_envelope(
             checkpoint_c,
             control.journal().clone(),

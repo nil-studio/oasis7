@@ -31,10 +31,11 @@ impl World {
         Self::allocate_rolling_sequence_id(&mut self.next_action_id, &mut self.next_action_id_era)
     }
 
-    /// Reconcile a signed journal disposition for the *next* locally allocated
-    /// action on C-to-T replay. One action can appear in more than one event;
-    /// only its first authentic disposition can advance the local allocator.
-    /// Do not infer gaps or synthesize pending queue records from a receipt.
+    /// Reconcile an authenticated journal action causality or disposition
+    /// for the next locally allocated action on C-to-T replay. Plain Move and
+    /// Transfer use event.caused_by without emitting ActionAccepted. One action
+    /// can appear in multiple records; only the first matching ID advances the
+    /// original rolling allocator. Do not infer gaps or synthesize a queue.
     pub(super) fn reconcile_replayed_action_allocator(
         &mut self,
         action_id: ActionId,
