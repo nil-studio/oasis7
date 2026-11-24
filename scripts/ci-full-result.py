@@ -994,7 +994,7 @@ def periodic_health(api, now):
     return health(full, now, observations=observations, control_failures=failures)
 
 
-def resolve_main_fast_base(api, root, before_sha, head_sha, *, current_run_id=None, max_commits=64):
+def resolve_main_fast_base(api, root, before_sha, head_sha, *, current_run_id=None, max_commits=160):
     before, head = commit(before_sha), commit(head_sha)
     if type(max_commits) is not int or max_commits < 1 or max_commits > 256:
         raise ValueError("max_commits must be between 1 and 256")
@@ -1081,7 +1081,7 @@ def main():
     main_fast.add_argument("--repo-root", type=Path)
     main_fast.add_argument("--before", required=True)
     main_fast.add_argument("--head", required=True)
-    main_fast.add_argument("--max-commits", type=int, default=64)
+    main_fast.add_argument("--max-commits", type=int, default=160)
     args = parser.parse_args()
     root = (args.repo_root if getattr(args, "repo_root", None) is not None
             else Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd()))).resolve()
