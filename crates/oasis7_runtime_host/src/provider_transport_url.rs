@@ -1,8 +1,8 @@
-//! Inactive native Host transport URL policy extracted from the original provider.
+//! Native Host transport URL policy extracted from the original provider.
 //!
 //! This checks only URL/transport admission; no HTTP request is issued.
-//! The shipping provider client stays unchanged until the original provider
-//! tests, capture bounds and explicit cutover acceptance have been completed.
+//! The shipping provider client delegates admission here and retains its
+//! original error mapping, request handling, and capture bounds.
 use std::fmt;
 use std::net::IpAddr;
 
