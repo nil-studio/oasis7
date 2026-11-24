@@ -52,6 +52,35 @@ mod tests;
 mod canonical_contract_owner_tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_host_agent_execution_preserves_original_type_identity() {
+        use oasis7_runtime_host::agent_execution as native;
+        use std::any::TypeId;
+
+        assert_eq!(
+            TypeId::of::<dyn AgentBehavior>(),
+            TypeId::of::<dyn native::AgentBehavior>()
+        );
+        assert_eq!(
+            TypeId::of::<AsyncAgentRunner>(),
+            TypeId::of::<native::AsyncAgentRunner>()
+        );
+        assert_eq!(TypeId::of::<TurnEngine>(), TypeId::of::<native::TurnEngine>());
+        assert_eq!(
+            TypeId::of::<ContinuousAgentRequestContextV1>(),
+            TypeId::of::<native::ContinuousAgentRequestContextV1>()
+        );
+        assert_eq!(
+            TypeId::of::<MemoryWriteStore>(),
+            TypeId::of::<native::MemoryWriteStore>()
+        );
+        assert_eq!(
+            TypeId::of::<ProviderLoopbackHttpClient>(),
+            TypeId::of::<native::ProviderLoopbackHttpClient>()
+        );
+    }
+
     #[test]
     fn old_simulator_exports_are_canonical_owner_contracts() {
         assert_eq!(
