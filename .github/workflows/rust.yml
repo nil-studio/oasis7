@@ -1342,7 +1342,6 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: /home/runner/work/oasis7/oasis7
     steps:
       - &linux-mold-event-tools-checkout
         name: Check out workflow linker setup
@@ -1355,6 +1354,8 @@ jobs:
       - name: Verify trusted ordinary image and source
         run: |
           set -euo pipefail
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global --add safe.directory "$ORDINARY_ARTIFACT_CHECKOUT"
           python3 scripts/ci-test-artifacts.py ordinary-image-preflight
@@ -1370,6 +1371,12 @@ jobs:
           rustup target list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx "$OASIS7_WASM_TARGET"
           pkg-config --exists wayland-client xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
           zstd --version
+          cat > "$RUNNER_TEMP/ordinary-image-cwd.bash" <<'ORDINARY_CWD'
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1
+          ORDINARY_CWD
+          chmod 600 "$RUNNER_TEMP/ordinary-image-cwd.bash"
+          printf 'BASH_ENV=%s\n' "$RUNNER_TEMP/ordinary-image-cwd.bash" >> "$GITHUB_ENV"
       - *ordinary-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ github.sha == '' || github.workflow_sha != github.sha }}

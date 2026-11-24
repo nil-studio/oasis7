@@ -3050,6 +3050,7 @@ pub fn mark(name: &str) {
         (runtime / 'tests/process.rs').write_text(
             '#[test] fn complete_integration() {\n'
             ' assert!(std::process::Command::new(env!("CARGO_BIN_EXE_oasis7_chain_runtime")).status().unwrap().success());\n'
+            ' assert!(std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap().contains("oasis7_chain_runtime"));\n'
             ' oasis7_chain_runtime::mark("complete_integration");\n}\n'
             '#[test] fn new_integration_case() { oasis7_chain_runtime::mark("new_integration_case"); }\n')
         (risk / 'Cargo.toml').write_text(
@@ -3105,7 +3106,8 @@ pub fn mark(name: &str) {
             ordinary_harness_costs=TargetedArtifactPartitions.costs([
                 dict(package='oasis7_chain_runtime', target_kind='test', target_name='process',
                      variant='required', mode='batch', selector='', elapsed_ms=5000)]))
-        cls.image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64
+        cls.image = os.environ.get('ORDINARY_BUILD_IMAGE',
+                                   'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64)
         cls.bundle, cls.consumer = cls.root / 'bundle', cls.root / 'consumer'
         with patch.object(artifacts, 'ROOT', cls.root), patch.object(artifacts, 'CONFIG', cls.config), \
              patch.dict(os.environ, SOURCE_SHA=cls.sha):
