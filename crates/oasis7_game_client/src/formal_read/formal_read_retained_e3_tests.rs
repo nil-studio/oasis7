@@ -370,13 +370,15 @@ pub(super) fn exercise() {
     let pinned_v2_digest = checkpoint_v2.digest().unwrap();
     let decoded = FormalReadCheckpointV2::decode_hex(&checkpoint_v2.encode_hex().unwrap()).unwrap();
     retained_e3_phase(b"oasis7 native diagnostic game_checkpoint_reopen_begin\n");
-    let restored = boxed_retained_reader(|| FormalReadVerifier::from_fixed_checkpoint_v2(
-        &trust,
-        &decoded,
-        &pinned_v2_digest,
-        &origin_digest,
-    )
-    .unwrap());
+    let restored = boxed_retained_reader(|| {
+        FormalReadVerifier::from_fixed_checkpoint_v2(
+            &trust,
+            &decoded,
+            &pinned_v2_digest,
+            &origin_digest,
+        )
+        .unwrap()
+    });
     assert_eq!(restored.anchor_ref().unwrap(), advanced);
     assert_eq!(
         restored.qualified_commits.len(),
@@ -454,13 +456,15 @@ pub(super) fn exercise() {
     };
     let rebased_digest = rebased.digest().unwrap();
     retained_e3_phase(b"oasis7 native diagnostic game_rebase_reader_begin\n");
-    let rebased_reader = boxed_retained_reader(|| FormalReadVerifier::from_fixed_checkpoint_v2(
-        &trust,
-        &rebased,
-        &rebased_digest,
-        &schema2_origin_digest,
-    )
-    .unwrap());
+    let rebased_reader = boxed_retained_reader(|| {
+        FormalReadVerifier::from_fixed_checkpoint_v2(
+            &trust,
+            &rebased,
+            &rebased_digest,
+            &schema2_origin_digest,
+        )
+        .unwrap()
+    });
     assert_eq!(
         rebased_reader.anchor_ref().unwrap().active_authority_id,
         recovery3.successor().authority_id().unwrap()
@@ -502,13 +506,15 @@ pub(super) fn exercise() {
     };
     let replayed_non_normal_digest = replayed_non_normal_checkpoint.digest().unwrap();
     retained_e3_phase(b"oasis7 native diagnostic game_non_normal_reader_begin\n");
-    let replayed_non_normal_reader = boxed_retained_reader(|| FormalReadVerifier::from_fixed_checkpoint_v2(
-        &trust,
-        &replayed_non_normal_checkpoint,
-        &replayed_non_normal_digest,
-        &completed_origin_digest,
-    )
-    .unwrap());
+    let replayed_non_normal_reader = boxed_retained_reader(|| {
+        FormalReadVerifier::from_fixed_checkpoint_v2(
+            &trust,
+            &replayed_non_normal_checkpoint,
+            &replayed_non_normal_digest,
+            &completed_origin_digest,
+        )
+        .unwrap()
+    });
     let replayed_non_normal_key = QualifiedCommitKey {
         position: observed.commit().record().position,
         record_id: observed.commit().head().record_id.clone(),

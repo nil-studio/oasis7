@@ -106,7 +106,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 b"oasis7 native diagnostic install_before_coordinator\n",
             );
             let mut coordinator = native_boxed_stage(|| {
-    FormalCoordinator::new(
+                FormalCoordinator::new(
                     open(EndpointRole::Primary, pp.clone()),
                     open(EndpointRole::Replica, ro.provider(&fixture)),
                     fixture.authority.clone(),
@@ -116,7 +116,8 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 )
                 .unwrap()
             });
-            let initial = native_boxed_stage(|| coordinator.submit(fixture.initial.clone()).unwrap());
+            let initial =
+                native_boxed_stage(|| coordinator.submit(fixture.initial.clone()).unwrap());
             let _ = std::io::Write::write_all(
                 &mut std::io::stderr(),
                 b"oasis7 native diagnostic install_initial_submitted\n",
