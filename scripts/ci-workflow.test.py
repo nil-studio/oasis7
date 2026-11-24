@@ -775,15 +775,6 @@ def validate_candidate_graph(workflow, config):
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
         raise ValueError('failure propagation must remain intact')
     fleet = jobs['fleet-health']
-    legacy_fleet_os = (
-        'os: ${{ (needs.select.outputs.run_fleet_health == \'true\' || '
-        'fromJSON(needs.select.outputs.plan).scope == \'full\' || '
-        'fromJSON(needs.select.outputs.plan).scope == \'explicit-full\' || '
-        '(fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && '
-        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && '
-        'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && '
-        'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\') }}'
-    )
     subcontract_fleet_os = (
         'os: ${{ (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 && '
         'fromJSON(needs.select.outputs.plan).scope != \'full\' && '
@@ -798,13 +789,13 @@ def validate_candidate_graph(workflow, config):
         'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && '
         'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\')) }}'
     )
-    if ((legacy_fleet_os not in fleet and subcontract_fleet_os not in fleet)
+    if (subcontract_fleet_os not in fleet
             or 'runs-on: ${{ matrix.os }}' not in fleet
             or 'fail-fast: false' not in fleet or 'include:' in fleet or 'exclude:' in fleet
             or not re.search(r"if:\s*(?:>-\s*)?runner\.os != 'Windows'", fleet)
             or '--host-smoke' not in fleet
             or 'p2p-public-testnet-package-rollout.test.sh' not in fleet):
-        raise ValueError('fleet must run all three hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
+        raise ValueError('fleet must run subcontract-sliced hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
     for group in config['groups']:
         job = jobs[group.replace('_', '-')]
         if group == 'workspace_support':
@@ -8112,6 +8103,151 @@ class DependabotCoverageGuardTests(unittest.TestCase):
             updates.get('docker', []),
             self.EXCLUDED_DOCKER_DIRECTORIES,
         )
+
+
+class FleetHealthSubcontractsExecutionTests(unittest.TestCase):
+    @staticmethod
+    def _step_conditions(job):
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        result = {}
+        for step in steps:
+            name_match = re.search(r'^      - name: (.+)$', step, re.M)
+            if not name_match:
+                continue
+            cond_match = re.search(r'^        if: (.*?)(?=^        [a-z-]+:|\Z)', step, re.M | re.S)
+            if cond_match:
+                result[name_match.group(1)] = cond_match.group(1)
+        return result
+
+    @staticmethod
+    def _eval_matrix_os(expr, values):
+        body = expr.strip().removeprefix('${{').removesuffix('}}').strip()
+        full_oses = ['ubuntu-24.04', 'windows-2022', 'macos-15']
+        win_only = ['windows-2022']
+        mapping = {
+            'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\')': full_oses,
+            'fromJSON(\'["windows-2022"]\')': win_only,
+            **values,
+        }
+        for token, val in sorted(mapping.items(), key=lambda item: -len(item[0])):
+            body = body.replace(token, repr(val))
+        py_expr = []
+        i = 0
+        # Evaluate GitHub Actions && / || short-circuit value semantics via Python and/or
+        body = re.sub(r'!(?!=)', 'not ', body.replace('&&', ' and ').replace('||', ' or '))
+        return eval(
+            ' '.join(body.split()),
+            {'__builtins__': {}},
+            {'join': lambda items, sep=',': sep.join(items or ())},
+        )
+
+    def test_fleet_health_matrix_and_subcontract_steps_slice_and_fallback_safely(self):
+        fleet = JOBS['fleet-health']
+        matrix_expr = re.search(r'^\s+os: (\$\{\{.*\}\})$', fleet, re.M).group(1)
+        conds = self._step_conditions(fleet)
+
+        def base_vals(*, scope='targeted', ver=1, checks=(), oses=(), run_fleet='true', run_win='false'):
+            return {
+                'needs.select.outputs.run_fleet_health': run_fleet,
+                'needs.select.outputs.run_windows_rollout': run_win,
+                'fromJSON(needs.select.outputs.plan).scope': scope,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
+                'fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version': ver,
+                'fromJSON(needs.select.outputs.plan).fleet_health_checks': list(checks),
+                'fromJSON(needs.select.outputs.plan).fleet_health_oses': list(oses),
+            }
+
+        # 1) Targeted subcontract matrix.os slicing + full/legacy/empty fallbacks
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(checks=['host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])),
+            ['ubuntu-24.04', 'macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(checks=['macos_signer'], oses=['macos-15'])),
+            ['macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(run_fleet='false', run_win='true', checks=[], oses=['windows-2022'])),
+            ['windows-2022'],
+        )
+        for full_scope in ('full', 'explicit-full'):
+            self.assertEqual(
+                self._eval_matrix_os(matrix_expr, base_vals(scope=full_scope, checks=['macos_signer'], oses=['macos-15'])),
+                ['ubuntu-24.04', 'windows-2022', 'macos-15'],
+            )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(ver=None, checks=[], oses=[])),
+            ['ubuntu-24.04', 'windows-2022', 'macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(run_fleet='false', run_win='false', checks=[], oses=[])),
+            ['windows-2022'],
+        )
+
+        # 2) Step gating across subcontracts: host_cleanup skips Rust on Linux & macOS
+        cleanup_vals = base_vals(checks=['host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])
+        for runner_os in ('Linux', 'macOS'):
+            vals = cleanup_vals | {'runner.os': runner_os}
+            self.assertFalse(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify private context filesystem and caller on macOS'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify local signer contracts on macOS'], vals, ('success',)))
+            self.assertTrue(effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)))
+            self.assertEqual(
+                effective_job_condition(conds['Ensure Linux process inspection dependency'], vals, ('success',)),
+                runner_os == 'Linux',
+            )
+
+        # 3) Mixed macos_signer + host_cleanup installs Rust ONLY on macOS, not Linux
+        mixed_vals = base_vals(checks=['macos_signer', 'host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])
+        self.assertFalse(effective_job_condition(
+            conds['Prepare native filesystem contract Rust toolchain'],
+            mixed_vals | {'runner.os': 'Linux'}, ('success',),
+        ))
+        self.assertTrue(effective_job_condition(
+            conds['Prepare native filesystem contract Rust toolchain'],
+            mixed_vals | {'runner.os': 'macOS'}, ('success',),
+        ))
+        self.assertTrue(effective_job_condition(
+            conds['Verify local signer contracts on macOS'],
+            mixed_vals | {'runner.os': 'macOS'}, ('success',),
+        ))
+
+        # 4) fleet_script runs Python collector without Rust toolchain on all 3 OSes; windows_rollout-only runs only Windows rollout
+        win_rollout_vals = base_vals(run_fleet='false', run_win='true', checks=[], oses=['windows-2022']) | {'runner.os': 'Windows'}
+        self.assertTrue(effective_job_condition(conds['Execute consolidated Windows rollout contract'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Execute selected group'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], win_rollout_vals, ('success',)))
+
+        fleet_script_vals = base_vals(checks=['fleet_script'], oses=['ubuntu-24.04', 'windows-2022', 'macos-15'])
+        for runner_os in ('Linux', 'Windows', 'macOS'):
+            vals = fleet_script_vals | {'runner.os': runner_os}
+            self.assertTrue(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)))
+
+        # 5) Legacy BASE (ver=None) and full/explicit-full run all platform-appropriate steps
+        for fallback_vals in (
+            base_vals(ver=None, checks=[], oses=[]),
+            base_vals(scope='full', checks=[], oses=[]),
+            base_vals(scope='explicit-full', checks=[], oses=[]),
+        ):
+            for runner_os in ('Linux', 'Windows', 'macOS'):
+                vals = fallback_vals | {'runner.os': runner_os}
+                self.assertTrue(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+                self.assertTrue(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+                self.assertTrue(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+                self.assertEqual(
+                    effective_job_condition(conds['Verify local signer contracts on macOS'], vals, ('success',)),
+                    runner_os == 'macOS',
+                )
+                self.assertEqual(
+                    effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)),
+                    runner_os != 'Windows',
+                )
 
 
 if __name__ == '__main__':
