@@ -167,8 +167,10 @@ impl VerifiedRecoveryPlanLegacyCutV1 {
     pub fn verify(
         proof: &FormalQualifiedCommitProofV1,
         original_recovery: &VerifiedRecovery,
+        original_parent: &VerifiedFormalCommitV1,
     ) -> Result<Self, FormalError> {
         if !matches!(original_recovery.body().schema_version, 1 | 2)
+            || original_parent.head() != original_recovery.body().sealed_cut
             || original_recovery.body().tail == RecoveryTailV1::Empty
             || !matches!(
                 proof.decision.branch,
@@ -185,7 +187,7 @@ impl VerifiedRecoveryPlanLegacyCutV1 {
         let cut = verify_formal_qualified(
             proof,
             original_recovery.original_authority(),
-            Some(original_recovery.sealed_commit()),
+            Some(original_parent),
             Some(original_recovery),
         )?;
         if cut.finalizing_authority_id() != original_recovery.successor().authority_id()?
@@ -309,7 +311,7 @@ mod pending_tests {
             FormalCompletionBranchV1::CompletePrepared,
             FormalCompletionBranchV1::ReplayFrozen,
         ] {
-            let (intent, original, _, frozen, record) =
+            let (intent, original, parent, frozen, record) =
                 recovery_fixture_with_profile(branch, None, 10, 2);
             let recovery = verified_recovery(&intent, &original);
             let completed = proof(
@@ -326,7 +328,8 @@ mod pending_tests {
                 11,
                 12,
             );
-            let checked = VerifiedRecoveryPlanLegacyCutV1::verify(&completed, &recovery).unwrap();
+            let checked =
+                VerifiedRecoveryPlanLegacyCutV1::verify(&completed, &recovery, &parent).unwrap();
             assert_eq!(
                 checked.proof_digest(),
                 formal_qualified_proof_digest(&completed).unwrap()
@@ -340,7 +343,9 @@ mod pending_tests {
                     2 => changed.replica_complete.signature_hex = "00".repeat(64),
                     _ => changed.decision.branch = FormalCompletionBranchV1::Normal,
                 }
-                assert!(VerifiedRecoveryPlanLegacyCutV1::verify(&changed, &recovery).is_err());
+                assert!(
+                    VerifiedRecoveryPlanLegacyCutV1::verify(&changed, &recovery, &parent).is_err()
+                );
             }
         }
     }
