@@ -93,8 +93,7 @@ fn seal_profile2_inline_business_source(
     original: &FormalBusinessResultEnvelopeV1,
 ) {
     use crate::controlled_authority::formal::business_index::{
-        BusinessIndexDeltaV1, BusinessIndexLeafKindV1, BusinessIndexLeafV1,
-        metadata_key_digest,
+        BusinessIndexDeltaV1, BusinessIndexLeafKindV1, BusinessIndexLeafV1, metadata_key_digest,
     };
     inline_copy_stage("initial_coordinator");
     let mut coordinator = fixture.coordinator();
