@@ -67,7 +67,13 @@ impl World {
                 | crate::DomainEvent::ActionRejected { action_id, .. },
             ) = &event.body
                 && causal_id != action_id
+                && (*causal_id == self.next_action_id || *action_id == self.next_action_id)
             {
+                // The old raw-event publication contract accepts archival
+                // events that carry unrelated external action attribution.
+                // Reject a contradiction only when it purports to consume
+                // the immediate next real local allocation. Otherwise the
+                // no-gap allocator rule below ignores both distant IDs.
                 return Err(crate::WorldError::JournalMismatch);
             }
             self.reconcile_replayed_action_allocator(*causal_id, seen);

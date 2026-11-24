@@ -313,6 +313,28 @@ class Ownership(unittest.TestCase):
             {'path': '../oasis7_runtime', 'default-features': False},
         )
 
+    def test_native_composite_archive_original_wasm_and_replay_witnesses(self):
+        """The real extracted L4 owner must retain original wasm and replay witnesses."""
+        archive = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+        original = ROOT / 'crates/oasis7/src/simulator'
+        for filename, symbol in (
+            ('archive.rs', 'pub struct WorldEvent {'),
+            ('persist.rs', 'pub struct WorldSnapshot {'),
+            ('kernel_host.rs', 'pub struct WorldKernel {'),
+        ):
+            self.assertIn(symbol, (archive / filename).read_text())
+            self.assertIn(symbol, (original / filename).read_text())
+        source = (archive / 'tests.rs').read_text()
+        self.assertIn('original_composite_snapshot_extensions_survive_exact_native_split_rejoin', source)
+        self.assertIn('native_composite_event_roundtrip_keeps_rejection_and_host_field', source)
+        facade = (original / 'archive_host_facade.rs').read_text()
+        self.assertIn('archive/tests.rs', facade)
+        self.assertIn('archive/retention_tests.rs', facade)
+        deps = manifest('oasis7_runtime_host')['dependencies']
+        self.assertEqual(deps['oasis7_agent_harness'], {'path': '../oasis7_agent_harness'})
+        self.assertEqual(deps['serde'], {'version': '1', 'features': ['derive']})
+        self.assertEqual(deps['serde_json'], '1')
+
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
         self.assertIs(core['package']['autobins'], False)
