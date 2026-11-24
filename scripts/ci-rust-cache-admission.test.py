@@ -241,7 +241,7 @@ class AdmissionTests(unittest.TestCase):
         timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', native_job, re.M)
         self.assertIsNotNone(timeout_match)
         self.assertGreater(int(timeout_match.group(1)), 0)
-        self.assertLessEqual(int(timeout_match.group(1)), 45)
+        self.assertLessEqual(int(timeout_match.group(1)), 30)
         self.assertIn("if: inputs.run_mode != 'release-deps'", reader)
         self.assertIn(f'shared-key: &hosted-login-cache-key {namespace}', reader)
         self.assertIn('save-if: false', reader)
