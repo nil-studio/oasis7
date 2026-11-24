@@ -43,7 +43,12 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     );
     let fixture = Fixture::new();
     let open = |role, provider: Arc<dyn MonotonicEndpointProvider>| {
-        FileFormalEndpoint::open_protected(
+        let opening = match role {
+            EndpointRole::Primary => b"oasis7 native diagnostic install_open_primary_enter\n",
+            EndpointRole::Replica => b"oasis7 native diagnostic install_open_replica_enter\n",
+        };
+        let _ = std::io::Write::write_all(&mut std::io::stderr(), opening);
+        let endpoint = FileFormalEndpoint::open_protected(
             if role == EndpointRole::Primary {
                 &fixture.pdir
             } else {
@@ -59,7 +64,12 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             provider,
             None,
         )
-        .unwrap()
+        .unwrap();
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"oasis7 native diagnostic install_open_returned\n",
+        );
+        endpoint
     };
     // Keep the staged candidate/transition construction separate from the
     // independent remote copy, activation and cold-reopen consumers.
