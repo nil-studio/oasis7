@@ -707,33 +707,9 @@ class Ownership(unittest.TestCase):
             'oasis7_client_api', 'oasis7_proto', 'oasis7_simulator', 'oasis7_wasm_abi',
         }
         native_archive_edges = {'oasis7_agent_harness', 'serde', 'serde_json'}
-        # One precise optional native URL-policy owner; do not allow arbitrary
-        # extra Host edges or weaken the prior old/archive ownership states.
-        native_url_policy_edges = {'url'}
         actual = set(host_deps)
-        accepted = (
-            old_owner,
-            old_owner | native_archive_edges,
-            old_owner | native_archive_edges | native_url_policy_edges,
-        )
-        self.assertIn(actual, accepted)
+        self.assertIn(actual, (old_owner, old_owner | native_archive_edges))
         self.assertNotIn('oasis7', host_deps)
-        if 'url' in actual:
-            policy_path = ROOT / 'crates/oasis7_runtime_host/src/provider_transport_url.rs'
-            self.assertIn('pub mod provider_transport_url;', source)
-            self.assertTrue(policy_path.is_file(), 'native provider URL owner missing')
-            policy_source = policy_path.read_text()
-            for required in (
-                'pub fn validate_provider_http_base_url(',
-                'url::Url;',
-                'fn is_public_remote_https_host(',
-                'loopback_accepts_only_http_and_explicit_loopback_hosts',
-                'remote_requires_https_and_rejects_local_private_or_linklocal_hosts',
-                'unknown_transport_and_url_syntax_fail_closed',
-            ):
-                self.assertIn(required, policy_source)
-        else:
-            self.assertNotIn('pub mod provider_transport_url;', source)
         if actual == old_owner:
             self.assertNotIn('pub mod simulator_archive;', source)
         else:
