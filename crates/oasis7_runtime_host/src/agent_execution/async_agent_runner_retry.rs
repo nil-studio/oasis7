@@ -115,7 +115,12 @@ mod tests {
         assert_eq!(next.agent_subject, accepted.agent_subject);
         assert_eq!(next.agent_turn_id, accepted.agent_turn_id);
         assert_eq!(next.decision_request_id, accepted.decision_request_id);
-        assert_eq!(next.next_transport_attempt(&next, false).unwrap().transport_attempt, 3);
+        assert_eq!(
+            next.next_transport_attempt(&next, false)
+                .unwrap()
+                .transport_attempt,
+            3
+        );
     }
 
     #[test]
@@ -123,40 +128,70 @@ mod tests {
         let accepted = awaiting();
         let mut forged = accepted.clone();
         forged.agent_subject = "actor-b".into();
-        assert_eq!(accepted.next_transport_attempt(&forged, false), Err(RetryLineageError::AwaitingIdentityMismatch));
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
         forged = accepted.clone();
         forged.agent_turn_id = "turn-b".into();
-        assert_eq!(accepted.next_transport_attempt(&forged, false), Err(RetryLineageError::AwaitingIdentityMismatch));
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
         forged = accepted.clone();
         forged.decision_request_id = "request-b".into();
-        assert_eq!(accepted.next_transport_attempt(&forged, false), Err(RetryLineageError::AwaitingIdentityMismatch));
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
         forged = accepted.clone();
         forged.request_digest = Digest32(format!("blake3:{}", "b".repeat(64)));
-        assert_eq!(accepted.next_transport_attempt(&forged, false), Err(RetryLineageError::AwaitingIdentityMismatch));
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
         forged = accepted.clone();
         forged.retry_seq = 2;
-        assert_eq!(accepted.next_transport_attempt(&forged, false), Err(RetryLineageError::AwaitingIdentityMismatch));
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
     }
 
     #[test]
     fn retry_rejects_stale_attempt_and_concurrent_provider_dispatch() {
         let accepted = awaiting();
-        assert_eq!(accepted.next_transport_attempt(&accepted, true), Err(RetryLineageError::ProviderStillInFlight));
+        assert_eq!(
+            accepted.next_transport_attempt(&accepted, true),
+            Err(RetryLineageError::ProviderStillInFlight)
+        );
         let mut stale = accepted.clone();
         stale.transport_attempt += 1;
-        assert_eq!(accepted.next_transport_attempt(&stale, false), Err(RetryLineageError::TransportAttemptMismatch));
+        assert_eq!(
+            accepted.next_transport_attempt(&stale, false),
+            Err(RetryLineageError::TransportAttemptMismatch)
+        );
     }
 
     #[test]
     fn retry_rejects_invalid_identity_and_transport_overflow() {
         let mut accepted = awaiting();
         accepted.retry_seq = 0;
-        assert_eq!(accepted.next_transport_attempt(&accepted, false), Err(RetryLineageError::InvalidIdentity));
+        assert_eq!(
+            accepted.next_transport_attempt(&accepted, false),
+            Err(RetryLineageError::InvalidIdentity)
+        );
         accepted = awaiting();
         accepted.request_digest = Digest32("not-canonical".into());
-        assert_eq!(accepted.next_transport_attempt(&accepted, false), Err(RetryLineageError::InvalidIdentity));
+        assert_eq!(
+            accepted.next_transport_attempt(&accepted, false),
+            Err(RetryLineageError::InvalidIdentity)
+        );
         accepted = awaiting();
         accepted.transport_attempt = u64::MAX;
-        assert_eq!(accepted.next_transport_attempt(&accepted, false), Err(RetryLineageError::TransportAttemptOverflow));
+        assert_eq!(
+            accepted.next_transport_attempt(&accepted, false),
+            Err(RetryLineageError::TransportAttemptOverflow)
+        );
     }
 }
