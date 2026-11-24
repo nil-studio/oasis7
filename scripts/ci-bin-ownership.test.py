@@ -197,6 +197,35 @@ class Ownership(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 require_materialized_native_archive(root)
 
+    def test_chain_composite_mirror_recovery_uses_native_l4_owner(self):
+        """Shipping Chain mirror/legacy restore/BFT and original QA share one archive-bearing L4 type."""
+        owner = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
+        self.assertIn('pub mod kernel_host;', (owner / 'mod.rs').read_text())
+        self.assertIn('pub mod persist;', (owner / 'mod.rs').read_text())
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        paths = (
+            'execution_bridge/simulator_mirror.rs',
+            'execution_bridge/driver.rs',
+            'execution_bridge/driver_bft.rs',
+            'execution_bridge/driver_bft_v2.rs',
+            'execution_bridge/driver_startup_recovery.rs',
+            'execution_bridge/tests/simulator_driver.rs',
+            'execution_bridge/tests/driver.rs',
+            'node_lifecycle/legacy_migration/verify.rs',
+            'status_payload_world_resource.rs',
+            'execution_bridge/tests/qa_conformance/viewer_process.rs',
+        )
+        for path in paths:
+            source = (root / path).read_text()
+            if path != 'execution_bridge/tests/simulator_driver.rs':
+                self.assertNotIn('oasis7::simulator::WorldKernel', source, path)
+                self.assertNotIn('oasis7::simulator::WorldSnapshot', source, path)
+            self.assertNotIn('oasis7::simulator::WorldJournal', source, path)
+        source = (root / 'execution_bridge/tests/simulator_driver.rs').read_text()
+        self.assertIn('fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire()', source)
+        mirror = (root / 'execution_bridge/simulator_mirror.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;', mirror)
+
     def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
         """Fail closed for both accepted two-argument host seams during native migration.
 

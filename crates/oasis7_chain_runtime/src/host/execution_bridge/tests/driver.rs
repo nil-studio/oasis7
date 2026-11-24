@@ -6,6 +6,7 @@ use super::super::driver::{
 };
 use super::super::external_effect::load_execution_external_effect_materialization;
 use super::*;
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel as NativeHostKernel;
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
 use oasis7_proto::storage_profile::StorageProfileConfig;
 use oasis7_runtime::{
@@ -200,7 +201,7 @@ fn rejected_expected_hash_does_not_persist_simulator_mirror() {
     let simulator_journal_path = simulator_world_dir.join("journal.json");
     if simulator_snapshot_path.exists() || simulator_journal_path.exists() {
         let restored_simulator =
-            oasis7::simulator::WorldKernel::load_from_dir(simulator_world_dir.as_path())
+            NativeHostKernel::load_from_dir(simulator_world_dir.as_path())
                 .expect("load simulator mirror after rejected commit");
         assert_eq!(
             restored_simulator.journal().len(),

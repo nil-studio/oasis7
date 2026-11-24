@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use oasis7::simulator::WorldKernel;
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_runtime::ChainResourceDerivationContext;
 
 pub(crate) fn simulator_world_dir_from_execution_world_dir(world_dir: &Path) -> std::path::PathBuf {

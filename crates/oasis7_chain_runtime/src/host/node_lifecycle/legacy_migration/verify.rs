@@ -1,6 +1,10 @@
 //! Strict read-only closure checks. Missing material never invokes a default
 //! world, startup recovery or repair. Old evidence remains old evidence.
 use super::io;
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel as NativeHostKernel;
+use oasis7_runtime_host::simulator_archive::persist::{
+    WorldJournal as NativeHostJournal, WorldSnapshot as NativeHostSnapshot,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -111,7 +115,7 @@ fn verify_record_payload(
     cas: &Path,
     world_id: &str,
     height: u64,
-) -> Result<Option<oasis7::simulator::WorldKernel>, String> {
+) -> Result<Option<NativeHostKernel>, String> {
     let payload = |reference: &str| {
         let mut decoded = Vec::new();
         decode_cas(cas, reference, &mut decoded)?;
@@ -149,12 +153,12 @@ fn verify_record_payload(
     if oasis7_runtime::blake3_hex(&mirror_snapshot) != text(mirror, "state_root")? {
         return Err("legacy simulator mirror snapshot root mismatch".into());
     }
-    let snapshot: oasis7::simulator::WorldSnapshot = serde_cbor::from_slice(&mirror_snapshot)
+    let snapshot: NativeHostSnapshot = serde_cbor::from_slice(&mirror_snapshot)
         .map_err(|e| format!("legacy simulator snapshot decode: {e}"))?;
-    let journal: oasis7::simulator::WorldJournal =
+    let journal: NativeHostJournal =
         serde_cbor::from_slice(&payload(text(mirror, "journal_ref")?)?)
             .map_err(|e| format!("legacy simulator journal decode: {e}"))?;
-    let restored_mirror = oasis7::simulator::WorldKernel::from_snapshot(snapshot, journal)
+    let restored_mirror = NativeHostKernel::from_snapshot(snapshot, journal)
         .map_err(|e| format!("legacy simulator mirror rebuild: {e:?}"))?;
     if mirror["journal_len"].as_u64() != Some(restored_mirror.journal().len() as u64) {
         return Err("legacy simulator mirror journal length mismatch".into());
@@ -164,7 +168,7 @@ fn verify_record_payload(
 
 fn verify_physical_mirror(
     world_dir: &Path,
-    latest: Option<&oasis7::simulator::WorldKernel>,
+    latest: Option<&NativeHostKernel>,
     latest_height: Option<u64>,
     world_id: &str,
 ) -> Result<(), String> {
@@ -173,22 +177,22 @@ fn verify_physical_mirror(
     io::regular(&dir.join("journal.json"))?;
     // Read existing typed files directly: the live loader's missing-file
     // fallback must never manufacture genesis material during migration.
-    let snapshot: oasis7::simulator::WorldSnapshot = io::read(&dir.join("snapshot.json"))?;
-    let journal: oasis7::simulator::WorldJournal = io::read(&dir.join("journal.json"))?;
+    let snapshot: NativeHostSnapshot = io::read(&dir.join("snapshot.json"))?;
+    let journal: NativeHostJournal = io::read(&dir.join("journal.json"))?;
     if let Some(height) = latest_height
         && (snapshot.chain_resource_manifest.manifest_height != height
             || snapshot.chain_resource_manifest.world_id != world_id)
     {
         return Err("physical simulator mirror latest recorded anchor mismatch".into());
     }
-    let physical = oasis7::simulator::WorldKernel::from_snapshot(snapshot, journal)
+    let physical = NativeHostKernel::from_snapshot(snapshot, journal)
         .map_err(|e| format!("physical simulator mirror rebuild: {e:?}"))?;
-    let genesis = oasis7::simulator::WorldKernel::new();
+    let genesis = NativeHostKernel::new();
     let expected = latest.unwrap_or(&genesis);
     // Compare explicit normalized views; ordinary snapshot() retains original
     // committed-cut metadata. Never write these comparison views back to disk.
     // Runtime/player extensions and the complete journal remain part of equality.
-    let normalized = |kernel: &oasis7::simulator::WorldKernel| {
+    let normalized = |kernel: &NativeHostKernel| {
         kernel.snapshot_with_chain_resource_context(
             oasis7_agent_api::world_resource::ChainResourceDerivationContext::simulator_default(
                 kernel.time(),
