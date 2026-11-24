@@ -148,10 +148,22 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     native_install_continuation(
         &fixture,
         open,
-        (ro, pp, rp, next_dir),
+        NativeInstallSetup {
+            ro,
+            pp,
+            rp,
+            next_dir,
+        },
         coordinator,
         recover_uncertain_activation,
     );
+}
+
+struct NativeInstallSetup {
+    ro: Oracle,
+    pp: Arc<InstallProvider>,
+    rp: Arc<InstallProvider>,
+    next_dir: std::path::PathBuf,
 }
 
 // Keep this large post-open proof, copy, activation and cold-reopen phase in
@@ -161,11 +173,16 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
 fn native_install_continuation(
     fixture: &Fixture,
     open: impl Fn(EndpointRole, Arc<dyn MonotonicEndpointProvider>) -> FileFormalEndpoint,
-    setup: (Oracle, InstallProvider, InstallProvider, std::path::PathBuf),
+    setup: NativeInstallSetup,
     mut coordinator: Box<FormalCoordinator<FileFormalEndpoint, FileFormalEndpoint>>,
     recover_uncertain_activation: bool,
 ) {
-    let (ro, pp, rp, next_dir) = setup;
+    let NativeInstallSetup {
+        ro,
+        pp,
+        rp,
+        next_dir,
+    } = setup;
     // Preserve every original verifier, corruption negative, and monotonic
     // seal assertion on the same default test-thread stack.
     let (sealed, boundary, manifest, pcp) = build_native_install_setup(|| {
