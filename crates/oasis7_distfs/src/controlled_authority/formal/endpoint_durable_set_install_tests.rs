@@ -149,8 +149,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     // the default test-thread stack. Preserve every original verifier,
     // corruption negative, and monotonic seal assertion below.
     let (sealed, boundary, manifest, pcp) = build_native_install_setup(|| {
-        let initial =
-            native_boxed_stage(|| coordinator.submit(fixture.initial.clone()).unwrap());
+        let initial = native_boxed_stage(|| coordinator.submit(fixture.initial.clone()).unwrap());
         let _ = std::io::Write::write_all(
             &mut std::io::stderr(),
             b"oasis7 native diagnostic install_initial_submitted\n",
@@ -171,8 +170,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         definition.replica.instance.endpoint_public_key = public(12);
         definition.replica.instance.instance_id = h(120);
         definition.replica.instance.storage_id = h(121);
-        definition.replica.instance.storage_fingerprint =
-            directory_fingerprint(&next_dir).unwrap();
+        definition.replica.instance.storage_fingerprint = directory_fingerprint(&next_dir).unwrap();
         definition.replica.instance.endpoint_id = "new-replica".into();
         definition.replica.fault_domain_id = "new-r".into();
         let mut body = NormalDurableSetTransitionBodyV1 {
