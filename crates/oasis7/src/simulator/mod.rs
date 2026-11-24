@@ -113,16 +113,31 @@ mod canonical_contract_owner_tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire() {
+        use oasis7_runtime_host::simulator_archive::{kernel_host, persist};
+
         // L4 archive-bearing Host is the original composite type, not pure L2.
-        let native = oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new();
+        let native = kernel_host::WorldKernel::new();
         let legacy: WorldKernel = native;
-        let snapshot: WorldSnapshot = legacy.snapshot();
-        let previous: WorldSnapshot = snapshot.clone();
+        let snapshot: persist::WorldSnapshot = legacy.snapshot();
+        let bytes = serde_json::to_vec(&snapshot).expect("native archive snapshot JSON");
+        let decoded: WorldSnapshot =
+            serde_json::from_slice(&bytes).expect("decode through legacy archive API");
+        let (kernel, extensions) = decoded.into_kernel_parts();
+        let rebuilt: persist::WorldSnapshot =
+            WorldSnapshot::from_kernel_parts(kernel, extensions);
         assert_eq!(
-            serde_json::to_vec(&snapshot).expect("native archive snapshot JSON"),
-            serde_json::to_vec(&previous).expect("legacy archive snapshot JSON"),
+            bytes,
+            serde_json::to_vec(&rebuilt).expect("legacy archive snapshot JSON"),
         );
-        let _: oasis7_runtime_host::simulator_archive::persist::WorldJournal = legacy.journal_snapshot();
+
+        let journal: persist::WorldJournal = legacy.journal_snapshot();
+        let journal_bytes = serde_json::to_vec(&journal).expect("native archive journal JSON");
+        let decoded: WorldJournal =
+            serde_json::from_slice(&journal_bytes).expect("decode through legacy journal API");
+        assert_eq!(
+            journal_bytes,
+            serde_json::to_vec(&decoded).expect("legacy archive journal JSON"),
+        );
     }
 
     #[test]
