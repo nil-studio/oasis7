@@ -18,8 +18,6 @@ struct PendingLeaseRequestV3 {
     signed: SignedFullSyncProviderLeaseRequestV3,
     // Keep the verified prefix even if the next transport submission fails.
     last_verified_head: FullSyncIssuerAnchorV3,
-    // Any failed submission requires a read-only reconciliation before retry.
-    submission_verified: bool,
 }
 impl ProviderLeaseClientV3 {
     pub fn new(
@@ -66,15 +64,10 @@ impl ProviderLeaseClientV3 {
             .pending
             .lock()
             .map_err(|_| FormalReadError::Internal("lease request state poisoned".into()))?;
-        // A previously verified successful submission may replay its exact
-        // original receipt. A failed submission cannot loop forever on a stale
-        // CAS: first obtain a read-only, independently verified complete prefix.
-        if pending
-            .get(&key)
-            .is_some_and(|entry| entry.submission_verified)
-        {
-            return self.submit_pending(source, request, &mut pending, &key, true);
-        }
+        // Every new authorization first reconciles the original operation
+        // against a fresh read-only history. Even a previously acknowledged
+        // lease may now be expired or revoked; replaying its receipt is not a
+        // fresh lease acquisition. Only an unresolved exact CAS may be retried.
         // Reserve the caller's nonce for the final authorization response.
         // The preliminary observation must not reuse it across a lease CAS.
         let mut probe = request.clone();
@@ -132,7 +125,7 @@ impl ProviderLeaseClientV3 {
         if pending.contains_key(&key) {
             // Its exact head is still current. Preserve all signed bytes,
             // including IDs and nonce, even when the previous reply was lost.
-            return self.submit_pending(source, request, &mut pending, &key, true);
+            return self.submit_pending(source, request, &mut pending, &key);
         }
         if has_lease {
             let final_evidence = source.fetch_raw(request, None)?;
@@ -179,10 +172,9 @@ impl ProviderLeaseClientV3 {
             PendingLeaseRequestV3 {
                 signed,
                 last_verified_head: state.anchor().clone(),
-                submission_verified: false,
             },
         );
-        self.submit_pending(source, request, &mut pending, &key, false)
+        self.submit_pending(source, request, &mut pending, &key)
     }
 
     fn submit_pending(
@@ -191,14 +183,12 @@ impl ProviderLeaseClientV3 {
         request: &FullSyncIssuerReadEvidenceRequestV3,
         pending: &mut BTreeMap<String, PendingLeaseRequestV3>,
         key: &str,
-        retire_on_success: bool,
     ) -> FormalReadResult<FullSyncIssuerReadEvidenceV3> {
         let entry = pending
             .get_mut(key)
             .ok_or_else(|| FormalReadError::Internal("missing pending lease request".into()))?;
-        // Set uncertainty before sending; neither HTTP success nor a signature
-        // alone is proof that the issuer committed this exact operation.
-        entry.submission_verified = false;
+        // Keep the exact signed operation and verified prefix until a later
+        // fresh read-only query reconciles it, regardless of transport outcome.
         let evidence = source.fetch_raw(request, Some(entry.signed.clone()))?;
         let state = self.verify_response_at_least(
             request,
@@ -214,10 +204,6 @@ impl ProviderLeaseClientV3 {
             return Err(FormalReadError::HistoryUnavailable(
                 "issuer history does not contain the exact submitted lease".into(),
             ));
-        }
-        entry.submission_verified = true;
-        if retire_on_success {
-            pending.remove(key);
         }
         Ok(evidence)
     }
@@ -238,6 +224,11 @@ impl ProviderLeaseClientV3 {
         {
             return Err(FormalReadError::Integrity(
                 "lease response does not extend the verified bootstrap prefix".into(),
+            ));
+        }
+        if Instant::now() >= request.deadline {
+            return Err(FormalReadError::HistoryUnavailable(
+                "lease history verification exceeded the original deadline".into(),
             ));
         }
         Ok(state)

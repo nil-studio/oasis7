@@ -92,11 +92,17 @@ fn remote_provider_lease_recovers_committed_original_after_lost_reply() {
     run_lease_retry(RetryOutcome::Committed);
 }
 
+#[test]
+fn remote_provider_lease_acknowledged_operation_is_not_resubmitted() {
+    run_lease_retry(RetryOutcome::Acknowledged);
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RetryOutcome {
     Uncommitted,
     CompetingCas,
     Committed,
+    Acknowledged,
 }
 
 fn run_lease_retry(outcome: RetryOutcome) {
@@ -123,7 +129,8 @@ fn run_lease_retry(outcome: RetryOutcome) {
             let request = query_request(&query);
             let before = server_witness.fetch(&request).unwrap();
             let read_only = index % 2 == 0
-                || (index == 3 && outcome == RetryOutcome::Committed);
+                || (index == 3
+                    && matches!(outcome, RetryOutcome::Committed | RetryOutcome::Acknowledged));
             assert_eq!(query.provider_lease_request.is_none(), read_only);
             if let Some(signed) = query.provider_lease_request {
                 signed.verify(&v3).unwrap();
@@ -185,7 +192,7 @@ fn run_lease_retry(outcome: RetryOutcome) {
                     .unwrap()
                     .v3_entries
                     .push(decision.entry().clone());
-                if index == 1 {
+                if index == 1 && outcome != RetryOutcome::Acknowledged {
                     stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
                     continue;
                 }
@@ -220,14 +227,17 @@ fn run_lease_retry(outcome: RetryOutcome) {
     )
     .unwrap();
     let calls = AtomicU64::new(0);
-    assert!(
-        gate.authorize_candidate_with_response(&subject_for(&f), |_| {
-            calls.fetch_add(1, Ordering::SeqCst);
-            Ok(vec![7])
-        })
-        .is_err()
-    );
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let first = gate.authorize_candidate_with_response(&subject_for(&f), |_| {
+        calls.fetch_add(1, Ordering::SeqCst);
+        Ok(vec![7])
+    });
+    let first_released = u64::from(outcome == RetryOutcome::Acknowledged);
+    if outcome == RetryOutcome::Acknowledged {
+        assert_eq!(first.unwrap(), vec![7]);
+    } else {
+        assert!(first.is_err());
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), first_released);
     assert_eq!(
         gate.authorize_candidate_with_response(&subject_for(&f), |_| {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -236,12 +246,12 @@ fn run_lease_retry(outcome: RetryOutcome) {
         .unwrap(),
         vec![7]
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), first_released + 1);
     server.join().unwrap();
     let signed = captured.lock().unwrap();
     assert_eq!(
         signed.len(),
-        if outcome == RetryOutcome::Committed {
+        if matches!(outcome, RetryOutcome::Committed | RetryOutcome::Acknowledged) {
             1
         } else {
             2
