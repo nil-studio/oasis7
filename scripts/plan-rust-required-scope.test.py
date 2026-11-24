@@ -8999,7 +8999,7 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
             {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'oasis7_required', 'launcher_web'},
         )
         self.assertEqual(plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
-        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
         self.assertNotIn('ordinary_fast_targets', plan)
         self.assertEqual(plan['architecture']['mode'], 'targeted')
         self.assertNotEqual(plan['architecture'].get('build_policy'), 'ordinary-targets')
@@ -9146,7 +9146,7 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
         self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required', 'launcher_web'})
         self.assertEqual(plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
-        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
         self.assertNotIn('ordinary_fast_targets', plan)
         self.assertTrue(any('production cfg changed; scoped package and platform coverage' in r
                             for r in plan['reasons']))
