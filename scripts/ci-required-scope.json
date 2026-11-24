@@ -1260,6 +1260,7 @@
     ".github/workflows/native-cache-diagnostic.yml": ["workflow_governance"],
     ".github/workflows/newapi-bridge-service-package.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/pages.yml": ["workflow_governance", "site_quality"],
+    ".github/workflows/pr-boundary-gate.yml": ["workflow_governance"],
     ".github/workflows/pr-fast-preview.yml": ["workflow_governance"],
     ".github/workflows/release-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/rust-cache.yml": ["workflow_governance", "packaging_contracts"],
@@ -2713,6 +2714,15 @@
       "match": ["scripts/wasm-summary-bundle-smoke.sh"],
       "groups": ["packaging_contracts"],
       "reason": "wasm_summary_bundle_fixture_consumer"
+    },
+    {
+      "match": [
+        "scripts/check-pr-boundaries.sh"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "pr_boundary_gate"
     }
   ]
 }
