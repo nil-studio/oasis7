@@ -938,22 +938,43 @@ class Workflow(unittest.TestCase):
                     steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                     setup = next(i for i, step in enumerate(steps)
                                  if 'uses: ./.github/actions/setup-linux-mold' in step)
-                    tools = setup - 1
+                    tools_index = setup - 1
                     if (filename == 'rust.yml' and name == 'oasis7-test-build-trusted'
                             and '    container:' in job):
-                        self.assertIn('name: Verify trusted ordinary image and source', steps[tools])
-                        self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', steps[tools])
-                        tools -= 1
-                    self.assertIn('uses: actions/checkout@', steps[tools])
-                    self.assertIn('ref: ${{ github.workflow_sha }}', steps[tools])
+                        self.assertIn('name: Verify trusted ordinary image and source', steps[tools_index])
+                        self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', steps[tools_index])
+                        tools_index -= 1
+                    tools = steps[tools_index]
+                    self.assertIn('uses: actions/checkout@', tools)
+                    self.assertIn('ref: ${{ github.workflow_sha }}', tools)
+                    source_index = setup + 1
                     if (filename == 'rust.yml'
-                            and 'sparse-checkout: .github/actions/setup-linux-mold\n' not in steps[tools]):
-                        validate_mold_checkout_reuse(steps[tools], steps[setup], steps[setup + 1])
+                            and 'sparse-checkout: .github/actions/setup-linux-mold\n' not in tools):
+                        validate_mold_checkout_reuse(tools, steps[setup], steps[source_index])
                     else:
-                        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
-                    self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
-                    self.assertIn('uses: actions/checkout@', steps[setup + 1])
-                    self.assertNotIn('sparse-checkout:', steps[setup + 1])
+                        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', tools)
+                    self.assertNotIn('sparse-checkout-cone-mode: false', tools)
+                    if (filename == 'mainnet-packages.yml' and name == 'build-web-dist'
+                            and '    container:\n' in job):
+                        self.assertIn('persist-credentials: false', tools)
+                        self.assertEqual([line for line in steps[source_index].splitlines()
+                                          if line.strip() and not line.lstrip().startswith("#")], [
+                            "      - name: Stage the executing workflow's pinned Trunk installer",
+                            '        env:',
+                            '          WORKFLOW_TOOLS_SHA: ${{ github.workflow_sha }}',
+                            '        run: |',
+                            '          git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+                            '          test "$(git rev-parse HEAD)" = "$WORKFLOW_TOOLS_SHA"',
+                            '          installer="$RUNNER_TEMP/oasis7-mainnet-install-trunk.sh"',
+                            '          git show HEAD:scripts/install-ci-trunk.sh > "$installer"',
+                            '          test -s "$installer"',
+                            '          chmod 700 "$installer"',
+                        ])
+                        source_index += 1
+                        self.assertIn('ref: ${{ needs.plan.outputs.checkoutSha }}', steps[source_index])
+                        self.assertIn('persist-credentials: false', steps[source_index])
+                    self.assertIn('uses: actions/checkout@', steps[source_index])
+                    self.assertNotIn('sparse-checkout:', steps[source_index])
                     if 'runs-on: ${{ matrix.' in job:
                         self.assertIn("if: runner.os == 'Linux'", steps[setup - 1])
                         self.assertIn("if: runner.os == 'Linux'", steps[setup])
@@ -1527,14 +1548,15 @@ class Workflow(unittest.TestCase):
         def step(job, marker):
             return next(part for part in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                         if marker in part)
-        # Compose the future lane from the independently maintained native
-        # source guard and Release's canonical stable/Trunk preparation.
+        # The host writer owns toolchain installation after the Release reader
+        # moves to a preinstalled compiler. Keep the older layout as a fixture.
+        host_web = workflow_jobs(workflow).get('web-wasm-cache', release_web)
         header = native.split('    steps:', 1)[0]
         preparation = ''.join((step(native, 'uses: actions/checkout@'),
             step(native, 'name: Verify current main cache source\n'),
             step(release_web, 'uses: actions/setup-node@'),
             step(release_web, 'name: Install viewer web dependencies\n'),
-            step(release_web, 'name: Install pinned Rust toolchain\n')))
+            step(host_web, 'name: Install pinned Rust toolchain\n')))
         cache = '''      - name: Normalize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
