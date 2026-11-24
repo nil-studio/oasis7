@@ -1157,9 +1157,10 @@ jobs:
         run: env -u RUSTC_WRAPPER cargo +"$RUST_TOOLCHAIN" fmt --all -- --check
 
   rust-baseline:
-    needs: select
+    needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (needs.select.outputs.run_rust_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2362,9 +2363,10 @@ jobs:
 
   oasis7-required:
     name: oasis7-required (${{ matrix.partition }})
-    needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]
+    needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
       (((fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
          fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
         needs.oasis7-test-build-candidate.result == 'skipped' &&

@@ -7761,7 +7761,7 @@ print({m0!r})
         self.assertIn('cargo +"$RUST_TOOLCHAIN" fmt --all -- --check', preflight)
         self.assertNotIn('fast-preflight', JOBS['required-gate'].split('    steps:', 1)[0])
 
-        for heavy in ('oasis7-test-build-candidate', 'workspace-support-other',
+        for heavy in ('rust-baseline', 'oasis7-test-build-candidate', 'workspace-support-other',
                       'custody-native-contracts', 'custody-native', 'custody-wasm-production'):
             job = JOBS[heavy]
             self.assertIn('needs: [select, fast-preflight]', job)
@@ -7769,6 +7769,7 @@ print({m0!r})
             cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', job, re.M | re.S).group(1)
             base_vals = {
                 'needs.select.result': 'success',
+                'needs.select.outputs.run_rust_baseline': 'true',
                 'needs.select.outputs.run_oasis7_required': 'true',
                 'needs.select.outputs.trusted_source': 'false',
                 'needs.select.outputs.workspace_support_partitions': ['other'],
@@ -7796,6 +7797,31 @@ print({m0!r})
             self.assertTrue(effective_job_condition(
                 cond, dict(base_vals, **{'needs.fast-preflight.result': 'skipped'}), ('success', 'skipped'),
             ), f'{heavy} must run when fast-preflight is skipped')
+
+        inline_job = JOBS['oasis7-required']
+        self.assertIn('needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]', inline_job)
+        inline_cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', inline_job, re.M | re.S).group(1)
+        inline_vals = {
+            'needs.select.result': 'success',
+            'needs.select.outputs.run_oasis7_required': 'true',
+            'needs.oasis7-test-build-candidate.result': 'skipped',
+            'needs.oasis7-test-build-trusted.result': 'skipped',
+            'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+            'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
+            'fromJSON(needs.select.outputs.plan).ordinary_execution': 'inline',
+        }
+        self.assertFalse(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'failure'}),
+            ('success', 'failure', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must skip when fast-preflight fails')
+        self.assertTrue(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'success'}),
+            ('success', 'success', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must run when fast-preflight succeeds')
+        self.assertTrue(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'skipped'}),
+            ('success', 'skipped', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must run when fast-preflight is skipped')
 
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
