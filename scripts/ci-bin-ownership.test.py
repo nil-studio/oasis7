@@ -665,6 +665,21 @@ class Ownership(unittest.TestCase):
         self.assertIn('oasis7_simulator', host)
         self.assertNotIn('oasis7', host)
 
+    def test_chain_runtime_final_umbrella_retirement(self):
+        spec = manifest('oasis7_chain_runtime')
+        tables = [spec, *spec.get('target', {}).values()]
+        for table in tables:
+            for kind in ('dependencies', 'dev-dependencies', 'build-dependencies'):
+                for name, dependency in table.get(kind, {}).items():
+                    package = dependency.get('package', name) if isinstance(dependency, dict) else name
+                    self.assertNotEqual(package, 'oasis7', f'{kind}: {name}')
+        for name, edges in spec.get('features', {}).items():
+            for edge in edges:
+                self.assertFalse(
+                    edge.startswith(('oasis7/', 'oasis7?/', 'dep:oasis7')),
+                    f'{name}: {edge}',
+                )
+
     def test_world_library_does_not_own_launcher_or_network_hosting(self):
         source = ROOT / 'crates/oasis7/src'
         self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
