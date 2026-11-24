@@ -1,7 +1,7 @@
 // Three short groups in one exclusive, sandboxed, disposable browser profile.
 // Requested texture storage is a diagnostic input, never measured GPU memory.
 import {createServer} from 'node:http';
-import {createRequire} from 'node:module';
+import {loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
 import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {createHash} from 'node:crypto';
@@ -9,8 +9,7 @@ import {execFileSync} from 'node:child_process';
 import {createStartupProfile,launchOwnedStartupContext} from './viewer-owned-startup-context.mjs';
 import {readOwnedProcessRss} from './viewer-owned-resource-os.mjs';
 import {withObservationCleanup} from './world-view-frame-capability.mjs';
-const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES||'/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
-const {chromium}=createRequire(join(modules,'resource-capability.cjs'))('playwright');
+const {chromium}=loadPlaywright(import.meta.url);
 if(!process.env.VIEWER_RESOURCE_OUTPUT)throw Error('declare fresh VIEWER_RESOURCE_OUTPUT');
 const out=resolve(process.env.VIEWER_RESOURCE_OUTPUT);mkdirSync(dirname(out),{recursive:true});mkdirSync(out);
 const summary={source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),groups:[],limitations:['Owned process RSS sum may count shared pages repeatedly.','No application cache, GPU total allocation, physical presentation or P6 verdict.'],scripts:{}};
