@@ -133,10 +133,41 @@ fn seal_profile2_inline_business_source(
         body,
     };
     inline_copy_stage("freeze_input");
-    let (frozen, material) = fixture.frozen(&predecessor, 61);
+    // The generic Fixture::frozen/candidate helpers use the literal
+    // state0 snapshot. This source has a canonical CBOR snapshot instead.
+    // Bind both signed records to the actual committed snapshot bytes.
+    let snapshot_root = &fixture.initial.material.roots[&ArtifactRole::Snapshot];
+    let snapshot = fixture
+        .initial
+        .material
+        .objects
+        .iter()
+        .find(|object| &object.content_hash == snapshot_root)
+        .unwrap()
+        .bytes
+        .clone();
+    let payload = b"action-61".to_vec();
+    let (mut frozen, _) = fixture.frozen(&predecessor, 61);
+    let frozen_material = material(payload.clone(), snapshot.clone(), b"manifest".to_vec());
+    frozen.body.pre_state_root = frozen_material.before_state_root.clone();
+    frozen.body.frozen_material_digest = frozen_material_digest(&frozen_material).unwrap();
+    frozen.signature_hex = signed(frozen_signing_bytes(&frozen.body).unwrap(), 4);
+    assert_eq!(
+        frozen.body.pre_state_root,
+        predecessor.record().after_state_root
+    );
     inline_copy_stage("freeze");
-    let executable = coordinator.freeze(frozen, material).unwrap();
+    let executable = coordinator
+        .freeze(frozen, frozen_material)
+        .unwrap_or_else(|error| {
+            let message = format!("oasis7 native diagnostic inline_copy_freeze_error: {error:?}\n");
+            let _ = std::io::Write::write_all(&mut std::io::stderr(), message.as_bytes());
+            panic!("signed inline business freeze failed: {error:?}");
+        });
     let mut candidate = fixture.candidate(&executable);
+    candidate.material = material(payload, snapshot, b"manifest".to_vec());
+    candidate.candidate.record.before_state_root = candidate.material.before_state_root.clone();
+    candidate.candidate.record.after_state_root = candidate.material.after_state_root.clone();
     candidate.candidate.record.schema_version = 2;
     candidate.candidate.record.durable_set_transition_digest =
         Some(signed_transition.body.digest().unwrap());
