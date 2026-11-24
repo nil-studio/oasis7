@@ -161,8 +161,8 @@
   - AC-3: README 与 `doc/product/world-rules-core-gameplay/prd.md`、`testing-manual.md`、模块 PRD 的链接链路可用。
   - AC-4: 口径更新有明确触发条件与同步时限。
   - AC-5: 渠道化推广方案必须显式绑定内部公开口径边界，不得把 generic marketing 文案直接外推到第三方平台。
-  - AC-6: `doc/readme/governance/**` 仍可读历史专题的首行标题必须统一使用 `oasis7` 品牌；旧 `oasis7*` 标题仅允许保留在正文历史上下文与证据原文中。
-  - AC-7: `doc/readme/governance/**` 中仍作为当前公开口径使用的项目名必须统一写为 `oasis7`；旧 `oasis7` 仅允许保留在历史证据、兼容说明或外部原文引用中。
+  - AC-6: `doc/readme/governance/**` 仍可读历史专题的首行标题必须统一使用 `oasis7` 品牌；旧品牌标题仅允许保留在正文历史上下文与证据原文中。
+  - AC-7: `doc/readme/governance/**` 中仍作为当前公开口径使用的项目名必须统一写为 `oasis7`；旧品牌名仅允许保留在历史证据、兼容说明或外部原文引用中。
 - AC-8: 若第三方渠道进入持续运营阶段，必须补齐独立 runbook，明确巡检入口、回复边界、升级路径与实际 PR/已有 Task 的证据记录方式。
 - AC-9: 若渠道进入首周冷启动执行阶段，runbook 必须补齐 day1-day7 模板，明确每天的主动作、检查窗口、回复目标与记录重点。
 - AC-10: 已将旧 `closed beta candidate` runbook 与 incident template 收敛到 `readme-limited-preview-invite-pack-2026-03-22.md`，供招募/反馈/事故信号在 `limited playable technical preview` claim envelope 内沟通并可直接回流 unified release gate。
