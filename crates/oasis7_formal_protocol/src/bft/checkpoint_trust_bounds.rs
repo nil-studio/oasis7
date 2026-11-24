@@ -140,6 +140,18 @@ pub(super) fn policy_issuer_bounds(bytes: &[u8]) -> Result<(), String> {
     }
 }
 
+pub fn time_observation_bounds(bytes: &[u8], maximum: usize) -> Result<(), String> {
+    if bytes.len() > maximum || !bytes.starts_with(&[0xd9, 0xd9, 0xf7]) {
+        return Err("invalid bounded checkpoint time observation framing".into());
+    }
+    let mut c = Cursor { bytes, at: 3 };
+    c.item(0)?;
+    if c.at != bytes.len() {
+        return Err("trailing checkpoint time observation bytes".into());
+    }
+    Ok(())
+}
+
 pub fn issuer_status_bounds(
     bytes: &[u8],
     max_bytes: usize,

@@ -7,7 +7,7 @@
 mod bounds;
 use super::formal_handoff::{canonical_bytes, decode_canonical, domain_digest, validate_hash};
 use crate::controlled_authority::formal::{FormalHeadRefV1, FormalWorldIdentityV1};
-pub(super) use bounds::issuer_status_bounds;
+pub(super) use bounds::{issuer_status_bounds, time_observation_bounds};
 pub use bounds::preflight as preflight_checkpoint_config;
 use oasis7_proto::distributed_bft::v2::BftScopeV2;
 use serde::{
@@ -398,6 +398,44 @@ impl BftCheckpointTrustPolicyV1 {
             })
         {
             return Err("checkpoint root, issuer, and time signing keys must be distinct".into());
+        }
+        Ok(())
+    }
+
+    /// Verify both exact constraint originals against the independent policy pin.
+    /// This is a necessary input check, not a safety attestation: the update
+    /// proof must still bind these bytes, the target closure and issuer quorum.
+    pub fn check_safety_constraint_originals(
+        &self,
+        independent_policy_digest: &str,
+        old_key_constraints: &[u8],
+        stake_constraints: &[u8],
+    ) -> Result<(), String> {
+        if self.digest()? != independent_policy_digest {
+            return Err("checkpoint safety constraints policy differs from independent pin".into());
+        }
+        let maximum = usize::try_from(self.max_safety_evidence_bytes)
+            .map_err(|_| "checkpoint safety evidence byte bound is unsupported")?;
+        if old_key_constraints.is_empty()
+            || stake_constraints.is_empty()
+            || old_key_constraints
+                .len()
+                .checked_add(stake_constraints.len())
+                .is_none_or(|total| total > maximum)
+        {
+            return Err("checkpoint safety constraint originals missing or exceed byte bound".into());
+        }
+        // The design fixes bare BLAKE3 CAS addresses for the two originals,
+        // not the domain-separated hash of the eventual safety evidence.
+        if blake3::hash(old_key_constraints).to_hex().as_str()
+            != self.security_policy.old_key_constraints_digest
+        {
+            return Err("checkpoint old key constraint original digest mismatch".into());
+        }
+        if blake3::hash(stake_constraints).to_hex().as_str()
+            != self.security_policy.stake_constraints_digest
+        {
+            return Err("checkpoint stake constraint original digest mismatch".into());
         }
         Ok(())
     }
