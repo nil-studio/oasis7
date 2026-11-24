@@ -293,7 +293,7 @@ fn run_chain_status_server_loop(
                     ) {
                         let stderr_message =
                             format!("warning: chain status connection failed: {err}");
-                        oasis7::observability::emit_stderr_or_event(
+                        oasis7_observability::emit_stderr_or_event(
                             Level::WARN,
                             stderr_message.as_str(),
                             "chain status connection failed",

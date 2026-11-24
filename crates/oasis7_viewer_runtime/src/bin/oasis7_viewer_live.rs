@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process;
 use std::thread;
 
-use oasis7::observability::init_tracing;
+use oasis7_observability::init_tracing;
 use oasis7_runtime::MajorWorldEventVisibilityPermission;
 use oasis7_simulator::WorldScenario;
 use oasis7_viewer_runtime::viewer::{
@@ -110,7 +110,7 @@ fn main() {
 }
 
 fn run_viewer(options: CliOptions) -> Result<(), String> {
-    let trace_session_id = oasis7::observability::resolve_trace_session_id("oasis7_viewer_live");
+    let trace_session_id = oasis7_observability::resolve_trace_session_id("oasis7_viewer_live");
     info!(
         trace_session_id = %trace_session_id,
         bind_addr = %options.bind_addr,

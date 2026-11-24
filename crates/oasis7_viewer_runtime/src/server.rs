@@ -13,13 +13,13 @@ use crate::viewer::{
     ViewerControlProfile, ViewerEventKind, ViewerRequest, ViewerResponse, ViewerStream,
     viewer_event_kind_matches,
 };
-use oasis7::observability::emit_stderr_or_event;
 #[cfg(test)]
 use oasis7::simulator::RuntimePerfHealth;
 use oasis7::simulator::unsupported_runtime_perf_snapshot;
 use oasis7::simulator::{
     RunnerMetrics, RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot,
 };
+use oasis7_observability::emit_stderr_or_event;
 use oasis7_simulator::{PersistError, WorldTime};
 
 #[derive(Debug, Clone)]

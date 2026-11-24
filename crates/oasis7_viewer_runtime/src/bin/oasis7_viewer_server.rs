@@ -1,7 +1,7 @@
 use std::env;
 use std::process;
 
-use oasis7::observability::init_tracing;
+use oasis7_observability::init_tracing;
 use oasis7_viewer_runtime::{ViewerServer, ViewerServerConfig};
 use tracing::{error, info};
 

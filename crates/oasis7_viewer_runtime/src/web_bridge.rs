@@ -12,7 +12,7 @@ use tungstenite::protocol::Message;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Error as WsError, accept};
 
-use oasis7::observability::emit_stderr_or_event;
+use oasis7_observability::emit_stderr_or_event;
 
 #[derive(Debug, Clone)]
 pub struct ViewerWebBridgeConfig {

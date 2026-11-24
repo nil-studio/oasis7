@@ -501,7 +501,7 @@ fn emit_execution_bridge_observation(
     stderr_message: String,
     event_message: &'static str,
 ) {
-    oasis7::observability::emit_stderr_or_event(level, stderr_message.as_str(), event_message);
+    oasis7_observability::emit_stderr_or_event(level, stderr_message.as_str(), event_message);
 }
 
 #[cfg(test)]
