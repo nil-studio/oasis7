@@ -6711,6 +6711,33 @@ class WorkerToolCache(unittest.TestCase):
                                env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(output)), check=True)
                 self.assertIn('workspace_support_signer_only=' + str(expected).lower(), output.read_text())
 
+    def test_support_group_driver_preserves_original_filter_for_each_lane(self):
+        job = JOBS['workspace-support-other']
+        script = workflow_step_script(job, 'Execute selected group')
+        lanes = {'host': 'host', 'image': 'image'}
+        if "matrix.execution == 'signer-image'" in job:
+            lanes['signer-image'] = 'host'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-tests.sh').write_text(
+                "support_capacity_snapshot() { :; }\n"
+                "if [[ $# -gt 0 ]]; then printf '%s\\n' \"$@\"; fi\n")
+            for lane, expected in lanes.items():
+                with self.subTest(lane=lane):
+                    result = subprocess.run(
+                        ['bash', '-euo', 'pipefail', '-c', script], cwd=root,
+                        env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_WORKSPACE=tmp,
+                                 SUPPORT_PARTITION='other', SUPPORT_EXECUTION=lane),
+                        text=True, capture_output=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(), [
+                        'required', '--group', 'workspace_support', '--repo-root', tmp,
+                        '--support-plan-file', str(root / 'selection.json'),
+                        '--support-partition', 'other', '--support-execution', expected,
+                    ])
+
     def test_image_support_exact_readonly_worker_tool_reader(self):
         job = JOBS['workspace-support-other']
         steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
