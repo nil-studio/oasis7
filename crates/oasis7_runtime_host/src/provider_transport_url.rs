@@ -59,13 +59,19 @@ pub fn validate_provider_http_base_url(
         }
         REMOTE_HTTPS_PROVIDER_TRANSPORT => {
             if url.scheme() != "https" {
-                return Err(invalid("scheme must be https for remote provider transport"));
+                return Err(invalid(
+                    "scheme must be https for remote provider transport",
+                ));
             }
             if !is_public_remote_https_host(host) {
                 return Err(invalid("host must be a public remote https host"));
             }
         }
-        _ => return Err(invalid(format!("unsupported provider transport `{transport}`"))),
+        _ => {
+            return Err(invalid(format!(
+                "unsupported provider transport `{transport}`"
+            )));
+        }
     }
     Ok(url)
 }
@@ -91,11 +97,17 @@ mod tests {
     fn loopback_accepts_only_http_and_explicit_loopback_hosts() {
         assert_eq!(
             validate_provider_loopback_http_base_url(" http://127.0.0.1:8000/ ")
-                .unwrap().host_str(),
+                .unwrap()
+                .host_str(),
             Some("127.0.0.1"),
         );
         assert!(validate_provider_loopback_http_base_url("http://localhost:8000").is_ok());
-        for denied in ["https://localhost", "http://example.com", "http://192.168.1.1", ""] {
+        for denied in [
+            "https://localhost",
+            "http://example.com",
+            "http://192.168.1.1",
+            "",
+        ] {
             assert!(
                 validate_provider_loopback_http_base_url(denied).is_err(),
                 "loopback transport accepted forbidden URL: {denied}",
@@ -106,9 +118,7 @@ mod tests {
     #[test]
     fn remote_requires_https_and_rejects_local_private_or_linklocal_hosts() {
         let transport = REMOTE_HTTPS_PROVIDER_TRANSPORT;
-        assert!(
-            validate_provider_http_base_url("https://example.com/v1/", transport).is_ok()
-        );
+        assert!(validate_provider_http_base_url("https://example.com/v1/", transport).is_ok());
         for denied in [
             "http://example.com",
             "https://localhost",
@@ -125,10 +135,14 @@ mod tests {
 
     #[test]
     fn unknown_transport_and_url_syntax_fail_closed() {
-        let err =
-            validate_provider_http_base_url("https://example.com", "unregistered-transport")
-                .unwrap_err();
-        assert_eq!(err.0, "unsupported provider transport `unregistered-transport`");
-        assert!(validate_provider_http_base_url("not a url", REMOTE_HTTPS_PROVIDER_TRANSPORT).is_err());
+        let err = validate_provider_http_base_url("https://example.com", "unregistered-transport")
+            .unwrap_err();
+        assert_eq!(
+            err.0,
+            "unsupported provider transport `unregistered-transport`"
+        );
+        assert!(
+            validate_provider_http_base_url("not a url", REMOTE_HTTPS_PROVIDER_TRANSPORT).is_err()
+        );
     }
 }
