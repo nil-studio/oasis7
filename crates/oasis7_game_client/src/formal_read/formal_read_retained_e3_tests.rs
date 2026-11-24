@@ -352,9 +352,8 @@ pub(super) fn exercise() {
     retained_e3_phase(b"oasis7 native diagnostic game_first_reader_begin\n");
     let mut verifier =
         boxed_retained_reader(|| FormalReadVerifier::new(&trust, anchor.clone()).unwrap());
-    let observed = boxed_retained_reader(|| {
-        verifier.verify_view(&reply, &request, &public(7)).unwrap()
-    });
+    let observed =
+        boxed_retained_reader(|| verifier.verify_view(&reply, &request, &public(7)).unwrap());
     assert_eq!(observed.commit().record().position, 2);
     assert_eq!(
         observed.commit().finalizing_authority_id(),
