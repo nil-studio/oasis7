@@ -1,0 +1,185 @@
+name: CodeQL Actions image diagnostic
+
+on:
+  pull_request:
+    branches: [codex/engineering-codeql-actions-image-probe-base]
+    paths: [.github/workflows/codeql-actions-image-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+cache-mode: none
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SOURCE: e7a47b9a6543f3a0682238a56ac1ae7e798237b3
+  SELECTION: >-
+    {"unit":"actions-repo","language":"actions","category":"oasis7/actions-repo/default","slot":0,"build_mode":"none","queries":"","timeout_minutes":20}
+  CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES: 'false'
+  CODEQL_ACTION_DEBUG_COMBINED_SARIF: 'false'
+  CODEQL_OVERLAY_DATABASE_MODE: none
+
+jobs:
+  host:
+    if: &isolated github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/engineering-codeql-actions-image-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs: &outputs
+      result: ${{ steps.proof.outputs.result }}
+    steps:
+      - &source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE }}
+          persist-credentials: false
+      - &preflight
+        name: Check the frozen checkout and tool ABI
+        run: |
+          test "$(id -u)" -ne 0
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          git diff --exit-code HEAD --
+          test "$(uname -m)" = x86_64
+          ldd --version
+          git --version
+          tar --version
+          zstd --version
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          test -w "$RUNNER_TEMP"
+          test -w "$HOME"
+      - &bundle
+        name: Verify the pinned Actions query-compatible CodeQL bundle
+        id: actions_tools
+        timeout-minutes: 5
+        run: |
+          mkdir -p "$RUNNER_TEMP/codeql-actions-tools"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 240 \
+            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-actions-linux64.tar.zst \
+            --output "$RUNNER_TEMP/codeql-actions-tools/bundle.tar.zst"
+          echo "f12b84c1ed3540c54691257ddea1b72b62f785c8bb3eca907562c6a8a2361d32  $RUNNER_TEMP/codeql-actions-tools/bundle.tar.zst" | sha256sum --check
+          echo "tools_path=$RUNNER_TEMP/codeql-actions-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
+      - &initialize
+        name: Initialize the same Actions extraction
+        id: init
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066
+        with:
+          tools: ${{ steps.actions_tools.outputs.tools_path }}
+          languages: actions
+          build-mode: none
+          db-location: ${{ runner.temp }}/codeql_databases
+          queries: ./scripts/security/codeql-actions/default.qls
+          dependency-caching: false
+          trap-caching: false
+          debug: false
+          matrix: ${{ env.SELECTION }}
+          config: |
+            disable-default-queries: true
+            paths-ignore:
+              - third_party/**
+              - target/**
+              - node_modules/**
+              - dist/**
+              - .pm/**
+              - tools/oasis7-command-center/src-tauri/src/generated_context.rs
+              - crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs
+      - &query_contract
+        name: Verify Actions query compatibility and cache-mode boundaries
+        timeout-minutes: 5
+        env:
+          CODEQL_BIN: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 scripts/security/codeql-actions/model.test.py --codeql "$CODEQL_BIN" \
+            --initialized-suite "$RUNNER_TEMP/codeql_databases/actions/temp/config-queries.qls" \
+            --profile default
+      - &analyze
+        name: Extract and analyze Actions locally
+        id: analyze
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066
+        with:
+          category: oasis7/actions-repo/default
+          output: ${{ runner.temp }}/codeql-results
+          upload: never
+          upload-database: false
+          matrix: ${{ env.SELECTION }}
+      - &proof
+        name: Check local SARIF and emit only a comparison digest
+        id: proof
+        env:
+          SARIF_ID: ${{ steps.analyze.outputs.sarif-id }}
+          SARIF_OUTPUT: ${{ steps.analyze.outputs.sarif-output }}
+        run: |
+          test -z "$SARIF_ID"
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          git diff --exit-code HEAD --
+          python3 -I - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          output = Path(os.environ['SARIF_OUTPUT']).resolve()
+          assert output == Path(os.environ['RUNNER_TEMP'], 'codeql-results').resolve()
+          report = output / 'actions.sarif'
+          assert report.is_file() and not report.is_symlink() and 0 < report.stat().st_size < 32 * 1024 * 1024
+          data = json.loads(report.read_bytes())
+          assert data['version'] == '2.1.0' and data['runs']
+          workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+
+          def normalize(item):
+              if isinstance(item, dict):
+                  return {key: normalize(value) for key, value in item.items()}
+              if isinstance(item, list):
+                  return [normalize(value) for value in item]
+              if isinstance(item, str):
+                  return item.replace(workspace.as_uri() + '/', 'file:///workspace/').replace(
+                      str(workspace) + '/', '/workspace/')
+              return item
+
+          comparison = []
+          for run in data['runs']:
+              driver = run['tool']['driver']
+              assert driver['name'] == 'CodeQL'
+              assert '2.27.4' in (driver.get('version'), driver.get('semanticVersion'))
+              assert driver['rules'] and isinstance(run['results'], list)
+              comparison.append(normalize({'driver': driver, 'results': run['results']}))
+          evidence = {'source': os.environ['SOURCE'], 'selection': json.loads(os.environ['SELECTION']),
+                      'query_suite_sha256': hashlib.sha256(Path('scripts/security/codeql-actions/default.qls').read_bytes()).hexdigest(),
+                      'sarif': comparison}
+          digest = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as outputs:
+              outputs.write('result=' + digest + '\n')
+          print('Local SARIF comparison digest:', digest)
+          PY
+
+  image:
+    if: *isolated
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs: *outputs
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps: [*source, *preflight, *bundle, *initialize, *query_contract, *analyze, *proof]
+
+  compare:
+    needs: [host, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require equivalent source, query selection and SARIF results
+        env:
+          HOST_RESULT: ${{ needs.host.outputs.result }}
+          IMAGE_RESULT: ${{ needs.image.outputs.result }}
+        run: |
+          [[ "$HOST_RESULT" =~ ^[0-9a-f]{64}$ ]]
+          test "$HOST_RESULT" = "$IMAGE_RESULT"
