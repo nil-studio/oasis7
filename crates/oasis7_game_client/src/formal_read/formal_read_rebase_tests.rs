@@ -11,10 +11,11 @@ fn rebase_stage_trace(stage: &str, index: usize) {
 
 // Long signed histories can create large transient proof/read frames. Keep the
 // construction and later independent cursor checks in distinct ordinary
-// test-thread frames; neither the native thread stack nor its assertions grow.
+// test-thread frames. Return the large stage result by heap pointer so its
+// output does not remain part of the caller's default-stack frame.
 #[inline(never)]
-fn rebase_test_stage<T>(work: impl FnOnce() -> T) -> T {
-    work()
+fn rebase_test_stage<T>(work: impl FnOnce() -> T) -> Box<T> {
+    Box::new(work())
 }
 
 // Keep the heavyweight signed proof's *unboxed* construction in a finished
@@ -41,7 +42,7 @@ fn rebase_boxed_successor_stage(
 #[test]
 fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     rebase_stage_trace("before_initial", 0);
-    let (mut world, trust, origin, _) = rebase_test_stage(protocol_initial_fixture);
+    let (mut world, trust, origin, _) = *rebase_test_stage(protocol_initial_fixture);
     rebase_stage_trace("after_initial", 0);
     let mut current_anchor = origin.clone();
     let mut active = FormalReadVerifier::new(&trust, origin.clone()).unwrap();
@@ -52,7 +53,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     let mut previous_world = world.clone();
     rebase_stage_trace("before_33_history", 0);
     let (world, current_anchor, mut active, steps, last, previous_anchor, previous_world) =
-        rebase_test_stage(|| {
+        *rebase_test_stage(|| {
             for index in 1..=33 {
                 rebase_stage_trace("step_begin", index);
                 previous_anchor = current_anchor.clone();
@@ -102,7 +103,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     let make_fresh = |world: &fixtures::protocol_world::ProtocolWorld,
                       anchor: &VerifiedFormalReadAnchorV1,
                       steps: Vec<FormalReadStepV1>| {
-        rebase_test_stage(|| {
+        *rebase_test_stage(|| {
             let mut fresh = FormalReadVerifier::new(&trust, origin.clone()).unwrap();
             let (mut request, mut reply) = response(
                 world,
