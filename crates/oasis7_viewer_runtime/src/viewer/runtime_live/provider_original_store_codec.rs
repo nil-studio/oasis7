@@ -1,6 +1,6 @@
 use oasis7_formal_protocol::incremental_state::{STATE_ROOT_BYTES, StateNamespaceV1, StateRootV1};
 
-use oasis7::simulator::ProviderMaterialOwnerBindingV1;
+use oasis7_world_service::provider_material::ProviderMaterialOwnerBindingV1;
 
 pub(super) const MAX_OWNER_ID_BYTES: usize = 256;
 pub(super) const MAX_OPERATION_ID_BYTES: usize = 128;

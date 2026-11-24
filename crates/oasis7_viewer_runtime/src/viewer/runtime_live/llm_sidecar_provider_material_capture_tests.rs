@@ -1,9 +1,11 @@
 use super::*;
 
 use crate::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ProviderMaterialAttemptV1,
-    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
-    ProviderSpoolReservation, cognition_response_digest,
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+    ProviderOriginalMaterialStore, ProviderSpoolReservation, cognition_response_digest,
+};
+use oasis7_world_service::provider_material::{
+    ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1,
 };
 use crate::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
@@ -113,9 +115,9 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
 
     fn protected_roots_page(
         &self,
-        _cursor: Option<&oasis7::simulator::ProviderPendingRootsCursorV1>,
+        _cursor: Option<&oasis7_world_service::provider_material::ProviderPendingRootsCursorV1>,
         _limit: usize,
-    ) -> Result<oasis7::simulator::ProviderPendingRootsPageV1, String> {
+    ) -> Result<oasis7_world_service::provider_material::ProviderPendingRootsPageV1, String> {
         let charge = self
             .memory
             .reserve(0, MemoryClass::Ordinary)
@@ -136,13 +138,13 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
             oasis7_formal_protocol::incremental_state::StateNamespaceV1::Effects,
         )
         .map_err(|error| error.to_string())?;
-        Ok(oasis7::simulator::ProviderPendingRootsPageV1 {
+        Ok(oasis7_world_service::provider_material::ProviderPendingRootsPageV1 {
             owner: std::sync::Arc::new(owner_charge.retain(self.binding.clone())),
             pending_root: [0x44; 32],
             object_ids: std::sync::Arc::new(charge.retain(Vec::new())),
             attempts: std::sync::Arc::new(attempt_charge.retain(Vec::new())),
             state_roots: std::sync::Arc::new(roots_charge.retain(
-                oasis7::simulator::ProviderPendingStateRootsV1 {
+                oasis7_world_service::provider_material::ProviderPendingStateRootsV1 {
                     events: empty.clone(),
                     pending: empty.clone(),
                     seen: empty,

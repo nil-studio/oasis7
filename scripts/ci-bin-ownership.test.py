@@ -78,6 +78,19 @@ class Ownership(unittest.TestCase):
                 text = source_path.read_text()
                 self.assertNotIn('oasis7::world_service::', text, str(source_path))
 
+    def test_provider_original_material_contract_has_native_world_service_owner(self):
+        """L2 pending roots and provider material identities have one native owner."""
+        native = (ROOT / 'crates/oasis7_world_service/src/provider_material.rs').read_text()
+        old = (ROOT / 'crates/oasis7/src/simulator/provider_material_capture.rs').read_text()
+        self.assertIn('pub struct ProviderMaterialOwnerBindingV1', native)
+        self.assertIn('pub struct ProviderPendingRootsPageV1', native)
+        self.assertIn('pub use oasis7_world_service::provider_material::{', old)
+        self.assertNotIn('pub struct ProviderMaterialOwnerBindingV1', old)
+        store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
+        codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
+        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        self.assertIn('use oasis7_world_service::provider_material::ProviderMaterialOwnerBindingV1;', codec)
+
     def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
         """Fail closed for both accepted two-argument host seams during native migration.
 

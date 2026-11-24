@@ -8,6 +8,21 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[test]
+fn original_provider_material_owner_types_are_world_service_nominal_types() {
+    let native: oasis7_world_service::provider_material::ProviderMaterialOwnerBindingV1 =
+        ProviderMaterialOwnerBindingV1 {
+            world_id: "compat-world".into(),
+            genesis_root: [0x11; 32],
+            owner_id: [0x44; 32],
+        };
+    let legacy: ProviderMaterialOwnerBindingV1 = native;
+    assert!(legacy.validate().is_ok());
+    let roundtrip: oasis7_world_service::provider_material::ProviderMaterialOwnerBindingV1 =
+        legacy;
+    assert_eq!(roundtrip.owner_id, [0x44; 32]);
+}
+
 #[derive(Debug, Clone)]
 struct RecordedHttpRequest {
     method: String,

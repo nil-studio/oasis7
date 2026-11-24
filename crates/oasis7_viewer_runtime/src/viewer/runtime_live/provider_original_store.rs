@@ -18,10 +18,12 @@ use std::sync::{Arc, Mutex};
 
 use oasis7::simulator::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+    ProviderOriginalMaterialStore, ProviderSpoolReservation,
+};
+use oasis7_world_service::provider_material::{
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
-    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
+    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1,
     ProviderPendingAttemptPhaseV1, ProviderPendingAttemptSummaryV1, ProviderPendingStateRootsV1,
-    ProviderSpoolReservation,
 };
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget,
@@ -700,9 +702,9 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
     }
     fn protected_roots_page(
         &self,
-        cursor: Option<&oasis7::simulator::ProviderPendingRootsCursorV1>,
+        cursor: Option<&oasis7_world_service::provider_material::ProviderPendingRootsCursorV1>,
         limit: usize,
-    ) -> Result<oasis7::simulator::ProviderPendingRootsPageV1, String> {
+    ) -> Result<oasis7_world_service::provider_material::ProviderPendingRootsPageV1, String> {
         self.protected_roots_page_impl(cursor, limit)
     }
     fn validate_request_owner(

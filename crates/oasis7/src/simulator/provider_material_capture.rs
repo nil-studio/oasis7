@@ -1,177 +1,20 @@
-//! Native provider transport material capture contracts.
-//!
-//! This seam carries only content identities across the actor boundary. The
-//! owner of the independent pending store supplies the durable implementation
-//! and must bind it to a verified new-format world before installing it.
-
+//! Legacy Host authority and store interfaces for original provider materials.
+//! The immutable material identities and protected-root DTOs now have a
+//! canonical WorldService owner. Reexports preserve exact historical types.
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
-
-use oasis7_formal_protocol::incremental_state::StateRootV1;
 #[cfg(not(target_arch = "wasm32"))]
 use oasis7_proto::memory_budget::MemoryBudget;
-use oasis7_proto::memory_budget::ReservedValue;
-use std::any::Any;
-use std::fmt;
-use std::sync::Arc;
-
 #[cfg(not(target_arch = "wasm32"))]
 use super::{ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1};
 
-/// Immutable new-format owner scope for a provider pending ledger.
-///
-/// The native owner creates this only after it has verified the world,
-/// genesis, exact parent, authority snapshot, and separate pending-protection
-/// root. It is deliberately not derivable from the legacy lineage checkpoint.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ProviderMaterialOwnerBindingV1 {
-    pub world_id: String,
-    pub genesis_root: [u8; 32],
-    /// Stable identifier for this independently owned pending store.
-    pub owner_id: [u8; 32],
-}
-
-impl ProviderMaterialOwnerBindingV1 {
-    pub fn validate(&self) -> Result<(), &'static str> {
-        if self.world_id.trim().is_empty() || self.world_id.len() > 256 {
-            return Err("provider pending owner world id is empty or too long");
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ProviderMaterialAttemptV1 {
-    pub owner: ProviderMaterialOwnerBindingV1,
-    /// Existing canonical cognition invocation key (`blake3:<hex>`).
-    pub operation_id: String,
-    pub transport_attempt: u64,
-    pub attempt_id: [u8; 32],
-    /// Exact authenticated parent and authority for this invocation. These
-    /// belong to the attempt, not the long-lived owner scope.
-    pub parent_root_set: [u8; 32],
-    pub authority_snapshot: [u8; 32],
-    pub request_object_id: [u8; 32],
-    pub request_context_object_id: [u8; 32],
-}
-
-/// References returned only after both the original response body and its
-/// typed semantic context have been persisted by the installed owner.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ProviderOriginalMaterialRefsV1 {
-    pub owner: ProviderMaterialOwnerBindingV1,
-    /// Existing canonical cognition invocation key (`blake3:<hex>`).
-    pub operation_id: String,
-    pub transport_attempt: u64,
-    pub attempt_id: [u8; 32],
-    pub parent_root_set: [u8; 32],
-    pub authority_snapshot: [u8; 32],
-    pub request_object_id: [u8; 32],
-    pub request_context_object_id: [u8; 32],
-    pub response_object_id: [u8; 32],
-    pub response_context_object_id: [u8; 32],
-    pub response_status: u16,
-}
-
-/// Per-invocation binding returned by the already verified new-format Runtime
-/// owner. `RuntimeBindingV1::base_world_hash` is not an exact RootSet and must
-/// not be substituted here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProviderAttemptAuthorityBindingV1 {
-    pub parent_root_set: [u8; 32],
-    pub authority_snapshot: [u8; 32],
-}
-
-/// Evidence must be checked by the installed trusted authority before an
-/// unresolved provider attempt can leave the protected set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProviderDispositionEvidenceV1 {
-    pub evidence_object_id: [u8; 32],
-    pub disposition_digest: [u8; 32],
-}
-
-/// Opaque continuation for a single protected-roots snapshot. Callers can
-/// retain and return a cursor produced by the owner, but cannot choose an
-/// arbitrary offset that skips unresolved attempts. Owner implementations must
-/// downcast to their private cursor type and bind it to the exact root snapshot.
-pub struct ProviderPendingRootsCursorV1 {
-    state: Box<dyn Any + Send + Sync>,
-}
-
-impl ProviderPendingRootsCursorV1 {
-    /// Wrap a private owner cursor. The concrete type should remain private to
-    /// the owner crate; other implementations cannot fabricate that type.
-    #[doc(hidden)]
-    pub fn from_owner_state<T: Any + Send + Sync>(state: T) -> Self {
-        Self {
-            state: Box::new(state),
-        }
-    }
-
-    /// Access a cursor only when it has the concrete type owned by the caller.
-    #[doc(hidden)]
-    pub fn owner_state<T: Any + Send + Sync>(&self) -> Option<&T> {
-        self.state.downcast_ref::<T>()
-    }
-}
-
-impl fmt::Debug for ProviderPendingRootsCursorV1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ProviderPendingRootsCursorV1")
-            .finish_non_exhaustive()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderPendingAttemptPhaseV1 {
-    RequestPrepared,
-    DispatchedOrUnknown,
-    ResponseBodyPlanned,
-    ResponseBodyDurable,
-    ResponseContextPlanned,
-    ResponseCaptured,
-    RejectionEvidencePlanned,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderPendingAttemptSummaryV1 {
-    pub attempt: ProviderMaterialAttemptV1,
-    pub phase: ProviderPendingAttemptPhaseV1,
-    pub response_object_id: Option<[u8; 32]>,
-    pub response_context_object_id: Option<[u8; 32]>,
-    pub response_status: Option<u16>,
-    pub terminal_evidence_object_id: Option<[u8; 32]>,
-}
-
-/// Actual roots needed to retain the independent owner's event and index pages.
-/// `pending_root` in the page is a cursor binding digest, not a substitute for
-/// these Merkle root descriptors.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderPendingStateRootsV1 {
-    pub events: StateRootV1,
-    pub pending: StateRootV1,
-    pub seen: StateRootV1,
-}
-
-#[derive(Debug)]
-pub struct ProviderPendingRootsPageV1 {
-    pub owner: Arc<ReservedValue<ProviderMaterialOwnerBindingV1>>,
-    pub pending_root: [u8; 32],
-    /// Charged page of event-record and original-material content IDs. The
-    /// cursor bounds this output; callers retain the carrier while using the
-    /// roots.
-    pub object_ids: Arc<ReservedValue<Vec<[u8; 32]>>>,
-    /// Charged unresolved identities and current phase, for recovery to resume
-    /// only by same-identity inspection. This is not retry authorization.
-    pub attempts: Arc<ReservedValue<Vec<ProviderPendingAttemptSummaryV1>>>,
-    /// Charged actual Merkle roots backing the independent pending ledger.
-    pub state_roots: Arc<ReservedValue<ProviderPendingStateRootsV1>>,
-    /// A continuation exists only when this page has not reached the end of
-    /// the bound snapshot. Exhausting these pages proves this store-local root
-    /// enumeration is complete; it does not register the owner with a global
-    /// World or GC registry.
-    pub next_cursor: Option<Arc<ReservedValue<ProviderPendingRootsCursorV1>>>,
-}
+pub use oasis7_world_service::provider_material::{
+    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1,
+    ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1,
+    ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
+    ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1,
+    ProviderPendingRootsPageV1, ProviderPendingStateRootsV1,
+};
 
 /// Trusted new-format owner seam. Implementations verify the exact parent and
 /// authority for each request and authenticate terminal disposition evidence;
