@@ -31,6 +31,26 @@ impl World {
         Self::allocate_rolling_sequence_id(&mut self.next_action_id, &mut self.next_action_id_era)
     }
 
+    /// Reconcile a signed journal disposition for the *next* locally allocated
+    /// action on C-to-T replay. One action can appear in more than one event;
+    /// only its first authentic disposition can advance the local allocator.
+    /// Do not infer gaps or synthesize pending queue records from a receipt.
+    pub(super) fn reconcile_replayed_action_allocator(
+        &mut self,
+        action_id: ActionId,
+        seen: &mut std::collections::BTreeSet<ActionId>,
+    ) {
+        if !seen.insert(action_id) {
+            return;
+        }
+        let (expected, next, era) =
+            Self::preview_rolling_sequence_id(self.next_action_id, self.next_action_id_era);
+        if action_id == expected {
+            self.next_action_id = next;
+            self.next_action_id_era = era;
+        }
+    }
+
     pub(crate) fn allocate_next_intent_seq(&mut self) -> IntentSeq {
         Self::allocate_rolling_sequence_id(&mut self.next_intent_id, &mut self.next_intent_id_era)
     }
@@ -54,5 +74,41 @@ impl World {
         era: u64,
     ) -> (ProposalId, ProposalId, u64) {
         Self::preview_rolling_sequence_id(next_id, era)
+    }
+}
+
+#[cfg(test)]
+mod replay_action_allocator_tests {
+    use super::*;
+
+    #[test]
+    fn replayed_action_uses_original_rollover_and_deduplicates_receipts() {
+        let mut world = World::new();
+        world.next_action_id = u64::MAX;
+        world.next_action_id_era = 7;
+        let mut seen = std::collections::BTreeSet::new();
+        world.reconcile_replayed_action_allocator(u64::MAX, &mut seen);
+        assert_eq!(world.next_action_id, 1);
+        assert_eq!(world.next_action_id_era, 8);
+        world.reconcile_replayed_action_allocator(u64::MAX, &mut seen);
+        assert_eq!(world.next_action_id, 1);
+        assert_eq!(world.next_action_id_era, 8);
+        world.reconcile_replayed_action_allocator(1, &mut seen);
+        assert_eq!(world.next_action_id, 2);
+        assert_eq!(world.next_action_id_era, 8);
+    }
+
+    #[test]
+    fn replayed_action_does_not_invent_allocations_across_unproven_gaps() {
+        let mut world = World::new();
+        world.next_action_id = 7;
+        let mut seen = std::collections::BTreeSet::new();
+        world.reconcile_replayed_action_allocator(9, &mut seen);
+        assert_eq!(world.next_action_id, 7);
+        world.reconcile_replayed_action_allocator(7, &mut seen);
+        assert_eq!(world.next_action_id, 8);
+        // A gap cannot be filled by the already-seen out-of-order identity.
+        world.reconcile_replayed_action_allocator(9, &mut seen);
+        assert_eq!(world.next_action_id, 8);
     }
 }
