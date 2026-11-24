@@ -94,7 +94,6 @@ allowed_snippets = {
 }
 allowed_path_names = {
     "scripts/legacy-shared-devnet-provenance-smoke.sh",
-    "scripts/shared-network-track-gate.sh",
 }
 
 def iter_scan_files() -> list[pathlib.Path]:

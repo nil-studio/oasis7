@@ -2391,7 +2391,9 @@
         "scripts/build-game-launcher-bundle*",
         "scripts/testnet-packages-linux*",
         "scripts/testnet-packages-windows*",
-        "scripts/fixtures/oasis7-governance-root*"
+        "scripts/fixtures/oasis7-governance-root*",
+        "scripts/public-testnet-rehearsal-blocker-packet.sh",
+        "scripts/legacy-*-provenance-smoke.sh"
       ],
       "groups": [
         "operational_contracts"
@@ -2523,7 +2525,8 @@
         "scripts/viewer-*",
         "scripts/copy-viewer-*",
         "scripts/bundle-freshness*",
-        "scripts/agent-browser-*"
+        "scripts/agent-browser-*",
+        "scripts/verify-gameplay-attraction-automation.sh"
       ],
       "groups": [
         "viewer_js_required"
