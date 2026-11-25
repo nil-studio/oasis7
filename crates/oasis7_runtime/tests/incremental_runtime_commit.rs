@@ -153,22 +153,26 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
             );
             let mut forged = first_binding.clone();
             forged.control_continuation_root = [0xff; 32];
-            assert!(forged
-                .verify_against_root_set(
-                    &first.transition().record.after,
-                    &[0x31; 32],
-                    &[0x52; 32],
-                )
-                .is_err());
+            assert!(
+                forged
+                    .verify_against_root_set(
+                        &first.transition().record.after,
+                        &[0x31; 32],
+                        &[0x52; 32],
+                    )
+                    .is_err()
+            );
             let mut forged_namespace = first_binding.clone();
             forged_namespace.authorization_namespace_root = [0xaa; 32];
-            assert!(forged_namespace
-                .verify_against_root_set(
-                    &first.transition().record.after,
-                    &[0x31; 32],
-                    &[0x52; 32],
-                )
-                .is_err());
+            assert!(
+                forged_namespace
+                    .verify_against_root_set(
+                        &first.transition().record.after,
+                        &[0x31; 32],
+                        &[0x52; 32],
+                    )
+                    .is_err()
+            );
             let mut pages = store
                 .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
                 .unwrap();
@@ -254,9 +258,11 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
         first_binding
             .verify_against_root_set(&roots, &[0x31; 32], &[0x52; 32])
             .expect("reopened original root-set matches candidate binding");
-        assert!(first_binding
-            .verify_against_root_set(&roots, &[0x31; 32], &[0x53; 32])
-            .is_err());
+        assert!(
+            first_binding
+                .verify_against_root_set(&roots, &[0x31; 32], &[0x53; 32])
+                .is_err()
+        );
 
         let prefix_bytes = objects
             .read_object_owned(&body.history, 4096, &mut io)
