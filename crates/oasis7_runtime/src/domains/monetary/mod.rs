@@ -1,10 +1,8 @@
-//! Root-staged monetary domain transitions: signed rule-fee settlement and
-//! typed cognition economy lease/balance lifecycle.
+//! Root-staged settlement of the original signed rule resource delta.
 //!
-//! Ordinary synchronous Runtime callers and Stage 1 root transactions share the
-//! same borrowed validation and checked arithmetic without cloning [`World`].
-//! Delayed or externally confirmed transactions install deltas exclusively
-//! through [`RootInstallContext`] after Stage 2 confirmation.
+//! The ordinary Runtime consumer and this stage-one adapter share the exact
+//! checked arithmetic. This module does not authorize publication by itself:
+//! only a root owner with a genuine durable confirmation may install a delta.
 
 use std::collections::BTreeMap;
 
@@ -14,11 +12,11 @@ use oasis7_domain_types::rule_settlement::{
 };
 
 use crate::world::transition::{
-    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition, SubsystemDelta,
-    TransitionContext, TransitionReject,
+    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedRootTransaction,
+    StagedTransition, SubsystemDelta, TransitionContext, TransitionReject,
 };
 use crate::{
-    CognitionEconomyError, CognitionLeaseRequestV1, CognitionLeaseV1,
+    CognitionEconomyError, CognitionEconomyStateV1, CognitionLeaseRequestV1, CognitionLeaseV1,
     CognitionProvisioningReceiptV1, CognitionReceiptV1, ResourceDelta, World, WorldError,
     WorldTime,
 };
@@ -83,11 +81,28 @@ impl StagedRuleFeeSettlement<'_> {
         }
         plan_resource_delta(balances, quote.selected)
     }
+
+    #[cfg_attr(not(test), expect(dead_code, reason = "composed by #6150 root tick"))]
+    pub(crate) fn stage_in_root(
+        &self,
+        root: &mut StagedRootTransaction<'_, MonetaryDomainDelta>,
+    ) -> Result<(), TransitionReject> {
+        let mut overlaid = root.view().state().resources.clone();
+        for delta in root.deltas() {
+            if let MonetaryDeltaInner::RuleFee(prev) = &delta.0 {
+                overlaid.extend(prev.planned.iter().copied());
+            }
+        }
+        let planned = self.plan_checked(&overlaid)?;
+        root.stage_delta(MonetaryDomainDelta(MonetaryDeltaInner::RuleFee(
+            PreparedRuleFeeDelta { planned },
+        )));
+        Ok(())
+    }
 }
 
 /// The Stage 3 balance assignments; no live allocations, fallible arithmetic,
 /// journal append, refund, or second charge is permitted during installation.
-#[derive(Debug, Clone)]
 pub(crate) struct PreparedRuleFeeDelta {
     planned: Vec<(ResourceKind, i64)>,
 }
@@ -118,8 +133,6 @@ impl StagedTransition for StagedRuleFeeSettlement<'_> {
     }
 }
 
-/// Stage 3 cognition economy projection delta installed through [`RootInstallContext`].
-#[derive(Debug, Clone)]
 pub(crate) struct CognitionEconomyDelta {
     projection: serde_json::Value,
 }
@@ -139,7 +152,6 @@ pub(crate) enum CognitionEconomyOutput {
     Receipt(CognitionReceiptV1),
 }
 
-/// Borrowed Stage 1 descriptor covering all eight cognition economy mutations.
 pub(crate) enum StagedCognitionEconomyOp<'a> {
     SetBalance(&'a str, &'a str, u64),
     ProvisionForAgent(&'a str, &'a str, &'a str, u64),
@@ -151,19 +163,23 @@ pub(crate) enum StagedCognitionEconomyOp<'a> {
     RefundSettledLease(&'a str, u64, &'a str, &'a str),
 }
 
+type PreparedBase = (
+    CognitionEconomyOutput,
+    CognitionEconomyStateV1,
+    CognitionEconomyDelta,
+);
 type StagedCognitionPrepared = (
     CognitionEconomyOutput,
     PreparedStagedCommit<CognitionEconomyDelta>,
 );
 
 impl StagedCognitionEconomyOp<'_> {
-    /// Prepare the typed cognition economy mutation against a shared [`World`]
-    /// borrow without cloning [`World`] or hashing unrelated domains.
-    pub(crate) fn prepare_on_world(
+    fn prepare_with_base(
         &self,
         world: &World,
         tick: WorldTime,
-    ) -> Result<(CognitionEconomyOutput, CognitionEconomyDelta), WorldError> {
+        prior_econ: Option<&CognitionEconomyStateV1>,
+    ) -> Result<PreparedBase, WorldError> {
         if tick != world.state.time {
             return Err(WorldError::DistributedValidationFailed {
                 reason: "staged cognition balance requires original tick context".into(),
@@ -176,7 +192,10 @@ impl StagedCognitionEconomyOp<'_> {
             }
             _ => None,
         };
-        let mut econ = world.cognition_economy()?;
+        let mut econ = match prior_econ {
+            Some(prev) => prev.clone(),
+            None => world.cognition_economy()?,
+        };
         let output = match self {
             Self::SetBalance(acct, res, amt) => {
                 econ.set_resource_balance(*acct, *res, *amt)
@@ -213,7 +232,16 @@ impl StagedCognitionEconomyOp<'_> {
             ),
         };
         let projection = econ.snapshot_json().map_err(map_err)?;
-        Ok((output, CognitionEconomyDelta { projection }))
+        Ok((output, econ, CognitionEconomyDelta { projection }))
+    }
+
+    pub(crate) fn prepare_on_world(
+        &self,
+        world: &World,
+        tick: WorldTime,
+    ) -> Result<(CognitionEconomyOutput, CognitionEconomyDelta), WorldError> {
+        self.prepare_with_base(world, tick, None)
+            .map(|(out, _, delta)| (out, delta))
     }
 
     pub(crate) fn prepare_with_output(
@@ -221,11 +249,26 @@ impl StagedCognitionEconomyOp<'_> {
         view: &BorrowedWorldView<'_>,
         ctx: &TransitionContext,
     ) -> Result<StagedCognitionPrepared, TransitionReject> {
-        let (output, delta) = self.prepare_on_world(view.world(), ctx.tick)?;
-        Ok((
-            output,
-            PreparedStagedCommit::new(view.base_head().clone(), None, delta),
-        ))
+        let (out, _, delta) = self.prepare_with_base(view.world(), ctx.tick, None)?;
+        Ok((out, PreparedStagedCommit::new(view.base_head().clone(), None, delta)))
+    }
+
+    #[cfg_attr(not(test), expect(dead_code, reason = "composed by #6150 root tick"))]
+    pub(crate) fn stage_in_root(
+        &self,
+        root: &mut StagedRootTransaction<'_, MonetaryDomainDelta>,
+    ) -> Result<CognitionEconomyOutput, TransitionReject> {
+        let prior = root.deltas().iter().rev().find_map(|d| match &d.0 {
+            MonetaryDeltaInner::Cognition(state, _) => Some(state.as_ref()),
+            MonetaryDeltaInner::RuleFee(_) => None,
+        });
+        let (out, state, delta) =
+            self.prepare_with_base(root.view().world(), root.context().tick, prior)?;
+        root.stage_delta(MonetaryDomainDelta(MonetaryDeltaInner::Cognition(
+            Box::new(state),
+            delta,
+        )));
+        Ok(out)
     }
 }
 
@@ -242,27 +285,18 @@ impl StagedTransition for StagedCognitionEconomyOp<'_> {
     }
 }
 
-/// Composable monetary domain delta for [`crate::world::transition::StagedRootTransaction`],
-/// allowing nested rule-fee and cognition-economy operations to stage on one root view
-/// without independent commits.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "composed by five-domain root tick orchestration in #6150"
-    )
-)]
-#[derive(Debug, Clone)]
-pub(crate) enum MonetaryDomainDelta {
+enum MonetaryDeltaInner {
     RuleFee(PreparedRuleFeeDelta),
-    CognitionEconomy(CognitionEconomyDelta),
+    Cognition(Box<CognitionEconomyStateV1>, CognitionEconomyDelta),
 }
+
+pub(crate) struct MonetaryDomainDelta(MonetaryDeltaInner);
 
 impl SubsystemDelta for MonetaryDomainDelta {
     fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
-        match self {
-            Self::RuleFee(delta) => delta.apply_infallible(ctx),
-            Self::CognitionEconomy(delta) => delta.apply_infallible(ctx),
+        match self.0 {
+            MonetaryDeltaInner::RuleFee(delta) => delta.apply_infallible(ctx),
+            MonetaryDeltaInner::Cognition(_, delta) => delta.apply_infallible(ctx),
         }
     }
 }
