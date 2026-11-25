@@ -48,9 +48,9 @@
 
 <a id="workspace-and-component-cache-pairing"></a>
 ### 模式 D：工作区/组件缓存高命中率治理与跨环境严格配对（`#6315`、`#6492`、`#6539`、`#6547`、`#6583`、`#6732`、`#6929`、`#6935`、`#6968`、`#6969`、`#7005`、`#7010`、`#7014`）
-1. **工作区缓存主键剔除高频无关噪音（`#6929` + `#6935` `ORDINARY_STABLE_IDENTITY`）**：
-   - `scripts/ci-workspace-cache.py` 的 `ordinary` 主键不哈希无关的 `ci-formal-process-suites.json`、3.7k 行高频演进的 `ci-test-artifacts.py` 整文件或成员 `Cargo.toml` 内容，仅绑定工具链、镜像摘要、`units.CACHE_SCHEMA`、根 `Cargo.toml`/`Cargo.lock` 及排序后的 `member_manifests` **路径列表**；成员 `Cargo.toml` 内容变化交由 `ci-test-artifacts.py::cache_restore()` 基于 `(bytes, mode, sha256)` 刷新 mtime 触发 Cargo 安全增量重编。
-2. **严防无过渡覆盖的单侧 Writer 迁移，落实非 root 候选读端与可信写端精确配对（`#6732`、`#6713`、`#7005`）**：
+1. **工作区缓存主键剔除高频无关噪音（`#6929`、`#6935` `ORDINARY_STABLE_IDENTITY`、以及 `Cargo.lock` 前缀解耦）**：
+   - `scripts/ci-workspace-cache.py` 的 `ordinary` 前缀不哈希无关的 `ci-formal-process-suites.json`、高频演进的 `ci-test-artifacts.py` 整文件、成员 `Cargo.toml` 内容或 `Cargo.lock` 内容，仅绑定工具链、镜像摘要、`units.CACHE_SCHEMA`、根 `Cargo.toml` 及排序后的 `member_manifests` **路径列表**；成员 `Cargo.toml` 与 `Cargo.lock` 内容变化保留在精确提交后缀并交由 `ci-test-artifacts.py::cache_restore()` 基于 `(bytes, mode, sha256)` 刷新 mtime 触发 Cargo 安全重算受影响指纹（使增删内部依赖边或小幅依赖对齐的 PR 仍能通过 `restore-keys` 复用工作区单元缓存）；构建与消费端的测试二进制 `--list` 清单校验采用 4 线程有界并发。
+2. **严防无过渡覆盖的单侧 Writer 迁移，落实非 root 候选读端与可信写端精确配对（`#6732`、`#6713`、`#7005`、`#7040`）**：
    - **反例教训（`#6732` 早期）**：当缓存身份包含容器镜像摘要（如 `ORDINARY_BUILD_IMAGE`）时，若直接迁走宿主读端唯一依赖的 writer 且未对齐读端环境哈希，会导致普通 PR 全面退化为 `20–37m` 冷编译；
    - **可信写端与候选非 root 读端配对**：可信 `main` 的 `oasis7-test-build-trusted` 运行于 `ci-rust-ordinary-builder` 并声明 `ORDINARY_BUILD_IMAGE` 写入镜像依赖缓存与 `ordinary-workspace-v1`；`oasis7-test-build-candidate` 在受信任计划确认无需宿主 Docker canonical WASM 材料（`ordinary_candidate_image == 'true'`）时，以 `--user 1001:1001 --init --tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec` 只读进入同一完整摘要镜像（跳过 `setup-python` 避免注入 `PKG_CONFIG_PATH`，保持默认 `/opt/oasis7-mold` 链接器路径使 Swatinem 与 `ordinary-workspace-v1` 环境哈希与 writer 100% 一致，并在预检中强验 `1001:1001` 无附加组且连接 `/var/run/docker.sock` 返回 `PermissionError`）；仅在 `test_policy_changed=true` 或 `candidate-full` 等确需 Docker WASM 构建的罕见路径回退宿主 `ubuntu-24.04`（保留 SDK 回收与 `ci-shared-native-trusted-v4`）。
 3. **构建期源码树输入快照防篡改与嵌套独立 `[workspace]` `target/` 清理不变量（`#7014`、`#7010`）**：
@@ -79,7 +79,7 @@
 
 ## 4. 标准本地验证闭环
 
-修改缓存身份、产物打包、预热上下文或容器镜像接线时，推送前按范围执行（注意 `ci-workspace-cache.test.py`、`ci-builtin-test-resources.test.py`、`ci-formal-process.test.py` 等非 `EVOLVING_POLICY_TESTS` 套件若未触发全量策略迁移，还须用 `origin/main` 基线测试源码对候选脚本做跨版本兼容校验）：
+修改缓存身份、产物打包、预热上下文或容器镜像接线时，推送前按范围执行（注意 `ci-builtin-test-resources.test.py` 等非 `EVOLVING_POLICY_TESTS` 套件若未触发全量策略迁移，还须用 `origin/main` 基线测试源码对候选脚本做跨版本兼容校验）：
 
 ```bash
 RUST_TC="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"

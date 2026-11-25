@@ -65,10 +65,10 @@
 <a id="trusted-control-split-and-simulation"></a>
 ## 4. 受信控制面分流边界、两步式前置与 `FIXED_TESTS` 跨版本仿真
 
-自 `#6928` 起，`scripts/ci-python-control-contracts.py` 将 `plan-rust-required-scope.test.py`、`ci-bin-ownership.test.py`、`ci-full-result.test.py`、`ci-workflow.test.py` 列入 `EVOLVING_POLICY_TESTS`：
+自 `#6928` 起，`scripts/ci-python-control-contracts.py` 将 `plan-rust-required-scope.test.py`、`ci-bin-ownership.test.py`、`ci-formal-process.test.py`、`ci-full-result.test.py`、`ci-workflow.test.py`、`ci-workspace-cache.test.py` 列入 `EVOLVING_POLICY_TESTS`：
 
 1. **常规拓扑与选测演进默认单 PR 原子收口**：对 `EVOLVING_POLICY_TESTS`，`policy_sha` 侧仅强制执行 `FIXED_TESTS` 中的安全红线子集（如 `ci-workflow.test.py` 的 21 项安全不变量），完整更新后的套件在候选工作区运行。因此普通的 `needs:` 调整、投影字段扩展、步骤级 `if:` 改写可直接与 `.github/workflows/rust.yml` **在同一 PR 内同步更新**，无需无故拆微 PR。
-2. **何时才需 `PR-A -> PR-B` 两步式兼容前置**：仅当改动需要调整 `policy_sha` 上 `FIXED_TESTS` 锁死的红线契约（含 `FIXED_TESTS['scripts/ci-required-result.test.py'] = None` 全集），或触及非 `EVOLVING_POLICY_TESTS` 契约套件（如 `ci-formal-process.test.py`、`ci-contract-jobs.test.py`）且本 PR 未触发全量策略迁移（`boundaries` 含 `scripts/ci-required-scope.json` 或 `scripts/ci-python-control-contracts.py`）时，才先提 **PR-A**（受信契约双态兼容前置，走 `scoped_control_paths` 快速合入更新 `policy_sha`，且不在 PR-A 提前写入依赖 PR-B 的断言）再提 **PR-B** 切换收口。
+2. **何时才需 `PR-A -> PR-B` 两步式兼容前置**：仅当改动需要调整 `policy_sha` 上 `FIXED_TESTS` 锁死的红线契约（含 `FIXED_TESTS['scripts/ci-required-result.test.py'] = None` 全集），或触及非 `EVOLVING_POLICY_TESTS` 契约套件（如 `ci-builtin-test-resources.test.py`、`ci-contract-jobs.test.py`）且本 PR 未触发全量策略迁移（`boundaries` 含 `scripts/ci-required-scope.json` 或 `scripts/ci-python-control-contracts.py`）时，才先提 **PR-A**（受信契约双态兼容前置，走 `scoped_control_paths` 快速合入更新 `policy_sha`，且不在 PR-A 提前写入依赖 PR-B 的断言）再提 **PR-B** 切换收口。
 3. **推送前验证 `policy_sha` `FIXED_TESTS` 红线兼容性**：修改 `rust.yml` 前可在本地精确加载 `origin/main` 的 `FIXED_TESTS['scripts/ci-workflow.test.py']` 对当前候选工作区做秒级跨版本校验（改动涉及 `ci-full-result.py` 时一并核对 `FIXED_TESTS` 中的 `ci-full-result.test.py` 项）：
    ```bash
    python3 -c "

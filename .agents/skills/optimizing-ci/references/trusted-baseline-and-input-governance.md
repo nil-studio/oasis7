@@ -53,7 +53,7 @@
 - **严禁入集（易随优化演进的拓扑/形态细节）**：具体 job 的精确 `needs:` 数组、预构建镜像目标完整枚举、`contract_job_consolidation_version` 归并形态、`main-fast` 具体冷却参数或迁移期模块路径断言。一旦将此类断言塞入 `FIXED_TESTS`，每次合法优化都会退化回两步式前置 PR。
 
 ### 4.2 何时将新套件纳入 `EVOLVING_POLICY_TESTS`
-- 当某个非 `EVOLVING_POLICY_TESTS` 控制契约套件（例如 `ci-workspace-cache.test.py`、`ci-contract-jobs.test.py`）因正常策略优化重复出现 `Step 1/2` 双态过渡 PR，或重型子进程套件在 baseline 与 candidate 重复全量执行拖慢 `workflow-governance` 时：
+- 当某个非 `EVOLVING_POLICY_TESTS` 控制契约套件（例如 `ci-builtin-test-resources.test.py`、`ci-contract-jobs.test.py`）因正常策略优化重复出现 `Step 1/2` 双态过渡 PR，或重型子进程套件在 baseline 与 candidate 重复全量执行拖慢 `workflow-governance` 时：
   1. 盘点该套件，提取非空真安全红线列表写入 `FIXED_TESTS` 与 `ci-python-control-contracts.test.py` 的 `REQUIRED_FIXED_TESTS`；
   2. 将该套件路径加入 `EVOLVING_POLICY_TESTS`（由于 `scripts/ci-python-control-contracts.py` 自身位于 `migration_paths` 的 `boundaries` 内，该升级 PR 在满足完整 `scope=full` 组覆盖时可单 PR 平滑自迁移）；
   3. 常规使用边界与本地 `policy_sha` `FIXED_TESTS` 跨版本秒级仿真命令见 [按需选测与快速失败分册 §4](on-demand-scope-and-preflight.md#trusted-control-split-and-simulation)。
