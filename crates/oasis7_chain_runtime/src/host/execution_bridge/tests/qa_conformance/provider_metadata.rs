@@ -177,7 +177,10 @@ impl MetadataServer {
                                 )
                                 .unwrap();
                             }
-                            let base = oasis7_agent_api::DecisionResponse {
+                            let base = oasis7_agent_api::DecisionResponse::<
+                                oasis7_simulator::Action,
+                                oasis7_simulator::AgentQuery,
+                            > {
                                 decision: if first_wait {
                                     oasis7_agent_api::ProviderDecision::WaitTicks { ticks: 2 }
                                 } else {
