@@ -23,6 +23,7 @@
 | `scripts/ci-required-result.py` | 在 `required-gate` 中根据 `plan` 与 `*_version` 将逻辑检查组映射到实际必须成功的宿主 job 或直接分片 | `scripts/ci-required-result.test.py` |
 | `scripts/ci-full-result.py` | 校验全量门禁收据与工作流定义摘要（`definition_digest`），升级任何 `*_version` 时必须同步允许集合 | `scripts/ci-full-result.test.py` |
 | `scripts/ci-custody-platform.py` | Custody 拆片打包、不可变测试清单导出（`export-inventory`）与零检出完整性验证（`validate --context-file`） | `scripts/ci-custody-platform.test.py` |
+| `scripts/ci-python-control-contracts.py` | 在 `workflow-governance` 中总控 `ci-authority` 受信测试：默认用 `policy_sha` 测试跑候选代码，仅 `migration == ['scripts/ci-required-scope.json']` 委托可迁移套件，但 `FIXED_TESTS` 始终在受信侧强制执行且禁删改签名 | `scripts/ci-python-control-contracts.test.py` |
 
 ## 3. 四大验证有效的缩减模式
 
@@ -57,6 +58,7 @@
 
 1. **旧 Job 用版本守卫退役而非直接硬删**：新增或递增 `*_version` 时，旧独立 job 必须保留并以 `!= <new_ver>` 守护跳过；`ci-required-result.py` 与 `ci-full-result.py` 继续兼容旧版本号映射。
 2. **`required-gate` `needs:` 兼容规则**：本优化 PR 合入前在远端首次运行 CI 时，`policy_sha` 仍是旧版 `origin/main`（执行 `scope=full` 旧语义）。旧版 `ci-required-result.py` 要求 `required-gate` `needs:` 中的任何额外 job 在 `scope=full` 下必须为 `success`（不能为 `skipped`）。因此向 `required-gate` 新增 `needs:` 时，只能加入在旧版 `scope=full` 下也会实际执行并成功的 job（如 `custody-*`），绝不能加入在 `scope=full` 下会被 `skipped` 的 legacy fallback job（如 `workspace-support-legacy`）。
+3. **无版本分支静态断言采用两步式切换**：若修改 `rust.yml` 触及 `policy_sha` `ci-workflow.test.py` 中未按 `*_version` 门控的硬编码结构断言，按 [按需选测与快速失败分册 §4](on-demand-scope-and-preflight.md#4-两步式可信测试前置切片pr-a---pr-b与跨版本本地仿真) 执行 `PR-A`（可信测试双态兼容前置）-> `PR-B`（工作流切换与收紧）。
 
 ## 5. 标准本地闭环命令与防坑核对表
 
@@ -74,19 +76,27 @@ python3 scripts/ci-full-result.test.py
 python3 scripts/ci-custody-platform.test.py
 python3 scripts/resolve-product-doc-ci-range.test.py RangeTests.test_workflow_wiring_is_baseline_only_and_cannot_override_exports
 
-# 3. 完整工作流图与范围规划回归
+# 3. 完整工作流图、范围规划回归与跨版本 policy_sha 校验（详见 on-demand-scope-and-preflight.md §4）
 TMPDIR=/dev/shm python3 scripts/ci-workflow.test.py
 TMPDIR=/dev/shm RUSTUP_TOOLCHAIN=1.96.0 python3 scripts/plan-rust-required-scope.test.py
+python3 scripts/ci-python-control-contracts.py local-governance
 
-# 4. PR 切片边界与本地快速基线
-./scripts/check-pr-boundaries.sh --slice Chore
+# 4. 同步修改 doc/testing/ci/*.md 设计文档时执行文档治理与追溯检查（需 markdown-it-py==3.0.0）
+./scripts/doc-governance-check.sh
+python3 scripts/system-design-traceability-check.test.py
+
+# 5. PR 切片边界与本地快速基线
+./scripts/check-pr-boundaries.sh --slice Chore --allowed-crates none
 python3 scripts/check-local.py --profile quick --base-ref origin/main
 ```
 
-提交前逐项核对 6 个高频陷阱：
+提交前逐项核对 9 个高频陷阱：
 1. **宿主容器环境与 UID**：迁入 `ci-rust-build` 容器（`--user 1001:1001`）或其他宿主 job 时，核对 Python 3.12、`markdown-it-py` venv、`jq`、`ruby`、`rustc`/`cargo`/`clippy` 与 `safe.directory` 是否齐全。
 2. **`baseline` 步级环境变量禁令**：`scripts/resolve-product-doc-ci-range.test.py` 禁止 `baseline` 内任何步骤声明 `OASIS7_PRODUCT_DOC_BASE:` 或 `OASIS7_PRODUCT_DOC_HEAD:` 覆盖前序步骤写入的 `$GITHUB_ENV`。
 3. **Rust 缓存配对 `if:` 不变量**：`scripts/ci-workflow.test.py` 强制要求同一 job 内 `Stabilize Rust cache toolchains` 与 `Swatinem/rust-cache` 的 `if:` 表达式完全相同。
 4. **旁路工作流静态解析测试**：修改 `.github/workflows/codeql.yml` 等旁路工作流前，先检索对应测试（如 `scripts/security/codeql-rust-coverage.test.py` 对 `paths-ignore:` 的切分假设）。
 5. **负向突变单测替换范围**：在 `ci-workflow.test.py` 构造突变用例时，注意同一表达式可能在 job 级与多个 step 级同时出现，避免 `.replace(..., 1)` 只改第一处而漏测。
 6. **版本上限与旧基线模拟测试同步**：递增 `*_version` 后，同步更新 `plan-rust-required-scope.test.py` 的非法版本负向断言、旧基线回退测试（一并 `pop` 新增能力键）及 `ci-workflow.test.py` 的 `validate_candidate_graph`。
+7. **`rust.yml` 双投影字段列表同步**：向 `selection.json` 新增工作流消费字段时，必须同时更新 `select` 的 `workflow-plan` 与门禁共用的 `&validate-complete-selection` 两处 `fields` 投影及多键同现校验，并在 `ci-workflow.test.py` 的 `test_large_workflow_projection_preserves_fields_and_binds_complete_file_and_identity` 登记该 `fromJSON(needs.select.outputs.plan).<key>`。
+8. **单行 `if:` 改多行 `if: >-` 破坏静态断言**：给既有步骤追加条件前，先检索 `ci-workflow.test.py` 中对该步骤的 `assertIn("if: runner.os == ...")`，提前放宽为兼容 `if:\s*(?:>-\s*)?` 的正则（单引号 `'` 后勿加 `\b`）。
+9. **`plan-rust-required-scope.test.py` 临时 Cargo 夹具约束**：`cargo_graph` 要求夹具根 `Cargo.toml` 显式列出具体 `members` 路径（禁 `"crates/*"` 通配）并包含 `[workspace.dependencies]`（推荐基于 `self.ROOT_TOML` 派生），且所有夹具文件路径须命中已注册规则以免触发 `UnknownInputsError`。
