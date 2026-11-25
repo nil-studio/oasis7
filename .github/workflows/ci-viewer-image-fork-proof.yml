@@ -1,0 +1,42 @@
+name: Viewer image fork proof
+
+on:
+  pull_request:
+    branches: [codex/engineering-viewer-ci-fork-base]
+    types: [opened]
+
+permissions:
+  contents: read
+  packages: read
+
+cache-mode: none
+
+jobs:
+  pull:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == 'eng-cc/oasis7-ci-validation' &&
+      github.event.pull_request.head.ref == 'task/engineering-viewer-ci-fork-proof'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-viewer@sha256:24c8784c4d8f85b0b9e651f632cece06bb9259affe915fe281896290137e4e45
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Verify the published Viewer browser from a true fork
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          node --version
+          node -e 'if (!process.version.startsWith("v24.")) process.exit(1)'
+          npm --version
+          rustc +1.96.0 --version
+          rustup target list --installed --toolchain 1.96.0 | grep -Fx wasm32-unknown-unknown
+          test -w /.cache/oasis7
+          python3 /opt/oasis7-viewer-browser/scripts/ci-browser-deps.py activate --prebuilt --browser agent \
+            --work-dir "$RUNNER_TEMP/oasis7-ci-browser-agent"
