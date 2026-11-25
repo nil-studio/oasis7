@@ -47,9 +47,7 @@ fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire()
 
 #[test]
 fn production_chain_manifest_has_no_umbrella_edge_and_retains_original_qa() {
-    // A production build must link native owners directly. Until the
-    // remaining Hosted Wait / provider test consumers migrate, the old
-    // umbrella is permitted only as a dev dependency.
+    // Both production and dev paths use native owners; keep original real TCP QA.
     let manifest: toml::Value =
         toml::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")))
             .expect("ChainRuntime package manifest is valid TOML");
@@ -63,7 +61,11 @@ fn production_chain_manifest_has_no_umbrella_edge_and_retains_original_qa() {
     let qa = manifest["dev-dependencies"]
         .as_table()
         .expect("original QA dependency table");
-    assert!(qa.contains_key("oasis7"), "original QA remains until final cutover");
+    assert!(!qa.contains_key("oasis7"), "Chain dev umbrella edge must be retired");
+    assert!(
+        qa.contains_key("oasis7_viewer_runtime"),
+        "original hosted live-server QA harness remains active"
+    );
     for feature in ["wasmtime", "test_tier_required", "test_tier_full"] {
         for dependency in manifest["features"][feature]
             .as_array()

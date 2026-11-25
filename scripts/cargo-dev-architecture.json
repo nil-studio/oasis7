@@ -1858,6 +1858,38 @@
         "build",
         "dev"
       ]
+    },
+    {
+      "key": "chain-runtime-umbrella-retirement",
+      "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology",
+      "roots": [{ "name": "oasis7_chain_runtime", "source": null, "version": "0.1.0" }],
+      "forbidden": [{ "name": "oasis7" }],
+      "kinds": ["normal", "build"],
+      "declaration_kinds": ["normal", "build", "dev"],
+      "profiles": [
+        { "id": "default", "target": "host", "default_features": true, "features": [], "mode": "production" },
+        { "id": "lightweight", "target": "host", "default_features": false, "features": [], "mode": "production" },
+        { "id": "test_tier_required", "target": "host", "default_features": true, "features": ["test_tier_required"], "mode": "test" },
+        { "id": "test_tier_full", "target": "host", "default_features": true, "features": ["test_tier_full"], "mode": "test" }
+      ],
+      "allows": ["Chain calls native L0-L4 owners; dev Viewer hosted live-server QA is preserved"],
+      "exceptions": [],
+      "test_edges": [
+        {
+          "root": { "name": "oasis7_chain_runtime", "source": null, "version": "0.1.0" },
+          "dependency": { "name": "oasis7_viewer_runtime", "source": null, "version": "0.1.0" },
+          "cfg": null,
+          "default_features": false,
+          "features": ["test_tier_required"],
+          "purpose": "original hosted live-server QA; Viewer umbrella retirement belongs to #6149",
+          "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology",
+          "kind": "dev",
+          "target": "host",
+          "profiles": ["test_tier_required", "test_tier_full"]
+        }
+      ],
+      "required_profiles": ["default", "lightweight", "test_tier_required", "test_tier_full"],
+      "test_kinds": ["normal", "build", "dev"]
     }
   ]
 }

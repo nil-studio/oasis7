@@ -91,6 +91,39 @@ class RepositoryUpstreams(unittest.TestCase):
                 self.assertIn('oasis7_client_api', actual)
 
 
+    def test_chain_native_provider_cutover_keeps_real_tcp_and_retirement_gate(self):
+        root = HERE.parent
+        manifest = (root / 'crates/oasis7_chain_runtime/Cargo.toml').read_text(encoding='utf-8')
+        self.assertNotIn('oasis7 = { path = "../oasis7"', manifest)
+        self.assertIn('oasis7_viewer_runtime = {', manifest)
+        qa = (root / 'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/'
+              'qa_conformance/application_fresh.rs').read_text(encoding='utf-8')
+        self.assertIn('use oasis7_runtime_host::provider_loopback_adapter::', qa)
+        for witness in (
+            'real_tcp_hosted_fresh_admission_observes_reserves_and_invokes_provider',
+            'application_harness::run_isolated_application_mode(',
+            'ProviderLoopbackAdapter::new(&endpoint, None, 1000)',
+            '.decide_with_continuous_request_context(',
+            'assert_eq!(response.request_digest, request.request_digest)',
+            'fresh-provider-counter-reset',
+            'canonical_reserve_prefix_start_count=0',
+        ):
+            self.assertIn(witness, qa)
+        self.assertNotIn('oasis7::simulator', qa)
+        self.assertNotIn('MockDecisionProvider', qa)
+        self.assertNotIn('#[ignore]', qa)
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
+        selected = [r for r in rules if r['key'] == 'chain-runtime-umbrella-retirement']
+        self.assertEqual(len(selected), 1)
+        rule = selected[0]
+        self.assertEqual([x['name'] for x in rule['roots']], ['oasis7_chain_runtime'])
+        self.assertEqual([x['name'] for x in rule['forbidden']], ['oasis7'])
+        self.assertEqual(set(rule['declaration_kinds']), {'normal', 'build', 'dev'})
+        self.assertEqual(set(rule['test_kinds']), {'normal', 'build', 'dev'})
+        self.assertEqual(set(rule['required_profiles']),
+                         {'default', 'lightweight', 'test_tier_required', 'test_tier_full'})
+        self.assertEqual(rule['exceptions'], [])
+
 
 class CargoBoundaries(unittest.TestCase):
     def setUp(self):
