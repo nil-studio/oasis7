@@ -1,6 +1,6 @@
 //! Repeat in fresh processes; allocator bytes are live requested bytes, not RSS.
-use oasis7::chain_resource_schema::ChainResourceDerivationContext;
 use oasis7::simulator::{WorldKernel as Host, WorldSnapshot};
+use oasis7_agent_api::world_resource::ChainResourceDerivationContext;
 use oasis7_simulator::{Action, GeoPos, LocationProfile, WorldKernel as Native};
 use sha2::{Digest, Sha256};
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -207,8 +207,8 @@ fn main() {
             &prefix.events,
         );
         if extended {
-            let mut runtime = oasis7::runtime::World::new();
-            runtime.submit_action(oasis7::runtime::Action::RegisterAgent {
+            let mut runtime = oasis7_runtime::World::new();
+            runtime.submit_action(oasis7_runtime::Action::RegisterAgent {
                 agent_id: "historical-agent".into(),
                 pos: GeoPos::new(1, 2, 3),
             });
@@ -236,8 +236,8 @@ fn main() {
         let mut journal = host_journal(journal);
         let mut prefix = prefix;
         if extended {
-            let mut runtime = oasis7::runtime::World::new();
-            runtime.submit_action(oasis7::runtime::Action::RegisterAgent {
+            let mut runtime = oasis7_runtime::World::new();
+            runtime.submit_action(oasis7_runtime::Action::RegisterAgent {
                 agent_id: "historical-agent".into(),
                 pos: GeoPos::new(1, 2, 3),
             });

@@ -24,8 +24,6 @@ mod decision_provider;
 #[cfg(not(target_arch = "wasm32"))]
 mod llm_agent;
 mod memory;
-#[cfg(not(target_arch = "wasm32"))]
-mod model_provider;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
@@ -39,7 +37,6 @@ mod provider_loopback_adapter;
 mod provider_loopback_http;
 mod provider_material_capture;
 mod runner;
-pub(crate) mod runtime_perf;
 #[cfg(not(target_arch = "wasm32"))]
 mod turn_engine;
 
@@ -74,7 +71,6 @@ mod canonical_contract_owner_tests {
 }
 
 // Re-export all public types
-pub use crate::capability_invocation_context::CapabilityInvocationContext;
 pub use agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionExplanationV1, AgentDecisionTrace,
     AgentQuery, AgentQueryResult, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
@@ -86,7 +82,6 @@ pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::project_receipt_memory;
 #[cfg(not(target_arch = "wasm32"))]
-#[allow(unused_imports)] // Retained for the B3 Harness adapter boundary.
 pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::{
@@ -130,6 +125,7 @@ pub use decision_provider::{
     ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage, ProviderTraceEnvelope,
     ProviderTranscriptEntry, golden_decision_provider_fixtures,
 };
+pub use oasis7_agent_api::CapabilityInvocationContext;
 pub use oasis7_agent_api::intent_summary::{
     AGENT_INTENT_SUMMARY_MAX_CHARS, AGENT_INTENT_SUMMARY_SCHEMA_VERSION,
     AUTHORITATIVE_AGENT_INTENT_SOURCES, AgentIntentKindV1, AgentIntentSourceV1,
@@ -176,12 +172,6 @@ pub use llm_agent::{
 pub use memory::{
     AgentMemory, LongTermMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind, ShortTermMemory,
 };
-#[cfg(not(target_arch = "wasm32"))]
-pub use model_provider::{
-    LlmCompletionModelProvider, ModelProvider, ModelProviderError, ModelProviderRequest,
-    ModelProviderResponse, ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry,
-    ModelProviderTurn, ModelProviderUsage,
-};
 pub use oasis7_agent_harness::llm_defaults::{
     DEFAULT_CONFIG_FILE_NAME, DEFAULT_LLM_FORCE_REPLAN_AFTER_SAME_ACTION,
     DEFAULT_LLM_LONG_TERM_GOAL, DEFAULT_LLM_MAX_DECISION_STEPS, DEFAULT_LLM_MAX_MODULE_CALLS,
@@ -192,6 +182,14 @@ pub use oasis7_agent_harness::llm_defaults::{
     ENV_LLM_PROMPT_MAX_HISTORY_ITEMS, ENV_LLM_PROMPT_PROFILE, ENV_LLM_SHORT_TERM_GOAL,
     ENV_LLM_SYSTEM_PROMPT, ENV_LLM_TIMEOUT_MS,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use oasis7_agent_harness::{
+    ModelProvider, ModelProviderError, ModelProviderRequest, ModelProviderResponse,
+    ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry, ModelProviderTurn,
+    ModelProviderUsage,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use oasis7_model_provider::legacy_model_adapter::LlmCompletionModelProvider;
 pub use oasis7_simulator::{
     Action, ActionEnvelope, ActionId, ActionSubmitter, AgentId, AssetId,
     CHUNK_GENERATION_SCHEMA_VERSION, CM_PER_KM, ChunkResourceBudget,
@@ -246,7 +244,6 @@ pub use provider_loopback_http::{
     ProviderLoopbackHttpError, REMOTE_HTTPS_PROVIDER_TRANSPORT, evaluate_provider_compatibility,
     provider_agent_chat_log_key, provider_phase1_required_actions,
     provider_phase1_required_capabilities, validate_provider_http_base_url,
-    validate_provider_loopback_http_base_url,
 };
 pub use runner::{
     AgentQuota, AgentRunner, AgentStats, AgentTickResult, RateLimitPolicy, RateLimitState,
@@ -263,7 +260,7 @@ pub use oasis7_simulator::{
     AgentPowerState, AgentPowerStatus, ConsumeReason, PlantStatus, PowerConfig, PowerEvent,
     PowerPlant, PowerSaleQuote, PowerSurvivalQuote,
 };
-pub use runtime_perf::{
+pub use oasis7_simulator::{
     RuntimePerfBottleneck, RuntimePerfHealth, RuntimePerfSeriesSnapshot, RuntimePerfSnapshot,
     unsupported_runtime_perf_snapshot,
 };

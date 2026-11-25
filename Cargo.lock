@@ -6796,6 +6796,7 @@ dependencies = [
  "oasis7_world_service",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -6845,6 +6846,7 @@ dependencies = [
  "oasis7",
  "oasis7_client_api",
  "oasis7_proto",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "serde",
  "serde_json",
@@ -6882,7 +6884,6 @@ dependencies = [
  "serde_ignored",
  "serde_json",
  "sha2 0.11.0",
- "toml",
  "tracing",
  "tungstenite",
  "unicode-normalization",

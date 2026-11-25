@@ -12,7 +12,7 @@ pub(in crate::viewer::runtime_live) fn restore_agent_feedback_history(
     world: &RuntimeWorld,
     runner: &mut AsyncAgentRunner,
 ) -> Result<(), String> {
-    let authority = super::harness_authority::RuntimeWorldAuthority::new(world);
+    let authority = oasis7::runtime_host::harness_authority::RuntimeWorldAuthority::new(world);
     runner
         .host_restore_feedback_history(&authority)
         .map_err(|error| format!("Runtime feedback verifier recovery failed: {error}"))

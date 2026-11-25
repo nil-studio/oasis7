@@ -58,7 +58,7 @@ http://127.0.0.1:4173/viewer.html?ws=ws://127.0.0.1:5011&test_api=1&locale=zh
 优先使用配套脚本完成环境编排：
 
 ```bash
-rtk ./scripts/run-local-public-testnet-letai-test-environment.sh \
+./scripts/run-local-public-testnet-letai-test-environment.sh \
   --manifest "$OASIS7_TESTNET_MANIFEST" \
   --letai-config "$LETAI_TOKEN_FILE" \
   --letai-platform-env "$LETAI_PLATFORM_ENV"
@@ -84,7 +84,7 @@ rtk ./scripts/run-local-public-testnet-letai-test-environment.sh \
 仅做环境/端口/节点检查，不启动服务：
 
 ```bash
-rtk ./scripts/run-local-public-testnet-letai-test-environment.sh \
+./scripts/run-local-public-testnet-letai-test-environment.sh \
   --preflight-only \
   --manifest "$OASIS7_TESTNET_MANIFEST" \
   --letai-config "$LETAI_TOKEN_FILE"
@@ -135,14 +135,14 @@ OASIS7_PUBLIC_TESTNET_CHAIN_SUBMIT_BIND=<public-testnet-submit-host>:<port>
 先确认端口和健康：
 
 ```bash
-rtk lsof -nP -iTCP:19083 -sTCP:LISTEN
-rtk curl -sS http://127.0.0.1:19083/healthz
+lsof -nP -iTCP:19083 -sTCP:LISTEN
+curl -sS http://127.0.0.1:19083/healthz
 ```
 
 核对同一份 formal manifest 与 world identity：
 
 ```bash
-rtk jq '{
+jq '{
   schema_version,
   tier,
   status,
@@ -151,7 +151,7 @@ rtk jq '{
   runtime_refs
 }' "$OASIS7_TESTNET_MANIFEST"
 
-rtk curl -sS http://127.0.0.1:19083/v1/chain/status | jq '{
+curl -sS http://127.0.0.1:19083/v1/chain/status | jq '{
   node_id,
   world_id,
   tier: .network_tier.tier,
@@ -194,7 +194,7 @@ rtk curl -sS http://127.0.0.1:19083/v1/chain/status | jq '{
 先构建服务和签名转账客户端：
 
 ```bash
-rtk ./scripts/cargo-dev.sh build \
+./scripts/cargo-dev.sh build \
   -p oasis7_protocol_tools -p oasis7_newapi_bridge_service \
   --bin oasis7_newapi_bridge_service \
   --bin oasis7_chain_transfer_submit_client
@@ -246,7 +246,7 @@ export OASIS7_PROVIDER_LIVE_TARGET_CONTEXT_PAYLOAD_FILE="<local-secure-dir>/runt
 启动 `oasis7_newapi_bridge_service`。下面命令只传 secret 环境变量名，不把 platform key 放进长驻进程 argv；`LETAI_PLATFORM_KEY` 必须已经在当前 operator shell 中设置：
 
 ```bash
-rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); \
+bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); \
 IFS="," read -r -a pricing_rules <<< "$OASIS7_NEWAPI_BRIDGE_PRICING_RULES"; \
 cmd=("$target_dir/debug/oasis7_newapi_bridge_service" \
   --bind-addr 127.0.0.1:5852 \
@@ -268,7 +268,7 @@ exec "${cmd[@]}"'
 验证 5852：
 
 ```bash
-rtk curl -sS http://127.0.0.1:5852/v1/bridge/health | jq '{
+curl -sS http://127.0.0.1:5852/v1/bridge/health | jq '{
   ok,
   binding_count,
   project_binding_count,
@@ -296,7 +296,7 @@ export TEST_PROJECT_NAME=oasis7-e2e
 建立用户绑定：
 
 ```bash
-rtk curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/bind" \
+curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/bind" \
   -H 'Content-Type: application/json' \
   -d "{
     \"newapi_user_ref\": \"$TEST_NEWAPI_USER_REF\",
@@ -316,7 +316,7 @@ export TEST_BRIDGE_USER_ID="$(
   jq -r '.bridge_user_id' "$OASIS7_LOCAL_TEST_STATE_DIR/newapi-bind-response.json"
 )"
 
-rtk curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/deposit-route" \
+curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/deposit-route" \
   -H 'Content-Type: application/json' \
   -d "{
     \"bridge_user_id\": \"$TEST_BRIDGE_USER_ID\",
@@ -336,7 +336,7 @@ export TEST_DEPOSIT_TOKEN="$(
   jq -r '.deposit_token' "$OASIS7_LOCAL_TEST_STATE_DIR/newapi-deposit-route-response.json"
 )"
 
-rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); \
+bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); \
 "$target_dir/debug/oasis7_chain_transfer_submit_client" submit \
   --keys-file "$OASIS7_TEST_KEYS_FILE" \
   --persona happy_path \
@@ -350,7 +350,7 @@ rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_t
 转账 confirmed 后触发 reconcile：
 
 ```bash
-rtk curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/reconcile" | jq '{
+curl -sS -X POST "$BRIDGE_BASE_URL/v1/bridge/reconcile" | jq '{
   ok,
   observed_transfer_count,
   credited_count,
@@ -383,7 +383,7 @@ Cloudflare `403`，而经本机代理返回 JSON API 错误，先把 operator �
 同一个 shell，再判断凭据：
 
 ```bash
-rtk scutil --proxy | sed -n '1,80p'
+scutil --proxy | sed -n '1,80p'
 export http_proxy="${OASIS7_PROXY_URL:?set approved HTTP proxy URL}"
 export HTTP_PROXY="$http_proxy"
 export https_proxy="$http_proxy"
@@ -412,7 +412,7 @@ Cloudflare `403` 后 SDK 出现的 `decode_error` 只是代理遗漏的二次症
    ```bash
    LETAI_TOKEN_SOURCE_FILE="$LETAI_TOKEN_FILE"
    export LETAI_TOKEN_FILE="$RUN_DIR/letai-local-token.env"
-   rtk ./scripts/ensure-letai-local-token-config.sh \
+   ./scripts/ensure-letai-local-token-config.sh \
      --config "$LETAI_TOKEN_SOURCE_FILE" \
      --out "$LETAI_TOKEN_FILE" \
      --model "$MODEL"
@@ -425,7 +425,7 @@ Cloudflare `403` 后 SDK 出现的 `decode_error` 只是代理遗漏的二次症
 
    ```bash
    export LETAI_AUTHORITATIVE_MAPPING_FILE="$RUN_DIR/authoritative-project-mapping.env"
-   rtk ./scripts/ensure-letai-local-token-config.sh \
+   ./scripts/ensure-letai-local-token-config.sh \
      --config "$LETAI_TOKEN_SOURCE_FILE" \
      --authoritative-mapping "$LETAI_AUTHORITATIVE_MAPPING_FILE" \
      --out "$LETAI_TOKEN_FILE" \
@@ -438,14 +438,14 @@ Cloudflare `403` 后 SDK 出现的 `decode_error` 只是代理遗漏的二次症
    继续 topup 或 completion。匹配时只输出字段存在性、匹配结果和短 fingerprint，生成文件仍
    必须留在私有 `0600` run 目录。该 mapping 是本轮 project 的唯一 authority；后续 wrapper、
    native QA 和 provider retry 都必须继续使用同一个 `LETAI_TOKEN_FILE`。
-2. 运行 `rtk ./scripts/with-letai-llm-config.sh --config "$LETAI_TOKEN_FILE" --print-config`，只看 host、模型和字段存在性；不要输出 key。
+2. 运行 `./scripts/with-letai-llm-config.sh --config "$LETAI_TOKEN_FILE" --print-config`，只看 host、模型和字段存在性；不要输出 key。
 3. 在同一个 wrapper 环境内请求 `/v1/models`，只输出当前 model id；`200` 只证明可见性，不证明该模型能预扣费或完成 tool-call。
-4. Builtin Hosted W3 使用 `rtk ./scripts/check-active-llm-provider.sh --pretty` 验证 Responses 文本和 tool-call；local bridge 使用 `rtk ./scripts/check-letai-chat-completions.sh` 验证 chat-completions。两条协议的成功不能互相替代。
+4. Builtin Hosted W3 使用 `./scripts/check-active-llm-provider.sh --pretty` 验证 Responses 文本和 tool-call；local bridge 使用 `./scripts/check-letai-chat-completions.sh` 验证 chat-completions。两条协议的成功不能互相替代。
 
 安全的模型列表请求可通过环境变量承载 token，避免 token 出现在命令参数或输出中：
 
 ```bash
-rtk ./scripts/with-letai-llm-config.sh --config "$LETAI_TOKEN_FILE" -- python3 - <<'PY'
+./scripts/with-letai-llm-config.sh --config "$LETAI_TOKEN_FILE" -- python3 - <<'PY'
 import json, os, ssl, urllib.error, urllib.request
 base = os.environ["OASIS7_LLM_BASE_URL"].rstrip("/")
 request = urllib.request.Request(base + "/models", headers={"Authorization": "Bearer " + os.environ["OASIS7_LLM_API_KEY"]})
@@ -514,7 +514,7 @@ helper 没有 pending-order journal 或订单查询命令，无法自行证明 a
 **已退役的历史诊断示例，不用于当前配置生成或充值操作。** 下列片段仅保留旧排障方法的来源：它无条件将 `Key:` 解释为 `token_key`，并拼接旧平台字段，不能证明 inference token 类型或当前权威 user/project mapping；字段齐全也不代表身份正确。当前配置只按 §9.1 的既有 helper 和 authoritative mapping 生成、核验，并沿用该节显式设置的 `LETAI_TOKEN_FILE`。不得执行下列旧片段来生成当前配置，也不得将其临时输出交给当前 bridge。
 
 ```bash
-rtk python3 - <<'PY'
+python3 - <<'PY'
 from pathlib import Path
 
 import os
@@ -574,7 +574,7 @@ PY
 使用 §9.1 已生成并核验的当前配置做 sanitized config 验证，不回显密钥；以下命令不使用上面的退役示例输出：
 
 ```bash
-rtk ./scripts/run-local-letai-provider-bridge.sh \
+./scripts/run-local-letai-provider-bridge.sh \
   --config "$LETAI_TOKEN_FILE" \
   --model gpt-5.4 \
   --print-config
@@ -586,7 +586,7 @@ rtk ./scripts/run-local-letai-provider-bridge.sh \
 确有网络需要时，按 §9.2 在同一个 shell 中显式配置已授权的代理，并保留本地回环 bypass：
 
 ```bash
-rtk env \
+env \
   OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH="${OASIS7_NEWAPI_BRIDGE_STATE_PATH:?先完成第 7 节状态配置}" \
   OASIS7_PROVIDER_FEEDBACK_STATE_PATH="${OASIS7_PROVIDER_FEEDBACK_STATE_PATH:-}" \
   OASIS7_REMOTE_LLM_MAX_OUTPUT_TOKENS=64 \
@@ -600,7 +600,7 @@ rtk env \
 验证 bridge 基本信息：
 
 ```bash
-rtk curl -sS http://127.0.0.1:5841/v1/provider/info | jq '{
+curl -sS http://127.0.0.1:5841/v1/provider/info | jq '{
   provider_id,
   capabilities
 }'
@@ -614,7 +614,7 @@ Runtime-issued `decision_context`/`feedback_context` pair artifact，并调用 p
 smoke 的 `--target-context-payload-file`。
 
 ```bash
-rtk ./scripts/provider-remote-https/provider-bridge-contract-smoke.sh \
+./scripts/provider-remote-https/provider-bridge-contract-smoke.sh \
   --base-url http://127.0.0.1:5841 \
   --auth-token "newapi_user_ref:$TEST_NEWAPI_USER_REF" \
   --timeout-ms 90000 \
@@ -647,7 +647,7 @@ feedback accepted；这不等于 Runtime authority 或恢复/发布证明。若 
 `decision_route` / `feedback_route`。
 
 ```bash
-rtk ./scripts/provider-remote-https/provider-bridge-contract-smoke.sh \
+./scripts/provider-remote-https/provider-bridge-contract-smoke.sh \
   --base-url http://127.0.0.1:5841 \
   --auth-token "newapi_user_ref:$TEST_NEWAPI_USER_REF" \
   --timeout-ms 90000 \
@@ -669,13 +669,13 @@ rtk ./scripts/provider-remote-https/provider-bridge-contract-smoke.sh \
 先构建 viewer live：
 
 ```bash
-rtk ./scripts/cargo-dev.sh build -p oasis7_viewer_runtime --bin oasis7_viewer_live
+./scripts/cargo-dev.sh build -p oasis7_viewer_runtime --bin oasis7_viewer_live
 ```
 
 启动 live 服务，显式绑定已同步节点：
 
 ```bash
-rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); chain_submit_bind="${OASIS7_PUBLIC_TESTNET_CHAIN_SUBMIT_BIND:?set submit-capable host:port first}"; env \
+bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); chain_submit_bind="${OASIS7_PUBLIC_TESTNET_CHAIN_SUBMIT_BIND:?set submit-capable host:port first}"; env \
   OASIS7_AGENT_DECISION_SOURCE=provider_backed \
   OASIS7_AGENT_PROVIDER_BACKEND=provider_local_bridge \
   OASIS7_AGENT_PROVIDER_CONTRACT=worldsim_provider_v1 \
@@ -705,7 +705,7 @@ rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_t
 如果已有 `4173` 静态服务，可复用。否则启动：
 
 ```bash
-rtk python3 -m http.server 4173 \
+python3 -m http.server 4173 \
   --bind 127.0.0.1 \
   --directory crates/oasis7_viewer/dist
 ```
@@ -715,7 +715,7 @@ rtk python3 -m http.server 4173 \
 确认入口可访问：
 
 ```bash
-rtk curl -sSI 'http://127.0.0.1:4173/viewer.html?ws=ws://127.0.0.1:5011&test_api=1&locale=zh' \
+curl -sSI 'http://127.0.0.1:4173/viewer.html?ws=ws://127.0.0.1:5011&test_api=1&locale=zh' \
   | sed -n '1,5p'
 ```
 
@@ -724,7 +724,7 @@ rtk curl -sSI 'http://127.0.0.1:4173/viewer.html?ws=ws://127.0.0.1:5011&test_api
 端口：
 
 ```bash
-rtk lsof -nP \
+lsof -nP \
   -iTCP:19083 \
   -iTCP:5852 \
   -iTCP:5841 \
@@ -737,7 +737,7 @@ rtk lsof -nP \
 节点状态：
 
 ```bash
-rtk curl -sS http://127.0.0.1:19083/v1/chain/status | jq '{
+curl -sS http://127.0.0.1:19083/v1/chain/status | jq '{
   world_id,
   tier: .network_tier.tier,
   chain_id: .network_tier.chain_id,
@@ -754,7 +754,7 @@ rtk curl -sS http://127.0.0.1:19083/v1/chain/status | jq '{
 provider：
 
 ```bash
-rtk curl -sS http://127.0.0.1:5852/v1/bridge/health | jq '{
+curl -sS http://127.0.0.1:5852/v1/bridge/health | jq '{
   ok,
   binding_count,
   project_binding_count,
@@ -762,12 +762,12 @@ rtk curl -sS http://127.0.0.1:5852/v1/bridge/health | jq '{
   ledger_count
 }'
 
-rtk curl -sS http://127.0.0.1:5841/v1/provider/info | jq '{
+curl -sS http://127.0.0.1:5841/v1/provider/info | jq '{
   provider_id,
   capabilities
 }'
 
-rtk ./scripts/provider-remote-https/provider-bridge-contract-smoke.sh \
+./scripts/provider-remote-https/provider-bridge-contract-smoke.sh \
   --base-url http://127.0.0.1:5841 \
   --auth-token "newapi_user_ref:$TEST_NEWAPI_USER_REF" \
   --timeout-ms 90000 \
@@ -779,7 +779,7 @@ rtk ./scripts/provider-remote-https/provider-bridge-contract-smoke.sh \
 入口：
 
 ```bash
-rtk curl -sSI 'http://127.0.0.1:4173/viewer.html?ws=ws://127.0.0.1:5011&test_api=1&locale=zh' \
+curl -sSI 'http://127.0.0.1:4173/viewer.html?ws=ws://127.0.0.1:5011&test_api=1&locale=zh' \
   | sed -n '1,5p'
 ```
 

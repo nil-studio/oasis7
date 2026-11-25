@@ -692,7 +692,7 @@ class Selection(unittest.TestCase):
     def test_existing_manual_and_launcher_audit_inputs_have_exact_owners(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         manual = {'baseline', 'doc_checker_contracts'}
-        launcher = {'baseline', 'launcher_web', 'operational_contracts', 'windows_rollout', 'fleet_health'}
+        launcher = {'baseline', 'launcher_web', 'operational_contracts'}
         expected = {
             'scripts/testing-manual-active-contract.test.sh': manual,
             'scripts/run-launcher-stack-hosted-local-mock-funding.test.sh': launcher,
@@ -1727,7 +1727,7 @@ class Selection(unittest.TestCase):
         common = {'baseline', 'packaging_contracts', 'macos_package_contract', 'fleet_health'}
         cases = {
             'scripts/local-signer/tests/test_future.py': common,
-            'doc/p2p/blockchain/local-file-signing-backend.runbook.md': common,
+            'doc/p2p/blockchain/local-file-signing-backend.runbook.md': {'baseline', 'packaging_contracts', 'macos_package_contract'},
             **{'scripts/local-signer/' + name: common | {'workspace_support'}
                for name in ['installer.py', 'macos_host.py', 'install-release.py', 'package-release.py']},
         }
@@ -1986,7 +1986,7 @@ class Selection(unittest.TestCase):
         }
         graph = (manifests, reverse, {})
         expected = {'baseline', 'rust_baseline', 'workspace_support',
-                    'oasis7_required', 'launcher_web', 'formal_process'}
+                    'oasis7_required', 'formal_process'}
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for package in ('oasis7_agent_api', 'oasis7_agent_harness'):
                 with self.subTest(package=package):
@@ -2074,7 +2074,7 @@ class Selection(unittest.TestCase):
                         expected_profiles.add('oasis7_client_api')
                     self.assertEqual(set(plan['workspace_support_profiles']), expected_profiles)
                     self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline',
-                                     'workspace_support', 'oasis7_required', 'launcher_web', 'formal_process'})
+                                     'workspace_support', 'oasis7_required', 'formal_process'})
                     base = self.git('rev-parse', 'HEAD')
 
     def test_provider_tests_are_local_and_library_changes_reach_server_consumers(self):
@@ -2104,7 +2104,7 @@ class Selection(unittest.TestCase):
                     self.assertEqual(set(plan['workspace_support_profiles']), expected_profiles)
                     expected = {'baseline', 'rust_baseline', 'workspace_support'}
                     if package == 'oasis7_agent_harness':
-                        expected.update({'oasis7_required', 'launcher_web', 'formal_process'})
+                        expected.update({'oasis7_required', 'formal_process'})
                     self.assertEqual(set(plan['groups']), expected)
                     base = self.git('rev-parse', 'HEAD')
 
@@ -2135,7 +2135,7 @@ class Selection(unittest.TestCase):
             plan = selector.select(config, base, head)
         self.assertEqual(plan['scope'], 'targeted')
         self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'workspace_support',
-                                               'oasis7_required', 'launcher_web', 'formal_process'})
+                                               'oasis7_required', 'formal_process'})
 
 
     def fast_config(self):
@@ -4076,6 +4076,60 @@ class Selection(unittest.TestCase):
                    '[package]\nname="oasis7_net"\nversion="0.1.0"\n')
         self.write('crates/oasis7_net/src/lib.rs', '')
         path = 'crates/oasis7_net/src/bin/unexecuted.rs'
+        self.write(path, 'fn main() {}\n')
+        base = self.commit()
+        self.write(path, 'fn main() {}\n#[cfg(unix)] #[test] fn unexecuted() {}\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_node_default_lib_driver_proves_nested_unix_not_optional_features(self):
+        config = self.fast_config()
+        config['groups'].append('node')
+        config['resources']['node'] = []
+        config['package_groups']['oasis7_node'] = ['node']
+        self.write('crates/oasis7_node/Cargo.toml',
+                   '[package]\nname="oasis7_node"\nversion="0.1.0"\n'
+                   '[features]\noptional_lane=[]\ntest_tier_full=[]\n')
+        self.write('crates/oasis7_node/src/lib.rs', 'mod runtime;\n')
+        self.write('crates/oasis7_node/src/runtime.rs',
+                   '#[cfg(all(test, unix))] #[path="transition.rs"] mod transition;\n')
+        self.write('crates/oasis7_node/src/transition.rs', '#[test] fn original() {}\n')
+        base = self.commit()
+        self.write('crates/oasis7_node/src/transition.rs',
+                   '#[test] fn original() {}\n'
+                   '#[path="transition/socket_handoff.rs"] mod socket_handoff;\n')
+        path = 'crates/oasis7_node/src/transition/socket_handoff.rs'
+        added = '#[test] fn socket_handoff() {}\n'
+        self.write(path, added)
+        head = self.commit()
+        with patch.object(selector, 'NATIVE_DEFAULT_TEST_PACKAGES',
+                          selector.NATIVE_DEFAULT_TEST_PACKAGES - {'oasis7_node'}):
+            with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, head, profile='pr-fast')
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertIn('node', plan['groups'])
+        for expression in ('windows', 'target_os="windows"', 'not(target_os="linux")',
+                           'feature="optional_lane"', 'feature="test_tier_full"'):
+            with self.subTest(expression=expression):
+                self.write(path, added + f'#[cfg({expression})] #[test] fn unsupported() {{}}\n')
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+        self.write(path, added)
+        config['oasis7_required_packages'].remove('other')
+        self.write('crates/other/src/lib.rs',
+                   '#[path="../../oasis7_node/src/transition/socket_handoff.rs"] mod shared;\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_node_native_default_driver_does_not_authorize_unexecuted_binary(self):
+        config = self.fast_config()
+        config['groups'].append('node')
+        config['resources']['node'] = []
+        config['package_groups']['oasis7_node'] = ['node']
+        self.write('crates/oasis7_node/Cargo.toml',
+                   '[package]\nname="oasis7_node"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_node/src/lib.rs', '')
+        path = 'crates/oasis7_node/src/bin/unexecuted.rs'
         self.write(path, 'fn main() {}\n')
         base = self.commit()
         self.write(path, 'fn main() {}\n#[cfg(unix)] #[test] fn unexecuted() {}\n')
@@ -8811,7 +8865,7 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         self.assertEqual(plan['scope'], 'targeted')
         self.assertEqual(
             set(plan['groups']),
-            {'baseline', 'workflow_governance', 'operational_contracts', 'fleet_health', 'windows_rollout'},
+            {'baseline', 'workflow_governance', 'operational_contracts'},
         )
         self.assertFalse(plan['test_policy_changed'])
 
@@ -8930,12 +8984,25 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         self.assertEqual(plan.get('workspace_support_direct_gate_version'), 2)
         self.assertNotIn('custody_execution_version', plan)
 
-        # Host-requiring support crate (oasis7_local_signer) -> direct gate NOT emitted
+        # Exact targeted signer support can execute directly in the non-root image.
         self.git('checkout', '-q', self.base)
         self.write('crates/oasis7_local_signer/src/lib.rs', 'pub fn changed() {}\n')
         signer_head = self.commit()
         signer_plan = selector.select(self.config, self.base, signer_head, profile='pr-fast')
-        self.assertNotIn('workspace_support_direct_gate_version', signer_plan)
+        self.assertEqual(signer_plan['workspace_support_profiles'], ['oasis7_local_signer'])
+        self.assertEqual(signer_plan.get('workspace_support_direct_gate_version'), 2)
+        self.assertTrue(selector.workspace_support_selects_signer_image(signer_plan))
+
+        self.write('crates/oasis7_context/src/lib.rs', 'pub fn changed_context() {}\n')
+        mixed_head = self.commit()
+        mixed_plan = selector.select(self.config, self.base, mixed_head, profile='pr-fast')
+        self.assertEqual(mixed_plan['workspace_support_profiles'], ['oasis7_context', 'oasis7_local_signer'])
+        self.assertTrue(selector.workspace_support_selects_signer_image(mixed_plan))
+        self.assertEqual(mixed_plan.get('workspace_support_direct_gate_version'), 2)
+        for extra in ('oasis7_game_client', 'oasis7_dev_test_worker', 'oasis7_secure_envelope'):
+            with self.subTest(extra=extra):
+                self.assertFalse(selector.workspace_support_selects_signer_image(
+                    dict(mixed_plan, workspace_support_profiles=sorted([*mixed_plan['workspace_support_profiles'], extra]))))
 
         # Live config (v2): custody crate -> custody_execution_version=1 AND direct gate v2 emitted
         self.git('checkout', '-q', self.base)
@@ -8968,21 +9035,64 @@ class ViewerNpmLockScopeTests(unittest.TestCase):
         base = self.commit()
         graph = ({}, {}, {})
         with patch.object(selector, 'cargo_graph', return_value=graph):
-            for path in ('crates/oasis7_viewer/package.json', 'crates/oasis7_viewer/package-lock.json'):
+            for path in ('crates/oasis7_viewer/package.json', 'crates/oasis7_viewer/package-lock.json',
+                         'crates/oasis7_viewer/src/app.tsx'):
                 with self.subTest(path=path):
                     self.write(path, '{"updated": true}\n')
                     head = self.commit()
                     plan = selector.select(config, base, head)
                     self.assertEqual(plan['scope'], 'targeted')
                     self.assertIn('viewer_js_required', plan['groups'])
+                    self.assertNotIn('launcher_web', plan['groups'])
+                    base = head
+
+    def test_launcher_web_tracks_real_client_launcher_dependency_closure_only(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        real_manifests, real_reverse, _ = selector.cargo_graph(
+            'HEAD', config.get('generated_inputs', []), repo=HERE.parent,
+        )
+        clean_manifests = {pkg: (directory, {}) for pkg, (directory, _) in real_manifests.items()}
+        graph = (clean_manifests, real_reverse, {})
+        true_launcher_inputs = (
+            ('oasis7_client_launcher', 'crates/oasis7_client_launcher/src/main.rs'),
+            ('oasis7_launcher_config', 'crates/oasis7_launcher_config/src/lib.rs'),
+            ('oasis7_launcher_ui', 'crates/oasis7_launcher_ui/src/lib.rs'),
+            ('oasis7_client_api', 'crates/oasis7_client_api/src/lib.rs'),
+            ('oasis7_domain_types', 'crates/oasis7_domain_types/src/lib.rs'),
+            ('oasis7_wasm_abi', 'crates/oasis7_wasm_abi/src/lib.rs'),
+            ('oasis7_agent_api', 'crates/oasis7_agent_api/src/lib.rs'),
+            ('oasis7_proto', 'crates/oasis7_proto/src/lib.rs'),
+        )
+        non_launcher_backend_inputs = (
+            ('oasis7', 'crates/oasis7/src/lib.rs'),
+            ('oasis7_runtime', 'crates/oasis7_runtime/src/lib.rs'),
+            ('oasis7_runtime_host', 'crates/oasis7_runtime_host/src/lib.rs'),
+            ('oasis7_distfs', 'crates/oasis7_distfs/src/lib.rs'),
+            ('oasis7_simulator', 'crates/oasis7_simulator/src/lib.rs'),
+            ('oasis7_world_state', 'crates/oasis7_world_state/src/lib.rs'),
+            ('oasis7_launcher_backend', 'crates/oasis7_launcher_backend/src/lib.rs'),
+            ('oasis7_hosted_access', 'crates/oasis7_hosted_access/src/lib.rs'),
+        )
+        for _, rel_path in (*true_launcher_inputs, *non_launcher_backend_inputs):
+            self.write(rel_path, '// baseline\n')
+        base = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for pkg, rel_path in true_launcher_inputs:
+                with self.subTest(expected_launcher_web=True, package=pkg):
+                    self.write(rel_path, f'// changed {pkg}\n')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
                     self.assertIn('launcher_web', plan['groups'])
                     base = head
-            self.write('crates/oasis7_viewer/src/app.tsx', '// UI edit\n')
-            head = self.commit()
-            plan = selector.select(config, base, head)
-            self.assertEqual(plan['scope'], 'targeted')
-            self.assertIn('viewer_js_required', plan['groups'])
-            self.assertNotIn('launcher_web', plan['groups'])
+            for pkg, rel_path in non_launcher_backend_inputs:
+                with self.subTest(expected_launcher_web=False, package=pkg):
+                    self.write(rel_path, f'// changed {pkg}\n')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertNotIn('launcher_web', plan['groups'])
+                    base = head
 
 
 class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
@@ -9057,10 +9167,10 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
         self.assertEqual(
             set(plan['groups']),
-            {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'oasis7_required', 'launcher_web'},
+            {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'oasis7_required'},
         )
         self.assertEqual(plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
-        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
         self.assertNotIn('ordinary_fast_targets', plan)
         self.assertEqual(plan['architecture']['mode'], 'targeted')
         self.assertNotEqual(plan['architecture'].get('build_policy'), 'ordinary-targets')
@@ -9109,7 +9219,7 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         removed_plan = selector.select(self.config, self.base, removed_head, profile='pr-fast')
         self.assertEqual(removed_plan['scope'], 'targeted', removed_plan['reasons'])
         self.assertEqual(removed_plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
-        self.assertEqual(removed_plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+        self.assertEqual(removed_plan['oasis7_required_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
 
     def test_workspace_member_manifest_rejects_unsafe_manifest_or_lock_mutations(self):
         valid_member = (
@@ -9205,9 +9315,9 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         head = self.commit()
         plan = selector.select(self.config, self.base, head, profile='pr-fast')
         self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
-        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required', 'launcher_web'})
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
         self.assertEqual(plan['affected_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
-        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime'])
+        self.assertEqual(plan['oasis7_required_packages'], ['oasis7_chain_runtime', 'oasis7_runtime_host'])
         self.assertNotIn('ordinary_fast_targets', plan)
         self.assertTrue(any('production cfg changed; scoped package and platform coverage' in r
                             for r in plan['reasons']))
@@ -9470,6 +9580,184 @@ class MainFastHistoricalRetiredPathsTests(WorkspaceMemberCargoAndScopedCfgTests)
         )
         self.assertEqual(policy_paths2, [])
         self.assertEqual(prod_cfg2, [target_path])
+
+    def test_oasis7_required_package_groups_are_registered_in_required_packages(self):
+        cfg = json.loads((HERE / 'ci-required-scope.json').read_text(encoding='utf-8'))
+        required_packages = cfg['oasis7_required_packages']
+        self.assertEqual(len(required_packages), len(set(required_packages)))
+        grouped_required = {
+            package for package, groups in cfg['package_groups'].items()
+            if 'oasis7_required' in groups
+        }
+        missing = sorted(grouped_required - set(required_packages))
+        self.assertEqual(
+            missing,
+            [],
+            'packages mapped to oasis7_required in package_groups must also be in oasis7_required_packages',
+        )
+
+    def test_managed_script_subdirectories_route_without_unknown_inputs(self):
+        cases = (
+            ('scripts/governance/new-gate.sh', 'workflow_governance'),
+            ('scripts/ops/new-drill.sh', 'operational_contracts'),
+            ('scripts/packaging/new-check.sh', 'packaging_contracts'),
+            ('scripts/viewer/new-helper.mjs', 'viewer_js_required'),
+            ('scripts/security/new-guard.py', 'workflow_governance'),
+        )
+        for path, expected_group in cases:
+            with self.subTest(path=path):
+                self.git('checkout', '-q', self.base)
+                self.write(path, '#!/usr/bin/env bash\nexit 0\n')
+                head = self.commit()
+                plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+                self.assertIn(expected_group, plan['groups'])
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/unregistered-root-script.sh', '#!/usr/bin/env bash\nexit 0\n')
+        unregistered_head = self.commit()
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(self.config, self.base, unregistered_head, profile='pr-fast')
+
+    def test_operational_decoupling_and_fleet_health_subcontracts_v1(self):
+        self.write(
+            'Cargo.toml',
+            self.ROOT_TOML.replace(
+                '"crates/oasis7_viewer"]',
+                '"crates/oasis7_viewer", "crates/oasis7_domain_types", '
+                '"crates/oasis7_local_signer", "crates/oasis7_hosted_access"]',
+            ),
+        )
+        self.write(
+            'crates/oasis7_domain_types/Cargo.toml',
+            '[package]\nname="oasis7_domain_types"\nversion="0.1.0"\nedition="2021"\n',
+        )
+        self.write('crates/oasis7_domain_types/src/lib.rs', 'pub fn domain() {}\n')
+        self.write(
+            'crates/oasis7_local_signer/Cargo.toml',
+            '[package]\nname="oasis7_local_signer"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\noasis7_domain_types={path="../oasis7_domain_types"}\n',
+        )
+        self.write('crates/oasis7_local_signer/src/lib.rs', 'pub fn signer() {}\n')
+        self.write(
+            'crates/oasis7_hosted_access/Cargo.toml',
+            '[package]\nname="oasis7_hosted_access"\nversion="0.1.0"\nedition="2021"\n'
+            '[dependencies]\noasis7_domain_types={path="../oasis7_domain_types"}\n',
+        )
+        self.write('crates/oasis7_hosted_access/src/lib.rs', 'pub fn hosted() {}\n')
+        self.base = self.commit()
+
+        # 1) Unrelated operational scripts and local-signer runbook no longer drag fleet_health or windows_rollout
+        decoupled_cases = (
+            ('scripts/ops/new-drill.sh', {'operational_contracts'}),
+            ('scripts/traffic-monitor-summary.sh', {'operational_contracts'}),
+            ('scripts/provider-remote-https/smoke.sh', {'operational_contracts'}),
+            ('scripts/run-launcher-stack.sh', {'launcher_web', 'operational_contracts'}),
+            ('doc/p2p/blockchain/local-file-signing-backend.runbook.md',
+             {'packaging_contracts', 'macos_package_contract'}),
+        )
+        for path, required_groups in decoupled_cases:
+            with self.subTest(decoupled=path):
+                self.git('checkout', '-q', self.base)
+                self.write(path, '# fixture\n')
+                head = self.commit()
+                plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+                self.assertTrue(required_groups.issubset(plan['groups']))
+                self.assertNotIn('fleet_health', plan['groups'])
+                self.assertNotIn('windows_rollout', plan['groups'])
+                self.assertEqual(plan['fleet_health_subcontracts_version'], 1)
+                self.assertEqual(plan['fleet_health_checks'], [])
+                self.assertEqual(plan['fleet_health_oses'], [])
+
+        # 2) Exact OS & subcontract slices for each real consumer
+        slice_cases = (
+            ('scripts/p2p-public-testnet-package-rollout.py',
+             {'operational_contracts', 'windows_rollout'}, False,
+             [], ['windows-2022']),
+            ('.github/workflows/testnet-packages.yml',
+             {'workflow_governance', 'packaging_contracts', 'operational_contracts', 'windows_rollout'}, False,
+             [], ['windows-2022']),
+            ('scripts/p2p-public-testnet-fleet-health.test.py',
+             {'operational_contracts', 'fleet_health'}, True,
+             ['fleet_script'], ['ubuntu-24.04', 'windows-2022', 'macos-15']),
+            ('scripts/public-testnet-validator-triad-inventory.v1.json',
+             {'operational_contracts', 'fleet_health'}, True,
+             ['fleet_script'], ['ubuntu-24.04', 'windows-2022', 'macos-15']),
+            ('scripts/resource-cleanup-executor.py',
+             {'workflow_governance', 'fleet_health'}, True,
+             ['host_cleanup'], ['ubuntu-24.04', 'macos-15']),
+            ('scripts/new-task-worktree.sh',
+             {'cargo_tooling_contracts', 'fleet_health'}, True,
+             ['host_cleanup'], ['ubuntu-24.04', 'macos-15']),
+            ('scripts/local-signer/installer.py',
+             {'packaging_contracts', 'fleet_health', 'workspace_support'}, True,
+             ['macos_signer'], ['macos-15']),
+            ('scripts/ci-local-signer-tests.py',
+             {'workflow_governance', 'packaging_contracts', 'fleet_health'}, True,
+             ['macos_signer'], ['macos-15']),
+            ('crates/oasis7_local_signer/src/lib.rs',
+             {'packaging_contracts', 'fleet_health', 'workspace_support'}, True,
+             ['macos_signer'], ['macos-15']),
+            ('crates/oasis7_hosted_access/src/lib.rs',
+             {'oasis7_required', 'fleet_health'}, True,
+             ['hosted_access'], ['ubuntu-24.04', 'windows-2022', 'macos-15']),
+        )
+        for path, required_groups, has_fleet, expected_checks, expected_oses in slice_cases:
+            with self.subTest(slice_path=path):
+                self.git('checkout', '-q', self.base)
+                self.write(path, '// fixture\n')
+                head = self.commit()
+                plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+                self.assertTrue(required_groups.issubset(plan['groups']))
+                self.assertEqual('fleet_health' in plan['groups'], has_fleet)
+                self.assertEqual(plan['fleet_health_subcontracts_version'], 1)
+                self.assertEqual(plan['fleet_health_checks'], expected_checks)
+                self.assertEqual(plan['fleet_health_oses'], expected_oses)
+
+        # 3) Mixed changes take the exact union of subcontracts and host OSes
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/resource-cleanup-executor.py', '# cleanup\n')
+        self.write('scripts/p2p-public-testnet-package-rollout.py', '# rollout\n')
+        union_head = self.commit()
+        union_plan = selector.select(self.config, self.base, union_head, profile='pr-fast')
+        self.assertEqual(union_plan['fleet_health_checks'], ['host_cleanup'])
+        self.assertEqual(union_plan['fleet_health_oses'], ['ubuntu-24.04', 'windows-2022', 'macos-15'])
+
+        # 4) Shared upstream Rust crate affecting both oasis7_hosted_access and oasis7_local_signer selects both checks
+        self.git('checkout', '-q', self.base)
+        self.write('crates/oasis7_domain_types/src/lib.rs', '// shared upstream\n')
+        shared_head = self.commit()
+        shared_plan = selector.select(self.config, self.base, shared_head, profile='pr-fast')
+        self.assertEqual(shared_plan['fleet_health_checks'], ['hosted_access', 'macos_signer'])
+        self.assertEqual(shared_plan['fleet_health_oses'], ['ubuntu-24.04', 'windows-2022', 'macos-15'])
+
+        # 5) Full profiles, explicit --add-group, and unmapped rules retain all 4 checks across all 3 OSes
+        full_checks = ['fleet_script', 'hosted_access', 'macos_signer', 'host_cleanup']
+        full_oses = ['ubuntu-24.04', 'windows-2022', 'macos-15']
+        explicit_full = selector.full_plan(self.config, 'periodic-full', self.base)
+        self.assertEqual(explicit_full['fleet_health_checks'], full_checks)
+        self.assertEqual(explicit_full['fleet_health_oses'], full_oses)
+
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/ops/new-drill.sh', '#!/usr/bin/env bash\n')
+        add_head = self.commit()
+        added_plan = selector.select(self.config, self.base, add_head, additions=('fleet_health',), profile='pr-fast')
+        self.assertEqual(added_plan['fleet_health_checks'], full_checks)
+        self.assertEqual(added_plan['fleet_health_oses'], full_oses)
+
+        unmapped_cfg = copy.deepcopy(self.config)
+        unmapped_cfg['rules'].append({
+            'match': ['scripts/ops/custom-fleet-probe.sh'],
+            'groups': ['fleet_health'],
+            'reason': 'custom_unmapped_fleet_probe',
+        })
+        self.git('checkout', '-q', self.base)
+        self.write('scripts/ops/custom-fleet-probe.sh', '#!/usr/bin/env bash\n')
+        unmapped_head = self.commit()
+        unmapped_plan = selector.select(unmapped_cfg, self.base, unmapped_head, profile='pr-fast')
+        self.assertEqual(unmapped_plan['fleet_health_checks'], full_checks)
+        self.assertEqual(unmapped_plan['fleet_health_oses'], full_oses)
 
 
 if __name__ == '__main__':

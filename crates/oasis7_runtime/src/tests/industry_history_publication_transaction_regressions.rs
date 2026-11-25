@@ -177,3 +177,47 @@ fn industry_history_events_honor_postprepare_failure_and_same_world_retry() {
         "events lacked typed preparation: {unprepared:?}"
     );
 }
+
+#[test]
+fn public_industrial_authority_stages_rejection_failure_and_recovery() {
+    let mut world = World::new();
+    let anchor = |revision| LocationAnchorV1 {
+        location_id: "root-staged-location".into(),
+        active: true,
+        authority_revision: revision,
+        effective_at: 0,
+    };
+    world.set_location_anchor(anchor(1)).unwrap();
+    let checkpoint = world.snapshot();
+    let journal = world.journal().clone();
+    let root = world.current_state_root_hash().unwrap();
+
+    assert!(world.set_location_anchor(anchor(3)).is_err());
+    assert_eq!(world.snapshot(), checkpoint);
+    assert_eq!(world.journal(), &journal);
+    assert_eq!(world.current_state_root_hash().unwrap(), root);
+
+    world.fail_next_append_after_publication_prepare_for_test();
+    let error = world.set_location_anchor(anchor(2)).unwrap_err();
+    assert!(format!("{error:?}").contains("publication preparation"));
+    assert_eq!(world.snapshot(), checkpoint);
+    assert_eq!(world.journal(), &journal);
+    assert_eq!(world.current_state_root_hash().unwrap(), root);
+
+    world.set_location_anchor(anchor(2)).unwrap();
+    assert_eq!(
+        world.state().location_anchors["root-staged-location"].authority_revision,
+        2
+    );
+    let mut restored = World::from_snapshot(checkpoint, world.journal().clone()).unwrap();
+    assert_eq!(restored.snapshot(), world.snapshot());
+    for candidate in [&mut world, &mut restored] {
+        candidate.set_location_anchor(anchor(3)).unwrap();
+    }
+    assert_eq!(restored.snapshot(), world.snapshot());
+    assert_eq!(restored.journal(), world.journal());
+    assert_eq!(
+        restored.current_state_root_hash().unwrap(),
+        world.current_state_root_hash().unwrap()
+    );
+}

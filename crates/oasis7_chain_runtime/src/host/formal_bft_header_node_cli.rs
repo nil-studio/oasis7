@@ -215,10 +215,6 @@ fn from_paths(
     if config.status_address.is_some() && !serve {
         return Err("header Node status requires --serve".into());
     }
-    let status_listener = config
-        .status_address
-        .map(status::Listener::bind)
-        .transpose()?;
     #[cfg(feature = "node-libp2p")]
     if config.network.is_some() && !serve {
         return Err("header Node network configuration requires --serve".into());
@@ -260,6 +256,22 @@ fn from_paths(
         #[cfg(feature = "node-libp2p")]
         initial_trust,
     } = prepare(&config)?;
+    // Pin the public status listener to the independently verified qualified-H
+    // binding; a running worker alone cannot assert current signing eligibility.
+    let status_listener = config
+        .status_address
+        .map(|address| {
+            let expected = oasis7_node::BftNodeObservedIdentityPinsV1 {
+                world_id: binding.scope.world_id.clone(),
+                chain_id: binding.scope.chain_id.clone(),
+                operator_instance_id: binding.operator_instance_id.clone(),
+                binding_digest: binding
+                    .digest()
+                    .map_err(|_| "header Node status binding digest unavailable")?,
+            };
+            status::Listener::bind(address, expected)
+        })
+        .transpose()?;
     let provider = Arc::new(
         RemoteBftSignerProviderV3::new(
             config.provider_address,

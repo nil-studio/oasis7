@@ -28,7 +28,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build]
+        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -163,6 +163,11 @@ jobs:
           docker push "$ref"
           digest=$(docker buildx imagetools inspect "$ref" --format "{{json .Manifest}}" | jq -er .digest)
           printf "%s@%s\n" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$target" == codeql-rust ]]; then
+            bytes=$(docker buildx imagetools inspect --raw "$image@$digest" |
+              jq -er '[.layers[].size] | select(length > 0) | add')
+            printf "CodeQL Rust compressed registry layers: %s bytes\n" "$bytes" >> "$GITHUB_STEP_SUMMARY"
+          fi
           docker rmi "$ref" "oasis7-ci-${target}:candidate"
           EOF
           chmod 0700 "$RUNNER_TEMP/publish-ci-image.sh"
@@ -191,6 +196,11 @@ jobs:
           name: ci-image-rust-wasm-build
       - name: Publish verified rust-wasm-build image
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-wasm-build
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-codeql-rust
+      - name: Publish verified CodeQL Rust image
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" codeql-rust
       - name: Log out of GHCR
         if: always()
         run: docker logout ghcr.io

@@ -16,13 +16,15 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+#[cfg(feature = "test_tier_full")]
+use oasis7_runtime::incremental_runtime_artifact_resources::RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1;
 use oasis7_runtime::incremental_runtime_artifact_resources::{
-    BuiltinReleaseManifestSourceV1, BuiltinReleaseModuleSetSourceV1,
-    RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1, RuntimeArtifactChildRootV1, RuntimeArtifactFieldV1,
-    RuntimeArtifactMemberProfileV1, RuntimeArtifactRecordV1, RuntimeArtifactResourcesRefV1,
-    RuntimeArtifactResourcesWorkV1, RuntimeArtifactRootBindingV1, RuntimeArtifactValueV1,
-    inspect_runtime_artifact_record_root_v1, prepare_runtime_artifact_resources_genesis_v1,
-    read_runtime_artifact_member_v1, read_runtime_artifact_record_reference_v1,
+    BuiltinReleaseManifestSourceV1, BuiltinReleaseModuleSetSourceV1, RuntimeArtifactChildRootV1,
+    RuntimeArtifactFieldV1, RuntimeArtifactMemberProfileV1, RuntimeArtifactRecordV1,
+    RuntimeArtifactResourcesRefV1, RuntimeArtifactResourcesWorkV1, RuntimeArtifactRootBindingV1,
+    RuntimeArtifactValueV1, inspect_runtime_artifact_record_root_v1,
+    prepare_runtime_artifact_resources_genesis_v1, read_runtime_artifact_member_v1,
+    read_runtime_artifact_record_reference_v1,
 };
 use oasis7_runtime::{
     World,
@@ -565,7 +567,12 @@ fn unsigned_cell(
 
 #[test]
 fn artifact_roots_and_typed_member_read_survive_raw_and_zstd_reopen() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let (canonical, _producer_memory) = roots(&path, compression, None);
@@ -671,7 +678,12 @@ fn artifact_roots_and_typed_member_read_survive_raw_and_zstd_reopen() {
 
 #[test]
 fn material_ledger_identity_and_empty_group_survive_nested_cold_read() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let mut manifest = ChainResourceManifest::empty_at_height("world", 9, 0);
         let ledger_id = MaterialLedgerId::agent("agent-1");
         let material = String::from("ore\0λ");

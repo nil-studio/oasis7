@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
     let complete = verify(&fixture(true), never_cancel).unwrap();

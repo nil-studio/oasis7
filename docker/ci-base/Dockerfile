@@ -65,3 +65,16 @@ FROM rust-build AS rust-wasm-build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends clang llvm \
     && rm -rf /var/lib/apt/lists/*
+
+FROM build AS codeql-rust
+COPY codeql-rust-packages.txt /tmp/ci-packages.txt
+RUN apt-get update \
+    && xargs apt-get install -y --no-install-recommends </tmp/ci-packages.txt \
+    && rm -rf /var/lib/apt/lists/* /tmp/ci-packages.txt
+ARG CODEQL_RUST_TOOLCHAIN
+COPY --from=rust-tools /usr/local/cargo/bin/ /opt/oasis7-rust/bin/
+COPY --from=rust-tools /usr/local/rustup/ /opt/oasis7-rust/rustup/
+ENV RUSTUP_HOME=/opt/oasis7-rust/rustup
+ENV PATH=/opt/oasis7-rust/bin:$PATH
+ENV RUSTUP_TOOLCHAIN=${CODEQL_RUST_TOOLCHAIN}
+ENV RUSTUP_AUTO_INSTALL=0
