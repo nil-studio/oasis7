@@ -341,7 +341,7 @@ UNIT_TEST_CONTRACT_FIELDS = frozenset((
 ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1', 'native-2', 'native-3')
 COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1')
-COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 300000
+COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 60000
 
 
 def targeted_ordinary_artifact_partitions(plan):
@@ -1240,6 +1240,19 @@ def inventory(path, ignored=False, env=None):
     return sorted(line[:-6] for line in text.splitlines() if line.endswith(': test'))
 
 
+def inventory_pairs(items, env=None):
+    entries = list(items)
+    if not entries:
+        return {}
+    workers = 1 if os.environ.get('OASIS7_LOCAL_CHECK') == '1' else min(4, max(1, os.cpu_count() or 1), len(entries))
+    if workers <= 1:
+        return {key: (inventory(path, env=env), inventory(path, True, env=env)) for key, path in entries}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {key: pool.submit(lambda p=path: (inventory(p, env=env), inventory(p, True, env=env)))
+                   for key, path in entries}
+        return {key: future.result() for key, future in futures.items()}
+
+
 def resolve_suites(config, binaries):
     suites = {name: list(entries) for name, entries in config['suites'].items()}
     assigned = set()
@@ -1857,11 +1870,14 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     if FORMAL_AUTHORITY is not None:
         manifest['formal_authority_sha256'] = formal_authority_digest()
     list_env = dict(env, LD_LIBRARY_PATH=str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', ''))
-    for logical, binary in binaries.items():
-        if binary['test']:
-            binary['tests'] = inventory(bundle / binary['path'], env=list_env)
-            binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
-            binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
+    listed = inventory_pairs(
+        [(logical, bundle / binary['path']) for logical, binary in binaries.items() if binary['test']],
+        env=list_env,
+    )
+    for logical, (tests, ignored_tests) in listed.items():
+        binaries[logical]['tests'] = tests
+        binaries[logical]['ignored_tests'] = ignored_tests
+        binaries[logical]['test_list_sha256'] = hashlib.sha256(json.dumps(tests).encode()).hexdigest()
     if shared_units is not None:
         names = {name: binary['sha256'] for name, binary in binaries.items()
                  if binary['variant'] == 'required' and binary['target_kind'] == ['test']
@@ -2219,10 +2235,14 @@ def merge_components(sources, bundle, output_scope, plan=None):
     resolve_shards(configuration, suites)
     for scope, source in sources.items():
         env = dict(os.environ, LD_LIBRARY_PATH=str(Path(source) / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', ''))
-        for logical in component_names[scope]:
+        listed = inventory_pairs(
+            [(logical, inputs[binaries[logical]['path']][0])
+             for logical in component_names[scope] if binaries[logical]['test']],
+            env=env,
+        )
+        for logical, (tests, ignored_tests) in listed.items():
             entry = binaries[logical]
-            if entry['test'] and (inventory(inputs[entry['path']][0], env=env) != entry['tests']
-                    or inventory(inputs[entry['path']][0], True, env) != entry['ignored_tests']):
+            if tests != entry['tests'] or ignored_tests != entry['ignored_tests']:
                 raise ValueError('Formal component actual test inventory mismatch')
     manifest = dict(identity, scope=output_scope, producer_attempt=current_attempt,
         components=components, binaries=binaries, libraries=libraries,
@@ -3364,10 +3384,13 @@ def load(bundle, suite=None, shard=None, plan=None, ordinary_partition=None,
         if logical in selected:
             env[variable] = str(bundle / selected[logical]['path'])
     # Validate actual downloaded harnesses; the manifest alone is not coverage proof.
-    for binary in selected.values():
-        if binary['test']:
-            if inventory(bundle / binary['path'], env=env) != binary['tests'] or inventory(bundle / binary['path'], True, env) != binary['ignored_tests']:
-                raise ValueError('downloaded test inventory mismatch')
+    listed = inventory_pairs(
+        [(logical, bundle / binary['path']) for logical, binary in selected.items() if binary['test']],
+        env=env,
+    )
+    for logical, (tests, ignored_tests) in listed.items():
+        if tests != selected[logical]['tests'] or ignored_tests != selected[logical]['ignored_tests']:
+            raise ValueError('downloaded test inventory mismatch')
     config = formal_configuration()
     if manifest.get('scope') != 'ordinary' and resolve_suites(config, manifest['binaries']) != manifest['suites']:
         raise ValueError('suite inventory mismatch')

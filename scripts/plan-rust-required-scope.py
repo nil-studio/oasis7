@@ -39,6 +39,7 @@ DISTFS_CLIPPY_TARGETS = frozenset((
     ('oasis7_world_state', 'test', 'pr_fast_reducers'),
 ))
 ARCHITECTURE_BUILD_POLICY_VERSION = 1
+ARCHITECTURE_ARTIFACT_BUILD_POLICY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
 PYTHON_CONTROL_CONTRACT_VERSION = 1
 ADDITIVE_GOVERNANCE_REGISTRATION_VERSION = 1
@@ -1732,6 +1733,11 @@ def validate_config(config):
         if (type(version) is not int or version == ARCHITECTURE_BUILD_POLICY_VERSION
                 and config.get('fast_execution_version') != FAST_EXECUTION_VERSION):
             raise ValueError('invalid architecture build policy capability')
+    if 'architecture_artifact_build_policy_version' in config:
+        version = config['architecture_artifact_build_policy_version']
+        if (type(version) is not int or version != ARCHITECTURE_ARTIFACT_BUILD_POLICY_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid architecture artifact build policy capability')
     if 'workspace_support_partition_version' in config:
         if (type(config['workspace_support_partition_version']) is not int
                 or config['workspace_support_partition_version'] != 1
@@ -4224,7 +4230,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
 ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1']
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1', 'native-2', 'native-3']
 COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1']
-COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 300000
+COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 60000
 
 
 def targeted_ordinary_artifact_partitions(plan):
@@ -5053,8 +5059,11 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     complete_ordinary_partitions(config, plan)
     if config.get('formal_full_profiles_only_version') == 1:
-        # Apply the deferral after ordinary coverage, Clippy and architecture
-        # decisions. Removing a Formal risk must not narrow those other checks.
+        # Apply the deferral after inline ordinary coverage, Clippy and v1
+        # architecture decisions so removing a Formal risk never narrows inline
+        # single-target plans. Artifact-mode v2 plans compile and lint all
+        # targets of all affected ordinary packages in oasis7-test-build and
+        # rust-baseline regardless of Formal deferral.
         chosen.discard('formal_process')
         plan.update(formal_full_profiles_only_version=1,
                     formal_deferred_ordinary_cases=config.get('formal_deferred_ordinary_cases', {}),
@@ -5065,6 +5074,48 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                                           if not reason.startswith('necessary Formal risk suites: ')])
         plan['reasons'].append('heavy Formal process tests run only in complete profiles: '
                                'periodic-full and candidate-full')
+    actual_extra_groups = set(plan['groups']) - required_groups
+    actual_consumer_groups = {
+        group: sorted(package for package in affected - inputs
+                      if group in config['package_groups'].get(package, ()))
+        for group in sorted(actual_extra_groups)
+    }
+    actual_native_consumers = (
+        actual_extra_groups <= {'consensus', 'distfs', 'net', 'node'}
+        and all(actual_consumer_groups.values())
+        and not any(actual_extra_groups.intersection(groups) for groups in path_rules.values())
+    )
+    if (config.get('architecture_artifact_build_policy_version') == ARCHITECTURE_ARTIFACT_BUILD_POLICY_VERSION
+            and 'build_policy' not in architecture and 'build_policy_version' not in architecture
+            and 'fast_execution_version' not in plan and plan.get('ordinary_execution') != 'inline'
+            and 'ordinary_fast_targets' not in plan and 'ordinary_full_fast_targets' not in plan
+            and plan.get('ordinary_artifact_partition_version') in (1, 2)
+            and plan.get('ordinary_controls_in_rust_baseline_version') == ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION
+            and plan.get('ordinary_clippy_group') == 'rust_baseline'
+            and plan.get('ordinary_wasm_group') == 'rust_baseline'
+            and plan['scope'] == 'targeted'
+            and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+            and architecture['mode'] == 'targeted'
+            and paths and not additions and not conservative
+            and not scoped_production_cfg and not member_manifest_paths
+            and required_groups.issubset(plan['groups']) and actual_native_consumers
+            and not plan['test_policy_changed'] and not plan['fast_plan_exceptions']
+            and not plan['formal_suites'] and not plan['oasis7_required_wasm_packages']
+            and not any(path in ('Cargo.toml', 'Cargo.lock', 'build.rs')
+                        or path.endswith(('/Cargo.toml', '/Cargo.lock', '/build.rs')) for path in paths)
+            and not any(fnmatch.fnmatchcase(path, pattern) for path in paths for pattern in CONTROL)
+            and not any(fnmatch.fnmatchcase(path, pattern) for path in paths
+                        for patterns in config.get('workspace_support_profile_paths', {}).values()
+                        for pattern in patterns)
+            and inputs and inputs.issubset(set(plan.get('oasis7_required_packages', ())))
+            and tested_source_supports_capability(plan, 'architecture_artifact_build_policy_version',
+                                                  ARCHITECTURE_ARTIFACT_BUILD_POLICY_VERSION)):
+        architecture.update(build_policy_version=2, build_policy='ordinary-targets')
+        if actual_consumer_groups:
+            architecture['consumer_groups'] = actual_consumer_groups
+        plan['reasons'].append('all architecture inputs have mandatory ordinary artifact and strict Clippy coverage; '
+                               'extra profile compilation stays in full, all dependency graphs remain required')
+        plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     plan.update(fleet_health_subcontracts(config, chosen, affected, path_rules,
                                           full=conservative, additions=additions))
     return plan

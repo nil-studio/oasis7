@@ -51,16 +51,16 @@ def identity(scope):
     # Hash effective compiler inputs and restore semantics, not orchestration
     # or capacity policy. Writer authorization still checks WORKFLOW separately.
     # For `ordinary` scope, avoid hashing unrelated Formal suite config, the
-    # full ci-test-artifacts.py script (tracked via CACHE_SCHEMA instead), or
-    # workspace-member Cargo.toml contents (tracked by path list here while
-    # cache_restore refreshes mtimes for modified manifests so Cargo safely
-    # recompiles affected crates).
-    files = {'Cargo.toml', 'Cargo.lock', 'scripts/ci-workspace-cache.py',
+    # full ci-test-artifacts.py script (tracked via CACHE_SCHEMA instead),
+    # Cargo.lock, or workspace-member Cargo.toml contents (tracked by path list
+    # here while cache_restore refreshes mtimes for modified manifests/lockfile
+    # so Cargo safely recompiles affected crates on restore-keys fallback).
+    files = {'Cargo.toml', 'scripts/ci-workspace-cache.py',
              'scripts/ci-cache-archive.py', 'scripts/ci-rust-cache-toolchains.py'}
     member_manifests = sorted(
         str(Path(package['manifest_path']).relative_to(ROOT)) for package in metadata['packages'])
     if scope != 'ordinary':
-        files.update(('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json'))
+        files.update(('Cargo.lock', 'scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json'))
         files.update(member_manifests)
     files.update(str(path.relative_to(ROOT)) for path in (ROOT / '.cargo').rglob('*') if path.is_file())
     files.update(name for name in ('rust-toolchain', 'rust-toolchain.toml') if (ROOT / name).is_file())

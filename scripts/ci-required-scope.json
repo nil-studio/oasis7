@@ -1,6 +1,7 @@
 {
   "fast_scope_version": 1,
   "ordinary_dynamic_partition_version": 1,
+  "architecture_artifact_build_policy_version": 1,
   "custody_node_shards_version": 2,
   "contract_job_consolidation_version": 5,
   "ordinary_scope_config_slice_version": 2,

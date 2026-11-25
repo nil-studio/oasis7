@@ -698,7 +698,7 @@ class OrdinaryTargetBuildPolicy(unittest.TestCase):
     def test_unknown_and_dirty_plans_preserve_real_compilation_and_diagnostics_keep_gaps(self):
         self.write('root/src/lib.rs', 'compile_error!("old matrix sentinel");\n')
         self.commit()
-        for version in (None, 2):
+        for version in (None, 3):
             selected = self.plan()
             if version is None:
                 del selected['architecture']['build_policy_version']
@@ -720,6 +720,85 @@ class OrdinaryTargetBuildPolicy(unittest.TestCase):
             result = self.cli(self.plan(), *args)
             self.assertNotEqual(result.returncode, 0)
             self.assertTrue(any(row['status'] == 'coverage_gap' for row in json.loads(result.stdout)['results']))
+
+    def test_artifact_mode_v2_defers_extra_profiles_and_rejects_incomplete_or_mixed_plans(self):
+        self.write('scripts/ci-required-scope.json', json.dumps({
+            'architecture_artifact_build_policy_version': 1,
+            'oasis7_required_packages': ['oasis7_runtime', 'oasis7_chain_runtime'],
+            'package_groups': {'root': ['node']},
+        }))
+        self.command('git', 'add', 'scripts/ci-required-scope.json')
+        self.write('root/src/lib.rs', 'compile_error!("upper consumer deferred in v2");\n')
+        self.commit()
+        v2 = dict(
+            fast_plan_version=1,
+            execution_profile='pr-fast',
+            scope='targeted',
+            ordinary_artifact_partition_version=2,
+            ordinary_artifact_delivery_version=2,
+            ordinary_controls_in_rust_baseline_version=1,
+            ordinary_clippy_group='rust_baseline',
+            ordinary_wasm_group='rust_baseline',
+            ordinary_partitions=['native-0', 'native-1', 'native-2', 'native-3'],
+            groups=['baseline', 'rust_baseline', 'oasis7_required'],
+            source_sha=self.sha,
+            tested_sha=self.sha,
+            policy_sha=self.sha,
+            test_policy_changed=False,
+            fast_plan_exceptions=[],
+            formal_suites=[],
+            oasis7_required_wasm_packages=[],
+            oasis7_required_packages=['oasis7_runtime', 'oasis7_chain_runtime'],
+            architecture=dict(
+                version=1,
+                mode='targeted',
+                packages=['oasis7_runtime'],
+                base=self.sha,
+                source=self.sha,
+                tested=self.sha,
+                build_policy_version=2,
+                build_policy='ordinary-targets',
+            ),
+        )
+        report = self.inspect(v2)
+        self.assertEqual(report['timings']['graph_profiles'], 5)
+        self.assertEqual(report['timings']['build_profiles'], 0)
+        self.assertEqual(report['timings']['deferred_build_profiles'], 5)
+        self.assertEqual(self.cli(v2).returncode, 0)
+
+        for bad in (
+            {'ordinary_controls_in_rust_baseline_version': 2},
+            {'ordinary_clippy_group': 'oasis7_required'},
+            {'ordinary_wasm_group': 'oasis7_required'},
+            {'ordinary_execution': 'inline'},
+            {'fast_execution_version': 1},
+            {'oasis7_required_packages': ['not_registered_package']},
+            {'oasis7_required_packages': ['oasis7_chain_runtime']},
+            {'oasis7_required_wasm_packages': ['oasis7_runtime']},
+            {'test_policy_changed': True},
+            {'scope': 'full'},
+        ):
+            with self.subTest(bad=bad), self.assertRaises(checker.InspectionError):
+                self.inspect(v2 | bad)
+
+        # Candidate scope edits cannot self-enrol v2 or lend unregistered packages when policy_sha lacks them.
+        self.write('scripts/ci-required-scope.json', json.dumps({
+            'oasis7_required_packages': ['oasis7_runtime'],
+        }))
+        self.command('git', 'add', 'scripts/ci-required-scope.json')
+        self.commit()
+        old_policy = self.sha
+        self.write('scripts/ci-required-scope.json', json.dumps({
+            'architecture_artifact_build_policy_version': 1,
+            'oasis7_required_packages': ['oasis7_runtime', 'oasis7_chain_runtime'],
+        }))
+        self.command('git', 'add', 'scripts/ci-required-scope.json')
+        self.commit()
+        tampered = copy.deepcopy(v2)
+        tampered.update(source_sha=self.sha, tested_sha=self.sha, policy_sha=old_policy)
+        tampered['architecture'].update(base=old_policy, source=self.sha, tested=self.sha)
+        with self.assertRaisesRegex(checker.InspectionError, 'trusted policy capability'):
+            self.inspect(tampered)
 
     def test_mixed_custody_inputs_cannot_defer_even_when_other_fast_inputs_are_covered(self):
         selected = self.plan()

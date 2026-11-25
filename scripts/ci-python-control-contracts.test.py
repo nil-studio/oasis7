@@ -119,6 +119,18 @@ REQUIRED_FIXED_TESTS = json.loads(r'''
     "Workflow.test_trusted_closure_and_safe_checkout",
     "Workflow.test_trusted_writer_only_runs_on_protected_main"
   ],
+  "scripts/ci-workspace-cache.test.py": [
+    "Workspace.test_formal_components_have_exact_writer_and_reader_boundaries",
+    "Workspace.test_only_matching_trusted_main_lane_can_stage",
+    "Workspace.test_manual_writer_requires_full_in_event_payload",
+    "Workspace.test_stage_rechecks_capacity_and_never_saves_when_inventory_grows",
+    "Workspace.test_stage_rejects_untrusted_or_nonfull_manual_runs_before_preparation",
+    "Workspace.test_stage_round_trip_and_restore_requires_compatible_key",
+    "Workspace.test_wrong_selection_cannot_be_uploaded_as_ordinary",
+    "BoundedWorkspace.test_malformed_baseline_cannot_name_unrecorded_or_partial_units",
+    "BoundedWorkspace.test_malformed_capture_cannot_be_pruned_into_success",
+    "BoundedWorkspace.test_pack_retries_are_bounded_and_do_not_publish_an_oversized_archive"
+  ],
   "scripts/plan-rust-required-scope.test.py": [
     "Selection.test_unknown_inputs_block_even_with_full_control_or_extra_groups",
     "Selection.test_unknown_deleted_and_renamed_endpoints_block",
@@ -914,6 +926,91 @@ class GovernanceOwnership(unittest.TestCase):
                 mock.patch.object(controls, 'run_contract', side_effect=failing_run):
             with self.assertRaisesRegex(ValueError, 'simulated contract failure'):
                 controls.run_contract_batch(self.root, self.root, tasks, origin='candidate')
+
+    def test_local_governance_and_remaining_contracts_parallel_and_local_check_serial(self):
+        import os
+        import sys
+        from unittest import mock
+
+        log_path = self.root / 'local-gov.log'
+        for name in ('scripts/g1.test.py', 'scripts/g2.test.py'):
+            self.write(
+                name,
+                'import pathlib, sys, time\n'
+                f'pathlib.Path({str(log_path)!r}).open("a").write({name!r} + "\\n")\n',
+            )
+        self.write('scripts/ci-required-scope.json',
+                   json.dumps({'workflow_governance_python_tests': ['scripts/g1.test.py', 'scripts/g2.test.py']}))
+        with mock.patch.dict(os.environ, {'OASIS7_PYTHON_CONTRACT_JOBS': '2', 'OASIS7_LOCAL_CHECK': '0'}), \
+                mock.patch.object(controls, 'run_governance_remaining') as remaining:
+            controls.local_governance(self.root)
+            remaining.assert_called_once_with(self.root)
+        self.assertEqual(sorted(log_path.read_text().splitlines()), ['scripts/g1.test.py', 'scripts/g2.test.py'])
+
+        log_path.unlink()
+        with mock.patch.dict(os.environ, {'OASIS7_PYTHON_CONTRACT_JOBS': '4', 'OASIS7_LOCAL_CHECK': '1'}), \
+                mock.patch.object(controls, 'run_governance_remaining') as remaining:
+            controls.local_governance(self.root)
+            remaining.assert_called_once_with(self.root)
+        self.assertEqual(log_path.read_text().splitlines(), ['scripts/g1.test.py', 'scripts/g2.test.py'])
+
+        self.write('scripts/g1.test.py', 'import sys; sys.exit(7)\n')
+        with mock.patch.dict(os.environ, {'OASIS7_PYTHON_CONTRACT_JOBS': '2', 'OASIS7_LOCAL_CHECK': '0'}), \
+                mock.patch.object(controls, 'run_governance_remaining') as remaining:
+            with self.assertRaises(subprocess.CalledProcessError) as ctx:
+                controls.local_governance(self.root)
+            self.assertEqual(ctx.exception.returncode, 7)
+            remaining.assert_not_called()
+
+        # Verify real ci-tests.sh remaining governance parallel pool, local-check serial fallback, and failure propagation.
+        real_driver = HERE / 'ci-tests.sh'
+        trace_file = self.root / 'remaining-pool.log'
+        harness = (
+            'set -euo pipefail\n'
+            'driver_dir="$1"; repo_root="$2"; trace_file="$3"; ci_python="$4"; tier=required\n'
+            'source "$driver_dir/ci-tests.sh"\n'
+            'run_engineering_telemetry_contract_tests() { printf "telemetry\\n" >> "$trace_file"; }\n'
+            'run() {\n'
+            '  printf "%s\\n" "$*" >> "$trace_file"\n'
+            '  if [[ -n "${FAIL_MATCH:-}" && "$*" == *"$FAIL_MATCH"* ]]; then return 9; fi\n'
+            '}\n'
+            'run_workflow_governance_remaining_contract_tests\n'
+        )
+        base_env = {k: v for k, v in os.environ.items()
+                    if k not in ('SSH_CLIENT', 'SSH_CONNECTION', 'OASIS7_WORKFLOW_GOVERNANCE_REMAINING_JOBS')}
+        ok_parallel = subprocess.run(
+            ['bash', '--noprofile', '--norc', '-c', harness, 'gov-pool',
+             str(HERE), str(self.root), str(trace_file), sys.executable],
+            cwd=self.root,
+            env=dict(base_env, OASIS7_WORKFLOW_GOVERNANCE_REMAINING_JOBS='4', OASIS7_LOCAL_CHECK='0'),
+            capture_output=True, text=True,
+        )
+        self.assertEqual(ok_parallel.returncode, 0, ok_parallel.stderr)
+        lines = trace_file.read_text().splitlines()
+        self.assertEqual(lines[0], 'telemetry')
+        self.assertIn('python3 ./scripts/security/test_codeql_rust_resolver.py', lines)
+        self.assertIn('python3 ./scripts/safe-git-archive.test.py', lines)
+        self.assertEqual(len(lines), 38)
+
+        bad_jobs = subprocess.run(
+            ['bash', '--noprofile', '--norc', '-c', harness, 'gov-pool',
+             str(HERE), str(self.root), str(trace_file), sys.executable],
+            cwd=self.root,
+            env=dict(base_env, OASIS7_WORKFLOW_GOVERNANCE_REMAINING_JOBS='0'),
+            capture_output=True, text=True,
+        )
+        self.assertEqual(bad_jobs.returncode, 2)
+
+        failed_pool = subprocess.run(
+            ['bash', '--noprofile', '--norc', '-c', harness, 'gov-pool',
+             str(HERE), str(self.root), str(trace_file), sys.executable],
+            cwd=self.root,
+            env=dict(base_env, OASIS7_WORKFLOW_GOVERNANCE_REMAINING_JOBS='4',
+                     OASIS7_LOCAL_CHECK='0', FAIL_MATCH='safe-git-archive.test.py'),
+            capture_output=True, text=True,
+        )
+        self.assertEqual(failed_pool.returncode, 9)
+        self.assertTrue(real_driver.is_file())
 
 
 if __name__ == '__main__':
