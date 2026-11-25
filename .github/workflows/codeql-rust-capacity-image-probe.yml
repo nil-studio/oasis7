@@ -1,0 +1,140 @@
+name: Rust CodeQL capacity image prerequisite probe
+
+on:
+  pull_request:
+    branches: [codex/engineering-codeql-capacity-probe-base]
+    types: [opened]
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+cache-mode: none
+
+jobs:
+  check:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/engineering-codeql-capacity-image-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: '2.27.3'
+            checksum: 218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237
+          - version: '2.27.4'
+            checksum: 1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTUP_TOOLCHAIN: '1.96.0'
+      RUSTUP_AUTO_INSTALL: '0'
+      RUSTC_WRAPPER: ''
+      CODEQL_RAM: ''
+      CODEQL_THREADS: ''
+      CODEQL_OVERLAY_DATABASE_MODE: none
+      CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: 'true'
+      CAPACITY_NATIVE_IMAGE: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 77fe036e472982a80ddd0b40ee454041e6400000
+          persist-credentials: false
+      - name: Configure the original mold version in temporary storage
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-codeql-capacity-mold
+      - id: tools
+        name: Run original image tools step against an isolated Rust workspace
+        env:
+          CAPACITY_BUNDLE_VERSION: ${{ matrix.version }}
+          CAPACITY_BUNDLE_SHA256: ${{ matrix.checksum }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 77fe036e472982a80ddd0b40ee454041e6400000
+          fixture="$RUNNER_TEMP/fixture"
+          mkdir -p "$fixture/src" "$fixture/crates/oasis7_builtin_wasm_modules/_templates"
+          printf '[package]\nname = "capacity-fixture"\nversion = "0.1.0"\nedition = "2024"\n' >"$fixture/Cargo.toml"
+          printf 'pub fn fixture() -> u32 { 42 }\n' >"$fixture/src/lib.rs"
+          cargo generate-lockfile --offline --manifest-path "$fixture/Cargo.toml"
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess
+          workflow = pathlib.Path('.github/workflows/codeql-rust-capacity.yml').read_text()
+          step = workflow.split('      - id: tools\n', 1)[1].split('      - id: init\n', 1)[0]
+          run = step.split('        run: |\n', 1)[1]
+          if re.search(r'\$\{\{', run):
+              raise SystemExit('unexpected expression in frozen tools shell')
+          script = '\n'.join(line[10:] for line in run.splitlines())
+          fixture = pathlib.Path(os.environ['RUNNER_TEMP']) / 'fixture'
+          subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script], cwd=fixture,
+                         env=os.environ | {'GITHUB_WORKSPACE': str(fixture)}, check=True)
+          PY
+      - id: init
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
+        timeout-minutes: 5
+        with:
+          languages: rust
+          build-mode: none
+          source-root: ${{ steps.tools.outputs.source_root }}
+          db-location: ${{ steps.tools.outputs.db_location }}
+          tools: ${{ steps.tools.outputs.bundle }}
+          debug: false
+          dependency-caching: false
+          trap-caching: false
+      - name: Verify original package boundary and finalize only the tiny database
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+          CAPACITY_BUNDLE_VERSION: ${{ matrix.version }}
+          CAPACITY_SOURCE_ROOT: ${{ steps.tools.outputs.source_root }}
+          CAPACITY_DB_LOCATION: ${{ steps.tools.outputs.db_location }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/scripts/security" python3 - <<'PY'
+          import importlib.util, json, os, pathlib, subprocess, time
+          spec = importlib.util.spec_from_file_location('capacity', pathlib.Path('scripts/security/codeql-rust-capacity.py'))
+          m = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(m)
+          source = pathlib.Path(os.environ['CAPACITY_SOURCE_ROOT'])
+          database = pathlib.Path(os.environ['CAPACITY_DB_LOCATION']) / 'rust'
+          assert json.loads(os.environ['CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES']) == [str(source / 'crates/oasis7_builtin_wasm_modules/_templates')]
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'native-receipt'
+          out.mkdir()
+          child_env = {key: value for key, value in os.environ.items() if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
+          m.verify_preinstalled_native(source, out, time.monotonic() + 120, child_env,
+                                       os.environ['CAPACITY_NATIVE_IMAGE'], maximum_seconds=180)
+          receipt = json.loads((out / 'native-budget.json').read_text())
+          assert [phase['phase'] for phase in receipt['allocations']] == ['native-packages', 'native-modules']
+          print(json.dumps(m.resources(child_env), sort_keys=True))
+          print((out / 'native-packages.stdout').read_text())
+          print((out / 'native-modules.stdout').read_text())
+          cli = os.environ['CAPACITY_CLI']
+          observed = json.loads(subprocess.check_output([cli, 'version', '--format=json'], cwd=source, env=child_env))
+          assert observed['version'] == os.environ['CAPACITY_BUNDLE_VERSION']
+          lock = (source / 'Cargo.lock').read_bytes()
+          subprocess.run([cli, 'database', 'trace-command', '--use-build-mode', '--working-dir', str(source), str(database)],
+                         check=True, timeout=120, cwd=source, env=child_env)
+          subprocess.run([cli, 'database', 'finalize', '--finalize-dataset', str(database),
+                          '--threads=' + child_env['CODEQL_THREADS'], '--ram=' + child_env['CODEQL_RAM']],
+                         check=True, timeout=120, cwd=source, env=child_env)
+          assert (source / 'Cargo.lock').read_bytes() == lock
+          print(f"capacity-image-fixture=PASS bundle={observed['version']} native=readonly finalize=tiny")
+          PY
+      - name: Run the Linux process and capacity contracts against the frozen candidate
+        if: matrix.version == '2.27.4'
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 77fe036e472982a80ddd0b40ee454041e6400000
+          python3 scripts/security/codeql-rust-action-deadline.test.py
+          python3 scripts/security/codeql-rust-candidate-workload.test.py
