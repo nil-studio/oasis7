@@ -518,6 +518,64 @@ impl<P: FormalReadProjection> FormalReadVerifier<P> {
                 .map_err(|error| error.to_string())?,
         })
     }
+    /// Independently verify the *original* complete Qualified recovery cut
+    /// against the exact signed proof already accepted in historical replay.
+    /// The independent digest must come from the caller's trusted archive or
+    /// checkpoint, not from the proof or the current untrusted response.
+    ///
+    /// This returns read-only historical proof evidence: it neither restores
+    /// an active owner nor grants an endpoint, writer, or current authority.
+    pub fn verify_original_recovery_historical_cut(
+        &self,
+        proof: &FormalQualifiedCommitProofV1,
+        independent_proof_digest: &str,
+    ) -> Result<VerifiedRecoveryPlanLegacyCutV1, String> {
+        let digest = formal_qualified_proof_digest(proof).map_err(|error| error.to_string())?;
+        if digest != independent_proof_digest {
+            return Err("historical recovery Qualified proof differs from independent pin".into());
+        }
+        let record = &proof.decision.record;
+        let record_id = record.record_id().map_err(|error| error.to_string())?;
+        let key = QualifiedCommitKey {
+            position: record.position,
+            record_id,
+            proof_digest: digest,
+        };
+        let accepted = self.qualified_commits.get(&key).ok_or_else(|| {
+            "HistoryUnavailable: historical recovery Qualified proof not replayed".to_owned()
+        })?;
+        if accepted.proof != *proof
+            || accepted.origin != self.origin
+            || accepted.commit.record() != record
+            || accepted.anchor.head().record() != record
+            || accepted.anchor.head().record().world != self.current.head().record().world
+            || accepted.commit.record().position > self.current.head().record().position
+        {
+            return Err("historical recovery cut differs from verified reader lineage".into());
+        }
+        let recovery = accepted.recovery.as_ref().ok_or(
+            "historical Qualified proof lacks an original verified recovery",
+        )?;
+        let original_parent = self
+            .verified_recovery_contexts
+            .iter()
+            .find(|(remembered, _)| {
+                remembered.certificate_digest() == recovery.certificate_digest()
+                    && remembered.body() == recovery.body()
+            })
+            .map(|(_, predecessor)| predecessor)
+            .ok_or("HistoryUnavailable: historical recovery predecessor not replayed")?;
+        let checked = VerifiedRecoveryPlanLegacyCutV1::verify(proof, recovery, original_parent)
+            .map_err(|error| error.to_string())?;
+        if checked.proof_digest() != independent_proof_digest
+            || checked.cut().head() != accepted.commit.head()
+            || checked.cut().record() != accepted.commit.record()
+        {
+            return Err("historical recovery cut does not match signed replay".into());
+        }
+        Ok(checked)
+    }
+
     /// Verify an old view through a current-root inclusion fact in an isolated
     /// verifier. The ordinary current cache is never replaced or rewound.
     pub fn verify_committed_historical_view(
