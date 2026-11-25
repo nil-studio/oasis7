@@ -19,7 +19,7 @@
 | `scripts/plan-rust-required-scope.py` | 基于真实 `cargo metadata` 依赖闭包选组，计算多平台子契约集合（`*_oses`、`*_checks`），不满足安全前提时保守回退全矩阵或 `scope=full` | `scripts/plan-rust-required-scope.test.py` |
 | `.github/workflows/rust.yml` | 定义 `fast-preflight`、双处计划投影（`workflow-plan` 与 `&validate-complete-selection`）、动态 `matrix.os` 及步骤级 `if:` 守卫 | `scripts/ci-workflow.test.py` |
 | `scripts/ci-tests.sh` | 执行组内具体检查命令，承接显式受控环境变量（如 `OASIS7_SKIP_RUSTFMT`）去重同源前置检查 | `scripts/ci-formal-process.test.py`、`scripts/ci-workflow.test.py` |
-| `scripts/ci-python-control-contracts.py` | 在 `workflow-governance` 中以 `policy_sha` 受信测试检验候选工作流与控制脚本（控制 `migration` 委托与 `FIXED_TESTS` 强制集） | `scripts/ci-python-control-contracts.test.py` |
+| `scripts/ci-python-control-contracts.py` | 在 `workflow-governance` 中总控 `ci-authority` 受信测试：`EVOLVING_POLICY_TESTS` 在 `policy_sha` 侧仅跑 `FIXED_TESTS` 红线子集并在候选侧跑完整新套件；其余契约套件在无全量策略迁移（`boundaries` 含 `ci-required-scope.json` / `ci-python-control-contracts.py`）时跑 `policy_sha` 全集，`FIXED_TESTS` 始终在受信侧强制执行且禁删改签名 | `scripts/ci-python-control-contracts.test.py` |
 | `scripts/ci-required-result.py` | 在 `required-gate` 中强制所有被选中的逻辑检查组对应宿主结果为 `'success'`（因前置失败变为 `'skipped'` 时确定性判败） | `scripts/ci-required-result.test.py` |
 
 ## 3. 四大验证有效的按需与快速失败模式
@@ -40,7 +40,7 @@
 
 ### 模式 C：`fast-preflight` 极速前置门控全覆盖重编译宿主（`#6925`、`#6940`、`#6941`）
 - **做法**：
-  - 对所有重编译宿主 Job（`rust-baseline`、`oasis7-test-build-candidate`、`oasis7-required`、`workspace-support-other`、`custody-native-contracts`、`custody-native`、`custody-wasm-production`、`distfs`、`node`［含合并 `consensus`］、`net`、`launcher-web`、`scenario-regression`［含合并 `pixel_world_bridge`、`cargo_tooling_contracts`］）统一接入：
+  - 对所有重编译宿主 Job（`rust-baseline`、`oasis7-test-build-candidate`、`oasis7-required`、`workspace-support-other`、`custody-native-contracts`、`custody-native`、`custody-wasm-production`、`distfs`、`node`［含合并 `consensus`］、`net`、`launcher-web`、`scenario-regression`［含合并 `pixel_world_bridge`、`cargo_tooling_contracts`］）统一接入（其中 `oasis7-required` 额外保留上游产物依赖 `oasis7-test-build-candidate, oasis7-test-build-trusted`）：
     ```yaml
     needs: [select, fast-preflight]
     if: >-
@@ -58,27 +58,28 @@
   1. **事件与前置成功守卫**：`github.event_name == 'pull_request' && needs.fast-preflight.result == 'success'`（保留本地 CLI、`main-fast`、`periodic-full`、`candidate-full` 完整执行）；
   2. **控制面与工具链变更回退守卫**：`&& fromJSON(needs.select.outputs.plan).scope != 'full'`（一旦 PR 修改 `rust-toolchain*`、`.cargo/**` 或工作流本身触发 `scope == 'full'`，自动回退在下游按候选工作区默认工具链完整重跑）；
   3. **容器镜像同源防漂移单测**：在 `ci-workflow.test.py` 断言前置与下游 Job 的 `container.image`（含 `@sha256:...` 摘要）完全一致，防止未来单侧升级镜像导致环境漂移；
-  4. **Driver 默认开启、显式变量跳过**：在 `scripts/ci-tests.sh` 用 `if [[ "${OASIS7_SKIP_RUSTFMT:-0}" != 1 ]]; then ... fi` 包裹，确保无该环境变量的 `FIXED_TESTS`（如 `ci-formal-process.test.py` 中的 `test_format_failure_precedes_fetch_architecture_and_clippy`）保持原行为通过。
+  4. **Driver 默认开启、显式变量跳过**：在 `scripts/ci-tests.sh` 用 `if [[ "${OASIS7_SKIP_RUSTFMT:-0}" != 1 ]]; then ... fi` 包裹，确保无该环境变量的既有控制面契约测试（如非演进套件 `ci-formal-process.test.py` 中的 `test_format_failure_precedes_fetch_architecture_and_clippy`）及 `FIXED_TESTS` 保持原行为通过。
 
-## 4. 两步式可信测试前置切片（PR-A -> PR-B）与跨版本本地仿真
+## 4. 受信控制面分流边界、两步式前置与 `FIXED_TESTS` 跨版本仿真
 
-`workflow-governance` 会运行 `ci-python-control-contracts.py`，用 **`policy_sha`（当前 `origin/main`）上的受信测试检验候选分支的 `.github/workflows/rust.yml`**。当 `rust.yml` 修改触及 `ci-workflow.test.py` 中未按 `*_version` 分支的硬编码断言（如 `needs:` 允许集、静态 `fromJSON(needs.select.outputs.plan).*` 白名单、步骤级 `if:` 文本匹配）时：
+自 `#6928` 起，`scripts/ci-python-control-contracts.py` 将 `plan-rust-required-scope.test.py`、`ci-bin-ownership.test.py`、`ci-full-result.test.py`、`ci-workflow.test.py` 列入 `EVOLVING_POLICY_TESTS`：
 
-1. **PR-A（可信测试双态兼容前置）**：先单独（或随规划器新增字段）修改 `scripts/ci-workflow.test.py`，使其同时接受旧版与新版 `rust.yml` 写法。纯改 `scripts/ci-workflow.test.py` 命中 `scoped_control_paths`，仅执行 `baseline` + `workflow-governance`（约 5–8 分钟极速合入）。**严禁在 PR-A 提前写入必须依赖 PR-B 的 `rust.yml` 或 `ci-tests.sh` 改动才能通过的断言**。
-2. **PR-B（工作流与 Driver 切换收口）**：待 PR-A 合入 `main` 成为新 `policy_sha` 后，提交 `.github/workflows/rust.yml`、`scripts/ci-tests.sh` 与设计文档变更，同时在 `scripts/ci-workflow.test.py` 移除过渡期旧写法兼容并补齐新执行契约单测。
-3. **推送前必跑跨版本 `policy_sha` 内存仿真**：在 PR-B 本地工作区直接加载 `origin/main`（或本地预备 PR-A 分支）的 `ci-workflow.test.py` 检验当前候选文件，提前暴露所有 `policy_sha` 冲突：
+1. **常规拓扑与选测演进默认单 PR 原子收口**：对 `EVOLVING_POLICY_TESTS`，`policy_sha` 侧仅强制执行 `FIXED_TESTS` 中的安全红线子集（如 `ci-workflow.test.py` 的 21 项安全不变量），完整更新后的套件在候选工作区运行。因此普通的 `needs:` 调整、投影字段扩展、步骤级 `if:` 改写可直接与 `.github/workflows/rust.yml` **在同一 PR 内同步更新**，无需无故拆微 PR。
+2. **何时才需 `PR-A -> PR-B` 两步式兼容前置**：仅当改动需要调整 `policy_sha` 上 `FIXED_TESTS` 锁死的红线契约（含 `FIXED_TESTS['scripts/ci-required-result.test.py'] = None` 全集），或触及非 `EVOLVING_POLICY_TESTS` 契约套件（如 `ci-formal-process.test.py`、`ci-contract-jobs.test.py`）且本 PR 未触发全量策略迁移（`boundaries` 含 `scripts/ci-required-scope.json` 或 `scripts/ci-python-control-contracts.py`）时，才先提 **PR-A**（受信契约双态兼容前置，走 `scoped_control_paths` 快速合入更新 `policy_sha`，且不在 PR-A 提前写入依赖 PR-B 的断言）再提 **PR-B** 切换收口。
+3. **推送前验证 `policy_sha` `FIXED_TESTS` 红线兼容性**：修改 `rust.yml` 前可在本地精确加载 `origin/main` 的 `FIXED_TESTS['scripts/ci-workflow.test.py']` 对当前候选工作区做秒级跨版本校验：
    ```bash
    python3 -c "
-   import pathlib, subprocess, sys, unittest
-   src = subprocess.check_output(['git', 'show', 'origin/main:scripts/ci-workflow.test.py'], text=True)
+   import pathlib, subprocess, sys, types, unittest
+   rmod = {}
+   exec(subprocess.check_output(['git', 'show', 'origin/main:scripts/ci-python-control-contracts.py'], text=True), rmod)
+   fixed = rmod['FIXED_TESTS']['scripts/ci-workflow.test.py']
+   wf_src = subprocess.check_output(['git', 'show', 'origin/main:scripts/ci-workflow.test.py'], text=True)
    target = pathlib.Path('scripts/ci-workflow.test.py').resolve()
    sys.path.insert(0, str(target.parent)); sys.argv = [str(target)]
-   g = {'__file__': str(target), '__name__': 'policy_workflow_test'}
-   exec(compile(src, str(target), 'exec'), g)
-   suite = unittest.TestSuite(); loader = unittest.defaultTestLoader
-   for name, obj in g.items():
-       if isinstance(obj, type) and issubclass(obj, unittest.TestCase) and name != 'SupportCapacity':
-           suite.addTests(loader.loadTestsFromTestCase(obj))
+   mod = types.ModuleType('policy_workflow_fixed')
+   mod.__file__ = str(target); sys.modules[mod.__name__] = mod
+   exec(compile(wf_src, str(target), 'exec'), mod.__dict__)
+   suite = unittest.defaultTestLoader.loadTestsFromNames(fixed, mod)
    raise SystemExit(0 if unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful() else 1)
    "
    ```

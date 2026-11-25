@@ -27,8 +27,8 @@ file_names:
 
 1. **先用真实运行遥测建立可比基线（含跨平台计费倍率）**：通过 `gh run list --workflow Rust` 与 `gh run view <run-id> --json jobs` 区分队列等待时间、关键路径单 job 墙钟、原始核时、**GitHub Actions 跨平台折算计费分钟（Linux `1×`、Windows `2×`、macOS `10×`）**与触发频率。不为压缩单一指标而明显拉长关键路径墙钟或制造隐性重跑。
 2. **严守 `policy_sha` 与 `tested_sha` 权威隔离及 fail-closed**：PR 门禁计划器、结果判定器、缓存写权限和信任锚点必须受控于受信基线（`policy_sha` / `ci-authority`）；候选代码（`tested_sha`）不得在 PR 中自授豁免、覆盖门禁脚本或污染共享缓存。无法静态证明等价覆盖时一律 **fail-closed** 回退保守路径。
-3. **混合版本窗口平滑切换（`*_version` 门控与两步式可信测试前置）**：凡改变 job 拓扑、产物契约、结果判定或工作流摘要的优化，优先用单调递增的能力版本号（`*_version`）双向门控；若 `.github/workflows/rust.yml` 改动触及 `policy_sha` 上 `scripts/ci-workflow.test.py` 无版本分支的静态结构断言，须拆分为 **PR-A（可信测试双态兼容前置，走 `scoped_control_paths` 快速合入更新 `policy_sha`，且不在 PR-A 写入依赖未合入 `rust.yml`/driver 的新断言） -> PR-B（工作流与 driver 切换并收紧断言至终态）**。始终保留 `periodic-full` / `candidate-full` 等显式全量证明边界不被快速门禁裁剪侵蚀。
-4. **设计先行、本地闭环与共享控制面单飞**：调整门禁能力或分层策略前，先同步受影响设计文档（及适用 `O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29` 追踪说明）。工作流与核心控制脚本修改通常触发远端 `scope=full`，须先在本地跑通控制单测、**跨版本 `policy_sha` 仿真**与 PR 边界检查后再成批推送；多子项触碰共享控制面文件（`rust.yml`、`ci-required-scope.json`、`plan-rust-required-scope.py`、`ci-workflow.test.py`）时可在本地预备与预审，但远端同时保持至多 **1 个活跃开放 PR**，避免自我变基冲突与双倍全量算力浪费。
+3. **混合版本窗口平滑切换（`*_version` 门控与受信红线前置）**：凡改变 job 拓扑、产物契约、结果判定或工作流摘要的优化，优先用单调递增的能力版本号（`*_version`）双向门控；`EVOLVING_POLICY_TESTS`（如 `ci-workflow.test.py`、`plan-rust-required-scope.test.py`）在 `policy_sha` 侧仅强制执行 `FIXED_TESTS` 红线子集，常规 DAG/投影/步骤断言可随 `rust.yml` **同单 PR 原子更新**，仅当触及 `policy_sha` `FIXED_TESTS` 红线或无全量 `migration` 的非演进契约套件时才拆 `PR-A -> PR-B` 双态前置（且不在 PR-A 提前写入依赖 PR-B 的新断言）。始终保留 `periodic-full` / `candidate-full` 等显式全量证明边界不被快速门禁裁剪侵蚀。
+4. **设计先行、本地闭环与共享控制面单飞**：调整门禁能力或分层策略前，先同步受影响设计文档（及适用 `O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29` 追踪说明）。工作流与核心控制脚本修改通常触发远端 `scope=full`，须先在本地跑通控制单测、**`policy_sha` `FIXED_TESTS` 跨版本仿真**与 PR 边界检查后再成批推送；多子项触碰共享控制面文件（`rust.yml`、`ci-required-scope.json`、`plan-rust-required-scope.py`、`ci-workflow.test.py`）时可在本地预备与预审，但远端同时保持至多 **1 个活跃开放 PR**，避免自我变基冲突与双倍全量算力浪费。
 
 ## 3. 通用验证与交付要求
 
@@ -54,5 +54,5 @@ file_names:
 ## Known Failure Modes
 
 - 未核实关键路径就把多个中重型检查塞入同一 job，或忽视 macOS `10×` / Windows `2×` 计费倍率，导致单次等待墙钟拉长或跨平台折算计费失真。
-- 直接删除旧 job、向 `required-gate` `needs:` 塞入旧版 `scope=full` 下会 `skipped` 的 fallback job，或单 PR 强改被 `policy_sha` `ci-workflow.test.py` 静态锁死的 `rust.yml` 结构（以及在过渡 PR-A 提前写入依赖 PR-B 的断言），导致首跑判红。
+- 直接删除旧 job、向 `required-gate` `needs:` 塞入旧版 `scope=full` 下会 `skipped` 的 fallback job，或单 PR 强改被 `policy_sha` `FIXED_TESTS` / 非演进契约锁死的不变量（以及把本可随 `EVOLVING_POLICY_TESTS` 单 PR 原子演进的普通拓扑改动无必要地拆成微 PR），导致首跑判红或冗余全量重跑。
 - 只改一个工作流而忽略双处投影列表同步（`workflow-plan` 与 `&validate-complete-selection`）或跨脚本静态结构测试（如 `baseline` 产品文档范围环境变量不覆盖约束、Rust 缓存配对 `if:`、多行 `if: >-` 子串断言、旁路工作流 `paths-ignore` 解析假设），直到远端全量运行才暴露。
