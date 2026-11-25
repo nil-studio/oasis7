@@ -3,6 +3,7 @@ use super::gameplay_actions::{
     FACTORY_ASSEMBLER_MK1, FACTORY_SMELTER_MK1, STARTER_INDUSTRIAL_ELECTRICITY,
     formal_release_default_seed_model,
 };
+use crate::simulator_archive::kernel_host::WorldKernel;
 pub use oasis7_client_api::bootstrap::FORMAL_RELEASE_DEFAULT_WORLD_ID;
 use oasis7_runtime::{
     Action as RuntimeAction, AgentLocationAuthorityV1, FactoryConstructionPowerMode,
@@ -13,7 +14,6 @@ use oasis7_simulator::{
     ChunkRuntimeConfig, GeoPos, Location, ResourceKind, WorldConfig, WorldInitConfig, WorldModel,
     WorldScenario, build_world_model,
 };
-use crate::simulator_archive::kernel_host::WorldKernel;
 use std::collections::HashSet;
 use std::path::Path;
 pub const FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID: &str = "starter-agent-0";
@@ -491,7 +491,8 @@ mod archive_loader_tests {
             .expect("create original generated world");
         let original = kernel.snapshot();
         assert!(!original.model.agents.is_empty());
-        kernel.save_to_dir(fixture.0.join("generated-scenario-world"))
+        kernel
+            .save_to_dir(fixture.0.join("generated-scenario-world"))
             .expect("persist native snapshot and journal");
         std::fs::write(fixture.0.join("world-generation-provenance.json"), "{}")
             .expect("write required provenance marker");
@@ -505,7 +506,10 @@ mod archive_loader_tests {
         let (legacy_world, legacy_config, legacy_model) =
             bootstrap_generated_sidecar_runtime_world(&fixture.0)
                 .expect("native owner preserves original three-value API");
-        assert_eq!(legacy_world.state().agents.len(), world.state().agents.len());
+        assert_eq!(
+            legacy_world.state().agents.len(),
+            world.state().agents.len()
+        );
         assert_eq!(legacy_config, config);
         assert_eq!(legacy_model, model);
         let reopened = WorldKernel::load_from_dir(fixture.0.join("generated-scenario-world"))
@@ -517,12 +521,15 @@ mod archive_loader_tests {
     fn generated_sidecar_native_loader_rejects_corrupt_journal() {
         let fixture = ArchiveFixture::new();
         let archive = fixture.0.join("generated-scenario-world");
-        WorldKernel::new().save_to_dir(&archive).expect("persist test archive");
+        WorldKernel::new()
+            .save_to_dir(&archive)
+            .expect("persist test archive");
         std::fs::write(fixture.0.join("world-generation-provenance.json"), "{}")
             .expect("write required provenance marker");
         std::fs::write(archive.join("journal.json"), "{").expect("corrupt original journal");
         let error = bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(&fixture.0)
-            .err().expect("corrupt journal must not bootstrap Runtime");
+            .err()
+            .expect("corrupt journal must not bootstrap Runtime");
         assert!(error.contains("runtime live generated sidecar load failed"));
     }
 
@@ -530,7 +537,8 @@ mod archive_loader_tests {
     fn generated_sidecar_rejects_missing_provenance_before_archive_open() {
         let absent = Path::new("__oasis7_native_bootstrap_absent_provenance__");
         let error = bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(absent)
-            .err().expect("unproven archive must be rejected");
+            .err()
+            .expect("unproven archive must be rejected");
         assert!(error.contains("world provenance missing"));
     }
 }
