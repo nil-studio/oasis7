@@ -2,6 +2,11 @@
 use crate::remote_world_service::FormalReadTrustConfigV1;
 use oasis7_formal_protocol::bft::{
     BftProfileTargetV2, BftSuccessorWindowSourceV1,
+    checkpoint_renewal_read::PreparedBftCheckpointRenewalReadV1,
+    checkpoint_time_observation::{
+        AuthenticatedBftCheckpointTimeObservationV1, BftCheckpointTimeChallengeV1,
+        BftCheckpointTimeContinuityV1,
+    },
     checkpoint_trust_policy::{BFT_CHECKPOINT_CONFIG_MAX_BYTES_V1, BftCheckpointTrustPolicyV1},
     verify_formal_bft_handoff_v2,
 };
@@ -47,6 +52,54 @@ pub struct BftCheckpointTrustConfigV1 {
     pub initial_safety_valid_until_unix_ms: u64,
 }
 
+/// Independently supplied original renewal bytes for a read-only client.
+/// No field is a protected fact merely because a caller populated it.
+pub struct BftCheckpointRenewalClientOriginalsV1<'a> {
+    pub previous_status_bytes: &'a [u8],
+    pub independent_previous_status_digest: &'a str,
+    pub current_status_bytes: &'a [u8],
+    pub signed_time_bytes: &'a [u8],
+    pub observation_nonce: &'a str,
+    pub clock_epoch: &'a str,
+    pub protected_continuity: Option<&'a BftCheckpointTimeContinuityV1>,
+    pub old_key_constraints: &'a [u8],
+    pub stake_constraints: &'a [u8],
+}
+
+impl BftCheckpointRenewalClientOriginalsV1<'_> {
+    /// Cheap input guard before invoking the canonical signed-verifier path.
+    /// The full policy, signatures, bounds and independent pins are checked
+    /// by the formal protocol verifier, never from this shape check alone.
+    fn validate_shape(&self) -> Result<(), String> {
+        for bytes in [
+            self.previous_status_bytes,
+            self.current_status_bytes,
+            self.signed_time_bytes,
+            self.old_key_constraints,
+            self.stake_constraints,
+        ] {
+            if bytes.is_empty() {
+                return Err("checkpoint renewal original evidence is missing".into());
+            }
+        }
+        for value in [
+            self.independent_previous_status_digest,
+            self.observation_nonce,
+            self.clock_epoch,
+        ] {
+            hash(value)?;
+        }
+        if self
+            .protected_continuity
+            .and_then(|continuity| continuity.previous_observation.as_ref())
+            .is_none()
+        {
+            return Err("checkpoint renewal requires independent protected continuity".into());
+        }
+        Ok(())
+    }
+}
+
 /// Configuration consistency only. It has no conversion into a signing,
 /// installation, renewal, current-service or automatic-follow capability.
 pub struct PreparedBftCheckpointTrustConfigV1 {
@@ -56,6 +109,66 @@ impl PreparedBftCheckpointTrustConfigV1 {
     pub fn config(&self) -> &BftCheckpointTrustConfigV1 {
         &self.config
     }
+    /// Authenticate an original signed time observation in the *initial H*
+    /// window. Historical H remains distinct from a later authorized renewal.
+    /// Neither observation is an entitlement to currently sign or install.
+    pub fn check_initial_signed_time_observation(
+        &self,
+        bytes: &[u8],
+        observation_nonce: &str,
+        clock_epoch: &str,
+    ) -> Result<AuthenticatedBftCheckpointTimeObservationV1, String> {
+        let original = AuthenticatedBftCheckpointTimeObservationV1::decode(
+            bytes,
+            &self.config.policy,
+            &self.config.policy_digest,
+            &BftCheckpointTimeChallengeV1 {
+                consumer_binding_digest: self.config.consumer_binding_digest.clone(),
+                observation_nonce: observation_nonce.to_owned(),
+                clock_epoch: clock_epoch.to_owned(),
+            },
+        )?;
+        let time = original.body();
+        if time.utc_earliest_unix_ms < self.config.initial_not_before_unix_ms
+            || time.utc_latest_unix_ms >= self.config.initial_expires_at_unix_ms
+        {
+            return Err("checkpoint signed observation outside original H window".into());
+        }
+        Ok(original)
+    }
+
+    /// Check exact original renewal evidence for the independently prepared
+    /// historical H configuration. A later renewal never rewrites sequence-0
+    /// H expiry or turns this diagnostic into a new trust minimum.
+    pub fn verify_historical_renewal_read(
+        &self,
+        replayed_handoff_material_identity: &str,
+        replayed_handoff_schedule_digest: &str,
+        originals: &BftCheckpointRenewalClientOriginalsV1<'_>,
+    ) -> Result<PreparedBftCheckpointRenewalReadV1, String> {
+        self.check_replayed_handoff(
+            replayed_handoff_material_identity,
+            replayed_handoff_schedule_digest,
+        )?;
+        originals.validate_shape()?;
+        PreparedBftCheckpointRenewalReadV1::verify(
+            &self.config.policy,
+            &self.config.policy_digest,
+            originals.previous_status_bytes,
+            originals.independent_previous_status_digest,
+            originals.current_status_bytes,
+            originals.signed_time_bytes,
+            &BftCheckpointTimeChallengeV1 {
+                consumer_binding_digest: self.config.consumer_binding_digest.clone(),
+                observation_nonce: originals.observation_nonce.to_owned(),
+                clock_epoch: originals.clock_epoch.to_owned(),
+            },
+            originals.protected_continuity,
+            originals.old_key_constraints,
+            originals.stake_constraints,
+        )
+    }
+
     /// The host must obtain these values by actual qualified-H replay, not DTOs.
     pub fn check_replayed_handoff(
         &self,
@@ -262,6 +375,77 @@ pub fn load_checkpoint_trust_preparation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn renewal_read_original_shape_never_defaults_missing_protection_or_safety() {
+        use oasis7_formal_protocol::bft::checkpoint_time_observation::{
+            BftCheckpointPreviousObservationV1, BftCheckpointTimeChallengeV1,
+            BftCheckpointTimeContinuityV1,
+        };
+        let pin = "11".repeat(32);
+        let continuity = BftCheckpointTimeContinuityV1 {
+            challenge: BftCheckpointTimeChallengeV1 {
+                consumer_binding_digest: pin.clone(),
+                observation_nonce: pin.clone(),
+                clock_epoch: pin.clone(),
+            },
+            elapsed_upper_ms: 0,
+            utc_lower_floor_unix_ms: 0,
+            previous_observation: Some(BftCheckpointPreviousObservationV1 {
+                time_generation: 1,
+                clock_epoch: pin.clone(),
+                observation_nonce: pin.clone(),
+                observation_digest: pin.clone(),
+            }),
+        };
+        let original = BftCheckpointRenewalClientOriginalsV1 {
+            previous_status_bytes: b"old signed status",
+            independent_previous_status_digest: &pin,
+            current_status_bytes: b"new signed status",
+            signed_time_bytes: b"signed time",
+            observation_nonce: &pin,
+            clock_epoch: &pin,
+            protected_continuity: Some(&continuity),
+            old_key_constraints: b"old key constraints",
+            stake_constraints: b"stake constraints",
+        };
+        original.validate_shape().unwrap();
+        let empty = BftCheckpointRenewalClientOriginalsV1 {
+            old_key_constraints: b"",
+            ..original
+        };
+        assert!(empty.validate_shape().is_err());
+        let empty = BftCheckpointRenewalClientOriginalsV1 {
+            stake_constraints: b"",
+            ..original
+        };
+        assert!(empty.validate_shape().is_err());
+        let missing_proof = BftCheckpointRenewalClientOriginalsV1 {
+            previous_status_bytes: b"",
+            ..original
+        };
+        assert!(missing_proof.validate_shape().is_err());
+        let missing_time = BftCheckpointRenewalClientOriginalsV1 {
+            protected_continuity: None,
+            ..original
+        };
+        assert!(missing_time.validate_shape().is_err());
+        let wrong_nonce = BftCheckpointRenewalClientOriginalsV1 {
+            observation_nonce: "not-a-canonical-nonce",
+            ..original
+        };
+        assert!(wrong_nonce.validate_shape().is_err());
+        let mut absent_history = continuity.clone();
+        absent_history.previous_observation = None;
+        let no_history = BftCheckpointRenewalClientOriginalsV1 {
+            protected_continuity: Some(&absent_history),
+            ..original
+        };
+        assert!(no_history.validate_shape().is_err());
+        original.validate_shape().unwrap();
+        // Shape accepted only; signed policy/status/UTC and exact CAS originals
+        // still require the upstream cryptographic verifier and actual pins.
+    }
+
     #[test]
     fn rejects_unsupported_anchor_instead_of_treating_it_as_handoff() {
         let bytes = canonical(&serde_json::json!({"kind":"successor_window_v1"})).unwrap();

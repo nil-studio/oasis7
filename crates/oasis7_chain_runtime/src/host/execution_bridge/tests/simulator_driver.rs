@@ -46,6 +46,41 @@ fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire()
 }
 
 #[test]
+fn production_chain_manifest_has_no_umbrella_edge_and_retains_original_qa() {
+    // A production build must link native owners directly. Until the
+    // remaining Hosted Wait / provider test consumers migrate, the old
+    // umbrella is permitted only as a dev dependency.
+    let manifest: toml::Value =
+        toml::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")))
+            .expect("ChainRuntime package manifest is valid TOML");
+    let production = manifest["dependencies"]
+        .as_table()
+        .expect("normal dependency table");
+    assert!(
+        !production.contains_key("oasis7"),
+        "production ChainRuntime must not depend on the oasis7 umbrella"
+    );
+    let qa = manifest["dev-dependencies"]
+        .as_table()
+        .expect("original QA dependency table");
+    assert!(qa.contains_key("oasis7"), "original QA remains until final cutover");
+    for feature in ["wasmtime", "test_tier_required", "test_tier_full"] {
+        for dependency in manifest["features"][feature]
+            .as_array()
+            .expect("native feature forwarding list")
+        {
+            assert!(
+                !dependency
+                    .as_str()
+                    .expect("feature edge")
+                    .starts_with("oasis7/"),
+                "legacy umbrella feature forwarding remains in {feature}"
+            );
+        }
+    }
+}
+
+#[test]
 fn node_runtime_execution_driver_processes_simulator_payload_envelope() {
     let dir = temp_dir("execution-driver-simulator-payload");
     let state_path = dir.join("state.json");

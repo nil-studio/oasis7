@@ -8999,6 +8999,11 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         self.assertEqual(mixed_plan['workspace_support_profiles'], ['oasis7_context', 'oasis7_local_signer'])
         self.assertTrue(selector.workspace_support_selects_signer_image(mixed_plan))
         self.assertEqual(mixed_plan.get('workspace_support_direct_gate_version'), 2)
+        for profiles in (['oasis7_local_signer', 'oasis7_signer_protocol'],
+                         ['oasis7_context', 'oasis7_local_signer', 'oasis7_signer_protocol']):
+            with self.subTest(profiles=profiles):
+                self.assertTrue(selector.workspace_support_selects_signer_image(
+                    dict(mixed_plan, workspace_support_profiles=profiles)))
         for extra in ('oasis7_game_client', 'oasis7_dev_test_worker', 'oasis7_secure_envelope'):
             with self.subTest(extra=extra):
                 self.assertFalse(selector.workspace_support_selects_signer_image(

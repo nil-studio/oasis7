@@ -43,7 +43,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
-当可信 fast 计划采用 direct gate、未改动测试策略且 other 分区只选择 `oasis7_local_signer` 或精确选择 `oasis7_context` 与 `oasis7_local_signer` 时，`workspace-support-other` 分别只启动 `signer-image` 或 `signer-context-image` 分片。两者都校验 selection artifact 摘要，以 UID/GID 1001 执行原 `--lib` 和 `--test context_cli --locked`，保留文件权限拒绝语义。双 profile 还执行 context 原 `--all-targets --locked`，包括 Git、CLI 和 PTY 交互。单 profile 继续复用 Node Rust 分片的固定镜像、mold 路径和只读缓存。双 profile 使用包含 Git 2.56.1 的固定 Rust 镜像并验证原离线选项，在相同非 root UID 下冷编译。全量、旧计划和其它选测组合继续使用原宿主或镜像路由，`oasis7_game_client` 的跨 UID 验证保留在宿主。
+当可信 fast 计划采用 direct gate、未改动测试策略且 other 分区只选择 `oasis7_local_signer` 或精确选择 `oasis7_context` 与 `oasis7_local_signer` 时，`workspace-support-other` 分别只启动 `signer-image` 或 `signer-context-image` 分片。两者都校验 selection artifact 摘要，以 UID/GID 1001 执行原 `--lib` 和 `--test context_cli --locked`，保留文件权限拒绝语义。双 profile 还执行 context 原 `--all-targets --locked`，包括 Git、CLI 和 PTY 交互。单 profile 继续复用 Node Rust 分片的固定镜像、mold 路径和只读缓存。双 profile 使用包含 Git 2.56.1 的固定 Rust 镜像并验证原离线选项，在相同非 root UID 下冷编译。当精确选择 signer 与 `oasis7_signer_protocol` 并可选 context 时，`signer-protocol-image` 使用同一 Git 可用的非 root Rust 镜像，保留协议原 Clippy 全目标和库测试，继续冷编译。全量、旧计划和其它选测组合继续使用原宿主或镜像路由，`oasis7_game_client` 的跨 UID 验证保留在宿主。
 
 快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan-file <selection.json>`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
 
@@ -167,7 +167,7 @@ DistFS workflow 显式通过 `OASIS7_CI_DISTFS_PLAN_FILE` 传递完整 selection
 | --- | --- | --- |
 | Runtime `pr_fast_runtime` | `src/tests/basic.rs` 的 20 个用例 | 已登记的动作测试和独立 round-robin 调度，包含拒绝、ID 回绕、余额溢出、容量与 tick authority 不变量 |
 | World State `pr_fast_reducers` | Runtime `src/tests/apply_domain_event_guards.rs` 的 11 个用例 | 已登记归约测试源，保留幂等、篡改重复、legacy 格式、错误 service 合约及缺失角色的拒绝与状态不变 |
-| Runtime `pr_fast_incremental` | `oasis7/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
+| Runtime `pr_fast_incremental` | `oasis7_runtime/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
 | Runtime `--lib` | 全部非 ignored 原生 unit tests | 已登记的增量 commit/allocator/clock/body/scheduler 实现或测试变化始终执行，同时以最低清单保留 parent/fence 拒绝、取消无成功前缀、stale clock、重复实例与 allocator 错误等负例 |
 | 组件 `--lib` | World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability、Launcher Config 各自全部非 ignored unit tests | 可信源码合同和真实 target 可达性同时成立；World State 的生产及未证明私有测试输入同时执行 Runtime lib 与 `pr_fast_reducers`，保留跨 crate 的真实行为测试 owner；不以函数名过滤减少执行 |
 | Viewer Runtime `--lib` | `runtime_live/agent_service_*.rs` 与 `stream_budget_diagnostics.rs` 的行为由全部非 ignored library tests 承接 | 无默认 feature、启用 `test_tier_required`；最低清单保留同阶段精确分派、身份变化拒绝、失败后原请求查询恢复和诊断有界性；其他 Viewer 源码继续使用原范围 |

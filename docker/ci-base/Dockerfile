@@ -88,3 +88,10 @@ RUN curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 
     && tar -xOzf /tmp/gh.tar.gz gh_2.105.0_linux_amd64/bin/gh >/tmp/gh \
     && install -m 0755 /tmp/gh /usr/local/bin/gh \
     && rm -f /tmp/gh /tmp/gh.tar.gz
+
+# Official Linux/amd64 CLI image containing Docker 28.5.2 and Buildx 0.29.1.
+FROM docker:28.5.2-cli@sha256:cd58b396e427d1ee8cddcc3f3b7e8d8c2ba45755c5dd5b821b6e615e1ccf4586 AS docker-cli-tools
+
+FROM rust-build AS rust-ordinary-builder
+COPY --from=docker-cli-tools --chown=0:0 --chmod=0755 /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli-tools --chown=0:0 --chmod=0755 /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx

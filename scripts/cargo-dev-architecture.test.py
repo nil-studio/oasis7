@@ -114,6 +114,44 @@ class RepositoryUpstreams(unittest.TestCase):
         )
         self.assertIn('WorldKernel::load_from_dir(', host_bootstrap)
 
+    def test_runtime_host_llm_and_sidecar_keep_unique_native_owners(self):
+        """Accepted #6996 owners must not regress while final #6151 gate remains active."""
+        root = HERE.parent / 'crates'
+        native_profile = (root / 'oasis7_runtime_host/src/llm_prompt_profile.rs').read_text(encoding='utf-8')
+        native_exports = (root / 'oasis7_runtime_host/src/lib.rs').read_text(encoding='utf-8')
+        legacy_profile = (root / 'oasis7/src/simulator/llm_agent.rs').read_text(encoding='utf-8')
+        native_bootstrap = (root / 'oasis7_runtime_host/src/bootstrap.rs').read_text(encoding='utf-8')
+        legacy_bootstrap = (root / 'oasis7/src/runtime_host/bootstrap.rs').read_text(encoding='utf-8')
+
+        self.assertEqual(native_profile.count('pub enum LlmPromptProfile'), 1)
+        self.assertIn('pub mod llm_prompt_profile;', native_exports)
+        self.assertNotIn('pub enum LlmPromptProfile', legacy_profile)
+        self.assertIn(
+            'pub use oasis7_runtime_host::llm_prompt_profile::{DEFAULT_LLM_PROMPT_PROFILE, LlmPromptProfile};',
+            legacy_profile,
+        )
+        for original_policy in (
+            'context_window_tokens: 4_096',
+            'context_window_tokens: 4_608',
+            'reserved_output_tokens: 768',
+            'reserved_output_tokens: 896',
+            'short_term_top_k: 3',
+            'short_term_top_k: 2',
+        ):
+            self.assertIn(original_policy, native_profile)
+
+        original_bootstrap = 'pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime('
+        self.assertEqual(native_bootstrap.count(original_bootstrap), 1)
+        self.assertNotIn(original_bootstrap, legacy_bootstrap)
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy_bootstrap)
+        self.assertIn('WorldKernel::load_from_dir(', native_bootstrap)
+        for original_recovery_test in (
+            'generated_sidecar_native_loader_preserves_original_archive',
+            'generated_sidecar_native_loader_rejects_corrupt_journal',
+            'generated_sidecar_rejects_missing_provenance_before_archive_open',
+        ):
+            self.assertIn(original_recovery_test, native_bootstrap)
+
     def test_chain_umbrella_retirement_rule_is_registered_in_all_relevant_profiles(self):
         rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
         selected = [rule for rule in rules if rule['key'] == 'chain-runtime-umbrella-retirement']

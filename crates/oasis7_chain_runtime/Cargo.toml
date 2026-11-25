@@ -18,7 +18,6 @@ oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_consensus = { path = "../oasis7_consensus" }
 oasis7_simulator = { path = "../oasis7_simulator" }
-oasis7 = { path = "../oasis7", default-features = false }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
 oasis7_agent_api = { version = "0.1.0", path = "../oasis7_agent_api" }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
