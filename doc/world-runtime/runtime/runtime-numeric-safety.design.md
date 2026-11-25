@@ -16,7 +16,7 @@
 | 子系统 | 当前实现入口 | 设计要求 |
 | --- | --- | --- |
 | World 资源/规则 | `crates/oasis7_simulator/src/types.rs`、`runtime/world/resources.rs`、`runtime/world/step.rs`、`runtime/state/apply_domain_event_gameplay.rs` | 资源与规则聚合受检；事件 effect 预计算；失败转为拒绝且不部分提交。 |
-| Node points | `crates/oasis7_world_state/src/node_points.rs` | award、cumulative、total 与 epoch successor 全部计算成功后一次提交。 |
+| Node points | `crates/oasis7_world_state/src/lib.rs` (`node_points`) | award、cumulative、total 与 epoch successor 全部计算成功后一次提交。 |
 | PoS | `crates/oasis7_consensus/src/node_pos.rs` | stake/slot 越界返回错误；proposal/vote 状态保持不变。 |
 | Node engine/recovery | `crates/oasis7_node/src/pos_state_store.rs` 及 PosNodeEngine 路径 | height/slot/gap/snapshot 后继值受检；不可表示的 snapshot 拒绝启动。 |
 | Replication | `crates/oasis7_node/src/replication.rs` | writer position 返回 `Result`；local commit 构造透传错误。 |
