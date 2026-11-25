@@ -165,7 +165,9 @@ mod tests {
         assert_eq!(stage.messages(), 1408);
         for index in 0..stage.messages() {
             let fragments = [&part[..], &part[..], &part[..]];
-            stage.append_decoded_message(index, 50_000, &fragments).unwrap();
+            stage
+                .append_decoded_message(index, 50_000, &fragments)
+                .unwrap();
         }
         assert_eq!(stage.next_index(), 1408);
         stage.finish().unwrap();
@@ -178,7 +180,11 @@ mod tests {
         assert!(early.finish().is_err());
 
         let mut wrong = BftAdmissionInputV2StreamStage::new(&reference, Vec::new()).unwrap();
-        assert!(wrong.append_decoded_message(0, 65_537, &[b"hello"]).is_err());
+        assert!(
+            wrong
+                .append_decoded_message(0, 65_537, &[b"hello"])
+                .is_err()
+        );
         assert!(wrong.append_decoded_message(0, 7, &[b"hello"]).is_err());
 
         let mut wrong = BftAdmissionInputV2StreamStage::new(&reference, Vec::new()).unwrap();
@@ -190,20 +196,28 @@ mod tests {
         assert!(duplicate.append_decoded_message(0, 7, &[b"hello"]).is_err());
         assert!(duplicate.finish().is_err());
 
-        let mut wrong_digest =
-            BftAdmissionInputV2StreamStage::new(&reference, Vec::new()).unwrap();
-        wrong_digest.append_decoded_message(0, 7, &[b"world"]).unwrap();
+        let mut wrong_digest = BftAdmissionInputV2StreamStage::new(&reference, Vec::new()).unwrap();
+        wrong_digest
+            .append_decoded_message(0, 7, &[b"world"])
+            .unwrap();
         assert!(wrong_digest.finish().is_err());
 
         let mut extra = BftAdmissionInputV2StreamStage::new(&reference, Vec::new()).unwrap();
-        assert!(extra.append_decoded_message(0, 10, &[b"hello", b"!"]).is_err());
+        assert!(
+            extra
+                .append_decoded_message(0, 10, &[b"hello", b"!"])
+                .is_err()
+        );
         assert!(extra.finish().is_err());
     }
 
     #[test]
     fn refuses_out_of_order_and_truncated_part_before_writing() {
         let input = vec![1u8; 16 * 1024 + 1];
-        let reference = reference(input.len() as u64, blake3::hash(&input).to_hex().to_string());
+        let reference = reference(
+            input.len() as u64,
+            blake3::hash(&input).to_hex().to_string(),
+        );
         let mut stage = BftAdmissionInputV2StreamStage::new(&reference, Vec::new()).unwrap();
         assert!(stage.append_decoded_message(1, 100, &[b"x"]).is_err());
         assert!(stage.finish().is_err());
