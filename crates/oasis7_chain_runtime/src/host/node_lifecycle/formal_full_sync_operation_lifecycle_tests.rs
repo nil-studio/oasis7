@@ -659,7 +659,13 @@ fn budgeted_consumer_retains_world_and_rotates_seventeen_complete_cycles() {
     // headroom. The next real poll must reject before admitting any exchange,
     // preserving both the original completed ledger and independent pins.
     let mut full = before;
-    full.terminal_index.as_mut().unwrap().encoded_rx_actual = u64::MAX;
+    let full_terminal = full.terminal_index.as_mut().unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        // Evict the oldest retained summary so `completed_operations > summaries.len()`
+        // and `validate()` permits historic cumulative headroom above retained sums.
+        full_terminal.summaries.remove(0);
+    }
+    full_terminal.encoded_rx_actual = u64::MAX;
     full.validate().unwrap();
     local_io::write(&fixture.ledger_path(), &full).unwrap();
     let saved = fs::read(fixture.ledger_path()).unwrap();
