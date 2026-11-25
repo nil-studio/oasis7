@@ -31,8 +31,10 @@ _spec.loader.exec_module(maintenance)
 policy = maintenance.policy
 ACTION_REVISION = 'd1527c8f67ef9af357290475d4af4b0fab8f12e0'
 DENIED = 78
+ORDINARY_IMAGE_REPOSITORY = 'ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder'
+
 FAMILIES = {
-    'ordinary-image': ('ci-ordinary-image-f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c',
+    'ordinary-image': ('ci-ordinary-image-714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8',
                        '.github/workflows/rust.yml', 'oasis7-test-build-trusted'),
     'rust-image-native': ('ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3',
                           '.github/workflows/rust-cache.yml',
@@ -172,7 +174,7 @@ def trusted_writer(environment, api):
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('package dependency upload requires the matching planned main source and GitHub provider')
     if ordinary_image:
-        expected_image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.removeprefix('ci-ordinary-image-')
+        expected_image = ORDINARY_IMAGE_REPOSITORY + '@sha256:' + namespace.removeprefix('ci-ordinary-image-')
         if (environment.get('ORDINARY_BUILD_IMAGE') != expected_image
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('ordinary dependency upload requires its exact image and GitHub provider')

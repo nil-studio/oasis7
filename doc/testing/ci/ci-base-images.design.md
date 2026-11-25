@@ -47,7 +47,9 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 
 ### ordinary trusted producer 的镜像与缓存
 
-仅可信 main 的 `oasis7-test-build-trusted` 先迁移到固定完整摘要的 `rust-build`，保留原 selector 准入、45 分钟 job 边界、实际 Cargo 变体、features、分包格式及下游 required 执行。预检核对 Python、stable/nightly 工具链、组件和 WASM targets、native pkg-config 依赖，mold 沿原固定路径实际验证。该路径不执行现场 apt/rustup；候选 producer 的真实宿主 SDK 回收保持独立，不借本迁移改选测或权限。
+仅可信 main 的 `oasis7-test-build-trusted` 使用固定完整摘要的 `rust-ordinary-builder`，保留原 selector 准入、45 分钟 job 边界、实际 Cargo 变体、features、分包格式及下游 required 执行。该叶子沿用 `rust-build` 的编译器、系统及 mold，仅补预装的 Docker CLI 和 Buildx 客户端。预检核对 Python、stable/nightly 工具链、组件和 WASM targets、native pkg-config 依赖，mold 沿原固定路径实际验证。该路径不执行现场 apt/rustup；候选 producer 的真实宿主 SDK 回收保持独立，不借本迁移改选测或权限。
+
+完整 ordinary 产物仍包含原 Docker canonical WASM 测试材料：`local_test_provider` 和 sensor、mobility、memory、storage 四个 m1 模块。GitHub runner 已提供默认 Docker socket；本消费者不新增 daemon、socket 挂载或 privileged。耗时 native 编译前，使用有界客户端调用验证实际 daemon 可达、版本可读及默认 context/builder 的 `docker` driver；预检不能只看客户端文件存在，也不启动或替换 builder。后续仍由原 canonical wrapper 选择实际执行镜像，生成 WASM、metadata、receipt，并由当前源码编译的 checker 严格验证源、模块集合与各文件摘要。不能设置 `IN_CONTAINER` 伪装 canonical 环境、改用 host-native fallback，或把 tiny Rust/ABI 探针算作这五个模块的验证。
 
 同一 producer 作为镜像 dependency cache 的 writer 和后续 reader，使用单独包含完整 digest 的命名空间、原固定 Swatinem 动作及相同环境 hash；只在构建成功后，经真实归档 post 容量准入保存。新增 family 绑定原 Rust workflow 和 trusted job，只允许当前 main/source/实际 Git HEAD、一致 workflow SHA、适用 push/schedule 或 `run_mode=full` 手动事件，校验固定 image 与 GitHub provider。普通 PR、错误 job/source/digest/mode 均拒绝。命名空间进入现仓库容量/保留规划，不增加配额或绕过上传时点的检查。
 
