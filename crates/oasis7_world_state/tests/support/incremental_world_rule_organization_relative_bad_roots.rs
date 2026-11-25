@@ -177,6 +177,37 @@ pub(super) fn exercise() {
         ));
         cases.sort();
         cases.dedup();
+        if !cfg!(feature = "test_tier_full") {
+            cases = cases
+                .into_iter()
+                .enumerate()
+                .filter_map(|(idx, item)| {
+                    (idx % 3 == 0 || item.2.as_ref().is_some_and(|(c, _)| *c == 255))
+                        .then_some(item)
+                })
+                .collect();
+        }
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let (mut batch_io, mut never) = (physical(), || false);
+        let mut buffered = (!cfg!(feature = "test_tier_full")).then(|| {
+            store
+                .buffered_page_writer(&mut batch_io, &cancel, &mut never)
+                .unwrap()
+        });
+        let memo_io = || PageIoBudget {
+            reads_remaining: 50_000_000,
+            read_bytes_remaining: 16 << 30,
+            ..physical()
+        };
+        let memo_state = (!cfg!(feature = "test_tier_full")).then(|| {
+            store
+                .state_session(memo_io(), MemoryClass::Ordinary)
+                .unwrap()
+                .with_read_memo(512, 2 << 20)
+                .unwrap()
+        });
+        let (mut cached_case, mut cached_estate) = (None, None);
+        let mut built = Vec::with_capacity(cases.len());
         for (object, part, replacement) in cases {
             let estate = matches!(object, Object::Estate(_));
             let owner = if estate {
@@ -184,36 +215,54 @@ pub(super) fn exercise() {
             } else {
                 OrganizationRootKeyV1::Case(CASE)
             };
-            let state = store
-                .state_session(physical(), MemoryClass::Ordinary)
-                .unwrap();
-            let values = store.value_session(physical());
-            let mut io = logical();
-            let mut keys = SemanticKeyBudget {
-                bytes_remaining: 1 << 20,
+            let fresh_state;
+            let state = match &memo_state {
+                Some(s) => s,
+                None => {
+                    fresh_state = store
+                        .state_session(physical(), MemoryClass::Ordinary)
+                        .unwrap();
+                    &fresh_state
+                }
             };
-            let inner = inspect_organization_root_v1(
-                owner,
-                &mut WorldFieldReadContextV1 {
-                    root: &outer,
-                    state: &state,
-                    values: ValueReadContext {
-                        source: &values,
-                        memory: &memory,
-                        class: MemoryClass::Ordinary,
-                        io: &mut io,
+            let inspect = || {
+                let values = store.value_session(physical());
+                let mut io = logical();
+                let mut keys = SemanticKeyBudget {
+                    bytes_remaining: 1 << 20,
+                };
+                inspect_organization_root_v1(
+                    owner,
+                    &mut WorldFieldReadContextV1 {
+                        root: &outer,
+                        state,
+                        values: ValueReadContext {
+                            source: &values,
+                            memory: &memory,
+                            class: MemoryClass::Ordinary,
+                            io: &mut io,
+                        },
+                        key_work: &mut keys,
+                        semantic_bytes: 1024,
+                        record_bytes: 8192,
+                        take_state_error: || state.take_read_error().map(state_error),
+                        cancelled: || false,
                     },
-                    key_work: &mut keys,
-                    semantic_bytes: 1024,
-                    record_bytes: 8192,
-                    take_state_error: || state.take_read_error().map(state_error),
-                    cancelled: || false,
-                },
-            )
-            .unwrap()
-            .unwrap();
+                )
+                .unwrap()
+                .unwrap()
+            };
+            let fresh_inner;
+            let inner = if cfg!(feature = "test_tier_full") {
+                fresh_inner = inspect();
+                &fresh_inner
+            } else if estate {
+                cached_estate.get_or_insert_with(inspect)
+            } else {
+                cached_case.get_or_insert_with(inspect)
+            };
             let target = key(object, part);
-            let before = inner.get(target.as_bytes(), &state).unwrap();
+            let before = inner.get(target.as_bytes(), state).unwrap();
             assert!(before.is_some() || replacement.is_some());
             let after = replacement.map(|(codec, payload)| {
                 let bytes = if codec == 255 {
@@ -221,14 +270,25 @@ pub(super) fn exercise() {
                 } else {
                     frame(object, part, codec, &payload)
                 };
-                write_value(
-                    &mut bytes.as_slice(),
-                    bytes.len() as u64,
-                    &mut store.value_session(physical()),
-                    &memory,
-                    &mut logical(),
-                    || false,
-                )
+                if let Some(writer) = buffered.as_mut() {
+                    write_value(
+                        &mut bytes.as_slice(),
+                        bytes.len() as u64,
+                        writer,
+                        &memory,
+                        &mut logical(),
+                        || false,
+                    )
+                } else {
+                    write_value(
+                        &mut bytes.as_slice(),
+                        bytes.len() as u64,
+                        &mut store.value_session(physical()),
+                        &memory,
+                        &mut logical(),
+                        || false,
+                    )
+                }
                 .unwrap()
                 .digest()
                 .unwrap()
@@ -242,25 +302,54 @@ pub(super) fn exercise() {
                         before,
                         after,
                     }],
-                    &state,
+                    state,
                     4 << 20,
                 )
                 .unwrap(),
             );
-            store
-                .value_session(physical())
-                .put_state_pages(&delta, &memory)
-                .unwrap();
-            let state = store
-                .state_session(physical(), MemoryClass::Ordinary)
-                .unwrap();
+            if let Some(writer) = buffered.as_mut() {
+                use oasis7_formal_protocol::incremental_value::ValueNodeWriter;
+                for node in &delta.new_nodes {
+                    writer
+                        .put_node(
+                            *blake3::hash(&node.bytes).as_bytes(),
+                            memory
+                                .reserve(node.bytes.len(), MemoryClass::Ordinary)
+                                .unwrap()
+                                .retain(node.bytes.clone()),
+                        )
+                        .unwrap();
+                }
+            } else {
+                store
+                    .value_session(physical())
+                    .put_state_pages(&delta, &memory)
+                    .unwrap();
+            }
+            built.push((owner, object, delta.after.clone()));
+        }
+        if let Some(writer) = buffered {
+            writer.finish().unwrap();
+        }
+        for (owner, object, after_root) in built {
+            let values = store.value_session(physical());
+            let fresh_state;
+            let state = match &memo_state {
+                Some(s) => s,
+                None => {
+                    fresh_state = store
+                        .state_session(physical(), MemoryClass::Ordinary)
+                        .unwrap();
+                    &fresh_state
+                }
+            };
             let mut io = logical();
             let mut keys = SemanticKeyBudget {
                 bytes_remaining: 1 << 20,
             };
             let mut read = WorldFieldReadContextV1 {
-                root: &delta.after,
-                state: &state,
+                root: &after_root,
+                state,
                 values: ValueReadContext {
                     source: &values,
                     memory: &memory,

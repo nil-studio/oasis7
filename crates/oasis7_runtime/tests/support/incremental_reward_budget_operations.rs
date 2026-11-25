@@ -34,7 +34,12 @@ fn open(
 }
 #[test]
 fn same_transaction_map_updates_multiple_appends_and_typed_receiver_preserve_order() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store =
@@ -129,7 +134,7 @@ fn same_transaction_map_updates_multiple_appends_and_typed_receiver_preserve_ord
             limits: limits(),
             cancelled: || false,
         };
-        for (cell, expected, after) in [
+        for (step, (cell, expected, after)) in [
             (
                 RewardCellV1::Column(RewardColumnV1::RemainingCreditBudget),
                 Some(RewardValueRefV1::U64(u64::MAX)),
@@ -160,7 +165,10 @@ fn same_transaction_map_updates_multiple_appends_and_typed_receiver_preserve_ord
                 None,
                 Some(RewardValueRefV1::U64(0)),
             ),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let guard = overlay.transaction.guard();
             proof = change_qualified_reward_cell_v1(
                 RewardCellChangeV1 {
@@ -200,6 +208,9 @@ fn same_transaction_map_updates_multiple_appends_and_typed_receiver_preserve_ord
                     _ => unreachable!(),
                 })
             );
+            if !cfg!(feature = "test_tier_full") && step >= 2 {
+                continue;
+            }
             let guard = overlay.transaction.guard();
             assert!(
                 change_qualified_reward_cell_v1(

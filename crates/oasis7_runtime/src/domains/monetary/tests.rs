@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 
-use super::{StagedRuleFeeSettlement, plan_resource_delta};
-use crate::world::transition::{
-    BorrowedWorldView, DurableCommitConfirmation, StagedTransition, TransitionContext,
-    TransitionReject,
+use super::{
+    CognitionEconomyOutput, MonetaryDomainDelta, StagedCognitionEconomyOp, StagedRuleFeeSettlement,
+    plan_resource_delta,
 };
-use crate::{ResourceDelta, World, WorldError};
+use crate::world::transition::{
+    BorrowedWorldView, DurableCommitConfirmation, StagedRootTransaction, StagedTransition,
+    TransitionContext, TransitionReject,
+};
+use crate::{CognitionLeaseQuoteV1, CognitionLeaseRequestV1, ResourceDelta, World, WorldError};
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_domain_types::rule_settlement::RuleActionDisposition;
 
@@ -240,4 +243,141 @@ fn live_and_staged_rule_fee_share_selected_affordability_before_arithmetic() {
     ));
     assert_eq!(world.resource_balance(ResourceKind::Data), i64::MAX);
     assert_eq!(world.resource_balance(ResourceKind::Electricity), 0);
+}
+
+fn lease_req(key: &str, amount: u64, valid_until: Option<u64>) -> CognitionLeaseRequestV1 {
+    let mut quote = CognitionLeaseQuoteV1::new(format!("q-{key}"), "units", amount);
+    if let Some(tick) = valid_until {
+        quote = quote.with_valid_until_tick(tick);
+    }
+    CognitionLeaseRequestV1::new(
+        key, "acct", "agent-a", "sess", "turn", format!("r-{key}"), format!("d-{key}"), quote,
+    )
+}
+
+fn stage_op(world: &World, op: &StagedCognitionEconomyOp<'_>) -> super::StagedCognitionPrepared {
+    let view = BorrowedWorldView::new(world).unwrap();
+    op.prepare_with_output(&view, &TransitionContext::new(view.time(), None))
+        .unwrap()
+}
+
+#[test]
+fn staged_cognition_lease_lifecycle_matches_live_world_and_fences_unknown_or_stale() {
+    let (mut staged, mut live) = (World::new(), World::new());
+    staged.set_cognition_resource_balance("acct", "units", 30).unwrap();
+    live.set_cognition_resource_balance("acct", "units", 30).unwrap();
+
+    let req1 = lease_req("k1", 10, None);
+    let (CognitionEconomyOutput::Lease(staged_lease), unknown) =
+        stage_op(&staged, &StagedCognitionEconomyOp::ReserveLease(&req1))
+    else {
+        panic!("expected lease output");
+    };
+    let unk = DurableCommitConfirmation::StatusUnknown { reason: "lost ack".into() };
+    assert!(matches!(
+        unknown.install_confirmed(&mut staged, unk),
+        Err(TransitionReject::StatusUnknownFenced { .. })
+    ));
+    assert_eq!(staged.cognition_economy().unwrap().reserved_balance("acct", "units"), 0);
+
+    let live_lease = live.reserve_cognition_lease(req1.clone()).unwrap();
+    assert_eq!(staged_lease, live_lease);
+    stage_op(&staged, &StagedCognitionEconomyOp::ReserveLease(&req1))
+        .1
+        .install_confirmed(&mut staged, DurableCommitConfirmation::Confirmed)
+        .unwrap();
+    assert_eq!(staged.cognition(), live.cognition());
+
+    let (settle_out, settle_commit) =
+        stage_op(&staged, &StagedCognitionEconomyOp::SettleLease(&staged_lease.lease_id, 6));
+    let live_settle = live.settle_cognition_lease(&live_lease.lease_id, 6).unwrap();
+    settle_commit
+        .install_confirmed(&mut staged, DurableCommitConfirmation::Confirmed)
+        .unwrap();
+    assert_eq!(settle_out, CognitionEconomyOutput::Receipt(live_settle.clone()));
+    assert_eq!(staged.cognition(), live.cognition());
+
+    let (_, stale_refund) = stage_op(
+        &staged,
+        &StagedCognitionEconomyOp::RefundSettledLease(
+            &staged_lease.lease_id, 2, &live_settle.receipt_id, "partial",
+        ),
+    );
+    let (req2, req3) = (lease_req("k2", 4, None), lease_req("k3", 5, Some(1)));
+    let lease2 = staged.reserve_cognition_lease(req2.clone()).unwrap();
+    live.reserve_cognition_lease(req2).unwrap();
+    assert!(matches!(
+        stale_refund.install_confirmed(&mut staged, DurableCommitConfirmation::Confirmed),
+        Err(TransitionReject::BaseHeadStale)
+    ));
+
+    let lease3 = staged.reserve_cognition_lease(req3.clone()).unwrap();
+    live.reserve_cognition_lease(req3).unwrap();
+    staged.release_cognition_lease(&lease2.lease_id).unwrap();
+    live.release_cognition_lease(&lease2.lease_id).unwrap();
+    for _ in 0..2 {
+        staged.step().unwrap();
+        live.step().unwrap();
+    }
+    staged.expire_cognition_lease(&lease3.lease_id).unwrap();
+    live.expire_cognition_lease(&lease3.lease_id).unwrap();
+    staged.refund_cognition_lease(&staged_lease.lease_id).unwrap();
+    live.refund_cognition_lease(&live_lease.lease_id).unwrap();
+    assert_eq!(staged.cognition(), live.cognition());
+}
+
+#[test]
+fn staged_root_transaction_composes_rule_fee_and_cognition_lease_with_nested_savepoint() {
+    let mut world = World::new();
+    world.set_resource_balance(ResourceKind::Data, 10);
+    world.set_resource_balance(ResourceKind::Electricity, 8);
+    world.set_cognition_resource_balance("acct", "units", 15).unwrap();
+
+    let (general, with_distance) = costs();
+    let accepted_fee = fee(&general, &with_distance, RuleActionDisposition::Accepted);
+    let denied_fee = fee(&general, &with_distance, RuleActionDisposition::RejectedMovement);
+    let (valid_req, oversized_req) = (lease_req("ok", 6, None), lease_req("big", 99, None));
+
+    let prepared = {
+        let ctx = TransitionContext::new(world.state().time, None);
+        let mut root = StagedRootTransaction::<MonetaryDomainDelta>::begin(&world, ctx).unwrap();
+        accepted_fee.stage_in_root(&mut root).unwrap();
+        let CognitionEconomyOutput::Lease(lease) = StagedCognitionEconomyOp::ReserveLease(&valid_req)
+            .stage_in_root(&mut root)
+            .unwrap()
+        else {
+            panic!("expected reserved lease");
+        };
+
+        let nested_err = root.stage_nested(|tx| {
+            StagedCognitionEconomyOp::SetBalance("spec", "units", 1).stage_in_root(tx)?;
+            StagedCognitionEconomyOp::ReserveLease(&oversized_req)
+                .stage_in_root(tx)
+                .map(|_| ())
+        });
+        assert!(nested_err.is_err());
+        assert_eq!(root.staged_count(), 2);
+
+        root.stage_nested(|tx| {
+            denied_fee.stage_in_root(tx)?;
+            StagedCognitionEconomyOp::SetBalance("second", "units", 9).stage_in_root(tx)?;
+            StagedCognitionEconomyOp::SettleLease(&lease.lease_id, 4)
+                .stage_in_root(tx)
+                .map(|_| ())
+        })
+        .unwrap();
+        assert_eq!(root.staged_count(), 5);
+        root.finish_prepare()
+    };
+
+    assert_eq!(world.resource_balance(ResourceKind::Data), 10);
+    assert_eq!(world.cognition_economy().unwrap().reserved_balance("acct", "units"), 0);
+    prepared.install_confirmed(&mut world, DurableCommitConfirmation::Confirmed).unwrap();
+    assert_eq!(world.resource_balance(ResourceKind::Data), 6);
+    assert_eq!(world.resource_balance(ResourceKind::Electricity), 4);
+    let econ = world.cognition_economy().unwrap();
+    assert_eq!(econ.reserved_balance("acct", "units"), 0);
+    assert_eq!(econ.available_balance("acct", "units"), 11);
+    assert_eq!(econ.available_balance("second", "units"), 9);
+    assert_eq!(econ.available_balance("spec", "units"), 0);
 }

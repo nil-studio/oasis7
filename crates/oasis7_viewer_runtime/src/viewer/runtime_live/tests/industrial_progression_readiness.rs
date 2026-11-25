@@ -100,7 +100,7 @@ fn assert_smelter_schedule_enabled(server: &mut ViewerRuntimeLiveServer, label: 
 
 #[test]
 fn runtime_live_formal_bootstrap_keeps_smelter_and_assembler_builds_ready() {
-    let (mut world, _) = crate::viewer::viewer_bootstrap_formal_release_runtime_world()
+    let (mut world, _) = oasis7_runtime_host::bootstrap::bootstrap_formal_release_runtime_world()
         .expect("formal release bootstrap");
     let agent_id = crate::viewer::runtime_live::support::FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID;
 

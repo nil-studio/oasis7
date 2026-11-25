@@ -47,6 +47,10 @@ RUST_KEY = re.compile(r'v0-rust-(?P<family>[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)-'
 LEGACY_DEPENDENCY_NAMESPACES = frozenset(('ci-shared-native-trusted-v4', 'oasis7-ecs-native-linux-ecs-v2'))
 RUST_IMAGE_DEPENDENCY_NAMESPACE = 'ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3'
 DEPENDENCY_PLATFORMS = {
+    'ci-ordinary-image-714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8':
+        frozenset({('Linux', 'x64')}),
+    'ci-ordinary-image-f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c':
+        frozenset({('Linux', 'x64')}),
     RUST_IMAGE_DEPENDENCY_NAMESPACE: frozenset({('Linux', 'x64')}),
     **{name: frozenset({('Linux', 'x64')}) for name in (
         'ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f',

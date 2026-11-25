@@ -4,6 +4,11 @@ use super::*;
 use std::path::Path;
 
 const CONSUMER_BUDGET: Duration = Duration::from_secs(14);
+const LATE_CLOCK_BOUNDARY: Duration = if cfg!(feature = "test_tier_full") {
+    CONSUMER_BUDGET
+} else {
+    Duration::from_secs(2)
+};
 const LATE_CLOCK_ENV: &str = "PRE2_FINAL_BUDGET_LATE_CLOCK";
 const ORIGINAL_WINDOW_MARKER: &str = "final-budget-original-window-elapsed";
 
@@ -38,7 +43,7 @@ impl Window {
             producer_deadline: (now + PRODUCER_BUDGET).min(outer_deadline),
             consumer_deadline: None,
             outer_deadline,
-            original_boundary: now + CONSUMER_BUDGET,
+            original_boundary: now + LATE_CLOCK_BOUNDARY,
             original_marker_sent: false,
         }
     }

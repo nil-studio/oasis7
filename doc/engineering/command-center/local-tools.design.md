@@ -113,7 +113,7 @@ Git 元数据采用各子命令前后及返回前的持续身份重核验，实�
 
 导出与恢复口令分别绑定当前窗口、操作及用途。表单只申请自己的短时句柄，不读取另一任务的输入；取消、完成、过期或离开该口令步骤时清除对应 UI 临时值和未消费句柄，重新进入重新输入。已消费句柄与正在执行的原任务按 §2–4 处理；清除 UI 不取消、回滚或重发操作。口令不进入普通草稿、返回栈、错误样本或日志。
 
-签名上下文导入只接收用户明确选择的完整 SignContext JSON，复用 [SignContext](../../../crates/oasis7_local_signer/src/protocol.rs) 的严格字段与校验，不另创请求格式。文件读取沿 [file CLI](../../../crates/oasis7_local_signer/src/file_cli.rs) 的普通文件、身份、摘要与 64 KiB 预算；预览固定读取到的原文及摘要，内容改变须重新导入。job、signer、grant 和源文件仍由用户分别明确选定；已准备请求通过原 operation/Job 的恢复入口打开，不从任意 JSON 导入成已准备或已授权状态。前端逐字段显示来源、缺失和校验结果；后端仍对完整输入、实际文件、安装和原请求重新校验。缺 job、grant、purpose/context 等输入时指出具体缺口，不生成示例授权、不从工作目标推导，也不将 JSON 解析成功等同 worker 授权。
+签名上下文导入只接收用户明确选择的完整 SignContext JSON，复用 [SignContext](../../../crates/oasis7_signer_protocol/src/protocol.rs) 的严格字段与校验，不另创请求格式。文件读取沿 [file CLI](../../../crates/oasis7_local_signer/src/file_cli.rs) 的普通文件、身份、摘要与 64 KiB 预算；预览固定读取到的原文及摘要，内容改变须重新导入。job、signer、grant 和源文件仍由用户分别明确选定；已准备请求通过原 operation/Job 的恢复入口打开，不从任意 JSON 导入成已准备或已授权状态。前端逐字段显示来源、缺失和校验结果；后端仍对完整输入、实际文件、安装和原请求重新校验。缺 job、grant、purpose/context 等输入时指出具体缺口，不生成示例授权、不从工作目标推导，也不将 JSON 解析成功等同 worker 授权。
 
 ### 6.2 云端与本机往返
 

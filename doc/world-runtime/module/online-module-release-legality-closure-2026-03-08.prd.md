@@ -92,8 +92,8 @@
   - `crates/oasis7_runtime/src/world/base_layer.rs`
   - 发布动作分发：`crates/oasis7_runtime/src/world/module_actions/release_support.rs`
   - 请求、证明提交与审批：`crates/oasis7_runtime/src/world/module_actions/release_request_support.rs`
-  - `crates/oasis7_runtime/src/events.rs`
-  - `crates/oasis7_runtime/src/state.rs`
+  - `crates/oasis7_world_state/src/events.rs`
+  - `crates/oasis7_world_state/src/state.rs`
   - `crates/oasis7_runtime/src/world/release_manifest.rs`
   - `crates/oasis7_runtime/src/builtin_wasm_identity_manifest.rs`
   - `crates/oasis7_runtime/src/{m1,m4,m5}_builtin_wasm_artifact.rs`

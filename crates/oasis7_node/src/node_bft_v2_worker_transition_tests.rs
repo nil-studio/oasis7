@@ -716,12 +716,12 @@ fn verify_certificates(
 fn protected_tcp_signer_workers_apply_transition_and_continue_after_node_restart() {
     let root = PrivateRoot::new();
     let mut identities = identities();
-    let addresses = reserve_udp_addresses(identities.len());
+    let mut mesh = socket_handoff::ReservedMesh::new(identities.len());
     let mut nodes = identities
         .iter()
         .take(5)
         .enumerate()
-        .map(|(index, identity)| make_node(identity, index, &addresses, root.path()))
+        .map(|(index, identity)| mesh.node(identity, index, root.path()))
         .collect::<Vec<_>>();
 
     for (index, node) in nodes.iter_mut().enumerate() {
@@ -774,7 +774,9 @@ fn protected_tcp_signer_workers_apply_transition_and_continue_after_node_restart
         .provider
         .server
         .fail_next_complete_transition_install();
-    let mut failed_late = make_node(&identities[late_index], late_index, &addresses, root.path());
+    mesh.fresh(late_index);
+    mesh.refresh_live_peers(&mut nodes);
+    let mut failed_late = mesh.node(&identities[late_index], late_index, root.path());
     failed_late
         .start()
         .expect("late validator starts in read-only history catch-up mode");
@@ -860,11 +862,14 @@ fn protected_tcp_signer_workers_apply_transition_and_continue_after_node_restart
         .provider
         .server
         .drop_next_complete_transition_install_reply();
-    let mut lost_reply = make_node(&identities[late_index], late_index, &addresses, root.path());
+    mesh.fresh(late_index);
+    mesh.refresh_live_peers(&mut nodes);
+    let mut lost_reply = mesh.node(&identities[late_index], late_index, root.path());
     let lost_reply_error = match lost_reply.start() {
         Ok(()) => panic!("startup cannot claim an install whose completion reply was lost"),
         Err(error) => error,
     };
+    drop(lost_reply); // A pre-bind startup failure still owns its offered socket.
     let committed_install_state = identities[late_index].provider.backend.snapshot().state;
     assert!(
         committed_install_state.pending_install.is_none(),
@@ -876,7 +881,9 @@ fn protected_tcp_signer_workers_apply_transition_and_continue_after_node_restart
         .expect("lost reply leaves the original durable receipt")
         .clone();
 
-    let mut late_node = make_node(&identities[late_index], late_index, &addresses, root.path());
+    mesh.fresh(late_index);
+    mesh.refresh_live_peers(&mut nodes);
+    let mut late_node = mesh.node(&identities[late_index], late_index, root.path());
     late_node
         .start()
         .expect("startup recovers the exact protected install receipt");
@@ -1031,11 +1038,12 @@ fn protected_tcp_signer_workers_apply_transition_and_continue_after_node_restart
 
     // Reopen the four active validators. If the freshest source is the
     // removed validator, include it only as a read-only history source.
+    mesh = socket_handoff::ReservedMesh::new(identities.len());
     nodes = identities
         .iter()
         .enumerate()
         .filter(|(index, _)| restart_indices.contains(index))
-        .map(|(index, identity)| make_node(identity, index, &addresses, root.path()))
+        .map(|(index, identity)| mesh.node(identity, index, root.path()))
         .collect();
     for node in &mut nodes {
         node.start().expect("replay and restart at activated set");
@@ -1100,3 +1108,6 @@ mod proposal_evidence;
 
 #[path = "node_bft_v2_worker_transition_tests/commit_replay.rs"]
 mod commit_replay;
+
+#[path = "node_bft_v2_worker_transition_tests/socket_handoff.rs"]
+mod socket_handoff;

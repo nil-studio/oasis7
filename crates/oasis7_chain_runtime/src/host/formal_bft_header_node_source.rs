@@ -13,6 +13,7 @@ struct SourceConfig {
     attestor: Option<BftPrivateRetentionAttestorV1>,
     archive_directory: Option<PathBuf>,
     reserve_input: Option<FirstReserveInputPin>,
+    verify_inputs: Option<Vec<FirstReserveInputPin>>,
     original_source: Option<OriginalSourceArchivePinV1>,
 }
 
@@ -65,6 +66,9 @@ pub(super) fn run(config_path: &Path, source_path: &Path, mode: Mode<'_>) -> Res
     .map_err(|error| error.to_string())?;
     if matches!(mode, Mode::VerifyArchive) {
         return verify_archive(&config, source_config);
+    }
+    if source_config.verify_inputs.is_some() {
+        return Err("multiple original input pins are verification-only".into());
     }
     let protection = if matches!(mode, Mode::Prepare) {
         None
@@ -262,6 +266,32 @@ fn archive_first(
     output::write_line(&mut std::io::stdout().lock(), &encoded)
 }
 
+// The existing per-height alternative cap also bounds this independently
+// pinned verification request. A supplied list is not a protected inventory.
+const MAX_VERIFIED_ALTERNATIVES: usize = 16;
+
+fn validate_verify_inputs(pins: &[FirstReserveInputPin]) -> Result<(), String> {
+    if pins.is_empty() || pins.len() > MAX_VERIFIED_ALTERNATIVES {
+        return Err("original archive alternative count exceeds bounds".into());
+    }
+    let first = &pins[0];
+    let mut keys = std::collections::BTreeSet::new();
+    for pin in pins {
+        let reference = &pin.candidate.reference;
+        reference.validate().map_err(|error| error.to_string())?;
+        if pin.source != first.source
+            || reference.source != first.candidate.reference.source
+            || reference.key.height != first.candidate.reference.key.height
+            || reference.key.ledger_origin_digest
+                != first.candidate.reference.key.ledger_origin_digest
+            || !keys.insert(&reference.key)
+        {
+            return Err("original archive alternatives differ in source, height or identity".into());
+        }
+    }
+    Ok(())
+}
+
 /// This path deliberately never opens the live H file, CAS or original WAL.
 /// The trusted anchor and provider authority remain independent input pins.
 fn verify_archive(config: &Config, source_config: SourceConfig) -> Result<(), String> {
@@ -275,9 +305,15 @@ fn verify_archive(config: &Config, source_config: SourceConfig) -> Result<(), St
         .provider_trust
         .as_ref()
         .ok_or("archive verification requires provider trust")?;
-    let pins = source_config
-        .reserve_input
-        .ok_or("archive verification requires exact original descriptor")?;
+    let (pins, batch) = match (source_config.reserve_input, source_config.verify_inputs) {
+        (Some(pin), None) => (vec![pin], false),
+        (None, Some(pins)) => {
+            validate_verify_inputs(&pins)?;
+            (pins, true)
+        }
+        (None, None) => return Err("archive verification requires exact original descriptor".into()),
+        (Some(_), Some(_)) => return Err("ambiguous original archive verification pins".into()),
+    };
     let source = source_config
         .original_source
         .ok_or("archive verification requires complete original H archive pin")?;
@@ -312,41 +348,64 @@ fn verify_archive(config: &Config, source_config: SourceConfig) -> Result<(), St
     trust
         .validate_for(&binding)
         .map_err(|error| error.to_string())?;
-    oasis7_distfs::protected_bft_v3::validate_successor_source_for_binding_v3(
-        &pins.source,
-        &binding,
-    )
-    .map_err(|error| error.to_string())?;
+    for pin in &pins {
+        oasis7_distfs::protected_bft_v3::validate_successor_source_for_binding_v3(
+            &pin.source,
+            &binding,
+        )
+        .map_err(|error| error.to_string())?;
+    }
     if attestor.provider_public_key != trust.provider_public_key {
         return Err("archive verifier independent source pins differ".into());
     }
-    let reference = pins.candidate.reference.clone();
-    let reader = ArchivedOriginalSourceReaderV1::new(
-        archive,
-        source,
-        anchor,
-        config.target.clone(),
-        binding,
-        attestor,
-        pins.candidate,
-    );
     use oasis7_distfs::protected_bft_v3::BftFirstReserveSourceV1;
-    let original = reader
-        .read_authorized_original(&reference, deadline)
-        .map_err(|error| error.to_string())?;
-    let (replayed, first_price) = reader.verify(&original.input)?;
+    let mut reports = Vec::with_capacity(pins.len());
+    // Keep only one authenticated input hold live at a time. Each replay
+    // independently opens the archived H; no live ledger/cache fills a gap.
+    for pin in pins {
+        let reference = pin.candidate.reference.clone();
+        let reader = ArchivedOriginalSourceReaderV1::new(
+            Arc::clone(&archive),
+            source.clone(),
+            anchor.clone(),
+            config.target.clone(),
+            binding.clone(),
+            attestor.clone(),
+            pin.candidate,
+        );
+        let original = reader
+            .read_authorized_original(&reference, deadline)
+            .map_err(|error| error.to_string())?;
+        let (replayed, first_price) = reader.verify(&original.input)?;
+        let first_reservation_bytes = first_price
+            .required_input_bytes(&original.input)
+            .map_err(|error| error.to_string())?;
+        if Instant::now() >= deadline {
+            return Err("archive verification deadline elapsed".into());
+        }
+        reports.push(serde_json::json!({
+            "schema_version": "oasis7.formal_bft_original_archive_verified.v1",
+            "candidate": reference,
+            "replayed": replayed,
+            "first_reservation_bytes": first_reservation_bytes,
+        }));
+    }
+    // No successful report leaves the process until every requested input
+    // passes. This is not evidence of a complete protected selection or seal.
+    let report = if batch {
+        serde_json::json!({
+            "schema_version": "oasis7.formal_bft_original_archive_inputs_verified.v1",
+            "coverage": "independently_pinned_inputs_only",
+            "verified_candidates": reports,
+        })
+    } else {
+        reports.pop().ok_or("original archive verification result absent")?
+    };
+    let encoded =
+        serde_json::to_string(&report).map_err(|_| "encode original archive verification")?;
     if Instant::now() >= deadline {
         return Err("archive verification deadline elapsed".into());
     }
-    let report = serde_json::json!({
-        "schema_version": "oasis7.formal_bft_original_archive_verified.v1",
-        "candidate": reference,
-        "replayed": replayed,
-        "first_reservation_bytes": first_price.required_input_bytes(&original.input)
-            .map_err(|error| error.to_string())?,
-    });
-    let encoded =
-        serde_json::to_string(&report).map_err(|_| "encode original archive verification")?;
     output::write_line(&mut std::io::stdout().lock(), &encoded)
 }
 
