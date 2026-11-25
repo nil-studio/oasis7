@@ -272,7 +272,6 @@ def comparable_source_steps(name):
         '- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
         '- uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2',
         '- name: Report ordinary workspace cache capacity',
-        '- name: Reclaim unused candidate SDK capacity',
         '- name: Stabilize Rust cache toolchains',
         '- uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2',
     ]
@@ -280,18 +279,15 @@ def comparable_source_steps(name):
         expected.insert(1, '- name: Verify trusted ordinary image and source')
         expected.insert(-1, '- name: Install ordinary dependency cache admission')
     else:
-        expected.insert(4, '- uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7')
-        expected.insert(-2, '- name: Install pinned Rust toolchains')
+        expected.insert(3, '- name: Verify candidate ordinary image and source')
     actual = [step.splitlines()[0].strip()
               for step in re.findall(r'^      - .*?(?=^      - |\Z)', prefix, re.M | re.S)]
     assert actual == expected, 'ordinary environment prefix cannot hide other business steps'
     steps = boundary + steps
-    assert steps.count('      - name: Install native libraries\n') == (name == 'oasis7-test-build-candidate')
-    assert steps.count('      - name: Wait for candidate SDK reclamation\n') == 1
+    assert steps.count('      - name: Install native libraries\n') == 0
+    assert steps.count('      - name: Wait for candidate SDK reclamation\n') == 0
 
-    return ''.join(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
-                   if not step.startswith(('      - name: Install native libraries\n',
-                                           '      - name: Wait for candidate SDK reclamation\n')))
+    return steps
 
 
 def effective_job_condition(condition, values, ancestor_results, *, cancelled=False):
@@ -2061,9 +2057,19 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             with self.subTest(cache_admission=changed), self.assertRaises(AssertionError):
                 ordinary_image_cache_admission(changed)
         candidate = JOBS['oasis7-test-build-candidate']
-        self.assertNotIn('    container:', candidate)
+        self.assertIn('    container:\n      image: ' + image + '\n', candidate)
+        self.assertIn('      ORDINARY_BUILD_IMAGE: ' + image + '\n', candidate)
+        self.assertIn('      ImageOS: ubuntu24\n', candidate)
+        self.assertIn('      ORDINARY_ARTIFACT_CHECKOUT: /home/runner/work/oasis7/oasis7\n', candidate)
+        self.assertIn('      packages: read\n', candidate)
+        self.assertIn('        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7\n', candidate)
+        self.assertIn('python3 scripts/ci-test-artifacts.py ordinary-image-preflight', candidate)
+        self.assertIn('BASH_ENV=', candidate)
+        self.assertNotIn('ci-apt-install.py', candidate)
+        self.assertNotIn('rustup toolchain install', candidate)
+        self.assertNotIn('GH_TOKEN:', candidate)
         host_cache = rust_cache_steps(candidate)[0]
-        self.assertIn('shared-key: ci-shared-native-trusted-v4', host_cache)
+        self.assertIn('shared-key: ci-ordinary-image-' + digest, host_cache)
         self.assertIn('save-if: false', host_cache)
         boundary = '      - name: Identify ordinary workspace cache'
         for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
@@ -4830,7 +4836,15 @@ run_cargo() {
                     viewer_cache_kind(job)
                     continue
                 component = re.fullmatch(r'formal-(debug|endpoint)-build(?:-trusted)?', name)
-                namespace = f'ci-formal-{component[1]}-deps-trusted-v1' if component else 'ci-shared-native-trusted-v4'
+                if name == 'oasis7-test-build-candidate' and '    container:' in job:
+                    ordinary_image = re.search(
+                        r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$',
+                        job, re.M,
+                    )
+                    self.assertIsNotNone(ordinary_image, name)
+                    namespace = f'ci-ordinary-image-{ordinary_image[1]}'
+                else:
+                    namespace = f'ci-formal-{component[1]}-deps-trusted-v1' if component else 'ci-shared-native-trusted-v4'
                 self.assertIn('shared-key: ' + (rust_image_cache_namespace(name, job) or namespace) + '\n', job, name)
                 self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job, name)
         self.assertNotIn('ordinary-required-v2', WORKFLOW)
@@ -6253,12 +6267,16 @@ class AptWorkflow(unittest.TestCase):
                     del expected['rust', name, 'Install native libraries']
                 packages = (ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()
                 self.assertLessEqual(set(self.NATIVE), set(packages))
-        ordinary = JOBS['oasis7-test-build-trusted']
-        if '    container:' in ordinary:
-            self.assertIn('name: Verify trusted ordinary image and source', ordinary)
-            self.assertIn('pkg-config --exists', ordinary)
-            self.assertLessEqual(set(self.NATIVE), set((ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()))
-            del expected['rust', 'oasis7-test-build-trusted', 'Install native libraries']
+        for name, step_name in (
+            ('oasis7-test-build-candidate', 'name: Verify candidate ordinary image and source'),
+            ('oasis7-test-build-trusted', 'name: Verify trusted ordinary image and source'),
+        ):
+            ordinary = JOBS[name]
+            if '    container:' in ordinary:
+                self.assertIn(step_name, ordinary)
+                self.assertIn('pkg-config --exists', ordinary)
+                self.assertLessEqual(set(self.NATIVE), set((ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()))
+                del expected['rust', name, 'Install native libraries']
         custody = ('rust', 'custody-node', 'Install native libraries')
         if re.search(r'^    container:', JOBS['custody-node'], re.M):
             del expected[custody]
