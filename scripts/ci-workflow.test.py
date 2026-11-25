@@ -213,11 +213,11 @@ def workspace_support_image_matrix(job):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'custody-native', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'custody-native', 'custody-wasm-production', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
         return None
     if name == 'workspace-support-other' and (matrix := workspace_support_image_matrix(job)):
         return matrix
-    target = 'rust-wasm-build' if name == 'net' else 'rust-build'
+    target = {'net': 'rust-wasm-build', 'custody-wasm-production': 'rust-custody-wasm'}.get(name, 'rust-build')
     image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-' + target
                       + r'@sha256:([0-9a-f]{64})$', job, re.M)
     assert image, f'Rust cache readers require the pinned {target} image'
@@ -5011,7 +5011,16 @@ run_cargo() {
 
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
-        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node','full-regression','candidate-full-regression'})
+        expected = {'viewer-js-required','viewer-performance-report','site-quality','workspace-support-legacy',
+                    'workspace-support-other','custody-native','custody-node','full-regression','candidate-full-regression'}
+        custody_wasm = JOBS['custody-wasm-production']
+        if rust_image_cache_namespace('custody-wasm-production', custody_wasm):
+            self.assertIn('export PATH=/opt/oasis7-node22/bin:$PATH', custody_wasm)
+            self.assertIn('process.version.startsWith("v22.")', custody_wasm)
+            self.assertIn('npm --version', custody_wasm)
+        else:
+            expected.add('custody-wasm-production')
+        self.assertEqual(node_jobs, expected)
         self.assertNotIn('oasis7_viewer', JOBS['launcher-web'])
         self.assertIn("node-version: '24'", JOBS['site-quality'])
         for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node'}:
@@ -6311,7 +6320,7 @@ class AptWorkflow(unittest.TestCase):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
         for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression', 'launcher-web',
-                     'custody-native', 'workspace-support-other'):
+                     'custody-native', 'custody-wasm-production', 'workspace-support-other'):
             if rust_image_cache_namespace(name, JOBS[name]):
                 if name != 'workspace-support-other' or not workspace_support_image_matrix(JOBS[name]):
                     del expected['rust', name, 'Install native libraries']
@@ -7263,9 +7272,50 @@ class WorkerToolCache(unittest.TestCase):
             self.assertNotIn('restore-keys:', restore)
             self.assertNotIn('actions/cache/save@', job)
             self.assertNotIn('GH_TOKEN:', job)
+        wasm = JOBS['custody-wasm-production']
+        if rust_image_cache_namespace('custody-wasm-production', wasm):
+            full = JOBS['full-regression']
+            bindgen_key = re.search(r'^          key: (wasm-bindgen-cli-v1-.*)$', full, re.M)[1]
+            self.assertIn(bindgen_key.replace('steps.bindgen-meta.outputs', 'steps.custody-bindgen-meta.outputs'), wasm)
+            self.assertEqual(wasm.count('WASM_BINDGEN_BIN: ${{ steps.custody-bindgen.outputs.bin }}'), 2)
+            self.assertIn('XDG_CACHE_HOME: /.cache', wasm)
+            self.assertIn('check --root "$restored"', wasm)
+            self.assertIn('check --root "$runtime_root"', wasm)
+            self.assertIn('test ! -e "$runtime_root"\n            test ! -L "$runtime_root"', wasm)
         self.assertEqual(CONFIG['python_control_contracts']['scripts/ci-worker-build.py']['group'], 'workflow_governance')
         self.assertIn('scripts/ci-worker-build.test.py', CONFIG['python_control_contracts']['scripts/ci-worker-build.py']['tests'])
         self.assertIn('scripts/ci-worker-build.test.py', CONFIG['workflow_governance_python_tests'])
+
+    def test_custody_wasm_worker_rehomes_only_verified_cache_into_empty_runtime(self):
+        job = JOBS['custody-wasm-production']
+        if '    container:' not in job:
+            return
+        step = workflow_step_script(job, 'Prepare verified Worker build tool')
+        step = step.replace('restored=/.cache/oasis7/worker-build/0.7.5', 'restored="$FIXTURE_ARCHIVE_ROOT"')
+        for version, occupied, should_move in (('0.7.5', False, True),
+                                                ('wrong-version', False, False),
+                                                ('0.7.5', True, False)):
+            with self.subTest(version=version, occupied=occupied):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary).resolve()
+                    archive = root / 'archived-worker'
+                    cache = root / 'runtime-cache'
+                    runtime = cache / 'oasis7/worker-build/0.7.5'
+                    binary = archive / 'bin/worker-build'
+                    binary.parent.mkdir(parents=True)
+                    binary.write_text(f'#!/bin/bash\nprintf "%s\\n" "{version}"\n')
+                    binary.chmod(0o755)
+                    if occupied:
+                        runtime.mkdir(parents=True)
+                        (runtime / 'sentinel').write_text('untouched')
+                    result = subprocess.run(['bash', '-euo', 'pipefail', '-c', step], cwd=ROOT,
+                        env=dict(os.environ, TOOL_CACHE_HIT='true', XDG_CACHE_HOME=str(cache),
+                                 FIXTURE_ARCHIVE_ROOT=str(archive)), text=True, capture_output=True)
+                    self.assertEqual(result.returncode == 0, should_move, result.stderr)
+                    self.assertEqual((runtime / 'bin/worker-build').is_file(), should_move)
+                    self.assertEqual(archive.is_dir(), not should_move)
+                    if occupied:
+                        self.assertEqual((runtime / 'sentinel').read_text(), 'untouched')
 
     def test_writer_rejects_foreign_identity_unbounded_keys_and_unadmitted_save(self):
         writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']
@@ -7294,10 +7344,23 @@ class WorkerToolCache(unittest.TestCase):
             script = textwrap.dedent(step.split('        run: |\n', 1)[1])
             for hit, command in [('true', 'check'), ('false', 'ensure'), ('', 'ensure')]:
                 for code in (0, 19):
-                    with self.subTest(job=name, hit=hit, code=code):
-                        stub = 'python3() { printf "called:%s\\n" "$*"; return "$CODE"; };\n'
-                        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', stub + script + '\necho reached-build'],
-                            env=dict(os.environ, TOOL_CACHE_HIT=hit, CODE=str(code)), text=True, capture_output=True)
+                    with self.subTest(job=name, hit=hit, code=code), tempfile.TemporaryDirectory() as temporary:
+                        root = Path(temporary).resolve()
+                        archive = root / 'archive'
+                        archive.mkdir()
+                        isolated = script.replace('restored=/.cache/oasis7/worker-build/0.7.5',
+                                                  'restored="$FIXTURE_ARCHIVE_ROOT"')
+                        stub = """python3() {
+                          if [[ "$1" == scripts/ci-worker-build.py && "$2" != metadata ]]; then
+                            printf 'called:%s\\n' "$*"
+                            return "$CODE"
+                          fi
+                          command python3 "$@"
+                        };
+"""
+                        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', stub + isolated + '\necho reached-build'],
+                            env=dict(os.environ, TOOL_CACHE_HIT=hit, CODE=str(code), XDG_CACHE_HOME=str(root / 'cache'),
+                                     FIXTURE_ARCHIVE_ROOT=str(archive)), text=True, capture_output=True)
                         self.assertEqual(result.returncode, code, result.stderr)
                         self.assertIn('called:scripts/ci-worker-build.py ' + command, result.stdout)
                         self.assertEqual('reached-build' in result.stdout, code == 0)

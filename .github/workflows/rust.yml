@@ -4249,6 +4249,18 @@ jobs:
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-custody-wasm@sha256:f59fa5ba3564c5a309e1783cf52de4d67d6336a5e771c168b16939a5493e7b13
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     outputs:
       artifact: ${{ steps.bundle.outputs.artifact }}
       approval_artifact: ${{ steps.approval-bundle.outputs.artifact }}
@@ -4264,26 +4276,32 @@ jobs:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-custody-wasm-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-      - name: Install pinned Rust toolchains
-        shell: bash
+      - name: Verify the preinstalled Rust toolchains
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
-          rustup default "$RUST_TOOLCHAIN"
-          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
-          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
-          rustup target add wasm32-unknown-unknown
+          test "$(id -u):$(id -g)" = 1001:1001
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          export PATH=/opt/oasis7-node22/bin:$PATH
+          test "$(command -v node)" = /opt/oasis7-node22/bin/node
+          node -e 'if (!process.version.startsWith("v22.")) process.exit(1)'
+          npm --version
+          npx --version
+          printf '%s\n' /opt/oasis7-node22/bin >> "$GITHUB_PATH"
+          rustc +"$RUST_TOOLCHAIN" -vV
+          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
+          cargo +"$RUST_TOOLCHAIN" clippy --version
+          cargo +"$RUST_TOOLCHAIN" fmt --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+          pkg-config --exists wayland-client wayland-protocols xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
@@ -4295,7 +4313,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v4
+          shared-key: ci-rust-custody-wasm-f59fa5ba3564c5a309e1783cf52de4d67d6336a5e771c168b16939a5493e7b13
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -4307,7 +4325,10 @@ jobs:
       - name: Identify pinned Worker build tool
         id: worker-meta
         if: env.CUSTODY_COMPONENT != 'native'
-        run: python3 scripts/ci-worker-build.py metadata --github-output "$GITHUB_OUTPUT"
+        run: |
+          test "$GITHUB_WORKSPACE" = /__w/oasis7/oasis7
+          test -w /.cache/oasis7
+          XDG_CACHE_HOME=/home/runner/.cache python3 scripts/ci-worker-build.py metadata --github-output "$GITHUB_OUTPUT"
       - name: Restore exact Worker build tool
         id: worker-tool-cache
         if: env.CUSTODY_COMPONENT != 'native'
@@ -4323,15 +4344,45 @@ jobs:
           TOOL_CACHE_HIT: ${{ steps.worker-tool-cache.outputs.cache-hit }}
         run: |
           if [[ "$TOOL_CACHE_HIT" == true ]]; then
-            python3 scripts/ci-worker-build.py check
+            restored=/.cache/oasis7/worker-build/0.7.5
+            python3 scripts/ci-worker-build.py check --root "$restored"
+            runtime_root="$(python3 scripts/ci-worker-build.py metadata | python3 -c 'import json, sys; print(json.load(sys.stdin)["root"])')"
+            test ! -e "$runtime_root"
+            test ! -L "$runtime_root"
+            mkdir -p "$(dirname "$runtime_root")"
+            mv "$restored" "$runtime_root"
+            python3 scripts/ci-worker-build.py check --root "$runtime_root"
           else
             python3 scripts/ci-worker-build.py ensure
           fi
-      - name: Install native libraries
-        shell: bash
-        timeout-minutes: 11
+      - name: Identify pinned Custody wasm-bindgen
+        id: custody-bindgen-meta
         run: |
-          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          export XDG_CACHE_HOME=/home/runner/.cache
+          source scripts/wasm-bindgen-cli-common.sh
+          printf 'version=%s\nroot=%s\n' "$WASM_BINDGEN_LOCK_VERSION" "$WASM_BINDGEN_CACHE_ROOT" >> "$GITHUB_OUTPUT"
+      - name: Restore exact Custody wasm-bindgen
+        id: custody-bindgen-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ steps.custody-bindgen-meta.outputs.root }}
+          key: wasm-bindgen-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ steps.custody-bindgen-meta.outputs.version }}-${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
+      - name: Prepare verified Custody wasm-bindgen
+        id: custody-bindgen
+        timeout-minutes: 11
+        env:
+          BINDGEN_CACHE_HIT: ${{ steps.custody-bindgen-cache.outputs.cache-hit }}
+          XDG_CACHE_HOME: /.cache
+        run: |
+          if [[ "$BINDGEN_CACHE_HIT" == true ]]; then
+            bindgen_bin="$(bash scripts/ensure-wasm-bindgen-cli.sh --check --print-bin)"
+            source scripts/wasm-bindgen-cli-common.sh
+            test "$bindgen_bin" = "$WASM_BINDGEN_CACHE_ROOT/bin/wasm-bindgen"
+          else
+            bindgen_bin="$(bash scripts/ensure-wasm-bindgen-cli.sh --ensure-cache --print-bin)"
+          fi
+          test "${bindgen_bin:0:1}" = /
+          printf 'bin=%s\n' "$bindgen_bin" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
@@ -4339,6 +4390,7 @@ jobs:
       - name: Build and verify the complete custody component
         shell: bash
         env:
+          WASM_BINDGEN_BIN: ${{ steps.custody-bindgen.outputs.bin }}
           CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
           CUSTODY_COMPILE_PROOF_VERSION: ${{ fromJSON(needs.select.outputs.plan).custody_compile_proof_version }}
         run: |
@@ -4375,6 +4427,7 @@ jobs:
         shell: bash
         env:
           CUSTODY_COMPONENT: wasm-approval
+          WASM_BINDGEN_BIN: ${{ steps.custody-bindgen.outputs.bin }}
           CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
           CUSTODY_COMPILE_PROOF_VERSION: ${{ fromJSON(needs.select.outputs.plan).custody_compile_proof_version }}
         run: |
