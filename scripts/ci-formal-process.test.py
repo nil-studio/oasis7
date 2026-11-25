@@ -5139,6 +5139,87 @@ class ParallelFormalExecution(unittest.TestCase):
 
 
 class BuildAndBundles(unittest.TestCase):
+    def test_ordinary_docker_preflight_checks_daemon_and_default_driver(self):
+        responses = {
+            ('info', '--format', '{{json .ServerVersion}}'): '"28.0.4"',
+            ('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'): '28.5.2 1.48',
+            ('buildx', 'version'): 'github.com/docker/buildx v0.29.1 test-commit',
+            ('context', 'show'): 'default',
+            ('buildx', 'inspect', '--format', '{{.Name}} {{.Driver}}'): 'default docker',
+        }
+
+        def invoke(command, **kwargs):
+            self.assertEqual(command[0], 'docker')
+            self.assertEqual(kwargs['timeout'], 15)
+            self.assertTrue(kwargs['text'])
+            for name in ('GH_TOKEN', 'GITHUB_TOKEN', 'ACTIONS_RUNTIME_TOKEN', 'INPUT_GITHUB-TOKEN', 'NODE_OPTIONS'):
+                self.assertNotIn(name, kwargs['env'])
+            return responses[tuple(command[1:])]
+
+        with patch.object(artifacts.Path, 'is_socket', return_value=True), \
+             patch.dict(os.environ, DOCKER_HOST='', DOCKER_CONTEXT='', BUILDX_BUILDER='',
+                        GH_TOKEN='private', GITHUB_TOKEN='private', ACTIONS_RUNTIME_TOKEN='private',
+                        NODE_OPTIONS='private', **{'INPUT_GITHUB-TOKEN': 'private'}), \
+             patch.object(artifacts.subprocess, 'check_output', side_effect=invoke) as execute:
+            self.assertEqual(artifacts.ordinary_docker_preflight(), {
+                'client_version': '28.5.2', 'server_version': '28.0.4', 'server_api': '1.48',
+                'buildx_version': 'v0.29.1', 'context': 'default', 'builder': 'default', 'driver': 'docker'})
+            self.assertEqual(execute.call_count, 5)
+            for key, invalid in (
+                    (('info', '--format', '{{json .ServerVersion}}'), 'null'),
+                    (('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'), '28.5.2 invalid-api'),
+                    (('buildx', 'version'), 'unknown plugin'),
+                    (('context', 'show'), 'remote'),
+                    (('buildx', 'inspect', '--format', '{{.Name}} {{.Driver}}'), 'default docker-container')):
+                with self.subTest(command=key):
+                    original = responses[key]
+                    responses[key] = invalid
+                    try:
+                        with self.assertRaises(ValueError):
+                            artifacts.ordinary_docker_preflight()
+                    finally:
+                        responses[key] = original
+            for environment in ({'DOCKER_HOST': 'tcp://remote:2375'},
+                                {'DOCKER_CONTEXT': 'remote'}, {'BUILDX_BUILDER': 'remote'}):
+                with self.subTest(environment=environment), patch.dict(os.environ, environment):
+                    execute.reset_mock()
+                    with self.assertRaises(ValueError):
+                        artifacts.ordinary_docker_preflight()
+                    execute.assert_not_called()
+            with patch.object(artifacts.Path, 'is_socket', return_value=False):
+                with self.assertRaisesRegex(ValueError, 'runner-provided Docker socket'):
+                    artifacts.ordinary_docker_preflight()
+            for failure in (subprocess.CalledProcessError(1, ['docker', 'info'], output='private'),
+                            subprocess.TimeoutExpired(['docker', 'info'], 15, output='private')):
+                with self.subTest(failure=type(failure).__name__), \
+                     patch.object(artifacts.subprocess, 'check_output', side_effect=failure):
+                    with self.assertRaisesRegex(ValueError, 'daemon info') as rejected:
+                        artifacts.ordinary_docker_preflight()
+                    self.assertNotIn('private', str(rejected.exception))
+
+    def test_ordinary_image_cli_reports_the_checked_docker_capability(self):
+        docker = {'driver': 'docker', 'server_api': '1.48'}
+        output = io.StringIO()
+        with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+             patch.object(artifacts, 'ordinary_docker_preflight', return_value=docker) as checked, \
+             patch.object(sys, 'argv', ['ci-test-artifacts.py', 'ordinary-image-preflight']), \
+             patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                            FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(output):
+            artifacts.main()
+        checked.assert_called_once_with()
+        self.assertEqual(json.loads(output.getvalue()), {'same_directory': True, 'docker': docker})
+
+    def test_ordinary_image_cli_refuses_missing_canonical_docker(self):
+        with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+             patch.object(artifacts.Path, 'is_socket', return_value=True), \
+             patch.object(artifacts.subprocess, 'check_output', side_effect=FileNotFoundError('docker')), \
+             patch.dict(os.environ, DOCKER_HOST='', DOCKER_CONTEXT='', BUILDX_BUILDER=''), \
+             patch.object(sys, 'argv', ['ci-test-artifacts.py', 'ordinary-image-preflight']), \
+             patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                            FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'Docker CLI'):
+                artifacts.main()
+
     def test_ordinary_image_preflight_preserves_canonical_real_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

@@ -1958,6 +1958,50 @@ def ordinary_image_preflight():
                 runner_image='ubuntu24', os_release={key: release[key] for key in ('ID', 'VERSION_ID')})
 
 
+def ordinary_docker_preflight():
+    """Check the runner's existing local daemon before compiling native units."""
+    if (os.environ.get('DOCKER_HOST', '') not in ('', 'unix:///var/run/docker.sock')
+            or os.environ.get('DOCKER_CONTEXT', '') not in ('', 'default')
+            or os.environ.get('BUILDX_BUILDER', '') not in ('', 'default')):
+        raise ValueError('ordinary canonical WASM requires the default local Docker context and builder')
+    if not Path('/var/run/docker.sock').is_socket():
+        raise ValueError('ordinary canonical WASM requires the runner-provided Docker socket')
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(('ACTIONS_', 'INPUT_'))
+                   and key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'NODE_OPTIONS')}
+
+    def checked(label, *arguments):
+        try:
+            return subprocess.check_output(['docker', *arguments], env=environment,
+                text=True, stderr=subprocess.STDOUT, timeout=15).strip()
+        except FileNotFoundError:
+            raise ValueError('ordinary canonical WASM requires the Docker CLI') from None
+        except (OSError, subprocess.SubprocessError):
+            raise ValueError('ordinary canonical WASM Docker preflight failed: ' + label) from None
+
+    server = checked('daemon info', 'info', '--format', '{{json .ServerVersion}}')
+    try:
+        server = json.loads(server)
+    except ValueError:
+        raise ValueError('ordinary Docker daemon version is invalid') from None
+    if not isinstance(server, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*', server):
+        raise ValueError('ordinary Docker daemon version is invalid')
+    versions = checked('client/server API', 'version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}').split()
+    if (len(versions) != 2 or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*', versions[0])
+            or not re.fullmatch(r'[0-9]+\.[0-9]+', versions[1])):
+        raise ValueError('ordinary Docker client/server API output is invalid')
+    buildx = checked('Buildx client', 'buildx', 'version')
+    match = re.match(r'github\.com/docker/buildx (v[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*)(?:\s|$)', buildx)
+    if match is None:
+        raise ValueError('ordinary Docker Buildx version is invalid')
+    if checked('default context', 'context', 'show') != 'default':
+        raise ValueError('ordinary canonical WASM requires the default Docker context')
+    if checked('default builder', 'buildx', 'inspect', '--format', '{{.Name}} {{.Driver}}').split() != ['default', 'docker']:
+        raise ValueError('ordinary canonical WASM requires the default docker builder driver')
+    return dict(client_version=versions[0], server_version=server, server_api=versions[1],
+                buildx_version=match[1], context='default', builder='default', driver='docker')
+
+
 def ordinary_build_image():
     image = os.environ.get('ORDINARY_BUILD_IMAGE', '')
     if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}', image):
@@ -3703,7 +3747,9 @@ def main():
     FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
     plan = json.loads(args.plan.read_text()) if args.plan else None
     if args.action == 'ordinary-image-preflight':
-        print(json.dumps(ordinary_image_preflight(), sort_keys=True))
+        report = ordinary_image_preflight()
+        report['docker'] = ordinary_docker_preflight()
+        print(json.dumps(report, sort_keys=True))
         return
     if (args.ordinary_partition is not None and args.action not in ('build', 'run', 'unpack-ordinary')
             and not (args.action == 'required-args' and args.phase == 'partition')):
