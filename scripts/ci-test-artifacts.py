@@ -1864,9 +1864,20 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
-    if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
+    provider_required = scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'}))
+    builtin_required = BuiltinTestArtifact.required(manifest)
+    if cache_state is not None and not cache_state.get('error'):
+        material_manifests = ([ProviderArtifact.MANIFEST] if provider_required else [])
+        if builtin_required:
+            material_manifests += [f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+                                   for crate in BuiltinTestArtifact.MODULES.values()]
+        try:
+            cache_register_canonical_targets(cache_state, material_manifests)
+        except (OSError, ValueError) as error:
+            cache_state['error'] = str(error)
+    if provider_required:
         manifest['preview_provider'] = provider_artifact.build(ROOT, bundle, manifest)
-    if BuiltinTestArtifact.required(manifest):
+    if builtin_required:
         manifest['builtin_test_resources'] = BuiltinTestArtifact.build(ROOT, bundle, manifest)
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
@@ -2578,7 +2589,7 @@ def _cache_path(root, name):
     return current
 
 
-def _cache_walk(root, excluded=()):
+def _cache_walk(root, excluded=(), excluded_paths=()):
     files, directories = {}, {}
     if root.is_symlink() or not root.is_dir():
         raise ValueError('cache tree must be an existing directory, not a symlink')
@@ -2589,6 +2600,12 @@ def _cache_walk(root, excluded=()):
         if relative == Path('.'):
             names[:] = [name for name in names if name not in excluded]
             entries = [name for name in entries if name not in excluded]
+        for name in tuple(names):
+            if (relative / name).as_posix() in excluded_paths:
+                info = (Path(directory) / name).lstat()
+                if not stat.S_ISDIR(info.st_mode):
+                    raise ValueError('managed Cargo output must be a real directory')
+                names.remove(name)
         for name in sorted(names + entries):
             path = Path(directory) / name
             info = path.lstat()
@@ -2608,10 +2625,10 @@ def _cache_file(path, info=None):
                 mtime_ns=info.st_mtime_ns, sha256=digest(path))
 
 
-def _cache_inputs(root):
+def _cache_inputs(root, generated_targets=()):
     # Include ignored/untracked build inputs too. Never traverse Git internals
     # or the separately managed Cargo target (which may be a prepared symlink).
-    files, _ = _cache_walk(root, excluded=('.git', 'target'))
+    files, _ = _cache_walk(root, excluded=('.git', 'target'), excluded_paths=generated_targets)
     return {name: _cache_file(root / name, info) for name, info in files.items()}
 
 
@@ -2622,6 +2639,68 @@ def cache_begin(root, selection='all'):
     return dict(schema_version=CACHE_SCHEMA, checkout=str(root),
                 target=str((root / 'target').resolve()), inputs=_cache_inputs(root),
                 selection=selection, packages={}, input_owners={}, files=[], directories=[], complete=False)
+
+
+def _cache_canonical_manifests():
+    return {ProviderArtifact.MANIFEST, *(
+        f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+        for crate in BuiltinTestArtifact.MODULES.values())}
+
+
+def _cache_generated_targets(state, *, fresh=False):
+    """Validate only outputs born after the complete native input snapshot."""
+    records = state.get('generated_cargo_targets', {})
+    if not isinstance(records, dict) or not records.keys() <= _cache_canonical_manifests():
+        raise ValueError('unknown canonical Cargo output declaration')
+    root, result = Path(state['checkout']), set()
+    for manifest, relative in records.items():
+        if not isinstance(relative, str) or relative != (Path(manifest).parent / 'target').as_posix():
+            raise ValueError('canonical Cargo output differs from its manifest')
+        path = _cache_path(root, relative)
+        source = _cache_path(root, manifest)
+        if manifest not in state['inputs'] or not source.is_file():
+            raise ValueError('canonical Cargo manifest was not captured')
+        if path.exists() and not path.is_dir():
+            raise ValueError('managed Cargo output must be a real directory')
+        if any(Path(name).is_relative_to(relative) for name in state['inputs']):
+            raise ValueError('canonical Cargo output contains a captured source input')
+        if fresh and path.exists():
+            raise ValueError('canonical Cargo output existed before registration')
+        result.add(relative)
+    return result
+
+
+def cache_register_canonical_targets(state, manifests):
+    """Keep the original material builders' separate Cargo outputs out of source inputs."""
+    if not manifests:
+        return
+    if not set(manifests) <= _cache_canonical_manifests():
+        raise ValueError('unknown canonical Cargo output declaration')
+    if 'CARGO_TARGET_DIR' in os.environ:
+        raise ValueError('canonical Cargo output requires the original default target')
+    root = Path(state['checkout'])
+    _cache_generated_targets(state)
+    records = dict(state.get('generated_cargo_targets', {}))
+    for manifest in manifests:
+        records[manifest] = (Path(manifest).parent / 'target').as_posix()
+    proposed = dict(state, generated_cargo_targets=records)
+    _cache_generated_targets(proposed, fresh=True)
+    for manifest in manifests:
+        source = _cache_path(root, manifest)
+        try:
+            metadata = json.loads(subprocess.run(
+                ['cargo', 'metadata', '--locked', '--offline', '--no-deps', '--format-version=1',
+                 '--manifest-path', str(source)], cwd=root, check=True, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+                env={key: value for key, value in os.environ.items() if key != 'RUSTC_WRAPPER'}).stdout)
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            raise ValueError('cannot verify canonical Cargo target metadata') from error
+        expected = source.parent / 'target'
+        if (not isinstance(metadata, dict) or metadata.get('workspace_root') != str(source.parent)
+                or metadata.get('target_directory') != str(expected)):
+            raise ValueError('canonical Cargo metadata has an unsupported output layout')
+    _cache_generated_targets(proposed, fresh=True)
+    state['generated_cargo_targets'] = records
 
 
 def _cache_relative(state, path):
@@ -2830,7 +2909,7 @@ def cache_record(state, message, *, ordinary_baseline=False):
 
 def cache_finish(state):
     state['complete'] = False
-    if _cache_inputs(Path(state['checkout'])) != state['inputs']:
+    if _cache_inputs(Path(state['checkout']), _cache_generated_targets(state)) != state['inputs']:
         raise ValueError('source inputs changed during the build')
     _cache_finish_unhashed_libraries(state)
     state['files'] = sorted(set(state['files']))
@@ -2914,7 +2993,8 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
         report.update({'target_' + key: value for key, value in target_sizes.items()})
         if state['schema_version'] != CACHE_SCHEMA or not state.get('complete'):
             raise ValueError(state.get('error', 'incomplete Cargo cache state'))
-        if not measure_only and _cache_inputs(root) != state['inputs']:
+        generated_targets = _cache_generated_targets(state)
+        if not measure_only and _cache_inputs(root, generated_targets) != state['inputs']:
             raise ValueError('source inputs changed since the build')
         selected = set(state['files'])
         directories = {}
@@ -2944,7 +3024,7 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
             shutil.rmtree(cache)
         cache.mkdir(parents=True)
         _cache_copy(target, cache / 'target', files, directories)
-        if _cache_inputs(root) != state['inputs']:
+        if _cache_inputs(root, _cache_generated_targets(state)) != state['inputs']:
             raise ValueError('source inputs changed while staging')
         manifest = dict(schema_version=CACHE_SCHEMA, checkout=str(root), target=str(target),
                         inputs=state['inputs'], files=files, directories=directories,
