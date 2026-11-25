@@ -1,9 +1,9 @@
 //! Ordinary configured server admission; the discarded preflight server never starts an actor.
 use super::*;
-use oasis7::simulator::{
+use oasis7_runtime_host::decision_provider::{
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, DecisionProvider,
-    ProviderLoopbackAdapter,
 };
+use oasis7_runtime_host::provider_loopback_adapter::ProviderLoopbackAdapter;
 use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 
 #[test]
