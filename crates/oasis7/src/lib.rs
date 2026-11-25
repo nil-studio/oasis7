@@ -2,9 +2,8 @@ extern crate self as oasis7;
 
 pub mod geometry;
 pub mod industry_types;
-pub mod models;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod runtime;
+pub(crate) use oasis7_runtime as runtime;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod runtime_host;
 pub mod simulator;
@@ -14,4 +13,4 @@ pub mod world_service;
 mod world_service_feedback_host;
 
 pub use geometry::GeoPos;
-pub use models::AgentState;
+pub use oasis7_runtime::agent_state::AgentState;
