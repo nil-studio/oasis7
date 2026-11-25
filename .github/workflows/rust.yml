@@ -207,12 +207,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Admit main-fast run under cooldown budget
         id: admit
         env:
           MAIN_FAST_BASE_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci-full-result.py admit-main-fast --output "$RUNNER_TEMP/main-fast-admission.json" --github-output "$GITHUB_OUTPUT"
+        run: python3 scripts/ci-full-result.py admit-main-fast --head "$GITHUB_SHA" --output "$RUNNER_TEMP/main-fast-admission.json" --github-output "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.admit.outputs.run_main_fast == 'false'
         with:

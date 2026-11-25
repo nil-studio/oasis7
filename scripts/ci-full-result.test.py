@@ -2292,6 +2292,42 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         self.assertTrue(decision_empty["run_main_fast"])
         self.assertEqual(decision_empty["reason"], "no_recent_executed_main_fast")
 
+    def test_admit_main_fast_bypasses_cooldown_on_cache_rotation_files_only(self):
+        m0, m1, _, _, _ = self.commits
+        now = datetime(2026, 11, 24, 9, 30, 0, tzinfo=timezone.utc)
+        runs = [self.run_item(10, m0, "completed", "success", updated_at="2026-11-24T08:00:00Z")]
+
+        # Ordinary source change between m0 and m1 keeps cooldown active.
+        decision_normal = module.admit_main_fast(
+            self.make_api(runs), now, repo_root=self.repo, head_sha=m1,
+        )
+        self.assertFalse(decision_normal["run_main_fast"])
+        self.assertEqual(decision_normal["reason"], "cooldown_active")
+
+        # Missing/unfetched commit falls back safely to cooldown_active.
+        decision_missing = module.admit_main_fast(
+            self.make_api(runs), now, repo_root=self.repo, head_sha="f" * 40,
+        )
+        self.assertFalse(decision_missing["run_main_fast"])
+        self.assertEqual(decision_missing["reason"], "cooldown_active")
+
+        # Cache-rotating file changes bypass cooldown immediately.
+        for rel in ("Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "scripts/ci-workspace-cache.py"):
+            with self.subTest(path=rel):
+                target = self.repo / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(f"updated {rel}\n")
+                self.git("add", rel)
+                self.git("commit", "-m", f"update {rel}")
+                head = self.git("rev-parse", "HEAD")
+                decision = module.admit_main_fast(
+                    self.make_api(runs), now, repo_root=self.repo, head_sha=head,
+                )
+                self.assertTrue(decision["run_main_fast"])
+                self.assertEqual(decision["reason"], "cache_rotation_bypass")
+                self.assertIn(rel, decision["cache_rotation_files"])
+                self.git("reset", "--hard", m1)
+
     def test_rejects_non_ancestor_before_and_never_narrows_wide_push(self):
         import inspect
         self.assertEqual(

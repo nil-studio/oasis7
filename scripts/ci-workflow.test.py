@@ -7984,7 +7984,8 @@ print({m0!r})
     def test_fast_preflight_and_main_fast_admission_contracts(self):
         admission = JOBS['main-fast-admission']
         self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", admission)
-        self.assertIn('scripts/ci-full-result.py admit-main-fast', admission)
+        self.assertIn('fetch-depth: 0', admission)
+        self.assertIn('scripts/ci-full-result.py admit-main-fast --head "$GITHUB_SHA"', admission)
         self.assertIn('ci-main-fast-deferred-${{ github.run_id }}-${{ github.run_attempt }}', admission)
         self.assertIn('ci-main-fast-admission-${{ github.run_id }}-${{ github.run_attempt }}', admission)
 
