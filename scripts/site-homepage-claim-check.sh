@@ -431,7 +431,7 @@ def check_page(path: Path, language: str, site_root: Path) -> tuple[dict[str, tu
         import re
         if not re.fullmatch(r"[0-9a-f]{40}", proof["version"]):
             errors.append(f"{path}: fixed test source version required")
-        if not re.fullmatch(r"https://github\.com/eng-cc/oasis7/blob/[0-9a-f]{40}/doc/testing/evidence/[^?#]+", proof["source"]):
+        if not re.fullmatch(r"https://github\.com/(?:nil-studio|eng-cc)/oasis7/blob/[0-9a-f]{40}/doc/testing/evidence/[^?#]+", proof["source"]):
             errors.append(f"{path}: immutable trusted case report required")
         for step in [n for n in nodes if "data-decision-panel" in n.attrs]:
             children = descendants(parser, step)

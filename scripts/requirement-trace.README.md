@@ -18,7 +18,7 @@ python3 scripts/requirement-trace.py --help
 python3 scripts/requirement-trace.py --root . query O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6
 python3 scripts/requirement-trace.py --root . --format json reverse --document doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md
 python3 scripts/requirement-trace.py --root . --format json rebuild
-python3 scripts/requirement-trace.py --root . --github-snapshot /tmp/oasis7-tasks.json reverse --task https://github.com/eng-cc/oasis7/issues/4681
+python3 scripts/requirement-trace.py --root . --github-snapshot /tmp/oasis7-tasks.json reverse --task https://github.com/nil-studio/oasis7/issues/4681
 ```
 
 No network is used by default. `--github OWNER/REPO` explicitly opts in to the
@@ -31,8 +31,8 @@ task sources in v1; titles, comments, review discussions and Project fields are
 not. URLs outside the selected repository are never followed automatically.
 
 ```sh
-python3 scripts/requirement-trace.py --root . --github eng-cc/oasis7 --known-url https://github.com/eng-cc/oasis7/pull/4680 query O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6
-python3 scripts/requirement-trace.py --root . --github eng-cc/oasis7 --cache /tmp/oasis7-trace-cache.json --refresh --format json rebuild
+python3 scripts/requirement-trace.py --root . --github nil-studio/oasis7 --known-url https://github.com/nil-studio/oasis7/pull/4680 query O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6
+python3 scripts/requirement-trace.py --root . --github nil-studio/oasis7 --cache /tmp/oasis7-trace-cache.json --refresh --format json rebuild
 ```
 
 `--known-url` and online `reverse --task` trigger a fresh read, including direct
@@ -121,7 +121,7 @@ is deliberate; this is a format illustration, not a trace declaration):
 ```json
 {
   "schema_version": 1,
-  "repository": "eng-cc/oasis7",
+  "repository": "nil-studio/oasis7",
   "fetched_at": "2026-10-14T00:00:00+00:00",
   "coverage": {
     "issues": {"complete": true, "pages": 1, "state_filter": "all"},
