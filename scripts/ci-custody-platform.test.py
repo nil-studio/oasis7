@@ -893,10 +893,13 @@ else: record([name, *a])
         repo_root = Path(__file__).resolve().parents[1]
         rows = C.inventory(repo_root)
         discovered = {row['path'] for row in rows}
+        self.assertIn('test-session-public-client.integration.test.mjs', discovered)
         self.assertEqual(set(C.FILE_SECONDS), discovered)
-        batches = C.partition(rows, [0, 1, 2])
-        totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
-        self.assertLessEqual(max(totals) - min(totals), 15.0, f'expected balanced 3-shard weights, got {totals}')
+        for shards in ([0, 1, 2], [0, 1, 2, 3]):
+            batches = C.partition(rows, shards)
+            totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
+            self.assertLessEqual(max(totals) - min(totals), 15.0,
+                                 f'expected balanced {len(shards)}-shard weights, got {totals}')
 
     def test_export_inventory_and_zero_checkout_context_validation(self):
         script = Path(__file__).with_name('ci-custody-platform.py')
