@@ -4179,19 +4179,30 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]
-        self.assertNotIn('strategy:', publish_header)
-        self.assertNotIn('matrix:', publish_header)
+        self.assertIn('    strategy:\n      matrix:\n        group: [base, specialized]\n', publish_header)
+        self.assertIn('timeout-minutes: 10\n', publish_header)
         self.assertIn("if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n", publish_header)
         self.assertIn('needs: build\n', publish_header)
         self.assertIn('packages: write\n', publish_header)
         self.assertIn('rm -f "ci-${target}.tar"\n', publish_job)
         self.assertIn('docker rmi "$ref" "oasis7-ci-${target}:candidate"\n', publish_job)
         self.assertNotIn('if [[ "$target" == "browser" ]]', publish_job)
-        self.assertEqual(re.findall(r'^          name: ci-image-([a-z-]+)$', publish_job, re.M), targets)
-        self.assertEqual(
-            re.findall(r'^        run: bash "\$RUNNER_TEMP/publish-ci-image.sh" ([a-z-]+)$', publish_job, re.M),
-            targets,
+        routes = [(('base' if target in {'runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'}
+                    else 'specialized'), target) for target in targets]
+        downloads = re.findall(
+            r"^      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333\n"
+            r"        if: matrix.group == '([a-z-]+)'\n        with:\n          name: ci-image-([a-z-]+)$",
+            publish_job, re.M,
         )
+        pushes = re.findall(
+            r"^      - name: Publish verified [^\n]+\n        if: matrix.group == '([a-z-]+)'\n"
+            r'        run: bash "\$RUNNER_TEMP/publish-ci-image.sh" ([a-z-]+)$',
+            publish_job, re.M,
+        )
+        self.assertEqual(downloads, routes)
+        self.assertEqual(pushes, routes)
+        self.assertEqual(re.findall(r'^          name: ci-image-([a-z-]+)$', publish_job, re.M), targets)
+        self.assertEqual(publish_job.count('run: bash "$RUNNER_TEMP/publish-ci-image.sh"'), len(targets))
         self.assertIn('      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n', publish_job)
 
         wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
