@@ -54,7 +54,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "$PROBE_CODE_SHA"
           test "$(git -C .probe-controller rev-parse HEAD)" = "$PROBE_CONTROLLER_SHA"
           test "$(stat -c %d:%i "$GITHUB_WORKSPACE")" = "$(stat -c %d:%i "$ORDINARY_ARTIFACT_CHECKOUT")"
-          python3 .probe-controller/scripts/ordinary-canonical-closure-probe.py supervise
+          test ! -e "$RUNNER_TEMP/ordinary-canonical-controller"
+          mv .probe-controller "$RUNNER_TEMP/ordinary-canonical-controller"
+          python3 "$RUNNER_TEMP/ordinary-canonical-controller/scripts/ordinary-canonical-closure-probe.py" supervise
       - name: Stage only bounded diagnostic receipts
         if: always()
         id: stage
