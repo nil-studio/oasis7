@@ -57,27 +57,7 @@ impl Libp2pNetwork {
             &keypair,
             config.peer_record.as_ref(),
         )?;
-        let discovery_clock = if config.require_independent_discovery_clock_floor
-            || config.verified_discovery_clock_floor_ms.is_some()
-        {
-            let clock = peer_record_time::DiscoveryClock::requiring_independent_floor();
-            if let Some(floor_ms) = config.verified_discovery_clock_floor_ms {
-                api::install_verified_discovery_floor(
-                    &clock,
-                    &peer_record_receiver,
-                    floor_ms,
-                    peer_record_time::wall_now_ms()?,
-                    std::time::Instant::now(),
-                )?;
-            }
-            clock
-        } else {
-            let clock = peer_record_time::DiscoveryClock::default();
-            if let Some(persisted_floor) = peer_record_receiver.persisted_time_floor_ms()? {
-                clock.seed_persisted_floor(persisted_floor)?;
-            }
-            clock
-        };
+        let discovery_clock = api::open_discovery_clock(&config, &peer_record_receiver)?;
         let mut opened_local_peer_record_publisher = LocalPeerRecordPublisher::open_with_clock(
             config.peer_record_publication_directory.as_deref(),
             &keypair,

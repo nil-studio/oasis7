@@ -77,6 +77,27 @@ pub(super) fn install_verified_discovery_floor(
     discovery_clock.install_independently_verified_floor(floor_ms, wall_ms, instant)
 }
 
+pub(super) fn open_discovery_clock(
+    config: &super::config::Libp2pNetworkConfig,
+    receiver: &super::receiver_floor::SharedPeerRecordReceiver,
+) -> Result<super::peer_record_time::DiscoveryClock, WorldError> {
+    if config.require_independent_discovery_clock_floor
+        || config.verified_discovery_clock_floor_ms.is_some()
+    {
+        let clock = super::peer_record_time::DiscoveryClock::requiring_independent_floor();
+        if let Some(floor_ms) = config.verified_discovery_clock_floor_ms {
+            let wall = super::peer_record_time::wall_now_ms()?;
+            install_verified_discovery_floor(&clock, receiver, floor_ms, wall, Instant::now())?;
+        }
+        return Ok(clock);
+    }
+    let clock = super::peer_record_time::DiscoveryClock::default();
+    if let Some(floor) = receiver.persisted_time_floor_ms()? {
+        clock.seed_persisted_floor(floor)?;
+    }
+    Ok(clock)
+}
+
 impl Libp2pNetwork {
     pub fn peer_id(&self) -> PeerId {
         self.peer_id
