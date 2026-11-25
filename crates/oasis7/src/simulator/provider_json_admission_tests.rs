@@ -249,8 +249,10 @@ fn live_scanner_preserves_original_shape_heap_bound_and_rewind() {
         (AllocationProfile::response(), 4),
     ] {
         assert_eq!(
-            new.heap_bound::<serde_json::Value>(profile, copies).unwrap(),
-            old.heap_bound::<serde_json::Value>(profile, copies).unwrap()
+            new.heap_bound::<serde_json::Value>(profile, copies)
+                .unwrap(),
+            old.heap_bound::<serde_json::Value>(profile, copies)
+                .unwrap()
         );
     }
 }
