@@ -41,7 +41,7 @@ file_names:
 
 ## 3. 通用验证与交付要求
 
-- **实施 CI 代码/工作流改动时**：按所选分册运行对应控制脚本单测（如 `ci-contract-jobs.py --check`、`ci-workflow.test.py`、`plan-rust-required-scope.test.py`、`ci-full-result.test.py` 等）、`./scripts/check-pr-boundaries.sh --slice <Slice>` 与 `python3 scripts/check-local.py --profile quick --base-ref origin/main`；涉及门禁判定、权限或信任边界的修改按 [requesting-repo-owned-review](../requesting-repo-owned-review/SKILL.md) 完成独立评审。PR 标题或正文显式声明 `Slice-Type: <Type>`（或 `[Slice: <Type>]`），写清基线 run ID、优化前后指标对比与混合版本生效说明；容量/频率类优化合入后按 [容量预算与取消浪费分册 §3](references/capacity-budget-and-cancel-waste.md#3-合入后-1224-小时生产遥测验收闭环) 复测 12–24h 真实遥测。
+- **实施 CI 代码/工作流改动时**：按所选分册运行对应控制脚本单测（如 `ci-contract-jobs.py --check`、`ci-workflow.test.py`、`plan-rust-required-scope.test.py`、`ci-full-result.test.py` 等）、`./scripts/check-pr-boundaries.sh --slice <Slice>` 与 `python3 scripts/check-local.py --profile quick --base-ref origin/main`；涉及门禁判定、权限或信任边界的修改按 [requesting-repo-owned-review](../requesting-repo-owned-review/SKILL.md) 完成独立评审。PR 标题或正文显式声明 `Slice-Type: <Type>`（或 `[Slice: <Type>]`），写清基线 run ID、优化前后指标对比与混合版本生效说明；容量/频率类优化合入后按 [容量预算与取消浪费分册 §3](references/capacity-budget-and-cancel-waste.md#post-merge-telemetry-closure) 复测 12–24h 真实遥测。
 - **扩展或修改本 Skill 分册时**：
   - 保持主入口 `SKILL.md <= 300` 行，具体套路、脚本接缝与踩坑案例下沉到 `references/<topic>.md`；
   - 新增分册须同时登记到 frontmatter `file_names`、上表路由及下方 `## Supporting Files`；
@@ -69,7 +69,7 @@ file_names:
 
 - 未核实关键路径就把多个中重型检查塞入同一 job，或忽视 macOS `10×`（及 5 槽位低配额上限）/ Windows `2×` 计费倍率，导致单次等待墙钟拉长、macOS 队列拥堵或跨平台折算计费失真。
 - 在瘦身测试或单机并发化时误触受保护最低用例、缩减 `pr-fast` 规模跌破被测配额/跨块下界、漏跑双层 `clippy -D warnings`、在强依赖短挂钟授权窗口（如 5s 新鲜度）的套件内强开跨文件并发、漏保留 `OASIS7_LOCAL_CHECK=1` 串行回退，或在批量瘦身后未刷新 `ordinary_harness_costs` / `FILE_SECONDS` 导致重任务扎堆单分片。
-- 在优化编译、缓存或容器化迁移时全局压低 `profile.release.opt-level` 拖垮密码学依赖运行耗时、单侧把 `main` 唯一缓存 writer 迁入新镜像使宿主侧 PR reader 100% 缓存断流、忽略 `@actions/cache` 跨宿主/容器路径与 `zstd` 的 archive version 差异、或向不可信候选 PR 容器挂载 `/var/run/docker.sock` 突破隔离。
+- 在优化编译、缓存或容器化迁移时全局压低 `profile.release.opt-level` 拖垮密码学依赖运行耗时、单侧迁移唯一缓存 writer 却未保留宿主侧读端覆盖、构建期在源码树遗留嵌套 `target/` 触发 `source inputs changed during the build` 拒存缓存、忽略 `@actions/cache` 跨宿主/容器路径与 `zstd` 的 archive version 差异、用通用 `ci-rust-build` 替代 `ci-codeql-rust` 专用提取工具链或污染历史编译器 pin、以及向不可信候选 PR 容器挂载 `/var/run/docker.sock` 突破隔离。
 - 仅凭近期热缓存成功样本收紧 `timeout-minutes`、把单 job 超时强杀产生的 `cancelled` 误判为普通并发取消，或造成内层脚本/Step/Job 超时倒挂，导致冷缓存/`scope=full`/单次容错重试路径频繁挂单且丢失诊断日志。
 - 直接删除旧 job（含暂停推进模块的组/caller job）、向 `required-gate` `needs:` 塞入旧版 `scope=full` 下会 `skipped` 的 fallback job，或单 PR 强改被 `policy_sha` `FIXED_TESTS` / 非演进契约锁死的不变量（以及把本可随 `EVOLVING_POLICY_TESTS` 单 PR 原子演进的普通拓扑改动无必要地拆成微 PR），导致首跑判红或冗余全量重跑。
 - 在受信基线测试中把演进中模块的依赖/路径写成精确集合快照、对同类新增文件反复叠加单路径硬编码补丁，或在松绑门禁后漏刷新 `.agents/skills/` 旧绕行口诀，导致前置微 PR 持续再生。

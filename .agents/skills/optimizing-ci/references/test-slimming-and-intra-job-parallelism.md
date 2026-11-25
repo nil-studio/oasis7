@@ -91,8 +91,9 @@ python3 scripts/ci-local-check.test.py
 TMPDIR=/dev/shm python3 scripts/ci-workflow.test.py
 
 # 3. 刷新 ordinary_harness_costs 时校验分片成本表契约
+RUST_TC="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
 TMPDIR=/dev/shm python3 scripts/plan-rust-required-scope.test.py -k harness
-TMPDIR=/dev/shm RUSTUP_TOOLCHAIN=1.96.0 python3 scripts/ci-formal-process.test.py TargetedArtifactPartitions
+TMPDIR=/dev/shm RUSTUP_TOOLCHAIN="$RUST_TC" python3 scripts/ci-formal-process.test.py TargetedArtifactPartitions
 
 # 4. 切片边界与快速基线检查
 ./scripts/check-pr-boundaries.sh --slice Chore --allowed-crates <crate_or_none>

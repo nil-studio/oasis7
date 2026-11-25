@@ -28,9 +28,10 @@
 
 ---
 
-## 3. 输入准入与包清单治理：受管目录 + 结构化排他守卫 + 单一真源（`#6839`、`#6922`）
+## 3. 输入准入与包清单治理：同 PR 受控登记、受管目录与结构化排他守卫（`#6839`、`#6922`、`#7015`）
 
-**触发阈值**：同一类新增输入连续 **≥ 2 次**迫使业务 PR 先拆前置登记单时，停止追加单文件 `elif path == ...`，按以下三步一次性收敛根因：
+- **偶发新增受控路径默认单 PR 收口（`#7015`）**：`ordinary_scope_config_slice_version=2` 已支持在同一 PR 内同时新增 regular 文件并向 `scripts/ci-required-scope.json` 新增受控规则（或向既有规则保序追加 `match` 超集模式，声明非 `full` 且非空有效 `groups`），**切勿再为常规新脚本惯性拆出前置路径登记微 PR**（详见 [减少 Job 数量分册 §3 模式 D](job-count-reduction.md)）。
+- **结构化根治触发阈值**：当同一类新增输入连续 **≥ 2 次**需要手工编辑路径/包枚举或触及 `plan-rust-required-scope.py` / `codeql-plan.py` 硬编码分支时，停止逐文件叠加 `match` 或 `elif path == ...`，按以下三步一次性收敛根因：
 
 1. **多处重复配置收敛至单一数据源（Single Source of Truth）**：
    - 如 `#6839` 将散落在 `ci-required-scope.json`、`ci-test-artifacts.py` 与 `ci-tests.sh` 四处的 `oasis7_required_packages` 收敛为从 `ci-required-scope.json` 动态读取并 fail-closed 校验非空/无重复，配合单测锁定 `package_groups` 与驱动解析出的 `-p` 列表严格一致。
@@ -55,7 +56,7 @@
 - 当某个非 `EVOLVING_POLICY_TESTS` 控制契约套件（例如 `ci-workspace-cache.test.py`、`ci-contract-jobs.test.py`）因正常策略优化重复出现 `Step 1/2` 双态过渡 PR，或重型子进程套件在 baseline 与 candidate 重复全量执行拖慢 `workflow-governance` 时：
   1. 盘点该套件，提取非空真安全红线列表写入 `FIXED_TESTS` 与 `ci-python-control-contracts.test.py` 的 `REQUIRED_FIXED_TESTS`；
   2. 将该套件路径加入 `EVOLVING_POLICY_TESTS`（由于 `scripts/ci-python-control-contracts.py` 自身位于 `migration_paths` 的 `boundaries` 内，该升级 PR 在满足完整 `scope=full` 组覆盖时可单 PR 平滑自迁移）；
-  3. 常规使用边界与本地 `policy_sha` `FIXED_TESTS` 跨版本秒级仿真命令见 [按需选测与快速失败分册 §4](on-demand-scope-and-preflight.md#4-受信控制面分流边界两步式前置与-fixed_tests-跨版本仿真)。
+  3. 常规使用边界与本地 `policy_sha` `FIXED_TESTS` 跨版本秒级仿真命令见 [按需选测与快速失败分册 §4](on-demand-scope-and-preflight.md#trusted-control-split-and-simulation)。
 
 ### 4.3 门禁松绑必须同步清理“流程惯性文档”（Process Inertia Guard）
 - **实证教训（`#6928` → `#6976`/`#6980` → `#6991`）**：`#6928` 在技术门禁上已允许 `ci-workflow.test.py` 随工作流单 PR 原子更新，但因先前文档仍保留“凡改 `rust.yml` 必须先拆 PR-A 再提 PR-B”的旧口诀，后续 Agent 仍机械拆出了 `#6976`、`#6980` 两个无必要的过渡微 PR，直至 `#6991` 刷新本 Skill 后才彻底归零。
