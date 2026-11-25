@@ -6802,19 +6802,77 @@ class WorkerToolCache(unittest.TestCase):
                                env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(output)), check=True)
                 self.assertIn('workspace_support_signer_only=' + str(expected).lower(), output.read_text())
 
+    def test_signer_context_projection_and_artifact_require_the_same_exact_pair(self):
+        job = JOBS['workspace-support-other']
+        if 'workspace_support_signer_context' not in job:
+            return
+        project = workflow_step_script(JOBS['select'], 'Publish workflow scheduling projection')
+        verify = workflow_step_script(job, 'Verify the non-root signer execution plan')
+        pair = ['oasis7_context', 'oasis7_local_signer']
+        plan = dict(
+            scope='targeted', groups=['workspace_support'], execution_profile='pr-fast',
+            fast_plan_version=1, workspace_support_direct_gate_version=2,
+            workspace_support_partition_version=1, workspace_support_partitions=['other'],
+            workspace_support_profile_version=1, workspace_support_profiles=pair,
+            test_policy_changed=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / 'output'
+            artifact = root / 'selection.json'
+            fixture_id = root / 'id'
+            fixture_id.write_text('#!/bin/sh\nprintf "1001\\n"\n')
+            fixture_id.chmod(0o755)
+            for overrides, selected in (
+                ({}, True),
+                ({'scope': 'explicit-full'}, False),
+                ({'workspace_support_direct_gate_version': None}, False),
+                ({'test_policy_changed': True}, False),
+                ({'workspace_support_profiles': [*pair, 'oasis7_dev_test_worker']}, False),
+                ({'workspace_support_profiles': [*pair, 'oasis7_game_client']}, False),
+            ):
+                with self.subTest(overrides=overrides):
+                    candidate = {key: value for key, value in (plan | overrides).items() if value is not None}
+                    artifact.write_text(json.dumps(candidate))
+                    output.unlink(missing_ok=True)
+                    subprocess.run(['bash', '-euo', 'pipefail', '-c', project],
+                                   env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(output)), check=True)
+                    self.assertIn('workspace_support_signer_context=' + str(selected).lower(), output.read_text())
+                    self.assertIn('workspace_support_signer_only=false', output.read_text())
+            for profiles, pair_flag, corrupt, expected in (
+                (pair, 'true', False, 0), (pair, 'false', False, 1),
+                (pair, 'true', True, 1), (pair, '', False, 1),
+                (['oasis7_local_signer'], 'false', False, 0),
+                (['oasis7_local_signer'], 'true', False, 1),
+                ([*pair, 'oasis7_dev_test_worker'], 'true', False, 1),
+            ):
+                with self.subTest(profiles=profiles, pair_flag=pair_flag, corrupt=corrupt):
+                    artifact.write_text(json.dumps(dict(plan, workspace_support_profiles=profiles)))
+                    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+                    result = subprocess.run(
+                        ['bash', '-euo', 'pipefail', '-c', verify],
+                        env=dict(os.environ, RUNNER_TEMP=tmp, PATH=f"{tmp}:{os.environ['PATH']}",
+                                 SELECTION_SHA256='0' * 64 if corrupt else digest,
+                                 SIGNER_WITH_CONTEXT=pair_flag),
+                        text=True, capture_output=True,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
+
     def test_support_group_driver_preserves_original_filter_for_each_lane(self):
         job = JOBS['workspace-support-other']
         script = workflow_step_script(job, 'Execute selected group')
-        lanes = {'host': 'host', 'image': 'image'}
+        lanes = [('host', 'host'), ('image', 'image')]
         if "matrix.execution == 'signer-image'" in job:
-            lanes['signer-image'] = 'host'
+            lanes.append(('signer-image', 'host'))
+        if 'workspace_support_signer_context' in job:
+            lanes.append(('signer-context-image', 'all'))
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'scripts').mkdir()
             (root / 'scripts/ci-tests.sh').write_text(
                 "support_capacity_snapshot() { :; }\n"
-                "if [[ $# -gt 0 ]]; then printf '%s\\n' \"$@\"; fi\n")
-            for lane, expected in lanes.items():
+                "if [[ $# -gt 0 ]]; then printf '%s\\n' \"$@\"; exit \"${FIXTURE_DRIVER_EXIT:-0}\"; fi\n")
+            for lane, expected in lanes:
                 with self.subTest(lane=lane):
                     result = subprocess.run(
                         ['bash', '-euo', 'pipefail', '-c', script], cwd=root,
@@ -6828,6 +6886,15 @@ class WorkerToolCache(unittest.TestCase):
                         '--support-plan-file', str(root / 'selection.json'),
                         '--support-partition', 'other', '--support-execution', expected,
                     ])
+            if 'workspace_support_signer_context' in job:
+                failed = subprocess.run(
+                    ['bash', '-euo', 'pipefail', '-c', script], cwd=root,
+                    env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_WORKSPACE=tmp,
+                             SUPPORT_PARTITION='other', SUPPORT_EXECUTION='signer-context-image',
+                             FIXTURE_DRIVER_EXIT='37'),
+                    text=True, capture_output=True,
+                )
+                self.assertEqual(failed.returncode, 37, failed.stderr)
 
     def test_image_support_exact_readonly_worker_tool_reader(self):
         job = JOBS['workspace-support-other']
