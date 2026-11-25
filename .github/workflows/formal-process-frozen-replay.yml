@@ -1,0 +1,156 @@
+name: Formal process summary frozen replay
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-formal-process-frozen-replay-base]
+    paths: [.github/workflows/formal-process-frozen-replay.yml]
+
+permissions:
+  contents: read
+  actions: read
+
+cache-mode: none
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  host:
+    if: &isolated github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/engineering-formal-process-frozen-replay'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: bba30796ecc174917ff76502ed2f8adef9b3c988
+          fetch-depth: 0
+          persist-credentials: false
+      - &download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: 14585735543,14574908881
+          run-id: 44619146209
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/historical-formal
+      - &replay
+        name: Replay unchanged formal summary and telemetry
+        run: |
+          python3 -I - <<'PY'
+          import copy, hashlib, json, os, shutil, subprocess, sys, time
+          from pathlib import Path
+
+          candidate = 'bba30796ecc174917ff76502ed2f8adef9b3c988'
+          source = 'f96212086dca52a4ee8af481f4d84f12f7011677'
+          assert os.getuid() != 0 and sys.version_info[:2] == (3, 12)
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == candidate
+
+          def digest(raw):
+              return hashlib.sha256(raw).hexdigest()
+
+          def canonical(value):
+              return json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+
+          temp = Path(os.environ['RUNNER_TEMP'])
+          frozen = temp / 'historical-formal'
+          authority = frozen / 'ci-authority-44619146209-1'
+          receipt = frozen / 'ci-full-result-44619146209-1'
+          assert set(frozen.iterdir()) == {authority, receipt}
+          for folder, count, expected in (
+              (authority, 7, '561e1f601446895e6c530a1ef01a23f2e3308effb6db396e3b6904c61de11ec6'),
+              (receipt, 1, '382d5790c2bfec37b3ba6fbf5333f1370dc5c33e329b3742b3aca5585b2a2ced')):
+              assert folder.is_dir() and not folder.is_symlink()
+              files = list(folder.iterdir())
+              assert len(files) == count and all(p.is_file() and not p.is_symlink() for p in files)
+              assert digest(canonical({p.name: digest(p.read_bytes()) for p in files})) == expected
+          for file in authority.iterdir():
+              assert file.read_bytes() == subprocess.check_output(['git', 'show', f'{source}:scripts/{file.name}'])
+          result = json.loads((receipt / 'full-result.json').read_bytes())
+          context = result['context']
+          assert context == {'event_name': 'schedule', 'ref': 'refs/heads/main', 'repository': 'nil-studio/oasis7',
+                             'run_attempt': 1, 'run_id': 44619146209,
+                             'workflow_ref': 'nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+                             'workflow_sha': source}
+          assert result['needs']['formal-process']['result'] == 'success'
+          select = result['needs']['select']
+          assert select['result'] == 'success'
+          assert select['outputs']['run_formal_process'] == 'true'
+          assert all(select['outputs'][key] == source for key in ('source_sha', 'tested_sha', 'policy_sha'))
+          assert select['outputs']['authority_artifact'] == authority.name
+          # These three outputs were empty in the independently read successful formal-process job.
+          needs = {'select': select,
+                   'formal-test-build': {'result': 'skipped', 'outputs': {}},
+                   'formal-test-build-trusted': {'result': 'success', 'outputs': {}},
+                   'formal-process-tests': {'result': 'success', 'outputs': {}}}
+          assert digest(canonical(needs)) == '4e06a031e223d21563568d8c106b2c96edd1120323cb0e72e111461c14ab3dd2'
+          shutil.copytree(authority, temp / 'ci-authority')
+          empty = temp / 'no-checkout'
+          empty.mkdir()
+          workflow = subprocess.check_output(['git', 'show', f'{candidate}:.github/workflows/rust.yml'], text=True)
+          job = workflow.split('\n  formal-process:\n', 1)[1].split('\n  consensus:', 1)[0]
+
+          def command(name):
+              section = job.split(f'      - name: {name}\n', 1)[1]
+              return section.split('        run: ', 1)[1].splitlines()[0]
+
+          observation = workflow.split('      - &engineering-job-observation\n', 1)[1]
+          observation = observation.split('        run: |\n', 1)[1].split('\n  pr-governance-preview:', 1)[0]
+          telemetry = '\n'.join(line[10:] for line in observation.splitlines())
+          environment = dict(os.environ, GITHUB_WORKSPACE=str(empty), GITHUB_JOB='formal-process',
+                             **{'GITHUB_' + key.upper(): str(value) for key, value in context.items()})
+          environment.update(SELECT_RESULT='success', SELECTED='true', NEEDS=json.dumps(needs),
+                             TELEMETRY_WORKFLOW_SHA=source, TELEMETRY_SOURCE_SHA=source,
+                             TELEMETRY_TESTED_SHA=source, TELEMETRY_POLICY_SHA=source,
+                             TELEMETRY_NEEDS=json.dumps(needs), TELEMETRY_MATRIX='null')
+          assert 'GH_TOKEN' not in environment and 'CACHE_MAINTENANCE_TOKEN' not in environment
+
+          def run(script, *, expected=True, edits=None):
+              task = subprocess.run(['bash', '--noprofile', '--norc', '-euo', 'pipefail', '-c', script],
+                                    cwd=empty, env={**environment, **(edits or {})}, text=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+              assert (task.returncode == 0) == expected, task.stdout[-1500:]
+              return task.stdout
+
+          guard = command('Require successful formal planning')
+          validate = command('Validate all formal process results')
+          started = time.monotonic()
+          run(guard)
+          assert run(validate).strip() == 'passed'
+          row = run(telemetry).strip().removeprefix('OASIS7_ENGINEERING_JOB_V1=')
+          assert digest(row.encode()) == 'fd02b88bd1e457ceff80e2371247b8b0474f32fae2fabc3683ccf06c1b6c5186'
+          print(f'Original selected summary plus byte-identical telemetry: {time.monotonic() - started:.3f}s')
+          run(guard, expected=False, edits={'SELECT_RESULT': 'failure'})
+          for job_name, error in (
+              ('formal-test-build-trusted', 'formal builders require exactly one success and one skipped'),
+              ('formal-process-tests', 'formal-process-tests: expected success')):
+              failed = copy.deepcopy(needs)
+              failed[job_name]['result'] = 'failure'
+              assert error in run(validate, expected=False, edits={'NEEDS': json.dumps(failed)})
+          print('Frozen production run 44619146209 attempt 1 passed; planner, selected builder and selected tests failures rejected.')
+          PY
+
+  image:
+    if: *isolated
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - *checkout
+      - name: Verify non-root Git and Python for this diagnostic
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+      - *download
+      - *replay
