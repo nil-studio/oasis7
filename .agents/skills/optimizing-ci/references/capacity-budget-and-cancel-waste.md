@@ -32,3 +32,18 @@
   python3 scripts/ci-full-result.test.py
   TMPDIR=/dev/shm python3 scripts/ci-workflow.test.py PriorityRunnerRoutingContractTests
   ```
+
+## 4. 全仓容量盘点的三项联动盲区（Runner 配额、缓存池与冷却耦合）
+
+做日度/滚动 24h 全仓容量审计时，除统计核时与取消率外，必须联查以下三个维度：
+
+1. **异构 Runner 并发槽位配额与排队分位（`q_p50 / q_p90 / q_p99`）**：
+   - 不仅核算 `Linux 1× / Windows 2× / macOS 10×` 计费等效分钟，还须按 1 分钟粒度统计各 OS 并发槽位峰值及 `job.started_at - job.created_at` 排队延迟；
+   - Hosted `macos-15` 并发上限通常仅 **5 槽位**：实测 `macos-15` 物理耗时仅占全仓 `3.7%`，却可占全仓 **`27.7%`** 计费分钟并频繁打满 5 槽位，拖慢关键路径验签（如 `fleet-health (macos-15)`）排队。审计控费与排队时优先排查占满低配额池的非核心或已暂停桌面任务（如 `#6987` 下线已暂停的 `command-center` 直接释放全仓 `20.7%` 计费分钟与 macOS 槽位）。
+   - **API 翻页截断防护**：GitHub Actions `actions/runs` 搜索单查询上限为 **1,000 条**；高吞吐日（`>1,500 runs/24h`）必须按 `created` 时间窗切分（如每 6–8 小时一段）拉取去重，避免静默漏算早间样本。
+2. **仓库 20 GB 缓存池家族水位与镜像升级瞬态膨胀**：
+   - 通过 `gh api repos/{owner}/{repo}/actions/caches?per_page=100` 按 key 前缀家族聚合体积，监控总用量距 **20 GB** 硬上限的安全余量（建议保留 `>= 3–4 GB` 缓冲），防止触发 GitHub 无序 LRU 驱逐把核心热缓存（如 `ordinary-workspace-v1`、`ci-shared-native-trusted`）挤出；
+   - 连续升级 `ci-rust-build` 容器镜像摘要期间，`v0-rust-ci-rust-build-*` 会短暂并存多个旧摘要条目（可达 `5–6 GB`），核实 `ci-cache-maintenance.py` 按休眠窗口正常回收即可，无需手工误删活跃底座。
+3. **缓存输入轮换 × `main-fast` 冷却窗口的联动排查（`#6969` 实证）**：
+   - 当某个平时稳定的构建 Job（如 `oasis7-test-build-candidate`）耗时突然集体翻倍逼近 `timeout-minutes` 红线（如从 `8–12m` 飙升至 `26–37m / 40m`）时，**切勿盲目只涨超时上限**；
+   - 优先联查“近期是否合入了改变容器镜像摘要、工具链或缓存前缀的提交”**且**“`main-fast-admission` 正处于 120 分钟冷却窗口延后了 `main` writer 落盘新缓存”——若新缓存尚未由 `main` 写入，所有并发 PR 都会退化为全冷构建。此时应确保缓存输入轮换时自动绕过主干冷却立即热库，待首轮 `main` writer 落盘后再复核 PR 耗时是否回落。
