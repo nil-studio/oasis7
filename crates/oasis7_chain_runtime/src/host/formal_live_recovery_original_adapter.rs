@@ -5,12 +5,12 @@ use std::path::Path;
 
 use oasis7_distfs::controlled_authority::formal::{
     FormalQualifiedCommitProofV1, VerifiedFormalCommitV1, VerifiedRecovery,
-    VerifiedRecoveryPlanLegacyCutV1,
     endpoint::{
         VerifiedNativeRecoveryPendingV1, read_native_recovery_pending_from_managed_archive,
         verify_native_recovery_original_legacy_cut,
     },
 };
+use oasis7_formal_protocol::controlled_authority::formal::VerifiedRecoveryPlanLegacyCutV1;
 
 /// Historical original pending material, independently pinned by the caller.
 /// Its shape, not this wrapper, establishes no present owner entitlement.
@@ -105,9 +105,9 @@ pub(super) fn verify_host_original_recovery_cut(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7_distfs::controlled_authority::{
-        LocalRequestIdentity,
-        formal::{RecoveryPendingHandoffV1, RecoveryPendingRequestV1},
+    use oasis7_distfs::controlled_authority::LocalRequestIdentity;
+    use oasis7_formal_protocol::controlled_authority::formal::{
+        RecoveryPendingHandoffV1, RecoveryPendingRequestV1,
     };
     use std::sync::atomic::{AtomicU64, Ordering};
 
