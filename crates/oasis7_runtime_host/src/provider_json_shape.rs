@@ -1,12 +1,12 @@
-//! Inactive bounded pre-Serde provider JSON shape prepass extracted from the legacy host.
+//! Canonical bounded pre-Serde provider JSON shape prepass.
 //! This counts allocation-relevant structure; it is not a JSON syntax validator.
-//! The live decoder remains unchanged until the adapter and cutover pass acceptance.
 use std::fmt;
 use std::io::{self, Read, Seek, SeekFrom};
 
 use oasis7_proto::memory_budget::MemoryLimitExceeded;
 
-const SCAN_SCRATCH_BYTES: usize = 8 * 1024;
+/// Bytes of scratch reserved by the caller before invoking the scanner.
+pub const SCAN_SCRATCH_BYTES: usize = 8 * 1024;
 const MAX_JSON_DEPTH: usize = 128;
 const CANCEL_POLL_BYTES: usize = 64 * 1024;
 
