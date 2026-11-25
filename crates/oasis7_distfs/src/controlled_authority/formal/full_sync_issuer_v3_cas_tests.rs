@@ -15,6 +15,7 @@ struct RacingWitness {
     replay_resume_bundle: Option<FullSyncIssuerMigrationResumeBundleV3>,
     resume_queries: Vec<SignedFullSyncIssuerMigrationResumeQueryV3>,
     next_race_nonce: u8,
+    delay_event_reply_until: Option<Instant>,
 }
 
 impl RacingWitness {
@@ -32,6 +33,7 @@ impl RacingWitness {
             replay_resume_bundle: None,
             resume_queries: Vec::new(),
             next_race_nonce: 212,
+            delay_event_reply_until: None,
         }
     }
 
@@ -258,7 +260,11 @@ impl FullSyncIssuerWitnessV3 for RacingWitness {
             self.next_race_nonce = self.next_race_nonce.wrapping_add(1);
             self.commit_v3_winner(winner, nonce)?;
         }
-        self.inner.commit_v3(observation, record)
+        let receipt = self.inner.commit_v3(observation, record)?;
+        if let Some(until) = self.delay_event_reply_until.take() {
+            std::thread::sleep(until.saturating_duration_since(Instant::now()));
+        }
+        Ok(receipt)
     }
 
     fn resume_migration_v3(
@@ -1102,3 +1108,7 @@ fn legacy_v2_adapter_refuses_schema_three_without_mutating_the_store() {
 #[cfg(test)]
 #[path = "full_sync_issuer_v3_rotation_tests.rs"]
 mod rotation_tests;
+
+#[cfg(test)]
+#[path = "full_sync_issuer_v3_serving_tests.rs"]
+mod serving_tests;

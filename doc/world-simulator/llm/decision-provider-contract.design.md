@@ -347,9 +347,9 @@ provider response validator 或诊断 trace 均只能保持 `partial`。
 
 `builtin_input_integrity` 由 `qa_engineer` 在 builtin behavior/transport 层执行，方法如下：
 
-1. 使用 Balanced/Compact × 短目标/默认目标四个组合。fake 首轮响应返回 `environment_current_observation` 调用，builtin 执行普通只读查询；在 [Responses payload builder](../../../crates/oasis7/src/simulator/llm_agent/openai_payload.rs) 之后捕获实际序列化 payload，解析第二次 `instructions/input/tools`，逐字段核对必要 observation、目标、查询状态和关键条件/缺失前置。同时覆盖可选历史被剪、最新 reply 保留；trace/History 保存或工具已执行不能代替 capture。
+1. 使用 Balanced/Compact × 短目标/默认目标四个组合。fake 首轮响应返回 `environment_current_observation` 调用，builtin 执行普通只读查询；在 [Responses payload builder](../../../crates/oasis7_model_provider/src/openai_payload.rs) 之后捕获实际序列化 payload，解析第二次 `instructions/input/tools`，逐字段核对必要 observation、目标、查询状态和关键条件/缺失前置。同时覆盖可选历史被剪、最新 reply 保留；trace/History 保存或工具已执行不能代替 capture。
 2. 分别构造必要 observation/reply/目标超量、无有效容量、tools/schema 预留不足和 Dialogue/guard/repair 追加超量。检查稳定配置不足原因、profile/预算分项，以及受阻请求后 completion/HTTP 调用次数为零。可选内容缩减后恰好满足容量的对照应可发出；必要内容恰好超过容量的对照应停止。
-3. 为 [PromptAssembler](../../../crates/oasis7/src/simulator/llm_agent/prompt_assembly.rs) 的有界投影加入中文、嵌套 JSON、较长列表、普通查询错误和必要字段未知场景；核对确定性序列化、原始值/显式未知与省略标记，以及最新 reply 关联正确。投影无法保留必要语义时停止；首轮没有查询时不伪造 query reply。
+3. 为 [PromptAssembler](../../../crates/oasis7_agent_harness/src/llm_prompt_assembly.rs) 的有界投影加入中文、嵌套 JSON、较长列表、普通查询错误和必要字段未知场景；核对确定性序列化、原始值/显式未知与省略标记，以及最新 reply 关联正确。投影无法保留必要语义时停止；首轮没有查询时不伪造 query reply。
 
 实现 PR 保存候选 SHA、实际 profile/工具集、固定输入/预期 projection、四组合 capture、call counter、错误/Wait 断言和执行结果。这些证据不证明真实 tokenizer 的精确 token 数、模型决策质量、C0 或付费资源计量，也不新增 observation wire 字段或长期 memory 合同。
 

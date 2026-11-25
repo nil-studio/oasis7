@@ -439,6 +439,147 @@ class Results(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'operational-contracts: retired'):
             result.validate(v4_plan, broken_legacy, v4_jobs, retired_jobs=v4_retired)
 
+    def test_v5_consolidation_and_direct_gate_v2_custody_validation(self):
+        config = {
+            'groups': [
+                'baseline', 'doc_checker_contracts', 'codex_agent_config_validation',
+                'macos_package_contract', 'compile_metrics',
+                'node', 'consensus', 'scenario_regression', 'pixel_world_bridge',
+                'viewer_js_required', 'viewer_performance_report', 'site_quality',
+                'packaging_contracts', 'cargo_tooling_contracts',
+                'fleet_health', 'windows_rollout',
+                'workflow_governance', 'operational_contracts', 'workspace_support',
+            ],
+            'contract_job_consolidation_version': 5,
+            'workspace_support_direct_gate_version': 2,
+            'group_jobs': {
+                'codex_agent_config_validation': 'baseline',
+                'macos_package_contract': 'baseline',
+                'doc_checker_contracts': 'baseline',
+                'compile_metrics': 'baseline',
+                'packaging_contracts': 'baseline',
+                'consensus': 'node',
+                'pixel_world_bridge': 'scenario-regression',
+                'viewer_performance_report': 'viewer-js-required',
+                'site_quality': 'viewer-js-required',
+                'cargo_tooling_contracts': 'scenario-regression',
+                'windows_rollout': 'fleet-health',
+                'operational_contracts': 'workflow-governance',
+            },
+        }
+        # Legacy v3/v4 plans under v5 config still route compile_metrics & packaging_contracts to doc-checker-contracts.
+        v4_jobs = result.configured_group_jobs(config, {'groups': ['baseline'], 'contract_job_consolidation_version': 4})
+        self.assertEqual(v4_jobs['compile_metrics'], 'doc-checker-contracts')
+        self.assertEqual(v4_jobs['packaging_contracts'], 'doc-checker-contracts')
+        self.assertEqual(v4_jobs['doc_checker_contracts'], 'doc-checker-contracts')
+        self.assertEqual(v4_jobs['site_quality'], 'site-quality')
+        self.assertEqual(v4_jobs['operational_contracts'], 'workflow-governance')
+
+        # v5 + direct gate v2 custody plan retires doc-checker-contracts, site-quality, and workspace-support.
+        v5_plan = {
+            'groups': ['baseline', 'doc_checker_contracts', 'site_quality', 'workspace_support'],
+            'contract_job_consolidation_version': 5,
+            'workspace_support_direct_gate_version': 2,
+            'workspace_support_partition_version': 1,
+            'workspace_support_partitions': ['custody', 'other'],
+            'custody_execution_version': 1,
+        }
+        v5_jobs = result.configured_group_jobs(config, v5_plan)
+        v5_retired = result.retired_group_jobs(config, v5_plan)
+        self.assertEqual(v5_jobs['doc_checker_contracts'], 'baseline')
+        self.assertEqual(v5_jobs['packaging_contracts'], 'baseline')
+        self.assertEqual(v5_jobs['site_quality'], 'viewer-js-required')
+        self.assertEqual(v5_jobs['workspace_support'], 'custody-node')
+        self.assertTrue({'doc-checker-contracts', 'site-quality', 'workspace-support'}.issubset(v5_retired))
+        needs = {
+            'select': {'result': 'success'},
+            'baseline': {'result': 'success'},
+            'fleet-health': {'result': 'skipped'},
+            'node': {'result': 'skipped'},
+            'scenario-regression': {'result': 'skipped'},
+            'viewer-js-required': {'result': 'success'},
+            'workflow-governance': {'result': 'skipped'},
+            'workspace-support-other': {'result': 'success'},
+            'custody-native-contracts': {'result': 'success'},
+            'custody-native': {'result': 'success'},
+            'custody-wasm-production': {'result': 'success'},
+            'custody-node': {'result': 'success'},
+            **{job: {'result': 'skipped'} for job in v5_retired},
+        }
+        self.assertTrue(result.validate(v5_plan, needs, v5_jobs, retired_jobs=v5_retired))
+        for bad_job in ('custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-node', 'workspace-support-other'):
+            broken = copy.deepcopy(needs)
+            broken[bad_job] = {'result': 'skipped'}
+            with self.subTest(missing_custody=bad_job), self.assertRaises(ValueError):
+                result.validate(v5_plan, broken, v5_jobs, retired_jobs=v5_retired)
+        broken_legacy = copy.deepcopy(needs)
+        broken_legacy['workspace-support'] = {'result': 'success'}
+        with self.assertRaisesRegex(ValueError, 'workspace-support: retired'):
+            result.validate(v5_plan, broken_legacy, v5_jobs, retired_jobs=v5_retired)
+
+    def test_command_center_offline_version_routes_to_baseline_and_keeps_legacy_plan_compatible(self):
+        config = {
+            'groups': ['baseline', 'command_center', 'doc_checker_contracts'],
+            'contract_job_consolidation_version': 5,
+            'command_center_offline_version': 1,
+            'group_jobs': {
+                'command_center': 'baseline',
+                'doc_checker_contracts': 'baseline',
+            },
+        }
+        # Legacy v5 plan without command_center_offline_version still requires command-center success.
+        legacy_plan = {'groups': ['baseline', 'command_center'], 'contract_job_consolidation_version': 5}
+        legacy_jobs = result.configured_group_jobs(config, legacy_plan)
+        legacy_retired = result.retired_group_jobs(config, legacy_plan)
+        self.assertEqual(legacy_jobs['command_center'], 'command-center')
+        self.assertNotIn('command-center', legacy_retired)
+        self.assertTrue(result.validate(legacy_plan, {
+            'select': {'result': 'success'},
+            'baseline': {'result': 'success'},
+            'command-center': {'result': 'success'},
+            'doc-checker-contracts': {'result': 'skipped'},
+        }, legacy_jobs, retired_jobs=legacy_retired))
+        with self.assertRaises(ValueError):
+            result.validate(legacy_plan, {
+                'select': {'result': 'success'},
+                'baseline': {'result': 'success'},
+                'command-center': {'result': 'skipped'},
+                'doc-checker-contracts': {'result': 'skipped'},
+            }, legacy_jobs, retired_jobs=legacy_retired)
+
+        # Active command_center_offline_version=1 routes command_center to baseline and retires command-center.
+        offline_plan = {
+            'groups': ['baseline', 'command_center'],
+            'contract_job_consolidation_version': 5,
+            'command_center_offline_version': 1,
+        }
+        offline_jobs = result.configured_group_jobs(config, offline_plan)
+        offline_retired = result.retired_group_jobs(config, offline_plan)
+        self.assertEqual(offline_jobs['command_center'], 'baseline')
+        self.assertIn('command-center', offline_retired)
+        needs = {
+            'select': {'result': 'success'},
+            'baseline': {'result': 'success'},
+            'command-center': {'result': 'skipped'},
+            'doc-checker-contracts': {'result': 'skipped'},
+        }
+        self.assertTrue(result.validate(offline_plan, needs, offline_jobs, retired_jobs=offline_retired))
+        for bad_center in ('success', 'failure', 'cancelled', None):
+            broken = copy.deepcopy(needs)
+            broken['command-center'] = {'result': bad_center}
+            with self.subTest(center_state=bad_center), self.assertRaises(ValueError):
+                result.validate(offline_plan, broken, offline_jobs, retired_jobs=offline_retired)
+        for bad_ver in (0, 2, True, '1'):
+            with self.subTest(bad_version=bad_ver), self.assertRaises(ValueError):
+                result.configured_group_jobs(config, offline_plan | {'command_center_offline_version': bad_ver})
+        for bad_cfg in (
+            {k: v for k, v in config.items() if k != 'command_center_offline_version'},
+            dict(config, command_center_offline_version=True),
+            dict(config, command_center_offline_version=2),
+        ):
+            with self.assertRaises(ValueError):
+                result.configured_group_jobs(bad_cfg, offline_plan)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -17,10 +17,11 @@ CHAIN_SUBMIT_BASE_URL="${OASIS7_PUBLIC_TESTNET_CHAIN_SUBMIT_BASE_URL:-}"
 MANIFEST_PATH="${OASIS7_TESTNET_MANIFEST:-}"
 LETAI_CONFIG_PATH="${LETAI_TOKEN_FILE:-${OASIS7_LETAI_CONFIG_PATH:-}}"
 LETAI_PLATFORM_ENV="${LETAI_PLATFORM_ENV:-}"
-MERGED_LETAI_CONFIG="${OASIS7_LETAI_MERGED_CONFIG:-/tmp/oasis7-letai-merged-local-bridge.env}"
+MERGED_LETAI_CONFIG="${OASIS7_LETAI_MERGED_CONFIG:-}"
+MERGED_LETAI_TMP_DIR=""
 OUTPUT_DIR="${OASIS7_LOCAL_PUBLIC_TESTNET_OUTPUT_DIR:-$ROOT_DIR/output/local-public-testnet-letai}"
 NEWAPI_BIND="${OASIS7_NEWAPI_BRIDGE_BIND_ADDR:-127.0.0.1:5852}"
-NEWAPI_STATE_PATH="${OASIS7_NEWAPI_BRIDGE_STATE_PATH:-/tmp/oasis7-newapi-bridge-state.json}"
+NEWAPI_STATE_PATH="${OASIS7_NEWAPI_BRIDGE_STATE_PATH:-}"
 NEWAPI_LETAI_BASE_URL="${OASIS7_NEWAPI_BRIDGE_LETAI_BASE_URL:-https://api.letai.run}"
 NEWAPI_ROUTE_TTL_SECONDS="${OASIS7_NEWAPI_BRIDGE_ROUTE_TTL_SECONDS:-900}"
 NEWAPI_CONFIRMATIONS_REQUIRED="${OASIS7_NEWAPI_BRIDGE_CHAIN_CONFIRMATIONS_REQUIRED:-1}"
@@ -30,8 +31,8 @@ PROVIDER_BIND="${OASIS7_LOCAL_LETAI_PROVIDER_BIND:-127.0.0.1:5841}"
 PROVIDER_AGENT="${OASIS7_LOCAL_LETAI_PROVIDER_AGENT:-letai-local-token-file}"
 PROVIDER_MODEL="${OASIS7_LETAI_CHAT_MODEL:-gpt-5.4}"
 PROVIDER_MAX_OUTPUT_TOKENS="${OASIS7_REMOTE_LLM_MAX_OUTPUT_TOKENS:-64}"
-PROXY_URL="${OASIS7_LOCAL_TEST_PROXY_URL:-http://127.0.0.1:7897}"
-SOCKS_PROXY_URL="${OASIS7_LOCAL_TEST_SOCKS_PROXY_URL:-socks5://127.0.0.1:7897}"
+PROXY_URL="${OASIS7_LOCAL_TEST_PROXY_URL:-}"
+SOCKS_PROXY_URL="${OASIS7_LOCAL_TEST_SOCKS_PROXY_URL:-}"
 USE_DEFAULT_PROXY="1"
 VIEWER_API_BIND="${OASIS7_VIEWER_LIVE_API_BIND:-127.0.0.1:5023}"
 VIEWER_WS_BIND="${OASIS7_VIEWER_LIVE_WS_BIND:-127.0.0.1:5011}"
@@ -74,10 +75,10 @@ Options:
   --manifest <path>              Formal public_testnet manifest path (or OASIS7_TESTNET_MANIFEST)
   --letai-config <path>          LetAI token/config file (or LETAI_TOKEN_FILE/OASIS7_LETAI_CONFIG_PATH)
   --letai-platform-env <path>    Optional env file with platform fields to merge into temp config
-  --merged-letai-config <path>   Temp merged LetAI config path (default: /tmp/oasis7-letai-merged-local-bridge.env)
+  --merged-letai-config <path>   Explicit merged config output (default: private temporary file removed after startup)
   --output-dir <path>            Logs and pid files directory
   --newapi-bind <host:port>      NewAPI quota bridge bind (default: 127.0.0.1:5852)
-  --newapi-state-path <path>     NewAPI bridge state path (default: /tmp/oasis7-newapi-bridge-state.json)
+  --newapi-state-path <path>     NewAPI bridge state path (default: <output-dir>/newapi-private/bridge-state.json)
   --pricing-rules-file <path>    Pricing rules env file
   --pricing-rules <rules>        Comma-separated pricing rules, e.g. pv-1:100:100000:0
   --provider-bind <host:port>    LetAI provider bridge bind (default: 127.0.0.1:5841)
@@ -91,8 +92,8 @@ Options:
                                   Provider lineage checkpoint is stored at <output-dir>/viewer-provider-lineage.json
   --static-bind <host>           Static viewer bind host (default: 127.0.0.1)
   --static-port <port>           Static viewer port (default: 4173)
-  --proxy <url>                  HTTP/HTTPS proxy exported for provider calls
-  --socks-proxy <url>            all_proxy value exported for provider calls
+  --proxy <url>                  HTTP/HTTPS proxy for provider calls (or $OASIS7_LOCAL_TEST_PROXY_URL; unset by default)
+  --socks-proxy <url>            all_proxy for provider calls (or $OASIS7_LOCAL_TEST_SOCKS_PROXY_URL; unset by default)
   --no-default-proxy             Do not export proxy defaults
   --reuse-existing               Treat already-listening service ports as reusable
   --no-build                     Reuse existing debug binaries
@@ -123,6 +124,7 @@ log() {
 cleanup_started() {
   local exit_code=$?
   if [[ "$exit_code" -eq 0 || "$SERVICES_READY" == "1" ]]; then
+    remove_default_merged_config
     return 0
   fi
   local pid
@@ -138,6 +140,13 @@ cleanup_started() {
       launchctl remove "$label" >/dev/null 2>&1 || true
     fi
   done
+  remove_default_merged_config
+}
+remove_default_merged_config() {
+  if [[ -n "$MERGED_LETAI_TMP_DIR" ]]; then
+    rm -f -- "$MERGED_LETAI_TMP_DIR/config.env" || true
+    rmdir -- "$MERGED_LETAI_TMP_DIR" || true
+  fi
 }
 trap cleanup_started EXIT
 
@@ -539,10 +548,11 @@ merge_letai_config_if_needed() {
   LETAI_CONFIG_PATH="$LETAI_CONFIG_PATH" \
   LETAI_PLATFORM_ENV="$LETAI_PLATFORM_ENV" \
   MERGED_LETAI_CONFIG="$MERGED_LETAI_CONFIG" \
-    python3 - <<'PY'
+    python3 - <<'PY' || return
 from pathlib import Path
 import os
 import sys
+import tempfile
 
 new = Path(os.environ["LETAI_CONFIG_PATH"])
 old = Path(os.environ["LETAI_PLATFORM_ENV"])
@@ -586,9 +596,21 @@ if missing:
     raise SystemExit("missing LetAI config keys: " + ",".join(missing))
 
 ordered = ["token_key", "base_url", "platform_key", "platform_user_id", "platform_project_id", "model"]
-merged.write_text("".join(f"{key}={values[key]}\n" for key in ordered if values.get(key)))
-merged.chmod(0o600)
-print({"path": str(merged), "keys": [key for key in ordered if values.get(key)], "value_lengths": {key: len(values[key]) for key in ordered if values.get(key)}}, file=sys.stderr)
+if merged.is_symlink() or (merged.exists() and not merged.is_file()):
+    raise SystemExit("merged LetAI output must be a regular file, not a symlink")
+if merged.exists() and any(merged.samefile(source) for source in (new, old)):
+    raise SystemExit("merged LetAI output must not replace either input")
+# Create with private permissions before writing secrets. Replace atomically
+# to avoid readers observing partial content or inheriting stale permissions.
+fd, temporary = tempfile.mkstemp(prefix=".letai-config.", dir=merged.parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as out:
+        out.writelines(f"{key}={values[key]}\n" for key in ordered if values.get(key))
+    os.replace(temporary, merged)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+print("Prepared private merged LetAI config", file=sys.stderr)
 PY
   printf '%s' "$MERGED_LETAI_CONFIG"
 }
@@ -715,7 +737,22 @@ start_newapi_bridge() {
   local pricing
   pricing="$(load_pricing_rules)"
   [[ -n "$pricing" ]] || die "no pricing rules configured"
-  mkdir -p "$(dirname "$NEWAPI_STATE_PATH")" "$OUTPUT_DIR"
+  local state_dir
+  state_dir="$(dirname "$NEWAPI_STATE_PATH")"
+  if [[ "$NEWAPI_STATE_DEFAULT" == "1" ]]; then
+    (umask 077; mkdir -p -- "$state_dir")
+    python3 - "$state_dir" <<'PYTHON'
+import os
+import stat
+import sys
+
+info = os.lstat(sys.argv[1])
+if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or (info.st_mode & 0o077):
+    raise SystemExit("default NewAPI state directory must be private to the current user")
+PYTHON
+  else
+    mkdir -p -- "$state_dir"
+  fi
   local log_path="$OUTPUT_DIR/newapi-bridge.log"
   IFS=',' read -r -a pricing_array <<< "$pricing"
   local cmd=(
@@ -736,7 +773,10 @@ start_newapi_bridge() {
     [[ -n "$rule" ]] && cmd+=(--pricing-rule "$rule")
   done
   log "starting NewAPI quota bridge on $NEWAPI_BIND; log=$log_path"
-  submit_service "oasis7.local-public-testnet.newapi-bridge" "$log_path" "${cmd[@]}" \
+  # The state contains credentials. Apply an explicit umask to the service,
+  # including when launchctl starts it independently of this shell.
+  submit_service "oasis7.local-public-testnet.newapi-bridge" "$log_path" \
+    bash -c 'umask 077; exec "$@"' oasis7-newapi-bridge "${cmd[@]}" \
     >"$OUTPUT_DIR/newapi-bridge.pid"
   wait_for_http "http://$NEWAPI_BIND/v1/bridge/health" "NewAPI quota bridge"
 }
@@ -750,6 +790,10 @@ start_provider_bridge() {
     return 0
   fi
   local config_path
+  if [[ -n "$LETAI_PLATFORM_ENV" && -z "$MERGED_LETAI_CONFIG" ]]; then
+    MERGED_LETAI_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oasis7-letai.XXXXXX")"
+    MERGED_LETAI_CONFIG="$MERGED_LETAI_TMP_DIR/config.env"
+  fi
   config_path="$(merge_letai_config_if_needed)"
   mkdir -p "$OUTPUT_DIR"
   local log_path="$OUTPUT_DIR/provider-bridge.log"
@@ -758,12 +802,24 @@ start_provider_bridge() {
     "OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH=$NEWAPI_STATE_PATH"
     "OASIS7_REMOTE_LLM_MAX_OUTPUT_TOKENS=$PROVIDER_MAX_OUTPUT_TOKENS"
   )
+  # launchctl need not inherit the caller's environment. Forward existing
+  # standard settings explicitly; CLI/env fallback only fills missing schemes.
+  local proxy_name
+  for proxy_name in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY; do
+    if [[ -n "${!proxy_name:-}" ]]; then
+      env_cmd+=("$proxy_name=${!proxy_name}")
+    fi
+  done
   if [[ "$USE_DEFAULT_PROXY" == "1" ]]; then
-    env_cmd+=(
-      "http_proxy=${http_proxy:-$PROXY_URL}"
-      "https_proxy=${https_proxy:-$PROXY_URL}"
-      "all_proxy=${all_proxy:-$SOCKS_PROXY_URL}"
-    )
+    if [[ -n "$PROXY_URL" && -z "${http_proxy:-${HTTP_PROXY:-}}" ]]; then
+      env_cmd+=("http_proxy=$PROXY_URL")
+    fi
+    if [[ -n "$PROXY_URL" && -z "${https_proxy:-${HTTPS_PROXY:-}}" ]]; then
+      env_cmd+=("https_proxy=$PROXY_URL")
+    fi
+    if [[ -n "$SOCKS_PROXY_URL" && -z "${all_proxy:-${ALL_PROXY:-}}" ]]; then
+      env_cmd+=("all_proxy=$SOCKS_PROXY_URL")
+    fi
   fi
   log "starting LetAI provider bridge on $PROVIDER_BIND; log=$log_path"
   submit_service "oasis7.local-public-testnet.provider-bridge" "$log_path" \
@@ -1069,6 +1125,16 @@ if [[ "$SKIP_PROVIDER" != "1" ]]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd -P)"
+NEWAPI_STATE_DEFAULT="0"
+if [[ -z "$NEWAPI_STATE_PATH" ]]; then
+  NEWAPI_STATE_DEFAULT="1"
+  NEWAPI_STATE_PATH="$OUTPUT_DIR/newapi-private/bridge-state.json"
+fi
+[[ "$NEWAPI_STATE_PATH" == /* ]] || NEWAPI_STATE_PATH="$PWD/$NEWAPI_STATE_PATH"
+if [[ -n "$MERGED_LETAI_CONFIG" && "$MERGED_LETAI_CONFIG" != /* ]]; then
+  MERGED_LETAI_CONFIG="$PWD/$MERGED_LETAI_CONFIG"
+fi
 check_public_testnet_node
 if [[ "$PREFLIGHT_ONLY" != "1" && "$SKIP_VIEWER_LIVE" != "1" ]]; then
   stop_stale_viewer_live_services

@@ -669,15 +669,19 @@ class Workflow(unittest.TestCase):
         for mode, expected in (('codeql_rust_model_diagnostic', False), ('full', True)):
             expression=condition
             values={'always()':True, 'cancelled()':False, 'github.event_name':'workflow_dispatch',
-                    'inputs.run_mode':mode, 'needs.periodic-admission.result':'skipped',
-                    'needs.periodic-admission.outputs.run_full':''}
+                    'github.ref':'refs/heads/main', 'inputs.run_mode':mode,
+                    'needs.periodic-admission.result':'skipped',
+                    'needs.periodic-admission.outputs.run_full':'',
+                    'needs.main-fast-admission.result':'skipped',
+                    'needs.main-fast-admission.outputs.run_main_fast':''}
             for token, value in values.items(): expression=expression.replace(token, repr(value))
             expression=re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
             with self.subTest(mode=mode):
                 self.assertEqual(bool(eval(' '.join(expression.split()), {'__builtins__':{}}, {})), expected)
         self.assertIn(
             "if: >-\n"
-            "      always() && (github.event_name == 'push' ||\n"
+            "      always() && ((github.event_name == 'push' &&\n"
+            "        (github.ref != 'refs/heads/main' || needs.select.result != 'skipped')) ||\n"
             "      (github.event_name == 'pull_request' &&\n"
             "       (github.event.action != 'labeled' ||\n"
             "        (github.event.label.name == 'ci-priority' &&\n"

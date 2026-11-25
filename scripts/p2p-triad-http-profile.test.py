@@ -48,6 +48,127 @@ class ProfileHttpTests(unittest.TestCase):
         future = child.refresh_report(report, observed-1)["nodes"]["local_node"]["profile_readiness"]
         self.assertEqual(future["source_freshness"], "unknown")
 
+    def test_pinned_bft_identity_rejects_wrong_slot_and_recovers_in_outer_report(self):
+        self.status = fixtures.bft_fixture()
+        observation = self.status["observation"]
+        pins = {key: observation[key] for key in ("world_id", "chain_id", "operator_instance_id")}
+        wrong = dict(pins, operator_instance_id="wrong-instance")
+        options = ["--local-profile-status-url", self.url,
+                   "--local-bft-identity", json.dumps(pins),
+                   "--sequencer-profile-status-url", self.url,
+                   "--sequencer-bft-identity", json.dumps(wrong),
+                   "--storage-profile-status-url", self.url,
+                   "--storage-bft-identity", json.dumps(pins)]
+        process = self.fixture.start(self.env, options)
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
+        report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        nodes = report["nodes"]
+        self.assertEqual(self.hits, 3)
+        for label in ("local_node", "storage_ecs"):
+            node = nodes[label]
+            self.assertEqual(node["profile_collection"]["mode"], "bft_pinned_http")
+            self.assertTrue(node["profile_collection"]["complete"])
+            self.assertTrue(node["profile_readiness"]["configured_identity_match"])
+            self.assertEqual(node["profile_readiness"]["observed_at_unix_ms"],
+                             observation["observed_at_unix_ms"])
+            self.assertFalse(node["profile_readiness"]["can_propose"])
+        rejected = nodes["sequencer_ecs"]
+        self.assertFalse(rejected["profile_collection"]["complete"])
+        self.assertEqual(rejected["profile_readiness"]["reason"], "bft_identity_mismatch")
+        self.assertNotIn("height", rejected["profile_readiness"])
+        self.assertNotIn("wrong-instance", json.dumps(report))
+        self.assertNotEqual(rejected["profile_collection"]["endpoint_scope_digest"],
+                            nodes["local_node"]["profile_collection"]["endpoint_scope_digest"])
+
+        # The same pinned scope recovers after its producer reports the
+        # configured instance; the original producer timestamp is not reset.
+        observation["operator_instance_id"] = wrong["operator_instance_id"]
+        process = self.fixture.start(self.env, options)
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
+        recovered = json.loads((self.fixture.out / "latest_summary.json").read_text())["nodes"]["sequencer_ecs"]
+        self.assertTrue(recovered["profile_collection"]["complete"])
+        self.assertTrue(recovered["profile_readiness"]["configured_identity_match"])
+        self.assertEqual(recovered["profile_readiness"]["observed_at_unix_ms"],
+                         observation["observed_at_unix_ms"])
+        self.assertEqual(recovered["profile_readiness"]["status"], "unknown")
+        self.assertFalse(recovered["profile_readiness"]["can_propose"])
+
+    def test_pinned_bft_slot_rejects_observer_schema_and_ambiguous_config(self):
+        self.status = fixtures.fixture()
+        pins = json.dumps({"world_id": "w", "chain_id": "c", "operator_instance_id": "i"})
+        options = ["--local-profile-status-url", self.url, "--local-bft-identity", pins]
+        process = self.fixture.start(self.env, options)
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
+        node = json.loads((self.fixture.out / "latest_summary.json").read_text())["nodes"]["local_node"]
+        self.assertEqual(node["profile_readiness"]["reason"], "bft_schema_mismatch")
+        self.assertFalse(node["profile_collection"]["complete"])
+        self.assertFalse(node["profile_readiness"]["can_propose"])
+        hits = self.hits
+        for invalid in (["--local-bft-identity", pins],
+                        options + ["--local-bft-identity", pins],
+                        options + ["--local-profile-status-url", self.url],
+                        ["--local-profile-status-url", self.url, "--local-bft-identity", "{}"]):
+            process = self.fixture.start(self.env, invalid)
+            process.communicate(timeout=20)
+            self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(self.hits, hits)
+
+    def test_pinned_bft_malformed_checkpoint_rejected_then_recovers(self):
+        self.status = fixtures.bft_fixture()
+        observation = self.status["observation"]
+        pins = json.dumps({key: observation[key] for key in
+                           ("world_id", "chain_id", "operator_instance_id")})
+        options = ["--local-profile-status-url", self.url,
+                   "--local-bft-identity", pins]
+        original_digest = observation["binding_digest"]
+        original_time = observation["observed_at_unix_ms"]
+        observation["binding_digest"] = "malformed-checkpoint"
+        process = self.fixture.start(self.env, options)
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
+        report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        node = report["nodes"]["local_node"]
+        self.assertFalse(node["profile_collection"]["complete"])
+        self.assertEqual(node["profile_collection"]["result"], "invalid_bft_digest")
+        self.assertEqual(node["profile_readiness"]["reason"], "invalid_bft_digest")
+        self.assertNotIn("configured_identity_match", node["profile_readiness"])
+        self.assertNotIn("height", node["profile_readiness"])
+        markdown = (self.fixture.out / "latest_summary.md").read_text()
+        self.assertIn("invalid_bft_digest", markdown)
+        self.assertNotIn("malformed-checkpoint", json.dumps(report) + markdown)
+        rejected_scope = node["profile_collection"]["endpoint_scope_digest"]
+
+        observation["binding_digest"] = original_digest
+        process = self.fixture.start(self.env, options)
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+        report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        node = report["nodes"]["local_node"]
+        profile = node["profile_readiness"]
+        self.assertTrue(node["profile_collection"]["complete"])
+        self.assertEqual(node["profile_collection"]["endpoint_scope_digest"], rejected_scope)
+        self.assertTrue(profile["configured_identity_match"])
+        self.assertEqual(profile["observed_at_unix_ms"], original_time)
+        self.assertEqual(profile["reason"], "bft_qualification_not_observed")
+        self.assertFalse(profile["can_propose"])
+        markdown = (self.fixture.out / "latest_summary.md").read_text()
+        self.assertIn("bft_qualification_not_observed", markdown)
+
+        # A new collector timestamp cannot refresh historical producer data.
+        observation["observed_at_unix_ms"] = max(0, original_time - 120_000)
+        process = self.fixture.start(self.env, options)
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+        report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        profile = report["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(profile["status"], "stale")
+        self.assertEqual(profile["observed_at_unix_ms"], observation["observed_at_unix_ms"])
+        self.assertFalse(profile["can_propose"])
+        self.assertIn("bft_observation_expired", (self.fixture.out / "latest_summary.md").read_text())
+
     def test_truncated_content_length_is_not_a_complete_observation(self):
         self.status = fixtures.bft_fixture()
         self.content_length_extra = 10
@@ -329,6 +450,152 @@ print(json.dumps(result))
         self.assertEqual(stale["source_freshness"], "stale")
         self.assertEqual(stale["observed_at_unix_ms"], profile["observed_at_unix_ms"])
 
+    def test_controlled_receipt_projection_preserves_verifier_time_and_rejects_bad_receipts(self):
+        # Exercise only the collector's DTO contract; the shipping Rust verifier
+        # separately verifies the real signed TCP response. These fixture
+        # commitments do not establish P/R authority or business durability.
+        inventory = self.controlled_inventory_fixture()
+        runtime = self.fixture.root / "fixture-status-verifier"
+        original = runtime.read_text()
+        child = load("controlled_receipt_reader", "p2p-triad-http-profile.py")
+        digest_key = "authenticated_status_receipt_sha256"
+        time_key = "authenticated_status_verified_at_unix_ms"
+        options = ["--controlled-status-inventory", str(inventory)]
+
+        def collect(extra, expected):
+            runtime.write_text(original.replace("print(json.dumps(result))",
+                "import time\n" + extra + "\nprint(json.dumps(result))"))
+            process = self.fixture.start(self.env, options)
+            out, err = process.communicate(timeout=20)
+            self.assertEqual(process.returncode, expected, (out.decode(), err.decode()))
+            report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+            markdown = (self.fixture.out / "latest_summary.md").read_text()
+            return report, markdown
+
+        valid = (
+            'result["authenticated_status_receipt_sha256"] = "1" * 64\n'
+            'result["authenticated_status_verified_at_unix_ms"] = time.time_ns() // 1_000_000\n'
+            'time.sleep(0.05)'
+        )
+        report, markdown = collect(valid, 0)
+        node = report["nodes"]["local_node"]
+        profile = node["profile_readiness"]
+        verified_at = profile[time_key]
+        self.assertEqual(profile[digest_key], "1" * 64)
+        self.assertEqual(profile["observed_at_unix_ms"], verified_at)
+        self.assertLess(verified_at, node["profile_collection"]["finished_at_unix_ms"])
+        self.assertEqual(profile["sample_time_basis"], "local_host_verification")
+        self.assertEqual(profile["authority_qualification"], "unknown")
+        self.assertFalse(profile["can_propose"])
+        self.assertIn("1" * 64, markdown)
+        self.assertIn(str(verified_at), markdown)
+        expired = child.refresh_report(report, verified_at + child.adapter.MAX_AGE_MS + 1)
+        stale = expired["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(stale["source_freshness"], "stale")
+        self.assertEqual(stale[digest_key], "1" * 64)
+        self.assertEqual(stale[time_key], verified_at)
+        self.assertFalse(stale["can_propose"])
+
+        for extra, reason in (
+            (valid + '\ndel result["authenticated_status_verified_at_unix_ms"]',
+             "controlled_status_receipt_invalid"),
+            (valid + '\nresult["authenticated_status_receipt_sha256"] = "bad"',
+             "controlled_status_receipt_invalid"),
+            (valid + '\nresult["authenticated_status_verified_at_unix_ms"] = 0',
+             "controlled_status_receipt_clock_uncertain"),
+            (valid + '\nresult["authenticated_status_verified_at_unix_ms"] += 60_000',
+             "controlled_status_receipt_clock_uncertain"),
+        ):
+            with self.subTest(reason=reason, extra=extra):
+                rejected, markdown = collect(extra, 1)
+                node = rejected["nodes"]["local_node"]
+                self.assertFalse(node["profile_collection"]["complete"])
+                self.assertEqual(node["profile_readiness"]["reason"], reason)
+                self.assertNotIn(digest_key, node["profile_readiness"])
+                self.assertIn(reason, markdown)
+                self.assertFalse(node["profile_readiness"]["can_propose"])
+
+        missing_clock, _ = collect(valid + '\nresult["authenticated_status_verified_at_unix_ms"] = None', 0)
+        profile = missing_clock["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(profile[digest_key], "1" * 64)
+        self.assertIsNone(profile["observed_at_unix_ms"])
+        self.assertIsNone(profile["age_ms"])
+        self.assertEqual(profile["source_freshness"], "unknown")
+        self.assertEqual(profile["reason"], "controlled_status_receipt_clock_unavailable")
+        self.assertFalse(profile["can_propose"])
+
+        recovered, markdown = collect(valid.replace('"1" * 64', '"2" * 64'), 0)
+        node = recovered["nodes"]["local_node"]
+        self.assertTrue(node["profile_collection"]["complete"])
+        self.assertEqual(node["profile_readiness"][digest_key], "2" * 64)
+        self.assertEqual(node["profile_readiness"]["authority_qualification"], "unknown")
+        self.assertFalse(node["profile_readiness"]["can_propose"])
+        self.assertIn("2" * 64, markdown)
+
+    def test_controlled_signed_receipt_scope_refusal_and_cold_report_recovery(self):
+        # The selected shipping verifier owns authentication. The report must
+        # never promote its diagnostic receipt into protected P/R authority.
+        inventory = self.controlled_inventory_fixture()
+        runtime = self.fixture.root / "fixture-status-verifier"
+        original = runtime.read_text()
+        options = ["--controlled-status-inventory", str(inventory)]
+        child = load("controlled_receipt_recovery_reader", "p2p-triad-http-profile.py")
+
+        def collect(extra):
+            runtime.write_text(original.replace("print(json.dumps(result))",
+                "import time\n" + extra + "\nprint(json.dumps(result))"))
+            process = self.fixture.start(self.env, options)
+            out, err = process.communicate(timeout=20)
+            report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+            markdown = (self.fixture.out / "latest_summary.md").read_text()
+            return process.returncode, report["nodes"]["local_node"], markdown, (out, err)
+
+        receipt = (
+            'result["authenticated_status_receipt_sha256"] = "4" * 64\n'
+            'result["authenticated_status_verified_at_unix_ms"] = time.time_ns() // 1_000_000'
+        )
+        code, node, markdown, output = collect(receipt)
+        self.assertEqual(code, 0, output)
+        profile = node["profile_readiness"]
+        verified = profile["authenticated_status_verified_at_unix_ms"]
+        self.assertEqual(profile["authenticated_status_receipt_sha256"], "4" * 64)
+        self.assertEqual(profile["observed_at_unix_ms"], verified)
+        self.assertEqual(profile["authority_qualification"], "unknown")
+        self.assertFalse(profile["can_propose"])
+        self.assertIn("4" * 64, markdown)
+        self.assertNotIn("DO_NOT_COPY", markdown)
+        stale = child.refresh_node(node, verified + child.adapter.MAX_AGE_MS + 1)["profile_readiness"]
+        self.assertEqual(stale["source_freshness"], "stale")
+        self.assertEqual(stale["observed_at_unix_ms"], verified)
+        self.assertFalse(stale["can_propose"])
+
+        for mutation in (
+            'result["node_id"] = "wrong-host"',
+            'result["world"]["world_id"] = "wrong-world"',
+            'result["authority_qualification"] = "qualified"',
+            'result["host_reports_ready"] = False',
+            'result["authenticated_status_verified_at_unix_ms"] += 60_000',
+        ):
+            with self.subTest(mutation=mutation):
+                rc, rejected, markdown, output = collect(receipt + "\n" + mutation)
+                self.assertEqual(rc, 1, output)
+                self.assertFalse(rejected["profile_collection"]["complete"])
+                self.assertEqual(rejected["profile_readiness"]["status"], "unknown")
+                self.assertFalse(rejected["profile_readiness"]["can_propose"])
+                self.assertNotIn("4" * 64, json.dumps(rejected) + markdown)
+                self.assertNotIn("DO_NOT_COPY", json.dumps(rejected) + markdown)
+
+        recovered_receipt = receipt.replace('"4" * 64', '"5" * 64')
+        rc, recovered, markdown, output = collect(recovered_receipt)
+        self.assertEqual(rc, 0, output)
+        self.assertTrue(recovered["profile_collection"]["complete"])
+        profile = recovered["profile_readiness"]
+        self.assertEqual(profile["authenticated_status_receipt_sha256"], "5" * 64)
+        self.assertEqual(profile["authority_qualification"], "unknown")
+        self.assertFalse(profile["can_propose"])
+        self.assertNotIn("4" * 64, json.dumps(recovered) + markdown)
+        self.assertIn("5" * 64, markdown)
+
     def test_controlled_verifier_stdout_is_bounded_before_collection_and_recovers(self):
         inventory = self.controlled_inventory_fixture()
         runtime = self.fixture.root / "fixture-status-verifier"
@@ -509,6 +776,56 @@ sys.stdout.buffer.write(b"X" * %d)
                 pair["replica"] = dict(endpoint, head=dict(position=9, record_id="d" * 64))
             else:
                 self.assertEqual(profile["protected_pair"], {"status": "invalid_observation"})
+
+    def test_receipt_aware_owner_pair_rejects_cross_invocation_clock_and_recovers(self):
+        inventory = self.controlled_inventory_fixture()
+        runtime = self.fixture.root / "fixture-status-verifier"
+        original = runtime.read_text()
+        config = self.fixture.root / "owner-private-config"
+        pins = json.loads(inventory.read_text())
+        pins["slots"]["local_node"]["owner_config"] = str(config)
+        inventory.write_text(json.dumps(pins))
+        endpoint = dict(status="authenticated", head=dict(position=8, record_id="f" * 64),
+                        instance_digest="b" * 64, checkpoint_revision=3, epoch_floor=2,
+                        sealed=False, native_request_pending=False)
+        config.write_text(json.dumps(dict(status="observed",
+            finalizing_authority_id="a" * 64, both_heads_match_unchanged_cut=True,
+            primary=endpoint, replica=endpoint)))
+        options = ["--controlled-status-inventory", str(inventory)]
+        for offset, missing_clock, expected_reason in (
+                (0, False, None),
+                (-120_000, False, "protected_pair_receipt_clock_uncertain"),
+                (1, False, "protected_pair_receipt_clock_uncertain"),
+                (0, True, "protected_pair_host_clock_unavailable"),
+                (0, False, None)):
+            with self.subTest(offset=offset, missing_clock=missing_clock):
+                runtime.write_text(original.replace("print(json.dumps(result))",
+                    "import time\n"
+                    "sample = time.time_ns() // 1_000_000\n"
+                    'result["authenticated_status_receipt_sha256"] = "1" * 64\n'
+                    + f'result["authenticated_status_verified_at_unix_ms"] = {"None" if missing_clock else "sample"}\n'
+                    + f'result["protected_pair"]["sample_started_at_unix_ms"] = sample + ({offset})\n'
+                    + "time.sleep(0.05)\nprint(json.dumps(result))"))
+                process = self.fixture.start(self.env, options)
+                out, err = process.communicate(timeout=20)
+                self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+                report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+                markdown = (self.fixture.out / "latest_summary.md").read_text()
+                profile = report["nodes"]["local_node"]["profile_readiness"]
+                pair = profile["protected_pair"]
+                self.assertEqual(profile["authority_qualification"], "unknown")
+                self.assertFalse(profile["can_propose"])
+                self.assertEqual(profile["authenticated_status_receipt_sha256"], "1" * 64)
+                if expected_reason is None:
+                    self.assertEqual(pair["status"], "observed")
+                    self.assertEqual(pair["sample_started_at_unix_ms"],
+                                     profile["authenticated_status_verified_at_unix_ms"])
+                    self.assertTrue(pair["both_heads_match_unchanged_cut"])
+                else:
+                    self.assertEqual(pair, {"status": "invalid_observation", "reason": expected_reason})
+                    self.assertIn(expected_reason, markdown)
+                    self.assertNotIn("both_heads_match_unchanged_cut", markdown)
+                    self.assertNotIn("finalizing_authority_id", markdown)
 
     def test_controlled_inventory_rejects_conflict_and_mutation(self):
         inventory = self.controlled_inventory_fixture()

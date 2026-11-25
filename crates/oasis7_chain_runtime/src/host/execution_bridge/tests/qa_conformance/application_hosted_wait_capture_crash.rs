@@ -426,7 +426,7 @@ pub(super) fn recover_parent(
             .as_object()
             .expect("actual decoded queued Wait provenance map");
         for (key, original) in originals {
-            let request: oasis7::simulator::ContinuousAgentRequestContextV1 =
+            let request: oasis7_agent_api::ContinuousAgentRequestContextV1 =
                 serde_json::from_value(original["cognition"]["request"]["request_context"].clone())
                     .unwrap();
             request.validate_production_lane().unwrap();
@@ -448,7 +448,7 @@ pub(super) fn recover_parent(
     assert_eq!(queue.len(), 1);
     assert!(value["hosted_wait"].is_null());
     let cognition = &queue[0]["cognition"];
-    let original: oasis7::simulator::ContinuousAgentRequestContextV1 =
+    let original: oasis7_agent_api::ContinuousAgentRequestContextV1 =
         serde_json::from_value(cognition["request"]["request_context"].clone()).unwrap();
     original.validate_production_lane().unwrap();
     let canonical = fixture

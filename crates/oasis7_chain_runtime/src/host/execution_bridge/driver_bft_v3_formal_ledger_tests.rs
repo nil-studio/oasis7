@@ -338,7 +338,12 @@ fn process_kill() {
     let h = qualified_handoff_v3();
     let input = fixture(&h);
     let (height, id) = target(&input);
-    for phase in ["init-stage", "reservation-stage", "pins", "intent", "link"] {
+    let phases: &[&str] = if cfg!(feature = "test_tier_full") {
+        &["init-stage", "reservation-stage", "pins", "intent", "link"]
+    } else {
+        &["pins", "intent"]
+    };
+    for &phase in phases {
         let root = Scratch::new();
         let store = cas(root.path());
         for (digest, bytes) in &h.reader.0 {

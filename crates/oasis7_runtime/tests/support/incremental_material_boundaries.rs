@@ -827,10 +827,9 @@ fn seed_with_category(
     }
     roots
 }
-#[test]
-fn material_tier_delta_cost_does_not_scan_growing_unchanged_category() {
+fn exercise_unchanged_category(sizes: &[usize]) {
     let mut samples = Vec::new();
-    for text in [64usize, 1 << 20, 32 << 20] {
+    for &text in sizes {
         let directory = Directory::new();
         let path = directory.0.join("cost");
         let canonical = {
@@ -1049,4 +1048,18 @@ fn material_tier_delta_cost_does_not_scan_growing_unchanged_category() {
         samples.windows(2).all(|pair| pair[0] == pair[1]),
         "unchanged payload growth cannot change measured fixed-delta logical work: {samples:?}"
     );
+}
+
+#[test]
+fn material_tier_delta_cost_does_not_scan_unchanged_category_across_value_chunks() {
+    exercise_unchanged_category(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn material_tier_delta_cost_does_not_scan_growing_unchanged_category() {
+    exercise_unchanged_category(&[64, 1 << 20, 32 << 20]);
 }

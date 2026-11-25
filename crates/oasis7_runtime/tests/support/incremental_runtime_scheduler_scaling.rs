@@ -54,10 +54,9 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
         self.source.read_node(id, max, memory, class)
     }
 }
-#[test]
-fn unchanged_32m_cursor_is_not_read_by_scalar_sender_or_complete_receiver() {
+fn exercise_unchanged_cursor(sizes: &[usize]) {
     let mut observed = None;
-    for length in [64, 1 << 20, 32 << 20] {
+    for &length in sizes {
         let directory = Directory::new();
         let path = directory.0.join("scale");
         // Borrow an original source; storage never clones or serializes the whole cursor.
@@ -314,4 +313,18 @@ fn unchanged_32m_cursor_is_not_read_by_scalar_sender_or_complete_receiver() {
             observed = Some(counts);
         }
     }
+}
+
+#[test]
+fn unchanged_cursor_is_not_read_by_scalar_sender_or_complete_receiver_across_value_chunks() {
+    exercise_unchanged_cursor(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn unchanged_32m_cursor_is_not_read_by_scalar_sender_or_complete_receiver() {
+    exercise_unchanged_cursor(&[64, 1 << 20, 32 << 20]);
 }

@@ -103,6 +103,30 @@ macro_rules! fixed {
         }
     };
 }
+enum TieredWriter<'a> {
+    Buffered(oasis7_distfs::incremental_page_store::BufferedPageWriter<'a>),
+    Session(oasis7_distfs::incremental_page_store::ValuePageSession<'a>),
+}
+impl TieredWriter<'_> {
+    fn finish(self) {
+        if let Self::Buffered(w) = self {
+            w.finish().unwrap();
+        }
+    }
+}
+impl ValueNodeWriter for TieredWriter<'_> {
+    fn put_node(
+        &mut self,
+        digest: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> Result<(), ValueTreeError> {
+        match self {
+            Self::Buffered(w) => w.put_node(digest, bytes),
+            Self::Session(w) => w.put_node(digest, bytes),
+        }
+    }
+}
+impl StatePageWriter for TieredWriter<'_> {}
 #[test]
 fn raw_and_incremental_supply_closure_reject_missing_columns_unknowns_and_partial_frozen_deletion()
 {
@@ -125,10 +149,10 @@ fn raw_and_incremental_supply_closure_reject_missing_columns_unknowns_and_partia
         ..WorldState::default()
     };
     let mut rows = produce(&store, &memory, &source);
-    let mut writer = store.value_session(physical());
     {
+        let mut genesis_writer = store.value_session(physical());
         let mut write = MemberRecordWriteContext {
-            sink: &mut writer,
+            sink: &mut genesis_writer,
             memory: &memory,
             io: &mut logical(),
             key_work: &mut SemanticKeyBudget {
@@ -197,7 +221,12 @@ fn raw_and_incremental_supply_closure_reject_missing_columns_unknowns_and_partia
     )
     .unwrap()
     .unwrap();
-    for case in 0..16 {
+    let cases: &[usize] = if cfg!(feature = "test_tier_full") {
+        &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    } else {
+        &[0, 4, 6, 8, 10, 12, 13, 14, 15]
+    };
+    for &case in cases {
         let owner = if case < 9 || case == 14 {
             SupplyRootKeyV1::Authorization(KEY)
         } else {
@@ -208,10 +237,24 @@ fn raw_and_incremental_supply_closure_reject_missing_columns_unknowns_and_partia
         } else {
             batch.root()
         };
-        let prepare = store
+        let mut prepare = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            prepare = prepare.with_read_memo(256, 1 << 20).unwrap();
+        }
         let _admission = memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let (mut batch_io, mut never) = (physical(), || false);
+        let mut writer = if cfg!(feature = "test_tier_full") {
+            TieredWriter::Session(store.value_session(physical()))
+        } else {
+            TieredWriter::Buffered(
+                store
+                    .buffered_page_writer(&mut batch_io, &cancel, &mut never)
+                    .unwrap(),
+            )
+        };
         let mut write = MemberRecordWriteContext {
             sink: &mut writer,
             memory: &memory,
@@ -363,6 +406,7 @@ fn raw_and_incremental_supply_closure_reject_missing_columns_unknowns_and_partia
                 )
                 .unwrap();
         }
+        writer.finish();
         let root = prepared
             .record
             .after
@@ -372,9 +416,12 @@ fn raw_and_incremental_supply_closure_reject_missing_columns_unknowns_and_partia
             .unwrap();
         // Independent complete raw validation and normal transition acceptance each
         // retain one continuous finite scope, without resetting within an API call.
-        let raw_state = store
+        let mut raw_state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            raw_state = raw_state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let mut raw_io = logical();
         let mut raw_keys = SemanticKeyBudget {
             bytes_remaining: 1 << 20,
@@ -407,9 +454,12 @@ fn raw_and_incremental_supply_closure_reject_missing_columns_unknowns_and_partia
                 "raw case {case}: {result:?}"
             );
         }
-        let verify_state = store
+        let mut verify_state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            verify_state = verify_state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let verifier = TransitionVerifier {
             parent: &parent,
             operation: [6; 32],

@@ -13,6 +13,7 @@ use oasis7_world_service::{
 };
 use oasis7_client_api::world_service::WorldIdentity;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{io::Read, path::Path, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
@@ -32,6 +33,9 @@ pub(super) struct StatusObservation {
     api_version: &'static str,
     observation_scope: &'static str,
     authority_qualification: &'static str,
+    // Commitment to the actual verified Host assertion, not a durable commit receipt.
+    authenticated_status_receipt_sha256: String,
+    authenticated_status_verified_at_unix_ms: Option<u64>,
     world: WorldIdentity,
     node_id: String,
     host_state: String,
@@ -213,10 +217,27 @@ fn verify(
     {
         return Err("formal status identity or observation shape rejected".into());
     }
+    // Only a verified, shape-checked assertion reaches the receipt boundary.
+    // The fixed-width public key and signature bind the exact challenge and
+    // signed payload; do not export the raw signature or private diagnostics.
+    let mut receipt = Sha256::new();
+    receipt.update(b"oasis7:formal-live-status-observation-receipt:v1\0");
+    receipt.update(
+        hex::decode(&pins.service_public_key).map_err(|_| "invalid verified status key")?,
+    );
+    receipt.update(
+        hex::decode(&signed.signature_hex).map_err(|_| "invalid verified status signature")?,
+    );
+    let verified_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|age| u64::try_from(age.as_millis()).ok());
     Ok(StatusObservation {
         api_version: "oasis7.formal-live-status-observation/v1",
         observation_scope: "authenticated_host_diagnostics_only",
         authority_qualification: "unknown",
+        authenticated_status_receipt_sha256: hex::encode(receipt.finalize()),
+        authenticated_status_verified_at_unix_ms: verified_at,
         world: status.world,
         node_id: status.node_id,
         host_state: status.state,
@@ -288,7 +309,16 @@ mod tests {
 
         let digest = request_digest(CHAIN_STATUS_PATH, &challenge).unwrap();
         let signed = sign_service_response(CHAIN_STATUS_PATH, digest, status, &signing_key).unwrap();
+        let mut preimage = b"oasis7:formal-live-status-observation-receipt:v1\0".to_vec();
+        preimage.extend_from_slice(&signer.verifying_key().to_bytes());
+        preimage.extend_from_slice(&hex::decode(&signed.signature_hex).unwrap());
+        let expected_receipt = hex::encode(Sha256::digest(&preimage));
+        let mut invalid = signed.clone();
+        invalid.signature_hex = "00".repeat(64);
+        assert!(verify(&pins, &challenge, invalid).is_err());
         let verified = verify(&pins, &challenge, signed).unwrap();
+        assert_eq!(verified.authenticated_status_receipt_sha256, expected_receipt);
+        assert_eq!(verified.authority_qualification, "unknown");
         let pair = |key: &str, position: u64| -> ProtectedPairObservation {
             serde_json::from_value(serde_json::json!({
                 "api_version": "oasis7.formal-protected-pair-observation/v1",

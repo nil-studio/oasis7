@@ -4,6 +4,7 @@
 mod backend;
 mod binding;
 mod bootstrap_rotation;
+mod admission_input_transfer_plan;
 mod client;
 mod crypto;
 mod first_reservation;
@@ -14,6 +15,7 @@ mod luna_key;
 #[cfg(feature = "protected-bft-luna-key")]
 pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
+mod private_retention_alternatives;
 mod private_retention_input;
 mod rotation;
 mod service;
@@ -73,6 +75,14 @@ pub use successor_manifest::{
     BFT_SUCCESSOR_WINDOW_METADATA_MAX_BYTES_V1, BftSuccessorWindowArchiveEntryV1,
     BftSuccessorWindowArchiveKindV1, BftSuccessorWindowArchiveManifestV1,
     BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowCutV1, BftSuccessorWindowPublicIndexV1,
+};
+
+pub use private_retention_alternatives::BftOriginalAlternativesInventoryV1;
+
+pub use admission_input_transfer_plan::{
+    BFT_ADMISSION_INPUT_V2_FRAME_BYTES, BFT_ADMISSION_INPUT_V2_PART_BYTES,
+    BFT_ADMISSION_INPUT_V2_PARTS_PER_MESSAGE, BftAdmissionInputMessageV2,
+    BftAdmissionInputPartV2, BftAdmissionInputTransferPlanV2,
 };
 
 pub use private_retention_input::{

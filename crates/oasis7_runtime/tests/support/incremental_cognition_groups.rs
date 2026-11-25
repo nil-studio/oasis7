@@ -11,13 +11,18 @@ pub fn exercise(
     parent: &ExecutionParent,
     family: &ReservedValue<CognitionCurrentStateQualificationV1>,
 ) {
-    for group in [
-        CognitionOptionalGroupV1::Economy,
-        CognitionOptionalGroupV1::Delegation,
-        CognitionOptionalGroupV1::ContinuationContexts,
-        CognitionOptionalGroupV1::ContinuationEvaluations,
-        CognitionOptionalGroupV1::ReorgEpoch,
-    ] {
+    let groups: &[CognitionOptionalGroupV1] = if cfg!(feature = "test_tier_full") {
+        &[
+            CognitionOptionalGroupV1::Economy,
+            CognitionOptionalGroupV1::Delegation,
+            CognitionOptionalGroupV1::ContinuationContexts,
+            CognitionOptionalGroupV1::ContinuationEvaluations,
+            CognitionOptionalGroupV1::ReorgEpoch,
+        ]
+    } else {
+        &[CognitionOptionalGroupV1::Economy]
+    };
+    for &group in groups {
         exercise_group(store, memory, parent, family, group, false);
     }
 }

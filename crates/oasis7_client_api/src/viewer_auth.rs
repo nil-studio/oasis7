@@ -39,11 +39,9 @@ pub use fragment_refill_preview::{
     sign_fragment_refill_preview_auth_proof, verify_fragment_refill_preview_auth_proof,
 };
 
-#[path = "viewer_auth/agent_memory_correction.rs"]
-mod agent_memory_correction;
 #[cfg(test)]
-pub use agent_memory_correction::sign_agency_control_auth_proof_for_test;
-pub use agent_memory_correction::verify_agency_control_auth_proof;
+pub use oasis7_proto::player_auth::sign_agency_control_auth_proof as sign_agency_control_auth_proof_for_test;
+pub use oasis7_proto::player_auth::verify_agency_control_auth_proof;
 pub use oasis7_proto::player_auth::{
     sign_agent_chat_auth_proof, verify_agent_chat_auth_proof,
     verify_agent_chat_auth_proof_with_authority,

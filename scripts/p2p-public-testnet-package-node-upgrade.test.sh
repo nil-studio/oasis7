@@ -325,11 +325,11 @@ set +e
   --package-version "$package_version" \
   --commit "$commit" \
   --run-id "$run_id" \
-  >/tmp/oasis7-package-node-upgrade-negative.out 2>&1
+  >"$TMP_DIR/oasis7-package-node-upgrade-negative.out" 2>&1
 negative_status=$?
 set -e
 test "$negative_status" -ne 0
-grep -q "no governed bootstrap bundle found" /tmp/oasis7-package-node-upgrade-negative.out
+grep -q "no governed bootstrap bundle found" "$TMP_DIR/oasis7-package-node-upgrade-negative.out"
 negative_current=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$missing_bundle_node_abs/current")
 test "$negative_current" = "$missing_bundle_node_abs/releases/old"
 
@@ -364,11 +364,11 @@ PATH="$TMP_DIR/fake-bin:$PATH" \
   --run-id "$run_id" \
   --systemd-service oasis7-testnet-orphan.service \
   --restart-service \
-  >/tmp/oasis7-package-node-upgrade-orphan.out 2>&1
+  >"$TMP_DIR/oasis7-package-node-upgrade-orphan.out" 2>&1
 orphan_status=$?
 set -e
 test "$orphan_status" -ne 0
-grep -q "node-root still has running oasis7 process after stop" /tmp/oasis7-package-node-upgrade-orphan.out
+grep -q "node-root still has running oasis7 process after stop" "$TMP_DIR/oasis7-package-node-upgrade-orphan.out"
 grep -q "systemctl stop oasis7-testnet-orphan.service" "$TMP_DIR/fake-systemctl.log"
 orphan_current=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$orphan_node_abs/current")
 test "$orphan_current" = "$orphan_node_abs/releases/old"
@@ -432,12 +432,12 @@ PATH="$TMP_DIR/fake-bin:$PATH" \
   --restart-service \
   --post-restart-status-url http://127.0.0.1:6631/v1/chain/status \
   --post-restart-timeout-secs 1 \
-  >/tmp/oasis7-package-node-upgrade-blocked-post-restart.out 2>&1
+  >"$TMP_DIR/oasis7-package-node-upgrade-blocked-post-restart.out" 2>&1
 blocked_post_restart_status=$?
 set -e
 test "$blocked_post_restart_status" -ne 0
-grep -q "post-restart status did not become ready before timeout" /tmp/oasis7-package-node-upgrade-blocked-post-restart.out
-grep -q "world_resource_delta_commit_hash_missing" /tmp/oasis7-package-node-upgrade-blocked-post-restart.out
+grep -q "post-restart status did not become ready before timeout" "$TMP_DIR/oasis7-package-node-upgrade-blocked-post-restart.out"
+grep -q "world_resource_delta_commit_hash_missing" "$TMP_DIR/oasis7-package-node-upgrade-blocked-post-restart.out"
 blocked_post_restart_current=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$blocked_post_restart_node_abs/current")
 test "$blocked_post_restart_current" = "$blocked_post_restart_node_abs/releases/old"
 
@@ -597,7 +597,7 @@ PATH="$TMP_DIR/fake-bin:$PATH" \
   --run-id "$run_id" \
   --systemd-service oasis7-testnet-scanner.service \
   --restart-service \
-  >/tmp/oasis7-package-node-upgrade-scanner.out 2>&1
+  >"$TMP_DIR/oasis7-package-node-upgrade-scanner.out" 2>&1
 scanner_status=$?
 set -e
 test "$scanner_status" -eq 0

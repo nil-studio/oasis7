@@ -89,7 +89,12 @@ macro_rules! fixed {
 }
 #[test]
 fn fresh_supply_records_same_transaction_and_root_only_cold_successors() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("qualified");
         let memory = MemoryBudget::new(64 << 20, 1 << 20).unwrap();

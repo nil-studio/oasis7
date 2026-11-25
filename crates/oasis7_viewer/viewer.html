@@ -26,37 +26,15 @@
         --font-body: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
         --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
         --font-mono: "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
-        --color-world-background: var(--bg);
-        --color-world-depth: var(--bg-deep);
-        --color-panel-surface: var(--panel);
-        --color-panel-strong: var(--panel-strong);
-        --color-stage-surface: var(--panel-stage);
-        --color-border-subtle: var(--border);
-        --color-border-stage: var(--border-strong);
-        --color-text-primary: var(--text);
-        --color-text-muted: var(--muted);
-        --color-agent-primary: var(--accent);
-        --color-objective-accent: var(--accent-strong);
-        --color-route-active: var(--accent);
-        --color-receipt-success: var(--good);
         --color-blocker-danger: var(--bad);
-        --color-warning: var(--warn);
-        --color-diagnostic-muted: var(--muted);
         --color-focus-ring: var(--accent-strong);
-        --font-viewer-body: var(--font-body);
-        --font-viewer-display: var(--font-display);
-        --font-viewer-mono: var(--font-mono);
         --shadow-stage: 0 30px 72px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(208, 168, 91, 0.08);
         --shadow-surface: 0 18px 44px rgba(0, 0, 0, 0.32);
         --shadow-inset-stage: inset 0 1px 0 rgba(255, 255, 255, 0.055);
         --space-panel-gap: 18px;
         --space-stack-gap: 16px;
-        --space-control-gap: 8px;
         --space-section-tight: 10px;
         --space-section-nudge: 8px;
-        --radius-tool: 12px;
-        --radius-stage: 18px;
-        --radius-panel: 20px;
         --viewer-side-max-height: calc(100vh - 48px);
         --motion-feedback-fast: 140ms;
       }
@@ -189,13 +167,11 @@
       }
       #app[data-viewer-visual-fixture="agent_chat_history"] .command-surface__auth-boundary,
       #app[data-viewer-visual-fixture="agent_chat_history"] .command-surface__capability-row,
-      #app[data-viewer-visual-fixture="agent_chat_history"] .command-surface__asset-boundary,
       #app[data-viewer-visual-fixture="agent_chat_history"] .command-surface__advanced-panel,
       #app[data-viewer-visual-fixture="agent_chat_history"] .command-surface__asset-panel {
         opacity: 0.58;
       }
-      #app[data-viewer-visual-fixture="agent_chat_history"] .command-surface__auth-boundary.empty,
-      #app[data-viewer-visual-fixture="agent_chat_history"] .command-surface__asset-boundary.empty {
+      #app[data-viewer-visual-fixture="agent_chat_history"] .command-surface__auth-boundary.empty {
         padding: 9px 10px;
         text-align: left;
       }
@@ -2391,8 +2367,7 @@
       }
       #app[data-viewer-visual-fixture="gameplay_diagnostics_expanded"] .summary-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
       .micro-depot-facilities__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } .micro-depot-facilities__metric--primary { border-color: rgba(141, 199, 170, 0.3); background: linear-gradient(180deg, rgba(141, 199, 170, 0.08), transparent 68%); } .micro-depot-facilities__state-cue { margin-top: 8px; padding-left: 8px; border-left: 2px solid currentColor; } .micro-depot-facilities__state-cue--empty { color: #e5b96f; } .micro-depot-facilities__state-cue--unpaid { color: #efad91; } .micro-depot-facilities__availability-badge::before { content: "published · "; } .micro-depot-facilities__technical-evidence { margin-top: 12px; border: 1px solid rgba(152, 177, 150, 0.22); border-radius: 9px; background: rgba(255, 255, 255, 0.018); } .micro-depot-facilities__technical-evidence > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; color: var(--muted); font-size: 12px; } .micro-depot-facilities__technical-evidence > summary::-webkit-details-marker { display: none; } .micro-depot-facilities__technical-evidence > summary::before { content: "›"; font-size: 18px; line-height: 1; } .micro-depot-facilities__technical-evidence[open] > summary::before { transform: rotate(90deg); } .micro-depot-facilities__technical-evidence > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: 8px; } .micro-depot-facilities__technical-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 12px 12px; }
-      #app[data-viewer-visual-fixture="gameplay_diagnostics_expanded"] .event-card,
-      #app[data-viewer-visual-fixture="gameplay_diagnostics_expanded"] .metric-card {
+      #app[data-viewer-visual-fixture="gameplay_diagnostics_expanded"] .event-card {
         border-color: rgba(152, 177, 150, 0.2);
         background:
           linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 28%),
@@ -2412,8 +2387,7 @@
       .command-surface .panel--nested:first-of-type textarea {
         min-height: 112px;
       }
-      .command-surface__capability-row,
-      .command-surface__asset-boundary {
+      .command-surface__capability-row {
         opacity: 0.78;
       }
       .command-surface__capability-row {

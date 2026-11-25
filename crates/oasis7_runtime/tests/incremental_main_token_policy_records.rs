@@ -139,7 +139,12 @@ fn all_original_policy_fields_cold_recover_without_source() {
     use MainTokenPolicyColumnV1 as C;
     use MainTokenPolicyKeyV1 as K;
     use MainTokenPolicyValueV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("cold");
         let roots = {
@@ -363,6 +368,7 @@ mod faults;
 #[path = "support/incremental_main_token_policy_scaling.rs"]
 mod scaling;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_main_token_policy_pages.rs"]
 mod pages;
 

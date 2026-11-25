@@ -1,7 +1,7 @@
 use super::*;
 use crate::viewer::runtime_live::recovery_receipt::RuntimeAuthoritativeRecoveryGeneration;
 
-use crate::governance_audit_report as canonical_governance_audit_report;
+use oasis7_client_api::governance_audit_report as canonical_governance_audit_report;
 #[path = "authoritative_receipt_v14_manifest.rs"]
 mod manifest_binding_tests;
 

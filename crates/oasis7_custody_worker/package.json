@@ -10,7 +10,7 @@
     "ajv": "8.20.0",
     "miniflare": "5.20261019.2-beta",
     "typescript": "7.0.2",
-    "wrangler": "4.152.0"
+    "wrangler": "4.166.0"
   },
   "overrides": {
     "undici": "7.30.1"
