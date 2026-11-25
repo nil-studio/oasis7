@@ -12,9 +12,17 @@ use super::WorldError;
 
 /// Stage just the next logical tick; never mutate the World at prepare time.
 #[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "root clock is staged but not wired until five-domain tick cutover")
+)]
 pub(crate) struct NextTickClock;
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "typed root install waits for complete staged tick acceptance")
+)]
 pub(crate) struct TickClockDelta {
     next_tick: u64,
 }
