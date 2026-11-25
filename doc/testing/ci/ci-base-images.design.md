@@ -30,6 +30,8 @@ Linux CI 共用一套 Ubuntu 24.04 底座、一份多阶段 Dockerfile 和一条
 
 Rust 或 Node 依赖仍沿用仓库锁文件和相应的缓存策略。预装 rustup 工具链减少每个 job 下载编译器的开销，Cargo registry 下载与缓存缺失仍按现有机制处理。预编译产物消费者按实际需要选择 runtime 或 build，包括两条 storage-recovery 路径。依赖宿主网络、挂载、内核权限、Docker、签名或目标环境的任务先核对平台合同。现有 WASM canonical builder、macOS 和 Windows 原生验证继续承担各自既定验收。
 
+Viewer 必需检查和历史性能报告共用 `rust-viewer`。可信选择作业用已选测 Git 对象核对镜像发布源码的浏览器包锁、浏览器准备代码、Rust 工具链与 wasm-bindgen 准备入口。兼容源码走固定摘要及独立只读 Cargo 缓存，确切版本的工具归档继续按原可信键读取。输入缺失或变动的历史源码沿用原宿主准备路径。业务源码继续按原选测版本，功能、安全、性能与站点质量测试保留各自原入口。
+
 ## 构建、发布与信任决策
 
 独立工作流从受保护的 main 构建并发布到 GHCR。基础镜像以 digest 固定，记录 Dockerfile 与清单来源提交、目标架构、实际系统包及工具链版本、目标镜像 digest 和安全扫描结果。Rust 工具链合同或 Playwright 锁文件改变时，由发布流水线重建受影响目标，再以 PR 提升消费 digest。通过定期重建或安全更新触发候选构建，由更新 PR 审查并提升消费 digest。历史已采用 digest 至少保留到迁移验证结束并覆盖回退窗口。

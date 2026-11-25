@@ -478,8 +478,24 @@ assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
 for workflow, names in ((release, ("release_gate_web",)), (mainnet, ("release_gate_web",)),
                         (rust, ("viewer-js-required", "viewer-performance-report"))):
     for name in names:
-        assert cache_identity(workflow, name) == web_identity, (name, "Web cache inputs differ")
-        assert "save-if: false" in job_body(workflow, name)
+        identity = cache_identity(workflow, name)
+        body = job_body(workflow, name)
+        header = body.split("    steps:", 1)[0]
+        if name in ("viewer-js-required", "viewer-performance-report") and "    container:\n" in header:
+            image = re.search(
+                r"(?m)^      image: \$\{\{ needs\.select\.outputs\.viewer_image_compatible == 'true' && "
+                r"'ghcr\.io/nil-studio/oasis7/ci-rust-viewer@sha256:([0-9a-f]{64})' \|\| '' \}\}$", header)
+            assert image, (name, "Viewer image and historical host fallback must share the compatibility decision")
+            assert "      VIEWER_IMAGE_COMPATIBLE: ${{ needs.select.outputs.viewer_image_compatible }}\n" in header
+            assert identity["shared-key"] == (
+                "${{ env.VIEWER_IMAGE_COMPATIBLE == 'true' && 'ci-rust-viewer-" + image[1]
+                + "' || 'release-packages-web-wasm-trusted-v3' }}"
+            ), (name, "Viewer image cache must use only its digest namespace")
+            assert "cache-mode: write" not in header and "\ncache-mode: read\n" in workflow
+            assert "actions/cache/save@" not in body and "OASIS7_DEPENDENCY_CACHE_" not in body
+            identity["shared-key"] = web_identity["shared-key"]
+        assert identity == web_identity, (name, "Web cache inputs differ")
+        assert "save-if: false" in body
 package_readers = [cache_identity(workflow, "build-web-dist") for workflow in (release, mainnet)]
 assert all(reader["image"] for reader in package_readers)
 assert len({reader["image"] for reader in package_readers}) == 1

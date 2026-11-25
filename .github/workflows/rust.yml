@@ -259,6 +259,7 @@ jobs:
       run:
         shell: bash
     outputs:
+      viewer_image_compatible: ${{ steps.viewer-image-contract.outputs.compatible }}
       plan: ${{ steps.workflow-plan.outputs.plan }}
       selection_artifact: ${{ steps.selection-artifacts.outputs.selection_artifact }}
       authority_artifact: ${{ steps.selection-artifacts.outputs.authority_artifact }}
@@ -587,6 +588,27 @@ jobs:
         name: Resolve formal selection with conservative old-baseline fallback
         run: |
           python3 "$RUNNER_TEMP/ci-authority/ci-formal-plan.py" --plan "$RUNNER_TEMP/selection.json" --config "$RUNNER_TEMP/ci-authority/ci-required-scope.json" --github-output "$GITHUB_OUTPUT"
+      - name: Select the compatible Viewer image environment
+        id: viewer-image-contract
+        env:
+          TESTED_SHA: ${{ steps.select.outputs.tested_sha }}
+        run: |
+          set -euo pipefail
+          image_source=acc7dcb68bbb9dd4458a305566d1ccd52cd648a5
+          compatible=false
+          if [[ "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+             git cat-file -e "${image_source}^{commit}" 2>/dev/null &&
+             git cat-file -e "${TESTED_SHA}^{commit}" 2>/dev/null; then
+            if git diff --quiet --no-ext-diff --no-textconv "$image_source" "$TESTED_SHA" -- \
+                 rust-toolchain.toml scripts/ci-browser-deps.py scripts/ci_process_runner.py \
+                 scripts/ci-browser-tools/package.json scripts/ci-browser-tools/package-lock.json \
+                 scripts/ensure-wasm-bindgen-cli.sh scripts/wasm-bindgen-cli-common.sh; then
+              compatible=true
+            else
+              test "$?" = 1
+            fi
+          fi
+          printf 'compatible=%s\n' "$compatible" >> "$GITHUB_OUTPUT"
       - id: selection-artifacts
         name: Preserve selection attempt for downstream reruns
         run: |
@@ -3249,10 +3271,23 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 14
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.select.outputs.viewer_image_compatible == 'true' && 'ghcr.io/nil-studio/oasis7/ci-rust-viewer@sha256:24c8784c4d8f85b0b9e651f632cece06bb9259affe915fe281896290137e4e45' || '' }}
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    env:
+      VIEWER_IMAGE_COMPATIBLE: ${{ needs.select.outputs.viewer_image_compatible }}
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ needs.select.outputs.viewer_image_compatible == 'true' && format('{0}/oasis7-viewer-mold', runner.temp) || '' }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
@@ -3260,13 +3295,32 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         with:
           python-version: '3.12'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
+      - name: Verify the preinstalled Viewer toolchain
+        if: env.VIEWER_IMAGE_COMPATIBLE == 'true'
+        shell: bash
+        env:
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          test "$GITHUB_WORKSPACE" = /__w/oasis7/oasis7
+          test -w /.cache/oasis7
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          node -e 'if (!process.version.startsWith("v24.")) process.exit(1)'
+          npm --version
+          rustc +"$RUST_TOOLCHAIN" --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          pkg-config --exists wayland-client wayland-protocols xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
       - name: Install viewer dependencies
         if: >-
           needs.select.outputs.run_viewer_js_required == 'true' ||
@@ -3276,10 +3330,23 @@ jobs:
           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned security smoke browser
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         uses: ./.github/actions/setup-ci-browser
         timeout-minutes: 11
         with:
           browser: agent
+      - name: Activate the preinstalled Viewer Chrome
+        id: viewer-image-browser
+        if: env.VIEWER_IMAGE_COMPATIBLE == 'true'
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          python3 /opt/oasis7-viewer-browser/scripts/ci-browser-deps.py activate --prebuilt --browser agent \
+            --work-dir "$RUNNER_TEMP/oasis7-ci-browser-agent" --github-env "$GITHUB_ENV"
+      - name: Capture prebuilt Viewer browser failure
+        if: failure() && steps.viewer-image-browser.outcome == 'failure'
+        shell: bash
+        run: python3 scripts/security/viewer-browser-install-diagnostic.py output/viewer-browser-install/diagnostic.json || echo 'Browser install diagnostic unavailable'
       - name: Upload browser installation failure observation
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -3289,11 +3356,12 @@ jobs:
           if-no-files-found: ignore
       - name: Install pinned Rust toolchain
         if: >-
-          needs.select.outputs.run_viewer_js_required == 'true' ||
-          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          env.VIEWER_IMAGE_COMPATIBLE != 'true' &&
+          (needs.select.outputs.run_viewer_js_required == 'true' ||
+           needs.select.outputs.run_viewer_performance_report == 'true' ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -3301,11 +3369,12 @@ jobs:
           rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
       - name: Stabilize Rust cache toolchains
         if: >-
-          needs.select.outputs.run_viewer_js_required == 'true' ||
+          env.VIEWER_IMAGE_COMPATIBLE != 'true' &&
+          (needs.select.outputs.run_viewer_js_required == 'true' ||
           needs.select.outputs.run_viewer_performance_report == 'true' ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -3317,7 +3386,7 @@ jobs:
           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         with:
           save-if: false
-          shared-key: release-packages-web-wasm-trusted-v3
+          shared-key: ${{ env.VIEWER_IMAGE_COMPATIBLE == 'true' && 'ci-rust-viewer-24c8784c4d8f85b0b9e651f632cece06bb9259affe915fe281896290137e4e45' || 'release-packages-web-wasm-trusted-v3' }}
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST
           cache-on-failure: false
@@ -3331,6 +3400,9 @@ jobs:
           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
         shell: bash
         run: |
+          if [[ "$VIEWER_IMAGE_COMPATIBLE" == true ]]; then
+            export XDG_CACHE_HOME=/home/runner/.cache
+          fi
           source scripts/wasm-bindgen-cli-common.sh
           printf 'version=%s\nroot=%s\n' "$WASM_BINDGEN_LOCK_VERSION" "$WASM_BINDGEN_CACHE_ROOT" >> "$GITHUB_OUTPUT"
       - name: Restore exact wasm-bindgen tool cache
@@ -3358,6 +3430,9 @@ jobs:
           BINDGEN_CACHE_HIT: ${{ steps.bindgen-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
+          if [[ "$VIEWER_IMAGE_COMPATIBLE" == true ]]; then
+            export XDG_CACHE_HOME=/.cache
+          fi
           source scripts/wasm-bindgen-cli-common.sh
           if [[ "$BINDGEN_CACHE_HIT" == true ]]; then
             bindgen_bin="$WASM_BINDGEN_CACHE_ROOT/bin/wasm-bindgen"
@@ -3371,11 +3446,12 @@ jobs:
           printf 'WASM_BINDGEN_BIN=%s\n' "$bindgen_bin" >> "$GITHUB_ENV"
       - name: Install native libraries
         if: >-
-          needs.select.outputs.run_viewer_js_required == 'true' ||
-          needs.select.outputs.run_viewer_performance_report == 'true' ||
+          env.VIEWER_IMAGE_COMPATIBLE != 'true' &&
+          (needs.select.outputs.run_viewer_js_required == 'true' ||
+           needs.select.outputs.run_viewer_performance_report == 'true' ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         shell: bash
         timeout-minutes: 11
         run: |
@@ -3421,7 +3497,7 @@ jobs:
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-          OASIS7_PLAYWRIGHT_MODULE: ${{ github.workspace }}/scripts/ci-browser-tools/node_modules/playwright
+          OASIS7_PLAYWRIGHT_MODULE: ${{ env.VIEWER_IMAGE_COMPATIBLE == 'true' && '/opt/oasis7-viewer-browser/scripts/ci-browser-tools/node_modules/playwright' || format('{0}/scripts/ci-browser-tools/node_modules/playwright', github.workspace) }}
           OASIS7_SITE_QA_BROWSER: ${{ env.AGENT_BROWSER_EXECUTABLE_PATH }}
         run: bash ./scripts/ci-tests.sh required --group "site_quality" --repo-root "$GITHUB_WORKSPACE"
       - name: Upload browser functional regression evidence
@@ -3468,10 +3544,23 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.select.outputs.viewer_image_compatible == 'true' && 'ghcr.io/nil-studio/oasis7/ci-rust-viewer@sha256:24c8784c4d8f85b0b9e651f632cece06bb9259affe915fe281896290137e4e45' || '' }}
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    env:
+      VIEWER_IMAGE_COMPATIBLE: ${{ needs.select.outputs.viewer_image_compatible }}
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ needs.select.outputs.viewer_image_compatible == 'true' && format('{0}/oasis7-viewer-mold', runner.temp) || '' }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
@@ -3479,28 +3568,49 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         with:
           python-version: '3.12'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
+      - name: Verify the preinstalled Viewer toolchain
+        if: env.VIEWER_IMAGE_COMPATIBLE == 'true'
+        shell: bash
+        env:
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          test "$GITHUB_WORKSPACE" = /__w/oasis7/oasis7
+          test -w /.cache/oasis7
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          node -e 'if (!process.version.startsWith("v24.")) process.exit(1)'
+          npm --version
+          rustc +"$RUST_TOOLCHAIN" --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          pkg-config --exists wayland-client wayland-protocols xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
       - name: Install viewer dependencies
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned Rust toolchain
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
       - name: Stabilize Rust cache toolchains
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: release-packages-web-wasm-trusted-v3
+          shared-key: ${{ env.VIEWER_IMAGE_COMPATIBLE == 'true' && 'ci-rust-viewer-24c8784c4d8f85b0b9e651f632cece06bb9259affe915fe281896290137e4e45' || 'release-packages-web-wasm-trusted-v3' }}
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST
           cache-on-failure: false
@@ -3508,6 +3618,9 @@ jobs:
         id: bindgen-meta
         shell: bash
         run: |
+          if [[ "$VIEWER_IMAGE_COMPATIBLE" == true ]]; then
+            export XDG_CACHE_HOME=/home/runner/.cache
+          fi
           source scripts/wasm-bindgen-cli-common.sh
           printf 'version=%s\nroot=%s\n' "$WASM_BINDGEN_LOCK_VERSION" "$WASM_BINDGEN_CACHE_ROOT" >> "$GITHUB_OUTPUT"
       - name: Restore exact wasm-bindgen tool cache
@@ -3523,6 +3636,9 @@ jobs:
           BINDGEN_CACHE_HIT: ${{ steps.bindgen-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
+          if [[ "$VIEWER_IMAGE_COMPATIBLE" == true ]]; then
+            export XDG_CACHE_HOME=/.cache
+          fi
           source scripts/wasm-bindgen-cli-common.sh
           if [[ "$BINDGEN_CACHE_HIT" == true ]]; then
             bindgen_bin="$WASM_BINDGEN_CACHE_ROOT/bin/wasm-bindgen"
@@ -3535,15 +3651,25 @@ jobs:
           test "$("$bindgen_bin" --version)" = "wasm-bindgen $WASM_BINDGEN_LOCK_VERSION"
           printf 'WASM_BINDGEN_BIN=%s\n' "$bindgen_bin" >> "$GITHUB_ENV"
       - name: Install native libraries
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         shell: bash
         timeout-minutes: 11
         run: |
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Install pinned performance browser
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         uses: ./.github/actions/setup-ci-browser
         timeout-minutes: 11
         with:
           browser: agent
+      - name: Activate the preinstalled Viewer Chrome
+        id: viewer-image-browser
+        if: env.VIEWER_IMAGE_COMPATIBLE == 'true'
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          python3 /opt/oasis7-viewer-browser/scripts/ci-browser-deps.py activate --prebuilt --browser agent \
+            --work-dir "$RUNNER_TEMP/oasis7-ci-browser-agent" --github-env "$GITHUB_ENV"
       - name: Execute selected group
         shell: bash
         env:

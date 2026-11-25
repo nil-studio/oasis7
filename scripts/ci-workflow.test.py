@@ -653,6 +653,20 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
     return migrated
 
 
+def viewer_image_digest(job):
+    header = job.split('    steps:', 1)[0]
+    if '    container:' not in header:
+        return None
+    match = re.search(
+        r"(?m)^      image: \$\{\{ needs\.select\.outputs\.viewer_image_compatible == 'true' && "
+        r"'ghcr\.io/nil-studio/oasis7/ci-rust-viewer@sha256:([0-9a-f]{64})' \|\| '' \}\}$", header)
+    assert match, 'Viewer requires the pinned image with a host fallback'
+    assert '      options: --user 1001:1001 --init\n' in header
+    assert header.count('    env:\n') == 1
+    assert ('    env:\n      VIEWER_IMAGE_COMPATIBLE: ${{ needs.select.outputs.viewer_image_compatible }}\n' in header)
+    return match[1]
+
+
 def viewer_cache_kind(job):
     """The two Viewer lanes may move as a complete known cache configuration."""
     steps = rust_cache_steps(job)
@@ -667,9 +681,14 @@ def viewer_cache_kind(job):
                        'env-vars': 'CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM'}
     web = common | {'shared-key': 'release-packages-web-wasm-trusted-v3',
                     'env-vars': 'CARGO CC CFLAGS CXX CMAKE RUST'}
+    if digest := viewer_image_digest(job):
+        expected_key = ("${{ env.VIEWER_IMAGE_COMPATIBLE == 'true' && 'ci-rust-viewer-" + digest
+                        + "' || 'release-packages-web-wasm-trusted-v3' }}")
+        assert inputs.get('shared-key') == expected_key, 'Viewer image and host cache identities must stay isolated'
+        inputs['shared-key'] = web['shared-key']
     assert inputs in (native, web), 'unknown or incomplete Viewer cache configuration'
     assert 'cache-mode: write' not in job
-    assert '    env:' not in job.split('    steps:', 1)[0] and '        env:' not in cache
+    assert ('    env:' not in job.split('    steps:', 1)[0] or digest) and '        env:' not in cache
     assert 'GH_TOKEN:' not in cache and 'OASIS7_DEPENDENCY_CACHE_' not in cache
     prepare = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                    if 'python3 scripts/ci-rust-cache-toolchains.py' in step)
@@ -679,7 +698,16 @@ def viewer_cache_kind(job):
     assert 'continue-on-error:' not in prepare
     prepare_if = re.search(r'^        if: .*?(?=^        [a-z-]+:|\Z)', prepare, re.M | re.S)
     cache_if = re.search(r'^        if: .*?(?=^        [a-z-]+:|\Z)', cache, re.M | re.S)
-    assert (prepare_if.group(0) if prepare_if else None) == (cache_if.group(0) if cache_if else None)
+    if digest:
+        host_only = "env.VIEWER_IMAGE_COMPATIBLE != 'true'"
+        if cache_if:
+            original = cache_if.group(0).removeprefix('        if: >-\n').strip()
+            expected = "        if: >-\n          " + host_only + " &&\n          (" + original + ")"
+        else:
+            expected = '        if: ' + host_only
+        assert prepare_if and prepare_if.group(0).strip() == expected.strip()
+    else:
+        assert (prepare_if.group(0) if prepare_if else None) == (cache_if.group(0) if cache_if else None)
     assert job.index('rustup default') < job.index(prepare) < job.index(cache)
     before_cache = job[:job.index(cache)]
     assert 'rustup target add wasm32-unknown-unknown' in before_cache
@@ -1499,6 +1527,29 @@ class Workflow(unittest.TestCase):
         for name in ('viewer-js-required', 'viewer-performance-report'):
             actual = JOBS[name]
             kind = viewer_cache_kind(actual)
+            if viewer_image_digest(actual):
+                self.assertEqual(kind, 'web')
+                for before, after in (
+                    ('ci-rust-viewer-', 'ci-rust-build-'),
+                    ("env.VIEWER_IMAGE_COMPATIBLE == 'true' && 'ci-rust-viewer-",
+                     "env.VIEWER_IMAGE_COMPATIBLE != 'true' && 'ci-rust-viewer-"),
+                    ('release-packages-web-wasm-trusted-v3', 'ci-shared-native-trusted-v4'),
+                    ('save-if: false', 'save-if: true'),
+                    ('add-rust-environment-hash-key: true', 'add-rust-environment-hash-key: false'),
+                    ('env-vars: CARGO CC CFLAGS CXX CMAKE RUST\n',
+                     'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM\n'),
+                    ('cache-on-failure: false', 'cache-on-failure: false\n          workspaces: . -> other-target'),
+                ):
+                    self.assertIn(before, actual)
+                    with self.subTest(job=name, mutation=before), self.assertRaises(AssertionError):
+                        viewer_cache_kind(actual.replace(before, after))
+                preparation = re.search(r'(?ms)^      - name: Stabilize Rust cache toolchains\n.*?(?=^      - )', actual)[0]
+                false_guard = preparation.replace("env.VIEWER_IMAGE_COMPATIBLE != 'true'",
+                                                  "env.VIEWER_IMAGE_COMPATIBLE == 'true'")
+                self.assertNotEqual(preparation, false_guard)
+                with self.subTest(job=name, mutation='mutable image toolchain'), self.assertRaises(AssertionError):
+                    viewer_cache_kind(actual.replace(preparation, false_guard))
+                continue
             native = actual if kind == 'native' else actual.replace(
                 'shared-key: release-packages-web-wasm-trusted-v3', 'shared-key: ci-shared-native-trusted-v4').replace(
                 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST\n', 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM\n').replace(
@@ -1530,6 +1581,66 @@ class Workflow(unittest.TestCase):
                 with self.subTest(job=name, mutation=mutation):
                     with self.assertRaises(AssertionError):
                         viewer_cache_kind(mutation)
+
+    def test_viewer_image_eligibility_uses_tested_git_inputs_and_preserves_host_fallback(self):
+        selection = JOBS['select']
+        if '      viewer_image_compatible:' not in selection:
+            return
+        step = workflow_step_script(selection, 'Select the compatible Viewer image environment')
+        inputs = ('rust-toolchain.toml', 'scripts/ci-browser-deps.py', 'scripts/ci_process_runner.py',
+                  'scripts/ci-browser-tools/package.json', 'scripts/ci-browser-tools/package-lock.json',
+                  'scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh')
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary).resolve()
+
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(fixture), '-c', 'user.email=ci@example.invalid',
+                    '-c', 'user.name=CI Fixture', '-c', 'commit.gpgsign=false', *args], text=True).strip()
+
+            git('init', '-q')
+            for name in inputs:
+                path = fixture / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(name)
+            git('add', '.')
+            git('commit', '-qm', 'Frozen Viewer image inputs')
+            source = git('rev-parse', 'HEAD')
+            script, count = re.subn(r'(?m)^image_source=[0-9a-f]{40}$', 'image_source=' + source, step)
+            self.assertEqual(count, 1)
+
+            def check(tested_sha, compatible):
+                output = fixture / 'github-output'
+                output.unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=fixture,
+                    env=dict(os.environ, TESTED_SHA=tested_sha, GITHUB_OUTPUT=str(output)), text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.read_text(), 'compatible=' + str(compatible).lower() + '\n')
+
+            (fixture / 'unrelated').write_text('new payload')
+            git('add', 'unrelated')
+            git('commit', '-qm', 'Unrelated new source')
+            check(git('rev-parse', 'HEAD'), True)
+            for name in inputs:
+                with self.subTest(changed=name):
+                    path = fixture / name
+                    path.unlink()
+                    git('add', name)
+                    git('commit', '-qm', 'Incompatible historical input')
+                    check(git('rev-parse', 'HEAD'), False)
+                    git('reset', '--hard', '-q', source)
+            check('f' * 40, False)
+            check('not-a-commit', False)
+
+        for name, browser in (('viewer-js-required', 'security smoke'),
+                              ('viewer-performance-report', 'performance')):
+            job = JOBS[name]
+            self.assertIsNotNone(viewer_image_digest(job))
+            self.assertIn("Install pinned " + browser + " browser\n        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'", job)
+            self.assertIn("if: env.VIEWER_IMAGE_COMPATIBLE == 'true'", job)
+            self.assertIn('activate --prebuilt --browser agent', job)
+            self.assertLess(job.index('activate --prebuilt --browser agent'), job.index('Execute selected group'))
+            self.assertIn('export XDG_CACHE_HOME=/home/runner/.cache', job)
+            self.assertIn('export XDG_CACHE_HOME=/.cache', job)
 
     def test_web_cache_writer_preserves_trust_and_complete_build(self):
         workflow, native = self.shared_cache_workflow()
