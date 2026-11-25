@@ -152,6 +152,31 @@ class RepositoryUpstreams(unittest.TestCase):
         ):
             self.assertIn(original_recovery_test, native_bootstrap)
 
+    def test_chain_native_provider_cutover_must_keep_original_tcp_fresh_admission_qa(self):
+        """A native provider owner cannot retire the final dev umbrella by deleting real QA."""
+        qa = (HERE.parent /
+              'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/'
+              'qa_conformance/application_fresh.rs').read_text(encoding='utf-8')
+        # The eventual replacement may import a native adapter, but it must
+        # preserve the original process, signed context and counter reset.
+        for original in (
+            'real_tcp_hosted_fresh_admission_observes_reserves_and_invokes_provider',
+            'application_harness::run_isolated_application_mode(',
+            'test_prepare_canonical_provider_response(',
+            'OASIS7_AGENT_PROVIDER_URL',
+            'ProviderLoopbackAdapter::new(&endpoint, None, 1000)',
+            '.decide_with_continuous_request_context(',
+            'assert_eq!(response.request_digest, request.request_digest)',
+            'oasis7_agent_api::cognition_response_digest(&response.base_decision_response)',
+            'fresh-provider-preflight-complete',
+            'fresh-provider-counter-reset',
+            'canonical_reserve_prefix_start_count=0',
+        ):
+            with self.subTest(original=original):
+                self.assertIn(original, qa)
+        self.assertNotIn('MockDecisionProvider', qa)
+        self.assertNotIn('#[ignore]', qa)
+
     def test_chain_umbrella_retirement_rule_is_registered_in_all_relevant_profiles(self):
         rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
         selected = [rule for rule in rules if rule['key'] == 'chain-runtime-umbrella-retirement']
