@@ -6299,7 +6299,16 @@ class AptWorkflow(unittest.TestCase):
             del expected[custody]
         else:
             expected[custody] = ['gdb', 'gcc', *self.NATIVE]
-        expected['rust', 'pr-fast-preview', 'Install WASM C compiler'] = ['clang', 'llvm']
+        preview = JOBS['pr-fast-preview']
+        if '    container:' in preview:
+            self.assertIn("matrix.group == 'net' && 'ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@", preview)
+            self.assertIn('name: Verify the preinstalled WASM C compiler', preview)
+            self.assertIn('pkg-config --exists', preview)
+            self.assertLessEqual(set(self.NATIVE),
+                                 set((ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()))
+            del expected['rust', 'pr-fast-preview', 'Install native libraries']
+        else:
+            expected['rust', 'pr-fast-preview', 'Install WASM C compiler'] = ['clang', 'llvm']
         if not rust_image_cache_namespace('net', JOBS['net']):
             expected['rust', 'net', 'Install WASM C compiler'] = ['clang', 'llvm']
         expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
