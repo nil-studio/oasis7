@@ -1,0 +1,132 @@
+name: CodeQL isolated Cargo check image prerequisite probe
+
+on:
+  pull_request:
+    branches: [codex/engineering-codeql-cargo-check-probe-base]
+    types: [synchronize]
+
+permissions:
+  contents: read
+  packages: read
+
+cache-mode: none
+
+jobs:
+  check:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/engineering-codeql-cargo-check-image-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      options: --user 1001:1001 --init --read-only --tmpfs /tmp:rw,nosuid,nodev,mode=1777
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTUP_TOOLCHAIN: '1.99.0'
+      RUSTUP_AUTO_INSTALL: '0'
+      RUSTC_WRAPPER: ''
+      CARGO_CHECK_NATIVE_IMAGE: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 4b748eca9ba5a2a5df9393214d95edb78cf5204c
+          persist-credentials: false
+      - name: Run the original proxy guard and freeze the tool shell
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 4b748eca9ba5a2a5df9393214d95edb78cf5204c
+          python3 -I - <<'PY'
+          import os, pathlib, re, subprocess, time
+          workflow = pathlib.Path('.github/workflows/codeql-rust-cargo-check.yml').read_text()
+          temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
+          def shell(name):
+              blocks = re.split(r'(?m)^      - ', workflow)
+              step = next(block for block in blocks if block.startswith('name: ' + name + '\n'))
+              return '\n'.join(line[10:] for line in step.split('        run: |\n', 1)[1].splitlines())
+          guard = shell('Verify the immutable Rust toolchain proxies')
+          subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', guard], check=True)
+          (temporary / 'install-recorded-rust.sh').write_text(shell('Install the recorded analysis toolchain'))
+          (temporary / 'install-recorded-mold.sh').write_text(shell('Configure mold for Linux host linking'))
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write(f'CHECK_DEADLINE={time.time() + 300}\n')
+          PY
+      - name: Configure the original mold linker in job temporary storage
+        run: bash -euo pipefail "$RUNNER_TEMP/install-recorded-mold.sh"
+      - name: Freeze the original external helper closure
+        run: |
+          set -euo pipefail
+          test "$TMPDIR" = "$RUNNER_TEMP"
+          python3 scripts/security/codeql_rust_capacity_layout.py stage \
+            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
+            --output "$RUNNER_TEMP/rust-cargo-check-evidence" \
+            --tool-sha 4b748eca9ba5a2a5df9393214d95edb78cf5204c --deadline "$(($(date +%s) + 300))"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d2bf383d8c377b36de83aae4a06d9ec17612e205
+          clean: true
+          persist-credentials: false
+      - name: Verify actual original business source and install fresh Rust 1.99
+        run: |
+          set -euo pipefail
+          # Replay has a distinct controller GitHub SHA. The installed helper
+          # snapshot is bound to the exact tool checkout asserted above.
+          GITHUB_SHA=4b748eca9ba5a2a5df9393214d95edb78cf5204c \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_capacity_layout.py" check \
+            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
+            --output "$RUNNER_TEMP/rust-cargo-check-evidence" \
+            --source-sha d2bf383d8c377b36de83aae4a06d9ec17612e205 --deadline "$CHECK_DEADLINE"
+          bash -euo pipefail "$RUNNER_TEMP/install-recorded-rust.sh"
+      - name: Execute original native probes and one tiny locked check
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$RUNNER_TEMP/rust-capacity-helper" python3 - <<'PY'
+          import importlib.util, json, os, pathlib, subprocess, time
+          temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
+          frozen = temporary / 'rust-capacity-helper'
+          spec = importlib.util.spec_from_file_location('check', frozen / 'codeql-rust-cargo-check.py')
+          check = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(check)
+          out = temporary / 'rust-cargo-check-evidence'
+          layout = json.loads((out / 'collection-layout.json').read_text())
+          assert layout['status'] == 'PASS' and layout['source_sha'] == check.SOURCE
+          assert os.environ['TMPDIR'] == str(temporary)
+          env = {name: value for name, value in os.environ.items() if name not in ('GH_TOKEN','GITHUB_TOKEN','RUSTC_WRAPPER')}
+          real_source = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          assert check.version_matches(subprocess.check_output(['cargo','-Vv'], cwd=real_source, env=env, text=True))
+          assert check.rustc_matches(subprocess.check_output(['rustc','-vV'], cwd=real_source, env=env, text=True))
+          check.runtime.CAP, check.runtime.WRITE_CAP = check.CAP, check.CAP - 1024**2
+          clip_end = time.monotonic() + 130
+          check.verify_preinstalled_native(real_source, out, clip_end, env, os.environ['CARGO_CHECK_NATIVE_IMAGE'])
+          receipt = json.loads((out / 'native-budget.json').read_text())
+          assert [entry['phase'] for entry in receipt['allocations']] == ['native-packages','native-modules']
+          print((out / 'native-packages.stdout').read_text())
+          print((out / 'native-modules.stdout').read_text())
+          print(json.dumps(receipt, sort_keys=True))
+
+          small = temporary / 'tiny-source'
+          manifest = small / check.MANIFEST
+          manifest.parent.mkdir(parents=True)
+          manifest.write_text('[package]\nname="cargo-check-fixture"\nversion="0.1.0"\nedition="2024"\n')
+          (manifest.parent / 'src').mkdir()
+          (manifest.parent / 'src/lib.rs').write_text('pub fn fixture() -> u8 { 42 }\n')
+          lock = manifest.with_name('Cargo.lock')
+          lock.write_text('version = 4\n\n[[package]]\nname = "cargo-check-fixture"\nversion = "0.1.0"\n')
+          baseline = lock.read_bytes()
+          work = temporary / 'tiny-check-work'
+          work.mkdir()
+          witness = {}
+          check.single_check(small, work, out, time.monotonic() + 75, env | {'CARGO_NET_OFFLINE':'true'}, observation=witness)
+          assert check.check_status(witness['process']) == 'CHECK_SUCCEEDED', witness
+          assert witness['check_invocations'] == 1 and witness['locked'] is True
+          assert witness['source_lock_unchanged'] is True and witness['copied_lock_unchanged'] is True
+          assert (work / 'Cargo.lock').read_bytes() == lock.read_bytes() == baseline
+          print(json.dumps({'fixed_source_layout': layout['source_sha'], 'cargo':check.CARGO_COMMIT,
+                            'tiny_compile_time_check': 'PASS', 'locks_unchanged': True}, sort_keys=True))
+          PY
