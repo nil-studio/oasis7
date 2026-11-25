@@ -6,8 +6,9 @@
 //! processes replacing directories or lock inodes. Unix durability only.
 
 mod coordinator;
-pub mod crypto;
-pub mod frozen;
+pub use oasis7_formal_protocol::controlled_authority::replicated_protocol::{
+    crypto, frozen, package,
+};
 #[cfg(test)]
 mod frozen_tests;
 pub use frozen::{
@@ -24,7 +25,6 @@ mod fencing_tests;
 mod journal;
 #[cfg(test)]
 mod journal_tests;
-pub mod package;
 mod storage;
 #[cfg(test)]
 mod tests;
