@@ -659,6 +659,8 @@ fn floor_gated_publisher_and_receiver_refuse_old_snapshot_and_recover_over_tcp_d
     let cold_clock = DiscoveryClock::requiring_independent_floor();
     assert!(install_floor(&cold_clock, &restored, now - 1, now, Instant::now()).is_err());
     install_floor(&cold_clock, &restored, now, now, Instant::now()).unwrap();
+    assert!(install_floor(&cold_clock, &restored, now + 1, now + 1, Instant::now()).is_err());
+    assert_eq!(restored.persisted_time_floor_ms().unwrap(), Some(now));
     restored.observe_trusted_time(seq1_expiry).unwrap();
     assert!(restored.admit_serialized(&seq1).is_err());
     assert!(restored.lease_guard(&seq1).is_err());

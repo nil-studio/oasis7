@@ -739,7 +739,6 @@ impl PeerRecordReceiver {
         if self.state.mode == PeerRecordReceiverMode::Legacy {
             return Ok(floor_ms);
         }
-        let _ingress = self.begin_ingress()?;
         let mut durable = self.durable_lock_required()?;
         ensure_durable_usable(&durable)?;
         if let Some(existing) = durable.effective_time_floor_ms()

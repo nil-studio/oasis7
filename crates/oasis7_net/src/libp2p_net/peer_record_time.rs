@@ -91,7 +91,7 @@ impl DiscoveryClock {
         if !state.requires_independent_floor || state.independent_floor_initialized {
             return Err(invalid("independent floor bootstrap unavailable"));
         }
-        if floor_ms < 0 || wall_ms < floor_ms {
+        if floor_ms <= 0 || wall_ms < floor_ms {
             return Err(invalid("wall time precedes independent UTC floor"));
         }
         if state

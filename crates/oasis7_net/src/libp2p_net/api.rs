@@ -59,6 +59,7 @@ pub(super) fn install_verified_discovery_floor(
     wall_ms: i64,
     instant: Instant,
 ) -> Result<(), WorldError> {
+    let _ingress = peer_record_receiver.begin_ingress()?;
     if floor_ms <= 0 {
         return Err(WorldError::NetworkProtocolUnavailable {
             protocol: "peer record time policy: independent UTC floor must be positive".into(),
