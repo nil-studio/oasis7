@@ -12,3 +12,5 @@ include!("host.rs");
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history_store;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod bft_successor_rotation_adapter;
