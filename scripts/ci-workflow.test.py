@@ -4202,7 +4202,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]
-        self.assertIn('    strategy:\n      matrix:\n        group: [base, specialized]\n', publish_header)
+        groups = 'base, specialized, app-wasm' if 'rust-viewer' in targets else 'base, specialized'
+        self.assertIn(f'    strategy:\n      matrix:\n        group: [{groups}]\n', publish_header)
         self.assertIn('timeout-minutes: 10\n', publish_header)
         self.assertIn("if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n", publish_header)
         self.assertIn('needs: build\n', publish_header)
@@ -4210,8 +4211,13 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('rm -f "ci-${target}.tar"\n', publish_job)
         self.assertIn('docker rmi "$ref" "oasis7-ci-${target}:candidate"\n', publish_job)
         self.assertNotIn('if [[ "$target" == "browser" ]]', publish_job)
-        routes = [(('base' if target in {'runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'}
-                    else 'specialized'), target) for target in targets]
+        expected_groups = (
+            ('base', {'runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'}),
+            ('specialized', {'codeql-rust', 'api-runtime', 'rust-ordinary-builder'}),
+            ('app-wasm' if 'rust-viewer' in targets else 'specialized', {'rust-custody-wasm', 'rust-viewer'}),
+        )
+        by_target = {target: group for group, members in expected_groups for target in members}
+        routes = [(by_target[target], target) for target in targets]
         downloads = re.findall(
             r"^      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333\n"
             r"        if: matrix.group == '([a-z-]+)'\n        with:\n          name: ci-image-([a-z-]+)$",

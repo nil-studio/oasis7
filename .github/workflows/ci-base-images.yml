@@ -150,7 +150,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        group: [base, specialized]
+        group: [base, specialized, app-wasm]
     steps:
       - name: Log in to GHCR and prepare image publisher
         env:
@@ -235,18 +235,18 @@ jobs:
         if: matrix.group == 'specialized'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-ordinary-builder
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        if: matrix.group == 'specialized'
+        if: matrix.group == 'app-wasm'
         with:
           name: ci-image-rust-custody-wasm
       - name: Publish verified Custody WASM image
-        if: matrix.group == 'specialized'
+        if: matrix.group == 'app-wasm'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-custody-wasm
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        if: matrix.group == 'specialized'
+        if: matrix.group == 'app-wasm'
         with:
           name: ci-image-rust-viewer
       - name: Publish verified Viewer image
-        if: matrix.group == 'specialized'
+        if: matrix.group == 'app-wasm'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-viewer
       - name: Log out of GHCR
         if: always()
