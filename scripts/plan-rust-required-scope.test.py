@@ -4856,13 +4856,26 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertIs(current['test_policy_changed'], False)
                 self.assertNotIn('ordinary_fast_targets', current)
                 self.assertNotIn('fast_execution_version', current)
-                self.assertEqual({key: value for key, value in current.items()
-                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
-                                                 'ordinary_dynamic_partition_version',
-                                                 'ordinary_controls_in_rust_baseline_version',
-                                                 'ordinary_clippy_group', 'ordinary_wasm_group',
-                                                 'ordinary_harness_costs', 'ordinary_artifact_delivery_version')},
-                                 legacy)
+                self.assertEqual(current['architecture']['build_policy_version'], 2)
+                self.assertEqual(current['architecture']['build_policy'], 'ordinary-targets')
+                self.assertNotIn('build_policy', legacy['architecture'])
+                arch_reason = ('all architecture inputs have mandatory ordinary artifact and strict Clippy coverage; '
+                               'extra profile compilation stays in full, all dependency graphs remain required')
+                self.assertIn(arch_reason, current['reasons'])
+                comparable_current = {
+                    key: value for key, value in current.items()
+                    if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
+                                   'ordinary_dynamic_partition_version',
+                                   'ordinary_controls_in_rust_baseline_version',
+                                   'ordinary_clippy_group', 'ordinary_wasm_group',
+                                   'ordinary_harness_costs', 'ordinary_artifact_delivery_version')
+                }
+                comparable_current['architecture'] = {
+                    key: value for key, value in current['architecture'].items()
+                    if key not in ('build_policy_version', 'build_policy')
+                }
+                comparable_current['reasons'] = [r for r in current['reasons'] if r != arch_reason]
+                self.assertEqual(comparable_current, legacy)
                 heavy_plan = dict(current)
                 heavy_plan.pop('ordinary_dynamic_partition_version', None)
                 heavy_plan['oasis7_required_packages'] = ['oasis7', 'oasis7_chain_runtime']
@@ -5169,6 +5182,49 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertEqual(selected['ordinary_artifact_partition_version'], 1)
                 self.assertEqual(selected['ordinary_artifact_delivery_version'], 1)
                 self.assertNotIn('ordinary_harness_costs', selected)
+
+    def test_architecture_artifact_build_policy_v2_excludes_manifests_cfg_and_historical_sources(self):
+        # Historical tested_sha lacking architecture_artifact_build_policy_version withholds v2.
+        historical_cfg = {k: v for k, v in self.config.items() if k != 'architecture_artifact_build_policy_version'}
+        self.write('scripts/ci-required-scope.json', json.dumps(historical_cfg))
+        historical_base = self.commit()
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        historical_tested = self.commit()
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        new_policy = self.commit()
+        mixed = selector.select(
+            self.config,
+            historical_base,
+            historical_tested,
+            historical_tested,
+            profile='pr-fast',
+            policy_ref=new_policy,
+        )
+        self.assertEqual(mixed['scope'], 'targeted')
+        self.assertNotIn('build_policy', mixed['architecture'])
+
+        # Candidate cannot self-enrol when BASE policy lacks architecture_artifact_build_policy_version.
+        self.assertNotIn(
+            'build_policy',
+            selector.select(historical_cfg, historical_base, new_policy, profile='pr-fast')['architecture'],
+        )
+
+        # Manifest edits and scoped production #[cfg(...)] changes retain extra architecture profile checks.
+        self.git('checkout', '-q', self.base)
+        self.write('crates/oasis7_chain_runtime/Cargo.toml',
+                   Path('crates/oasis7_chain_runtime/Cargo.toml').read_text() + '\n# manifest comment\n')
+        manifest_head = self.commit()
+        self.assertNotIn(
+            'build_policy',
+            selector.select(self.config, self.base, manifest_head, profile='pr-fast')['architecture'],
+        )
+
+        self.git('checkout', '-q', self.base)
+        self.write(self.source, '#[cfg(unix)]\npub fn target_cut() -> u64 { 3 }\n')
+        cfg_head = self.commit()
+        cfg_plan = selector.select(self.config, self.base, cfg_head, profile='pr-fast')
+        self.assertEqual(cfg_plan['scope'], 'targeted')
+        self.assertNotIn('build_policy', cfg_plan['architecture'])
 
 
 class CustodyExecutionPlans(unittest.TestCase):
@@ -9415,6 +9471,7 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
             ('ordinary_scope_config_slice_version', (0, 3, True, '2')),
             ('scoped_production_cfg_version', (0, 2, True, '1')),
             ('main_fast_coalesce_concurrency_version', (0, 2, True, '1')),
+            ('architecture_artifact_build_policy_version', (0, 2, True, '1')),
         ):
             for bad in bad_values:
                 with self.subTest(key=key, bad=bad), self.assertRaises(ValueError):
