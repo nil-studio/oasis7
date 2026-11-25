@@ -56,6 +56,7 @@ mod cognition_command;
 mod cognition_economy;
 #[path = "cognition_economy_world.rs"]
 mod cognition_economy_world;
+mod cognition_economy_staged;
 mod cognition_feedback;
 mod cognition_gpd;
 mod cognition_orchestration;
