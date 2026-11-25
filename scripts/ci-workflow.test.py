@@ -924,7 +924,10 @@ def validate_candidate_graph(workflow, config):
             continue
         if config.get('contract_job_consolidation_version') in (1, 2, 3, 4, 5) and group in config.get('group_jobs', {}):
             host_job = jobs[config['group_jobs'][group]]
-            version_guard = f"fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != {config['contract_job_consolidation_version']}"
+            if group == 'command_center' and config.get('command_center_offline_version') == 1:
+                version_guard = 'fromJSON(needs.select.outputs.plan).command_center_offline_version != 1'
+            else:
+                version_guard = f"fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != {config['contract_job_consolidation_version']}"
             if (version_guard not in job
                     or f'needs.select.outputs.run_{group}' not in host_job):
                 raise ValueError('consolidated contract group must gate legacy job and bind its select output on host job')
@@ -1874,7 +1877,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertLessEqual(consumers, fields | fleet_subcontract_fields | {
             'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
             'ordinary_main_fast_cache_writer_version',
-            'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
+            'contract_job_consolidation_version', 'command_center_offline_version',
+            'workspace_support_direct_gate_version',
             'custody_compile_proof_version', 'custody_policy_tests_version', 'selection_sha256'})
         self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
         guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
@@ -2521,13 +2525,16 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertNotIn('  pull_request:', workflow)
         self.assertNotIn('  push:', workflow)
         self.assertIn('uses: ./.github/workflows/command-center.yml', JOBS['command-center'])
+        self.assertIn('fromJSON(needs.select.outputs.plan).command_center_offline_version != 1', JOBS['command-center'])
         self.assertIn('run_command_center: ${{ steps.select.outputs.run_command_center }}', JOBS['select'])
+        self.assertEqual(CONFIG.get('command_center_offline_version'), 1)
+        self.assertEqual(CONFIG.get('group_jobs', {}).get('command_center'), 'baseline')
         for command in ('cargo test --locked', '--example export_types', 'npm test',
                         'npm run build', 'cargo clippy --locked', 'desktop:build -- --debug'):
             self.assertIn(command, workflow)
         self.assertNotIn('continue-on-error:', workflow)
-        for package in ('oasis7_context', 'oasis7_local_signer', 'oasis7_secure_envelope'):
-            self.assertIn('command_center', CONFIG['package_groups'][package])
+        for package in ('oasis7_signer_protocol', 'oasis7_context', 'oasis7_local_signer', 'oasis7_secure_envelope'):
+            self.assertNotIn('command_center', CONFIG['package_groups'][package])
 
     def test_corpus_data_uses_baseline_and_implementation_uses_platforms(self):
         for path in (
@@ -5343,7 +5350,7 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
             selected = [call for call in calls if package in call]
             self.assertTrue(selected, package)
             self.assertTrue(any('--all-targets' in call and '--locked' in call for call in selected))
-            self.assertEqual(CONFIG['package_groups'][package], ['workspace_support', 'command_center'])
+            self.assertEqual(CONFIG['package_groups'][package], ['workspace_support'])
         self.assertTrue(any('oasis7_local_signer' in call and '--test' in call and 'context_cli' in call for call in calls))
         for path in ('crates/oasis7_context/**', 'crates/oasis7_secure_envelope/**'):
             selected_groups = {group for rule in CONFIG['rules'] if path in rule['match'] for group in rule['groups']}
@@ -5532,7 +5539,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                                       JOBS[name], re.M | re.S)[1] for name in names}
 
         def values_for(name, event, selected=True, select='success', scope='targeted', results=None,
-                       consolidation=0, direct_support=0):
+                       consolidation=0, direct_support=0, offline=0):
             values = {
                 'needs.select.result': select,
                 'needs.select.outputs.trusted_source': 'true' if event == 'push' else 'false',
@@ -5541,6 +5548,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': consolidation,
+                'fromJSON(needs.select.outputs.plan).command_center_offline_version': offline,
                 'fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version': direct_support,
                 'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_execution': 'artifact',
@@ -5590,6 +5598,12 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                     for scope in ('targeted', 'full', 'explicit-full'):
                         values = values_for(retired, event, selected=True, scope=scope, consolidation=ver)
                         self.assertFalse(effective_job_condition(conditions[retired], values, ['skipped', 'success']))
+            for scope in ('targeted', 'full', 'explicit-full'):
+                values = values_for('command-center', event, selected=True, scope=scope, consolidation=5, offline=1)
+                self.assertFalse(effective_job_condition(conditions['command-center'], values, ['skipped', 'success']))
+            absorbed_center = values_for('baseline', event, selected=False, consolidation=5, offline=1)
+            absorbed_center['needs.select.outputs.run_command_center'] = 'true'
+            self.assertTrue(effective_job_condition(conditions['baseline'], absorbed_center, ['skipped', 'success']))
             for retired in ('consensus', 'pixel-world-bridge', 'viewer-performance-report'):
                 self.assertTrue(effective_job_condition(
                     conditions[retired], values_for(retired, event, selected=True, consolidation=1), ['skipped', 'success']))

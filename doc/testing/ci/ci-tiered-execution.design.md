@@ -55,13 +55,13 @@ custody Worker 的真实原生 HTTP/SQLite 集成依赖指定 hosted_identity au
 
 `./scripts/ci-tests.sh required` 是普通必要测试的本地入口；`full` 保留广覆盖回归。Rust workflow 的四小时完整回归按[当前分层接口](#ci-fast-pr-periodic-full-design)执行；真实产品测试、WASM 确定性、共识、持久化、安全、升级恢复和跨平台打包继续保留。
 
-Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具目录内的代码、配置、资源和测试变化选择 baseline 和该组；共享 context、local signer、secure envelope crate 变化也选择该组。已核实仅为使用说明的 `tools/oasis7-command-center/README.md` 从该目录规则中排除，保留 baseline 文档治理；排除只作用于这条显式规则，真实嵌入或测试消费者仍可选择相应组，删除和重命名仍检查两端。
+Command Center 的独立目录由 `command_center` 组保留路径归属（已核实仅为使用说明的 `tools/oasis7-command-center/README.md` 从该目录规则中排除，保留 baseline 文档治理；排除只作用于这条显式规则，真实嵌入或测试消费者仍可选择相应组，删除和重命名仍检查两端）。因 Command Center 当前暂停推进，可信配置启用 `command_center_offline_version=1` 后将 `command_center` 组收口至 `baseline`，并解除共享 signer protocol、local signer、context、secure envelope crate 及通用开发脚本对该组的连带选择；独立 `tools/oasis7-command-center/**/Cargo.toml` 与 `Cargo.lock` 清单继续执行 `rust_baseline` 与 `cargo_tooling_contracts` 的锁文件审计及独立 `--locked` 元数据校验。
 
-Rust workflow 调用可复用的 `command-center.yml`，将 Core、生成类型、UI、workspace host Clippy 和适用的 macOS App 打包结果纳入汇总。可信规则确认只影响已登记 Core/UI 输入时，`command_center_package=false` 仅跳过 App 打包，host 编译仍验证 Core API 消费者；原生打包、平台、共享控制或不确定输入保留打包。完整 profile 始终打包。专用 workflow 不独立重复触发 PR/push，checkout 使用计划固定的 tested SHA。
+Rust workflow 保留可复用的 `command-center.yml` 定义及 `command-center` 调用位以维持历史 `policy_sha` 兼容：在 `command_center_offline_version=1` 生效的 `pr-fast`、`main-fast`、`periodic-full` 与 `candidate-full` 计划下，`command-center` job 直接在表达式层跳过（不启动 `macos-15` runner），由 `required-gate` / `explicit-full-gate` 校验独立 job 为 `skipped` 且 `baseline` 成功；缺少该能力字段的历史可信 BASE 计划仍按原 `command_center_package` 开关调用可复用 workflow（`cache-mode: read`、固定 `tested_sha`、不独立重复触发 PR/push）。
 
 可复用 Command Center workflow 自身显式声明 `cache-mode: read`，与当前调用方的只读权限一致；后续调用方也不能借此入口写入共享缓存。
 
-该平台组的本地验证使用专用 workflow 中的 canonical 命令，不由通用 shell driver 执行。
+该平台组不接入通用 shell driver；暂停推进期间常规 CI 不执行其 macOS 桌面构建与打包，恢复推进或手工核验时使用专用 workflow 中的 canonical 命令。
 
 baseline 文档检查直接核对实际目录入口、Markdown 导航及受影响的引用、ID、已声明关系和正向完成证据。document-corpus 的派生 hash、语义/证据登记、冻结组和专用三平台 workflow 已退役；规则、范围选择或解析器改变时运行全部适用治理回归，普通文档改动检查受影响正文与反向引用。
 
