@@ -81,8 +81,8 @@ pub use private_retention_alternatives::BftOriginalAlternativesInventoryV1;
 
 pub use admission_input_transfer_plan::{
     BFT_ADMISSION_INPUT_V2_FRAME_BYTES, BFT_ADMISSION_INPUT_V2_PART_BYTES,
-    BFT_ADMISSION_INPUT_V2_PARTS_PER_MESSAGE, BftAdmissionInputMessageV2,
-    BftAdmissionInputPartV2, BftAdmissionInputTransferPlanV2,
+    BFT_ADMISSION_INPUT_V2_PARTS_PER_MESSAGE, BftAdmissionInputMessageV2, BftAdmissionInputPartV2,
+    BftAdmissionInputTransferPlanV2,
 };
 
 pub use private_retention_input::{
