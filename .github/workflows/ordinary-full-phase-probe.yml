@@ -1,0 +1,57 @@
+name: Frozen ordinary full-case phase diagnostic
+on:
+  pull_request:
+    types: [opened]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  two-frozen-cases:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'task/engineering-ordinary-full-phase-diagnostic' &&
+      github.base_ref == 'task/engineering-ordinary-full-phase-diagnostic-base'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      CONTROLLER_SHA: ${{ github.event.pull_request.head.sha }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Check out reviewed controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Freeze probe outside original source tree
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CONTROLLER_SHA"
+          test "$(id -u)" = 1001
+          test "$(pwd -P)" = /home/runner/work/oasis7/oasis7
+          echo '999e2d6d5c7df7ecac43747f5a74f177511d28a484f3921f6a567552f7cbe175  scripts/ordinary-full-phase-probe.py' | sha256sum --check
+          cp scripts/ordinary-full-phase-probe.py "$RUNNER_TEMP/ordinary-full-phase-probe.py"
+          python3.12 --version
+      - name: Verify original official artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3.12 "$RUNNER_TEMP/ordinary-full-phase-probe.py" download
+      - name: Check out original tested source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: b4efdb5f2d0a5438d37160dbd30a0a7c82cd4797
+          persist-credentials: false
+      - name: Observe exact frozen cases without compilation or installation
+        run: python3.12 "$RUNNER_TEMP/ordinary-full-phase-probe.py" supervise
+      - name: Preserve diagnostic receipts only
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: frozen-ordinary-two-case-phase-diagnostic
+          path: ${{ runner.temp }}/ordinary-phase-probe/receipt
+          if-no-files-found: error
+          retention-days: 7
