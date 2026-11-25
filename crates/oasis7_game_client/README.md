@@ -135,7 +135,7 @@ Servers without this profile fail explicitly; the client does not silently fall 
 The native task wire profile rejects legacy provider/browser/lease/continuation
 request variants. It does not expand the CLI's supported gameplay or migrate the
 legacy built-in executor. See [the API scope](../../doc/world-simulator/llm/external-agent-game-api.design.md)
-and [implementation scope](https://github.com/eng-cc/oasis7/issues/4726).
+and [implementation scope](https://github.com/nil-studio/oasis7/issues/4726).
 
 The feedback foundation exposes bounded, service-authenticated scoped history.
 `record_caller_persisted_feedback_acceptance` resolves a record inside a

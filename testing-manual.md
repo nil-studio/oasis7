@@ -1664,15 +1664,6 @@ rg -n "conflicting attestation already exists|attestation threshold not met|atte
 5. L4 失败：先判定是否环境问题（端口、launcher 进程、wasm 初始化），再判定 UI 回归。
 6. L5 失败：只针对真实人类或受控外部玩家样本，先核验样本、环境、继续游玩意愿与反馈采集；性能、资源泄漏和长时状态累计问题回到对应技术套件（S8/S9/S10）分诊。
 
-## TODO（待收口）
-- [x] TODO-1：修正 S7 场景矩阵回归命令的覆盖口径。
-  - 处理结果（2026-03-05）：S7 的 `oasis7_init_demo_runs_` 已切换到 `test_tier_full` 执行档位。
-  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_full oasis7_init_demo_runs_ -- --nocapture` 命中多场景用例（非 1 条）。
-
-- [x] TODO-2：修复 S5 Pixel World Bridge（Bevy）测试编译阻塞。
-  - 处理结果（2026-02-21）：当前 `pixel_world_bridge` lib 测试已恢复可编译可执行，并纳入 `scripts/ci-tests.sh` 的 full support-crate shard。
-  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p pixel_world_bridge --lib` 通过。
-
 ## 风险
 - 风险 1：把 `required/full` 当作整应用全覆盖。
   - 缓解：按默认测试选择树覆盖实际影响面，明确未执行部分。
