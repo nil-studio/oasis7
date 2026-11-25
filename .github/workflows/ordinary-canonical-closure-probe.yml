@@ -1,0 +1,76 @@
+name: Ordinary canonical five closure probe
+on:
+  pull_request:
+    types: [opened]
+permissions:
+  contents: read
+  packages: read
+jobs:
+  canonical-five:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/engineering-ordinary-canonical-closure-probe' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      ImageOS: ubuntu24
+      ORDINARY_ARTIFACT_CHECKOUT: /home/runner/work/oasis7/oasis7
+      ORDINARY_BUILD_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8
+      PROBE_CODE_SHA: db3e69e4510896272a25d28071418fab173bac10
+      SOURCE_SHA: db3e69e4510896272a25d28071418fab173bac10
+      PROBE_CONTROLLER_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check out exact consumer source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: db3e69e4510896272a25d28071418fab173bac10
+          persist-credentials: false
+      - name: Check out exact reviewed controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .probe-controller
+          persist-credentials: false
+      - name: Verify identities and execute original canonical closure
+        run: |
+          set -euo pipefail
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$ORDINARY_ARTIFACT_CHECKOUT"
+          git config --global --add safe.directory "$ORDINARY_ARTIFACT_CHECKOUT/.probe-controller"
+          test "$(git rev-parse HEAD)" = "$PROBE_CODE_SHA"
+          test "$(git -C .probe-controller rev-parse HEAD)" = "$PROBE_CONTROLLER_SHA"
+          test "$(stat -c %d:%i "$GITHUB_WORKSPACE")" = "$(stat -c %d:%i "$ORDINARY_ARTIFACT_CHECKOUT")"
+          python3 .probe-controller/scripts/ordinary-canonical-closure-probe.py supervise
+      - name: Stage only bounded diagnostic receipts
+        if: always()
+        id: stage
+        run: |
+          set -euo pipefail
+          cd /home/runner/work/oasis7/oasis7
+          stage=$(mktemp -d .ordinary-canonical-receipt.XXXXXX)
+          if [[ -d "$RUNNER_TEMP/ordinary-canonical-closure/receipt" ]]; then
+            cp -a "$RUNNER_TEMP/ordinary-canonical-closure/receipt/." "$stage/"
+          fi
+          printf 'path=%s\n' "$stage" >> "$GITHUB_OUTPUT"
+      - name: Upload diagnostic receipts
+        if: always() && steps.stage.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ordinary-canonical-five-diagnostic
+          path: ${{ steps.stage.outputs.path }}
+          if-no-files-found: error
+          retention-days: 2
