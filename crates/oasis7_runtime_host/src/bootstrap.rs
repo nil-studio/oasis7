@@ -527,18 +527,20 @@ mod archive_loader_tests {
         std::fs::write(fixture.0.join("world-generation-provenance.json"), "{}")
             .expect("write required provenance marker");
         std::fs::write(archive.join("journal.json"), "{").expect("corrupt original journal");
-        let error = bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(&fixture.0)
-            .err()
-            .expect("corrupt journal must not bootstrap Runtime");
+        let error = match bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(&fixture.0) {
+            Ok(_) => panic!("corrupt journal must not bootstrap Runtime"),
+            Err(error) => error,
+        };
         assert!(error.contains("runtime live generated sidecar load failed"));
     }
 
     #[test]
     fn generated_sidecar_rejects_missing_provenance_before_archive_open() {
         let absent = Path::new("__oasis7_native_bootstrap_absent_provenance__");
-        let error = bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(absent)
-            .err()
-            .expect("unproven archive must be rejected");
+        let error = match bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(absent) {
+            Ok(_) => panic!("unproven archive must be rejected"),
+            Err(error) => error,
+        };
         assert!(error.contains("world provenance missing"));
     }
 }
