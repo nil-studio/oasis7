@@ -65,12 +65,17 @@ mod tests {
 
     #[test]
     fn native_profile_preserves_original_budgets_and_selection() {
-        assert_eq!(LlmPromptProfile::parse(" Compact "), Some(LlmPromptProfile::Compact));
+        let compact = LlmPromptProfile::Compact;
+        let balanced = LlmPromptProfile::Balanced;
+        assert_eq!(
+            LlmPromptProfile::parse(" Compact "),
+            Some(LlmPromptProfile::Compact)
+        );
         assert_eq!(LlmPromptProfile::parse("unknown"), None);
-        assert_eq!(LlmPromptProfile::Balanced.as_str(), "balanced");
-        assert_eq!(LlmPromptProfile::Compact.prompt_budget().context_window_tokens, 4_096);
-        assert_eq!(LlmPromptProfile::Balanced.prompt_budget().reserved_output_tokens, 896);
-        assert_eq!(LlmPromptProfile::Compact.memory_selector_config().short_term_top_k, 3);
-        assert_eq!(LlmPromptProfile::Balanced.memory_selector_config().long_term_top_k, 3);
+        assert_eq!(balanced.as_str(), "balanced");
+        assert_eq!(compact.prompt_budget().context_window_tokens, 4_096);
+        assert_eq!(balanced.prompt_budget().reserved_output_tokens, 896);
+        assert_eq!(compact.memory_selector_config().short_term_top_k, 3);
+        assert_eq!(balanced.memory_selector_config().long_term_top_k, 3);
     }
 }
