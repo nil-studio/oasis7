@@ -42,7 +42,7 @@
    - Hosted `macos-15` 并发上限通常仅 **5 槽位**：实测 `macos-15` 物理耗时仅占全仓 `3.7%`，却可占全仓 **`27.7%`** 计费分钟并频繁打满 5 槽位，拖慢关键路径验签（如 `fleet-health (macos-15)`）排队。审计控费与排队时优先排查占满低配额池的非核心或已暂停桌面任务（如 `#6987` 下线已暂停的 `command-center` 直接释放全仓 `20.7%` 计费分钟与 macOS 槽位）。
    - **API 翻页截断防护**：GitHub Actions `actions/runs` 搜索单查询上限为 **1,000 条**；高吞吐日（`>1,500 runs/24h`）必须按 `created` 时间窗切分（如每 6–8 小时一段）拉取去重，避免静默漏算早间样本。
 2. **仓库 20 GB 缓存池家族水位与镜像升级瞬态膨胀**：
-   - 通过 `gh api repos/{owner}/{repo}/actions/caches?per_page=100` 按 key 前缀家族聚合体积，监控总用量距 **20 GB** 硬上限的安全余量（建议保留 `>= 3–4 GB` 缓冲），防止触发 GitHub 无序 LRU 驱逐把核心热缓存（如 `ordinary-workspace-v1`、`ci-shared-native-trusted`）挤出；
+   - 通过 `gh api --paginate 'repos/{owner}/{repo}/actions/caches?per_page=100' --jq '.actions_caches[]'` 拉取全部页的缓存记录后按 key 前缀家族聚合体积，监控总用量距 **20 GB** 硬上限的安全余量（建议保留 `>= 3–4 GB` 缓冲），防止触发 GitHub 无序 LRU 驱逐把核心热缓存（如 `ordinary-workspace-v1`、`ci-shared-native-trusted`）挤出；容量压力下的休眠历史环境分级回收与跨环境配对见 [编译产物缓存与镜像加速分册 §3 模式 D](build-artifact-cache-and-image-acceleration.md#模式-d工作区组件缓存高命中率治理与跨环境严格配对6315649265396547658367326929693569686969)；
    - 连续升级 `ci-rust-build` 容器镜像摘要期间，`v0-rust-ci-rust-build-*` 会短暂并存多个旧摘要条目（可达 `5–6 GB`），核实 `ci-cache-maintenance.py` 按休眠窗口正常回收即可，无需手工误删活跃底座。
 3. **缓存输入轮换 × `main-fast` 冷却窗口的联动排查（`#6969` 实证）**：
    - 当某个平时稳定的构建 Job（如 `oasis7-test-build-candidate`）耗时突然集体翻倍逼近 `timeout-minutes` 红线（如从 `8–12m` 飙升至 `26–37m / 40m`）时，**切勿盲目只涨超时上限**；
