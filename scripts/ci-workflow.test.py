@@ -1992,6 +1992,39 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest
         self.assertIn('container:\n      image: ' + image, job)
         self.assertIn('ORDINARY_BUILD_IMAGE: ' + image, job)
+        self.assertIn('      ImageOS: ubuntu24\n', job)
+        checkout = '/home/runner/work/oasis7/oasis7'
+        self.assertIn('ORDINARY_ARTIFACT_CHECKOUT: ' + checkout, job)
+        self.assertIn('      volumes:\n        - ' + checkout + ':' + checkout + '\n', job)
+        self.assertIn('          cd -- "$ORDINARY_ARTIFACT_CHECKOUT"\n', job)
+        self.assertIn('python3 scripts/ci-test-artifacts.py ordinary-image-preflight\n', job)
+        self.assertIn("printf 'BASH_ENV=%s\\n' \"$RUNNER_TEMP/ordinary-image-cwd.bash\" >> \"$GITHUB_ENV\"", job)
+        startup = re.search(r"<<'ORDINARY_CWD'\n(.*?)^          ORDINARY_CWD$", job, re.M | re.S)
+        self.assertIsNotNone(startup)
+        startup = textwrap.dedent(startup[1])
+        expected_startup = ('export ORDINARY_ARTIFACT_CHECKOUT=' + checkout
+                            + '\ncd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1\n')
+        self.assertEqual(startup, expected_startup)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = root / 'canonical'
+            canonical.mkdir()
+            translated = root / 'runner-mapped'
+            translated.mkdir()
+            script = root / 'startup.bash'
+            script.write_text(expected_startup.replace(checkout, shlex.quote(str(canonical))))
+            result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', 'pwd -P'],
+                                    cwd=translated, env=dict(os.environ, BASH_ENV=str(script),
+                                                            ORDINARY_ARTIFACT_CHECKOUT=str(translated)),
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(Path(result.stdout.strip()), canonical.resolve())
+            canonical.rmdir()
+            self.assertNotEqual(subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', 'exit 0'],
+                cwd=translated, env=dict(os.environ, BASH_ENV=str(script),
+                                         ORDINARY_ARTIFACT_CHECKOUT=str(translated)), capture_output=True).returncode, 0)
+
+
         self.assertIn('timeout-minutes: 45', job)
         self.assertIn('packages: read', job)
         self.assertNotIn('apt-install.py', job)

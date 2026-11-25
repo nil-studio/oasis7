@@ -328,7 +328,7 @@ ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 # contract for the checked-in block-style env declarations, not a YAML parser.
 repository_budget = '20000000000'
 budget_entries = {
-    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
+    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
     'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 4),
     'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),

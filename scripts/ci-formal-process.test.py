@@ -3050,6 +3050,7 @@ pub fn mark(name: &str) {
         (runtime / 'tests/process.rs').write_text(
             '#[test] fn complete_integration() {\n'
             ' assert!(std::process::Command::new(env!("CARGO_BIN_EXE_oasis7_chain_runtime")).status().unwrap().success());\n'
+            ' assert!(std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap().contains("oasis7_chain_runtime"));\n'
             ' oasis7_chain_runtime::mark("complete_integration");\n}\n'
             '#[test] fn new_integration_case() { oasis7_chain_runtime::mark("new_integration_case"); }\n')
         (risk / 'Cargo.toml').write_text(
@@ -3105,10 +3106,13 @@ pub fn mark(name: &str) {
             ordinary_harness_costs=TargetedArtifactPartitions.costs([
                 dict(package='oasis7_chain_runtime', target_kind='test', target_name='process',
                      variant='required', mode='batch', selector='', elapsed_ms=5000)]))
+        cls.image = os.environ.get('ORDINARY_BUILD_IMAGE',
+                                   'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64)
         cls.bundle, cls.consumer = cls.root / 'bundle', cls.root / 'consumer'
         with patch.object(artifacts, 'ROOT', cls.root), patch.object(artifacts, 'CONFIG', cls.config), \
              patch.dict(os.environ, SOURCE_SHA=cls.sha):
-            artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
+            with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=cls.image):
+                artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
             archive = cls.root / 'ordinary.tar.gz'
             artifacts.pack(cls.bundle, archive, suite='ordinary', plan=cls.selected)
         cls.consumer.mkdir()
@@ -3127,6 +3131,9 @@ pub fn mark(name: &str) {
         return stack
 
     def test_real_build_pack_load_and_four_owners_equal_the_original_complete_execution(self):
+        self.assertEqual(json.loads((self.bundle / 'manifest.json').read_text())['image'], self.image)
+        self.assertEqual(json.loads((self.consumer / 'manifest.json').read_text())['image'], self.image)
+        self.assertNotIn('ORDINARY_BUILD_IMAGE', os.environ)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             baseline, partitioned = root / 'baseline', root / 'partitioned'
@@ -3161,6 +3168,25 @@ pub fn mark(name: &str) {
             self.assertEqual(sum(record['expected_count'] for record in records),
                              sum(record['expected_count'] for record in baseline_records))
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
+
+    def test_ordinary_runner_image_identity_remains_exact(self):
+        manifest = json.loads((self.consumer / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)), \
+             patch.dict(os.environ, ImageOS='ubuntu24'):
+            generic = dict(manifest, runner_image='linux')
+            with self.assertRaisesRegex(ValueError, 'artifact identity mismatch: runner_image'):
+                artifacts.validate_artifact_manifest(generic, suite='ordinary', plan=self.selected)
+            verified = dict(manifest, runner_image='ubuntu24')
+            self.assertEqual(artifacts.validate_artifact_manifest(verified, suite='ordinary', plan=self.selected),
+                             set(manifest['included_binaries']))
+
+    def test_real_ordinary_artifact_still_rejects_another_consumer_checkout(self):
+        manifest = json.loads((self.bundle / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)):
+            with patch.object(artifacts, 'ROOT', self.root / 'different-consumer'), \
+                 patch.object(artifacts, 'output', return_value=self.sha), \
+                 self.assertRaisesRegex(ValueError, 'artifact identity mismatch: checkout'):
+                artifacts.validate_artifact_manifest(manifest, suite='ordinary', plan=self.selected)
 
     def test_real_v1_delivery_preserves_behavior_and_restores_cargo_binary_paths_without_compiling(self):
         selected = self.selected | dict(scope='full', ordinary_artifact_partition_version=1,
@@ -5113,6 +5139,48 @@ class ParallelFormalExecution(unittest.TestCase):
 
 
 class BuildAndBundles(unittest.TestCase):
+    def test_ordinary_image_preflight_preserves_canonical_real_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            checkout, other = root / 'checkout', root / 'other'
+            checkout.mkdir()
+            other.mkdir()
+            alias = root / 'symlink'
+            alias.symlink_to(checkout, target_is_directory=True)
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(checkout)
+                with patch.object(artifacts, 'ROOT', checkout), \
+                     patch.object(artifacts, 'ORDINARY_HOST_CHECKOUT', checkout), \
+                     patch.object(artifacts.platform, 'freedesktop_os_release',
+                                  return_value={'ID': 'ubuntu', 'VERSION_ID': '24.04'}), \
+                     patch.dict(os.environ, ImageOS='ubuntu24', ORDINARY_ARTIFACT_CHECKOUT=str(checkout),
+                                GITHUB_WORKSPACE=str(checkout),
+                                ORDINARY_BUILD_IMAGE='ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64):
+                    report = artifacts.ordinary_image_preflight()
+                    self.assertTrue(report['same_directory'])
+                    self.assertEqual((report['device'], report['inode']),
+                                     (checkout.stat().st_dev, checkout.stat().st_ino))
+                    for changes in ({'GITHUB_WORKSPACE': str(other)},
+                                    {'GITHUB_WORKSPACE': str(alias)}, {'GITHUB_WORKSPACE': ''},
+                                    {'ORDINARY_ARTIFACT_CHECKOUT': str(other)},
+                                    {'ORDINARY_BUILD_IMAGE': 'rust-build:latest'},
+                                    {'ImageOS': ''}, {'ImageOS': 'linux'}):
+                        with self.subTest(changes=changes), patch.dict(os.environ, changes), self.assertRaises(ValueError):
+                            artifacts.ordinary_image_preflight()
+                    self.assertEqual(report['runner_image'], 'ubuntu24')
+                    for release in ({'ID': 'debian', 'VERSION_ID': '24.04'},
+                                    {'ID': 'ubuntu', 'VERSION_ID': '22.04'}, {}):
+                        with patch.object(artifacts.platform, 'freedesktop_os_release', return_value=release), self.assertRaises(ValueError):
+                            artifacts.ordinary_image_preflight()
+                    with patch.object(artifacts, 'ROOT', other), self.assertRaises(ValueError):
+                        artifacts.ordinary_image_preflight()
+                    os.chdir(other)
+                    with self.assertRaises(ValueError):
+                        artifacts.ordinary_image_preflight()
+            finally:
+                os.chdir(original_cwd)
+
     def test_build_timings_include_dependency_freshness_per_variant(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

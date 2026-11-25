@@ -32,6 +32,8 @@ policy = maintenance.policy
 ACTION_REVISION = 'd1527c8f67ef9af357290475d4af4b0fab8f12e0'
 DENIED = 78
 FAMILIES = {
+    'ordinary-image': ('ci-ordinary-image-f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c',
+                       '.github/workflows/rust.yml', 'oasis7-test-build-trusted'),
     'rust-image-native': ('ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3',
                           '.github/workflows/rust-cache.yml',
                           'rust-image-native-cache'),
@@ -137,7 +139,9 @@ def trusted_writer(environment, api):
                          ('GITHUB_SHA', 'GITHUB_EVENT_NAME', 'GITHUB_RUN_ID'))
     rust_full = family in ('shared-native', 'formal-debug', 'formal-endpoint', 'release-web')
     component_image = family in COMPONENT_IMAGE_FAMILIES
-    events = ('schedule', 'workflow_dispatch') if rust_full or component_image else ('workflow_dispatch',)
+    ordinary_image = family == 'ordinary-image'
+    events = (('push', 'schedule', 'workflow_dispatch') if ordinary_image else
+              ('schedule', 'workflow_dispatch') if rust_full or component_image else ('workflow_dispatch',))
     if (environment.get('GITHUB_ACTIONS') != 'true'
             or (environment.get('RUNNER_OS'), environment.get('RUNNER_ARCH')) not in PLATFORMS[family]
             or environment.get('GITHUB_REF') != maintenance.MAIN_REF
@@ -148,7 +152,7 @@ def trusted_writer(environment, api):
             or environment.get('GITHUB_WORKFLOW_REF') != f'{api.repository}/{workflow}@refs/heads/main'
             or not re.fullmatch(r'[0-9a-f]{40}', sha) or not re.fullmatch(r'[1-9][0-9]*', run_id)):
         raise AdmissionError('dependency upload requires the current trusted main writer identity')
-    if (rust_full or component_image or family == 'rust-image-native') and event == 'workflow_dispatch':
+    if (rust_full or component_image or ordinary_image or family == 'rust-image-native') and event == 'workflow_dispatch':
         modes = (('full', 'image-native') if component_image else
                  ('image-native',) if family == 'rust-image-native' else ('full',))
         try:
@@ -167,7 +171,12 @@ def trusted_writer(environment, api):
         if (environment.get('OASIS7_DEPENDENCY_CACHE_SOURCE_SHA') != sha
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('package dependency upload requires the matching planned main source and GitHub provider')
-    if component_image or family in ('shared-native', 'rust-image-native') or package_source:
+    if ordinary_image:
+        expected_image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.removeprefix('ci-ordinary-image-')
+        if (environment.get('ORDINARY_BUILD_IMAGE') != expected_image
+                or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
+            raise AdmissionError('ordinary dependency upload requires its exact image and GitHub provider')
+    if component_image or ordinary_image or family in ('shared-native', 'rust-image-native') or package_source:
         try:
             # The plan must still describe the actual checkout after the build.
             git_environment = {key: value for key, value in environment.items()

@@ -1534,6 +1534,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     needs: [select, cache-bootstrap-maintenance]
     outputs:
       cache_key: ${{ steps.ordinary-cache-identity.outputs.key }}
@@ -1557,6 +1558,20 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      ImageOS: ubuntu24
+      ORDINARY_ARTIFACT_CHECKOUT: /home/runner/work/oasis7/oasis7
+      ORDINARY_BUILD_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - &linux-mold-event-tools-checkout
         name: Check out workflow linker setup
@@ -1566,6 +1581,32 @@ jobs:
           persist-credentials: false
           fetch-depth: ${{ github.sha != '' && github.workflow_sha == github.sha && '0' || '1' }}
           sparse-checkout: ${{ (github.sha == '' || github.workflow_sha != github.sha) && '.github/actions/setup-linux-mold' || '' }}
+      - name: Verify trusted ordinary image and source
+        run: |
+          set -euo pipefail
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$ORDINARY_ARTIFACT_CHECKOUT"
+          python3 scripts/ci-test-artifacts.py ordinary-image-preflight
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          test "$(rustc --version | cut -d ' ' -f 2)" = "$RUST_TOOLCHAIN"
+          rustup component list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx clippy-x86_64-unknown-linux-gnu
+          rustup component list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx rustfmt-x86_64-unknown-linux-gnu
+          rustup component list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx rust-src
+          rustup target list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx wasm32-unknown-unknown
+          rustup target list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx "$OASIS7_WASM_TARGET"
+          pkg-config --exists wayland-client xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
+          zstd --version
+          cat > "$RUNNER_TEMP/ordinary-image-cwd.bash" <<'ORDINARY_CWD'
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1
+          ORDINARY_CWD
+          chmod 600 "$RUNNER_TEMP/ordinary-image-cwd.bash"
+          printf 'BASH_ENV=%s\n' "$RUNNER_TEMP/ordinary-image-cwd.bash" >> "$GITHUB_ENV"
       - *ordinary-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ github.sha == '' || github.workflow_sha != github.sha }}
@@ -1574,16 +1615,29 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - *ordinary-download-selection-artifact
-      - *ordinary-actions-setup-python
       - *ordinary-report-ordinary-workspace-cache-capacity
       - *ordinary-reclaim-unused-candidate-sdk-capacity
-      - *ordinary-install-pinned-rust-toolchains
       - *ordinary-stabilize-rust-cache-toolchains
-      - *ordinary-shared-rust-cache
+      - name: Install ordinary dependency cache admission
+        id: ordinary-dependency-cache-tools
+        run: python3 scripts/ci-rust-cache-admission.py install-release
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        env:
+          NODE_OPTIONS: ${{ steps.ordinary-dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.ordinary-dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          shared-key: ci-ordinary-image-f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-provider: github
+          save-if: ${{ job.status == 'success' && steps.ordinary-dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          cache-on-failure: false
       - *ordinary-ordinary-cache-identity
       - *ordinary-ordinary-workspace-cache
       - *ordinary-validate-and-restore-ordinary-workspace-units
-      - *ordinary-install-native-libraries
       - *ordinary-wait-candidate-sdk-capacity
       - *ordinary-build-ordinary-test-artifacts
       - *ordinary-actions-upload-artifact
