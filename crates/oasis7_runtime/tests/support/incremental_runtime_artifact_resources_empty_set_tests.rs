@@ -2,7 +2,12 @@ use super::*;
 
 #[test]
 fn builtin_remove_missing_entry_prunes_existing_empty_set_but_absent_set_is_noop() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let (manifest, delta, mut builtins) = rich_sources();
         builtins.insert("empty-set".into(), BTreeMap::new());
 

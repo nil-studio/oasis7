@@ -5,7 +5,12 @@ use oasis7_formal_protocol::incremental_execution::{
 use oasis7_formal_protocol::incremental_value::ValueNodeWriter;
 use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayContextV1;
 pub(super) fn exercise() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("transitions");
         let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();

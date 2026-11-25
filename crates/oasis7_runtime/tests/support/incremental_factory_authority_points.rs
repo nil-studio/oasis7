@@ -5,7 +5,12 @@ fn family_bound_lifecycle_and_original_columns_share_one_transaction() {
     use FactoryAuthorityCellV1 as C;
     use FactoryAuthorityCellValueRefV1 as V;
     use FactoryAuthorityRecordKindV1 as K;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let _caller = memory.reserve(256 << 10, MemoryClass::Ordinary).unwrap();

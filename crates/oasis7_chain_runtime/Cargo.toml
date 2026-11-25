@@ -18,8 +18,6 @@ oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_consensus = { path = "../oasis7_consensus" }
 oasis7_simulator = { path = "../oasis7_simulator" }
-oasis7 = { path = "../oasis7", default-features = false }
-oasis7_agent_harness = { version = "0.1.0", path = "../oasis7_agent_harness" }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
 oasis7_agent_api = { version = "0.1.0", path = "../oasis7_agent_api" }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
@@ -50,7 +48,6 @@ ctrlc = { version = "3.4", features = ["termination"] }
 reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 toml = "0.9.12"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "tracing-log"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
@@ -61,9 +58,14 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 [features]
 default = ["wasmtime", "node-libp2p"]
 node-libp2p = ["dep:oasis7_executable_image", "oasis7_node/libp2p", "dep:oasis7_net", "oasis7_net/libp2p"]
-wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
-test_tier_required = ["oasis7/test_tier_required"]
-test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
+# Preserve the historical umbrella's effective feature closure through its
+# native owners. Keep the normal/dev umbrella edges until the actual H1/H2
+# Chain consumers and their recovery tests have been cut over separately.
+wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7_runtime/wasmtime", "oasis7_world_service/wasmtime"]
+# Also turn on the native L4 Host's original required/full test tiers.
+# Unlike the old umbrella, these are explicit and must not be lost on cutover.
+test_tier_required = ["oasis7_runtime_host/test_tier_required", "oasis7_simulator/test_tier_required", "oasis7_runtime/test_tier_required", "oasis7_world_service/test_tier_required"]
+test_tier_full = ["test_tier_required", "oasis7_runtime_host/test_tier_full", "oasis7_simulator/test_tier_full", "oasis7_runtime/test_tier_full", "oasis7_world_service/test_tier_full"]
 # Compile the existing capacity smoke for the standalone Storage producer.
 ci_storage_acceptance = []
 
@@ -73,7 +75,11 @@ oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test
 oasis7_viewer_runtime = { path = "../oasis7_viewer_runtime", default-features = false, features = ["test_tier_required"] }
 # Keep fixture helpers available to the moved harness without enabling them in production builds.
 oasis7 = { path = "../oasis7", default-features = false, features = ["test_tier_required"] }
+oasis7_agent_harness = { version = "0.1.0", path = "../oasis7_agent_harness" }
 oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false, features = ["test-hooks"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "tracing-log"] }
 
 [target.'cfg(unix)'.dependencies]
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio", "system-config"] }

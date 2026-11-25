@@ -40,7 +40,12 @@ fn point_options_closed_status_and_lifecycle_replay_in_one_transaction() {
     use MainTokenPolicyKeyV1 as K;
     use MainTokenPolicyValueRefV1 as P;
     use MainTokenPolicyValueV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store =

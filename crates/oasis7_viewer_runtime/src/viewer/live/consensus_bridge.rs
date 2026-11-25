@@ -1,5 +1,5 @@
 use super::*;
-use crate::consensus_action_payload::{
+use oasis7_world_service::consensus_action_payload::{
     ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope, decode_consensus_action_payload,
     encode_consensus_action_payload,
 };
@@ -83,7 +83,7 @@ impl LiveConsensusBridge {
                         ));
                     }
                     Err(err) => {
-                        crate::observability::emit_stderr_or_event(
+                        oasis7_observability::emit_stderr_or_event(
                             tracing::Level::WARN,
                             format!(
                                 "viewer live consensus bridge: skip undecodable payload action_id={} err={}",

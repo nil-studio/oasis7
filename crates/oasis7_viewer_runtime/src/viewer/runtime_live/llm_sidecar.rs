@@ -18,15 +18,17 @@ use crate::simulator::AsyncAgentRunner;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::simulator::ProviderOriginalMaterialStore;
 use crate::simulator::{
-    ActionCatalogEntry, AgentDecision, AgentDecisionTrace,
-    ContinuationProposalV1 as SimulatorContinuationProposalV1, ContinuousAgentResponseContextV1,
-    LlmAgentBehavior, LlmAgentConfig, MemoryWriteStore, OpenAiChatCompletionClient,
-    ProviderAgentChatRequest, ProviderBackedAgentBehavior, ProviderExecutionMode,
-    ProviderLoopbackAdapter, ProviderLoopbackHttpClient, RuntimeBindingV1, WorldEvent, WorldKernel,
-    evaluate_provider_compatibility, provider_agent_chat_log_key,
+    AgentDecision, AgentDecisionTrace, ContinuousAgentResponseContextV1, LlmAgentBehavior,
+    LlmAgentConfig, MemoryWriteStore, OpenAiChatCompletionClient, ProviderBackedAgentBehavior,
+    ProviderLoopbackAdapter, ProviderLoopbackHttpClient, WorldEvent, WorldKernel,
 };
 use crate::viewer::live::ViewerLiveDecisionMode;
 use crate::viewer::protocol::{AgentChatAck, AgentChatError};
+use oasis7_agent_api::{
+    ActionCatalogEntry, ContinuationProposalV1 as SimulatorContinuationProposalV1,
+    ProviderAgentChatRequest, ProviderExecutionMode, RuntimeBindingV1, provider_agent_chat_log_key,
+};
+use oasis7_client_api::evaluate_provider_compatibility;
 use oasis7_simulator::{
     Action as SimulatorAction, AgentPromptProfile, ChunkRuntimeConfig, Location, ResourceOwner,
     WorldConfig, WorldEventKind, WorldModel,
@@ -1145,3 +1147,38 @@ pub(in crate::viewer::runtime_live) mod service_orphan_recovery;
 #[cfg(test)]
 #[path = "agent_service_identity_tests.rs"]
 mod hosted_identity_tests;
+
+#[cfg(test)]
+mod canonical_sidecar_contract_tests {
+    use super::*;
+    use std::any::TypeId;
+
+    #[test]
+    fn live_sidecar_contracts_keep_original_type_identity() {
+        assert_eq!(
+            TypeId::of::<ActionCatalogEntry>(),
+            TypeId::of::<crate::simulator::ActionCatalogEntry>(),
+        );
+        assert_eq!(
+            TypeId::of::<SimulatorContinuationProposalV1>(),
+            TypeId::of::<crate::simulator::ContinuationProposalV1>(),
+        );
+        assert_eq!(
+            TypeId::of::<ProviderAgentChatRequest>(),
+            TypeId::of::<crate::simulator::ProviderAgentChatRequest>(),
+        );
+        assert_eq!(
+            TypeId::of::<ProviderExecutionMode>(),
+            TypeId::of::<crate::simulator::ProviderExecutionMode>(),
+        );
+        assert_eq!(
+            TypeId::of::<RuntimeBindingV1>(),
+            TypeId::of::<crate::simulator::RuntimeBindingV1>(),
+        );
+        let info = oasis7_client_api::ProviderInfo::default();
+        assert_eq!(
+            evaluate_provider_compatibility(&info, None),
+            crate::simulator::evaluate_provider_compatibility(&info, None),
+        );
+    }
+}

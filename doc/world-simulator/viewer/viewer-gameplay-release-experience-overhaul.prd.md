@@ -806,7 +806,7 @@ required after the corresponding implementation slice.
   - 对策：将显示策略抽为纯函数并增加定向单测，保证规则可验证。
 
 #### 验收结果（VRI8P3）
-- 回归结果：
+- 回归结果（历史记录：当时 `oasis7_viewer` 仍为 Rust crate；当前 Web viewer 已迁移至 `crates/oasis7_viewer/` 前端包，验证以 `npm --prefix crates/oasis7_viewer run test:ui` 与 `build:viewer:bundle` 为准）：
   - `env -u RUSTC_WRAPPER cargo test -p oasis7_viewer` 通过（325 tests）。
   - `env -u RUSTC_WRAPPER cargo check -p oasis7_viewer --target wasm32-unknown-unknown` 通过。
 - Web 闭环（agent-browser，按 `testing-manual.md` S6）：
@@ -879,7 +879,7 @@ required after the corresponding implementation slice.
   - 对策：把显隐/锚点规则抽成纯函数并补充定向单测。
 
 #### 验收结果（VRI9P3）
-- 回归结果：
+- 回归结果（历史记录：当时 `oasis7_viewer` 仍为 Rust crate；当前验证入口同上）：
   - `env -u RUSTC_WRAPPER cargo test -p oasis7_viewer` 通过（328 tests）。
   - `env -u RUSTC_WRAPPER cargo check -p oasis7_viewer --target wasm32-unknown-unknown` 通过。
 - Web 闭环（agent-browser，按 `testing-manual.md` S6）：
@@ -957,7 +957,7 @@ required after the corresponding implementation slice.
   - 对策：同步更新中英文文案并覆盖关键断言测试。
 
 #### 验收记录（VRI10P3）
-- 回归命令：
+- 回归命令（历史记录：当时 `oasis7_viewer` 仍为 Rust crate；当前验证入口同上）：
   - `env -u RUSTC_WRAPPER cargo test -p oasis7_viewer`
   - `env -u RUSTC_WRAPPER cargo check -p oasis7_viewer --target wasm32-unknown-unknown`
 - Web 闭环（agent-browser）：
