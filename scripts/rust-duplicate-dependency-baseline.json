@@ -68,7 +68,6 @@
     "toml_datetime": 3,
     "syn": 2,
     "unsigned-varint": 2,
-    "wasm-encoder": 2,
     "wasm-streams": 2,
     "windows-sys": 4,
     "windows-targets": 2,
