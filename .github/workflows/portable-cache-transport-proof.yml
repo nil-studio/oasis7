@@ -18,7 +18,7 @@ env:
   CODE_SHA: df8837b49da30fc1d3156d01a6225e7921da2464
 jobs:
   browser-writer:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
+    if: github.repository == 'nil-studio/oasis7' && github.base_ref == 'codex/engineering-portable-cache-producer-images' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     outputs:
@@ -33,10 +33,11 @@ jobs:
         run: |
           test "$(id -u):$(id -g)" = 1001:1001
           git fetch --no-tags --depth=1 origin "$CODE_SHA"
-          for path in scripts/ci-portable-cache-container.py scripts/ci-worker-build.py scripts/ci-browser-deps.py scripts/ci-tool-cache.py scripts/ci_process_runner.py scripts/ci-cache-maintenance.py scripts/ci-cache-policy.py rust-toolchain.toml .cargo/config.toml; do
+          for path in scripts/ci-portable-cache-container.py scripts/ci-worker-build.py scripts/ci-browser-deps.py scripts/ci-tool-cache.py scripts/ci_process_runner.py scripts/ci-cache-maintenance.py scripts/ci-cache-policy.py Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml .github/actions/setup-linux-mold; do
             test "$(git rev-parse "$CODE_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
           done
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git diff --name-only "$CODE_SHA" HEAD)" = .github/workflows/portable-cache-transport-proof.yml
       - name: Prepare the actual production tool image and router
         shell: bash
         env:
@@ -77,7 +78,7 @@ jobs:
           PROBE_CACHE_KEY: ${{ steps.metadata.outputs.fonts_freefont_ttf_key }}
         run: |
           python3 scripts/ci-browser-deps.py admit-save --component fonts-freefont-ttf --key "$PROBE_CACHE_KEY" > "$RUNNER_TEMP/portable-admission.json"
-          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/portable-admission.json")); assert r["save"] is False; print("diagnostic_save_rejected=true")'
+          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/portable-admission.json")); assert r["save"] is False and r["saved_confirmed"] is None; assert r["reason"] == "browser-archive cache save requires the exact trusted main writer"; print("diagnostic_save_rejected=true")'
       - name: Stage the original host archive ABI
         id: stage
         env:
@@ -120,7 +121,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
   worker-writer:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
+    if: github.repository == 'nil-studio/oasis7' && github.base_ref == 'codex/engineering-portable-cache-producer-images' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     outputs:
@@ -135,10 +136,11 @@ jobs:
         run: |
           test "$(id -u):$(id -g)" = 1001:1001
           git fetch --no-tags --depth=1 origin "$CODE_SHA"
-          for path in scripts/ci-portable-cache-container.py scripts/ci-worker-build.py scripts/ci-browser-deps.py scripts/ci-tool-cache.py scripts/ci_process_runner.py scripts/ci-cache-maintenance.py scripts/ci-cache-policy.py rust-toolchain.toml .cargo/config.toml; do
+          for path in scripts/ci-portable-cache-container.py scripts/ci-worker-build.py scripts/ci-browser-deps.py scripts/ci-tool-cache.py scripts/ci_process_runner.py scripts/ci-cache-maintenance.py scripts/ci-cache-policy.py Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml .github/actions/setup-linux-mold; do
             test "$(git rev-parse "$CODE_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
           done
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git diff --name-only "$CODE_SHA" HEAD)" = .github/workflows/portable-cache-transport-proof.yml
       - uses: ./.github/actions/setup-linux-mold
       - name: Prepare the actual production tool image and router
         shell: bash
@@ -183,7 +185,7 @@ jobs:
           PROBE_CACHE_KEY: worker-build-cli-v1-Linux-X64-1.96.0-0.7.5-${{ steps.metadata.outputs.definition_sha }}
         run: |
           python3 scripts/ci-worker-build.py admit-save --key "$PROBE_CACHE_KEY" > "$RUNNER_TEMP/portable-admission.json"
-          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/portable-admission.json")); assert r["save"] is False; print("diagnostic_save_rejected=true")'
+          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/portable-admission.json")); assert r["save"] is False and r["saved_confirmed"] is None; assert r["reason"] == "worker-build cache save requires the exact trusted main writer"; print("diagnostic_save_rejected=true")'
       - name: Stage the original host archive ABI
         id: stage
         env:
@@ -226,7 +228,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
   host-reader:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
+    if: github.repository == 'nil-studio/oasis7' && github.base_ref == 'codex/engineering-portable-cache-producer-images' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
     needs: [browser-writer, worker-writer]
     runs-on: ubuntu-24.04
     timeout-minutes: 3
