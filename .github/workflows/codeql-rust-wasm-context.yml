@@ -54,6 +54,7 @@ jobs:
           WASM_TRUSTED_REF: ${{ format('refs/heads/{0}', github.event.repository.default_branch) }}
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
+          export TMPDIR="$RUNNER_TEMP"
           python3 - <<'PYBOOT'
           # BEGIN_WASM_CONTEXT_BOOTSTRAP
           import base64, datetime, email.utils, hashlib, importlib.util, json, math, os

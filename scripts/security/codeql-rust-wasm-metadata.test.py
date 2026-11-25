@@ -945,6 +945,7 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('test ! -w /opt/oasis7-rust/rustup', guard)
             self.assertNotIn('toolchain install', guard)
             self.assertIn("SOURCE = '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'", original)
+            self.assertIn('export TMPDIR="$RUNNER_TEMP"\n', original)
             guards.append(guard)
         self.assertEqual(*guards)
         self.assertEqual(*images)
