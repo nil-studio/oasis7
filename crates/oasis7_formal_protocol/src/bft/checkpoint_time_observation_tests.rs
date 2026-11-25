@@ -313,14 +313,11 @@ fn renewal_read_pins_original_predecessor_clock_and_safety_then_recovers() {
     predecessor.issued_at_unix_ms = 39;
     predecessor.not_before_unix_ms = 39;
     let previous_bytes = signed("issuer-status", &predecessor, 118);
-    let previous_digest = AuthenticatedBftCheckpointIssuerStatusV1::decode(
-        &previous_bytes,
-        &policy,
-        &pin,
-    )
-    .unwrap()
-    .digest()
-    .to_owned();
+    let previous_digest =
+        AuthenticatedBftCheckpointIssuerStatusV1::decode(&previous_bytes, &policy, &pin)
+            .unwrap()
+            .digest()
+            .to_owned();
     let mut current = status(&policy);
     current.status_sequence = 3;
     let current_bytes = signed("issuer-status", &current, 118);
@@ -393,97 +390,113 @@ fn renewal_read_pins_original_predecessor_clock_and_safety_then_recovers() {
         prepared.status_digest()
     );
 
-    assert!(check(
-        &previous_bytes,
-        &h(99),
-        &current_bytes,
-        &time_bytes,
-        &challenge(),
-        Some(&continuity),
-        b"old",
-    )
-    .is_err());
-    assert!(check(
-        &previous_bytes,
-        &previous_digest,
-        &current_bytes,
-        &time_bytes,
-        &challenge(),
-        None,
-        b"old",
-    )
-    .is_err());
-    assert!(check(
-        &previous_bytes,
-        &previous_digest,
-        &current_bytes,
-        &time_bytes,
-        &challenge(),
-        Some(&continuity),
-        b"modified",
-    )
-    .is_err());
+    assert!(
+        check(
+            &previous_bytes,
+            &h(99),
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            None,
+            b"old",
+        )
+        .is_err()
+    );
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"modified",
+        )
+        .is_err()
+    );
     let mut wrong_challenge = challenge();
     wrong_challenge.observation_nonce = h(100);
-    assert!(check(
-        &previous_bytes,
-        &previous_digest,
-        &current_bytes,
-        &time_bytes,
-        &wrong_challenge,
-        Some(&continuity),
-        b"old",
-    )
-    .is_err());
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &wrong_challenge,
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
 
     let mut rollback = current.clone();
     rollback.status_sequence = 0;
-    assert!(check(
-        &previous_bytes,
-        &previous_digest,
-        &signed("issuer-status", &rollback, 118),
-        &time_bytes,
-        &challenge(),
-        Some(&continuity),
-        b"old",
-    )
-    .is_err());
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &signed("issuer-status", &rollback, 118),
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
     let mut revoked = current.clone();
     revoked.issuer_keys[0].revoked_at_unix_ms = Some(40);
-    assert!(check(
-        &previous_bytes,
-        &previous_digest,
-        &signed("issuer-status", &revoked, 118),
-        &time_bytes,
-        &challenge(),
-        Some(&continuity),
-        b"old",
-    )
-    .is_err());
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &signed("issuer-status", &revoked, 118),
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
     let mut expired = current.clone();
     expired.expires_at_unix_ms = 45;
-    assert!(check(
-        &previous_bytes,
-        &previous_digest,
-        &signed("issuer-status", &expired, 118),
-        &time_bytes,
-        &challenge(),
-        Some(&continuity),
-        b"old",
-    )
-    .is_err());
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &signed("issuer-status", &expired, 118),
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
     let mut missing_history = continuity.clone();
     missing_history.previous_observation = None;
-    assert!(check(
-        &previous_bytes,
-        &previous_digest,
-        &current_bytes,
-        &time_bytes,
-        &challenge(),
-        Some(&missing_history),
-        b"old",
-    )
-    .is_err());
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            Some(&missing_history),
+            b"old",
+        )
+        .is_err()
+    );
     // A failed candidate is not retained as an authority: the original read
     // still works after a valid signed original and continuation are restored.
     assert_eq!(
