@@ -5,8 +5,8 @@
 //! root before the production entrypoints can safely install this delta.
 
 use super::transition::{
-    BorrowedWorldView, DurableCommitConfirmation, PreparedStagedCommit, RootInstallContext,
-    StagedTransition, SubsystemDelta, TransitionContext, TransitionReject,
+    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition,
+    SubsystemDelta, TransitionContext, TransitionReject,
 };
 use super::WorldError;
 
@@ -54,7 +54,8 @@ impl StagedTransition for NextTickClock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::World;
+    use super::super::transition::DurableCommitConfirmation;
+    use crate::world::World;
 
     #[test]
     fn next_tick_stages_without_mutation_and_installs_only_after_confirmation() {
