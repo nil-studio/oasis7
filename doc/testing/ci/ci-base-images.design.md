@@ -24,6 +24,7 @@ Linux CI 共用一套 Ubuntu 24.04 底座、一份多阶段 Dockerfile 和一条
 | `rust-ordinary-builder` | 复用 rust-build，为可信普通产物 producer 预装固定 Docker CLI 与 Buildx | 候选离线校验普通 UID、客户端路径和版本。消费者验证 runner 已有 daemon、原 canonical WASM recipe 与产物身份 |
 | `browser` | 复用 runtime 的 Node，在其上提供 npm、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
 | `rust-custody-wasm` | 复用 rust-build，在专用路径提供固定 Node 22 及 npm。容器内部仅向 UID 1001 开放 `/.cache/oasis7`，供现有只读工具归档按原相对路径恢复 | 非 root 离线验证 Node/npm、Rust WASM targets、实际 tar 解包与路径权限。原 Worker 和 bindgen 身份由消费作业核对 |
+| `rust-viewer` | 复用 Rust 层和 Node 24/npm，按现 Viewer 合同固定完整 Chrome、agent-browser、Playwright 模块与字体 | 非 root 离线运行原 Chrome 探针，并用 Playwright 连接同一 Chrome 验证 site quality 入口 |
 
 五个目标从同一 Node 24 官方镜像来源构建，构建时固定来源 digest 并记录在镜像标签。通用层提供 Node 可执行文件，browser 层提供 npm 及其锁文件依赖。镜像 smoke 验证离线工具能力，CodeQL 的 JavaScript/TypeScript 提取由实际分析 job 验证所用的正式摘要。
 
@@ -33,7 +34,7 @@ Rust 或 Node 依赖仍沿用仓库锁文件和相应的缓存策略。预装 ru
 
 独立工作流从受保护的 main 构建并发布到 GHCR。基础镜像以 digest 固定，记录 Dockerfile 与清单来源提交、目标架构、实际系统包及工具链版本、目标镜像 digest 和安全扫描结果。Rust 工具链合同或 Playwright 锁文件改变时，由发布流水线重建受影响目标，再以 PR 提升消费 digest。通过定期重建或安全更新触发候选构建，由更新 PR 审查并提升消费 digest。历史已采用 digest 至少保留到迁移验证结束并覆盖回退窗口。
 
-发布分为两组并行作业，每组在原 10 分钟时限内逐个下载、加载、推送并清理所属镜像。通用五个目标和专用四个目标都消费同一可信构建作业的扫描通过产物。九个镜像串行时，实际发布在第八个目标推送期间耗尽预算。 [正式发布运行](https://github.com/nil-studio/oasis7/actions/runs/45599148910)
+发布分为两组并行作业，每组在原 10 分钟时限内逐个下载、加载、推送并清理所属镜像。通用组和专用组都消费同一可信构建作业的扫描通过产物。九个镜像串行时，实际发布在第八个目标推送期间耗尽预算。 [正式发布运行](https://github.com/nil-studio/oasis7/actions/runs/45599148910)
 
 发布 job 单独授予包写权限。普通 PR，包括 fork PR，只拉取已发布的可信 digest。接入前验证 fork pull_request 的无发布凭据拉取路径。若镜像可见性不满足此条件，先解决分发方案。镜像只含可公开分发的构建工具与系统包，发布工作流不使用普通 PR 产物或其缓存作为可信输入。镜像改动、digest 提升和 CI 门禁接线接受独立评审。
 

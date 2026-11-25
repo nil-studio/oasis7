@@ -27,6 +27,7 @@ from ci_process_runner import run
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / 'scripts/ci-browser-tools'
+VIEWER_IMAGE = Path('/opt/oasis7-viewer-browser')
 AGENT_VERSION = '0.43.0'
 AGENT_PLATFORM_PACKAGE = '@agent-browser/cli-linux-x64-gnu'
 PLAYWRIGHT_VERSION = '1.62.1'
@@ -303,19 +304,20 @@ def prepare(browser, work, cache_base=None):
     print(json.dumps(dict(browser=browser, missing=missing, apt_required=bool(missing)), sort_keys=True))
 
 
-def check_tools(browser):
+def check_tools(browser, tools=None):
+    tools = TOOLS if tools is None else tools
     node = subprocess.check_output(['node', '--version'], text=True, timeout=10).strip()
     if not re.fullmatch(r'v24\.[0-9]+\.[0-9]+', node):
         raise BrowserError('CI browser tools require Node 24')
     names = {'agent-browser': AGENT_VERSION, 'playwright': PLAYWRIGHT_VERSION,
              'playwright-core': PLAYWRIGHT_VERSION}
     for name, version in names.items():
-        manifest = TOOLS / 'node_modules' / name / 'package.json'
+        manifest = tools / 'node_modules' / name / 'package.json'
         if json.loads(manifest.read_text()).get('version') != version:
             raise BrowserError(f'installed browser tool version mismatch: {name}')
     # Run the native executable from the lockfile-pinned Linux glibc package.
     # Do not run the JS launcher or postinstall: both can rewrite bin links.
-    package = TOOLS / 'node_modules' / AGENT_PLATFORM_PACKAGE
+    package = tools / 'node_modules' / AGENT_PLATFORM_PACKAGE
     binary = package / 'bin' / 'agent-browser'
     if browser == 'agent':
         manifest = package / 'package.json'
@@ -380,16 +382,15 @@ def activate(browser, work, github_env=None, *, prebuilt=False):
     if missing:
         raise BrowserError('browser dependencies remain missing: ' + ', '.join(missing))
     if prebuilt:
-        if browser != 'playwright':
-            raise BrowserError('prebuilt activation supports Playwright only')
         work.mkdir(parents=True, exist_ok=True)
-    agent = None if prebuilt else check_tools(browser)
     if browser == 'agent':
-        agent.chmod(0o755)
+        agent = check_tools(browser, VIEWER_IMAGE / 'scripts/ci-browser-tools') if prebuilt else check_tools(browser)
+        if not prebuilt:
+            agent.chmod(0o755)
         actual = checked_command([str(agent), '--version'], work, 'agent-version', 10).strip()
         if actual != f'agent-browser {AGENT_VERSION}':
             raise BrowserError('agent-browser executable version mismatch')
-        chrome = work / 'chrome/chrome-linux64/chrome'
+        chrome = (VIEWER_IMAGE if prebuilt else work) / 'chrome/chrome-linux64/chrome'
         actual = checked_command([str(chrome), '--version'], work, 'chrome-version', 10).strip()
         if actual != f'Google Chrome for Testing {CHROME_VERSION}':
             raise BrowserError('Chrome executable version mismatch')
@@ -399,7 +400,11 @@ def activate(browser, work, github_env=None, *, prebuilt=False):
         if f'<body>{marker}</body>' not in dom:
             raise BrowserError('Chrome renderer probe did not return the expected document')
         values = dict(AGENT_BROWSER_BIN=str(agent), AGENT_BROWSER_EXECUTABLE_PATH=str(chrome))
+        if prebuilt:
+            values['OASIS7_PLAYWRIGHT_MODULE'] = str(VIEWER_IMAGE / 'scripts/ci-browser-tools/node_modules/playwright')
     else:
+        if not prebuilt:
+            check_tools(browser)
         module = Path('/opt/oasis7-browser/node_modules/playwright') if prebuilt else TOOLS / 'node_modules/playwright'
         browsers = Path('/opt/oasis7-playwright') if prebuilt else work / 'playwright-browsers'
         extra = dict(PLAYWRIGHT_BROWSERS_PATH=str(browsers))

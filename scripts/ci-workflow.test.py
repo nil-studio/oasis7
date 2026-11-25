@@ -4195,6 +4195,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             targets.append('rust-custody-wasm')
             self.assertIn('ARG CUSTODY_NODE_BASE=node:22-bookworm-slim', dockerfile)
             self.assertIn('install -d -m 0700 -o 1001 -g 1001 /.cache/oasis7', dockerfile)
+        if re.search(r'^FROM rust-build AS rust-viewer$', dockerfile, re.M):
+            targets.append('rust-viewer')
+            self.assertIn('activate --prebuilt --browser agent', (ROOT / 'docker/ci-base/build.sh').read_text())
+            self.assertIn('COPY --from=viewer-browser . /opt/oasis7-viewer-browser/', dockerfile)
         self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]

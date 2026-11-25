@@ -4,8 +4,8 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm) ;;
-  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm" >&2; exit 2 ;;
+  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm|rust-viewer) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm|rust-viewer" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
@@ -23,6 +23,14 @@ options=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
 if [[ "$target" == browser ]]; then
   options+=(--build-context browser-tools=../../scripts/ci-browser-tools)
 fi
+if [[ "$target" == rust-viewer ]]; then
+  viewer_context=$(mktemp -d)
+  trap 'rm -rf -- "$viewer_context"' EXIT
+  mkdir -p "$viewer_context/scripts/ci-browser-tools"
+  cp ../../scripts/{ci-browser-deps.py,ci_process_runner.py,ci-apt-install.py,ci-apt-dns.py} "$viewer_context/scripts/"
+  cp ../../scripts/ci-browser-tools/{package.json,package-lock.json} "$viewer_context/scripts/ci-browser-tools/"
+  options+=(--build-context "viewer-browser=$viewer_context")
+fi
 if [[ "$target" == rust-custody-wasm ]]; then
   custody_node_base=node:22-bookworm-slim
   custody_node_digest=$(docker buildx imagetools inspect "$custody_node_base" --format "{{json .Manifest}}" | jq -er .digest)
@@ -30,7 +38,7 @@ if [[ "$target" == rust-custody-wasm ]]; then
   options+=(--build-arg "CUSTODY_NODE_BASE=${custody_node_base}@${custody_node_digest}"
             --label "org.oasis7.ci.custody-node-base.digest=$custody_node_digest")
 fi
-if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm || "$target" == rust-viewer ]]; then
   workflow=../../.github/workflows/rust.yml
   stable=$(sed -n 's/^  RUST_TOOLCHAIN: //p' "$workflow")
   nightly=$(sed -n 's/^  OASIS7_WASM_TOOLCHAIN: //p' "$workflow")
@@ -45,7 +53,7 @@ elif [[ "$target" == codeql-rust ]]; then
   [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
   options+=(--build-arg "CODEQL_RUST_TOOLCHAIN=$stable")
 fi
-if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm || "$target" == rust-viewer ]]; then
   rust_base="rust:${stable}-bookworm"
   rust_digest=$(docker buildx imagetools inspect "$rust_base" --format "{{json .Manifest}}" | jq -er .digest)
   [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
@@ -274,5 +282,36 @@ if [[ "$target" == rust-custody-wasm ]]; then
       for toolchain in "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"; do
         rustc +"$toolchain" --target wasm32-unknown-unknown --crate-type lib "$scratch/smoke.rs" -o "$scratch/smoke.rlib"
       done
+    '
+fi
+
+if [[ "$target" == rust-viewer ]]; then
+  docker run --rm --init --platform linux/amd64 --network none --user 1001:1001 \
+    --env HOME=/tmp "$image" bash -euo pipefail -c '
+      work="$(mktemp -d)"
+      test -w /.cache/oasis7
+      test ! -w /.cache
+      npm --version
+      npx --version
+      rustc +"$RUST_TOOLCHAIN" --version
+      rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+      python3 /opt/oasis7-viewer-browser/scripts/ci-browser-deps.py activate --prebuilt --browser agent \
+        --work-dir "$work" --github-env "$work/browser.env"
+      set -a
+      source "$work/browser.env"
+      set +a
+      node -e "
+        const {chromium} = require(process.env.OASIS7_PLAYWRIGHT_MODULE);
+        (async () => {
+          const browser = await chromium.launch({headless: true, executablePath: process.env.AGENT_BROWSER_EXECUTABLE_PATH});
+          try {
+            const page = await browser.newPage();
+            await page.setContent(\"<title>Viewer Chrome smoke</title>\");
+            if (await page.title() !== \"Viewer Chrome smoke\") throw Error(\"Unexpected renderer result\");
+          } finally {
+            await browser.close();
+          }
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+      "
     '
 fi

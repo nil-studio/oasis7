@@ -106,3 +106,22 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /opt/oasis7-node22/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /opt/oasis7-node22/bin/npx \
     && install -d -m 0755 /.cache \
     && install -d -m 0700 -o 1001 -g 1001 /.cache/oasis7
+
+FROM rust-build AS rust-viewer
+COPY --from=node-tools /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+COPY --from=viewer-browser . /opt/oasis7-viewer-browser/
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && install -d -m 0755 /.cache \
+    && install -d -m 0700 -o 1001 -g 1001 /.cache/oasis7
+RUN bash -euo pipefail -c '\
+    tools=/opt/oasis7-viewer-browser/scripts; \
+    python3 "$tools/ci-browser-deps.py" tools; \
+    chmod 0755 "$tools/ci-browser-tools/node_modules/@agent-browser/cli-linux-x64-gnu/bin/agent-browser"; \
+    python3 "$tools/ci-browser-deps.py" prepare --browser agent --work-dir /tmp/oasis7-viewer-browser --cache-base /tmp/oasis7-viewer-archives; \
+    mapfile -t packages </tmp/oasis7-viewer-browser/apt-arguments.txt; \
+    if (( ${#packages[@]} )); then \
+        python3 "$tools/ci-apt-install.py" --budget-seconds 300 --no-remove "${packages[@]}"; \
+    fi; \
+    mv /tmp/oasis7-viewer-browser/chrome /opt/oasis7-viewer-browser/chrome; \
+    rm -rf /tmp/oasis7-viewer-browser /tmp/oasis7-viewer-archives /var/lib/apt/lists/* /root/.npm'
