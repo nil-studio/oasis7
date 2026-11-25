@@ -4,7 +4,6 @@
 //! this delta. Existing shipping cognition mutations retain their original
 //! clone/persist/recovery boundary until the full monetary owner is migrated.
 
-use super::World;
 use super::transition::{
     BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition,
     SubsystemDelta, TransitionContext, TransitionReject,
@@ -24,6 +23,10 @@ pub(super) struct StagedCognitionResourceBalance<'a> {
     pub available: u64,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the non-live staged balance component is awaiting its root cutover")
+)]
 pub(super) struct CognitionResourceBalanceDelta {
     projection: serde_json::Value,
 }
@@ -70,6 +73,7 @@ impl StagedTransition for StagedCognitionResourceBalance<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::World;
     use super::super::transition::DurableCommitConfirmation;
 
     fn prepare(
