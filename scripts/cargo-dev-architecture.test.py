@@ -176,6 +176,10 @@ class RepositoryUpstreams(unittest.TestCase):
                 self.assertIn(original, qa)
         self.assertNotIn('MockDecisionProvider', qa)
         self.assertNotIn('#[ignore]', qa)
+        # This final cutover gate intentionally stays red until the *real*
+        # native adapter replaces the last umbrella dev QA import; removing
+        # Cargo's dev edge while secretly keeping this import is not a cutover.
+        self.assertNotIn('use oasis7::simulator::{', qa)
 
     def test_chain_umbrella_retirement_rule_is_registered_in_all_relevant_profiles(self):
         rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
