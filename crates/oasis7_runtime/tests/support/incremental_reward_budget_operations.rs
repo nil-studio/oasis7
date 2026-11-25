@@ -34,7 +34,12 @@ fn open(
 }
 #[test]
 fn same_transaction_map_updates_multiple_appends_and_typed_receiver_preserve_order() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store =

@@ -20,6 +20,15 @@ spec.loader.exec_module(controls)
 # New invariants may be added; a candidate cannot remove these and its own checks.
 REQUIRED_FIXED_TESTS = json.loads(r'''
 {
+  "scripts/ci-bin-ownership.test.py": [
+    "Ownership.test_core_is_library_and_original_executable_names_survive_once",
+    "Ownership.test_newapi_service_has_no_transitive_world_dependency",
+    "Ownership.test_light_tool_and_provider_normal_build_dependency_boundaries",
+    "Ownership.test_signer_protocol_and_client_storage_are_independent_foundations",
+    "Ownership.test_client_proof_library_has_no_normal_world_or_node_dependency",
+    "Ownership.test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world",
+    "Ownership.test_no_cross_package_source_borrowing_from_binary_directories"
+  ],
   "scripts/ci-formal-process.test.py": [
     "Transition.test_selected_requires_real_success_and_not_selected_requires_skip",
     "Transition.test_formal_builder_failure_and_skip_combinations",
@@ -34,6 +43,24 @@ REQUIRED_FIXED_TESTS = json.loads(r'''
     "InlineExecutionSelection.test_known_inline_capability_rejects_incomplete_or_expanded_plans",
     "InlineExecutionSelection.test_clippy_owner_requires_the_complete_known_inline_plan",
     "DriverCoverage.test_inline_driver_builds_once_runs_manifest_and_propagates_each_failure"
+  ],
+  "scripts/ci-full-result.test.py": [
+    "Collections.test_unsafe_artifact_redirects_never_open_storage",
+    "DefinitionDigest.test_complete_governance_assertions_are_hashed_at_the_fixed_revision",
+    "DefinitionDigest.test_complete_governance_inventory_cannot_escape_or_duplicate_files",
+    "DefinitionDigest.test_digest_reads_contracts_at_fixed_revision_not_worktree",
+    "DefinitionDigest.test_invalid_trusted_contract_paths_fail_before_reading_unowned_data",
+    "DefinitionDigest.test_trusted_python_runner_change_invalidates_previous_definition",
+    "InheritedAttempts.test_attempt_identity_and_missing_producer_timing_fail_closed",
+    "InheritedAttempts.test_changed_failed_incomplete_or_ambiguous_alias_cannot_reuse_old_evidence",
+    "InheritedAttempts.test_newer_artifact_cannot_be_skipped_or_forged_from_an_alias",
+    "PeriodicAdmission.test_untrusted_workflow_or_current_context_fails_before_writing_a_decision",
+    "PublicationSource.test_candidate_cli_still_requires_main_policy_and_full_result",
+    "PublicationSource.test_only_trusted_main_testnet_can_opt_in_to_a_fixed_unmerged_source",
+    "Qualification.test_candidate_bootstrap_old_definition_and_wrong_event_fail",
+    "Qualification.test_failed_cancelled_missing_ambiguous_and_old_actual_gate",
+    "Qualification.test_missing_platform_result_or_inventory_entry_fails",
+    "Qualification.test_source_policy_attempt_and_repository_are_bound"
   ],
   "scripts/ci-python-control-contracts.test.py": [
     "TrustedContracts.test_baseline_code_loads_candidate_with_correct_main_and_inherited_inventory",
@@ -68,6 +95,29 @@ REQUIRED_FIXED_TESTS = json.loads(r'''
     "Results.test_full_cannot_hide_platform_by_omitting_inventory",
     "Results.test_full_checks_exact_identity_profile_and_inventory_version",
     "Results.test_full_candidate_requires_read_only_full_lane_not_main_success"
+  ],
+  "scripts/ci-workflow.test.py": [
+    "AllWorkflowJobsTimeoutGuardTests.test_every_executable_workflow_job_declares_timeout_minutes",
+    "BrowserDownloadCache.test_archive_writer_rejects_foreign_identity_unbounded_restore_and_unadmitted_save",
+    "PriorityRunnerRoutingContractTests.test_ci_priority_label_routes_same_repo_pr_required_jobs_only",
+    "PriorityRunnerRoutingContractTests.test_noop_label_runs_never_publish_skipped_required_gate_or_cancel_preview",
+    "WorkerToolCache.test_writer_rejects_foreign_identity_unbounded_keys_and_unadmitted_save",
+    "Workflow.test_candidate_source_input_requires_trusted_main_dispatch",
+    "Workflow.test_dependency_save_requires_success_and_current_trusted_source",
+    "Workflow.test_explicit_full_gate_covers_every_group_and_records_only_success",
+    "Workflow.test_failed_scope_planning_reports_gate_failure_before_artifact_download",
+    "Workflow.test_full_gate_produces_verifiable_policy_bound_receipt_from_real_authority",
+    "Workflow.test_governance_mode_is_fixed_before_candidate_code_can_write_outputs",
+    "Workflow.test_invalid_selected_group_cannot_silently_skip_command",
+    "Workflow.test_manual_candidate_full_is_read_only_and_not_scheduled",
+    "Workflow.test_old_policy_cannot_be_replaced_by_candidate_fast_policy",
+    "Workflow.test_partial_fast_builds_and_main_dispatched_candidates_never_write_cache",
+    "Workflow.test_preview_is_cold_read_only_and_independent_of_required_authority",
+    "Workflow.test_python_control_assertions_use_fixed_baseline_and_pinned_offline_tools",
+    "Workflow.test_required_gate_runs_real_json_cli_with_large_file_and_preserves_failure",
+    "Workflow.test_shared_cache_checkout_verifies_actual_current_main_source",
+    "Workflow.test_trusted_closure_and_safe_checkout",
+    "Workflow.test_trusted_writer_only_runs_on_protected_main"
   ],
   "scripts/plan-rust-required-scope.test.py": [
     "Selection.test_unknown_inputs_block_even_with_full_control_or_extra_groups",
@@ -447,6 +497,9 @@ def main():
             if actual is None:
                 actual = controls.test_inventory((HERE.parent / path).read_text())[1]
             self.assertLessEqual(set(required), set(actual), path)
+        self.assertLessEqual(set(controls.EVOLVING_POLICY_TESTS), set(controls.FIXED_TESTS))
+        for path in controls.EVOLVING_POLICY_TESTS:
+            self.assertTrue(controls.FIXED_TESTS[path], f'{path} requires explicit non-empty FIXED_TESTS')
         for path, identifiers in controls.FIXED_TESTS.items():
             with self.subTest(path=path):
                 kind, inventory = controls.test_inventory((HERE.parent / path).read_text())
@@ -465,6 +518,94 @@ class SelectionAndMigration(unittest.TestCase):
         self.plan = dict(scope='targeted', groups=['baseline', 'workflow_governance'],
                          python_control_contract_version=1, python_control_paths=['scripts/control.py'],
                          python_control_tests={'workflow_governance': ['scripts/control.test.py']})
+
+    def test_evolving_policy_suites_run_fixed_baseline_subset_and_complete_candidate_suite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+
+            def command(*args):
+                return subprocess.check_output(args, cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+
+            def commit():
+                command('git', 'add', '.')
+                command('git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        'commit', '-qm', 'fixture')
+                return command('git', 'rev-parse', 'HEAD')
+
+            evolving = 'scripts/ci-workflow.test.py'
+            config = dict(
+                python_control_contract_version=1,
+                groups={'baseline': {}, 'workflow_governance': {}},
+                workflow_governance_python_tests=[evolving],
+                python_control_contracts={
+                    evolving: dict(group='workflow_governance', tests=[evolving]),
+                },
+            )
+            TrustedContracts.write(root, 'scripts/ci-required-scope.json', json.dumps(config))
+            TrustedContracts.write(
+                root,
+                'scripts/ci-tests.sh',
+                'run_workflow_governance_remaining_contract_tests() { :; }\n',
+            )
+            TrustedContracts.write(root, 'scripts/policy_target.txt', 'v1\n')
+            TrustedContracts.write(
+                root,
+                evolving,
+                'import unittest\nfrom pathlib import Path\n'
+                'ROOT = Path(__file__).resolve().parent.parent\n'
+                'class Check(unittest.TestCase):\n'
+                '    def test_fixed_redline(self):\n'
+                '        self.assertTrue((ROOT / "scripts/policy_target.txt").is_file())\n'
+                '    def test_old_exact_dag_snapshot(self):\n'
+                '        self.assertEqual((ROOT / "scripts/policy_target.txt").read_text(), "v1\\n")\n',
+            )
+            command('git', 'init', '-q')
+            policy = commit()
+
+            # Candidate evolves both target and snapshot test in the same PR while keeping fixed red-line.
+            TrustedContracts.write(root, 'scripts/policy_target.txt', 'v2\n')
+            TrustedContracts.write(
+                root,
+                evolving,
+                'import unittest\nfrom pathlib import Path\n'
+                'ROOT = Path(__file__).resolve().parent.parent\n'
+                'class Check(unittest.TestCase):\n'
+                '    def test_fixed_redline(self):\n'
+                '        self.assertTrue((ROOT / "scripts/policy_target.txt").is_file())\n'
+                '    def test_new_exact_dag_snapshot(self):\n'
+                '        self.assertEqual((ROOT / "scripts/policy_target.txt").read_text(), "v2\\n")\n',
+            )
+            candidate = commit()
+            plan = dict(
+                scope='targeted',
+                groups=['baseline', 'workflow_governance'],
+                python_control_contract_version=1,
+                python_control_paths=[evolving],
+                python_control_tests={'workflow_governance': [evolving]},
+                source_sha=candidate,
+                tested_sha=candidate,
+                policy_sha=policy,
+            )
+            with patch.object(controls, 'FIXED_TESTS', {evolving: ['Check.test_fixed_redline']}), \
+                 patch.object(controls, 'EVOLVING_POLICY_TESTS', frozenset({evolving})), \
+                 patch.object(controls, 'run_rust_fixture') as rust, \
+                 patch.dict(controls.os.environ, SOURCE_SHA=candidate):
+                witnessed = controls.run_contracts(root, policy, plan, governance=True)
+                self.assertEqual(witnessed, 3)
+                rust.assert_called_once()
+
+                # Removing or skipping the fixed safety red-line in candidate must fail closed.
+                TrustedContracts.write(
+                    root,
+                    evolving,
+                    'import unittest\nclass Check(unittest.TestCase):\n'
+                    '    def test_new_exact_dag_snapshot(self): self.assertTrue(True)\n',
+                )
+                removed = commit()
+                bad_plan = dict(plan, source_sha=removed, tested_sha=removed)
+                with patch.dict(controls.os.environ, SOURCE_SHA=removed), \
+                     self.assertRaisesRegex(ValueError, 'retired fixed safety tests'):
+                    controls.run_contracts(root, policy, bad_plan, governance=True)
 
     def test_targeted_and_ordinary_full_use_actual_paths_explicit_full_uses_all(self):
         for scope in ('targeted', 'full'):

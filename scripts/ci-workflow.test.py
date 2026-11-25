@@ -151,11 +151,26 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 
 def workspace_support_image_matrix(job):
+    pair = "matrix.execution == 'signer-context-image'" in job
+    protocol = "matrix.execution == 'signer-protocol-image'" in job
+    assert not protocol or pair
+    container_job = job
+    if pair:
+        image_condition = "matrix.execution == 'signer-context-image'"
+        if protocol:
+            image_condition = "(" + image_condition + " || matrix.execution == 'signer-protocol-image')"
+        pair_image = (
+            image_condition + " && "
+            "'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:"
+            "f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c' || "
+        )
+        assert pair_image in job
+        container_job = job.replace(pair_image, '', 1)
     container = re.search(
         r"^    container:\n      image: \$\{\{ (?:matrix\.execution == 'signer-image' && "
         r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| )?matrix\.execution == 'image' && "
         r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| '' \}\}$",
-        job, re.M)
+        container_job, re.M)
     if not container:
         return None
     expected_matrix = (
@@ -165,6 +180,17 @@ def workspace_support_image_matrix(job):
         expected_matrix = expected_matrix.replace(
             'fromJSON(', 'fromJSON(needs.select.outputs.workspace_support_signer_only == \'true\' '
             "&& '[\"signer-image\"]' || ")
+    if pair:
+        assert container[1]
+        expected_matrix = expected_matrix.replace(
+            'fromJSON(', "fromJSON(needs.select.outputs.workspace_support_signer_context == 'true' "
+            "&& '[\"signer-context-image\"]' || ",
+        )
+    if protocol:
+        expected_matrix = expected_matrix.replace(
+            'fromJSON(', "fromJSON(needs.select.outputs.workspace_support_signer_protocol == 'true' "
+            "&& '[\"signer-protocol-image\"]' || ",
+        )
     assert expected_matrix in job and '      fail-fast: false\n' in job
     assert '--support-execution "$SUPPORT_EXECUTION"' in job
     assert '          SUPPORT_EXECUTION: ${{ matrix.execution }}\n' in job
@@ -273,12 +299,14 @@ def effective_job_condition(condition, values, ancestor_results, *, cancelled=Fa
     expression = condition.strip().removeprefix('>-').strip()
     if not re.search(r'\b(?:always|success|failure|cancelled)\s*\(', expression):
         expression = 'success() && (' + expression + ')'
-    values = dict(values, **{
+    values = {
+        'needs.fast-preflight.result': 'success',
+        **values,
         'always()': True,
         'success()': not cancelled and all(result == 'success' for result in ancestor_results),
         'failure()': 'failure' in ancestor_results,
         'cancelled()': cancelled,
-    })
+    }
     for token, value in sorted(values.items(), key=lambda item: -len(item[0])):
         expression = expression.replace(token, repr(value))
     expression = re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
@@ -479,8 +507,22 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                 if "matrix.execution == 'signer-image'" in reader:
                     node = rows['node']
                     assert "matrix.execution == 'signer-image' && '" + node['image'] + "'" in reader
-                    assert "      options: ${{ matrix.execution == 'signer-image' && '" + node['options'] + "' || '' }}\n" in reader
-                    assert "          install-dir: ${{ matrix.execution == 'signer-image' && format('{0}/" + node['mold-dir'] + "', runner.temp) || '' }}\n" in reader
+                    options_prefix = ''
+                    mold_prefix = ''
+                    if "matrix.execution == 'signer-context-image'" in reader:
+                        options_prefix = "matrix.execution == 'signer-context-image' && '" + node['options'] + "' || "
+                        mold_prefix = ("matrix.execution == 'signer-context-image' && "
+                                       "format('{0}/oasis7-signer-context-mold', runner.temp) || ")
+                    if "matrix.execution == 'signer-protocol-image'" in reader:
+                        options_prefix = ("(matrix.execution == 'signer-context-image' || "
+                                          "matrix.execution == 'signer-protocol-image') && '" + node['options'] + "' || ")
+                        mold_prefix = ("matrix.execution == 'signer-protocol-image' && "
+                                       "format('{0}/oasis7-signer-protocol-mold', runner.temp) || " + mold_prefix)
+                    assert ("      options: ${{ " + options_prefix + "matrix.execution == 'signer-image' && '" +
+                            node['options'] + "' || '' }}\n") in reader
+                    assert ("          install-dir: ${{ " + mold_prefix +
+                            "matrix.execution == 'signer-image' && format('{0}/" + node['mold-dir'] +
+                            "', runner.temp) || '' }}\n") in reader
                     signer = [step for step in rust_cache_steps(reader)
                               if "        if: matrix.execution == 'signer-image'\n" in step]
                     assert len(signer) == 1 and 'shared-key: ' + node['namespace'] + '\n' in signer[0]
@@ -748,21 +790,27 @@ def validate_candidate_graph(workflow, config):
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
         raise ValueError('failure propagation must remain intact')
     fleet = jobs['fleet-health']
-    expected_fleet_os = (
-        'os: ${{ (needs.select.outputs.run_fleet_health == \'true\' || '
+    subcontract_fleet_os = (
+        'os: ${{ (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 && '
+        'fromJSON(needs.select.outputs.plan).scope != \'full\' && '
+        'fromJSON(needs.select.outputs.plan).scope != \'explicit-full\' && '
+        'join(fromJSON(needs.select.outputs.plan).fleet_health_oses, \',\') != \'\') && '
+        'fromJSON(needs.select.outputs.plan).fleet_health_oses || '
+        '((needs.select.outputs.run_fleet_health == \'true\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'full\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'explicit-full\' || '
         '(fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && '
         'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && '
         'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && '
-        'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\') }}'
+        'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\')) }}'
     )
-    if (expected_fleet_os not in fleet
+    if (subcontract_fleet_os not in fleet
             or 'runs-on: ${{ matrix.os }}' not in fleet
             or 'fail-fast: false' not in fleet or 'include:' in fleet or 'exclude:' in fleet
-            or "if: runner.os != 'Windows'" not in fleet or '--host-smoke' not in fleet
+            or not re.search(r"if:\s*(?:>-\s*)?runner\.os != 'Windows'", fleet)
+            or '--host-smoke' not in fleet
             or 'p2p-public-testnet-package-rollout.test.sh' not in fleet):
-        raise ValueError('fleet must run all three hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
+        raise ValueError('fleet must run subcontract-sliced hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
     for group in config['groups']:
         job = jobs[group.replace('_', '-')]
         if group == 'workspace_support':
@@ -798,7 +846,7 @@ def validate_candidate_graph(workflow, config):
                     or 'name: ${{ needs.custody-wasm-production.outputs.approval_artifact }}' not in node):
                 raise ValueError('custody must run the complete trusted file shards and TypeScript consumer')
             proof = jobs['custody-native-contracts']
-            if ('    needs: select\n' not in proof or 'custody_execution_version == 1' not in proof
+            if ('    needs: [select, fast-preflight]\n' not in proof or 'custody_execution_version == 1' not in proof
                     or 'verify.sh --stage native-contracts' not in proof
                     or 'RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}' not in proof
                     or 'custody-native-contracts' in node):
@@ -828,7 +876,7 @@ def validate_candidate_graph(workflow, config):
                 raise ValueError('WASM proof must preserve selected compile checks without blocking Node consumers')
             for component in ('native', 'wasm-production'):
                 producer = jobs['custody-' + component]
-                if ('    needs: select' not in producer
+                if ('    needs: [select, fast-preflight]' not in producer
                         or 'custody_execution_version == 1' not in producer
                         or 'CUSTODY_COMPONENT: ' + component not in producer
                         or 'verify.sh --stage "$stage"' not in producer
@@ -857,7 +905,7 @@ def validate_candidate_graph(workflow, config):
                             or '\n          if-no-files-found: error\n' not in upload
                             or '\n          retention-days: 7\n' not in upload):
                         raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
-            if ('    needs: select' not in jobs['workspace-support-other']
+            if ('    needs: [select, fast-preflight]' not in jobs['workspace-support-other']
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
                     or (config.get('workspace_support_direct_gate_version') in (1, 2)
                         and ('workspace_support_direct_gate_version == 1' not in jobs['workspace-support-other']
@@ -1822,7 +1870,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                   'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
                   'check_inventory_version', 'fast_plan_exceptions'}
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
-        self.assertLessEqual(consumers, fields | {
+        fleet_subcontract_fields = {'fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks'}
+        self.assertLessEqual(consumers, fields | fleet_subcontract_fields | {
             'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
             'ordinary_main_fast_cache_writer_version',
             'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
@@ -1848,6 +1897,19 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     env=dict(environment, WORKFLOW_PLAN=json.dumps(value)), text=True, capture_output=True)
             result = invoke(projected)
             self.assertEqual(result.returncode, 0, result.stderr)
+            if fleet_subcontract_fields.intersection(consumers):
+                fleet_extra = {
+                    'fleet_health_subcontracts_version': 1,
+                    'fleet_health_checks': ['macos_signer'],
+                    'fleet_health_oses': ['macos-15'],
+                }
+                fleet_projected = project_selection(root, plan | fleet_extra)
+                for key, expected_val in fleet_extra.items():
+                    self.assertEqual(fleet_projected.get(key), expected_val)
+                fleet_result = invoke(fleet_projected)
+                self.assertEqual(fleet_result.returncode, 0, fleet_result.stderr)
+                self.assertNotEqual(invoke(fleet_projected | {'fleet_health_oses': ['windows-2022']}).returncode, 0)
+                project_selection(root, plan)
             for key in fields:
                 for broken in ({k: v for k, v in projected.items() if k != key},
                                projected | {key: {'changed': True}}):
@@ -1930,6 +1992,39 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest
         self.assertIn('container:\n      image: ' + image, job)
         self.assertIn('ORDINARY_BUILD_IMAGE: ' + image, job)
+        self.assertIn('      ImageOS: ubuntu24\n', job)
+        checkout = '/home/runner/work/oasis7/oasis7'
+        self.assertIn('ORDINARY_ARTIFACT_CHECKOUT: ' + checkout, job)
+        self.assertIn('      volumes:\n        - ' + checkout + ':' + checkout + '\n', job)
+        self.assertIn('          cd -- "$ORDINARY_ARTIFACT_CHECKOUT"\n', job)
+        self.assertIn('python3 scripts/ci-test-artifacts.py ordinary-image-preflight\n', job)
+        self.assertIn("printf 'BASH_ENV=%s\\n' \"$RUNNER_TEMP/ordinary-image-cwd.bash\" >> \"$GITHUB_ENV\"", job)
+        startup = re.search(r"<<'ORDINARY_CWD'\n(.*?)^          ORDINARY_CWD$", job, re.M | re.S)
+        self.assertIsNotNone(startup)
+        startup = textwrap.dedent(startup[1])
+        expected_startup = ('export ORDINARY_ARTIFACT_CHECKOUT=' + checkout
+                            + '\ncd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1\n')
+        self.assertEqual(startup, expected_startup)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = root / 'canonical'
+            canonical.mkdir()
+            translated = root / 'runner-mapped'
+            translated.mkdir()
+            script = root / 'startup.bash'
+            script.write_text(expected_startup.replace(checkout, shlex.quote(str(canonical))))
+            result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', 'pwd -P'],
+                                    cwd=translated, env=dict(os.environ, BASH_ENV=str(script),
+                                                            ORDINARY_ARTIFACT_CHECKOUT=str(translated)),
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(Path(result.stdout.strip()), canonical.resolve())
+            canonical.rmdir()
+            self.assertNotEqual(subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', 'exit 0'],
+                cwd=translated, env=dict(os.environ, BASH_ENV=str(script),
+                                         ORDINARY_ARTIFACT_CHECKOUT=str(translated)), capture_output=True).returncode, 0)
+
+
         self.assertIn('timeout-minutes: 45', job)
         self.assertIn('packages: read', job)
         self.assertNotIn('apt-install.py', job)
@@ -2976,7 +3071,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_ordinary_build_aggregation_rejects_every_incomplete_lane_combination(self):
         consumer = JOBS['oasis7-required']
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', consumer)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in consumer
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in consumer
+        )
         condition = consumer.split('    runs-on:', 1)[0].split('    if:', 1)[1].strip().removeprefix('>-').strip()
         self.assertIn('always() && !cancelled()', condition)
         self.assertIn("needs.select.result == 'success'", condition)
@@ -3019,6 +3117,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', 'explicit-full', None)):
                         values = {
                             'always()': True, 'cancelled()': cancelled,
+                            'needs.fast-preflight.result': 'success',
                             'needs.oasis7-test-build-candidate.result': result,
                             'needs.oasis7-test-build-trusted.result': 'skipped',
                             'needs.select.result': 'success' if name == 'oasis7-required' else result,
@@ -3051,6 +3150,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 for cancelled in (False, True):
                     values = {
                         'always()': True, 'cancelled()': cancelled, 'needs.select.result': 'success',
+                        'needs.fast-preflight.result': 'success',
                         'needs.oasis7-test-build-candidate.result': candidate,
                         'needs.oasis7-test-build-trusted.result': trusted,
                         'needs.select.outputs.run_oasis7_required': 'true',
@@ -3272,7 +3372,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_ordinary_matrix_keeps_the_trusted_complete_partition_list_and_failure_boundary(self):
         job = JOBS['oasis7-required']
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', job)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in job
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in job
+        )
         self.assertIn('oasis7-required', JOBS['required-gate'])
         for damaged in (
             job.replace('fail-fast: false', 'fail-fast: true'),
@@ -3947,7 +4050,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_local_signer_and_new_contracts_are_connected_once(self):
         fleet = JOBS['fleet-health']
-        self.assertIn("if: runner.os == 'macOS'", fleet)
+        self.assertRegex(fleet, r"if:\s*(?:>-\s*)?runner\.os == 'macOS'")
         self.assertIn('TMPDIR: /private/tmp', fleet)
         self.assertIn('python3 scripts/ci-local-signer-tests.py --require-darwin', fleet)
         self.assertLess(fleet.index('rustup default "$RUST_TOOLCHAIN"'),
@@ -4033,7 +4136,13 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         )
         ci_base_jobs = workflow_jobs(ci_base)
         self.assertEqual(set(ci_base_jobs), {'build', 'publish'})
-        self.assertIn('target: [runtime, build, browser, rust-build, rust-wasm-build]\n', ci_base_jobs['build'])
+        targets = ['runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build']
+        dockerfile = (ROOT / 'docker/ci-base/Dockerfile').read_text()
+        if re.search(r'^FROM build AS codeql-rust$', dockerfile, re.M):
+            targets.append('codeql-rust')
+        if re.search(r'^FROM runtime AS api-runtime$', dockerfile, re.M):
+            targets.append('api-runtime')
+        self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]
         self.assertNotIn('strategy:', publish_header)
@@ -4044,9 +4153,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('rm -f "ci-${target}.tar"\n', publish_job)
         self.assertIn('docker rmi "$ref" "oasis7-ci-${target}:candidate"\n', publish_job)
         self.assertNotIn('if [[ "$target" == "browser" ]]', publish_job)
-        for target in ('runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'):
-            self.assertIn(f'          name: ci-image-{target}\n', publish_job)
-            self.assertIn(f'        run: bash "$RUNNER_TEMP/publish-ci-image.sh" {target}\n', publish_job)
+        self.assertEqual(re.findall(r'^          name: ci-image-([a-z-]+)$', publish_job, re.M), targets)
+        self.assertEqual(
+            re.findall(r'^        run: bash "\$RUNNER_TEMP/publish-ci-image.sh" ([a-z-]+)$', publish_job, re.M),
+            targets,
+        )
         self.assertIn('      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n', publish_job)
 
         wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
@@ -4855,7 +4966,8 @@ run_cargo() {
 
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
-        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','site-quality','launcher-web','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node','full-regression','candidate-full-regression'})
+        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node','full-regression','candidate-full-regression'})
+        self.assertNotIn('oasis7_viewer', JOBS['launcher-web'])
         self.assertIn("node-version: '24'", JOBS['site-quality'])
         for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node'}:
             self.assertIn('cache: npm',JOBS[name])
@@ -4920,9 +5032,17 @@ run_cargo() {
             if group == 'workspace_support':
                 self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
                 continue
-            dependency = ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]'
-                          if group == 'oasis7_required' else 'needs: select')
-            self.assertIn(dependency, job)
+            preflight_groups = {
+                'rust_baseline', 'node', 'distfs', 'net', 'launcher_web', 'scenario_regression',
+            }
+            allowed = (
+                ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]',
+                 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]')
+                if group == 'oasis7_required'
+                else (('needs: [select, fast-preflight]',)
+                      if group in preflight_groups else ('needs: select',))
+            )
+            self.assertTrue(any(dep in job for dep in allowed), (group, allowed))
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
             self.assertIn("needs.select.result == 'success'", job)
             self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", job)
@@ -5259,7 +5379,16 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertLess(prepare, hosted)
         self.assertLess(hosted, verify)
         preparation = fleet[prepare:hosted]
-        self.assertNotIn('runner.os', preparation)
+        prep_cond = re.search(r'^        if: (.*?)(?=^        [a-z-]+:|\Z)', preparation, re.M | re.S).group(1)
+        for runner_os in ('Linux', 'Windows', 'macOS'):
+            self.assertTrue(effective_job_condition(prep_cond, {
+                'runner.os': runner_os,
+                'needs.select.outputs.run_fleet_health': 'true',
+                'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
+                'fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version': 1,
+                'fromJSON(needs.select.outputs.plan).fleet_health_checks': ['hosted_access'],
+            }, ('success',)), f'hosted_access must prepare Rust toolchain on {runner_os}')
         self.assertIn("needs.select.outputs.run_fleet_health == 'true'", preparation)
         hosted_validation = fleet[hosted:verify]
         self.assertNotIn('runner.os', hosted_validation)
@@ -5270,7 +5399,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertIn('rustup default "$RUST_TOOLCHAIN"', preparation)
         self.assertTrue((ROOT / 'rust-toolchain.toml').is_file())
         validation = fleet[verify:fleet.index('name: Ensure Linux process inspection dependency')]
-        self.assertIn("if: runner.os == 'macOS'", validation)
+        self.assertRegex(validation, r"if:\s*(?:>-\s*)?runner\.os == 'macOS'")
         self.assertIn('cargo test --locked -p oasis7_context -p oasis7_secure_envelope --all-targets', validation)
         self.assertIn('cargo test --locked -p oasis7_local_signer --test context_cli', validation)
 
@@ -5329,30 +5458,36 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
 
     def test_periodic_observation_gates_full_without_blocking_other_events(self):
         select = JOBS['select']
-        self.assertIn('needs: periodic-admission', select)
+        self.assertIn('needs: [periodic-admission, main-fast-admission]', select)
         condition = select.split('    if: >-\n', 1)[1].split('    runs-on:', 1)[0]
-        for event, draft, mode, admission, full, expected in (
-                ('pull_request', False, '', 'skipped', '', True),
-                ('pull_request', True, '', 'skipped', '', False),
-                ('push', False, '', 'skipped', '', True),
-                ('workflow_dispatch', False, 'full', 'skipped', '', True),
-                ('workflow_dispatch', False, 'newapi_bridge_package', 'skipped', '', False),
-                ('schedule', False, '', 'success', 'true', True),
-                ('schedule', False, '', 'success', 'false', False),
-                ('schedule', False, '', 'failure', 'true', False),
-                ('schedule', False, '', 'cancelled', 'true', False)):
+        for event, ref, draft, mode, admission, full, mf_adm, mf_run, expected in (
+                ('pull_request', 'refs/pull/1/merge', False, '', 'skipped', '', 'skipped', '', True),
+                ('pull_request', 'refs/pull/1/merge', True, '', 'skipped', '', 'skipped', '', False),
+                ('push', 'refs/heads/main', False, '', 'skipped', '', 'success', 'true', True),
+                ('push', 'refs/heads/main', False, '', 'skipped', '', 'success', 'false', False),
+                ('push', 'refs/heads/main', False, '', 'skipped', '', 'failure', 'true', False),
+                ('push', 'refs/heads/other', False, '', 'skipped', '', 'skipped', '', True),
+                ('workflow_dispatch', 'refs/heads/main', False, 'full', 'skipped', '', 'skipped', '', True),
+                ('workflow_dispatch', 'refs/heads/main', False, 'newapi_bridge_package', 'skipped', '', 'skipped', '', False),
+                ('schedule', 'refs/heads/main', False, '', 'success', 'true', 'skipped', '', True),
+                ('schedule', 'refs/heads/main', False, '', 'success', 'false', 'skipped', '', False),
+                ('schedule', 'refs/heads/main', False, '', 'failure', 'true', 'skipped', '', False),
+                ('schedule', 'refs/heads/main', False, '', 'cancelled', 'true', 'skipped', '', False)):
             expr = condition
             for token, value in {'always()': True, 'cancelled()': False,
-                    'github.event_name': event, 'github.event.pull_request.draft': draft,
+                    'github.event_name': event, 'github.ref': ref,
+                    'github.event.pull_request.draft': draft,
                     'github.event.action': 'opened', 'github.event.label.name': '',
                     'github.event.pull_request.head.repo.full_name': 'nil-studio/oasis7',
                     'github.repository': 'nil-studio/oasis7',
                     'inputs.run_mode': mode,
                     'needs.periodic-admission.result': admission,
-                    'needs.periodic-admission.outputs.run_full': full}.items():
+                    'needs.periodic-admission.outputs.run_full': full,
+                    'needs.main-fast-admission.result': mf_adm,
+                    'needs.main-fast-admission.outputs.run_main_fast': mf_run}.items():
                 expr = expr.replace(token, repr(value))
             expr = re.sub(r'!(?!=)', 'not ', expr.replace('&&', ' and ').replace('||', ' or '))
-            with self.subTest(event=event, draft=draft, admission=admission, run_full=full):
+            with self.subTest(event=event, ref=ref, draft=draft, admission=admission, run_full=full, mf_adm=mf_adm, mf_run=mf_run):
                 self.assertEqual(eval(' '.join(expr.split()), {'__builtins__': {}}, {}), expected)
 
     def test_selected_jobs_survive_skipped_admission_and_keep_failure_boundaries(self):
@@ -5567,11 +5702,13 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), CONFIG)
         native = JOBS['custody-native-contracts']
+        native_needs = ('    needs: [select, fast-preflight]\n'
+                        if '    needs: [select, fast-preflight]\n' in native else '    needs: select\n')
         for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 2'),
                               ('ci-custody-platform.py stage', 'true'),
                               ('verify.sh --stage "$stage"', 'true'),
                               ('run_worker_wasm_compile_profiles', 'true'),
-                              ('    needs: select\n', '    needs: custody-wasm-production\n')]:
+                              ('    needs: [select, fast-preflight]\n', '    needs: custody-wasm-production\n')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), CONFIG)
         for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 2'),
@@ -5748,6 +5885,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         for profile, version, event, ref, trusted_source, writer_expected in cases:
             values = {
                 'always()': True, 'cancelled()': False, 'needs.select.result': 'success',
+                'needs.fast-preflight.result': 'skipped',
                 'needs.select.outputs.run_oasis7_required': 'true',
                 'needs.select.outputs.run_formal_process': 'true',
                 'needs.select.outputs.trusted_source': str(trusted_source).lower(),
@@ -6174,7 +6312,10 @@ class AptWorkflow(unittest.TestCase):
     def test_performance_browser_apt_transport_is_bounded_without_skipping_dependencies(self):
         step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', JOBS['viewer-performance-report'], re.M | re.S)
                     if 'name: Install pinned performance browser' in step)
-        self.assertIn('timeout-minutes: 15', step)
+        step_timeout = re.search(r'^        timeout-minutes:\s*(\d+)\s*$', step, re.M)
+        self.assertIsNotNone(step_timeout)
+        self.assertGreater(int(step_timeout.group(1)), 0)
+        self.assertLessEqual(int(step_timeout.group(1)), 11)
         self.assertIn('uses: ./.github/actions/setup-ci-browser', step)
         self.assertIn('browser: agent', step)
         action = (ROOT / '.github/actions/setup-ci-browser/action.yml').read_text()
@@ -6185,7 +6326,7 @@ class AptWorkflow(unittest.TestCase):
 
     def test_existing_lsof_does_not_invoke_package_manager(self):
         step = self.apt_steps()['rust', 'fleet-health', 'Ensure Linux process inspection dependency']
-        self.assertIn("if: runner.os == 'Linux'", step)
+        self.assertRegex(step, r"if:\s*(?:>-\s*)?runner\.os == 'Linux'")
         script = textwrap.dedent(step.split('        run: |\n', 1)[1])
         stub = ('command() { return 0; };\n'
                 'sudo() { echo unexpected-install >&2; return 99; };\n')
@@ -6209,13 +6350,19 @@ class AptWorkflow(unittest.TestCase):
 
     def test_browser_install_prepares_the_shared_mirrors_and_blocks_on_failure(self):
         expected = {'viewer-js-required': ('agent', 11),
-                    'viewer-performance-report': ('agent', 15), 'site-quality': ('playwright', 10)}
+                    'viewer-performance-report': ('agent', 11), 'site-quality': ('playwright', 4)}
         for name, (browser, limit) in expected.items():
             job = JOBS[name]
+            job_timeout = int(re.search(r'^    timeout-minutes:\s*(\d+)\s*$', job, re.M).group(1))
             step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                         if 'uses: ./.github/actions/setup-ci-browser' in step)
             self.assertIn('browser: ' + browser, step)
-            self.assertIn(f'timeout-minutes: {limit}', step)
+            step_timeout = re.search(r'^        timeout-minutes:\s*(\d+)\s*$', step, re.M)
+            self.assertIsNotNone(step_timeout)
+            actual_step = int(step_timeout.group(1))
+            self.assertGreater(actual_step, 0)
+            self.assertLessEqual(actual_step, limit)
+            self.assertLess(actual_step, job_timeout)
             self.assertNotIn('continue-on-error', step)
             self.assertLess(job.index('uses: ./.github/actions/setup-ci-browser'), job.index('name: Execute selected group'))
         action = (ROOT / '.github/actions/setup-ci-browser/action.yml').read_text()
@@ -6360,7 +6507,10 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
         self.assertIn('fail-fast: false', header)
         self.assertNotIn('include:', header)
         self.assertNotIn('exclude:', header)
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', header)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in header
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in header
+        )
         self.assertIn('oasis7-required', JOBS['required-gate'])
         step = job.split('      - name: Execute selected group\n', 1)[1]
         script = textwrap.dedent(step.split('        run: ', 1)[1])
@@ -6710,6 +6860,129 @@ class WorkerToolCache(unittest.TestCase):
                 subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
                                env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(output)), check=True)
                 self.assertIn('workspace_support_signer_only=' + str(expected).lower(), output.read_text())
+
+    def test_signer_context_projection_and_artifact_require_the_same_exact_pair(self):
+        job = JOBS['workspace-support-other']
+        if 'workspace_support_signer_context' not in job:
+            return
+        project = workflow_step_script(JOBS['select'], 'Publish workflow scheduling projection')
+        verify = workflow_step_script(job, 'Verify the non-root signer execution plan')
+        pair = ['oasis7_context', 'oasis7_local_signer']
+        plan = dict(
+            scope='targeted', groups=['workspace_support'], execution_profile='pr-fast',
+            fast_plan_version=1, workspace_support_direct_gate_version=2,
+            workspace_support_partition_version=1, workspace_support_partitions=['other'],
+            workspace_support_profile_version=1, workspace_support_profiles=pair,
+            test_policy_changed=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / 'output'
+            artifact = root / 'selection.json'
+            fixture_id = root / 'id'
+            fixture_id.write_text('#!/bin/sh\nprintf "1001\\n"\n')
+            fixture_id.chmod(0o755)
+            protocol_pair = ['oasis7_local_signer', 'oasis7_signer_protocol']
+            protocol_triple = ['oasis7_context', *protocol_pair]
+            has_protocol_lane = 'workspace_support_signer_protocol' in job
+            projection_cases = [
+                ({}, True, False),
+                ({'scope': 'explicit-full'}, False, False),
+                ({'workspace_support_direct_gate_version': None}, False, False),
+                ({'test_policy_changed': True}, False, False),
+                ({'workspace_support_profiles': [*pair, 'oasis7_dev_test_worker']}, False, False),
+                ({'workspace_support_profiles': [*pair, 'oasis7_game_client']}, False, False),
+            ]
+            if has_protocol_lane:
+                projection_cases.extend([
+                    ({'workspace_support_profiles': protocol_pair}, False, True),
+                    ({'workspace_support_profiles': protocol_triple}, False, True),
+                    ({'workspace_support_profiles': ['oasis7_game_client', *protocol_pair]}, False, False),
+                    ({'workspace_support_profiles': protocol_triple, 'test_policy_changed': True}, False, False),
+                ])
+            for overrides, selected, protocol_selected in projection_cases:
+                with self.subTest(overrides=overrides):
+                    candidate = {key: value for key, value in (plan | overrides).items() if value is not None}
+                    artifact.write_text(json.dumps(candidate))
+                    output.unlink(missing_ok=True)
+                    subprocess.run(['bash', '-euo', 'pipefail', '-c', project],
+                                   env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(output)), check=True)
+                    self.assertIn('workspace_support_signer_context=' + str(selected).lower(), output.read_text())
+                    self.assertIn('workspace_support_signer_only=false', output.read_text())
+                    if has_protocol_lane:
+                        self.assertIn('workspace_support_signer_protocol=' + str(protocol_selected).lower(),
+                                      output.read_text())
+            artifact_cases = [
+                (pair, 'true', False, 0), (pair, 'false', False, 1),
+                (pair, 'true', True, 1), (pair, '', False, 1),
+                (['oasis7_local_signer'], 'false', False, 0),
+                (['oasis7_local_signer'], 'true', False, 1),
+                ([*pair, 'oasis7_dev_test_worker'], 'true', False, 1),
+            ]
+            if has_protocol_lane:
+                artifact_cases.extend([
+                    (protocol_pair, 'protocol', False, 0), (protocol_triple, 'protocol', False, 0),
+                    (protocol_triple, 'protocol', True, 1), (protocol_pair, 'true', False, 1),
+                    (['oasis7_game_client', *protocol_pair], 'protocol', False, 1),
+                ])
+            for profiles, pair_flag, corrupt, expected in artifact_cases:
+                with self.subTest(profiles=profiles, pair_flag=pair_flag, corrupt=corrupt):
+                    artifact.write_text(json.dumps(dict(plan, workspace_support_profiles=profiles)))
+                    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+                    if 'SIGNER_EXECUTION:' in job:
+                        lane = {'false': 'signer-image', 'true': 'signer-context-image',
+                                'protocol': 'signer-protocol-image', '': ''}[pair_flag]
+                        selector = {'SIGNER_EXECUTION': lane}
+                    else:
+                        selector = {'SIGNER_WITH_CONTEXT': pair_flag}
+                    result = subprocess.run(
+                        ['bash', '-euo', 'pipefail', '-c', verify],
+                        env=dict(os.environ, RUNNER_TEMP=tmp, PATH=f"{tmp}:{os.environ['PATH']}",
+                                 SELECTION_SHA256='0' * 64 if corrupt else digest,
+                                 **selector),
+                        text=True, capture_output=True,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_support_group_driver_preserves_original_filter_for_each_lane(self):
+        job = JOBS['workspace-support-other']
+        script = workflow_step_script(job, 'Execute selected group')
+        lanes = [('host', 'host'), ('image', 'image')]
+        if "matrix.execution == 'signer-image'" in job:
+            lanes.append(('signer-image', 'host'))
+        if 'workspace_support_signer_context' in job:
+            lanes.append(('signer-context-image', 'all'))
+        if 'workspace_support_signer_protocol' in job:
+            lanes.append(('signer-protocol-image', 'all'))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-tests.sh').write_text(
+                "support_capacity_snapshot() { :; }\n"
+                "if [[ $# -gt 0 ]]; then printf '%s\\n' \"$@\"; exit \"${FIXTURE_DRIVER_EXIT:-0}\"; fi\n")
+            for lane, expected in lanes:
+                with self.subTest(lane=lane):
+                    result = subprocess.run(
+                        ['bash', '-euo', 'pipefail', '-c', script], cwd=root,
+                        env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_WORKSPACE=tmp,
+                                 SUPPORT_PARTITION='other', SUPPORT_EXECUTION=lane),
+                        text=True, capture_output=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(), [
+                        'required', '--group', 'workspace_support', '--repo-root', tmp,
+                        '--support-plan-file', str(root / 'selection.json'),
+                        '--support-partition', 'other', '--support-execution', expected,
+                    ])
+            if 'workspace_support_signer_context' in job:
+                failed = subprocess.run(
+                    ['bash', '-euo', 'pipefail', '-c', script], cwd=root,
+                    env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_WORKSPACE=tmp,
+                             SUPPORT_PARTITION='other', SUPPORT_EXECUTION='signer-context-image',
+                             FIXTURE_DRIVER_EXIT='37'),
+                    text=True, capture_output=True,
+                )
+                self.assertEqual(failed.returncode, 37, failed.stderr)
 
     def test_image_support_exact_readonly_worker_tool_reader(self):
         job = JOBS['workspace-support-other']
@@ -7198,6 +7471,11 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
     def test_stable_pr_jobs_declare_bounded_timeout_minutes(self):
         expected_limits = {
             '.github/workflows/rust.yml': {
+                'periodic-admission': 3,
+                'main-fast-admission': 3,
+                'fast-preflight': 5,
+                'cache-bootstrap-maintenance': 5,
+                'cache-maintenance': 5,
                 'formal-process': 5,
                 'workspace-support': 5,
                 'required-gate': 5,
@@ -7211,27 +7489,33 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'macos-package-contract': 5,
                 'site-quality': 5,
                 'packaging-contracts': 5,
-                'scenario-regression': 8,
+                'scenario-regression': 11,
                 'compile-metrics': 5,
                 'cargo-tooling-contracts': 5,
                 'windows-rollout': 7,
                 'fleet-health': 13,
                 'doc-checker-contracts': 10,
-                'workflow-governance': 12,
+                'workflow-governance': 16,
                 'custody-native-contracts': 12,
                 'consensus': 5,
                 'net': 10,
                 'node': 10,
                 'pixel-world-bridge': 5,
-                'custody-node': 16,
+                'custody-node': 19,
                 'custody-native': 17,
                 'custody-wasm-production': 25,
                 'distfs': 16,
-                'rust-baseline': 25,
+                'rust-baseline': 32,
                 'launcher-web': 10,
                 'viewer-js-required': 14,
                 'viewer-performance-report': 15,
                 'newapi-bridge-package': 10,
+            },
+            '.github/workflows/pr-boundary-gate.yml': {
+                'boundary-check': 3,
+            },
+            '.github/workflows/codeql.yml': {
+                'plan': 5,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 5,
@@ -7244,7 +7528,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'desktop': 16,
             },
             '.github/workflows/compile-metrics.yml': {
-                'compile-metrics': 35,
+                'compile-metrics': 45,
                 'compile-metrics-linux': 25,
                 'summarize': 5,
             },
@@ -7258,6 +7542,8 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'web': 18,
                 'native': 135,
                 'native-trusted': 135,
+                'cache-maintenance': 5,
+                'build-metrics': 150,
                 'package': 20,
                 'publish-preview': 10,
             },
@@ -7266,26 +7552,31 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             },
             '.github/workflows/hosted-login-linux-build.yml': {
                 'build-linux-x86-64': 30,
-                'build-viewer': 12,
+                'build-viewer': 16,
                 'assemble': 5,
+                'warm-linux-release-deps': 75,
             },
             '.github/workflows/ci-base-images.yml': {
                 'build': 40,
                 'publish': 10,
             },
             '.github/workflows/native-cache-diagnostic.yml': {
-                'diagnose': 35,
+                'diagnose': 25,
             },
             '.github/workflows/storage-acceptance.yml': {
+                'diagnostics-probe-admission': 2,
+                'diagnostics-probe': 5,
                 'build-components': 125,
                 'build': 10,
                 'verify': 130,
                 'attempt-release-reference': 50,
+                'capacity-long': 360,
+                'full-node-long': 360,
                 'summary': 5,
             },
             '.github/workflows/wasm-darwin-docker-evidence.yml': {
                 'collect-darwin-docker-summaries': 90,
-                'verify-with-linux-summaries': 45,
+                'verify-with-linux-summaries': 30,
             },
             '.github/workflows/rust-cache.yml': {
                 'browser-archive-cache': 6,
@@ -7293,7 +7584,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'shared-native-cache': 120,
                 'rust-image-native-cache': 20,
                 'rust-image-component-cache': 35,
-                'web-wasm-cache': 18,
+                'web-wasm-cache': 22,
             },
         }
         for rel_path, limits in expected_limits.items():
@@ -7367,10 +7658,9 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-debug-build-trusted': 35,
                 'formal-endpoint-build': 35,
                 'formal-endpoint-build-trusted': 35,
-                'formal-test-build': 30,
-                'formal-test-build-trusted': 30,
+                'formal-test-build': 20,
+                'formal-test-build-trusted': 20,
                 'formal-process-tests': 45,
-                'oasis7-required': 35,
                 'workspace-support-legacy': 60,
                 'workspace-support-other': 35,
                 'operational-contracts': 12,
@@ -7389,6 +7679,33 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                     actual = int(match.group(1))
                     self.assertGreater(actual, 0)
                     self.assertLessEqual(actual, max_minutes)
+
+        required_job = workflow_jobs((ROOT / '.github/workflows/rust.yml').read_text())['oasis7-required']
+        expr_match = re.search(r'^    timeout-minutes:\s*(\$\{\{.+?\}\})\s*$', required_job, re.M)
+        self.assertIsNotNone(expr_match, '.github/workflows/rust.yml:oasis7-required must declare partition-bounded timeout-minutes')
+        condition, heavy_raw, fast_raw = re.fullmatch(
+            r'\$\{\{\s*(.+?)\s*&&\s*(\d+)\s*\|\|\s*(\d+)\s*\}\}',
+            expr_match.group(1),
+        ).groups()
+        heavy_minutes, fast_minutes = int(heavy_raw), int(fast_raw)
+        self.assertGreater(fast_minutes, 0)
+        self.assertLessEqual(fast_minutes, 25)
+        self.assertGreater(heavy_minutes, fast_minutes)
+        self.assertLessEqual(heavy_minutes, 50)
+        heavy_list = re.search(r"fromJSON\('([^']+)'\)", condition)[1]
+        for execution, owner in itertools.product(
+            (None, 'inline'),
+            ('controls', 'all', 'runtime', 'component-libs', 'integrations-0', 'integrations-1',
+             'native-0', 'native-1', 'native-2', 'native-3'),
+        ):
+            values = {
+                'fromJSON(needs.select.outputs.plan).ordinary_execution': execution,
+                f"fromJSON('{heavy_list}')": json.loads(heavy_list),
+                'matrix.partition': owner,
+            }
+            expect_heavy = execution == 'inline' or owner in ('all', 'component-libs', 'runtime')
+            with self.subTest(execution=execution, owner=owner):
+                self.assertEqual(effective_job_condition(condition, values, []), expect_heavy)
 
 
 class PriorityRunnerRoutingContractTests(unittest.TestCase):
@@ -7457,7 +7774,8 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         gate = JOBS['required-gate']
         self.assertIn(
             "if: >-\n"
-            "      always() && (github.event_name == 'push' ||\n"
+            "      always() && ((github.event_name == 'push' &&\n"
+            "        (github.ref != 'refs/heads/main' || needs.select.result != 'skipped')) ||\n"
             "      (github.event_name == 'pull_request' &&\n"
             "       (github.event.action != 'labeled' ||\n"
             "        (github.event.label.name == 'ci-priority' &&\n"
@@ -7586,11 +7904,13 @@ print({m0!r})
         if_expr = if_match.group(1).strip().removeprefix('>-').strip()
         name_expr = raw_name.removeprefix('${{').removesuffix('}}').strip()
 
-        def eval_gh_expr(expr, *, event_name, action='', label='', same_repo=True, draft=False):
+        def eval_gh_expr(expr, *, event_name, action='', label='', same_repo=True, draft=False, ref='refs/heads/main', select_result='success'):
             py_expr = ' '.join(expr.split())
             replacements = {
                 'always()': 'True',
                 'github.event_name': repr(event_name),
+                'github.ref': repr(ref),
+                'needs.select.result': repr(select_result),
                 'github.event.action': repr(action),
                 'github.event.label.name': repr(label),
                 'github.event.pull_request.head.repo.full_name': repr('nil-studio/oasis7' if same_repo else 'fork/oasis7'),
@@ -7633,6 +7953,10 @@ print({m0!r})
                 if not actual_run:
                     self.assertNotEqual(actual_name, 'required-gate')
                     self.assertNotEqual(raw_name, 'required-gate')
+        # Cooldown-deferred main push skips select and must also skip required-gate.
+        self.assertFalse(bool(eval_gh_expr(
+            if_expr, event_name='push', ref='refs/heads/main', select_result='skipped',
+        )))
 
         preview_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
         preview_concurrency = preview_workflow.split('concurrency:\n', 1)[1].split('permissions:\n', 1)[0]
@@ -7656,6 +7980,197 @@ print({m0!r})
             py_group = re.sub(r'!(?!=)', 'not ', py_group.replace('&&', ' and ').replace('||', ' or '))
             with self.subTest(preview_label=label, draft=draft):
                 self.assertEqual(eval(py_group, {'__builtins__': {}}, {}), expected_group)
+
+    def test_fast_preflight_and_main_fast_admission_contracts(self):
+        admission = JOBS['main-fast-admission']
+        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", admission)
+        self.assertIn('scripts/ci-full-result.py admit-main-fast', admission)
+        self.assertIn('ci-main-fast-deferred-${{ github.run_id }}-${{ github.run_attempt }}', admission)
+        self.assertIn('ci-main-fast-admission-${{ github.run_id }}-${{ github.run_attempt }}', admission)
+
+        preflight = JOBS['fast-preflight']
+        self.assertIn('needs: select', preflight)
+        self.assertIn("github.event_name == 'pull_request'", preflight)
+        self.assertIn('cargo +"$RUST_TOOLCHAIN" fmt --all -- --check', preflight)
+        self.assertNotIn('fast-preflight', JOBS['required-gate'].split('    steps:', 1)[0])
+        self.assertEqual(
+            re.search(r'^\s+image:\s*(\S+)\s*$', preflight, re.M).group(1),
+            re.search(r'^\s+image:\s*(\S+)\s*$', JOBS['rust-baseline'], re.M).group(1),
+            'fast-preflight and rust-baseline must share the same container image when skipping duplicate rustfmt',
+        )
+
+        for heavy in ('rust-baseline', 'oasis7-test-build-candidate', 'workspace-support-other',
+                      'custody-native-contracts', 'custody-native', 'custody-wasm-production',
+                      'distfs', 'node', 'net', 'launcher-web', 'scenario-regression'):
+            job = JOBS[heavy]
+            self.assertIn('needs: [select, fast-preflight]', job)
+            self.assertIn("(needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped')", job)
+            cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', job, re.M | re.S).group(1)
+            base_vals = {
+                'needs.select.result': 'success',
+                'needs.select.outputs.run_rust_baseline': 'true',
+                'needs.select.outputs.run_oasis7_required': 'true',
+                'needs.select.outputs.run_distfs': 'true',
+                'needs.select.outputs.run_node': 'true',
+                'needs.select.outputs.run_consensus': 'false',
+                'needs.select.outputs.run_net': 'true',
+                'needs.select.outputs.run_launcher_web': 'true',
+                'needs.select.outputs.run_scenario_regression': 'true',
+                'needs.select.outputs.run_pixel_world_bridge': 'false',
+                'needs.select.outputs.run_cargo_tooling_contracts': 'false',
+                'needs.select.outputs.trusted_source': 'false',
+                'needs.select.outputs.workspace_support_partitions': ['other'],
+                'fromJSON(needs.select.outputs.workspace_support_partitions)': ['other'],
+                'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+                'fromJSON(needs.select.outputs.plan).execution_profile': 'pr-fast',
+                'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
+                'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
+                'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
+                'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
+                'fromJSON(needs.select.outputs.plan).custody_execution_version': 1,
+                'fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version': 2,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
+                'github.event_name': 'pull_request',
+                'github.ref': 'refs/pull/1/merge',
+                'github.workflow_sha': 'a',
+                'github.sha': 'b',
+                'inputs.run_mode': '',
+            }
+            self.assertFalse(effective_job_condition(
+                cond, dict(base_vals, **{'needs.fast-preflight.result': 'failure'}), ('success', 'failure'),
+            ), f'{heavy} must skip when fast-preflight fails')
+            self.assertTrue(effective_job_condition(
+                cond, dict(base_vals, **{'needs.fast-preflight.result': 'success'}), ('success', 'success'),
+            ), f'{heavy} must run when fast-preflight succeeds')
+            self.assertTrue(effective_job_condition(
+                cond, dict(base_vals, **{'needs.fast-preflight.result': 'skipped'}), ('success', 'skipped'),
+            ), f'{heavy} must run when fast-preflight is skipped')
+
+        for host_job, overrides in (
+            ('node', {'needs.select.outputs.run_node': 'false', 'needs.select.outputs.run_consensus': 'true'}),
+            ('scenario-regression', {
+                'needs.select.outputs.run_scenario_regression': 'false',
+                'needs.select.outputs.run_pixel_world_bridge': 'true',
+            }),
+            ('scenario-regression', {
+                'needs.select.outputs.run_scenario_regression': 'false',
+                'needs.select.outputs.run_cargo_tooling_contracts': 'true',
+            }),
+        ):
+            cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', JOBS[host_job], re.M | re.S).group(1)
+            vals = dict(base_vals, **overrides)
+            self.assertFalse(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'failure'}), ('success', 'failure'),
+            ), f'{host_job} consolidated trigger must skip when fast-preflight fails')
+            self.assertTrue(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'success'}), ('success', 'success'),
+            ), f'{host_job} consolidated trigger must run when fast-preflight succeeds')
+            self.assertTrue(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'skipped'}), ('success', 'skipped'),
+            ), f'{host_job} consolidated trigger must run when fast-preflight is skipped')
+
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('ci_required_result', ROOT / 'scripts/ci-required-result.py')
+        required_result = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(required_result)
+        plan = {'scope': 'targeted', 'contract_job_consolidation_version': 5, 'groups': ['baseline']}
+        group_jobs = required_result.configured_group_jobs(CONFIG, plan)
+        retired_jobs = required_result.retired_group_jobs(CONFIG, plan)
+        for selected_group in ('rust_baseline', 'distfs', 'node', 'consensus', 'net',
+                               'launcher_web', 'scenario_regression', 'pixel_world_bridge',
+                               'cargo_tooling_contracts'):
+            plan_with_group = dict(plan, groups=['baseline', selected_group])
+            needs = {'select': {'result': 'success'}}
+            for grp, job_name in group_jobs.items():
+                needs[job_name] = {'result': 'skipped'}
+            needs['baseline'] = {'result': 'success'}
+            for rj in retired_jobs:
+                needs[rj] = {'result': 'skipped'}
+            with self.subTest(skipped_group=selected_group), self.assertRaisesRegex(
+                ValueError, rf'{selected_group}: unexpected result \'skipped\'',
+            ):
+                required_result.validate(plan_with_group, needs, group_jobs, retired_jobs=retired_jobs)
+
+        inline_job = JOBS['oasis7-required']
+        self.assertIn('needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]', inline_job)
+        inline_cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', inline_job, re.M | re.S).group(1)
+        inline_vals = {
+            'needs.select.result': 'success',
+            'needs.select.outputs.run_oasis7_required': 'true',
+            'needs.oasis7-test-build-candidate.result': 'skipped',
+            'needs.oasis7-test-build-trusted.result': 'skipped',
+            'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+            'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
+            'fromJSON(needs.select.outputs.plan).ordinary_execution': 'inline',
+        }
+        self.assertFalse(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'failure'}),
+            ('success', 'failure', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must skip when fast-preflight fails')
+        self.assertTrue(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'success'}),
+            ('success', 'success', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must run when fast-preflight succeeds')
+        self.assertTrue(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'skipped'}),
+            ('success', 'skipped', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must run when fast-preflight is skipped')
+
+        skip_fmt_match = re.search(
+            r'OASIS7_SKIP_RUSTFMT:\s*\$\{\{\s*(.+?)\s*\}\}',
+            JOBS['rust-baseline'],
+        )
+        self.assertIsNotNone(skip_fmt_match, 'rust-baseline must wire OASIS7_SKIP_RUSTFMT')
+        skip_expr_raw = skip_fmt_match.group(1)
+        for event_name, preflight_res, scope, expected_flag in (
+            ('pull_request', 'success', 'targeted', '1'),
+            ('pull_request', 'skipped', 'targeted', '0'),
+            ('pull_request', 'success', 'full', '0'),
+            ('push', 'skipped', 'targeted', '0'),
+            ('schedule', 'skipped', 'explicit-full', '0'),
+            ('workflow_dispatch', 'skipped', 'explicit-full', '0'),
+        ):
+            py_expr = skip_expr_raw
+            for token, val in {
+                'github.event_name': repr(event_name),
+                'needs.fast-preflight.result': repr(preflight_res),
+                'fromJSON(needs.select.outputs.plan).scope': repr(scope),
+            }.items():
+                py_expr = py_expr.replace(token, val)
+            py_expr = py_expr.replace('&&', ' and ').replace('||', ' or ').replace('!=', ' != ').replace('==', ' == ')
+            with self.subTest(event_name=event_name, preflight=preflight_res, scope=scope):
+                self.assertEqual(eval(py_expr, {'__builtins__': {}}, {}), expected_flag)
+
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_rust_baseline']
+        script = (
+            'set -euo pipefail\ntier=required; required_plan=""\n'
+            'run() { printf "run:%s\\n" "$*"; }\n'
+            'run_cargo() { printf "cargo:%s\\n" "$*"; }\n'
+            'run_rustsec_advisory_check() { echo advisories; }\n'
+            'run_oasis7_required_clippy_for_group() { echo clippy; }\n'
+            'run_newapi_bridge_service_accounting_tests() { echo newapi; }\n'
+            'run_standalone_tool_lockfiles_checks() { echo lockfiles; }\n'
+            'run_rust_baseline() {\n' + body + '}\nrun_rust_baseline\n'
+        )
+        for env_override, expect_fmt in (
+            ({}, True),
+            ({'OASIS7_SKIP_RUSTFMT': '0'}, True),
+            ({'OASIS7_SKIP_RUSTFMT': '1'}, False),
+        ):
+            env = dict(os.environ)
+            env.pop('OASIS7_SKIP_RUSTFMT', None)
+            env.update(env_override)
+            res = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=env, check=True)
+            lines = res.stdout.splitlines()
+            self.assertEqual(
+                'run:env -u RUSTC_WRAPPER cargo fmt --all -- --check' in lines,
+                expect_fmt,
+                (env_override, lines),
+            )
+            self.assertIn('cargo:fetch --locked', lines)
+            self.assertIn('advisories', lines)
+            self.assertIn('clippy', lines)
 
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
@@ -7907,6 +8422,182 @@ class DependabotCoverageGuardTests(unittest.TestCase):
             updates.get('docker', []),
             self.EXCLUDED_DOCKER_DIRECTORIES,
         )
+
+
+class FleetHealthSubcontractsExecutionTests(unittest.TestCase):
+    @staticmethod
+    def _step_conditions(job):
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        result = {}
+        for step in steps:
+            name_match = re.search(r'^      - name: (.+)$', step, re.M)
+            if not name_match:
+                continue
+            cond_match = re.search(r'^        if: (.*?)(?=^        [a-z-]+:|\Z)', step, re.M | re.S)
+            if cond_match:
+                result[name_match.group(1)] = cond_match.group(1)
+        return result
+
+    @staticmethod
+    def _eval_matrix_os(expr, values):
+        body = expr.strip().removeprefix('${{').removesuffix('}}').strip()
+        full_oses = ['ubuntu-24.04', 'windows-2022', 'macos-15']
+        win_only = ['windows-2022']
+        mapping = {
+            'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\')': full_oses,
+            'fromJSON(\'["windows-2022"]\')': win_only,
+            **values,
+        }
+        for token, val in sorted(mapping.items(), key=lambda item: -len(item[0])):
+            body = body.replace(token, repr(val))
+        py_expr = []
+        i = 0
+        # Evaluate GitHub Actions && / || short-circuit value semantics via Python and/or
+        body = re.sub(r'!(?!=)', 'not ', body.replace('&&', ' and ').replace('||', ' or '))
+        return eval(
+            ' '.join(body.split()),
+            {'__builtins__': {}},
+            {'join': lambda items, sep=',': sep.join(items or ())},
+        )
+
+    def test_fleet_health_matrix_and_subcontract_steps_slice_and_fallback_safely(self):
+        fleet = JOBS['fleet-health']
+        matrix_expr = re.search(r'^\s+os: (\$\{\{.*\}\})$', fleet, re.M).group(1)
+        conds = self._step_conditions(fleet)
+
+        def base_vals(*, scope='targeted', ver=1, checks=(), oses=(), run_fleet='true', run_win='false'):
+            return {
+                'needs.select.outputs.run_fleet_health': run_fleet,
+                'needs.select.outputs.run_windows_rollout': run_win,
+                'fromJSON(needs.select.outputs.plan).scope': scope,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
+                'fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version': ver,
+                'fromJSON(needs.select.outputs.plan).fleet_health_checks': list(checks),
+                'fromJSON(needs.select.outputs.plan).fleet_health_oses': list(oses),
+            }
+
+        # 1) Targeted subcontract matrix.os slicing + full/legacy/empty fallbacks
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(checks=['host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])),
+            ['ubuntu-24.04', 'macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(checks=['macos_signer'], oses=['macos-15'])),
+            ['macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(run_fleet='false', run_win='true', checks=[], oses=['windows-2022'])),
+            ['windows-2022'],
+        )
+        for full_scope in ('full', 'explicit-full'):
+            self.assertEqual(
+                self._eval_matrix_os(matrix_expr, base_vals(scope=full_scope, checks=['macos_signer'], oses=['macos-15'])),
+                ['ubuntu-24.04', 'windows-2022', 'macos-15'],
+            )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(ver=None, checks=[], oses=[])),
+            ['ubuntu-24.04', 'windows-2022', 'macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(run_fleet='false', run_win='false', checks=[], oses=[])),
+            ['windows-2022'],
+        )
+
+        # 2) Step gating across subcontracts: host_cleanup skips Rust on Linux & macOS
+        cleanup_vals = base_vals(checks=['host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])
+        for runner_os in ('Linux', 'macOS'):
+            vals = cleanup_vals | {'runner.os': runner_os}
+            self.assertFalse(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify private context filesystem and caller on macOS'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify local signer contracts on macOS'], vals, ('success',)))
+            self.assertTrue(effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)))
+            self.assertEqual(
+                effective_job_condition(conds['Ensure Linux process inspection dependency'], vals, ('success',)),
+                runner_os == 'Linux',
+            )
+
+        # 3) Mixed macos_signer + host_cleanup installs Rust ONLY on macOS, not Linux
+        mixed_vals = base_vals(checks=['macos_signer', 'host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])
+        self.assertFalse(effective_job_condition(
+            conds['Prepare native filesystem contract Rust toolchain'],
+            mixed_vals | {'runner.os': 'Linux'}, ('success',),
+        ))
+        self.assertTrue(effective_job_condition(
+            conds['Prepare native filesystem contract Rust toolchain'],
+            mixed_vals | {'runner.os': 'macOS'}, ('success',),
+        ))
+        self.assertTrue(effective_job_condition(
+            conds['Verify local signer contracts on macOS'],
+            mixed_vals | {'runner.os': 'macOS'}, ('success',),
+        ))
+
+        # 4) fleet_script runs Python collector without Rust toolchain on all 3 OSes; windows_rollout-only runs only Windows rollout
+        win_rollout_vals = base_vals(run_fleet='false', run_win='true', checks=[], oses=['windows-2022']) | {'runner.os': 'Windows'}
+        self.assertTrue(effective_job_condition(conds['Execute consolidated Windows rollout contract'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Execute selected group'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], win_rollout_vals, ('success',)))
+
+        fleet_script_vals = base_vals(checks=['fleet_script'], oses=['ubuntu-24.04', 'windows-2022', 'macos-15'])
+        for runner_os in ('Linux', 'Windows', 'macOS'):
+            vals = fleet_script_vals | {'runner.os': runner_os}
+            self.assertTrue(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)))
+
+        # 5) Legacy BASE (ver=None) and full/explicit-full run all platform-appropriate steps
+        for fallback_vals in (
+            base_vals(ver=None, checks=[], oses=[]),
+            base_vals(scope='full', checks=[], oses=[]),
+            base_vals(scope='explicit-full', checks=[], oses=[]),
+        ):
+            for runner_os in ('Linux', 'Windows', 'macOS'):
+                vals = fallback_vals | {'runner.os': runner_os}
+                self.assertTrue(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+                self.assertTrue(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+                self.assertTrue(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+                self.assertEqual(
+                    effective_job_condition(conds['Verify local signer contracts on macOS'], vals, ('success',)),
+                    runner_os == 'macOS',
+                )
+                self.assertEqual(
+                    effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)),
+                    runner_os != 'Windows',
+                )
+
+
+class WorkflowStepTimeoutBoundTests(unittest.TestCase):
+    def test_numeric_step_timeouts_never_exceed_enclosing_numeric_job_timeout(self):
+        workflow_dir = ROOT / '.github/workflows'
+        workflow_paths = sorted(
+            path for path in workflow_dir.iterdir()
+            if path.is_file() and path.suffix in ('.yml', '.yaml')
+        )
+        checked_steps = 0
+        for path in workflow_paths:
+            rel_path = path.relative_to(ROOT).as_posix()
+            jobs = workflow_jobs(path.read_text())
+            for job_name, body in jobs.items():
+                if re.search(r'^    uses:\s*\S+', body, re.M):
+                    continue
+                job_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', body, re.M)
+                if not job_match:
+                    continue
+                job_minutes = int(job_match.group(1))
+                for step_match in re.finditer(r'^        timeout-minutes:\s*(\d+)\s*$', body, re.M):
+                    checked_steps += 1
+                    step_minutes = int(step_match.group(1))
+                    with self.subTest(workflow=rel_path, job=job_name, step_minutes=step_minutes):
+                        self.assertGreater(step_minutes, 0)
+                        self.assertLess(
+                            step_minutes,
+                            job_minutes,
+                            f'{rel_path}:{job_name} step timeout ({step_minutes}m) must stay strictly below job timeout ({job_minutes}m)',
+                        )
+        self.assertGreater(checked_steps, 0)
 
 
 if __name__ == '__main__':

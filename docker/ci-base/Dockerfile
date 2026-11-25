@@ -65,3 +65,26 @@ FROM rust-build AS rust-wasm-build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends clang llvm \
     && rm -rf /var/lib/apt/lists/*
+
+FROM build AS codeql-rust
+COPY codeql-rust-packages.txt /tmp/ci-packages.txt
+RUN apt-get update \
+    && xargs apt-get install -y --no-install-recommends </tmp/ci-packages.txt \
+    && rm -rf /var/lib/apt/lists/* /tmp/ci-packages.txt
+ARG CODEQL_RUST_TOOLCHAIN
+COPY --from=rust-tools /usr/local/cargo/bin/ /opt/oasis7-rust/bin/
+COPY --from=rust-tools /usr/local/rustup/ /opt/oasis7-rust/rustup/
+ENV RUSTUP_HOME=/opt/oasis7-rust/rustup
+ENV PATH=/opt/oasis7-rust/bin:$PATH
+ENV RUSTUP_TOOLCHAIN=${CODEQL_RUST_TOOLCHAIN}
+ENV RUSTUP_AUTO_INSTALL=0
+
+FROM runtime AS api-runtime
+RUN curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 --max-time 120 \
+      --proto '=https' --proto-redir '=https' \
+      https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_amd64.tar.gz \
+      --output /tmp/gh.tar.gz \
+    && echo '79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f  /tmp/gh.tar.gz' | sha256sum --check \
+    && tar -xOzf /tmp/gh.tar.gz gh_2.105.0_linux_amd64/bin/gh >/tmp/gh \
+    && install -m 0755 /tmp/gh /usr/local/bin/gh \
+    && rm -f /tmp/gh /tmp/gh.tar.gz
