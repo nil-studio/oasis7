@@ -1012,6 +1012,10 @@ run_workflow_governance_baseline_contract_tests() {
 }
 
 run_workflow_governance_operational_contract_tests() {
+  run python3 ./scripts/security/test_codeql_rust_resolver.py
+  run python3 ./scripts/security/codeql-rust-action-deadline.test.py
+  run python3 ./scripts/security/codeql-rust-production.test.py
+  run python3 ./scripts/security/codeql-rust-candidate-workload.test.py
   run python3 ./scripts/security/codeql-plan.test.py
   run python3 ./scripts/security/codeql-workflow.test.py
   run python3 ./scripts/security/codeql-rust-coverage.test.py
@@ -1024,11 +1028,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-rust-wasm-metadata.test.py
   run python3 ./scripts/security/codeql-rust-wasm-context.test.py
   run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
-  run python3 ./scripts/security/codeql-rust-candidate-workload.test.py
-  run python3 ./scripts/security/codeql-rust-production.test.py
-  run python3 ./scripts/security/test_codeql_rust_resolver.py
   run python3 ./scripts/security/test_codeql_rust_candidate_profile.py
-  run python3 ./scripts/security/codeql-rust-action-deadline.test.py
   run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
   run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py
@@ -1042,12 +1042,16 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/test_check_pr_boundaries.py
 }
 
-run_workflow_governance_remaining_contract_tests() {
-  run_engineering_telemetry_contract_tests
-  run_workflow_governance_baseline_contract_tests
+_collect_workflow_governance_remaining_parallel_tests() {
   run_workflow_governance_operational_contract_tests
+  run_workflow_governance_baseline_contract_tests
   run python3 ./scripts/package-source-plan.test.py
   run python3 ./scripts/safe-git-archive.test.py
+}
+
+run_workflow_governance_remaining_contract_tests() {
+  run_engineering_telemetry_contract_tests
+  run_parallel_contract_commands OASIS7_WORKFLOW_GOVERNANCE_REMAINING_JOBS workflow-governance-remaining _collect_workflow_governance_remaining_parallel_tests
 }
 
 run_workflow_governance_contract_tests() {

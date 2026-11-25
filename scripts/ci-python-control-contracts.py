@@ -30,8 +30,10 @@ PLANNER_TEST = 'scripts/plan-rust-required-scope.test.py'
 EVOLVING_POLICY_TESTS = frozenset({
     PLANNER_TEST,
     'scripts/ci-bin-ownership.test.py',
+    'scripts/ci-formal-process.test.py',
     'scripts/ci-full-result.test.py',
     'scripts/ci-workflow.test.py',
+    'scripts/ci-workspace-cache.test.py',
 })
 # These are safety properties, not an exhaustive snapshot of path-selection,
 # workflow DAG wiring, or mid-migration module ownership. Evolving suites run
@@ -128,6 +130,18 @@ FIXED_TESTS = {
         'Workflow.test_trusted_closure_and_safe_checkout',
         'Workflow.test_trusted_writer_only_runs_on_protected_main',
     ],
+    'scripts/ci-workspace-cache.test.py': [
+        'Workspace.test_formal_components_have_exact_writer_and_reader_boundaries',
+        'Workspace.test_only_matching_trusted_main_lane_can_stage',
+        'Workspace.test_manual_writer_requires_full_in_event_payload',
+        'Workspace.test_stage_rechecks_capacity_and_never_saves_when_inventory_grows',
+        'Workspace.test_stage_rejects_untrusted_or_nonfull_manual_runs_before_preparation',
+        'Workspace.test_stage_round_trip_and_restore_requires_compatible_key',
+        'Workspace.test_wrong_selection_cannot_be_uploaded_as_ordinary',
+        'BoundedWorkspace.test_malformed_baseline_cannot_name_unrecorded_or_partial_units',
+        'BoundedWorkspace.test_malformed_capture_cannot_be_pruned_into_success',
+        'BoundedWorkspace.test_pack_retries_are_bounded_and_do_not_publish_an_oversized_archive',
+    ],
     'scripts/ci-python-control-contracts.test.py': [
         'TrustedContracts.test_baseline_code_loads_candidate_with_correct_main_and_inherited_inventory',
         'TrustedContracts.test_removing_candidate_tests_cannot_hide_a_broken_implementation',
@@ -193,8 +207,43 @@ def run_governance_remaining(root):
 def local_governance(root):
     """Preserve each canonical CLI's local platform/optional-tool semantics."""
     paths = governance_tests(json.loads((root / 'scripts/ci-required-scope.json').read_text()))
-    for path in paths:
-        subprocess.run([sys.executable, str(root / path)], cwd=root, check=True)
+    workers = 1 if os.environ.get('OASIS7_LOCAL_CHECK') == '1' else contract_workers(len(paths))
+    if workers <= 1:
+        for path in paths:
+            subprocess.run([sys.executable, str(root / path)], cwd=root, check=True)
+    else:
+        ordered = sorted(paths, key=lambda path: (_HEAVY_CONTRACT_ORDER.get(path, 100), path))
+        stop_event = threading.Event()
+        results = {}
+
+        def invoke(index, path):
+            if stop_event.is_set():
+                return
+            completed = subprocess.run([sys.executable, str(root / path)], cwd=root,
+                                       capture_output=True, text=True)
+            results[index] = completed
+            if completed.returncode != 0:
+                stop_event.set()
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(invoke, index, path) for index, path in enumerate(ordered)]
+            for future in as_completed(futures):
+                future.result()
+        first_failure = None
+        for index, path in enumerate(ordered):
+            completed = results.get(index)
+            if completed is None:
+                continue
+            if completed.stdout:
+                sys.stdout.write(completed.stdout)
+                sys.stdout.flush()
+            if completed.stderr:
+                sys.stderr.write(completed.stderr)
+                sys.stderr.flush()
+            if completed.returncode != 0 and first_failure is None:
+                first_failure = subprocess.CalledProcessError(completed.returncode, [sys.executable, str(root / path)])
+        if first_failure is not None:
+            raise first_failure
     run_governance_remaining(root)
 
 
@@ -527,9 +576,10 @@ def contract_workers(task_count):
 _HEAVY_CONTRACT_ORDER = {
     PLANNER_TEST: 0,
     'scripts/ci-formal-process.test.py': 1,
-    'scripts/ci-workflow.test.py': 2,
-    'scripts/ci-cache-maintenance.test.py': 3,
-    'scripts/ci-local-check.test.py': 4,
+    'scripts/ci-workspace-cache.test.py': 2,
+    'scripts/ci-workflow.test.py': 3,
+    'scripts/ci-cache-maintenance.test.py': 4,
+    'scripts/ci-local-check.test.py': 5,
 }
 
 
