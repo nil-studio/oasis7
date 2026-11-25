@@ -7,7 +7,11 @@ pub mod gameplay_actions;
 pub mod gameplay_service;
 pub mod llm_prompt_profile;
 pub mod llm_request_budget;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod provider_json_admission;
 pub mod provider_json_shape;
+#[path = "agent_execution/provider_material_capture.rs"]
+pub mod provider_material_capture;
 pub mod provider_transport_url;
 pub mod simulator_archive;
 
