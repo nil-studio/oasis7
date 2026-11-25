@@ -3,9 +3,7 @@
 use oasis7_distfs::protected_bft_v3::{
     BftSignerBindingV3, BftSuccessorWindowSourceV1, successor_source_from_binding_v3,
 };
-use oasis7_node::{
-    BftSuccessorRotationMachineV1, BftWindowHeadPinV1, NodeConsensusAction,
-};
+use oasis7_node::{BftSuccessorRotationMachineV1, BftWindowHeadPinV1, NodeConsensusAction};
 
 #[derive(Debug, Clone)]
 pub struct CandidateSuccessorWindowBridgeV1 {
@@ -106,8 +104,7 @@ mod tests {
         let source = source();
         let original = source.origin_digest().unwrap();
         let candidate =
-            BftSuccessorRotationMachineV1::from_source(source.clone(), 1, digest(8), 3)
-                .unwrap();
+            BftSuccessorRotationMachineV1::from_source(source.clone(), 1, digest(8), 3).unwrap();
         let checked = CandidateSuccessorWindowBridgeV1::check_candidate(
             candidate.clone(),
             &source,
@@ -150,12 +147,7 @@ mod tests {
         );
         assert!(wrong_digest.is_err());
         let stale_owner = CandidateSuccessorWindowBridgeV1::check_candidate(
-            candidate,
-            &source,
-            0,
-            &original,
-            2,
-            None,
+            candidate, &source, 0, &original, 2, None,
         );
         assert!(stale_owner.is_err());
     }
