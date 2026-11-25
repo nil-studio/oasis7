@@ -20,6 +20,7 @@ Linux CI 共用一套 Ubuntu 24.04 底座、一份多阶段 Dockerfile 和一条
 | `build` | 在 runtime 上增加 GCC、pkg-config 和系统开发包。用于需要本地 C 编译或链接的任务。custody 首批用 build，因为分片 0 的 workerd GDB 合同需编译 C fixture | 四个 custody 分片全部执行，保留 GDB、类型检查、产物身份和结果收集 |
 | `rust-build` | 在 build 上预装仓库固定的 Rust stable、WASM nightly、组件和 targets。用于 Rust 编译、Clippy、编译指标和适用的缓存预热及打包任务 | 核对 rustc 版本、组件、targets、链接器、profile、缓存身份和实际产物消费 |
 | `codeql-rust` | 复用 build 底座并预装正式 CodeQL Rust 分析固定的工具链，以及 GTK、WebKitGTK 和 D-Bus 编译依赖 | 核对工具链来源、非 root 离线编译、已安装包及分析器使用的全部 pkg-config 模块。CodeQL bundle 随原分析作业选择 |
+| `api-runtime` | 复用 runtime 底座，为只读 GitHub API 证据作业提供固定 GitHub CLI | 核对官方 Linux 发行资产 SHA256、非 root 离线 CLI 版本与 API 命令。调用者保留各自的认证、权限和证据校验 |
 | `browser` | 复用 runtime 的 Node，在其上提供 npm、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
 
 五个目标从同一 Node 24 官方镜像来源构建，构建时固定来源 digest 并记录在镜像标签。通用层提供 Node 可执行文件，browser 层提供 npm 及其锁文件依赖。镜像 smoke 验证离线工具能力，CodeQL 的 JavaScript/TypeScript 提取由实际分析 job 验证所用的正式摘要。
