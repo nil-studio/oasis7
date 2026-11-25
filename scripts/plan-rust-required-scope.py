@@ -4473,13 +4473,16 @@ def workspace_support_requires_host(plan):
 
 
 def workspace_support_selects_signer_image(plan):
-    """Replace the host provisioner only for signer and its supported context combination."""
+    """Replace the host provisioner only for the supported signer profile combinations."""
     return (plan.get('scope') == 'targeted'
             and plan.get('test_policy_changed') is False
             and type(plan.get('workspace_support_profile_version')) is int
             and plan['workspace_support_profile_version'] == 1
             and plan.get('workspace_support_profiles') in (
-                ['oasis7_local_signer'], ['oasis7_context', 'oasis7_local_signer']))
+                ['oasis7_local_signer'],
+                ['oasis7_context', 'oasis7_local_signer'],
+                ['oasis7_local_signer', 'oasis7_signer_protocol'],
+                ['oasis7_context', 'oasis7_local_signer', 'oasis7_signer_protocol']))
 
 
 def support_partitions(profiles):

@@ -263,6 +263,7 @@ jobs:
       workspace_support_host: ${{ steps.select.outputs.workspace_support_host }}
       workspace_support_signer_only: ${{ steps.workflow-plan.outputs.workspace_support_signer_only }}
       workspace_support_signer_context: ${{ steps.workflow-plan.outputs.workspace_support_signer_context }}
+      workspace_support_signer_protocol: ${{ steps.workflow-plan.outputs.workspace_support_signer_protocol }}
       command_center_package: ${{ steps.select.outputs.command_center_package || 'true' }}
       run_baseline: ${{ steps.select.outputs.run_baseline }}
       run_command_center: ${{ steps.select.outputs.run_command_center }}
@@ -535,6 +536,11 @@ jobs:
               signer_context = signer_image_eligible and profiles == ['oasis7_context', 'oasis7_local_signer']
               output.write('workspace_support_signer_only=' + str(signer_only).lower() + '\n')
               output.write('workspace_support_signer_context=' + str(signer_context).lower() + '\n')
+              signer_protocol = signer_image_eligible and profiles in (
+                  ['oasis7_local_signer', 'oasis7_signer_protocol'],
+                  ['oasis7_context', 'oasis7_local_signer', 'oasis7_signer_protocol'],
+              )
+              output.write('workspace_support_signer_protocol=' + str(signer_protocol).lower() + '\n')
           PY
       - id: formal-select
         name: Resolve formal selection with conservative old-baseline fallback
@@ -3680,15 +3686,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        execution: ${{ fromJSON(needs.select.outputs.workspace_support_signer_context == 'true' && '["signer-context-image"]' || needs.select.outputs.workspace_support_signer_only == 'true' && '["signer-image"]' || needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
+        execution: ${{ fromJSON(needs.select.outputs.workspace_support_signer_protocol == 'true' && '["signer-protocol-image"]' || needs.select.outputs.workspace_support_signer_context == 'true' && '["signer-context-image"]' || needs.select.outputs.workspace_support_signer_only == 'true' && '["signer-image"]' || needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 35
     permissions:
       contents: read
       packages: read
     container:
-      image: ${{ matrix.execution == 'signer-context-image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c' || matrix.execution == 'signer-image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f' || matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2' || '' }}
-      options: ${{ matrix.execution == 'signer-context-image' && '--user 1001:1001' || matrix.execution == 'signer-image' && '--user 1001:1001' || '' }}
+      image: ${{ (matrix.execution == 'signer-context-image' || matrix.execution == 'signer-protocol-image') && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c' || matrix.execution == 'signer-image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f' || matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2' || '' }}
+      options: ${{ (matrix.execution == 'signer-context-image' || matrix.execution == 'signer-protocol-image') && '--user 1001:1001' || matrix.execution == 'signer-image' && '--user 1001:1001' || '' }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -3706,7 +3712,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
         with:
-          install-dir: ${{ matrix.execution == 'signer-context-image' && format('{0}/oasis7-signer-context-mold', runner.temp) || matrix.execution == 'signer-image' && format('{0}/oasis7-node-mold', runner.temp) || '' }}
+          install-dir: ${{ matrix.execution == 'signer-protocol-image' && format('{0}/oasis7-signer-protocol-mold', runner.temp) || matrix.execution == 'signer-context-image' && format('{0}/oasis7-signer-context-mold', runner.temp) || matrix.execution == 'signer-image' && format('{0}/oasis7-node-mold', runner.temp) || '' }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
@@ -3726,14 +3732,14 @@ jobs:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
       - name: Verify the non-root signer execution plan
-        if: matrix.execution == 'signer-image' || matrix.execution == 'signer-context-image'
+        if: matrix.execution == 'signer-image' || matrix.execution == 'signer-context-image' || matrix.execution == 'signer-protocol-image'
         env:
           SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
-          SIGNER_WITH_CONTEXT: ${{ matrix.execution == 'signer-context-image' }}
+          SIGNER_EXECUTION: ${{ matrix.execution }}
         run: |
           set -euo pipefail
           test "$(id -u):$(id -g)" = 1001:1001
-          python3 - "$RUNNER_TEMP/selection.json" "$SELECTION_SHA256" "$SIGNER_WITH_CONTEXT" <<'PYTHON'
+          python3 - "$RUNNER_TEMP/selection.json" "$SELECTION_SHA256" "$SIGNER_EXECUTION" <<'PYTHON'
           import hashlib, json, sys
           from pathlib import Path
           raw = Path(sys.argv[1]).read_bytes()
@@ -3741,18 +3747,22 @@ jobs:
               raise SystemExit('non-root signer lane received a different selection artifact')
           plan = json.loads(raw)
           profile_sets = {
-              'false': ['oasis7_local_signer'],
-              'true': ['oasis7_context', 'oasis7_local_signer'],
+              'signer-image': [['oasis7_local_signer']],
+              'signer-context-image': [['oasis7_context', 'oasis7_local_signer']],
+              'signer-protocol-image': [
+                  ['oasis7_local_signer', 'oasis7_signer_protocol'],
+                  ['oasis7_context', 'oasis7_local_signer', 'oasis7_signer_protocol'],
+              ],
           }
-          profiles = profile_sets.get(sys.argv[3])
-          if profiles is None or plan.get('scope') != 'targeted' or plan.get('workspace_support_profiles') != profiles:
+          profiles = profile_sets.get(sys.argv[3], ())
+          if plan.get('scope') != 'targeted' or plan.get('workspace_support_profiles') not in profiles:
               raise SystemExit('non-root signer lane requires the exact targeted signer selection')
           PYTHON
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
       - name: Verify the context Git supports offline inspection
-        if: matrix.execution == 'signer-context-image'
+        if: matrix.execution == 'signer-context-image' || matrix.execution == 'signer-protocol-image'
         run: /usr/local/bin/git --no-lazy-fetch --no-replace-objects --no-pager --no-optional-locks --version
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: matrix.execution == 'host' || matrix.execution == 'image'
@@ -3936,7 +3946,7 @@ jobs:
             fi
           fi
           case "$SUPPORT_EXECUTION" in
-            signer-context-image) SUPPORT_EXECUTION=all ;;
+            signer-context-image|signer-protocol-image) SUPPORT_EXECUTION=all ;;
             signer-image) SUPPORT_EXECUTION=host ;;
           esac
           support_capacity_snapshot after-native-libraries
