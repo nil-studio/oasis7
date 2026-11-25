@@ -249,7 +249,9 @@ class SingleCheck(unittest.TestCase):
         self.assertIn(f'CARGO_CHECK_NATIVE_IMAGE: {image[1]}', text)
         self.assertIn('test "$(command -v rustup)" = /opt/oasis7-rust/bin/rustup', text)
         self.assertIn('test ! -w /opt/oasis7-rust/bin/cargo', text)
-        self.assertIn('export RUSTUP_HOME="$toolchain/rustup" CARGO_HOME="$toolchain/cargo" TMPDIR="$RUNNER_TEMP"', text)
+        self.assertLess(text.index('printf \'TMPDIR=%s\\n\' "$RUNNER_TEMP"'),
+                        text.index('name: Configure mold for Linux host linking'))
+        self.assertIn('export RUSTUP_HOME="$toolchain/rustup" CARGO_HOME="$toolchain/cargo"', text)
         self.assertLess(text.index('mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"'),
                         text.index('timeout 120 rustup toolchain install 1.99.0 --profile minimal --no-self-update'))
         self.assertIn('rustup which --toolchain 1.99.0 cargo', text)

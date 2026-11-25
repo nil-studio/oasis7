@@ -81,6 +81,7 @@ jobs:
           test ! -w /opt/oasis7-rust/bin/cargo
           test ! -w /opt/oasis7-rust/rustup
           python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          printf 'TMPDIR=%s\n' "$RUNNER_TEMP" >>"$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
@@ -112,13 +113,13 @@ jobs:
           set -euo pipefail
           umask 077
           toolchain="$(mktemp -d "$RUNNER_TEMP/rust-cargo-check-toolchain.XXXXXXXX")"
-          export RUSTUP_HOME="$toolchain/rustup" CARGO_HOME="$toolchain/cargo" TMPDIR="$RUNNER_TEMP"
+          export RUSTUP_HOME="$toolchain/rustup" CARGO_HOME="$toolchain/cargo"
           mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"
           timeout 120 rustup toolchain install 1.99.0 --profile minimal --no-self-update
           installed="$RUSTUP_HOME/toolchains/1.99.0-x86_64-unknown-linux-gnu"
           test "$(rustup which --toolchain 1.99.0 cargo)" = "$installed/bin/cargo"
           test "$(rustup which --toolchain 1.99.0 rustc)" = "$installed/bin/rustc"
-          printf 'RUSTUP_HOME=%s\nCARGO_HOME=%s\nTMPDIR=%s\n' "$RUSTUP_HOME" "$CARGO_HOME" "$TMPDIR" >>"$GITHUB_ENV"
+          printf 'RUSTUP_HOME=%s\nCARGO_HOME=%s\n' "$RUSTUP_HOME" "$CARGO_HOME" >>"$GITHUB_ENV"
       - name: Execute one locked compile-time dependency check
         run: |
           python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-cargo-check.py" \
