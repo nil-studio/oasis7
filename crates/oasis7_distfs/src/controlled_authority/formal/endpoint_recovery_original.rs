@@ -103,7 +103,10 @@ pub fn read_native_recovery_pending_from_managed_archive(
 ) -> Result<VerifiedNativeRecoveryPendingV1, FormalError> {
     if !archive_root.is_absolute()
         || !matches!(
-            Path::new(file_name).components().collect::<Vec<_>>().as_slice(),
+            Path::new(file_name)
+                .components()
+                .collect::<Vec<_>>()
+                .as_slice(),
             [std::path::Component::Normal(_)]
         )
     {
@@ -237,8 +240,8 @@ mod tests {
         let original = TestFile::new();
         let root = original.0.parent().unwrap();
         let leaf = original.0.file_name().unwrap().to_str().unwrap();
-        let handoff = RecoveryPendingHandoffV1::from_requests(vec![request("a", &[0, 255, 7])])
-            .unwrap();
+        let handoff =
+            RecoveryPendingHandoffV1::from_requests(vec![request("a", &[0, 255, 7])]).unwrap();
         let pin = handoff.root().unwrap();
         std::fs::write(&original.0, serde_cbor::to_vec(&handoff).unwrap()).unwrap();
 
@@ -247,45 +250,46 @@ mod tests {
             assert_eq!(read.handoff(), &handoff);
             assert_eq!(read.root(), pin);
         }
-        assert!(read_native_recovery_pending_from_managed_archive(
-            root,
-            leaf,
-            &"a".repeat(64),
-        )
-        .is_err());
-        assert!(read_native_recovery_pending_from_managed_archive(
-            root,
-            "../wrong",
-            &pin,
-        )
-        .is_err());
-        assert!(read_native_recovery_pending_from_managed_archive(
-            Path::new("relative-root"),
-            leaf,
-            &pin,
-        )
-        .is_err());
+        assert!(
+            read_native_recovery_pending_from_managed_archive(root, leaf, &"a".repeat(64),)
+                .is_err()
+        );
+        assert!(
+            read_native_recovery_pending_from_managed_archive(root, "../wrong", &pin,).is_err()
+        );
+        assert!(
+            read_native_recovery_pending_from_managed_archive(
+                Path::new("relative-root"),
+                leaf,
+                &pin,
+            )
+            .is_err()
+        );
 
         let linked = original.0.with_extension("linked");
         symlink(&original.0, &linked).unwrap();
-        assert!(read_native_recovery_pending_from_managed_archive(
-            root,
-            linked.file_name().unwrap().to_str().unwrap(),
-            &pin,
-        )
-        .is_err());
+        assert!(
+            read_native_recovery_pending_from_managed_archive(
+                root,
+                linked.file_name().unwrap().to_str().unwrap(),
+                &pin,
+            )
+            .is_err()
+        );
         std::fs::remove_file(&linked).unwrap();
 
         let fifo = original.0.with_extension("fifo");
         let fifo_name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
         // O_NONBLOCK must reject this rather than waiting for a writer.
-        assert!(read_native_recovery_pending_from_managed_archive(
-            root,
-            fifo.file_name().unwrap().to_str().unwrap(),
-            &pin,
-        )
-        .is_err());
+        assert!(
+            read_native_recovery_pending_from_managed_archive(
+                root,
+                fifo.file_name().unwrap().to_str().unwrap(),
+                &pin,
+            )
+            .is_err()
+        );
         std::fs::remove_file(&fifo).unwrap();
 
         std::fs::write(&original.0, b"corrupted original").unwrap();

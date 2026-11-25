@@ -59,8 +59,7 @@ mod native_recovery;
 mod recovery_original;
 pub use recovery_original::{
     NATIVE_RECOVERY_ORIGINAL_FILE_LIMIT_V1, VerifiedNativeRecoveryPendingV1,
-    read_native_recovery_pending_from_managed_archive,
-    verify_native_recovery_original_legacy_cut,
+    read_native_recovery_pending_from_managed_archive, verify_native_recovery_original_legacy_cut,
 };
 #[path = "endpoint_rpc.rs"]
 mod native_rpc;
