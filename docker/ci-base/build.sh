@@ -4,8 +4,8 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime) ;;
-  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime" >&2; exit 2 ;;
+  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
@@ -23,7 +23,7 @@ options=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
 if [[ "$target" == browser ]]; then
   options+=(--build-context browser-tools=../../scripts/ci-browser-tools)
 fi
-if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == rust-ordinary-builder ]]; then
   workflow=../../.github/workflows/rust.yml
   stable=$(sed -n 's/^  RUST_TOOLCHAIN: //p' "$workflow")
   nightly=$(sed -n 's/^  OASIS7_WASM_TOOLCHAIN: //p' "$workflow")
@@ -38,7 +38,7 @@ elif [[ "$target" == codeql-rust ]]; then
   [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
   options+=(--build-arg "CODEQL_RUST_TOOLCHAIN=$stable")
 fi
-if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust || "$target" == rust-ordinary-builder ]]; then
   rust_base="rust:${stable}-bookworm"
   rust_digest=$(docker buildx imagetools inspect "$rust_base" --format "{{json .Manifest}}" | jq -er .digest)
   [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
@@ -216,5 +216,25 @@ if [[ "$target" == api-runtime ]]; then
       version=$(gh --version)
       grep -Eq "^gh version 2[.]105[.]0( |$)" <<< "$version"
       gh api --help >/dev/null
+    '
+fi
+
+if [[ "$target" == rust-ordinary-builder ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+    --env HOME=/tmp "$image" bash -ec '
+      test "$(id -u)" = 1001
+      test ! -S /var/run/docker.sock
+      ! command -v dockerd
+      test "$(command -v docker)" = /usr/local/bin/docker
+      plugin=/usr/local/libexec/docker/cli-plugins/docker-buildx
+      test -x "$plugin"
+      test ! -w /usr/local/bin/docker
+      test ! -w "$plugin"
+      version=$(docker --version)
+      printf "%s\n" "$version"
+      grep -Eq "^Docker version 28[.]5[.]2, build " <<< "$version"
+      version=$(docker buildx version)
+      printf "%s\n" "$version"
+      grep -Eq "^github[.]com/docker/buildx v0[.]29[.]1( |$)" <<< "$version"
     '
 fi

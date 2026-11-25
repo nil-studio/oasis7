@@ -23,7 +23,7 @@
 | `scripts/ci-required-result.py` | 在 `required-gate` 中根据 `plan` 与 `*_version` 将逻辑检查组映射到实际必须成功的宿主 job 或直接分片 | `scripts/ci-required-result.test.py` |
 | `scripts/ci-full-result.py` | 校验全量门禁收据与工作流定义摘要（`definition_digest`），升级任何 `*_version` 时必须同步允许集合 | `scripts/ci-full-result.test.py` |
 | `scripts/ci-custody-platform.py` | Custody 拆片打包、不可变测试清单导出（`export-inventory`）与零检出完整性验证（`validate --context-file`） | `scripts/ci-custody-platform.test.py` |
-| `scripts/ci-python-control-contracts.py` | 在 `workflow-governance` 中总控 `ci-authority` 受信测试：默认用 `policy_sha` 测试跑候选代码，仅 `migration == ['scripts/ci-required-scope.json']` 委托可迁移套件，但 `FIXED_TESTS` 始终在受信侧强制执行且禁删改签名 | `scripts/ci-python-control-contracts.test.py` |
+| `scripts/ci-python-control-contracts.py` | 在 `workflow-governance` 中总控 `ci-authority` 受信测试：`EVOLVING_POLICY_TESTS` 在 `policy_sha` 侧仅跑 `FIXED_TESTS` 红线子集并在候选侧跑完整新套件；其余契约套件在无全量策略迁移（`boundaries` 含 `ci-required-scope.json` / `ci-python-control-contracts.py`）时跑 `policy_sha` 全集，`FIXED_TESTS` 始终在受信侧强制执行且禁删改签名 | `scripts/ci-python-control-contracts.test.py` |
 
 ## 3. 四大验证有效的缩减模式
 
@@ -58,7 +58,7 @@
 
 1. **旧 Job 用版本守卫退役而非直接硬删**：新增或递增 `*_version` 时，旧独立 job 必须保留并以 `!= <new_ver>` 守护跳过；`ci-required-result.py` 与 `ci-full-result.py` 继续兼容旧版本号映射。
 2. **`required-gate` `needs:` 兼容规则**：本优化 PR 合入前在远端首次运行 CI 时，`policy_sha` 仍是旧版 `origin/main`（执行 `scope=full` 旧语义）。旧版 `ci-required-result.py` 要求 `required-gate` `needs:` 中的任何额外 job 在 `scope=full` 下必须为 `success`（不能为 `skipped`）。因此向 `required-gate` 新增 `needs:` 时，只能加入在旧版 `scope=full` 下也会实际执行并成功的 job（如 `custody-*`），绝不能加入在 `scope=full` 下会被 `skipped` 的 legacy fallback job（如 `workspace-support-legacy`）。
-3. **无版本分支静态断言采用两步式切换**：若修改 `rust.yml` 触及 `policy_sha` `ci-workflow.test.py` 中未按 `*_version` 门控的硬编码结构断言，按 [按需选测与快速失败分册 §4](on-demand-scope-and-preflight.md#4-两步式可信测试前置切片pr-a---pr-b与跨版本本地仿真) 执行 `PR-A`（可信测试双态兼容前置）-> `PR-B`（工作流切换与收紧）。
+3. **区分 `EVOLVING_POLICY_TESTS` 单 PR 演进与 `FIXED_TESTS` 两步式前置**：`ci-workflow.test.py` 等 `EVOLVING_POLICY_TESTS` 的常规拓扑/投影断言可直接随 `rust.yml` 单 PR 同步更新；仅触及 `policy_sha` `FIXED_TESTS` 红线或无全量 `migration` 的非演进契约套件时，按 [按需选测与快速失败分册 §4](on-demand-scope-and-preflight.md#4-受信控制面分流边界两步式前置与-fixed_tests-跨版本仿真) 执行 `PR-A -> PR-B`。
 
 ## 5. 标准本地闭环命令与防坑核对表
 
