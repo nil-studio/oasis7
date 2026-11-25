@@ -11,8 +11,8 @@ use super::binding::{BftSignerErrorV3, invalid};
 use super::private_retention_input::{
     BftPrivateRetentionAdmissionInputRefV1, BftPrivateRetentionSourceV1,
 };
-use super::successor_archive_store::LocalBftSuccessorArchiveStoreV1;
 use super::state::validate_digest;
+use super::successor_archive_store::LocalBftSuccessorArchiveStoreV1;
 
 /// At most sixteen independently pinned alternatives may be considered in
 /// one bounded original-source selection transaction.
@@ -247,8 +247,9 @@ mod tests {
         assert!(v.validate().is_err());
     }
 
-
-    fn genuine_original(header: u8) -> super::super::private_retention_input::BftPrivateRetentionAdmissionInputV1 {
+    fn genuine_original(
+        header: u8,
+    ) -> super::super::private_retention_input::BftPrivateRetentionAdmissionInputV1 {
         use super::super::private_retention_input::{
             BftPrivateRetentionAdmissionInputV1, BftPrivateRetentionInputObjectKindV1,
             BftPrivateRetentionInputObjectV1,
@@ -262,8 +263,14 @@ mod tests {
             bytes: bytes.to_vec(),
         };
         let mut objects = vec![
-            make_object(BftPrivateRetentionInputObjectKindV1::OriginalData, b"genuine-body"),
-            make_object(BftPrivateRetentionInputObjectKindV1::PublicationMetadata, b"original-metadata"),
+            make_object(
+                BftPrivateRetentionInputObjectKindV1::OriginalData,
+                b"genuine-body",
+            ),
+            make_object(
+                BftPrivateRetentionInputObjectKindV1::PublicationMetadata,
+                b"original-metadata",
+            ),
         ];
         objects.sort_by(|a, b| a.reference.digest.cmp(&b.reference.digest));
         BftPrivateRetentionAdmissionInputV1 {
@@ -295,9 +302,11 @@ mod tests {
             alternatives: vec![a_ref.clone(), b_ref.clone()],
         };
         let store = scratch.store();
-        assert!(originals
-            .cold_verify_originals(&store, &source(), &h(4), 11)
-            .is_err()); // Missing archive is never silently accepted.
+        assert!(
+            originals
+                .cold_verify_originals(&store, &source(), &h(4), 11)
+                .is_err()
+        ); // Missing archive is never silently accepted.
         store.persist_original_admission_input(&a_ref, &a).unwrap();
         store.persist_original_admission_input(&b_ref, &b).unwrap();
         drop(store);
@@ -314,17 +323,23 @@ mod tests {
             checked.descriptor_for_header(&source(), &h(4), 11, &h(11)),
             Some(&b_ref)
         );
-        assert!(checked
-            .descriptor_for_header(&source(), &h(4), 12, &h(10))
-            .is_none());
+        assert!(
+            checked
+                .descriptor_for_header(&source(), &h(4), 12, &h(10))
+                .is_none()
+        );
         let mut different = source();
         different.binding_digest = h(100);
-        assert!(checked
-            .descriptor_for_header(&different, &h(4), 11, &h(10))
-            .is_none());
-        assert!(originals
-            .cold_verify_originals(&cold, &different, &h(4), 11)
-            .is_err());
+        assert!(
+            checked
+                .descriptor_for_header(&different, &h(4), 11, &h(10))
+                .is_none()
+        );
+        assert!(
+            originals
+                .cold_verify_originals(&cold, &different, &h(4), 11)
+                .is_err()
+        );
     }
 
     #[test]
@@ -341,31 +356,41 @@ mod tests {
             alternatives: vec![reference.clone()],
         };
         let store = scratch.store();
-        store.persist_original_admission_input(&reference, &input).unwrap();
+        store
+            .persist_original_admission_input(&reference, &input)
+            .unwrap();
         drop(store);
         std::fs::write(scratch.blob(&reference.object), b"corrupted original").unwrap();
         let broken = scratch.store();
-        assert!(originals
-            .cold_verify_originals(&broken, &source(), &h(4), 11)
-            .is_err());
+        assert!(
+            originals
+                .cold_verify_originals(&broken, &source(), &h(4), 11)
+                .is_err()
+        );
         drop(broken);
         // The original CAS pin can be repaired from independently retained
         // authentic bytes. No new source, charge, Ready or signing permission.
         let repaired = scratch.store();
-        assert!(repaired
-            .persist_original_admission_input(&reference, &input)
-            .is_err()); // Immutable corrupt path must never be silently overwritten.
+        assert!(
+            repaired
+                .persist_original_admission_input(&reference, &input)
+                .is_err()
+        ); // Immutable corrupt path must never be silently overwritten.
         drop(repaired);
         // Simulate an explicit operator-backed replacement from exact retained
         // originals; this is not an automatic recovery or protected decision.
         std::fs::remove_file(scratch.blob(&reference.object)).unwrap();
         let repaired = scratch.store();
-        repaired.persist_original_admission_input(&reference, &input).unwrap();
+        repaired
+            .persist_original_admission_input(&reference, &input)
+            .unwrap();
         drop(repaired);
         let cold = scratch.store();
-        assert!(originals
-            .cold_verify_originals(&cold, &source(), &h(4), 11)
-            .is_ok());
+        assert!(
+            originals
+                .cold_verify_originals(&cold, &source(), &h(4), 11)
+                .is_ok()
+        );
     }
 
     #[test]
