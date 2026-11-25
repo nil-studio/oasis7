@@ -207,7 +207,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 ## CI 现状与缺口（事实口径）
 
-要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。源码已接入快速 profile、完整库存、周期准入和发布结果消费；Rust workflow 每小时第 17/37/57 分钟检查是否到期，四小时是完整回归的启动目标；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
+要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。源码已接入快速 profile、完整库存、周期准入和发布结果消费；Rust workflow 每小时第 17/37/57 分钟检查是否到期，四小时是完整回归的启动目标；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。诊断与优化 CI 工作流、按需选测切片、慢测试分层/并发、编译缓存、预制基础镜像、`timeout-minutes` 棘轮及受信基线演进的操作方法见 [optimizing-ci](.agents/skills/optimizing-ci/SKILL.md)。
 
 <a id="ci-fast-pr-periodic-full-validation"></a>
 ### 快速 PR 与周期完整回归的实施验收

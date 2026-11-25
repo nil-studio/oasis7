@@ -38,6 +38,7 @@
   3. **工作流矩阵与步骤双层守卫 + 保守回退**：在 `rust.yml` 同时用子契约收敛 `strategy.matrix.os` 与各子步骤 `if:`（纯脚本子契约跳过 Rust 工具链安装与冷编译）；当 `scope == 'full'`、`'explicit-full'` 或旧 `policy_sha` 缺少该版本能力时，完整回退三端全步骤执行。
 - **实测效果**：普通运维脚本改动折算计费从 `50.2` 分钟降至约 `8.5` 分钟（`-83%`，macOS/Windows 计费归零）。
 
+<a id="fast-preflight-gate"></a>
 ### 模式 C：`fast-preflight` 极速前置门控全覆盖重编译宿主（`#6925`、`#6940`、`#6941`）
 - **做法**：
   - 对所有重编译宿主 Job（`rust-baseline`、`oasis7-test-build-candidate`、`oasis7-required`、`workspace-support-other`、`custody-native-contracts`、`custody-native`、`custody-wasm-production`、`distfs`、`node`［含合并 `consensus`］、`net`、`launcher-web`、`scenario-regression`［含合并 `pixel_world_bridge`、`cargo_tooling_contracts`］）统一接入（其中 `oasis7-required` 额外保留上游产物依赖 `oasis7-test-build-candidate, oasis7-test-build-trusted`）：
@@ -61,6 +62,7 @@
   3. **容器镜像同源防漂移单测**：在 `ci-workflow.test.py` 断言前置与下游 Job 的 `container.image`（含 `@sha256:...` 摘要）完全一致，防止未来单侧升级镜像导致环境漂移；
   4. **Driver 默认开启、显式变量跳过**：在 `scripts/ci-tests.sh` 用 `if [[ "${OASIS7_SKIP_RUSTFMT:-0}" != 1 ]]; then ... fi` 包裹，确保无该环境变量的既有控制面契约测试（如非演进套件 `ci-formal-process.test.py` 中的 `test_format_failure_precedes_fetch_architecture_and_clippy`）及 `FIXED_TESTS` 保持原行为通过。
 
+<a id="trusted-control-split-and-simulation"></a>
 ## 4. 受信控制面分流边界、两步式前置与 `FIXED_TESTS` 跨版本仿真
 
 自 `#6928` 起，`scripts/ci-python-control-contracts.py` 将 `plan-rust-required-scope.test.py`、`ci-bin-ownership.test.py`、`ci-full-result.test.py`、`ci-workflow.test.py` 列入 `EVOLVING_POLICY_TESTS`：
