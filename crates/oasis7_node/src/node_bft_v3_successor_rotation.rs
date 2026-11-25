@@ -738,7 +738,8 @@ mod tests {
         };
         let mut wrong_epoch = pin.clone();
         wrong_epoch.target_authority_epoch = 2;
-        assert!(m.record_nonempty_commit(mk_step(164, 64, 1, &s1, Some(wrong_epoch))).is_err());
+        let invalid_epoch = mk_step(164, 64, 1, &s1, Some(wrong_epoch));
+        assert!(m.record_nonempty_commit(invalid_epoch).is_err());
         m.record_nonempty_commit(mk_step(164, 64, 1, &s1, Some(pin)))
             .unwrap();
         assert!(
@@ -748,9 +749,12 @@ mod tests {
         let (cut, pm, em, inst) = artifacts(&m, 1, 8);
         m.seal_window(cut, &pm, &em).unwrap();
         let mut tampered = m.clone();
-        let BftWindowRotationPhaseV1::Sealed(s) = &mut tampered.phase else { unreachable!() };
+        let BftWindowRotationPhaseV1::Sealed(s) = &mut tampered.phase else {
+            unreachable!()
+        };
         s.cut.header_id = h("forged sealed head", 164);
-        assert!(tampered.verify_cold_resume(&src, 0, &m.minimum_checkpoint_digest, 5, m.last_head.as_ref()).is_err());
+        let minimum = &m.minimum_checkpoint_digest;
+        assert!(tampered.verify_cold_resume(&src, 0, minimum, 5, m.last_head.as_ref()).is_err());
         let mut stale = inst.clone();
         stale.lease_generation = 4;
         assert!(m.adopt_successor_window(&stale).is_err());
