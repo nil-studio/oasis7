@@ -419,6 +419,16 @@ mod owner_tests {
 ///
 /// Preserve the original provenance-before-I/O rejection and avoid interpreting
 /// checkpoint/journal bytes through the umbrella simulator.
+/// Preserve the historical three-result generated-sidecar API while L4 owns
+/// all archive decoding; callers needing the chunk config use the 4-tuple API.
+pub fn bootstrap_generated_sidecar_runtime_world(
+    generated_world_dir: &Path,
+) -> Result<(RuntimeWorld, WorldConfig, WorldModel), String> {
+    let (world, config, model, _) =
+        bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(generated_world_dir)?;
+    Ok((world, config, model))
+}
+
 pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(
     generated_world_dir: &Path,
 ) -> Result<(RuntimeWorld, WorldConfig, WorldModel, ChunkRuntimeConfig), String> {
