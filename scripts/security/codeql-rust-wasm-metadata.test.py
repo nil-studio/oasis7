@@ -12,6 +12,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -927,6 +928,27 @@ sys.exit(13)
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_both_workflows_validate_image_proxies_before_the_original_bootstrap(self):
+        workflows = ROOT / '.github/workflows'
+        guards, images = [], []
+        for job in ('metadata', 'context'):
+            workflow = (workflows / f'codeql-rust-wasm-{job}.yml').read_text().split(f'\n  {job}:\n', 1)[1]
+            image = re.search(r'(?m)^      image: (ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[a-f0-9]{64})$', workflow)
+            self.assertIsNotNone(image)
+            images.append(image[1])
+            self.assertIn('      options: --user 1001:1001 --init\n', workflow)
+            self.assertIn('    permissions:\n      contents: read\n      actions: read\n      packages: read\n', workflow)
+            preflight = workflow.split('      - name: Verify the immutable Rust toolchain proxies\n', 1)[1]
+            guard, original = preflight.split('      - name: Bind the original deadline', 1)
+            self.assertIn('test "$(command -v rustup)" = /opt/oasis7-rust/bin/rustup', guard)
+            self.assertIn('test "$(command -v cargo)" = /opt/oasis7-rust/bin/cargo', guard)
+            self.assertIn('test ! -w /opt/oasis7-rust/rustup', guard)
+            self.assertNotIn('toolchain install', guard)
+            self.assertIn("SOURCE = '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'", original)
+            guards.append(guard)
+        self.assertEqual(*guards)
+        self.assertEqual(*images)
+
     def test_default_off_fixed_dispatch_and_least_privilege(self):
         self.assertIn('default: false', TEXT)
         self.assertIn("inputs.execute == true", TEXT)
