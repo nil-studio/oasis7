@@ -4,8 +4,8 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder) ;;
-  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder" >&2; exit 2 ;;
+  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
@@ -23,7 +23,14 @@ options=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
 if [[ "$target" == browser ]]; then
   options+=(--build-context browser-tools=../../scripts/ci-browser-tools)
 fi
-if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == rust-ordinary-builder ]]; then
+if [[ "$target" == rust-custody-wasm ]]; then
+  custody_node_base=node:22-bookworm-slim
+  custody_node_digest=$(docker buildx imagetools inspect "$custody_node_base" --format "{{json .Manifest}}" | jq -er .digest)
+  [[ "$custody_node_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+  options+=(--build-arg "CUSTODY_NODE_BASE=${custody_node_base}@${custody_node_digest}"
+            --label "org.oasis7.ci.custody-node-base.digest=$custody_node_digest")
+fi
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm ]]; then
   workflow=../../.github/workflows/rust.yml
   stable=$(sed -n 's/^  RUST_TOOLCHAIN: //p' "$workflow")
   nightly=$(sed -n 's/^  OASIS7_WASM_TOOLCHAIN: //p' "$workflow")
@@ -38,7 +45,7 @@ elif [[ "$target" == codeql-rust ]]; then
   [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
   options+=(--build-arg "CODEQL_RUST_TOOLCHAIN=$stable")
 fi
-if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust || "$target" == rust-ordinary-builder ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm ]]; then
   rust_base="rust:${stable}-bookworm"
   rust_digest=$(docker buildx imagetools inspect "$rust_base" --format "{{json .Manifest}}" | jq -er .digest)
   [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
@@ -236,5 +243,36 @@ if [[ "$target" == rust-ordinary-builder ]]; then
       version=$(docker buildx version)
       printf "%s\n" "$version"
       grep -Eq "^github[.]com/docker/buildx v0[.]29[.]1( |$)" <<< "$version"
+    '
+fi
+
+if [[ "$target" == rust-custody-wasm ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+    --tmpfs /__w:uid=1001,gid=1001,mode=0700 --env HOME=/tmp "$image" bash -ec '
+      export PATH=/opt/oasis7-node22/bin:$PATH
+      test "$(id -u):$(id -g)" = 1001:1001
+      test "$(command -v node)" = /opt/oasis7-node22/bin/node
+      node -e "if (!process.version.startsWith(\"v22.\")) process.exit(1)"
+      npm --version
+      npx --version
+      test ! -w /.cache
+      test -w /.cache/oasis7
+
+      scratch=$(mktemp -d)
+      runner="$scratch/host/runner"
+      writer="$runner/work/oasis7/oasis7"
+      reader=/__w/oasis7/oasis7
+      mkdir -p "$writer" "$reader" "$runner/.cache/oasis7"
+      printf "custody cache smoke\n" > "$runner/.cache/oasis7/worker-tool"
+      printf "../../../.cache/oasis7/worker-tool\n" > "$scratch/cache-paths"
+      tar --posix --zstd -cf "$scratch/cache.tar.zst" -P -C "$writer" --files-from "$scratch/cache-paths"
+      tar --zstd -xf "$scratch/cache.tar.zst" -P -C "$reader"
+      cmp "$runner/.cache/oasis7/worker-tool" /.cache/oasis7/worker-tool
+
+      pkg-config --exists wayland-client wayland-protocols xkbcommon x11 xi xcursor xrandr alsa libudev
+      printf "pub fn smoke() {}\n" > "$scratch/smoke.rs"
+      for toolchain in "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"; do
+        rustc +"$toolchain" --target wasm32-unknown-unknown --crate-type lib "$scratch/smoke.rs" -o "$scratch/smoke.rlib"
+      done
     '
 fi

@@ -1,5 +1,6 @@
 ARG UBUNTU_BASE
 ARG NODE_BASE=node:24-bookworm-slim
+ARG CUSTODY_NODE_BASE=node:22-bookworm-slim
 ARG RUST_BASE=rust:1.96.0-bookworm
 FROM ${RUST_BASE} AS rust-tools
 FROM ${NODE_BASE} AS node-tools
@@ -95,3 +96,13 @@ FROM docker:28.5.2-cli@sha256:cd58b396e427d1ee8cddcc3f3b7e8d8c2ba45755c5dd5b821b
 FROM rust-build AS rust-ordinary-builder
 COPY --from=docker-cli-tools --chown=0:0 --chmod=0755 /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli-tools --chown=0:0 --chmod=0755 /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
+
+FROM ${CUSTODY_NODE_BASE} AS custody-node-tools
+
+FROM rust-build AS rust-custody-wasm
+COPY --from=custody-node-tools /usr/local/bin/node /opt/oasis7-node22/bin/node
+COPY --from=custody-node-tools /usr/local/lib/node_modules/npm /opt/oasis7-node22/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /opt/oasis7-node22/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /opt/oasis7-node22/bin/npx \
+    && install -d -m 0755 /.cache \
+    && install -d -m 0700 -o 1001 -g 1001 /.cache/oasis7

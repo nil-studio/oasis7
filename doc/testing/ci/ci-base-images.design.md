@@ -23,6 +23,7 @@ Linux CI 共用一套 Ubuntu 24.04 底座、一份多阶段 Dockerfile 和一条
 | `api-runtime` | 复用 runtime 底座，为只读 GitHub API 证据作业提供固定 GitHub CLI | 核对官方 Linux 发行资产 SHA256、非 root 离线 CLI 版本与 API 命令。调用者保留各自的认证、权限和证据校验 |
 | `rust-ordinary-builder` | 复用 rust-build，为可信普通产物 producer 预装固定 Docker CLI 与 Buildx | 候选离线校验普通 UID、客户端路径和版本。消费者验证 runner 已有 daemon、原 canonical WASM recipe 与产物身份 |
 | `browser` | 复用 runtime 的 Node，在其上提供 npm、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
+| `rust-custody-wasm` | 复用 rust-build，在专用路径提供固定 Node 22 及 npm。容器内部仅向 UID 1001 开放 `/.cache/oasis7`，供现有只读工具归档按原相对路径恢复 | 非 root 离线验证 Node/npm、Rust WASM targets、实际 tar 解包与路径权限。原 Worker 和 bindgen 身份由消费作业核对 |
 
 五个目标从同一 Node 24 官方镜像来源构建，构建时固定来源 digest 并记录在镜像标签。通用层提供 Node 可执行文件，browser 层提供 npm 及其锁文件依赖。镜像 smoke 验证离线工具能力，CodeQL 的 JavaScript/TypeScript 提取由实际分析 job 验证所用的正式摘要。
 
