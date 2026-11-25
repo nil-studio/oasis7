@@ -1,0 +1,220 @@
+name: Required gate frozen replay
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-required-gate-frozen-replay-base]
+    paths: [.github/workflows/required-gate-frozen-replay.yml]
+
+permissions:
+  contents: read
+  actions: read
+
+cache-mode: none
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  host:
+    if: &isolated github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/engineering-required-gate-frozen-replay'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5a2bce0827359c9eed34c21d55a1c48d731f777a
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - &download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: 14928650664,14928265972,14931902792,14982859330,14931067044
+          run-id: 45411261651
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/historical-required
+      - &log
+        name: Fetch the exact historical context without forwarding credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I - <<'PY'
+          import hashlib, os, re
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.parse import urlsplit
+          from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          fetch = build_opener(NoRedirect()).open
+          endpoint = 'https://api.github.com/repos/nil-studio/oasis7/actions/jobs/138921119215/logs'
+          token = os.environ.pop('GH_TOKEN')
+          try:
+              response = fetch(Request(endpoint, headers={'Authorization': 'Bearer ' + token}), timeout=20)
+          except HTTPError as error:
+              assert error.code == 302
+              destination = error.headers['Location']
+              uri = urlsplit(destination)
+              assert uri.scheme == 'https' and not uri.username and not uri.password
+              assert re.fullmatch(r'productionresultssa[0-9]+[.]blob[.]core[.]windows[.]net', uri.netloc)
+              response = fetch(destination, timeout=20)
+          with response:
+              raw = response.read(131073)
+          assert len(raw) == 72208
+          assert hashlib.sha256(raw).hexdigest() == '364e77bac6a4655d60d818549339c1e21c1f43899edadd11d7dabbe4cd85e88d'
+          (Path(os.environ['RUNNER_TEMP']) / 'historical-gate.log').write_bytes(raw)
+          PY
+      - &replay
+        name: Replay complete selection, custody, required results, and telemetry
+        run: |
+          python3 -I - <<'PY'
+          import copy, hashlib, json, os, re, shutil, subprocess, sys, time
+          from pathlib import Path
+
+          candidate = '5a2bce0827359c9eed34c21d55a1c48d731f777a'
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == candidate
+          assert (os.getuid() != 0) and sys.version_info[:2] == (3, 12)
+          temp = Path(os.environ['RUNNER_TEMP'])
+          frozen = temp / 'historical-required'
+          manifests = {
+              'ci-authority-45411261651-1': (10, 'c7ee2fdadda71a336625c2528299bfad638179c5c4a6789d9898ef14385a1b12'),
+              'ci-selection-45411261651-1': (1, 'a791a4b12026d7a469153ddab3e456829e3585fc77292cc77e1772fed5784dcf'),
+              'custody-node-45411261651-0': (18, 'e27e177fbd681881e8b3c8d805b1b7ec8096885d258762c8d98c43878c45f4fa'),
+              'custody-node-45411261651-1': (12, 'ed5300ce859b2824053c83804740ca048827ec6fdec9e5cec7cb926d54fd3846'),
+              'custody-node-45411261651-2': (15, '74f35fd0d9cc4aae3b865cefa958d6312310b74d59ebb21b8067e048d80efb80'),
+          }
+
+          def digest(value):
+              return hashlib.sha256(value).hexdigest()
+
+          assert {entry.name for entry in frozen.iterdir()} == set(manifests)
+          for name, (count, expected) in manifests.items():
+              folder = frozen / name
+              assert not folder.is_symlink()
+              members = list(folder.rglob('*'))
+              assert all((member.is_file() or member.is_dir()) and not member.is_symlink() for member in members)
+              inventory = {str(member.relative_to(folder)): digest(member.read_bytes())
+                           for member in members if member.is_file()}
+              directories = {str(member.relative_to(folder)) for member in members if member.is_dir()}
+              assert directories == {str(parent) for path in inventory for parent in Path(path).parents
+                                     if parent != Path('.')}
+              assert len(inventory) == count
+              assert digest(json.dumps(inventory, sort_keys=True, separators=(',', ':')).encode()) == expected
+          lines = (temp / 'historical-gate.log').read_text().splitlines()
+
+          def record(name):
+              values = [line.split(name + ': ', 1)[1] for line in lines if f'Z   {name}: ' in line]
+              return values[0]
+
+          needs_at = next(index for index, line in enumerate(lines) if 'Z   NEEDS: {' in line)
+          needs = json.loads('{\n' + '\n'.join(lines[needs_at + 1:]).split('\n20', 1)[0])
+          assert len(needs) == 32
+          assert digest(json.dumps(needs, sort_keys=True, separators=(',', ':')).encode()) == 'c600e00e10e1d422698790eba44727db2dd7ed165d5290b2f533009fc50bc64f'
+          outputs = needs['select']['outputs']
+          policy = record('POLICY_SHA')
+          assert policy == 'b823a9b424ad4ab4b2a1130adcc6527b626a1cd0'
+          assert all(record(key.upper()) == outputs[key] for key in ('source_sha', 'tested_sha', 'policy_sha'))
+          assert record('WORKFLOW_PLAN') == outputs['plan']
+          authority = frozen / outputs['authority_artifact']
+          for member in authority.iterdir():
+              if member.name != 'custody-inventory.json':
+                  assert member.read_bytes() == subprocess.check_output(['git', 'show', f'{policy}:scripts/{member.name}'])
+          inventory = json.loads((authority / 'custody-inventory.json').read_bytes())
+          assert inventory['tested_sha'] == outputs['tested_sha']
+          shutil.copytree(authority, temp / 'ci-authority')
+          shutil.copyfile(frozen / outputs['selection_artifact'] / 'selection.json', temp / 'selection.json')
+          results = temp / 'custody-results'
+          results.mkdir()
+          for shard, attempt in enumerate((1, 2, 1)):
+              name = f'custody-node-45411261651-{shard}'
+              shutil.copytree(frozen / name, results / name)
+              data = json.loads((results / name / 'result.json').read_bytes())
+              assert data['shard'] == shard and data['consumer_attempt'] == attempt
+          workflow = subprocess.check_output(['git', 'show', f'{candidate}:.github/workflows/rust.yml'], text=True)
+          gate = workflow.split('\n  required-gate:\n', 1)[1].split('\n  full-regression:', 1)[0]
+
+          def command(step, text=gate):
+              block = text.split(step + '\n', 1)[1].split('        run: |\n', 1)[1]
+              chunk = re.split(r'\n      - |\n  [a-z][a-z-]+:', block, 1)[0]
+              return '\n'.join(line[10:] for line in chunk.splitlines()) + '\n'
+
+          schema = 'OASIS7_ENGINEERING_JOB_V1='
+          telemetry, = [line.split(schema, 1)[1] for line in lines if f'Z {schema}' in line]
+          historical = json.loads(telemetry)
+          assert (historical['job_key'], historical['run_id'], historical['run_attempt']) == ('required-gate', 45411261651, 2)
+          empty = temp / 'no-checkout'
+          empty.mkdir()
+          environment = dict(os.environ, GITHUB_WORKSPACE=str(empty),
+                             GITHUB_REPOSITORY='nil-studio/oasis7', GITHUB_JOB='required-gate',
+                             GITHUB_RUN_ID='45411261651', GITHUB_RUN_ATTEMPT='2',
+                             SOURCE_SHA=outputs['source_sha'], TESTED_SHA=outputs['tested_sha'], POLICY_SHA=policy,
+                             WORKFLOW_PLAN=outputs['plan'], NEEDS=json.dumps(needs), SUPPORT_NEEDS=json.dumps(needs),
+                             SELECT_RESULT='success', IS_DRAFT_PR='false',
+                             TELEMETRY_WORKFLOW_SHA=historical['workflow_sha'],
+                             TELEMETRY_SOURCE_SHA=outputs['source_sha'], TELEMETRY_TESTED_SHA=outputs['tested_sha'],
+                             TELEMETRY_POLICY_SHA=policy, TELEMETRY_NEEDS=json.dumps(needs), TELEMETRY_MATRIX='null')
+          assert 'GH_TOKEN' not in environment
+
+          def run(script, *, expected=True, edits=None):
+              process = subprocess.run(['bash', '--noprofile', '--norc', '-euo', 'pipefail', '-c', script],
+                                       cwd=empty, env={**environment, **(edits or {})}, text=True,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+              assert (process.returncode == 0) == expected, process.stdout[-1500:]
+              return process.stdout
+
+          scope = command('      - name: Require successful scope planning')
+          selection = command('      - &validate-complete-selection')
+          custody = command('      - name: Validate direct custody support stages and complete file inventory')
+          final = command('      - name: Validate all expected results')
+          started = time.monotonic()
+          run(scope)
+          run(selection)
+          run(custody)
+          run(final)
+          assert run(command('      - &engineering-job-observation', workflow)).strip() == schema + telemetry
+          print(f'Original checks plus byte-identical telemetry: {time.monotonic() - started:.3f}s')
+          staged = results / 'custody-node-45411261651-1'
+          staged.rename(temp / 'withheld-shard')
+          assert 'missing custody shard results' in run(custody, expected=False)
+          (temp / 'withheld-shard').rename(staged)
+          failed = copy.deepcopy(needs)
+          assert 'node' in json.loads((temp / 'selection.json').read_bytes())['groups']
+          failed['node']['result'] = 'failure'
+          assert "consensus: unexpected result 'failure'" in run(final, expected=False, edits={'NEEDS': json.dumps(failed)})
+          assert 'CI scope planning did not succeed' in run(scope, expected=False, edits={'SELECT_RESULT': 'failure'})
+          assert 'Draft PR skipped main CI jobs' in run(scope, expected=False, edits={'IS_DRAFT_PR': 'true'})
+          print('Frozen run 45411261651 attempt 2: all gates accepted, telemetry matches byte-for-byte, missing shard and failed selected node rejected.')
+          PY
+
+  image:
+    if: *isolated
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - *checkout
+      - name: Verify non-root Git and Python runtime for this diagnostic
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+      - *download
+      - *log
+      - *replay
