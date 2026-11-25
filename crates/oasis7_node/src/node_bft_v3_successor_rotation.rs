@@ -730,16 +730,15 @@ mod tests {
         let (c32, p32, e32, _) = artifacts(&m, 1, 5);
         assert!(m.seal_window(c32, &p32, &e32).is_err());
         commit_range(&mut m, 33..=63, &s1);
-        let pin = BftPendingTransitionWindowPinV1 {
+        let mut pin = BftPendingTransitionWindowPinV1 {
             source_height: 164,
             activation_height: 166,
             new_validator_set_hash: s2.clone(),
-            target_authority_epoch: 1,
+            target_authority_epoch: 2,
         };
-        let mut wrong_epoch = pin.clone();
-        wrong_epoch.target_authority_epoch = 2;
-        let invalid_epoch = mk_step(164, 64, 1, &s1, Some(wrong_epoch));
+        let invalid_epoch = mk_step(164, 64, 1, &s1, Some(pin.clone()));
         assert!(m.record_nonempty_commit(invalid_epoch).is_err());
+        pin.target_authority_epoch = 1;
         m.record_nonempty_commit(mk_step(164, 64, 1, &s1, Some(pin)))
             .unwrap();
         assert!(
@@ -754,7 +753,8 @@ mod tests {
         };
         s.cut.header_id = h("forged sealed head", 164);
         let minimum = &m.minimum_checkpoint_digest;
-        assert!(tampered.verify_cold_resume(&src, 0, minimum, 5, m.last_head.as_ref()).is_err());
+        let cold = tampered.verify_cold_resume(&src, 0, minimum, 5, m.last_head.as_ref());
+        assert!(cold.is_err());
         let mut stale = inst.clone();
         stale.lease_generation = 4;
         assert!(m.adopt_successor_window(&stale).is_err());
