@@ -10,3 +10,4 @@
 - [requesting-repo-owned-review](requesting-repo-owned-review/SKILL.md)
 - [systematic-debugging](systematic-debugging/SKILL.md)
 - [evaluating-development-methods](evaluating-development-methods/SKILL.md)：按需比较开发方法与 Skill 改动的效果。
+- [optimizing-ci-jobs](optimizing-ci-jobs/SKILL.md)：在保持安全门禁与单 job 关键路径不退化的前提下缩减 CI job 数量、收敛全量触发与串行中转。
