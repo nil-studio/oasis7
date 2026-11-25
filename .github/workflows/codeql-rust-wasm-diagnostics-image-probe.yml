@@ -1,0 +1,154 @@
+name: Rust WASM diagnostic image prerequisite probe
+
+on:
+  pull_request:
+    branches: [codex/engineering-codeql-wasm-diag-probe-base]
+    types: [synchronize]
+
+permissions:
+  contents: read
+  packages: read
+
+cache-mode: none
+
+jobs:
+  verify:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/engineering-codeql-wasm-diag-image-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        diagnostic: [metadata, context]
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      options: --user 1001:1001 --init --read-only --tmpfs /tmp:rw,nosuid,nodev,mode=1777
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      DIAGNOSTIC: ${{ matrix.diagnostic }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: cafd6fc91beae285d81f63217564a3fb61fe10ba
+          persist-credentials: false
+      - name: Run the original proxy guard and reject a foreign PATH entry
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = cafd6fc91beae285d81f63217564a3fb61fe10ba
+          stat -c '%a %u:%g %n' /opt/oasis7-rust/bin/rustup /opt/oasis7-rust/bin/cargo /opt/oasis7-rust/rustup
+          test -w /tmp
+          test -w "$RUNNER_TEMP"
+          python3 -I - <<'PY'
+          import os, pathlib, subprocess, tempfile
+          mounts = [line.split() for line in pathlib.Path('/proc/self/mountinfo').read_text().splitlines()]
+          root = [entry[5] for entry in mounts if entry[4] == '/']
+          assert root and all('ro' in options.split(',') for options in root)
+          print('root-mount-options=' + ','.join(root))
+          print('tmp-mount-options=' + ','.join(entry[5] for entry in mounts if entry[4] == '/tmp'))
+          workflow = pathlib.Path('.github/workflows/codeql-rust-wasm-' + os.environ['DIAGNOSTIC'] + '.yml').read_text()
+          step = workflow.split('      - name: Verify the immutable Rust toolchain proxies\n', 1)[1]
+          step = step.split('      - name: Bind the original deadline', 1)[0].split('        run: |\n', 1)[1]
+          script = '\n'.join(line[10:] for line in step.splitlines())
+          args = ['bash', '-ex', '-o', 'pipefail', '-c', script]
+          subprocess.run(args, check=True, timeout=15)
+          for proxy in ('cargo', 'rustup'):
+              with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as directory:
+                  foreign = pathlib.Path(directory) / proxy
+                  foreign.write_text('#!/bin/sh\nexit 99\n')
+                  foreign.chmod(0o700)
+                  env = os.environ | {'PATH': directory + os.pathsep + os.environ['PATH']}
+                  rejected = subprocess.run(args, check=False, timeout=15, env=env)
+                  if rejected.returncode != 1:
+                      raise SystemExit('original image guard did not reject a foreign proxy')
+          PY
+      - name: Install and verify the original 1.99 toolchain in a fresh private home
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d "$RUNNER_TEMP/rust-wasm-diagnostic.XXXXXXXX")"
+          trap 'rm -rf -- "$scratch"' EXIT
+          export DIAGNOSTIC_WORK="$scratch" TMPDIR="$RUNNER_TEMP"
+          PYTHONPATH="$GITHUB_WORKSPACE/scripts/security" python3 - <<'PY'
+          import importlib.util, json, os, pathlib, time
+          mode = os.environ['DIAGNOSTIC']
+          spec = importlib.util.spec_from_file_location('probe', pathlib.Path('scripts/security') / ('codeql-rust-wasm-' + mode + '.py'))
+          diagnostic = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(diagnostic)
+          metadata = diagnostic.metadata if mode == 'context' else diagnostic
+          work = pathlib.Path(os.environ['DIAGNOSTIC_WORK'])
+          for name in ('cargo-home', 'rustup', 'target', 'source', 'evidence'):
+              (work / name).mkdir(mode=0o700)
+          assert not any((work / 'rustup').iterdir())
+          original_home = os.environ.get('RUSTUP_HOME')
+          assert original_home in (None, '/opt/oasis7-rust/rustup')
+          budget = 1800 if mode == 'context' else 1200
+          mono, wall = time.monotonic(), time.time()
+          clock = diagnostic.Clock({'maximum_job_seconds': budget, 'deadline_monotonic': mono + budget,
+                                   'deadline_wall': wall + budget, 'prepare_end_monotonic': mono + 780,
+                                   'prepare_end_wall': wall + 780})
+          evidence = metadata.Evidence(work / 'evidence')
+          metadata.set_subreaper()
+          cargo, rustup, before = metadata.proxy_identity(os.environ, work, clock, clock.prepare)
+          child = metadata.child_environment(os.environ, work, cargo)
+          assert child['RUSTUP_HOME'] == str(work / 'rustup')
+          assert child['CARGO_HOME'] == str(work / 'cargo-home')
+          assert child['CARGO_TARGET_DIR'] == str(work / 'target')
+          assert child['RUSTUP_TOOLCHAIN'] == '1.99.0'
+          assert child['TMPDIR'] == os.environ['RUNNER_TEMP']
+          assert child.get('HOME') == os.environ.get('HOME')
+          assert not set(child) & {'GITHUB_TOKEN', 'GH_TOKEN', 'RUSTUP_DIST_SERVER'}
+          source = work / 'source'
+
+          def run(phase, argv, cwd=work, capture=False):
+              raw, receipt = diagnostic.run_owned(phase, [str(arg) for arg in argv], cwd, child, clock,
+                                                  clock.prepare, evidence, {'cwd': str(cwd)},
+                                                  capture=capture, timeout=240)
+              assert receipt['exit'] == 0 and receipt['pid'] == receipt['pgid'] and not receipt['cleanup_errors']
+              return raw
+
+          install = [rustup, 'toolchain', 'install', '1.99.0', '--profile', 'minimal', '--no-self-update']
+          if mode == 'context':
+              install += ['--component', 'rust-src', '--target', diagnostic.TARGET]
+          run('toolchain-install', install)
+          binaries = metadata.analysis_binary_identity(work, clock, clock.prepare)
+          installed = (work / 'rustup/toolchains' / metadata.TOOLCHAIN)
+          assert pathlib.Path(binaries['cargo']['path']).is_relative_to(installed)
+          if mode == 'context':
+              assert (installed / 'lib/rustlib/src/rust/library/Cargo.toml').is_file()
+              assert list((installed / 'lib/rustlib' / diagnostic.TARGET / 'lib').glob('libstd-*.rlib'))
+          versions = {
+              'cargo': metadata.parse_version(run('cargo-version', [cargo, '-Vv'], capture=True), 'cargo'),
+              'rustc': metadata.parse_version(run('rustc-version', [binaries['rustc']['path'], '-Vv'], capture=True), 'rustc'),
+          }
+          manifest = source / 'Cargo.toml'
+          manifest.write_text('[package]\nname="wasm-diagnostic-fixture"\nversion="0.1.0"\nedition="2024"\n')
+          (source / 'src').mkdir()
+          (source / 'src/lib.rs').write_text('pub fn sample() -> u8 { 42 }\n')
+          lock = source / 'Cargo.lock'
+          lock.write_text('version = 4\n\n[[package]]\nname = "wasm-diagnostic-fixture"\nversion = "0.1.0"\n')
+          before_lock = lock.read_bytes()
+          raw = run('metadata', [cargo, 'metadata', '--locked', '--offline', '--format-version=1',
+                                 '--manifest-path', manifest, '--filter-platform', metadata.TARGET], cwd=source, capture=True)
+          graph = json.loads(raw)
+          assert graph['workspace_root'] == str(source)
+          assert graph['target_directory'] == child['CARGO_TARGET_DIR']
+          assert lock.read_bytes() == before_lock
+          assert metadata.proxy_identity(os.environ, work, clock, clock.prepare)[2] == before
+          assert metadata.analysis_binary_identity(work, clock, clock.prepare) == binaries
+          print(json.dumps({'fixture': mode, 'fresh_toolchain': True, 'versions': versions,
+                            'proxy_identity_unchanged': True, 'components': install[6:],
+                            'wasm_metadata_locked': True}, sort_keys=True))
+          PY
+      - name: Run the unchanged frozen Linux diagnostic contracts
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          TMPDIR="$RUNNER_TEMP" python3 "scripts/security/codeql-rust-wasm-${DIAGNOSTIC}.test.py"
