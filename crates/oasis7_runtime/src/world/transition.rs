@@ -601,6 +601,10 @@ impl<'a, D: SubsystemDelta> StagedRootTransaction<'a, D> {
         self.deltas.len()
     }
 
+    pub fn deltas(&self) -> &[D] {
+        &self.deltas
+    }
+
     /// Stage a nested domain or fee delta without committing it independently.
     pub fn stage_delta(&mut self, delta: D) {
         self.deltas.push(delta);
