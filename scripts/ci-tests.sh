@@ -1051,7 +1051,14 @@ _collect_workflow_governance_remaining_parallel_tests() {
 
 run_workflow_governance_remaining_contract_tests() {
   run_engineering_telemetry_contract_tests
-  run_parallel_contract_commands OASIS7_WORKFLOW_GOVERNANCE_REMAINING_JOBS workflow-governance-remaining _collect_workflow_governance_remaining_parallel_tests
+  if declare -F run_parallel_contract_commands >/dev/null && declare -F _collect_workflow_governance_remaining_parallel_tests >/dev/null; then
+    run_parallel_contract_commands OASIS7_WORKFLOW_GOVERNANCE_REMAINING_JOBS workflow-governance-remaining _collect_workflow_governance_remaining_parallel_tests
+    return $?
+  fi
+  run_workflow_governance_baseline_contract_tests
+  run_workflow_governance_operational_contract_tests
+  run python3 ./scripts/package-source-plan.test.py
+  run python3 ./scripts/safe-git-archive.test.py
 }
 
 run_workflow_governance_contract_tests() {

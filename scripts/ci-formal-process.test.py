@@ -2671,10 +2671,10 @@ class CasePartitionArtifactDelivery(unittest.TestCase):
         # so the ~358s/shard 2-way runtime-tests baseline does not push shards past 8m.
         bft_like = dict(
             self.plan,
-            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_node', 'oasis7_viewer_runtime'],
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_formal_protocol', 'oasis7_viewer_runtime'],
         )
         self.assertEqual(
-            artifacts.targeted_ordinary_artifact_partitions(bft_like),
+            list(artifacts.targeted_ordinary_artifact_partitions(bft_like)),
             list(artifacts.TARGETED_ORDINARY_ARTIFACT_PARTITIONS),
         )
         with self.assertRaises(ValueError):
