@@ -112,6 +112,17 @@ def safe_markers(root, relatives):
     return found
 
 
+def preflight_executables(artifact, bundle, manifest, included, env):
+    # The published manifest retains parent inventory; only the independently
+    # validated ordinary closure is materialized in this archive.
+    for name in sorted(included):
+        entry = manifest['binaries'][name]
+        binary = artifact.checked_file(bundle, entry['path'], entry['sha256'])
+        result = subprocess.run(['ldd', str(binary)], env=dict(env, LD_LIBRARY_PATH=str(bundle / 'lib')),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+        assert result.returncode == 0 and b'not found' not in result.stdout
+
+
 def observe(stop):
     # Only direct children of /tmp with these exact owned fixture prefixes;
     # no recursive directory enumeration or authority/environment contents.
@@ -192,13 +203,9 @@ def worker():
     assert plan['source_sha'] == SOURCE and plan['tested_sha'] == TESTED
     manifest = json.loads((bundle / 'manifest.json').read_bytes())
     assert str(manifest['producer_attempt']) == '1'
-    artifact.validate_artifact_manifest(manifest, suite='ordinary', plan=plan)
+    included = artifact.validate_artifact_manifest(manifest, suite='ordinary', plan=plan)
     emit('phase', phase='ldd')
-    for entry in manifest['binaries'].values():
-        binary = artifact.checked_file(bundle, entry['path'], entry['sha256'])
-        result = subprocess.run(['ldd', str(binary)], env=dict(env, LD_LIBRARY_PATH=str(bundle / 'lib')),
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
-        assert result.returncode == 0 and b'not found' not in result.stdout
+    preflight_executables(artifact, bundle, manifest, included, env)
     emit('phase', phase='strict_load_inventory')
     manifest, native_env = artifact.load(bundle, 'ordinary', plan=plan)
     tests = manifest['binaries']['runtime-tests']['tests']

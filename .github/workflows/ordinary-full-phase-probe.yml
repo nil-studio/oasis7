@@ -33,7 +33,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$CONTROLLER_SHA"
           test "$(id -u)" = 1001
           test "$(pwd -P)" = /home/runner/work/oasis7/oasis7
-          echo '999e2d6d5c7df7ecac43747f5a74f177511d28a484f3921f6a567552f7cbe175  scripts/ordinary-full-phase-probe.py' | sha256sum --check
+          echo 'd92759a04f849ad8645e71c1e79c781c4860a2d684e39b1c09d0cc1c5d445499  scripts/ordinary-full-phase-probe.py' | sha256sum --check
           cp scripts/ordinary-full-phase-probe.py "$RUNNER_TEMP/ordinary-full-phase-probe.py"
           python3.12 --version
       - name: Verify original official artifacts
