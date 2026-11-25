@@ -152,10 +152,15 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 def workspace_support_image_matrix(job):
     pair = "matrix.execution == 'signer-context-image'" in job
+    protocol = "matrix.execution == 'signer-protocol-image'" in job
+    assert not protocol or pair
     container_job = job
     if pair:
+        image_condition = "matrix.execution == 'signer-context-image'"
+        if protocol:
+            image_condition = "(" + image_condition + " || matrix.execution == 'signer-protocol-image')"
         pair_image = (
-            "matrix.execution == 'signer-context-image' && "
+            image_condition + " && "
             "'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:"
             "f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c' || "
         )
@@ -180,6 +185,11 @@ def workspace_support_image_matrix(job):
         expected_matrix = expected_matrix.replace(
             'fromJSON(', "fromJSON(needs.select.outputs.workspace_support_signer_context == 'true' "
             "&& '[\"signer-context-image\"]' || ",
+        )
+    if protocol:
+        expected_matrix = expected_matrix.replace(
+            'fromJSON(', "fromJSON(needs.select.outputs.workspace_support_signer_protocol == 'true' "
+            "&& '[\"signer-protocol-image\"]' || ",
         )
     assert expected_matrix in job and '      fail-fast: false\n' in job
     assert '--support-execution "$SUPPORT_EXECUTION"' in job
@@ -503,6 +513,11 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                         options_prefix = "matrix.execution == 'signer-context-image' && '" + node['options'] + "' || "
                         mold_prefix = ("matrix.execution == 'signer-context-image' && "
                                        "format('{0}/oasis7-signer-context-mold', runner.temp) || ")
+                    if "matrix.execution == 'signer-protocol-image'" in reader:
+                        options_prefix = ("(matrix.execution == 'signer-context-image' || "
+                                          "matrix.execution == 'signer-protocol-image') && '" + node['options'] + "' || ")
+                        mold_prefix = ("matrix.execution == 'signer-protocol-image' && "
+                                       "format('{0}/oasis7-signer-protocol-mold', runner.temp) || " + mold_prefix)
                     assert ("      options: ${{ " + options_prefix + "matrix.execution == 'signer-image' && '" +
                             node['options'] + "' || '' }}\n") in reader
                     assert ("          install-dir: ${{ " + mold_prefix +
@@ -6825,14 +6840,25 @@ class WorkerToolCache(unittest.TestCase):
             fixture_id = root / 'id'
             fixture_id.write_text('#!/bin/sh\nprintf "1001\\n"\n')
             fixture_id.chmod(0o755)
-            for overrides, selected in (
-                ({}, True),
-                ({'scope': 'explicit-full'}, False),
-                ({'workspace_support_direct_gate_version': None}, False),
-                ({'test_policy_changed': True}, False),
-                ({'workspace_support_profiles': [*pair, 'oasis7_dev_test_worker']}, False),
-                ({'workspace_support_profiles': [*pair, 'oasis7_game_client']}, False),
-            ):
+            protocol_pair = ['oasis7_local_signer', 'oasis7_signer_protocol']
+            protocol_triple = ['oasis7_context', *protocol_pair]
+            has_protocol_lane = 'workspace_support_signer_protocol' in job
+            projection_cases = [
+                ({}, True, False),
+                ({'scope': 'explicit-full'}, False, False),
+                ({'workspace_support_direct_gate_version': None}, False, False),
+                ({'test_policy_changed': True}, False, False),
+                ({'workspace_support_profiles': [*pair, 'oasis7_dev_test_worker']}, False, False),
+                ({'workspace_support_profiles': [*pair, 'oasis7_game_client']}, False, False),
+            ]
+            if has_protocol_lane:
+                projection_cases.extend([
+                    ({'workspace_support_profiles': protocol_pair}, False, True),
+                    ({'workspace_support_profiles': protocol_triple}, False, True),
+                    ({'workspace_support_profiles': ['oasis7_game_client', *protocol_pair]}, False, False),
+                    ({'workspace_support_profiles': protocol_triple, 'test_policy_changed': True}, False, False),
+                ])
+            for overrides, selected, protocol_selected in projection_cases:
                 with self.subTest(overrides=overrides):
                     candidate = {key: value for key, value in (plan | overrides).items() if value is not None}
                     artifact.write_text(json.dumps(candidate))
@@ -6841,21 +6867,37 @@ class WorkerToolCache(unittest.TestCase):
                                    env=dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(output)), check=True)
                     self.assertIn('workspace_support_signer_context=' + str(selected).lower(), output.read_text())
                     self.assertIn('workspace_support_signer_only=false', output.read_text())
-            for profiles, pair_flag, corrupt, expected in (
+                    if has_protocol_lane:
+                        self.assertIn('workspace_support_signer_protocol=' + str(protocol_selected).lower(),
+                                      output.read_text())
+            artifact_cases = [
                 (pair, 'true', False, 0), (pair, 'false', False, 1),
                 (pair, 'true', True, 1), (pair, '', False, 1),
                 (['oasis7_local_signer'], 'false', False, 0),
                 (['oasis7_local_signer'], 'true', False, 1),
                 ([*pair, 'oasis7_dev_test_worker'], 'true', False, 1),
-            ):
+            ]
+            if has_protocol_lane:
+                artifact_cases.extend([
+                    (protocol_pair, 'protocol', False, 0), (protocol_triple, 'protocol', False, 0),
+                    (protocol_triple, 'protocol', True, 1), (protocol_pair, 'true', False, 1),
+                    (['oasis7_game_client', *protocol_pair], 'protocol', False, 1),
+                ])
+            for profiles, pair_flag, corrupt, expected in artifact_cases:
                 with self.subTest(profiles=profiles, pair_flag=pair_flag, corrupt=corrupt):
                     artifact.write_text(json.dumps(dict(plan, workspace_support_profiles=profiles)))
                     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+                    if 'SIGNER_EXECUTION:' in job:
+                        lane = {'false': 'signer-image', 'true': 'signer-context-image',
+                                'protocol': 'signer-protocol-image', '': ''}[pair_flag]
+                        selector = {'SIGNER_EXECUTION': lane}
+                    else:
+                        selector = {'SIGNER_WITH_CONTEXT': pair_flag}
                     result = subprocess.run(
                         ['bash', '-euo', 'pipefail', '-c', verify],
                         env=dict(os.environ, RUNNER_TEMP=tmp, PATH=f"{tmp}:{os.environ['PATH']}",
                                  SELECTION_SHA256='0' * 64 if corrupt else digest,
-                                 SIGNER_WITH_CONTEXT=pair_flag),
+                                 **selector),
                         text=True, capture_output=True,
                     )
                     self.assertEqual(result.returncode, expected, result.stderr)
@@ -6868,6 +6910,8 @@ class WorkerToolCache(unittest.TestCase):
             lanes.append(('signer-image', 'host'))
         if 'workspace_support_signer_context' in job:
             lanes.append(('signer-context-image', 'all'))
+        if 'workspace_support_signer_protocol' in job:
+            lanes.append(('signer-protocol-image', 'all'))
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'scripts').mkdir()
