@@ -759,18 +759,24 @@ fn e2_recovery_result_remains_readable_after_e2_and_e3_normal_commits() {
         .verify_original_recovery_historical_cut(&e2_recovery_proof, &independent_proof_digest)
         .unwrap();
     assert_eq!(cut.cut().record(), &e2_recovery_proof.decision.record);
-    assert!(reader
-        .verify_original_recovery_historical_cut(&e2_recovery_proof, &h(200))
-        .is_err());
+    assert!(
+        reader
+            .verify_original_recovery_historical_cut(&e2_recovery_proof, &h(200))
+            .is_err()
+    );
     let mut invalid_original = e2_recovery_proof.clone();
     invalid_original.primary_complete.signature_hex = "00".repeat(64);
     let corrupted_digest = formal_qualified_proof_digest(&invalid_original).unwrap();
-    assert!(reader
-        .verify_original_recovery_historical_cut(&invalid_original, &corrupted_digest)
-        .is_err());
-    assert!(reader
-        .verify_original_recovery_historical_cut(&invalid_original, &independent_proof_digest)
-        .is_err());
+    assert!(
+        reader
+            .verify_original_recovery_historical_cut(&invalid_original, &corrupted_digest)
+            .is_err()
+    );
+    assert!(
+        reader
+            .verify_original_recovery_historical_cut(&invalid_original, &independent_proof_digest)
+            .is_err()
+    );
 
     let old_cut = FormalHistoricalCutV1::from_proof(&e2_recovery_proof).unwrap();
     let leaf = old_cut.leaf().unwrap();

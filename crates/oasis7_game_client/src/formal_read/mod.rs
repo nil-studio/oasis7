@@ -553,9 +553,10 @@ impl<P: FormalReadProjection> FormalReadVerifier<P> {
         {
             return Err("historical recovery cut differs from verified reader lineage".into());
         }
-        let recovery = accepted.recovery.as_ref().ok_or(
-            "historical Qualified proof lacks an original verified recovery",
-        )?;
+        let recovery = accepted
+            .recovery
+            .as_ref()
+            .ok_or("historical Qualified proof lacks an original verified recovery")?;
         let original_parent = self
             .verified_recovery_contexts
             .iter()
