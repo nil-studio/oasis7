@@ -11,7 +11,6 @@
 pub use oasis7_world_state::agent_cell;
 pub use oasis7_world_state::agent_claims;
 pub use oasis7_world_state::audit;
-mod blob_store;
 pub use oasis7_world_state::builtin_factory_catalog;
 pub use oasis7_world_state::builtin_recipe_catalog;
 mod builtin_wasm_identity_manifest;
@@ -320,7 +319,7 @@ pub use reward_asset::{
 };
 
 // Blob store
-pub use blob_store::{BlobStore, HashAlgorithm, LocalCasStore, blake3_hex};
+pub use oasis7_cas::{BlobStore, HashAlgorithm, LocalCasStore, blake3_hex};
 pub(crate) use builtin_wasm_materializer::load_builtin_wasm_with_fetch_fallback;
 
 #[cfg(test)]

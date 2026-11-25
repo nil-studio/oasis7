@@ -185,3 +185,59 @@ fn staged_fee_rejects_stale_world_head_after_prepare() {
     ));
     assert_eq!(world.resource_balance(ResourceKind::Data), 11);
 }
+
+#[test]
+fn live_and_staged_rule_fee_share_selected_affordability_before_arithmetic() {
+    let mut world = World::new();
+    world.set_resource_balance(ResourceKind::Data, 2);
+    world.set_resource_balance(ResourceKind::Electricity, 0);
+    let (general, with_distance) = costs();
+    let denied = fee(
+        &general,
+        &with_distance,
+        RuleActionDisposition::RejectedMovement,
+    );
+    let accepted = fee(&general, &with_distance, RuleActionDisposition::Accepted);
+
+    assert_eq!(
+        denied.plan_checked(&world.state().resources).unwrap(),
+        vec![(ResourceKind::Data, 0)]
+    );
+    let live_error = accepted
+        .plan_checked(&world.state().resources)
+        .unwrap_err();
+    let staged_error = {
+        let view = BorrowedWorldView::new(&world).unwrap();
+        accepted
+            .prepare(&view, &TransitionContext::default())
+            .err()
+            .expect("distance-only deficit must deny accepted movement")
+    };
+    let TransitionReject::World(staged_error) = staged_error else {
+        panic!("unexpected staged rejection");
+    };
+    assert_eq!(format!("{live_error:?}"), format!("{staged_error:?}"));
+    assert_eq!(world.resource_balance(ResourceKind::Data), 2);
+    assert_eq!(world.resource_balance(ResourceKind::Electricity), 0);
+
+    // A mixed debit/credit with a missing payer balance must reject before
+    // installing any credit, even if a separate positive entry overflows.
+    world.set_resource_balance(ResourceKind::Data, i64::MAX);
+    let mixed = ResourceDelta {
+        entries: BTreeMap::from([
+            (ResourceKind::Data, 1),
+            (ResourceKind::Electricity, -1),
+        ]),
+    };
+    let mixed_scope = fee(&mixed, &mixed, RuleActionDisposition::Accepted);
+    let error = mixed_scope
+        .plan_checked(&world.state().resources)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        WorldError::ResourceBalanceInvalid { reason }
+            if reason.contains("insufficient resources")
+    ));
+    assert_eq!(world.resource_balance(ResourceKind::Data), i64::MAX);
+    assert_eq!(world.resource_balance(ResourceKind::Electricity), 0);
+}

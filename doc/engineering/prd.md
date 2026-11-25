@@ -119,7 +119,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   - AC-11: 专题需求、设计、当前导航与真实要求引用应可达且互相追溯；不要求独立 project 文档，不恢复 PRD/project 双向互链门禁。适用检查以现行文档治理入口为准，现有检查只证明其实际能力。
   - AC-13: 文档治理门禁按本次变更选择受影响正文及反向引用，检查路径可达性，覆盖删除与重命名影响；范围内实际错误按现行检查规则阻断并修复。历史报告按需使用，输入与执行错误仍须解决。
   - AC-14: 2026-03 全量 PRD 审读留痕必须可通过 historical round logs / deleted snapshot prose 追溯；当前不再要求存在旧 checklist 目录活跃清单面。
-  - AC-21: `doc/engineering/**` 仍可读治理专题标题统一使用 `oasis7` 品牌；旧 `oasis7` 仅允许出现在历史正文引用或实现兼容说明中。
+  - AC-21: `doc/engineering/**` 仍可读治理专题标题统一使用 `oasis7` 品牌；旧品牌名仅允许出现在历史正文引用或实现兼容说明中。
   - AC-26: 仓库若显式提交 `.codex/config.toml` 作为 repo-local Codex 默认执行配置，则该文件必须可被 Git 追踪，且默认 `sandbox_mode` 需以仓库工作流要求的显式值落盘，不得依赖用户本机全局配置隐式兜底。
   - AC-27: 模块入口按文档的现行职责分流并定位实际主责条款，历史材料按需追溯；已有规范承接后，不以补齐历史专题文件作为当前验收。
   - AC-27A: [运行治理入口](governance/README.md)提供 `scripts/doc-inventory-report.sh` 的使用方法和后续处置，能够复算 `doc/` 总量、模块密度、热点子目录、`doc/devlog` backlog 与非归档 near-limit 文件，并区分入口阅读面问题与存量维护成本。

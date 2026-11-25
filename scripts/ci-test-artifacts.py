@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import shutil
@@ -281,6 +282,7 @@ def preview_provider_required(manifest):
 
 
 ROOT = Path(__file__).resolve().parent.parent
+ORDINARY_HOST_CHECKOUT = Path('/home/runner/work/oasis7/oasis7')
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 FORMAL_AUTHORITY = None
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
@@ -1281,16 +1283,28 @@ STORAGE_COMPONENTS = {
 BUILD_COMPONENTS = (*FORMAL_COMPONENTS, *STORAGE_COMPONENTS)
 
 
+def load_oasis7_required_packages(scope_config=None):
+    config_path = Path(scope_config) if scope_config is not None else Path(__file__).resolve().parent / 'ci-required-scope.json'
+    data = json.loads(config_path.read_text(encoding='utf-8'))
+    packages = data.get('oasis7_required_packages')
+    if (not isinstance(packages, list) or not packages
+            or any(not isinstance(pkg, str) or not pkg or any(ch.isspace() for ch in pkg) for pkg in packages)
+            or len(packages) != len(set(packages))):
+        raise ValueError('invalid oasis7_required_packages in ' + str(config_path))
+    return list(packages)
+
+
 def build_variants(scope, plan=None, ordinary_partition=None):
     if ordinary_partition is not None and scope != 'ordinary':
         raise ValueError('ordinary partition requires ordinary build scope')
     if scope == 'all' and ordinary_risk_targets(plan):
         raise ValueError('ordinary risk contracts require ordinary build scope')
     required_features = ['test_tier_required']
+    required_package_args = [arg for package in load_oasis7_required_packages() for arg in ('-p', package)]
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
         ('viewer', ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live', '--features', 'test_tier_required'], required_features),
-        ('required', ['test', '-p', 'oasis7', '-p', 'oasis7_simulator', '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '-p', 'scenario_test_runner', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_executable_image', '-p', 'oasis7_client_cli', '-p', 'oasis7_protocol_tools', '-p', 'oasis7_launcher_backend', '-p', 'oasis7_newapi_bridge_service', '-p', 'oasis7_ops_tools', '-p', 'oasis7_provider_local_bridge', '-p', 'oasis7_provider_tools', '-p', 'oasis7_viewer_runtime', '-p', 'oasis7_viewer_codec', '-p', 'oasis7_observability', '-p', 'oasis7_hosted_access', '-p', 'oasis7_letai_credit_adapter', '-p', 'oasis7_launcher_config', '-p', 'oasis7_wasm_materializer', '-p', 'oasis7_game_client', '-p', 'oasis7_browser_game_client', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--tests', '--features', 'test_tier_required', '--no-run'], required_features),
+        ('required', ['test', *required_package_args, '--tests', '--features', 'test_tier_required', '--no-run'], required_features),
         ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime', '--features', 'test_tier_required'], required_features),
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
@@ -1811,6 +1825,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
         runner_image=os.environ.get('ImageOS', sys.platform), checkout=str(ROOT), binaries=binaries,
         config_sha256=digest(CONFIG), build_timings=timings)
+    if scope == 'ordinary' and os.environ.get('ORDINARY_BUILD_IMAGE'):
+        manifest['image'] = ordinary_build_image()
     if fast_plan(plan) is not None:
         manifest['execution_plan'] = plan
     if ordinary_partition is not None:
@@ -1917,6 +1933,36 @@ def formal_component_targets(scope):
     if not expected:
         raise ValueError('Formal component has no selected Cargo targets')
     return expected
+
+
+def ordinary_image_preflight():
+    """Keep compiled-in ordinary paths identical to the existing host consumers."""
+    checkout = ORDINARY_HOST_CHECKOUT
+    workspace = Path(os.environ.get('GITHUB_WORKSPACE', ''))
+    if (os.environ.get('ORDINARY_ARTIFACT_CHECKOUT') != str(checkout)
+            or ROOT != checkout or Path.cwd() != checkout):
+        raise ValueError('ordinary image requires the actual canonical host checkout')
+    if (not workspace.is_absolute() or workspace.resolve() != workspace
+            or checkout.resolve() != checkout):
+        raise ValueError('ordinary image checkout paths must not be symlinks')
+    original, alias = workspace.stat(), checkout.stat()
+    if (not stat.S_ISDIR(original.st_mode) or not stat.S_ISDIR(alias.st_mode)
+            or (original.st_dev, original.st_ino) != (alias.st_dev, alias.st_ino)):
+        raise ValueError('ordinary image alias must bind the same runner workspace directory')
+    release = platform.freedesktop_os_release()
+    if (os.environ.get('ImageOS') != 'ubuntu24' or release.get('ID') != 'ubuntu'
+            or release.get('VERSION_ID') != '24.04'):
+        raise ValueError('ordinary image requires the verified Ubuntu 24.04 runner identity')
+    return dict(image=ordinary_build_image(), checkout=str(checkout), workspace=str(workspace),
+                device=alias.st_dev, inode=alias.st_ino, same_directory=True,
+                runner_image='ubuntu24', os_release={key: release[key] for key in ('ID', 'VERSION_ID')})
+
+
+def ordinary_build_image():
+    image = os.environ.get('ORDINARY_BUILD_IMAGE', '')
+    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}', image):
+        raise ValueError('ordinary build requires a fixed Rust image digest')
+    return image
 
 
 def storage_build_image():
@@ -3624,7 +3670,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
 def main():
     global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare-provider', 'build', 'merge-formal', 'run', 'pack',
+    parser.add_argument('action', choices=['ordinary-image-preflight', 'prepare-provider', 'build', 'merge-formal', 'run', 'pack',
                         'unpack-ordinary', 'shards', 'required-args',
                         'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
@@ -3656,6 +3702,9 @@ def main():
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
     FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
     plan = json.loads(args.plan.read_text()) if args.plan else None
+    if args.action == 'ordinary-image-preflight':
+        print(json.dumps(ordinary_image_preflight(), sort_keys=True))
+        return
     if (args.ordinary_partition is not None and args.action not in ('build', 'run', 'unpack-ordinary')
             and not (args.action == 'required-args' and args.phase == 'partition')):
         parser.error('--ordinary-partition requires build, run, or partition validation')

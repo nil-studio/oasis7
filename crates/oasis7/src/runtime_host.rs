@@ -11,7 +11,8 @@ mod game_task_projection_tests;
 
 pub mod bootstrap;
 pub mod harness_authority;
-pub mod ordinary_starter;
+#[cfg(test)]
+mod ordinary_starter;
 
 pub mod feedback;
 

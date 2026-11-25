@@ -1,4 +1,5 @@
 use super::*;
+use crate::controlled_authority::writer_lock::WriterLock;
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
 #[cfg(unix)]
@@ -49,7 +50,7 @@ pub(super) fn no_symlink(path: &Path) -> Result<(), ProtocolError> {
         Err(e) => Err(io(e)),
     }
 }
-pub(super) fn lock(path: &Path) -> Result<File, ProtocolError> {
+pub(super) fn lock(path: &Path) -> Result<WriterLock, ProtocolError> {
     if !cfg!(unix) {
         return Err(ProtocolError::UnsupportedPlatform);
     }
@@ -83,7 +84,7 @@ pub(super) fn lock(path: &Path) -> Result<File, ProtocolError> {
     if !file.metadata().map_err(io)?.is_file() {
         return Err(invalid("lock is not regular file"));
     }
-    file.try_lock().map_err(|_error| {
+    WriterLock::acquire(file).map_err(|_error| {
         #[cfg(test)]
         eprintln!(
             "replicated endpoint lock failed pid={} path={} error={_error:?}",
@@ -91,8 +92,7 @@ pub(super) fn lock(path: &Path) -> Result<File, ProtocolError> {
             path.display()
         );
         ProtocolError::Locked
-    })?;
-    Ok(file)
+    })
 }
 pub(super) fn read_legacy(path: &Path) -> Result<Option<Vec<u8>>, ProtocolError> {
     let p = path.join(FILE);
@@ -168,5 +168,30 @@ pub(super) fn private_dir(path: &Path) -> Result<(), ProtocolError> {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
         Err(e) => Err(io(e)),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    #[test]
+    fn writer_lock_releases_before_inherited_fork_descriptor_closes() {
+        use crate::controlled_authority::writer_lock::regression;
+        if regression::isolate(
+            "controlled_authority::replicated_protocol::storage::tests::writer_lock_releases_before_inherited_fork_descriptor_closes",
+        ) {
+            return;
+        }
+        let root =
+            std::env::temp_dir().join(format!("o7-journal-fork-replicated-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            regression::assert_release(
+                || lock(&root),
+                |error| matches!(error, ProtocolError::Locked),
+            )
+        });
+        fs::remove_dir_all(&root).unwrap();
+        result.unwrap();
     }
 }
