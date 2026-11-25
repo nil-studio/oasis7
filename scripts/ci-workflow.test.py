@@ -7026,6 +7026,42 @@ class WorkerToolCache(unittest.TestCase):
         self.assertLess(job.index('Prepare verified image Worker build tool'),
                         job.index('Execute selected group'))
 
+    def test_image_worker_bindgen_cache_matches_writer_and_passes_verified_path(self):
+        job = JOBS['workspace-support-other']
+        writer = JOBS['full-regression']
+        key = re.search(r'^          key: (wasm-bindgen-cli-v1-.*)$', writer, re.M)[1]
+        self.assertIn(key.replace('steps.bindgen-meta.outputs', 'steps.worker-bindgen-meta.outputs'), job)
+        self.assertIn("if: matrix.execution == 'image' && steps.worker-image-meta.outputs.root != ''", job)
+        self.assertIn('path: ${{ steps.worker-bindgen-meta.outputs.root }}', job)
+        self.assertIn('WORKER_WASM_BINDGEN_BIN: ${{ steps.worker-bindgen.outputs.bin }}', job)
+        execute = workflow_step_script(job, 'Execute selected group')
+        self.assertIn('export WASM_BINDGEN_BIN="$WORKER_WASM_BINDGEN_BIN"', execute)
+        self.assertNotIn('actions/cache/save@', job)
+        prepare = workflow_step_script(job, 'Prepare verified image Worker wasm-bindgen')
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            env = dict(os.environ, XDG_CACHE_HOME=tmp, GITHUB_OUTPUT=str(cache / 'output'),
+                       BINDGEN_CACHE_HIT='true', WASM_BINDGEN_BIN='')
+            metadata = subprocess.check_output(
+                ['bash', '-c', 'source scripts/wasm-bindgen-cli-common.sh; '
+                 'printf "%s\\n%s\\n" "$WASM_BINDGEN_CACHE_ROOT" "$WASM_BINDGEN_LOCK_VERSION"'],
+                cwd=ROOT, env=env, text=True,
+            ).splitlines()
+            cli_root, version = metadata
+            bindgen = Path(cli_root) / 'bin' / 'wasm-bindgen'
+            bindgen.parent.mkdir(parents=True)
+            bindgen.write_text(f'#!/bin/bash\necho "wasm-bindgen {version}"\n')
+            bindgen.chmod(0o755)
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', prepare], cwd=ROOT, env=env,
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((cache / 'output').read_text(), f'bin={bindgen}\n')
+            bindgen.write_text('#!/bin/bash\necho "wasm-bindgen wrong-version"\n')
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', prepare], cwd=ROOT, env=env,
+                                    text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((cache / 'output').read_text(), f'bin={bindgen}\n')
+
     @unittest.skipUnless(sys.platform == "linux", "Linux cache paths reject macOS /home symlink")
     def test_image_worker_cache_identity_matches_real_host_metadata(self):
         helper = ROOT / 'scripts/ci-worker-build.py'
