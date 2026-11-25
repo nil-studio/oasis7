@@ -115,7 +115,7 @@ jobs:
           echo "218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 rustup toolchain install 1.96.0 --profile minimal
       - id: init
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         timeout-minutes: 5
         with:
           languages: rust
@@ -360,7 +360,7 @@ jobs:
           echo "218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 rustup toolchain install 1.96.0 --profile minimal
       - id: init
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         timeout-minutes: 5
         with:
           languages: rust

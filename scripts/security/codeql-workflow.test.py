@@ -560,7 +560,7 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         self.assertIn('codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst', text)
         self.assertIn('1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b', text)
         self.assertEqual(re.findall(r'uses: github/codeql-action/(?:init|analyze)@([0-9a-f]+)', text),
-                         ['33d7b85da1a04171e211befe2c739303b9a4c066'] * 2)
+                         ['1bd86f2fdb4b86187fa4059f16f31a3202acc9ea'] * 2)
         original_init = self.section(WORKFLOW, '      - id: init\n', '      - name: Verify Actions query')
         self.assertEqual(re.findall(r'^              - (.+)$', init, re.M),
                          re.findall(r'^              - (.+)$', original_init, re.M))
