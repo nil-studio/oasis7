@@ -5,6 +5,10 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - docker/ci-base/**
+      - scripts/ci-browser-deps.py
+      - scripts/ci_process_runner.py
+      - scripts/ci-apt-install.py
+      - scripts/ci-apt-dns.py
       - scripts/ci-browser-tools/package.json
       - scripts/ci-browser-tools/package-lock.json
       - .github/workflows/ci-base-images.yml
@@ -28,7 +32,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust, api-runtime, rust-ordinary-builder, rust-custody-wasm]
+        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust, api-runtime, rust-ordinary-builder, rust-custody-wasm, rust-viewer]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -237,6 +241,13 @@ jobs:
       - name: Publish verified Custody WASM image
         if: matrix.group == 'specialized'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-custody-wasm
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'specialized'
+        with:
+          name: ci-image-rust-viewer
+      - name: Publish verified Viewer image
+        if: matrix.group == 'specialized'
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-viewer
       - name: Log out of GHCR
         if: always()
         run: docker logout ghcr.io

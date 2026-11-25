@@ -308,6 +308,30 @@ class BrowserDependencies(unittest.TestCase):
                     browser.activate('agent', work, output)
                 self.assertFalse(output.exists())
 
+    def test_prebuilt_agent_uses_image_chrome_without_mutating_installed_binary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            image = root / 'installed-viewer'
+            work = root / 'job'
+            tools = image / 'scripts/ci-browser-tools'
+            binary = root / 'read-only-agent'
+            binary.touch(mode=0o555)
+            with patch.object(browser, 'VIEWER_IMAGE', image), patch.object(browser, 'require_platform'), \
+                    patch.object(browser, 'missing_packages', return_value=[]), \
+                    patch.object(browser, 'check_tools', return_value=binary) as check_tools, \
+                    patch.object(browser, 'checked_command', side_effect=[
+                        f'agent-browser {browser.AGENT_VERSION}',
+                        f'Google Chrome for Testing {browser.CHROME_VERSION}',
+                        '<body>oasis7-ci-browser-ready</body>',
+                    ]) as execute:
+                values = browser.activate('agent', work, prebuilt=True)
+            check_tools.assert_called_once_with('agent', tools)
+            chrome = image / 'chrome/chrome-linux64/chrome'
+            self.assertEqual(execute.call_args_list[1].args[0], [str(chrome), '--version'])
+            self.assertEqual(values['AGENT_BROWSER_EXECUTABLE_PATH'], str(chrome))
+            self.assertEqual(values['OASIS7_PLAYWRIGHT_MODULE'], str(tools / 'node_modules/playwright'))
+            self.assertEqual(binary.stat().st_mode & 0o777, 0o555)
+
     def test_playwright_preserves_shell_installer_and_private_runtime_path(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
