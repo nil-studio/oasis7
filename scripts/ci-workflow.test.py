@@ -213,7 +213,7 @@ def workspace_support_image_matrix(job):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'custody-native', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
         return None
     if name == 'workspace-support-other' and (matrix := workspace_support_image_matrix(job)):
         return matrix
@@ -5687,6 +5687,17 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertNotIn('rustup', node)
         self.assertNotIn('Swatinem/rust-cache', node)
         self.assertNotIn('cargo test', node)
+        native = JOBS['custody-native']
+        if '    container:' in native:
+            self.assertIn('options: --user 1001:1001 --init', native)
+            self.assertIn('node-version: \'22\'', native)
+            self.assertIn('strip --version', native)
+            self.assertIn('install-dir: ${{ runner.temp }}/oasis7-custody-contracts-mold', native)
+            self.assertIn('save-if: false', native)
+            self.assertNotIn('ci-apt-install.py', native)
+            self.assertNotIn('rustup toolchain install', native)
+            self.assertIn(rust_image_cache_namespace('custody-native-contracts', JOBS['custody-native-contracts']),
+                          native)
         for producer_name, artifact_output in (
             ('custody-native', 'artifact'),
             ('custody-wasm-production', 'artifact'),
@@ -6270,7 +6281,8 @@ class AptWorkflow(unittest.TestCase):
     def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
-        for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression', 'launcher-web', 'workspace-support-other'):
+        for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression', 'launcher-web',
+                     'custody-native', 'workspace-support-other'):
             if rust_image_cache_namespace(name, JOBS[name]):
                 if name != 'workspace-support-other' or not workspace_support_image_matrix(JOBS[name]):
                     del expected['rust', name, 'Install native libraries']
