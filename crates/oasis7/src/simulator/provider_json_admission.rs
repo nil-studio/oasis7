@@ -6,12 +6,16 @@
 //! decoded context for as long as its caller uses it.
 
 use std::fmt;
-use std::io::{self, Read, Seek, SeekFrom};
+#[cfg(test)]
+use std::io::SeekFrom;
+use std::io::{self, Read, Seek};
 use std::mem::size_of;
 use std::sync::Arc;
 
-use oasis7_proto::memory_budget::{
-    MemoryBudget, MemoryClass, MemoryLimitExceeded, MemoryReservation, ReservedValue,
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
+pub use oasis7_runtime_host::provider_json_shape::ProviderJsonAdmissionError;
+use oasis7_runtime_host::provider_json_shape::{
+    SCAN_SCRATCH_BYTES, scan_reader as native_scan_reader,
 };
 use oasis7_wasm_abi::AgentCommandResponse;
 use serde::de::DeserializeOwned;
@@ -25,11 +29,12 @@ use super::decision_provider::{
 };
 use super::{Action, AgentQuery, DecisionResponse, ProviderDecision};
 
-const SCAN_SCRATCH_BYTES: usize = 8 * 1024;
 const PARSER_SCRATCH_BYTES: usize = 16 * 1024;
 const MAP_ENTRY_BYTES: usize = 128;
 const CONTAINER_BYTES: usize = 64;
+#[cfg(test)]
 const MAX_JSON_DEPTH: usize = 128;
+#[cfg(test)]
 const CANCEL_POLL_BYTES: usize = 64 * 1024;
 const RESPONSE_CONTEXT_COPY_BOUND: usize = 4;
 const RESPONSE_TRACE_OVERHEAD_BYTES: usize = 512 * 1024;
@@ -68,33 +73,6 @@ impl PartialEq for ProviderResponseContextLease {
         true
     }
 }
-
-#[derive(Debug)]
-pub enum ProviderJsonAdmissionError {
-    Memory(MemoryLimitExceeded),
-    Cancelled,
-    InputLimit,
-    NestingLimit,
-    SizeOverflow,
-    Decode(serde_json::Error),
-    Io(io::Error),
-}
-
-impl fmt::Display for ProviderJsonAdmissionError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Memory(error) => write!(formatter, "provider JSON memory admission: {error}"),
-            Self::Cancelled => formatter.write_str("provider JSON decoding cancelled"),
-            Self::InputLimit => formatter.write_str("provider JSON input exceeds its bound"),
-            Self::NestingLimit => formatter.write_str("provider JSON nesting exceeds its bound"),
-            Self::SizeOverflow => formatter.write_str("provider JSON heap estimate overflow"),
-            Self::Decode(error) => write!(formatter, "provider JSON decoding failed: {error}"),
-            Self::Io(error) => write!(formatter, "provider JSON input read failed: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for ProviderJsonAdmissionError {}
 
 #[derive(Clone, Copy)]
 struct AllocationProfile {
@@ -157,6 +135,8 @@ struct JsonShape {
     largest_string_bytes: usize,
 }
 
+// Independent pre-cutover scanner retained only as a regression oracle.
+#[cfg(test)]
 struct JsonShapeScanner {
     shape: JsonShape,
     stack: [u8; MAX_JSON_DEPTH],
@@ -168,6 +148,7 @@ struct JsonShapeScanner {
     current_string_bytes: usize,
 }
 
+#[cfg(test)]
 impl JsonShapeScanner {
     fn new() -> Self {
         Self {
@@ -350,7 +331,8 @@ impl JsonShape {
     }
 }
 
-fn scan_reader<R: Read + Seek>(
+#[cfg(test)]
+fn legacy_scan_reader<R: Read + Seek>(
     reader: &mut R,
     max_bytes: u64,
     cancelled: &impl Fn() -> bool,
@@ -384,6 +366,24 @@ fn scan_reader<R: Read + Seek>(
         .seek(SeekFrom::Start(0))
         .map_err(ProviderJsonAdmissionError::Io)?;
     Ok((scanner.shape, total))
+}
+
+fn scan_reader<R: Read + Seek>(
+    reader: &mut R,
+    max_bytes: u64,
+    cancelled: &impl Fn() -> bool,
+) -> Result<(JsonShape, u64), ProviderJsonAdmissionError> {
+    let (shape, total) = native_scan_reader(reader, max_bytes, cancelled)?;
+    Ok((
+        JsonShape {
+            array_items: shape.array_items,
+            object_members: shape.object_members,
+            containers: shape.containers,
+            string_bytes: shape.string_bytes,
+            largest_string_bytes: shape.largest_string_bytes,
+        },
+        total,
+    ))
 }
 
 struct CancellationReader<'a, R, F> {
