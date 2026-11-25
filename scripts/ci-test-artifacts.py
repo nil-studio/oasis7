@@ -3704,7 +3704,28 @@ def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
     return buckets[partition]
 
 
-def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None):
+def _ordinary_bundle_cost_lookup(plan, manifest):
+    source = plan if isinstance(plan, dict) else manifest.get('execution_plan')
+    profile = source.get('ordinary_harness_costs') if isinstance(source, dict) else None
+    if profile is None:
+        scope_file = ROOT / 'scripts/ci-required-scope.json'
+        if scope_file.is_file():
+            try:
+                loaded = json.loads(scope_file.read_text())
+                profile = loaded.get('ordinary_harness_costs') if isinstance(loaded, dict) else None
+            except (OSError, ValueError, TypeError):
+                profile = None
+    if profile is None:
+        return {}
+    try:
+        validate_ordinary_harness_costs(profile)
+    except ValueError:
+        return {}
+    return {tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector')):
+            row['elapsed_ms'] for row in profile['harnesses']}
+
+
+def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None, *, parallel_ordinary=False):
     from ci_process_runner import run
     # An omitted partition retains the local full-bundle execution path.
     # Explicit hosted consumers still require a known native partition.
@@ -3779,24 +3800,43 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
         job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
-                   name=name, count=count, binary=entry.get('binary'))
+                   name=name, count=count, binary=entry.get('binary'), _entry=entry)
         if entry.get('exclusive'):
             job['exclusive'] = True
         if (entry.get('binary'), name) in resources:
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)
+    parallel_bundle_ordinary = bool(
+        parallel_ordinary and suite == 'ordinary' and not shard
+        and not artifact_partition and not inline
+        and os.environ.get('OASIS7_LOCAL_CHECK') != '1'
+        and all('script' not in entry for entry in entries)
+    )
     parallel_artifact_partition = artifact_partition and (
         plan.get('ordinary_artifact_partition_version') == 2
         or ordinary_partition in ('component-libs', 'integrations-0', 'integrations-1')
     )
-    if parallel_artifact_partition and plan.get('ordinary_artifact_partition_version') == 1:
+    if parallel_bundle_ordinary:
+        costs = _ordinary_bundle_cost_lookup(plan, manifest)
+        def _job_sort_key(item):
+            entry = item['_entry']
+            binary = manifest['binaries'][entry['binary']]
+            kinds = binary.get('target_kind') or ()
+            identity = (binary.get('package'), '-'.join(kinds), binary.get('target'), binary.get('variant'),
+                        'batch' if entry.get('batch') else 'filter' if 'filter' in entry else 'exact',
+                        '' if entry.get('batch') else entry.get('filter', entry.get('name', '')))
+            return (-costs.get(identity, 0), -(item['count'] or 0), item['name'])
+        jobs.sort(key=_job_sort_key)
+    elif parallel_artifact_partition and plan.get('ordinary_artifact_partition_version') == 1:
         # Start the largest libraries/suites first so long-running crates do not
         # trail behind short targets at the end of a v1 partition.
         jobs.sort(key=lambda item: -(item['count'] or 0))
-    if formal or inline or parallel_artifact_partition:
+    for item in jobs:
+        item.pop('_entry', None)
+    if formal or inline or parallel_artifact_partition or parallel_bundle_ordinary:
         execute_inline_jobs(jobs, results, formal=formal, shard=shard,
                             ordinary_partition=manifest.get('ordinary_partition'),
-                            artifact_partition=parallel_artifact_partition)
+                            artifact_partition=(parallel_artifact_partition or parallel_bundle_ordinary))
         return
     failed = False
     for job in jobs:
@@ -3849,6 +3889,7 @@ def main():
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--ordinary-partition', help='exact execution owner declared by the complete trusted plan')
+    parser.add_argument('--parallel-ordinary', action='store_true', help='run prebuilt ordinary bundle harnesses with bounded pool')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
     parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'wasm-group', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'partition'], default='native')
     args = parser.parse_args()
@@ -3856,6 +3897,8 @@ def main():
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
     FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
     plan = json.loads(args.plan.read_text()) if args.plan else None
+    if args.parallel_ordinary and (args.action != 'run' or args.suite != 'ordinary' or args.shard is not None):
+        parser.error('--parallel-ordinary requires run --suite ordinary without --shard')
     if args.action == 'ordinary-image-preflight':
         report = ordinary_image_preflight()
         report['docker'] = ordinary_docker_preflight()
@@ -3950,7 +3993,7 @@ def main():
                                  args.ordinary_partition)
     else:
         execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl',
-                args.shard, plan, args.ordinary_partition)
+                args.shard, plan, args.ordinary_partition, parallel_ordinary=args.parallel_ordinary)
 
 
 if __name__ == '__main__':

@@ -7924,7 +7924,7 @@ mod family {
             v2_plan | {'ordinary_clippy_group': 'oasis7_required'},
             v2_plan | {'ordinary_wasm_group': 'oasis7_required'},
             v2_plan | {'groups': ['baseline', 'oasis7_required']},
-            v2_plan | {'ordinary_controls_in_rust_baseline_version': 2},
+            v2_plan | {'ordinary_controls_in_rust_baseline_version': 99},
             v2_plan | {'ordinary_controls_in_rust_baseline_version': True},
             {k: v for k, v in v2_plan.items() if k != 'ordinary_controls_in_rust_baseline_version'},
         ):
@@ -7965,6 +7965,48 @@ mod family {
         self.assertIn('CARGO:check -p oasis7_simulator --lib --target wasm32-unknown-unknown --locked', baseline_out)
         self.assertNotIn('CLIPPY_EXECUTED', ordinary_out)
         self.assertNotIn('CARGO:check', ordinary_out)
+
+    def test_parallel_ordinary_bundle_consumer_uses_bounded_pool_and_honors_local_check_serial(self):
+        selected = CompleteArtifactPartitions().selection()
+        selected.pop('ordinary_artifact_partition_version', None)
+        selected.pop('ordinary_partitions', None)
+        manifest = dict(
+            execution_plan=selected,
+            binaries={
+                'short-test': dict(path='bin/short', cwd='crates/oasis7', package='oasis7', target='short',
+                                   target_kind=['test'], variant='required', ordinary=True,
+                                   tests=['a', 'b', 'c'], ignored_tests=[]),
+                'heavy-test': dict(path='bin/heavy', cwd='crates/oasis7_runtime', package='oasis7_runtime',
+                                   target='incremental_full_scales', target_kind=['test'],
+                                   variant='required-risk-0', ordinary=True, tests=['x'], ignored_tests=[]),
+            },
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary)
+            results = bundle / 'results.jsonl'
+            with patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                 patch.object(artifacts, 'execute_inline_jobs') as pool, \
+                 patch.dict(os.environ, {}, clear=False):
+                os.environ.pop('OASIS7_LOCAL_CHECK', None)
+                artifacts.execute(bundle, 'ordinary', results, plan=selected, parallel_ordinary=True)
+                pool.assert_called_once()
+                self.assertTrue(pool.call_args.kwargs['artifact_partition'])
+                # Heavy calibrated cost (incremental_full_scales) starts before higher-case-count short target
+                self.assertEqual([job['name'] for job in pool.call_args.args[0]], ['heavy-test', 'short-test'])
+            with patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                 patch.object(artifacts, 'execute_inline_jobs') as pool, \
+                 patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')) as serial, \
+                 patch.dict(os.environ, OASIS7_LOCAL_CHECK='1'):
+                artifacts.execute(bundle, 'ordinary', results, plan=selected, parallel_ordinary=True)
+                pool.assert_not_called()
+                self.assertEqual(serial.call_count, 2)
+        for bad_args in (['build', '--bundle', 'b', '--parallel-ordinary'],
+                         ['run', '--bundle', 'b', '--shard', 'storage-recovery', '--parallel-ordinary']):
+            proc = subprocess.run([sys.executable, str(HERE / 'ci-test-artifacts.py'), *bad_args],
+                                  text=True, capture_output=True)
+            self.assertNotEqual(proc.returncode, 0)
 
 
 if __name__ == '__main__':
