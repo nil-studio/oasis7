@@ -3428,6 +3428,25 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             with self.subTest(damaged=damaged[:120]), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(job, damaged), CONFIG)
 
+    def test_cache_maintenance_jobs_use_readonly_published_runtime_environment(self):
+        for name in ('cache-bootstrap-maintenance', 'cache-maintenance'):
+            with self.subTest(job=name):
+                job = JOBS[name]
+                self.assertIn('image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9', job)
+                self.assertIn('options: --user 1001:1001 --init', job)
+                self.assertIn('packages: read', job)
+                self.assertIn('sys.version_info[:2] == (3, 12)', job)
+                self.assertIn('timeout-minutes: 5', job)
+                self.assertIn('cache-mode: none', job)
+                self.assertIn('actions: write', job)
+                self.assertIn('group: ci-cache-maintenance-main', job)
+                self.assertIn('cancel-in-progress: false', job)
+                self.assertNotIn('privileged', job)
+                self.assertNotIn('volumes:', job)
+                self.assertNotIn('apt-get', job)
+                self.assertLess(job.index('persist-credentials: false'), job.index('Verify the preinstalled'))
+                self.assertLess(job.index('Verify the preinstalled'), job.index('CACHE_MAINTENANCE_TOKEN:'))
+
     def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')
         self.assertIn('needs: [select, oasis7-test-build-trusted, formal-debug-build-trusted, formal-endpoint-build-trusted]', job)
