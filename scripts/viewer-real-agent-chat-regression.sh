@@ -303,20 +303,6 @@ if [[ -z "$GAME_URL" ]]; then
   fi
 fi
 
-playwright_node_modules="${OASIS7_PLAYWRIGHT_NODE_MODULES:-}"
-if [[ -z "$playwright_node_modules" ]]; then
-  for candidate in "$repo_root/node_modules" "$repo_root/crates/oasis7_viewer/node_modules"; do
-    if [[ -d "$candidate/playwright" ]]; then
-      playwright_node_modules="$candidate"
-      break
-    fi
-  done
-fi
-if [[ -z "$playwright_node_modules" || ! -d "$playwright_node_modules/playwright" ]]; then
-  echo "error: Playwright is unavailable; install it in repo/viewer node_modules or set OASIS7_PLAYWRIGHT_NODE_MODULES to a node_modules directory containing playwright" >&2
-  exit 1
-fi
-
 chat_args=(
   "$node_bin"
   "$repo_root/crates/oasis7_viewer/scripts/real-agent-chat-regression.mjs"
@@ -336,7 +322,7 @@ for needle in "${FORBID_CONTAINS[@]}"; do
   chat_args+=(--forbid-contains "$needle")
 done
 
-NODE_PATH="$playwright_node_modules" "${chat_args[@]}" | tee "$out_dir/viewer-real-agent-chat-regression.log"
+"${chat_args[@]}" | tee "$out_dir/viewer-real-agent-chat-regression.log"
 
 cat >"$out_dir/viewer-real-agent-chat-regression-summary.md" <<EOF
 # Viewer real Agent chat regression

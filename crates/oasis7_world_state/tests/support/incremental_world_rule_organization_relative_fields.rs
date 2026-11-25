@@ -103,10 +103,18 @@ pub(super) fn exercise(
             },
             "",
         ),
-    ] {
-        if matches!(owner, OrganizationRootKeyV1::Estate(_)) != matches!(record, R::Estate) {
-            continue;
-        }
+    ]
+    .into_iter()
+    .filter(|(record, _, _, _)| {
+        matches!(owner, OrganizationRootKeyV1::Estate(_)) == matches!(record, R::Estate)
+    })
+    .take(
+        if class == MemoryClass::Recovery && !cfg!(feature = "test_tier_full") {
+            1
+        } else {
+            usize::MAX
+        },
+    ) {
         let state = store.state_session(physical(), class).unwrap();
         let values = store.value_session(physical());
         let mut io = logical();

@@ -50,6 +50,11 @@ class Resources(unittest.TestCase):
     def test_runtime_selection_and_closure(self):
         manifest = dict(binaries=dict(runtime=dict(package='oasis7_runtime', test=True, features=['wasmtime', 'test_tier_full'])), included_binaries=['runtime'])
         self.assertTrue(a.BuiltinTestArtifact.required(manifest))
+        manifest['binaries']['runtime']['target_kind'] = ['lib']
+        self.assertTrue(a.BuiltinTestArtifact.required(manifest))
+        manifest['binaries']['runtime']['target_kind'] = ['test']
+        self.assertFalse(a.BuiltinTestArtifact.required(manifest))
+        manifest['binaries']['runtime']['target_kind'] = ['lib']
         manifest['binaries']['runtime']['features'] = ['wasmtime', 'test_tier_required']
         self.assertFalse(a.BuiltinTestArtifact.required(manifest))
         manifest['binaries']['runtime']['features'] = ['test_tier_full']

@@ -695,7 +695,7 @@ fn chain_linked_provider_authority_is_chain_published_across_tick_and_restart() 
     execution_world
         .save_to_dir_with_chain_resource_context(
             execution_world_dir.as_path(),
-            crate::chain_resource_schema::ChainResourceDerivationContext {
+            oasis7_agent_api::world_resource::ChainResourceDerivationContext {
                 world_id: "chain-provider-world",
                 chain_id: "runtime-chain",
                 genesis_ref: None,
@@ -754,7 +754,7 @@ fn chain_linked_provider_authority_is_chain_published_across_tick_and_restart() 
     chain_writer
         .save_to_dir_with_chain_resource_context(
             execution_world_dir.as_path(),
-            crate::chain_resource_schema::ChainResourceDerivationContext {
+            oasis7_agent_api::world_resource::ChainResourceDerivationContext {
                 world_id: "chain-provider-world",
                 chain_id: "runtime-chain",
                 genesis_ref: None,
@@ -843,7 +843,7 @@ fn chain_linked_provider_authority_is_chain_published_across_tick_and_restart() 
     chain_tick
         .save_to_dir_with_chain_resource_context(
             execution_world_dir.as_path(),
-            crate::chain_resource_schema::ChainResourceDerivationContext {
+            oasis7_agent_api::world_resource::ChainResourceDerivationContext {
                 world_id: "chain-provider-world",
                 chain_id: "runtime-chain",
                 genesis_ref: None,

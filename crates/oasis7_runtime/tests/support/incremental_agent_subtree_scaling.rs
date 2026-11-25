@@ -243,7 +243,12 @@ fn run(compression: PageCompression, summary_units: usize, slots: usize) -> [u64
 }
 #[test]
 fn scalar_sender_and_real_receiver_skip_unchanged_agent_summary_and_rows() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let small = run(compression, 32, 3);
         let large = run(compression, 350_000, 32);
         eprintln!(

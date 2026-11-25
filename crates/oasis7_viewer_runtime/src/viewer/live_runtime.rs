@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::observability::emit_stderr_or_event;
 use oasis7_node::{NodeCommittedActionBatchesHandle, NodeRuntime};
+use oasis7_observability::emit_stderr_or_event;
 use tracing::Level;
 
 use crate::geometry::space_distance_cm;

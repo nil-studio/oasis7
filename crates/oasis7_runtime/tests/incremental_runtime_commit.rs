@@ -98,7 +98,7 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
         let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
         let (world, parent, config, genesis, catalog) = setup(&store, &memory);
         let second_event = event(&world, 2);
-        let (expected, first_id, catalog_id, config_id) = {
+        let (expected, first_id, catalog_id, config_id, first_binding) = {
             let mut physical = physical_io();
             let mut logical = logical_io();
             let objects = IncrementalObjectStore::open(
@@ -140,6 +140,35 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
                 &store,
                 &memory,
             );
+            let first_binding = first
+                .candidate_iws_commitment_binding_v2([0x31; 32], [0x52; 32])
+                .expect("candidate binds actual native transition roots");
+            assert_eq!(
+                first_binding.root_set_digest,
+                first.transition().record.after.digest().unwrap()
+            );
+            assert_ne!(
+                first_binding.business_namespace_root,
+                first_binding.allocator_namespace_root
+            );
+            let mut forged = first_binding.clone();
+            forged.control_continuation_root = [0xff; 32];
+            assert!(forged
+                .verify_against_root_set(
+                    &first.transition().record.after,
+                    &[0x31; 32],
+                    &[0x52; 32],
+                )
+                .is_err());
+            let mut forged_namespace = first_binding.clone();
+            forged_namespace.authorization_namespace_root = [0xaa; 32];
+            assert!(forged_namespace
+                .verify_against_root_set(
+                    &first.transition().record.after,
+                    &[0x31; 32],
+                    &[0x52; 32],
+                )
+                .is_err());
             let mut pages = store
                 .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
                 .unwrap();
@@ -187,7 +216,7 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
                 *blake3::hash(&oasis7_wasm_abi::encode_canonical_cbor(&second_event).unwrap())
                     .as_bytes()
             );
-            (expected, first_id, catalog_id, config_id)
+            (expected, first_id, catalog_id, config_id, first_binding)
         };
         // Production readers and sources are closed. The retained expected
         // candidate is a charged reference oracle, never a recovery source.
@@ -222,6 +251,13 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
             .read_object_owned(&body.roots, 4096, &mut io)
             .unwrap();
         let roots = RootSetV1::from_canonical_bytes(&root_bytes).unwrap();
+        first_binding
+            .verify_against_root_set(&roots, &[0x31; 32], &[0x52; 32])
+            .expect("reopened original root-set matches candidate binding");
+        assert!(first_binding
+            .verify_against_root_set(&roots, &[0x31; 32], &[0x53; 32])
+            .is_err());
+
         let prefix_bytes = objects
             .read_object_owned(&body.history, 4096, &mut io)
             .unwrap();

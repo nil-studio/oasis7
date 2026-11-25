@@ -36,7 +36,7 @@ Game Task 创建复用既有签名 World Service submit/lookup 与 Runtime 共�
 <a id="owner-goal-prepare-publish-current-read"></a>
 ### 已实施切片：owner 目标准备、发布与当前正文回读
 
-这段流使用原生 World Service，不提前开放 Game HTTP 写路由或 token 会话。默认关闭的私有准备与回读端点、operator 密钥配置、单记录幂等和不可枚举的 salted commitment 见[协作合同](../../world-runtime/runtime/player-runtime-collaboration.design.md#6-接口与数据合同)。`oasis7::world_service::private_goal_read` 导出路径、请求/响应及 owner 客户端验证方法。
+这段流使用原生 World Service，不提前开放 Game HTTP 写路由或 token 会话。默认关闭的私有准备与回读端点、operator 密钥配置、单记录幂等和不可枚举的 salted commitment 见[协作合同](../../world-runtime/runtime/player-runtime-collaboration.design.md#6-接口与数据合同)。`oasis7_world_service::private_goal_read` 导出路径、请求/响应及 owner 客户端验证方法。
 
 1. owner 保留原 `SignedGoalPrepareV1`，POST `/v1/world/private-goal/prepare`；服务验证当前 owner/world/history/task，再保存完整密文 proof。同操作重试返回原 `PreparedGoalReceiptV1`，同操作异内容为 409，不重新生成目标引用。该 HTTP 入口要求 operator 同时配置独立私有目录和 mode-0600 的精确 32 字节密钥文件，实际监听 IP 仅限 loopback。
 2. 客户端调用 `verify_prepare_response(original, response, configured_service_key)`，再 `publication(original, receipt, publish_operation_id)`；检查原意图、重算私有盐承诺后，使用 `game_goal_publish/v1` 签署 public-only `GameGoalPublishV1`。正文、正文摘要、私有 proof/签名和盐均不进入公开 payload。

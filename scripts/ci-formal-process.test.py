@@ -3050,6 +3050,7 @@ pub fn mark(name: &str) {
         (runtime / 'tests/process.rs').write_text(
             '#[test] fn complete_integration() {\n'
             ' assert!(std::process::Command::new(env!("CARGO_BIN_EXE_oasis7_chain_runtime")).status().unwrap().success());\n'
+            ' assert!(std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap().contains("oasis7_chain_runtime"));\n'
             ' oasis7_chain_runtime::mark("complete_integration");\n}\n'
             '#[test] fn new_integration_case() { oasis7_chain_runtime::mark("new_integration_case"); }\n')
         (risk / 'Cargo.toml').write_text(
@@ -3105,10 +3106,13 @@ pub fn mark(name: &str) {
             ordinary_harness_costs=TargetedArtifactPartitions.costs([
                 dict(package='oasis7_chain_runtime', target_kind='test', target_name='process',
                      variant='required', mode='batch', selector='', elapsed_ms=5000)]))
+        cls.image = os.environ.get('ORDINARY_BUILD_IMAGE',
+                                   'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64)
         cls.bundle, cls.consumer = cls.root / 'bundle', cls.root / 'consumer'
         with patch.object(artifacts, 'ROOT', cls.root), patch.object(artifacts, 'CONFIG', cls.config), \
              patch.dict(os.environ, SOURCE_SHA=cls.sha):
-            artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
+            with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=cls.image):
+                artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
             archive = cls.root / 'ordinary.tar.gz'
             artifacts.pack(cls.bundle, archive, suite='ordinary', plan=cls.selected)
         cls.consumer.mkdir()
@@ -3127,6 +3131,9 @@ pub fn mark(name: &str) {
         return stack
 
     def test_real_build_pack_load_and_four_owners_equal_the_original_complete_execution(self):
+        self.assertEqual(json.loads((self.bundle / 'manifest.json').read_text())['image'], self.image)
+        self.assertEqual(json.loads((self.consumer / 'manifest.json').read_text())['image'], self.image)
+        self.assertNotIn('ORDINARY_BUILD_IMAGE', os.environ)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             baseline, partitioned = root / 'baseline', root / 'partitioned'
@@ -3161,6 +3168,25 @@ pub fn mark(name: &str) {
             self.assertEqual(sum(record['expected_count'] for record in records),
                              sum(record['expected_count'] for record in baseline_records))
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
+
+    def test_ordinary_runner_image_identity_remains_exact(self):
+        manifest = json.loads((self.consumer / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)), \
+             patch.dict(os.environ, ImageOS='ubuntu24'):
+            generic = dict(manifest, runner_image='linux')
+            with self.assertRaisesRegex(ValueError, 'artifact identity mismatch: runner_image'):
+                artifacts.validate_artifact_manifest(generic, suite='ordinary', plan=self.selected)
+            verified = dict(manifest, runner_image='ubuntu24')
+            self.assertEqual(artifacts.validate_artifact_manifest(verified, suite='ordinary', plan=self.selected),
+                             set(manifest['included_binaries']))
+
+    def test_real_ordinary_artifact_still_rejects_another_consumer_checkout(self):
+        manifest = json.loads((self.bundle / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)):
+            with patch.object(artifacts, 'ROOT', self.root / 'different-consumer'), \
+                 patch.object(artifacts, 'output', return_value=self.sha), \
+                 self.assertRaisesRegex(ValueError, 'artifact identity mismatch: checkout'):
+                artifacts.validate_artifact_manifest(manifest, suite='ordinary', plan=self.selected)
 
     def test_real_v1_delivery_preserves_behavior_and_restores_cargo_binary_paths_without_compiling(self):
         selected = self.selected | dict(scope='full', ordinary_artifact_partition_version=1,
@@ -5113,6 +5139,136 @@ class ParallelFormalExecution(unittest.TestCase):
 
 
 class BuildAndBundles(unittest.TestCase):
+    def test_ordinary_docker_preflight_checks_daemon_and_default_driver(self):
+        responses = {
+            ('info', '--format', '{{json .ServerVersion}}'): '"28.0.4"',
+            ('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'): '28.5.2 1.48',
+            ('buildx', 'version'): 'github.com/docker/buildx v0.29.1 test-commit',
+            ('context', 'show'): 'default',
+            ('buildx', 'inspect'): ('Name:          default\nDriver:        docker\n\nNodes:\n'
+                                    'Name:          default\nEndpoint:      default\nStatus:        running\n'),
+        }
+
+        def invoke(command, **kwargs):
+            self.assertEqual(command[0], 'docker')
+            self.assertEqual(kwargs['timeout'], 15)
+            self.assertTrue(kwargs['text'])
+            for name in ('GH_TOKEN', 'GITHUB_TOKEN', 'ACTIONS_RUNTIME_TOKEN', 'INPUT_GITHUB-TOKEN', 'NODE_OPTIONS'):
+                self.assertNotIn(name, kwargs['env'])
+            if tuple(command[1:]) not in responses:
+                raise subprocess.CalledProcessError(1, command, output='unknown command or flag')
+            return responses[tuple(command[1:])]
+
+        with patch.object(artifacts.Path, 'is_socket', return_value=True), \
+             patch.dict(os.environ, DOCKER_HOST='', DOCKER_CONTEXT='', BUILDX_BUILDER='',
+                        GH_TOKEN='private', GITHUB_TOKEN='private', ACTIONS_RUNTIME_TOKEN='private',
+                        NODE_OPTIONS='private', **{'INPUT_GITHUB-TOKEN': 'private'}), \
+             patch.object(artifacts.subprocess, 'check_output', side_effect=invoke) as execute:
+            self.assertEqual(artifacts.ordinary_docker_preflight(), {
+                'client_version': '28.5.2', 'server_version': '28.0.4', 'server_api': '1.48',
+                'buildx_version': 'v0.29.1', 'context': 'default', 'builder': 'default', 'driver': 'docker',
+                'builder_status': 'running'})
+            self.assertEqual(execute.call_count, 5)
+            for key, invalid in (
+                    (('info', '--format', '{{json .ServerVersion}}'), 'null'),
+                    (('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'), '28.5.2 invalid-api'),
+                    (('buildx', 'version'), 'unknown plugin'),
+                    (('context', 'show'), 'remote'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker-container\n\nNodes:\nStatus: running'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\nError: private\n\nNodes:\nStatus: running'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\n\nNodes:\nStatus: stopped'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\n\nNodes:\nStatus: running\nError: private')):
+                with self.subTest(command=key):
+                    original = responses[key]
+                    responses[key] = invalid
+                    try:
+                        with self.assertRaises(ValueError):
+                            artifacts.ordinary_docker_preflight()
+                    finally:
+                        responses[key] = original
+            for environment in ({'DOCKER_HOST': 'tcp://remote:2375'},
+                                {'DOCKER_CONTEXT': 'remote'}, {'BUILDX_BUILDER': 'remote'}):
+                with self.subTest(environment=environment), patch.dict(os.environ, environment):
+                    execute.reset_mock()
+                    with self.assertRaises(ValueError):
+                        artifacts.ordinary_docker_preflight()
+                    execute.assert_not_called()
+            with patch.object(artifacts.Path, 'is_socket', return_value=False):
+                with self.assertRaisesRegex(ValueError, 'runner-provided Docker socket'):
+                    artifacts.ordinary_docker_preflight()
+            for failure in (subprocess.CalledProcessError(1, ['docker', 'info'], output='private'),
+                            subprocess.TimeoutExpired(['docker', 'info'], 15, output='private')):
+                with self.subTest(failure=type(failure).__name__), \
+                     patch.object(artifacts.subprocess, 'check_output', side_effect=failure):
+                    with self.assertRaisesRegex(ValueError, 'daemon info') as rejected:
+                        artifacts.ordinary_docker_preflight()
+                    self.assertNotIn('private', str(rejected.exception))
+
+    def test_ordinary_image_cli_reports_the_checked_docker_capability(self):
+        docker = {'driver': 'docker', 'server_api': '1.48'}
+        output = io.StringIO()
+        with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+             patch.object(artifacts, 'ordinary_docker_preflight', return_value=docker) as checked, \
+             patch.object(sys, 'argv', ['ci-test-artifacts.py', 'ordinary-image-preflight']), \
+             patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                            FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(output):
+            artifacts.main()
+        checked.assert_called_once_with()
+        self.assertEqual(json.loads(output.getvalue()), {'same_directory': True, 'docker': docker})
+
+    def test_ordinary_image_cli_refuses_missing_canonical_docker(self):
+        with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+             patch.object(artifacts.Path, 'is_socket', return_value=True), \
+             patch.object(artifacts.subprocess, 'check_output', side_effect=FileNotFoundError('docker')), \
+             patch.dict(os.environ, DOCKER_HOST='', DOCKER_CONTEXT='', BUILDX_BUILDER=''), \
+             patch.object(sys, 'argv', ['ci-test-artifacts.py', 'ordinary-image-preflight']), \
+             patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                            FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'Docker CLI'):
+                artifacts.main()
+
+    def test_ordinary_image_preflight_preserves_canonical_real_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            checkout, other = root / 'checkout', root / 'other'
+            checkout.mkdir()
+            other.mkdir()
+            alias = root / 'symlink'
+            alias.symlink_to(checkout, target_is_directory=True)
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(checkout)
+                with patch.object(artifacts, 'ROOT', checkout), \
+                     patch.object(artifacts, 'ORDINARY_HOST_CHECKOUT', checkout), \
+                     patch.object(artifacts.platform, 'freedesktop_os_release',
+                                  return_value={'ID': 'ubuntu', 'VERSION_ID': '24.04'}), \
+                     patch.dict(os.environ, ImageOS='ubuntu24', ORDINARY_ARTIFACT_CHECKOUT=str(checkout),
+                                GITHUB_WORKSPACE=str(checkout),
+                                ORDINARY_BUILD_IMAGE='ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64):
+                    report = artifacts.ordinary_image_preflight()
+                    self.assertTrue(report['same_directory'])
+                    self.assertEqual((report['device'], report['inode']),
+                                     (checkout.stat().st_dev, checkout.stat().st_ino))
+                    for changes in ({'GITHUB_WORKSPACE': str(other)},
+                                    {'GITHUB_WORKSPACE': str(alias)}, {'GITHUB_WORKSPACE': ''},
+                                    {'ORDINARY_ARTIFACT_CHECKOUT': str(other)},
+                                    {'ORDINARY_BUILD_IMAGE': 'rust-build:latest'},
+                                    {'ImageOS': ''}, {'ImageOS': 'linux'}):
+                        with self.subTest(changes=changes), patch.dict(os.environ, changes), self.assertRaises(ValueError):
+                            artifacts.ordinary_image_preflight()
+                    self.assertEqual(report['runner_image'], 'ubuntu24')
+                    for release in ({'ID': 'debian', 'VERSION_ID': '24.04'},
+                                    {'ID': 'ubuntu', 'VERSION_ID': '22.04'}, {}):
+                        with patch.object(artifacts.platform, 'freedesktop_os_release', return_value=release), self.assertRaises(ValueError):
+                            artifacts.ordinary_image_preflight()
+                    with patch.object(artifacts, 'ROOT', other), self.assertRaises(ValueError):
+                        artifacts.ordinary_image_preflight()
+                    os.chdir(other)
+                    with self.assertRaises(ValueError):
+                        artifacts.ordinary_image_preflight()
+            finally:
+                os.chdir(original_cwd)
+
     def test_build_timings_include_dependency_freshness_per_variant(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -5238,8 +5394,10 @@ class BuildAndBundles(unittest.TestCase):
             self.assertEqual(next(features for name, _, features in ordinary if name == owner), [])
         required = next(args for name, args, _ in ordinary if name == 'required')
         required_packages = [required[index + 1] for index, value in enumerate(required) if value == '-p']
+        scope_required_packages = json.loads((HERE / 'ci-required-scope.json').read_text(encoding='utf-8'))['oasis7_required_packages']
+        self.assertEqual(required_packages, scope_required_packages)
         self.assertCountEqual(required_packages, [
-            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_executable_image', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
+            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_runtime_host', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_executable_image', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
             'oasis7_newapi_bridge_service', 'oasis7_ops_tools', 'oasis7_provider_local_bridge',
             'oasis7_provider_tools', 'oasis7_viewer_runtime', 'oasis7_viewer_codec', 'oasis7_observability',
             'oasis7_hosted_access', 'oasis7_letai_credit_adapter', 'oasis7_launcher_config',

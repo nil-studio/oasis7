@@ -143,7 +143,12 @@ fn lookup<M: MerkleNodeReader>(
 }
 #[test]
 fn original_effect_collections_and_json_nodes_have_independent_literal_wire() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store =

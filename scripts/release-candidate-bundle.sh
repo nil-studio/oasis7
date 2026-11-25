@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd "$repo_root"
 
 usage() {
@@ -325,6 +325,42 @@ if expected_head and bundle["git_commit"] != expected_head:
 if require_clean and bundle.get("git_worktree_dirty"):
     raise SystemExit("bundle captured dirty worktree but clean worktree is required")
 
+# The recorded absolute path is provenance, not a portable locator. Rebase
+# only an unambiguous repo-local identity from a different capture checkout.
+# External artifacts and already-staged host paths keep their existing contract.
+capture_root = bundle.get("repo_root")
+capture_root = pathlib.Path(capture_root) if isinstance(capture_root, str) else None
+if capture_root is not None and not capture_root.is_absolute():
+    raise SystemExit("bundle repo_root must be absolute")
+relocated = capture_root is not None and capture_root != repo_root
+
+
+def bundle_ref_path(label: str, payload: dict) -> tuple[pathlib.Path, bool]:
+    raw_ref = payload["ref"]
+    raw_path = payload["resolved_path"]
+    if not isinstance(raw_ref, str) or not raw_ref or not isinstance(raw_path, str) or not raw_path:
+        raise SystemExit(f"{label} has invalid ref or resolved_path")
+    if "\x00" in raw_ref or "\x00" in raw_path:
+        raise SystemExit(f"{label} has invalid ref or resolved_path")
+    recorded_path = pathlib.Path(raw_path)
+    if not relocated:
+        return recorded_path, False
+    ref = pathlib.PurePosixPath(raw_ref)
+    if ref.is_absolute() or not recorded_path.is_relative_to(capture_root):
+        # Explicitly selected external or already-staged path, never guessed.
+        return recorded_path, False
+    if (
+        "\\" in raw_ref or ":" in raw_ref or not ref.parts
+        or any(part in ("", ".", "..") for part in raw_ref.split("/"))
+        or capture_root / ref != recorded_path
+    ):
+        raise SystemExit(f"{label} does not identify the recorded repository path")
+    current_path = (repo_root / ref).resolve()
+    if not current_path.is_relative_to(repo_root):
+        raise SystemExit(f"{label} repository path escapes current checkout")
+    return current_path, True
+
+
 def file_sha256(path: pathlib.Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -376,18 +412,20 @@ def verify_pair_provenance_signature(provenance_path: pathlib.Path, provenance: 
     if result.returncode != 0:
         raise SystemExit("validator_pair_provenance detached signature verification failed")
 
-def check_ref(label: str, payload: dict) -> None:
+def check_ref(label: str, payload: dict) -> pathlib.Path:
     required = ["ref", "resolved_path", "kind"]
     for field in required:
         if field not in payload:
             raise SystemExit(f"{label} missing required field: {field}")
-    path = pathlib.Path(payload["resolved_path"])
+    path, rebased = bundle_ref_path(label, payload)
     if not path.exists():
         raise SystemExit(f"{label} path missing: {path}")
     if payload["kind"] == "file":
         recorded = payload.get("sha256")
         if not recorded:
           raise SystemExit(f"{label} missing sha256")
+        if not path.is_file():
+            raise SystemExit(f"{label} is not a file: {path}")
         current = file_sha256(path)
         if current != recorded:
             raise SystemExit(
@@ -397,10 +435,16 @@ def check_ref(label: str, payload: dict) -> None:
         recorded = payload.get("sha256_tree")
         if not recorded:
             raise SystemExit(f"{label} missing sha256_tree")
+        if not path.is_dir():
+            raise SystemExit(f"{label} is not a directory: {path}")
         combined = hashlib.sha256()
         file_count = 0
         total_bytes = 0
-        for child in sorted(p for p in path.rglob("*") if p.is_file()):
+        for child in sorted(path.rglob("*")):
+            if rebased and child.is_symlink():
+                raise SystemExit(f"{label} relocated tree contains a symbolic link: {child}")
+            if not child.is_file():
+                continue
             rel = child.relative_to(path).as_posix()
             digest = file_sha256(child)
             stat = child.stat()
@@ -427,6 +471,7 @@ def check_ref(label: str, payload: dict) -> None:
             )
     else:
         raise SystemExit(f"{label} unsupported kind: {payload['kind']}")
+    return path
 
 for label in (
     "runtime_build",
@@ -445,8 +490,7 @@ for label in ("generated_world_sidecar", "world_generation_provenance"):
 
 pair_provenance = bundle.get("validator_pair_provenance")
 if pair_provenance is not None:
-    check_ref("validator_pair_provenance", pair_provenance)
-    provenance_path = pathlib.Path(pair_provenance["resolved_path"])
+    provenance_path = check_ref("validator_pair_provenance", pair_provenance)
     try:
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -465,9 +509,12 @@ if pair_provenance is not None:
 for index, item in enumerate(bundle.get("evidence_refs", []), start=1):
     if "ref" not in item or "resolved_path" not in item:
         raise SystemExit(f"evidence_refs[{index}] missing ref or resolved_path")
-    path = pathlib.Path(item["resolved_path"])
-    if not path.exists():
-        raise SystemExit(f"evidence_refs[{index}] path missing: {path}")
+    label = f"evidence_refs[{index}]"
+    path, rebased = bundle_ref_path(label, item)
+    if rebased:
+        check_ref(label, item)
+    elif not path.exists():
+        raise SystemExit(f"{label} path missing: {path}")
 
 print(
     json.dumps(

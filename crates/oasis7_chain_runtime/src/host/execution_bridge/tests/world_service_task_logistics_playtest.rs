@@ -210,6 +210,7 @@ fn private_task_logistics_prepared_world_live_service() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
     let _probe_slot = super::prepared_world_probe_slot();

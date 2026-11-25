@@ -481,6 +481,17 @@ CI 分层口径：ordinary PR 以 impact-scoped `required-gate` 作为 premerge 
 7. playability / player continue claim：自动化只能证明“没坏/可回归”；`L4A`、`L4B`、`L5` 按 claim 强度升级，不得互相替代。
 8. release candidate：默认完整 release gate；任何 `--skip-*` 都必须写明原因，并在 summary 里保留 claim boundary。带 skip 的结果只能支撑剩余已执行步骤，不能支撑被跳过层级的 release claim。
 
+<a id="pr-slice-verification-mapping"></a>
+### PR 切片分级验证映射（Slice-Type 对齐）
+
+配合[暗发布切片、契约锁边界与熔断规范](doc/engineering/workflow/pr-slicing-and-circuit-breaker.md)与 `./scripts/check-pr-boundaries.sh`，按切片类型选择匹配的本地验证粒度，避免空壳契约建单或未接线的暗代码单无谓拉起全套重型运行栈：
+
+- **Zero-Diff Contract Draft PR（空壳契约态）：** 仅由 `./scripts/check-pr-boundaries.sh` / `.github/workflows/pr-boundary-gate.yml` 校验 `Slice-Type` 与 `Allowed-Crates` 边界元数据契约，自动跳过重型编译与测试。
+- **`[Slice: Dark]`：** 必须跑通 `./scripts/check-pr-boundaries.sh`、受影响 Crate 的 `./scripts/cargo-dev.sh check`（正式验收用 `env -u RUSTC_WRAPPER cargo check`）与新增模块单元测试，以及 CI 选中的 `required-gate` 最小集；未挂载活跃入口时无需启动完整本地 Viewer / LLM 栈。
+- **`[Slice: Adapter]`：** 必须跑通 `./scripts/check-pr-boundaries.sh`、投影/服务/客户端 API 契约转换测试与相关 Fixture 回归。
+- **`[Slice: Cutover]`：** 必须跑通 `./scripts/check-pr-boundaries.sh`，并按实际接线功能影响面执行完整的运行时状态机回归、持久化测试、Viewer/浏览器闭环（S6）或端到端链路验证；命中 Agent 游戏功能时按开发规范 §3.1 执行独立实玩自测。
+- **`[Slice: Bugfix]` / `[Slice: Docs]` / `[Slice: Chore]`：** 先通过 `./scripts/check-pr-boundaries.sh`，再按上方触发矩阵执行对应缺陷回归、文档治理检查（`./scripts/doc-governance-check.sh`）或脚本/CI 契约测试。
+
 <a id="regression-oracle"></a>
 ### 回归用例：公共行为与独立预期值
 
@@ -851,7 +862,7 @@ cargo run -q -p oasis7_client_cli --bin oasis7_pure_api_client -- --addr 127.0.0
 ```bash
 ./scripts/run-local-letai-game-test.sh --local-world-playtest
 ```
-    常规本地真实 LLM 游戏测试统一从 `scripts/run-local-letai-game-test.sh --local-world-playtest` 启动；这个入口只代表完全本地的 provider/runtime/viewer/local-standalone-chain 试玩，不连接 formal/public testnet。若目标是“本地入口读取/提交 formal `public_testnet` world state”，不要使用这个 preset，改走 `scripts/run-local-public-testnet-letai-test-environment.sh` 和对应 runbook。每次纯本地试玩都应优先使用这个 preset，而不是手工分别启动 provider bridge / launcher / viewer binary，或展开端口、detach、reuse、provider smoke、chain profile 等低层参数。该 preset 固化 playtest startup、provider smoke skip、reuse existing source build、后台启动、默认自动 Play、viewer/web/live 标准端口 `48420/48421/48422`、`--json-ready` 与 wrapper 默认的 local standalone chain。脚本仍默认优先读取 `OASIS7_LETAI_CONFIG_PATH`，再使用 `${HOME}/Documents/keys/letai.txt`，最后回退到 `OASIS7_LETAI_TOKEN_CONFIG_PATH` 或 `${HOME}/Documents/keys/letai-token-local.txt`，设置本地代理默认值，规范化临时 project token config，转发 `--auto-topup-usd`、`OASIS7_REMOTE_LLM_PLATFORM_KEY`、`OASIS7_REMOTE_LLM_PLATFORM_USER_ID` 等真实 provider 必需环境，后台启动默认 `rust-direct-letai` 的 `127.0.0.1:5841` Rust provider bridge，再启动 `run-launcher-stack.sh` 指向该 bridge；额外 launcher 参数仅在高级排障时放在 `--` 之后。该 wrapper 默认保持 `OASIS7_RUNTIME_AGENT_CHAT_ECHO` 关闭，使本地 playtest 遵循真实 provider-backed 路径；只有做低层 receipt/debug 验证时才显式传 `--chat-echo`。若直接跑已编译二进制或手工拼装脚本，操作者必须自行保证这些 env 与 wrapper 完全等价，否则可能出现不自动充值、token/project 绑定不一致、或 mock/receipt 路径误入本地试玩证据。需要打开后手动 Play 时，执行 `./scripts/run-local-letai-game-test.sh --local-world-playtest --no-auto-play`；该选项只保持世界暂停，不表示跳过配置预检、provider/网络请求或停止后台栈。需要查完整调试参数时，用 `./scripts/run-local-letai-game-test.sh --help-all`。
+    常规本地真实 LLM 游戏测试统一从 `scripts/run-local-letai-game-test.sh --local-world-playtest` 启动；这个入口只代表完全本地的 provider/runtime/viewer/local-standalone-chain 试玩，不连接 formal/public testnet。若目标是“本地入口读取/提交 formal `public_testnet` world state”，不要使用这个 preset，改走 `scripts/run-local-public-testnet-letai-test-environment.sh` 和对应 runbook。每次纯本地试玩都应优先使用这个 preset，而不是手工分别启动 provider bridge / launcher / viewer binary，或展开端口、detach、reuse、provider smoke、chain profile 等低层参数。该 preset 固化 playtest startup、provider smoke skip、reuse existing source build、后台启动、默认自动 Play、viewer/web/live 标准端口 `48420/48421/48422`、`--json-ready` 与 wrapper 默认的 local standalone chain。脚本仍默认优先读取 `OASIS7_LETAI_CONFIG_PATH`，再使用 `${HOME}/Documents/keys/letai.txt`，最后回退到 `OASIS7_LETAI_TOKEN_CONFIG_PATH` 或 `${HOME}/Documents/keys/letai-token-local.txt`，不预设本机代理（继承标准代理环境；如需为本轮补充代理，显式设置 `OASIS7_LOCAL_TEST_PROXY_URL` / `OASIS7_LOCAL_TEST_SOCKS_PROXY_URL` 或传 `--proxy` / `--socks-proxy`），规范化临时 project token config，转发 `--auto-topup-usd`、`OASIS7_REMOTE_LLM_PLATFORM_KEY`、`OASIS7_REMOTE_LLM_PLATFORM_USER_ID` 等真实 provider 必需环境，后台启动默认 `rust-direct-letai` 的 `127.0.0.1:5841` Rust provider bridge，再启动 `run-launcher-stack.sh` 指向该 bridge；额外 launcher 参数仅在高级排障时放在 `--` 之后。该 wrapper 默认保持 `OASIS7_RUNTIME_AGENT_CHAT_ECHO` 关闭，使本地 playtest 遵循真实 provider-backed 路径；只有做低层 receipt/debug 验证时才显式传 `--chat-echo`。若直接跑已编译二进制或手工拼装脚本，操作者必须自行保证这些 env 与 wrapper 完全等价，否则可能出现不自动充值、token/project 绑定不一致、或 mock/receipt 路径误入本地试玩证据。需要打开后手动 Play 时，执行 `./scripts/run-local-letai-game-test.sh --local-world-playtest --no-auto-play`；该选项只保持世界暂停，不表示跳过配置预检、provider/网络请求或停止后台栈。需要查完整调试参数时，用 `./scripts/run-local-letai-game-test.sh --help-all`。
   - 制作人 / 发布前人工验收：
 ```bash
 ./scripts/run-producer-playtest.sh --open-headed
@@ -879,6 +890,8 @@ cargo run -q -p oasis7_client_cli --bin oasis7_pure_api_client -- --addr 127.0.0
   - active-LLM / provider 预检：
     `run-launcher-stack.sh` 仍是底层 launcher/runtime bootstrap。它会在启动 launcher 前先跑一次 active LLM provider probe，复用同一套 `config.toml` / `OASIS7_LLM_*` 配置，并同时验证 Responses hello 文本响应与 required tool-call 合约；若 provider/model/auth/base URL 当前不可用，或模型能回文本但不能稳定返回 tool call，会直接 fail-fast，不再等到首个 `step` 才暴露。需要故意保留“stack 可启动但 formal lane 在首步 blocked”的负向验证时，显式加 `--skip-llm-provider-preflight`。
     若本地只验证 provider-backed plumbing，可先启动 `oasis7_provider_local_bridge --mode mock`，再用 `run-launcher-stack.sh --agent-provider-lane local-mock` 指向 deterministic `provider_local_mock`。
+    `run-local-public-testnet-letai-test-environment.sh` 的合并凭据配置默认写到本轮私有临时目录，启动后清理；只有显式传 `--merged-letai-config` 才保留该文件。供重启续用的 NewAPI bridge state 默认位于 `<output-dir>/newapi-private/bridge-state.json`；并行环境各用独立输出目录，不应共享 state。旧临时目录的 state 不自动迁移，如确需恢复既有测试状态，应有意识地指定受控的 `--newapi-state-path`。
+
     若本地需要 builtin LLM 直连验证，`scripts/with-letai-llm-config.sh` 只适用于已经包含 chat-completions/Responses-compatible `token_key` / `api_key` 的配置；不要把只有 `Doc` 和平台管理 `Key` 的文件直接当 inference token 使用。platform-only 配置应先通过 `scripts/ensure-letai-local-token-config.sh` 或 `scripts/run-local-letai-game-test.sh` 规范化成临时 project token config；不得把 raw key、生成的 `letai-local-token.env`、或其它 token config 写入日志、仓库文件或 public evidence。
     LetAI provider bridge 参考装配走 `/chat/completions`，与 builtin LLM 的 Responses preflight 不是同一协议；`scripts/run-local-letai-provider-bridge.sh` 是 `run-local-letai-game-test.sh` 使用的底层 bridge 入口，也可用于专项排障，随后用 `provider-bridge-contract-smoke.sh` 验证真实 provider decision。普通本地试玩不要从这个底层入口开始；应回到 `run-local-letai-game-test.sh`，让 wrapper 统一处理 token config、auto-topup 和 launcher 参数。`scripts/check-letai-chat-completions.sh` 和 `--chat-probe-backend legacy-cli` 只保留给兼容排障或对比 Python legacy adapter，不作为普通本地试玩默认 gate。
     本地真实 Rust provider bridge 默认在上游返回 `insufficient_user_quota` 且同时存在 `OASIS7_REMOTE_LLM_PLATFORM_KEY` / `OASIS7_REMOTE_LLM_PLATFORM_USER_ID` 时按 `$0.1`（`quota=50000`）自动充值；这是 paid real-provider 行为。充值触发按 chat request 发生，随后使用有限次数延迟重试来等待 LetAI 余额更新可见，而不是全局每次运行只充值一次；没有这些管理面字段时不会自动充值，仍应把 quota error 作为失败证据。
@@ -1654,7 +1667,7 @@ rg -n "conflicting attestation already exists|attestation threshold not met|atte
 ## TODO（待收口）
 - [x] TODO-1：修正 S7 场景矩阵回归命令的覆盖口径。
   - 处理结果（2026-03-05）：S7 的 `oasis7_init_demo_runs_` 已切换到 `test_tier_full` 执行档位。
-  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full oasis7_init_demo_runs_ -- --nocapture` 命中多场景用例（非 1 条）。
+  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_full oasis7_init_demo_runs_ -- --nocapture` 命中多场景用例（非 1 条）。
 
 - [x] TODO-2：修复 S5 Pixel World Bridge（Bevy）测试编译阻塞。
   - 处理结果（2026-02-21）：当前 `pixel_world_bridge` lib 测试已恢复可编译可执行，并纳入 `scripts/ci-tests.sh` 的 full support-crate shard。
