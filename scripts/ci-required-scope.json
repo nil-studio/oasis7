@@ -945,7 +945,6 @@
         "crates/oasis7_viewer_codec/tests/**",
         "crates/oasis7_observability/src/**",
         "crates/oasis7_observability/tests/**",
-        "crates/oasis7/src/geometry.rs",
         "crates/oasis7_simulator/src/fragment_physics.rs",
         "crates/oasis7_simulator/src/asteroid_fragment.rs",
         "crates/oasis7_simulator/src/frag_spawn.rs"

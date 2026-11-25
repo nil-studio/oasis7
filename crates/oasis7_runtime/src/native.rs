@@ -38,7 +38,12 @@ pub use oasis7_world_state::consensus;
 pub mod domains;
 pub use oasis7_world_state::effect;
 pub use oasis7_world_state::error;
-mod events;
+mod events {
+    pub use oasis7_world_state::events::*;
+    #[cfg(test)]
+    #[path = "recipe_origin_tests.rs"]
+    pub(crate) mod recipe_origin_tests;
+}
 pub use oasis7_world_state::formal_retained_history;
 mod gameplay;
 pub use oasis7_world_state::gameplay_state;
@@ -70,7 +75,13 @@ pub use snapshot_delta::{
     SnapshotArtifactV1, SnapshotDeltaV1, resolve_snapshot_artifact,
     resolve_snapshot_artifact_with_depth,
 };
-mod state;
+mod state {
+    #[cfg(test)]
+    use crate::*;
+    pub use oasis7_world_state::state::*;
+    #[cfg(test)]
+    mod apply_domain_event_industry_history_tests;
+}
 pub use oasis7_world_state::incremental_cognition_control_overlay;
 pub use oasis7_world_state::incremental_cognition_family;
 pub use oasis7_world_state::incremental_cognition_groups;
