@@ -301,6 +301,13 @@ if ((full_corpus == 1)); then
   done
 fi
 
+if [[ -f scripts/check-doc-cargo-test-commands.py && -n "${OASIS7_PRODUCT_DOC_BASE:-}" && -n "${OASIS7_PRODUCT_DOC_HEAD:-}" ]]; then
+  "$PYTHON_BIN" scripts/check-doc-cargo-test-commands.py \
+    --repo-root "$repo_root" \
+    --base "$OASIS7_PRODUCT_DOC_BASE" \
+    --head "$OASIS7_PRODUCT_DOC_HEAD" || true
+fi
+
 if ((failures > 0)); then
   echo "doc-governance-check: failed with ${failures} issue(s)"
   exit 1

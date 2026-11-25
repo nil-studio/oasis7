@@ -1599,6 +1599,7 @@ class DistfsClippyHandoff(unittest.TestCase):
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
                 path = scripts / name
@@ -1757,6 +1758,7 @@ class DistfsNamedIntegrationDriver(unittest.TestCase):
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
                 path = scripts / name
@@ -4071,6 +4073,7 @@ printf '[%s]\\n' "$args_json" >> "$CARGO_CALLS"
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh',
                          'check-standalone-tool-lockfiles.test.sh', 'check-standalone-tool-lockfiles.sh'):
