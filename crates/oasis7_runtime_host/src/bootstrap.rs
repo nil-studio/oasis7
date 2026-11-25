@@ -502,6 +502,12 @@ mod archive_loader_tests {
         assert_eq!(model, original.model);
         assert_eq!(chunk_runtime, original.chunk_runtime);
         assert_eq!(world.state().agents.len(), model.agents.len());
+        let (legacy_world, legacy_config, legacy_model) =
+            bootstrap_generated_sidecar_runtime_world(&fixture.0)
+                .expect("native owner preserves original three-value API");
+        assert_eq!(legacy_world.state().agents.len(), world.state().agents.len());
+        assert_eq!(legacy_config, config);
+        assert_eq!(legacy_model, model);
         let reopened = WorldKernel::load_from_dir(fixture.0.join("generated-scenario-world"))
             .expect("bootstrap must not modify source archive");
         assert_eq!(reopened.snapshot(), original);
