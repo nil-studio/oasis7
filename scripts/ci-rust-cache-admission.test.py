@@ -369,7 +369,8 @@ class AdmissionTests(unittest.TestCase):
 
     def test_ordinary_image_writer_requires_exact_source_job_image_and_mode(self):
         namespace, workflow, job = admission.FAMILIES['ordinary-image']
-        image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.removeprefix('ci-ordinary-image-')
+        image = getattr(admission, 'ORDINARY_IMAGE_REPOSITORY',
+                        'ghcr.io/nil-studio/oasis7/ci-rust-build') + '@sha256:' + namespace.removeprefix('ci-ordinary-image-')
         environment = self.environment | {
             'OASIS7_DEPENDENCY_CACHE_FAMILY': 'ordinary-image',
             'GITHUB_JOB': job, 'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/' + workflow + '@refs/heads/main',
@@ -386,6 +387,8 @@ class AdmissionTests(unittest.TestCase):
                             {'GITHUB_REPOSITORY': 'fork/oasis7'},
                             {'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/other.yml@refs/heads/main'},
                             {'ORDINARY_BUILD_IMAGE': image[:-1] + '0'}, {'ORDINARY_BUILD_IMAGE': ''},
+                            {'ORDINARY_BUILD_IMAGE': image.replace('/ci-rust-ordinary-builder@', '/ci-rust-build@')
+                             if '/ci-rust-ordinary-builder@' in image else image.replace('/ci-rust-build@', '/ci-rust-ordinary-builder@')},
                             {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v4'},
                             {'INPUT_CACHE-PROVIDER': 'buildjet'}, {'GITHUB_EVENT_NAME': 'pull_request'}):
                 with self.subTest(event=event, changes=changes):

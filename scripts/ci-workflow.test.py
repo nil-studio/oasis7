@@ -1988,8 +1988,13 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertIn('shared-key: ci-shared-native-trusted-v4', job)
             self.assertIn('save-if: false', rust_cache_steps(job)[0])
             return
-        digest = 'f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c'
-        image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest
+        allowed_images = (
+            'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c',
+            'ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8',
+        )
+        image = re.search(r'^      image: (\S+)$', job, re.M)[1]
+        self.assertIn(image, allowed_images)
+        digest = image.rsplit(':', 1)[1]
         self.assertIn('container:\n      image: ' + image, job)
         self.assertIn('ORDINARY_BUILD_IMAGE: ' + image, job)
         self.assertIn('      ImageOS: ubuntu24\n', job)
