@@ -5272,6 +5272,124 @@ class BuildAndBundles(unittest.TestCase):
             finally:
                 os.chdir(original_cwd)
 
+    def test_ordinary_candidate_isolation_and_cli_forbid_docker_access(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            sock_path = Path(temporary) / 'docker.sock'
+            with patch.object(os, 'getuid', return_value=1001), \
+                 patch.object(os, 'getgid', return_value=1001), \
+                 patch.object(os, 'geteuid', return_value=1001), \
+                 patch.object(os, 'getegid', return_value=1001), \
+                 patch.object(os, 'getgroups', return_value=[1001]), \
+                 patch.dict(os.environ, {'DOCKER_HOST': ''}, clear=False):
+                self.assertEqual(
+                    artifacts.ordinary_candidate_isolation_preflight(sock_path),
+                    {'uid': 1001, 'gid': 1001, 'groups': [1001], 'docker_socket': 'absent'},
+                )
+                server = artifacts.socket.socket(artifacts.socket.AF_UNIX, artifacts.socket.SOCK_STREAM)
+                try:
+                    server.bind(str(sock_path))
+                    server.listen(1)
+                    sock_path.chmod(0o600)
+                    with self.assertRaisesRegex(ValueError, 'must not access'):
+                        artifacts.ordinary_candidate_isolation_preflight(sock_path)
+                    with patch.object(os, 'access', return_value=False):
+                        with self.assertRaisesRegex(ValueError, 'must not connect'):
+                            artifacts.ordinary_candidate_isolation_preflight(sock_path)
+                    if os.geteuid() != 0:
+                        sock_path.chmod(0o000)
+                        self.assertEqual(
+                            artifacts.ordinary_candidate_isolation_preflight(sock_path),
+                            {'uid': 1001, 'gid': 1001, 'groups': [1001], 'docker_socket': 'permission_denied'},
+                        )
+                finally:
+                    try:
+                        sock_path.chmod(0o600)
+                    except OSError:
+                        pass
+                    server.close()
+                for bad_patch in (
+                    patch.object(os, 'getuid', return_value=0),
+                    patch.object(os, 'getgid', return_value=0),
+                    patch.object(os, 'geteuid', return_value=0),
+                    patch.object(os, 'getgroups', return_value=[1001, 999]),
+                    patch.dict(os.environ, {'DOCKER_HOST': 'unix:///var/run/docker.sock'}, clear=False),
+                ):
+                    with bad_patch, self.assertRaises(ValueError):
+                        artifacts.ordinary_candidate_isolation_preflight(Path(temporary) / 'missing.sock')
+
+            tested = 'a' * 40
+            source = 'b' * 40
+            base_plan = {
+                'fast_plan_version': 1,
+                'execution_profile': 'pr-fast',
+                'scope': 'full',
+                'groups': ['baseline', 'rust_baseline', 'oasis7_required'],
+                'oasis7_required_packages': ['oasis7_runtime'],
+                'test_policy_changed': False,
+                'source_sha': source,
+                'tested_sha': tested,
+                'architecture': {'version': 1, 'base': 'c' * 40, 'source': source, 'tested': tested},
+                'risk_test_inventory_version': 1,
+                'ordinary_risk_targets': [{
+                    'package': 'oasis7_runtime',
+                    'target_kind': 'test',
+                    'target_name': 'incremental_full_scales',
+                    'default_features': True,
+                    'features': ['test_tier_full'],
+                    'cases': ['case_a'],
+                }],
+            }
+            self.assertTrue(artifacts.ordinary_candidate_image_eligible(base_plan))
+            for ineligible in (
+                {**base_plan, 'test_policy_changed': True},
+                {**base_plan, 'execution_profile': 'candidate-full'},
+                {**base_plan, 'ordinary_full_fast_targets': []},
+                {**base_plan, 'ordinary_risk_targets': [{**base_plan['ordinary_risk_targets'][0], 'target_kind': 'lib'}]},
+                {**base_plan, 'ordinary_risk_targets': [{**base_plan['ordinary_risk_targets'][0], 'package': 'oasis7_chain_runtime'}]},
+            ):
+                self.assertFalse(artifacts.ordinary_candidate_image_eligible(ineligible))
+
+            plan_file = Path(temporary) / 'selection.json'
+            plan_file.write_text(json.dumps(base_plan))
+            digest = hashlib.sha256(plan_file.read_bytes()).hexdigest()
+            isolation = {'uid': 1001, 'gid': 1001, 'groups': [1001], 'docker_socket': 'permission_denied'}
+            output = io.StringIO()
+            with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+                 patch.object(artifacts, 'ordinary_candidate_isolation_preflight', return_value=isolation), \
+                 patch.object(artifacts, 'ordinary_docker_preflight', side_effect=AssertionError('must not run docker preflight')), \
+                 patch.object(artifacts, 'output', return_value=tested), \
+                 patch.dict(os.environ, {'SOURCE_SHA': source}, clear=False), \
+                 patch.object(sys, 'argv', [
+                     'ci-test-artifacts.py', 'ordinary-image-preflight', '--forbid-docker',
+                     '--plan', str(plan_file), '--expected-selection-sha256', digest,
+                 ]), \
+                 patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                                FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(output):
+                artifacts.main()
+            self.assertEqual(json.loads(output.getvalue()),
+                             {'same_directory': True, 'candidate_isolation': isolation})
+            for bad_digest in ('0' * 64, 'not-a-sha256'):
+                with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+                     patch.object(sys, 'argv', [
+                         'ci-test-artifacts.py', 'ordinary-image-preflight', '--forbid-docker',
+                         '--plan', str(plan_file), '--expected-selection-sha256', bad_digest,
+                     ]), \
+                     patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                                    FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY):
+                    with self.assertRaisesRegex(ValueError, 'selection digest mismatch'):
+                        artifacts.main()
+
+            bundle_dir = Path(temporary) / 'forbid-bundle'
+            with patch.object(artifacts, 'build_variants', return_value=[]), \
+                 patch.object(artifacts, 'output', side_effect=lambda cmd: 'host: x86_64-unknown-linux-gnu' if cmd == ['rustc', '-vV'] else tested), \
+                 patch.object(artifacts, 'digest', return_value='d' * 64), \
+                 patch.object(artifacts, 'formal_configuration', return_value={'suites': {}, 'shell_tests': {}, 'environment_formal_batches': {}}), \
+                 patch.object(artifacts.BuiltinTestArtifact, 'required', return_value=True), \
+                 patch.object(artifacts.BuiltinTestArtifact, 'build', side_effect=AssertionError('must not invoke Docker WASM build')), \
+                 patch.dict(os.environ, {'OASIS7_FORBID_ORDINARY_DOCKER_WASM': '1', 'SOURCE_SHA': tested}, clear=False):
+                with self.assertRaisesRegex(ValueError, 'forbids canonical Docker WASM builds'):
+                    artifacts.build(bundle_dir, 'ordinary')
+
     def test_build_timings_include_dependency_freshness_per_variant(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
