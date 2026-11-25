@@ -8711,5 +8711,64 @@ class WorkflowStepTimeoutBoundTests(unittest.TestCase):
         self.assertGreater(checked_steps, 0)
 
 
+class WorkflowEnvUsageTests(unittest.TestCase):
+    IMPLICIT_ENV_PREFIXES = ('CARGO_', 'RUST_', 'NODE_', 'NPM_', 'PIP_', 'PYTHON')
+    IMPLICIT_ENV_EXACT = frozenset({'RUSTFLAGS', 'RUSTDOCFLAGS', 'CI', 'FORCE_COLOR', 'NO_COLOR'})
+
+    def test_top_level_custom_env_keys_have_consumers(self):
+        workflow_dir = ROOT / '.github/workflows'
+        workflow_paths = sorted(
+            path for path in workflow_dir.iterdir()
+            if path.is_file() and path.suffix in ('.yml', '.yaml')
+        )
+        consumer_corpus_parts = []
+        for scan_root in (ROOT / 'scripts', ROOT / '.github/actions', ROOT / 'crates', ROOT / 'tools'):
+            if not scan_root.is_dir():
+                continue
+            for file_path in scan_root.rglob('*'):
+                if not file_path.is_file():
+                    continue
+                if file_path.suffix not in ('.py', '.sh', '.rs', '.js', '.mjs', '.cjs', '.yml', '.yaml'):
+                    continue
+                if '.test.' in file_path.name:
+                    continue
+                try:
+                    consumer_corpus_parts.append(file_path.read_text(encoding='utf-8', errors='ignore'))
+                except OSError:
+                    continue
+        consumer_corpus = '\n'.join(consumer_corpus_parts)
+
+        unused = []
+        for path in workflow_paths:
+            rel_path = path.relative_to(ROOT).as_posix()
+            text = path.read_text(encoding='utf-8')
+            in_env = False
+            env_keys = []
+            for lineno, line in enumerate(text.splitlines(), 1):
+                if re.match(r'^env:\s*$', line):
+                    in_env = True
+                    continue
+                if in_env:
+                    if line and not line.startswith((' ', '\t', '#')):
+                        in_env = False
+                        continue
+                    match = re.match(r'^  ([A-Z0-9_]+)\s*:', line)
+                    if match:
+                        env_keys.append((lineno, match.group(1)))
+            for lineno, key in env_keys:
+                if key in self.IMPLICIT_ENV_EXACT or key.startswith(self.IMPLICIT_ENV_PREFIXES):
+                    continue
+                if len(re.findall(rf'\b{re.escape(key)}\b', text)) > 1:
+                    continue
+                if re.search(rf'\b{re.escape(key)}\b', consumer_corpus):
+                    continue
+                unused.append(f'{rel_path}:{lineno}: {key}')
+        self.assertEqual(
+            unused,
+            [],
+            'Top-level custom workflow env vars with zero consumers: ' + ', '.join(unused),
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

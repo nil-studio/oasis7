@@ -613,6 +613,7 @@ def baseline_complete(commands, base, head):
     actual = [item['argv'] for item in commands]
     scripts = ('unified-world-code-terminology-scan.test.sh', 'doc-governance-check.sh',
                'lint-skills.sh', 'check-windows-paths.sh', 'check-script-executable-bits.sh',
+               'check-ci-scope-paths.py', 'check-governance-hygiene.test.py',
                'validate-codex-agent-config.py')
     for script in scripts:
         if not any(any(arg.endswith('/' + script) for arg in command) for command in actual):
@@ -656,7 +657,7 @@ def execute(root, args, result, directory, env):
     preflight(root, args, result, env)
     result['driver']['status'] = 'running'
     result['groups_expected'] = len(result['groups'])
-    check_counts = dict(baseline=10, codex_agent_config_validation=1,
+    check_counts = dict(baseline=12, codex_agent_config_validation=1,
                         **{name: len(checks) for name, checks in ENGINEERING_CHECKS.items()})
     result['checks_expected'] = (sum(check_counts[group['name']] for group in result['groups'])
                                  if all(group['name'] in check_counts for group in result['groups']) else None)
@@ -833,7 +834,7 @@ def main(argv=None):
                                  tests_executed=0, business_tests_executed=0)
                             for group in groups]
         result['groups_expected'] = len(groups)
-        result['checks_expected'] = 10 if groups == ['baseline'] else None
+        result['checks_expected'] = 12 if groups == ['baseline'] else None
         if not groups:
             raise NoChecks('trusted planner selected no checks')
         if args.dry_run:

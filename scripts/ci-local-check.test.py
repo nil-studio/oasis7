@@ -479,6 +479,8 @@ class Entry(GitFixture):
                      'check-windows-paths.sh', 'check-script-executable-bits.sh'):
             self.write('scripts/' + name, '#!/bin/sh\necho fixture-check-completed\n', True)
         self.write('scripts/validate-codex-agent-config.py', 'assert 2 + 2 == 4\nprint("fixture checked")\n')
+        self.write('scripts/check-ci-scope-paths.py', 'print("fixture checked")\n')
+        self.write('scripts/check-governance-hygiene.test.py', 'print("fixture checked")\n')
         self.install_policy()
 
     def invoke(self, *args, env=None, timeout=30):
@@ -501,8 +503,8 @@ class Entry(GitFixture):
                      ('--profile', 'formal', '--tier', 'required')):
             with self.subTest(args=args):
                 report = self.assert_result(self.invoke(*args), 'passed', 0)
-                self.assertEqual(report['checks_expected'], 10)
-                self.assertEqual(report['checks_executed'], 10)
+                self.assertEqual(report['checks_expected'], 12)
+                self.assertEqual(report['checks_executed'], 12)
                 self.assertEqual(report['business_tests_executed'], 0)
                 self.assertEqual(report['groups'][0]['name'], 'baseline')
                 self.assertEqual(self.state(), before)

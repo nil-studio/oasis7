@@ -2610,6 +2610,10 @@
       "match": [
         "scripts/check-script-executable-bits*",
         "scripts/check-windows-paths*",
+        "scripts/check-ci-scope-paths*",
+        "scripts/check-doc-cargo-test-commands*",
+        "scripts/check-governance-hygiene*",
+        "scripts/check-rust-hygiene*",
         "scripts/lint-skills*",
         "skills-lock.json",
         "scripts/pre-commit*"
