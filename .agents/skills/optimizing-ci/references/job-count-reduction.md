@@ -54,6 +54,14 @@
   2. 被删除旧规则在 `before` 与 `after` 两个受追踪 Git tree 中均匹配 **0** 个文件；
   3. 新增规则满足 `not rule.get('full', False)` 且 `groups` 非空合法（若含 `workspace_support` 则同步传播 `support_rule`）。
 
+### 模式 E：暂停推进模块与 `workflow_call` 可复用工作流的零算力下线（`#6987`）
+- **适用场景**：独立工具或子工程（如 `tools/oasis7-command-center/`）阶段性暂停推进、代码保留在仓内，但其专属工作流（尤其是 `macos-15` / `windows-2022` 高倍率 Job）仍在 PR、主线与定时全量中持续消耗算力。
+- **为什么不能直接从 `CONFIG["groups"]` 或 `rust.yml` 硬删**：`policy_sha` 上的 `FIXED_TESTS`（如 `explicit-full-gate` 全组覆盖、`ci-full-result.test.py` 缺组负例、`ci-workflow.test.py` 规划失败前置守卫及 `FIXED_TESTS['scripts/ci-required-result.test.py'] = None` 全集）强约束配置组集合与 caller Job 存在性。
+- **单 PR 平滑下线三步法**：
+  1. **保路径归属、立独立离线版本键**：保留目录路径规则避免触发 `UnknownInputsError` 和保留 `.github/workflows/<callee>.yml` 只读定义；保持 `contract_job_consolidation_version` 在 `FIXED_TESTS` 已允许的版本集合内，新增独立 `"<module>_offline_version": 1` 并在 `group_jobs` 将该组映射至常驻 `"baseline"`；
+  2. **按计划版本条件启用覆盖映射**：在 `rust.yml` 用 `fromJSON(needs.select.outputs.plan).<module>_offline_version != 1` 守护原 caller Job（启用后在 `pr-fast`、`main-fast`、`periodic-full`、`candidate-full` 下均 `0s` `skipped`），在 `baseline` 绑定 `run_<module>`；在 `ci-required-result.py` 的 `_consolidation_overrides` 中**仅当 `plan.get('<module>_offline_version') == 1` 时保留该覆盖映射**，无该字段的旧计划 `pop` 回退原独立 Job 成功校验——同时兼容本 PR 合入前 `old policy_sha` 的最后一次运行与 `ci-required-result.test.py` 全部历史固定用例；
+  3. **解绑共享包与通用脚本连带映射**：同步从共享基础 crate 的 `package_groups` 及通用脚本（如 `scripts/cargo-dev.sh`、`scripts/find-python-with-module.sh`）移除对该暂停组的连带选择，在归零远端算力的同时解除本地 `check-local.py --profile affected` 命中 `UNSUPPORTED` 组的误阻塞。
+
 ## 4. 混合版本切换与 `required-gate` 铁律
 
 1. **旧 Job 用版本守卫退役而非直接硬删**：新增或递增 `*_version` 时，旧独立 job 必须保留并以 `!= <new_ver>` 守护跳过；`ci-required-result.py` 与 `ci-full-result.py` 继续兼容旧版本号映射。
@@ -90,7 +98,7 @@ python3 scripts/system-design-traceability-check.test.py
 python3 scripts/check-local.py --profile quick --base-ref origin/main
 ```
 
-提交前逐项核对 10 个高频陷阱：
+提交前逐项核对 11 个高频陷阱：
 1. **宿主容器环境与 UID**：迁入 `ci-rust-build` 容器（`--user 1001:1001`）或其他宿主 job 时，核对 Python 3.12、`markdown-it-py` venv、`jq`、`ruby`、`rustc`/`cargo`/`clippy` 与 `safe.directory` 是否齐全。
 2. **`baseline` 步级环境变量禁令**：`scripts/resolve-product-doc-ci-range.test.py` 禁止 `baseline` 内任何步骤声明 `OASIS7_PRODUCT_DOC_BASE:` 或 `OASIS7_PRODUCT_DOC_HEAD:` 覆盖前序步骤写入的 `$GITHUB_ENV`。
 3. **Rust 缓存配对 `if:` 不变量**：`scripts/ci-workflow.test.py` 强制要求同一 job 内 `Stabilize Rust cache toolchains` 与 `Swatinem/rust-cache` 的 `if:` 表达式完全相同。
@@ -100,4 +108,5 @@ python3 scripts/check-local.py --profile quick --base-ref origin/main
 7. **`rust.yml` 双投影字段列表同步**：向 `selection.json` 新增工作流消费字段时，必须同时更新 `select` 的 `workflow-plan` 与门禁共用的 `&validate-complete-selection` 两处 `fields` 投影及多键同现校验，并在 `ci-workflow.test.py` 的 `test_large_workflow_projection_preserves_fields_and_binds_complete_file_and_identity` 登记该 `fromJSON(needs.select.outputs.plan).<key>`。
 8. **单行 `if:` 改多行 `if: >-` 破坏静态断言**：给既有步骤追加条件前，先检索 `ci-workflow.test.py` 中对该步骤的 `assertIn("if: runner.os == ...")`，提前放宽为兼容 `if:\s*(?:>-\s*)?` 的正则（单引号 `'` 后勿加 `\b`）。
 9. **`plan-rust-required-scope.test.py` 临时 Cargo 夹具约束**：`cargo_graph` 要求夹具根 `Cargo.toml` 显式列出具体 `members` 路径（禁 `"crates/*"` 通配）并包含 `[workspace.dependencies]`（推荐基于 `self.ROOT_TOML` 派生），且所有夹具文件路径须命中已注册规则以免触发 `UnknownInputsError`。
-10. **合并短合约后的 `scope=full` 宿主 `timeout-minutes` 复核（`#6925` 案例）**：向常驻宿主（如 `viewer-js-required`）并入短合约（如 `site-quality`、`viewer-performance-report`）时，必须按 `scope=full` 最坏叠加路径（冷构建 + 全部合并子步骤）复核并同步放宽宿主 `timeout-minutes`，避免测试全绿却在最后几秒因原超时上限被强杀并触发整轮重跑。
+10. **合并短合约后的 `scope=full` 宿主 `timeout-minutes` 复核（`#6925`、`#6966`）**：向常驻宿主（如 `viewer-js-required`、`workflow-governance`、`rust-baseline`）并入子合约时，必须按 `scope=full` 最坏叠加路径复核并同步放宽宿主 `timeout-minutes`，详见 [超时棘轮与余量校准分册](timeout-ratchet-and-headroom.md)。
+11. **全仓检索 `tools/**` 与 `crates/**` 下的跨目录工作流自检脚本（`#6987` 案例）**：修改 `scripts/ci-required-scope.json`（如规则收窄、解绑共享脚本）或 `.github/workflows/rust.yml` 后，用 `rg` 排查静态断言时**切勿只搜 `scripts/`**——独立子工具（如 `tools/oasis7-command-center/scripts/test_package_context_cli.py`）与部分 crate 自检也会直接读取根仓 `ci-required-scope.json` / `rust.yml` 校验触发覆盖，漏改会导致过渡期运行在子工具测试步骤判红。
