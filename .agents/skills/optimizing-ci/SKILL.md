@@ -4,6 +4,7 @@ description: Use when analyzing or optimizing oasis7 CI workflows, including red
 file_names:
     - references/job-count-reduction.md
     - references/on-demand-scope-and-preflight.md
+    - references/capacity-budget-and-cancel-waste.md
 ---
 # optimizing-ci
 
@@ -19,6 +20,7 @@ file_names:
 | --- | --- | --- |
 | **减少 Job 数量与收敛全量触发** | 单次运行启动过多短耗时 job、串行汇总跳数多、小范围或规则改动频繁退化 `scope=full` | [减少 Job 数量分册](references/job-count-reduction.md) |
 | **收紧按需选测边界、多平台切片与前置快速失败** | `scope=targeted` 普通 PR 仍陪跑无关重编译/前端构建、高单价 macOS/Windows 被连带唤醒、格式等低级错误仍空跑多个重编译 job，或同源检查上下游重复执行 | [按需选测与快速失败分册](references/on-demand-scope-and-preflight.md) |
+| **容量预算、取消浪费归因与主干节流** | `cancelled` 占比偏高、`main-fast` 高频合入导致日均核时居高不下，或需对容量优化做合入后 12–24h 遥测复测 | [容量预算与取消浪费分册](references/capacity-budget-and-cancel-waste.md) |
 | **后续扩展方向（按需新增分册）** | 单 job 编译/测试慢、缓存命中率或构建产物膨胀、队列反压与 flaky 治理、镜像预装与冷启动优化等 | 在 `references/` 下新增对应专题分册并在本表登记 |
 
 ## 2. 所有 CI 优化共享的四条底线
@@ -32,7 +34,7 @@ file_names:
 
 ## 3. 通用验证与交付要求
 
-- **实施 CI 代码/工作流改动时**：按所选分册运行对应控制脚本单测（如 `ci-contract-jobs.py --check`、`ci-workflow.test.py`、`plan-rust-required-scope.test.py` 等）、`./scripts/check-pr-boundaries.sh --slice <Slice>` 与 `python3 scripts/check-local.py --profile quick --base-ref origin/main`；涉及门禁判定、权限或信任边界的修改按 [requesting-repo-owned-review](../requesting-repo-owned-review/SKILL.md) 完成独立评审。PR 正文写清基线 run ID、优化前后指标对比与混合版本生效说明。
+- **实施 CI 代码/工作流改动时**：按所选分册运行对应控制脚本单测（如 `ci-contract-jobs.py --check`、`ci-workflow.test.py`、`plan-rust-required-scope.test.py`、`ci-full-result.test.py` 等）、`./scripts/check-pr-boundaries.sh --slice <Slice>` 与 `python3 scripts/check-local.py --profile quick --base-ref origin/main`；涉及门禁判定、权限或信任边界的修改按 [requesting-repo-owned-review](../requesting-repo-owned-review/SKILL.md) 完成独立评审。PR 标题或正文显式声明 `Slice-Type: <Type>`（或 `[Slice: <Type>]`），写清基线 run ID、优化前后指标对比与混合版本生效说明；容量/频率类优化合入后按 [容量预算与取消浪费分册 §3](references/capacity-budget-and-cancel-waste.md#3-合入后-1224-小时生产遥测验收闭环) 复测 12–24h 真实遥测。
 - **扩展或修改本 Skill 分册时**：
   - 保持主入口 `SKILL.md <= 300` 行，具体套路、脚本接缝与踩坑案例下沉到 `references/<topic>.md`；
   - 新增分册须同时登记到 frontmatter `file_names`、上表路由及下方 `## Supporting Files`；
@@ -42,6 +44,7 @@ file_names:
 
 - `references/job-count-reduction.md`：减少 CI Job 数量、归并短合约、零检出门禁直验与收敛 `scope=full` 误触发的实证方法与防坑清单。
 - `references/on-demand-scope-and-preflight.md`：清理陈旧包映射与冗余构建准备、解绑连带触发与多平台子契约二维切片、`fast-preflight` 全覆盖与同源检查安全去重的实证方法与防坑清单。
+- `references/capacity-budget-and-cancel-waste.md`：取消浪费三分法归因、`main-fast-admission` 主干冷却预算与延后标记回溯隔离、以及合入后 12–24h 生产遥测复测闭环。
 
 ## Related methods
 

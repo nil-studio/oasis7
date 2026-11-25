@@ -960,6 +960,8 @@ pub(super) fn atomic_write_private_file_named(
     file.write_all(bytes)
         .and_then(|()| file.sync_all())
         .map_err(|error| io_error("persist publication temp", &temp, error))?;
+    #[cfg(all(test, unix))]
+    state_write_test_hook::pause(&temp);
     fs::rename(&temp, target)
         .map_err(|error| io_error("replace publication state", target, error))?;
     sync_directory(directory)
@@ -1047,3 +1049,39 @@ pub(super) fn io_error(operation: &str, path: &Path, error: std::io::Error) -> W
 #[cfg(test)]
 #[path = "durable_peer_record_publisher_tests.rs"]
 mod tests;
+
+// An isolated test child installs this exact-path seam after initialization.
+// It pauses only after the real temporary bytes and fsync, before the rename.
+#[cfg(all(test, unix))]
+pub(super) mod state_write_test_hook {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    static PAUSE: Mutex<Option<(PathBuf, PathBuf)>> = Mutex::new(None);
+
+    pub(crate) fn install(temp: PathBuf, control: PathBuf) {
+        *PAUSE.lock().unwrap() = Some((temp, control));
+    }
+
+    pub(super) fn pause(temp: &Path) {
+        let control = PAUSE
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(expected, _)| expected == temp)
+            .map(|(_, control)| control.clone());
+        let Some(control) = control else {
+            return;
+        };
+        std::fs::write(control.join("persist-paused"), b"fsynced").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !control.join("persist-release").exists() {
+            assert!(
+                Instant::now() < deadline,
+                "controlled persist was not released"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
