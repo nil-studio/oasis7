@@ -628,7 +628,12 @@ fn artifact_qualification_rejects_generic_valid_same_name_in_wrong_root_namespac
 
 #[test]
 fn raw_and_zstd_family_qualification_closes_every_runtime_artifact_record() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let (manifest, delta, builtin_entries) = rich_sources();
         let builtin = BuiltinSource(&builtin_entries);
         let source = RuntimeArtifactResourcesRefV1 {
@@ -677,7 +682,12 @@ fn raw_and_zstd_family_qualification_closes_every_runtime_artifact_record() {
 
 #[test]
 fn original_genesis_with_absent_optional_values_qualifies_without_forged_cells() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let (mut manifest, mut delta, builtins) = rich_sources();
         // The original producer encodes .present=false and deliberately does
         // not emit a .value cell; the family verifier must accept this shape
@@ -857,7 +867,12 @@ fn full_qualification_rejects_orphan_count_and_wrong_owner_child_binding() {
 
 #[test]
 fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let (manifest, delta, builtins) = rich_sources();
@@ -1147,5 +1162,6 @@ mod change_tests;
 #[path = "incremental_runtime_artifact_resources_readmission_tests.rs"]
 mod readmission_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "incremental_runtime_artifact_resources_pages.rs"]
 mod pages;

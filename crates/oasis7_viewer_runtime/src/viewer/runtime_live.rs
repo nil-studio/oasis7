@@ -17,7 +17,6 @@ use super::protocol::{
     viewer_protocol_supports_revoke_social_fact_quote,
 };
 use crate::geometry::GeoPos;
-use crate::observability::emit_stderr_or_event;
 use crate::runtime::{
     Action as RuntimeAction, DomainEvent as RuntimeDomainEvent, Journal as RuntimeJournal,
     ReleaseSecurityPolicy, Snapshot as RuntimeSnapshot, World as RuntimeWorld,
@@ -27,6 +26,7 @@ use crate::simulator::{
     AgentDecisionTrace, PlayerGameplayRecentFeedback, RunnerMetrics, WorldEvent, WorldSnapshot,
 };
 use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_observability::emit_stderr_or_event;
 #[cfg(test)]
 use oasis7_simulator::WorldInitConfig;
 use oasis7_simulator::{
@@ -102,9 +102,6 @@ mod gameplay_validation_preview;
 mod governance_vote_quote;
 mod governance_vote_quote_debug;
 #[cfg(not(target_arch = "wasm32"))]
-#[path = "runtime_live/harness_authority.rs"]
-mod harness_authority;
-#[cfg(not(target_arch = "wasm32"))]
 #[path = "runtime_live/llm_sidecar_feedback_recovery.rs"]
 mod llm_sidecar_feedback_recovery;
 mod mapping;
@@ -178,8 +175,6 @@ use gameplay_snapshot::{
     player_gameplay_feedback_from_control_ack,
 };
 use mapping::{map_runtime_event, runtime_state_to_simulator_model};
-pub use oasis7::runtime_host::bootstrap::bootstrap_generated_sidecar_runtime_world as viewer_bootstrap_generated_sidecar_runtime_world;
-pub use oasis7_runtime_host::bootstrap::bootstrap_formal_release_runtime_world as viewer_bootstrap_formal_release_runtime_world;
 use player_agency_projection::{
     PlayerGameplayCausalitySignal, player_gameplay_causality_from_runtime_events,
 };

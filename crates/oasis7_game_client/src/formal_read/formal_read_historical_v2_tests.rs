@@ -752,6 +752,32 @@ fn e2_recovery_result_remains_readable_after_e2_and_e3_normal_commits() {
         ))])
         .unwrap();
 
+    // Verify the original signed recovery proof against a separately pinned
+    // digest and the client's actually replayed predecessor, never a DTO.
+    let independent_proof_digest = formal_qualified_proof_digest(&e2_recovery_proof).unwrap();
+    let cut = reader
+        .verify_original_recovery_historical_cut(&e2_recovery_proof, &independent_proof_digest)
+        .unwrap();
+    assert_eq!(cut.cut().record(), &e2_recovery_proof.decision.record);
+    assert!(
+        reader
+            .verify_original_recovery_historical_cut(&e2_recovery_proof, &h(200))
+            .is_err()
+    );
+    let mut invalid_original = e2_recovery_proof.clone();
+    invalid_original.primary_complete.signature_hex = "00".repeat(64);
+    let corrupted_digest = formal_qualified_proof_digest(&invalid_original).unwrap();
+    assert!(
+        reader
+            .verify_original_recovery_historical_cut(&invalid_original, &corrupted_digest)
+            .is_err()
+    );
+    assert!(
+        reader
+            .verify_original_recovery_historical_cut(&invalid_original, &independent_proof_digest)
+            .is_err()
+    );
+
     let old_cut = FormalHistoricalCutV1::from_proof(&e2_recovery_proof).unwrap();
     let leaf = old_cut.leaf().unwrap();
     let delta = BusinessIndexDeltaV1::build(
@@ -834,6 +860,16 @@ fn e2_recovery_result_remains_readable_after_e2_and_e3_normal_commits() {
         .verify_committed_historical_view(&historical, &old_response, &old_request, &public(7))
         .unwrap();
     assert_eq!(old.commit().record(), &e2_recovery_proof.decision.record);
+    // After a later signed E3 recovery, historical E2 stays verifiable under
+    // the same original source pin. No current writer authority is changed.
+    assert_eq!(
+        reader
+            .verify_original_recovery_historical_cut(&e2_recovery_proof, &independent_proof_digest)
+            .unwrap()
+            .cut()
+            .head(),
+        old.commit().head()
+    );
 
     let truncated_contexts = &contexts[..1];
     assert!(

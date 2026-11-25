@@ -32,7 +32,7 @@ pub(super) fn committed_header(
             event_id_era: era,
             journal_retention_floor: floor,
             journal_high_watermark: high,
-            governance_membership: Some(super::formal_governance::committed_body(world)?),
+            governance_membership: Some(world.governance_membership_projection()?),
         },
         start,
     ))

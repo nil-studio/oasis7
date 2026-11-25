@@ -48,7 +48,7 @@
 ## 活跃阅读面边界
 - 当前页只保留 `what / where / next / risk` 所需入口，不再直接平铺 runtime 高频专题长名单。
 - 高频 active 入口保留在 `prd.md`、`prd.index.md` 与少量仍承担当前跨阶段判断职责的正式专题。
-- `evidence/`、`templates/` 与 `checklists/` 继续保留可检索性，但默认从 `prd.index.md` 或具体专题路径按需进入；旧 2026-03 runtime handoff root 文档已退役删除，当前追溯改从正式 evidence、PR 与实际验证记录 与 Git history 进入。
+- `evidence/`、`templates/` 与 `checklists/` 继续保留可检索性，但默认从 `prd.index.md` 或具体专题路径按需进入；旧 2026-03 runtime handoff root 文档已退役删除，当前追溯改从正式 evidence、PR、实际验证记录与 Git history 进入。
 
 ## 模块职责
 - 维护运行时主链路、存储治理、WASM 执行与模块发布口径。

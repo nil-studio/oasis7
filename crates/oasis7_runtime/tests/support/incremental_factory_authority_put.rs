@@ -74,7 +74,12 @@ use oasis7_runtime::incremental_field_overlay::{
 };
 #[test]
 fn final_real_root_put_cancel_or_failure_never_seals_successful_prefix() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store =

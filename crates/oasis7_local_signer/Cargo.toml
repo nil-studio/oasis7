@@ -20,8 +20,6 @@ path = "src/bin/oasis7_local_signer_runtime_gate.rs"
 oasis7_signer_protocol = { path = "../oasis7_signer_protocol" }
 oasis7_context = { path = "../oasis7_context" }
 oasis7_secure_envelope = { path = "../oasis7_secure_envelope" }
-argon2 = { version = "0.5", features = ["zeroize"] }
-chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
 base64 = "0.23"
 ed25519-dalek = "3"
 getrandom = "0.4"

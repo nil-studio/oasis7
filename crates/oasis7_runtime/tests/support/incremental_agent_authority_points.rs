@@ -17,7 +17,12 @@ fn state_error(e: oasis7_distfs::incremental_page_store::PageStoreError) -> Valu
 }
 #[test]
 fn point_option_creation_deletion_and_receiver_preserve_original_agent_records() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store = IncrementalPageStore::create(

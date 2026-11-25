@@ -59,6 +59,15 @@ impl StagedRuleFeeSettlement<'_> {
             with_distance: self.with_distance,
             disposition: self.disposition,
         });
+        // The live consumer and Stage 1 must reject the very same selected
+        // debit before planning any balance assignments. In particular an
+        // unpriced rejected movement must not require distance-only funds.
+        let deficits = quote.selected.deficits(balances);
+        if !deficits.is_empty() {
+            return Err(WorldError::ResourceBalanceInvalid {
+                reason: format!("staged rule fee insufficient resources: {deficits:?}"),
+            });
+        }
         plan_resource_delta(balances, quote.selected)
     }
 }
@@ -86,23 +95,7 @@ impl StagedTransition for StagedRuleFeeSettlement<'_> {
         view: &BorrowedWorldView<'_>,
         _ctx: &TransitionContext,
     ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
-        let quote = AuthoritativeDebit.quote(RuleSettlementInput {
-            general: self.general,
-            with_distance: self.with_distance,
-            disposition: self.disposition,
-        });
-        let balances = &view.state().resources;
-        // Preserve the existing Runtime priority: only the final selected
-        // scope can be charged and its insufficiency is checked before debit.
-        let deficits = quote.selected.deficits(balances);
-        if !deficits.is_empty() {
-            return Err(TransitionReject::World(
-                WorldError::ResourceBalanceInvalid {
-                    reason: format!("staged rule fee insufficient resources: {deficits:?}"),
-                },
-            ));
-        }
-        let planned = self.plan_checked(balances)?;
+        let planned = self.plan_checked(&view.state().resources)?;
         Ok(PreparedStagedCommit::new(
             view.base_head().clone(),
             None,

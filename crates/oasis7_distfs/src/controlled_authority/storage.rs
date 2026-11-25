@@ -1,3 +1,4 @@
+use crate::controlled_authority::writer_lock::WriterLock;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -59,7 +60,7 @@ fn reject_symlink(path: &Path) -> Result<(), LocalJournalError> {
     }
 }
 
-pub(super) fn lock_directory(directory: &Path) -> Result<File, LocalJournalError> {
+pub(super) fn lock_directory(directory: &Path) -> Result<WriterLock, LocalJournalError> {
     if !cfg!(unix) {
         return Err(LocalJournalError::UnsupportedPlatform);
     }
@@ -93,8 +94,7 @@ pub(super) fn lock_directory(directory: &Path) -> Result<File, LocalJournalError
         .truncate(false)
         .open(path)
         .map_err(io_error)?;
-    file.try_lock().map_err(|_| LocalJournalError::Locked)?;
-    Ok(file)
+    WriterLock::acquire(file).map_err(|_| LocalJournalError::Locked)
 }
 
 pub(super) fn read_snapshot(directory: &Path) -> Result<Option<Vec<u8>>, LocalJournalError> {
@@ -173,4 +173,29 @@ fn sync_directory(_path: &Path) -> io::Result<()> {
         io::ErrorKind::Unsupported,
         "directory durability unsupported",
     ))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    #[test]
+    fn writer_lock_releases_before_inherited_fork_descriptor_closes() {
+        use crate::controlled_authority::writer_lock::regression;
+        if regression::isolate(
+            "controlled_authority::storage::tests::writer_lock_releases_before_inherited_fork_descriptor_closes",
+        ) {
+            return;
+        }
+        let root =
+            std::env::temp_dir().join(format!("o7-journal-fork-local-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            regression::assert_release(
+                || lock_directory(&root),
+                |error| matches!(error, LocalJournalError::Locked),
+            )
+        });
+        fs::remove_dir_all(&root).unwrap();
+        result.unwrap();
+    }
 }

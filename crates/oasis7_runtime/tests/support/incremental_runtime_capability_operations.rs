@@ -2,7 +2,12 @@ use super::*;
 use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
 #[test]
 fn capability_same_transaction_subject_change_and_receiver() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store =

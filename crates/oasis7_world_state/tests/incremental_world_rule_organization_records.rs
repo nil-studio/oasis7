@@ -378,7 +378,12 @@ fn produce_all(store: &IncrementalPageStore, memory: &MemoryBudget, source: &Wor
 }
 #[test]
 fn original_owner_fields_and_dynamic_identities_have_literal_cold_records() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let root = {
