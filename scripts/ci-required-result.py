@@ -37,9 +37,10 @@ def _consolidation_overrides(config, plan):
         return None
     offline = plan.get('command_center_offline_version')
     if 'command_center_offline_version' in plan:
+        config_offline = config.get('command_center_offline_version')
         if type(offline) is not int or offline != 1:
             raise ValueError('unsupported command center offline version')
-        if (config.get('command_center_offline_version') != 1
+        if (type(config_offline) is not int or config_offline != 1
                 or config.get('group_jobs', {}).get('command_center') != 'baseline'
                 or plan.get('contract_job_consolidation_version') != 5):
             raise ValueError('untrusted command center offline capability')

@@ -572,11 +572,13 @@ class Results(unittest.TestCase):
         for bad_ver in (0, 2, True, '1'):
             with self.subTest(bad_version=bad_ver), self.assertRaises(ValueError):
                 result.configured_group_jobs(config, offline_plan | {'command_center_offline_version': bad_ver})
-        with self.assertRaises(ValueError):
-            result.configured_group_jobs(
-                {k: v for k, v in config.items() if k != 'command_center_offline_version'},
-                offline_plan,
-            )
+        for bad_cfg in (
+            {k: v for k, v in config.items() if k != 'command_center_offline_version'},
+            dict(config, command_center_offline_version=True),
+            dict(config, command_center_offline_version=2),
+        ):
+            with self.assertRaises(ValueError):
+                result.configured_group_jobs(bad_cfg, offline_plan)
 
 
 if __name__ == '__main__':
