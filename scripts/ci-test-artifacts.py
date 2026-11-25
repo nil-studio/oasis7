@@ -1996,10 +1996,18 @@ def ordinary_docker_preflight():
         raise ValueError('ordinary Docker Buildx version is invalid')
     if checked('default context', 'context', 'show') != 'default':
         raise ValueError('ordinary canonical WASM requires the default Docker context')
-    if checked('default builder', 'buildx', 'inspect', '--format', '{{.Name}} {{.Driver}}').split() != ['default', 'docker']:
+    # Pinned Buildx 0.29.1 has no inspect --format. Its normal output can also
+    # report a node Error while returning zero, so validate both header and node.
+    inspection = checked('default builder', 'buildx', 'inspect')
+    header, separator, nodes = inspection.partition('\nNodes:\n')
+    if (not separator or re.search(r'^\s*Error:', inspection, re.M)
+            or re.findall(r'^Name:\s*(\S+)\s*$', header, re.M) != ['default']
+            or re.findall(r'^Driver:\s*(\S+)\s*$', header, re.M) != ['docker']
+            or re.findall(r'^\s*Status:\s*(\S+)\s*$', nodes, re.M) != ['running']):
         raise ValueError('ordinary canonical WASM requires the default docker builder driver')
     return dict(client_version=versions[0], server_version=server, server_api=versions[1],
-                buildx_version=match[1], context='default', builder='default', driver='docker')
+                buildx_version=match[1], context='default', builder='default', driver='docker',
+                builder_status='running')
 
 
 def ordinary_build_image():

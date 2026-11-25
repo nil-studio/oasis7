@@ -5145,7 +5145,8 @@ class BuildAndBundles(unittest.TestCase):
             ('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'): '28.5.2 1.48',
             ('buildx', 'version'): 'github.com/docker/buildx v0.29.1 test-commit',
             ('context', 'show'): 'default',
-            ('buildx', 'inspect', '--format', '{{.Name}} {{.Driver}}'): 'default docker',
+            ('buildx', 'inspect'): ('Name:          default\nDriver:        docker\n\nNodes:\n'
+                                    'Name:          default\nEndpoint:      default\nStatus:        running\n'),
         }
 
         def invoke(command, **kwargs):
@@ -5154,6 +5155,8 @@ class BuildAndBundles(unittest.TestCase):
             self.assertTrue(kwargs['text'])
             for name in ('GH_TOKEN', 'GITHUB_TOKEN', 'ACTIONS_RUNTIME_TOKEN', 'INPUT_GITHUB-TOKEN', 'NODE_OPTIONS'):
                 self.assertNotIn(name, kwargs['env'])
+            if tuple(command[1:]) not in responses:
+                raise subprocess.CalledProcessError(1, command, output='unknown command or flag')
             return responses[tuple(command[1:])]
 
         with patch.object(artifacts.Path, 'is_socket', return_value=True), \
@@ -5163,14 +5166,18 @@ class BuildAndBundles(unittest.TestCase):
              patch.object(artifacts.subprocess, 'check_output', side_effect=invoke) as execute:
             self.assertEqual(artifacts.ordinary_docker_preflight(), {
                 'client_version': '28.5.2', 'server_version': '28.0.4', 'server_api': '1.48',
-                'buildx_version': 'v0.29.1', 'context': 'default', 'builder': 'default', 'driver': 'docker'})
+                'buildx_version': 'v0.29.1', 'context': 'default', 'builder': 'default', 'driver': 'docker',
+                'builder_status': 'running'})
             self.assertEqual(execute.call_count, 5)
             for key, invalid in (
                     (('info', '--format', '{{json .ServerVersion}}'), 'null'),
                     (('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'), '28.5.2 invalid-api'),
                     (('buildx', 'version'), 'unknown plugin'),
                     (('context', 'show'), 'remote'),
-                    (('buildx', 'inspect', '--format', '{{.Name}} {{.Driver}}'), 'default docker-container')):
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker-container\n\nNodes:\nStatus: running'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\nError: private\n\nNodes:\nStatus: running'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\n\nNodes:\nStatus: stopped'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\n\nNodes:\nStatus: running\nError: private')):
                 with self.subTest(command=key):
                     original = responses[key]
                     responses[key] = invalid
