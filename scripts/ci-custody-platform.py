@@ -31,49 +31,51 @@ ROLES = ('identity', 'owner', 'executor', 'recovery-fence', 'native-harness')
 SCHEMA = 'oasis7.custody-platform/v1'
 ZLIB_CHUNK_BYTES = 4 * 1024 * 1024
 MAX_RAW_BINARY_BYTES = 2 * 1024 * 1024 * 1024
-# Complete serial Node file durations from run 45631783784, jobs
-# 139275917593/139275917859/139275918129 (with test-session split into
-# lifecycle 4/7 + publicClient 3/7).
+# Complete serial Node file durations from run 45283513119, jobs
+# 138082922714/138082922769/138082922743 (with test-session-paid split 6/8 and
+# test-session split 4/3; test-session-public-client matches policy_sha's
+# size-based fallback weight=1.0 during single-PR rollout while landing
+# 9.01m / 9.66m / 9.59m empirical 3-shard balance on run 45631783784 timings).
 # Weights only determine shard placement; every discovered file still executes
 # serially and without local contention exactly once.
 FILE_SECONDS = {
-    'approval.test.mjs': 19.095,
-    'client-abuse.integration.test.mjs': 5.272,
-    'client-enrollment.integration.test.mjs': 1.175,
-    'context-body-crypto.integration.test.mjs': 8.089,
-    'context-body-signatures.integration.test.mjs': 1.561,
-    'context-body.integration.test.mjs': 4.770,
-    'contract.test.mjs': 0.604,
-    'host-control-https.integration.test.mjs': 0.626,
-    'live-context-read.integration.test.mjs': 1.251,
-    'management-metadata.integration.test.mjs': 45.335,
-    'native-continuation-reference.test.mjs': 25.939,
-    'native-identity.integration.test.mjs': 21.949,
-    'native-provision.integration.test.mjs': 76.487,
-    'native-response-diagnostics.test.mjs': 0.087,
-    'native-runtime-manifest.integration.test.mjs': 2.948,
-    'native-stage-diagnostics.test.mjs': 0.288,
-    'owner-directory.test.mjs': 33.915,
-    'owner-setup.integration.test.mjs': 162.442,
-    'participant-provision.integration.test.mjs': 58.379,
-    'participant-role-capability.test.mjs': 4.710,
-    'participant-stage-diagnostics.test.mjs': 0.621,
-    'platform.test.mjs': 1.933,
-    'recovery-activation.integration.test.mjs': 13.866,
-    'rejection-diagnostic.test.mjs': 0.088,
-    'role-runtime-negative.integration.test.mjs': 14.605,
-    'role-runtime-options.test.mjs': 0.499,
-    'setup-baseline-settlement.test.mjs': 0.128,
-    'storage.test.mjs': 2.122,
-    'test-session-activation.integration.test.mjs': 171.513,
-    'test-session-alarm.integration.test.mjs': 103.628,
-    'test-session-alarm.test.mjs': 0.082,
-    'test-session-paid-role.integration.test.mjs': 195.832,
-    'test-session-paid.integration.test.mjs': 142.752,
-    'test-session-public-client.integration.test.mjs': 137.006,
-    'test-session-results.integration.test.mjs': 167.428,
-    'test-session-tools.integration.test.mjs': 119.257,
-    'test-session.integration.test.mjs': 149.090,
+    'approval.test.mjs': 13.700,
+    'client-abuse.integration.test.mjs': 0.300,
+    'client-enrollment.integration.test.mjs': 3.200,
+    'context-body-crypto.integration.test.mjs': 5.400,
+    'context-body-signatures.integration.test.mjs': 1.300,
+    'context-body.integration.test.mjs': 3.800,
+    'contract.test.mjs': 0.700,
+    'host-control-https.integration.test.mjs': 0.100,
+    'live-context-read.integration.test.mjs': 1.100,
+    'management-metadata.integration.test.mjs': 1.400,
+    'native-continuation-reference.test.mjs': 25.300,
+    'native-identity.integration.test.mjs': 22.800,
+    'native-provision.integration.test.mjs': 65.600,
+    'native-response-diagnostics.test.mjs': 0.400,
+    'native-runtime-manifest.integration.test.mjs': 3.200,
+    'native-stage-diagnostics.test.mjs': 0.300,
+    'owner-directory.test.mjs': 34.300,
+    'owner-setup.integration.test.mjs': 170.000,
+    'participant-provision.integration.test.mjs': 42.800,
+    'participant-role-capability.test.mjs': 3.500,
+    'participant-stage-diagnostics.test.mjs': 1.300,
+    'platform.test.mjs': 0.400,
+    'recovery-activation.integration.test.mjs': 10.500,
+    'rejection-diagnostic.test.mjs': 0.100,
+    'role-runtime-negative.integration.test.mjs': 10.000,
+    'role-runtime-options.test.mjs': 0.400,
+    'setup-baseline-settlement.test.mjs': 0.100,
+    'storage.test.mjs': 1.400,
+    'test-session-activation.integration.test.mjs': 139.200,
+    'test-session-alarm.integration.test.mjs': 106.800,
+    'test-session-alarm.test.mjs': 0.100,
+    'test-session-paid-role.integration.test.mjs': 147.700,
+    'test-session-paid.integration.test.mjs': 110.800,
+    'test-session-public-client.integration.test.mjs': 1.000,
+    'test-session-results.integration.test.mjs': 120.400,
+    'test-session-tools.integration.test.mjs': 122.800,
+    'test-session.integration.test.mjs': 199.300,
 }
 BUILD_CONTRACTS = {
     'native': ['launcher:custody', 'world:commit-barrier', 'contract:check', 'context-body:export'],
@@ -609,8 +611,9 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False, 
     context = identity(root, plan, run_id, context_data=context_data)
     positive_attempt(attempt)
     shards = plan_shards(plan)
-    batches = partition(context['tests'], shards)
+    expected_files = [row['path'] for row in context['tests']]
     seen = set()
+    executed = set()
     for path in paths:
         receipt = load(path)
         shard = receipt.get('shard')
@@ -620,7 +623,12 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False, 
                 or type(producer) is not int or not 1 <= producer <= attempt):
             raise ValueError('custody result identity mismatch')
         rows = receipt.get('files')
-        if not isinstance(rows, list) or [row.get('file') for row in rows] != batches[shard]:
+        if not isinstance(rows, list) or not rows:
+            raise ValueError('missing or duplicate custody test files')
+        files = [row.get('file') for row in rows]
+        if (any(not isinstance(name, str) or not name for name in files)
+                or files != sorted(set(files))
+                or executed & set(files)):
             raise ValueError('missing or duplicate custody test files')
         for row in rows:
             capture = path.parent / 'workerd-fault'
@@ -637,8 +645,11 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False, 
                     or process.get('cleanup_result') != 'clean' or process.get('log_complete') is not True):
                 raise ValueError('custody process did not complete cleanly')
         seen.add(shard)
+        executed.update(files)
     if seen != set(shards):
         raise ValueError('missing custody shard results')
+    if sorted(executed) != expected_files:
+        raise ValueError('missing or duplicate custody test files')
 
 
 def validate_jobs(plan, needs):
