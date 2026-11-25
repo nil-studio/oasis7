@@ -125,7 +125,7 @@ Trace ID: O7-REQ-ad3ea59c-596c-4c50-8da8-fe47608c6f01
 - 系统设计状态：已覆盖
 - 系统设计依据：[职责与依赖](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001)、[共享客户端合同](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-002)、[执行与恢复](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-003)、[迁移覆盖](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-006)；均为目标设计，不是实现证据。
 - 实现状态：部分实现
-- 实现与验证依据：[共享 Harness](../../../crates/oasis7_agent_harness/src/lib.rs)、[普通签名客户端](../../../crates/oasis7_game_client/src/device_client.rs)及[实际 Skill 范围](../../../skills/oasis7-play/SKILL.md)提供基础；内置仍有 [simulator 适配](../../../crates/oasis7_runtime_host/src/agent_execution/agent_harness_adapter.rs)。后续实现和实际验证由 [#4726](https://github.com/eng-cc/oasis7/issues/4726)承接，不以创建任务证明交付。
+- 实现与验证依据：[共享 Harness](../../../crates/oasis7_agent_harness/src/lib.rs)、[普通签名客户端](../../../crates/oasis7_game_client/src/device_client.rs)及[实际 Skill 范围](../../../skills/oasis7-play/SKILL.md)提供基础；内置仍有 [simulator 适配](../../../crates/oasis7/src/simulator/agent_harness_adapter.rs)。后续实现和实际验证由 [#4726](https://github.com/eng-cc/oasis7/issues/4726)承接，不以创建任务证明交付。
 - 核对日期与基线：2026-10-15；源码/原合同 `d6f6ff3d10f0f2990bf17a111d55c7b36ebf0a5d`；仅远程源码和文档审读，本次文档变更未执行行为验收。
 - 剩余范围：设计条款已承接；实现仍需共享 SDK 独立构建、内置路径迁移、能力映射及普通客户端同候选验证。
 

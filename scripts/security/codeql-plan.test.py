@@ -49,6 +49,73 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_pure_rust_crate_test_fixtures_add_modify_move_delete_route_rust(self):
+        self.write('crates/oasis7/Cargo.toml', '[package]\nname="oasis7"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_runtime_host/Cargo.toml', '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\n')
+        self.base = self.commit()
+        for path in (
+            'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json',
+            'crates/oasis7_runtime_host/tests/fixtures/sample_case.cbor',
+            'crates/oasis7_runtime_host/fixtures/compressed.zst',
+            'crates/oasis7_runtime_host/testdata/nested/case.json',
+            'crates/oasis7_runtime_host/src/codec/serialization_fixtures/v1.json',
+        ):
+            for value in ('{"decision":"first"}', '{"decision":"second"}', None):
+                with self.subTest(path=path, value=value):
+                    self.base = self.git('rev-parse', 'HEAD')
+                    if value is None:
+                        (self.root / path).unlink()
+                    else:
+                        self.write(path, value)
+                    self.commit()
+                    result = self.run_plan()
+                    self.assertEqual(result['completeness']['diff_paths'], [path])
+                    self.assertEqual(result['candidate_units'], ['rust-repo'])
+                    self.assertEqual(result['selected_units'], ['rust-repo'])
+                    self.assertEqual(result['reasons']['rust-repo'], [path])
+                    self.assertEqual(self.run_plan(batch_modes='{}')['selected_units'], [])
+
+        # Moving a golden fixture from crates/oasis7 to crates/oasis7_runtime_host routes both endpoints to rust-repo.
+        old_path = 'crates/oasis7/src/simulator/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json'
+        new_path = 'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json'
+        self.write(old_path, '{"decision":"wait"}')
+        self.base = self.commit()
+        self.write(new_path, '{"decision":"wait"}')
+        (self.root / old_path).unlink()
+        self.commit()
+        moved = self.run_plan()
+        self.assertEqual(moved['selected_units'], ['rust-repo'])
+        self.assertEqual(moved['completeness']['diff_paths'], sorted([old_path, new_path]))
+
+    def test_rust_crate_test_fixture_boundaries_stay_fail_closed(self):
+        self.write('crates/oasis7_runtime_host/Cargo.toml', '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_hybrid/Cargo.toml', '[package]\nname="oasis7_hybrid"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_hybrid/subpkg/package.json', '{"name":"hybrid"}\n')
+        self.write('web/consumer.ts', 'const f = "../../crates/oasis7_runtime_host/tests/fixtures/shared_with_ts.json";\n')
+        self.write('scripts/reader.py', 'PATH = "crates/oasis7_runtime_host/tests/fixtures/shared_with_py.json"\n')
+        self.base = self.commit()
+        for path in (
+            'crates/untracked_crate/tests/fixtures/other.json',
+            'crates/oasis7_hybrid/tests/fixtures/other.json',
+            'crates/oasis7_runtime_host/tests/fixtures/shared_with_ts.json',
+            'crates/oasis7_runtime_host/tests/fixtures/shared_with_py.json',
+            'crates/oasis7_runtime_host/src/not_fixture_dir/other.json',
+            'crates/oasis7_runtime_host/src/world/artifacts/other.json',
+            'crates/oasis7_runtime_host/scenarios/other.json',
+            'crates/oasis7_runtime_host/tests/fixtures/other.yaml',
+            'crates/oasis7_runtime_host/tests/fixtures/other.toml',
+            'crates/oasis7_runtime_host/tests/fixtures/other.JSON',
+        ):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}')
+                self.commit()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input: ' + path):
+                        self.run_plan(full=full)
+                (self.root / path).unlink()
+                self.commit()
+
     def test_triad_fixture_add_modify_delete_routes_only_rust(self):
         path = 'tools/scenario_test_runner/scenarios/triad_p2p.yaml'
         for value in ('name: before', 'name: after', None):
@@ -310,42 +377,6 @@ class PlannerTests(unittest.TestCase):
         for full in (False, True):
             with self.assertRaisesRegex(ValueError, 'unregistered input'):
                 self.run_plan(full=full)
-
-    def test_original_llm_json_golden_owner_migration_routes_rust(self):
-        paths = (
-            'crates/oasis7/src/simulator/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json',
-            'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json',
-        )
-        for path in paths:
-            with self.subTest(path=path):
-                for value in ('{}', '{"fixture":true}'):
-                    self.base = self.git('rev-parse', 'HEAD')
-                    self.write(path, value)
-                    self.commit()
-                    result = self.run_plan()
-                    self.assertEqual(result['candidate_units'], ['rust-repo'])
-                    self.assertEqual(result['selected_units'], ['rust-repo'])
-                    self.assertIn(path, result['reasons']['rust-repo'])
-                self.base = self.git('rev-parse', 'HEAD')
-                (self.root / path).unlink()
-                self.commit()
-                self.assertEqual(self.run_plan()['selected_units'], ['rust-repo'])
-
-    def test_llm_json_fixture_neighbors_still_fail_closed(self):
-        for path in (
-            'crates/oasis7/src/simulator/llm_agent/decision_flow/fixtures/unknown.json',
-            'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/unknown.json',
-            'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.extra.json',
-        ):
-            with self.subTest(path=path):
-                self.base = self.git('rev-parse', 'HEAD')
-                self.write(path, '{}')
-                self.commit()
-                for full in (False, True):
-                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                        self.run_plan(full=full)
-                (self.root / path).unlink()
-                self.commit()
 
     def test_workers_policy_fixture_owners_across_changes(self):
         for name in ('policy.json', 'policy-large-input.json', 'policy-large-bindings.json'):

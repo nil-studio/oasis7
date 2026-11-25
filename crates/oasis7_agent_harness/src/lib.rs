@@ -15,6 +15,7 @@ mod cognition;
 mod continuation;
 pub mod feedback_recovery;
 pub mod llm_defaults;
+pub mod llm_prompt_assembly;
 mod memory;
 mod model_provider;
 mod provider;

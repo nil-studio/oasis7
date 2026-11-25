@@ -8,11 +8,11 @@ fn restore_runner_feedback_history(
     runner: &mut crate::simulator::AsyncAgentRunner,
     world: &crate::runtime::World,
 ) {
-    use crate::runtime_host::harness_authority::RuntimeWorldAuthority;
-    use crate::runtime_host::runner::RuntimeRunnerHostExt;
-
+    let history = world
+        .runtime_feedback_outbox()
+        .expect("read host-validated Runtime feedback history");
     runner
-        .host_restore_feedback_history(&RuntimeWorldAuthority::new(world))
+        .restore_runtime_feedback_outbox(&history)
         .expect("restore Runner replay fence from Runtime history");
 }
 
@@ -68,13 +68,17 @@ fn seed_owner_resource(
         WorldKernel::from_snapshot(snapshot, journal).expect("rebuild kernel from seeded snapshot");
 }
 
+mod agent_api_boundary;
 mod agent_cognition_budget;
 mod agent_cognition_continuation;
+mod agent_cognition_economy;
 mod agent_cognition_goal_snapshot;
 mod agent_cognition_identity;
 mod agent_cognition_live_actor;
+mod agent_cognition_live_harness;
 mod agent_cognition_live_pilot_parity;
 mod agent_cognition_memory;
+mod agent_feedback_recovery;
 mod decision_provider;
 mod fine_grain_persistence;
 mod kernel_wasm_sandbox_bridge;

@@ -53,7 +53,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         )?;
         {
             let stored_request =
-                oasis7_runtime_host::agent_execution::provider_json_admission::decode_request_context(
+                oasis7::simulator::provider_json_admission::decode_request_context(
                     &mut Cursor::new(request_context.as_slice()),
                     MAX_CONTEXT_BYTES as u64,
                     &self.memory,
@@ -91,7 +91,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         )?;
         {
             let stored_response =
-                oasis7_runtime_host::agent_execution::provider_json_admission::decode_response_context(
+                oasis7::simulator::provider_json_admission::decode_response_context(
                     &mut Cursor::new(response_context.as_slice()),
                     MAX_CONTEXT_BYTES as u64,
                     &self.memory,
@@ -112,7 +112,7 @@ impl ProviderOriginalMaterialOwnerV1 {
             MemoryClass::Ordinary,
         )?;
         {
-            let decoded = oasis7_runtime_host::agent_execution::provider_json_admission::decode_response_context(
+            let decoded = oasis7::simulator::provider_json_admission::decode_response_context(
                 &mut Cursor::new(response_body.as_slice()),
                 MAX_RESPONSE_BYTES,
                 &self.memory,
@@ -264,5 +264,37 @@ impl ProviderOriginalMaterialOwnerV1 {
             request_object_id: materials.request_object_id,
             request_context_object_id: materials.request_context_object_id,
         }
+    }
+}
+
+#[cfg(test)]
+mod canonical_pending_owner_type_tests {
+    use super::*;
+    use std::any::TypeId;
+
+    #[test]
+    fn native_receipt_readback_uses_original_formal_owner_type_identities() {
+        // The active Viewer pending owner must not duplicate its receipt or
+        // protected-root DTOs while the full legacy Host cutover is pending.
+        assert_eq!(
+            TypeId::of::<ProviderOriginalMaterialRefsV1>(),
+            TypeId::of::<oasis7_world_service::provider_material::ProviderOriginalMaterialRefsV1>(),
+        );
+        assert_eq!(
+            TypeId::of::<ProviderMaterialAttemptV1>(),
+            TypeId::of::<oasis7_world_service::provider_material::ProviderMaterialAttemptV1>(),
+        );
+        assert_eq!(
+            TypeId::of::<ProviderDispositionEvidenceV1>(),
+            TypeId::of::<oasis7_world_service::provider_material::ProviderDispositionEvidenceV1>(),
+        );
+        assert_eq!(
+            TypeId::of::<ProviderPendingRootsCursorV1>(),
+            TypeId::of::<oasis7_world_service::provider_material::ProviderPendingRootsCursorV1>(),
+        );
+        assert_eq!(
+            TypeId::of::<ProviderPendingRootsPageV1>(),
+            TypeId::of::<oasis7_world_service::provider_material::ProviderPendingRootsPageV1>(),
+        );
     }
 }

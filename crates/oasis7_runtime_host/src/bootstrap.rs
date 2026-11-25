@@ -13,7 +13,9 @@ use oasis7_simulator::{
     ChunkRuntimeConfig, GeoPos, Location, ResourceKind, WorldConfig, WorldInitConfig, WorldModel,
     WorldScenario, build_world_model,
 };
+use crate::simulator_archive::kernel_host::WorldKernel;
 use std::collections::HashSet;
+use std::path::Path;
 pub const FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID: &str = "starter-agent-0";
 pub fn bootstrap_runtime_world_with_chunk_runtime(
     scenario: WorldScenario,
@@ -410,5 +412,125 @@ mod owner_tests {
         let location = formal_release_default_seed_location_for_pos(original.pos)
             .expect("native seed location readback");
         assert_eq!(location.id, original.location_id);
+    }
+}
+
+/// Load the generated sidecar's authoritative archive in native L4.
+///
+/// Preserve the original provenance-before-I/O rejection and avoid interpreting
+/// checkpoint/journal bytes through the umbrella simulator.
+/// Preserve the historical three-result generated-sidecar API while L4 owns
+/// all archive decoding; callers needing the chunk config use the 4-tuple API.
+pub fn bootstrap_generated_sidecar_runtime_world(
+    generated_world_dir: &Path,
+) -> Result<(RuntimeWorld, WorldConfig, WorldModel), String> {
+    let (world, config, model, _) =
+        bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(generated_world_dir)?;
+    Ok((world, config, model))
+}
+
+pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(
+    generated_world_dir: &Path,
+) -> Result<(RuntimeWorld, WorldConfig, WorldModel, ChunkRuntimeConfig), String> {
+    let sidecar_dir = generated_world_dir.join("generated-scenario-world");
+    let provenance_path = generated_world_dir.join("world-generation-provenance.json");
+    if !provenance_path.is_file() {
+        return Err(format!(
+            "world provenance missing: {}",
+            provenance_path.display()
+        ));
+    }
+    let kernel = WorldKernel::load_from_dir(&sidecar_dir).map_err(|err| {
+        format!(
+            "runtime live generated sidecar load failed dir={} err={err:?}",
+            sidecar_dir.display()
+        )
+    })?;
+    let snapshot = kernel.snapshot();
+    let chunk_runtime = snapshot.chunk_runtime.clone();
+    let config = snapshot.config;
+    let model = snapshot.model;
+    let (world, config) =
+        bootstrap_runtime_world_from_model(config, &model, "runtime live generated sidecar")?;
+    Ok((world, config, model, chunk_runtime))
+}
+
+#[cfg(test)]
+mod archive_loader_tests {
+    use super::*;
+
+    struct ArchiveFixture(std::path::PathBuf);
+    impl ArchiveFixture {
+        fn new() -> Self {
+            let unique = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("fixture clock")
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "oasis7-generated-sidecar-{}-{unique}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&root).expect("create original archive test directory");
+            Self(root)
+        }
+    }
+    impl Drop for ArchiveFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn generated_sidecar_native_loader_preserves_original_archive() {
+        let fixture = ArchiveFixture::new();
+        let config = WorldConfig::default();
+        let mut init =
+            WorldInitConfig::from_scenario(WorldScenario::AsteroidFragmentBootstrap, &config);
+        init.seed = 91;
+        let (kernel, _) = crate::simulator_archive::kernel_host::initialize_kernel(config, init)
+            .expect("create original generated world");
+        let original = kernel.snapshot();
+        assert!(!original.model.agents.is_empty());
+        kernel.save_to_dir(fixture.0.join("generated-scenario-world"))
+            .expect("persist native snapshot and journal");
+        std::fs::write(fixture.0.join("world-generation-provenance.json"), "{}")
+            .expect("write required provenance marker");
+        let (world, config, model, chunk_runtime) =
+            bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(&fixture.0)
+                .expect("native archive-backed World construction");
+        assert_eq!(config, original.config);
+        assert_eq!(model, original.model);
+        assert_eq!(chunk_runtime, original.chunk_runtime);
+        assert_eq!(world.state().agents.len(), model.agents.len());
+        let (legacy_world, legacy_config, legacy_model) =
+            bootstrap_generated_sidecar_runtime_world(&fixture.0)
+                .expect("native owner preserves original three-value API");
+        assert_eq!(legacy_world.state().agents.len(), world.state().agents.len());
+        assert_eq!(legacy_config, config);
+        assert_eq!(legacy_model, model);
+        let reopened = WorldKernel::load_from_dir(fixture.0.join("generated-scenario-world"))
+            .expect("bootstrap must not modify source archive");
+        assert_eq!(reopened.snapshot(), original);
+    }
+
+    #[test]
+    fn generated_sidecar_native_loader_rejects_corrupt_journal() {
+        let fixture = ArchiveFixture::new();
+        let archive = fixture.0.join("generated-scenario-world");
+        WorldKernel::new().save_to_dir(&archive).expect("persist test archive");
+        std::fs::write(fixture.0.join("world-generation-provenance.json"), "{}")
+            .expect("write required provenance marker");
+        std::fs::write(archive.join("journal.json"), "{").expect("corrupt original journal");
+        let error = bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(&fixture.0)
+            .err().expect("corrupt journal must not bootstrap Runtime");
+        assert!(error.contains("runtime live generated sidecar load failed"));
+    }
+
+    #[test]
+    fn generated_sidecar_rejects_missing_provenance_before_archive_open() {
+        let absent = Path::new("__oasis7_native_bootstrap_absent_provenance__");
+        let error = bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(absent)
+            .err().expect("unproven archive must be rejected");
+        assert!(error.contains("world provenance missing"));
     }
 }

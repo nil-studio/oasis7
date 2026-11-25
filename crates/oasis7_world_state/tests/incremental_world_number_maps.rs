@@ -23,7 +23,12 @@ fn numeric_maps_keep_original_key_value_types_and_absence_after_reopen() {
     use WorldNumberMapFieldV1 as Field;
     use WorldNumberMapKeyRefV1 as Key;
     use WorldNumberV1 as Number;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let dir = Directory::new();
         let path = dir.0.join("pages");
         let producer = MemoryBudget::new(32 << 20, 1 << 20).unwrap();

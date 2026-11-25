@@ -33,6 +33,7 @@ Options:
   --local-status-url/--sequencer-status-url/--storage-status-url <url>  snapshot and traffic
   --local-storage-path/--sequencer-storage-path/--storage-storage-path <path>  host only
   --local-profile-status-url/--sequencer-profile-status-url/--storage-profile-status-url <url>  explicit HTTP profile only
+  --local-bft-identity/--sequencer-bft-identity/--storage-bft-identity <json>  expected world_id, chain_id, operator_instance_id for an explicit HTTP slot (diagnostic only)
   --controlled-status-inventory <path>  pinned controlled-v2 profile observer for selected slots
   --world-id <id>                  snapshot only
   --local-health-url/--sequencer-health-url/--storage-health-url <url>  snapshot only
@@ -99,7 +100,7 @@ while [[ $# -gt 0 ]]; do
       echo "this outer monitor is triad-only; --node is not supported" >&2
       exit 2
       ;;
-    --local-profile-status-url|--sequencer-profile-status-url|--storage-profile-status-url|--controlled-status-inventory|--samples|--interval-secs|--traffic-samples|--traffic-interval-secs|--window-minutes|--ssh-timeout-secs|--out-dir|--traffic-history-path|--as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs|--top-n|--history-retention-minutes|--sequencer-target|--storage-target|--local-service|--sequencer-service|--storage-service|--local-status-url|--sequencer-status-url|--storage-status-url|--local-storage-path|--sequencer-storage-path|--storage-storage-path|--world-id|--local-health-url|--sequencer-health-url|--storage-health-url|--local-env-file|--sequencer-env-file|--storage-env-file|--sequencer-public-status-url|--sequencer-public-health-url|--storage-public-status-url|--storage-public-health-url)
+    --local-profile-status-url|--sequencer-profile-status-url|--storage-profile-status-url|--local-bft-identity|--sequencer-bft-identity|--storage-bft-identity|--controlled-status-inventory|--samples|--interval-secs|--traffic-samples|--traffic-interval-secs|--window-minutes|--ssh-timeout-secs|--out-dir|--traffic-history-path|--as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs|--top-n|--history-retention-minutes|--sequencer-target|--storage-target|--local-service|--sequencer-service|--storage-service|--local-status-url|--sequencer-status-url|--storage-status-url|--local-storage-path|--sequencer-storage-path|--storage-storage-path|--world-id|--local-health-url|--sequencer-health-url|--storage-health-url|--local-env-file|--sequencer-env-file|--storage-env-file|--sequencer-public-status-url|--sequencer-public-health-url|--storage-public-status-url|--storage-public-health-url)
       if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
         echo "$1 requires a nonempty value" >&2
         exit 2
@@ -147,6 +148,9 @@ while [[ $# -gt 0 ]]; do
     --local-profile-status-url) profile_args+=(--local-node-url "$value") ;;
     --sequencer-profile-status-url) profile_args+=(--sequencer-ecs-url "$value") ;;
     --storage-profile-status-url) profile_args+=(--storage-ecs-url "$value") ;;
+    --local-bft-identity) profile_args+=(--local-node-bft-identity "$value") ;;
+    --sequencer-bft-identity) profile_args+=(--sequencer-ecs-bft-identity "$value") ;;
+    --storage-bft-identity) profile_args+=(--storage-ecs-bft-identity "$value") ;;
     --controlled-status-inventory)
       if [[ -n "$controlled_status_inventory" ]]; then
         echo "controlled status inventory must be supplied once" >&2

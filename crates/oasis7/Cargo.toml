@@ -50,8 +50,8 @@ ci_formal_host_indexmap = { package = "indexmap", version = "2", optional = true
 [features]
 default = ["wasmtime"]
 wasmtime = ["oasis7_runtime/wasmtime", "oasis7_world_service/wasmtime"]
-test_tier_required = ["oasis7_runtime_host/test_tier_required", "oasis7_simulator/test_tier_required", "oasis7_runtime/test_tier_required", "oasis7_world_service/test_tier_required"]
-test_tier_full = ["test_tier_required", "oasis7_runtime_host/test_tier_full", "oasis7_simulator/test_tier_full", "oasis7_runtime/test_tier_full", "oasis7_world_service/test_tier_full"]
+test_tier_required = ["oasis7_simulator/test_tier_required", "oasis7_runtime/test_tier_required", "oasis7_world_service/test_tier_required"]
+test_tier_full = ["test_tier_required", "oasis7_simulator/test_tier_full", "oasis7_runtime/test_tier_full", "oasis7_world_service/test_tier_full"]
 ci_formal_required_features = [
     "dep:ci_formal_host_bitflags",
     "dep:ci_formal_host_indexmap",

@@ -367,6 +367,50 @@ class AdmissionTests(unittest.TestCase):
         (self.workspace / '.git').rename(self.workspace / 'unavailable-git')
         self.assertFalse(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
 
+    def test_ordinary_image_writer_requires_exact_source_job_image_and_mode(self):
+        namespace, workflow, job = admission.FAMILIES['ordinary-image']
+        image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.removeprefix('ci-ordinary-image-')
+        environment = self.environment | {
+            'OASIS7_DEPENDENCY_CACHE_FAMILY': 'ordinary-image',
+            'GITHUB_JOB': job, 'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/' + workflow + '@refs/heads/main',
+            'INPUT_SHARED-KEY': namespace, 'INPUT_CACHE-PROVIDER': 'github', 'ORDINARY_BUILD_IMAGE': image}
+        self.run['path'] = workflow
+        for event in ('push', 'schedule', 'workflow_dispatch'):
+            event_file = self.root / 'event.json'
+            event_file.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
+            current = environment | {'GITHUB_EVENT_NAME': event, 'GITHUB_EVENT_PATH': str(event_file)}
+            self.run['event'] = event
+            self.assertTrue(admission.check_archive(self.archive, current, self.api)['allowed'])
+            for changes in ({'GITHUB_REF': 'refs/pull/1/merge'}, {'GITHUB_JOB': 'oasis7-test-build-candidate'},
+                            {'GITHUB_WORKFLOW_SHA': 'c' * 40}, {'GITHUB_SHA': 'c' * 40},
+                            {'GITHUB_REPOSITORY': 'fork/oasis7'},
+                            {'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/other.yml@refs/heads/main'},
+                            {'ORDINARY_BUILD_IMAGE': image[:-1] + '0'}, {'ORDINARY_BUILD_IMAGE': ''},
+                            {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v4'},
+                            {'INPUT_CACHE-PROVIDER': 'buildjet'}, {'GITHUB_EVENT_NAME': 'pull_request'}):
+                with self.subTest(event=event, changes=changes):
+                    self.api.list_caches.reset_mock()
+                    self.assertFalse(admission.check_archive(self.archive, current | changes, self.api)['allowed'])
+                    self.api.list_caches.assert_not_called()
+            if event == 'workflow_dispatch':
+                event_file.write_text(json.dumps({'inputs': {'run_mode': 'image-native'}}))
+                self.assertFalse(admission.check_archive(self.archive, current, self.api)['allowed'])
+        self.run['event'] = 'schedule'
+        original_run = self.run.copy()
+        for changes in ({'id': 43}, {'head_sha': 'c' * 40}, {'head_branch': 'topic'},
+                        {'path': '.github/workflows/rust-cache.yml'}, {'event': 'pull_request'},
+                        {'repository': {'full_name': 'fork/oasis7'}}):
+            with self.subTest(rest=changes):
+                self.run = original_run | changes
+                self.api.list_caches.reset_mock()
+                self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                self.api.list_caches.assert_not_called()
+        self.run = original_run
+        subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=CI fixture',
+                        '-c', 'user.email=ci-fixture@example.invalid', 'commit', '-q',
+                        '--allow-empty', '-m', 'different checked-out source'], check=True)
+        self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+
     def test_shared_native_writer_requires_exact_rest_run_identity(self):
         original = self.run.copy()
         self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])

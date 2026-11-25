@@ -19,16 +19,30 @@ use std::fs;
 
 #[test]
 fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire() {
-    // L4 archive-bearing Host is the original composite type, not pure L2.
-    let native = oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new();
-    let legacy: oasis7::simulator::WorldKernel = native;
-    let snapshot: WorldSnapshot = legacy.snapshot();
-    let previous: oasis7::simulator::WorldSnapshot = snapshot.clone();
+    use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
+    use oasis7_runtime_host::simulator_archive::persist::WorldJournal;
+
+    // Serialize the actual native L4 composite archive and rejoin its original
+    // kernel and extension state; the umbrella type is no longer a test oracle.
+    let native = WorldKernel::new();
+    let snapshot: WorldSnapshot = native.snapshot();
+    let journal: WorldJournal = native.journal_snapshot();
+    let bytes = serde_json::to_vec(&snapshot).expect("native archive snapshot JSON");
+    let restored: WorldSnapshot =
+        serde_json::from_slice(&bytes).expect("decode native archive snapshot JSON");
+    let (kernel, extensions) = restored.into_kernel_parts();
+    let rebuilt = WorldSnapshot::from_kernel_parts(kernel, extensions);
     assert_eq!(
-        serde_json::to_vec(&snapshot).expect("native archive snapshot JSON"),
-        serde_json::to_vec(&previous).expect("legacy archive snapshot JSON"),
+        bytes,
+        serde_json::to_vec(&rebuilt).expect("rejoined native archive snapshot JSON"),
     );
-    let _: oasis7_runtime_host::simulator_archive::persist::WorldJournal = legacy.journal_snapshot();
+    let journal_bytes = serde_json::to_vec(&journal).expect("native archive journal JSON");
+    let restored_journal: WorldJournal =
+        serde_json::from_slice(&journal_bytes).expect("decode native archive journal JSON");
+    assert_eq!(
+        journal_bytes,
+        serde_json::to_vec(&restored_journal).expect("restored native archive journal JSON"),
+    );
 }
 
 #[test]
