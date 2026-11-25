@@ -97,7 +97,7 @@ jobs:
           python-version: '3.12'
       - name: Verify the preinstalled Rust toolchains
         env:
-          SUPPORT_EXECUTION: signer-context-image
+          SUPPORT_EXECUTION: signer-protocol-image
         run: |
           set -euo pipefail
           if [[ "$SUPPORT_EXECUTION" == image ]]; then
