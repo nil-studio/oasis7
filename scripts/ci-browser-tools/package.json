@@ -7,6 +7,6 @@
   },
   "dependencies": {
     "agent-browser": "0.43.0",
-    "playwright": "1.62.1"
+    "playwright": "1.65.1"
   }
 }
