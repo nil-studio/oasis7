@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: a1192d47826963592989fc4f66e2428e722c5571
+          ref: 963dd91e34d17fe8a6115562174aaa71ee175b62
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -43,8 +43,8 @@ jobs:
       - name: Run the original planner on the frozen range
         id: plan
         env:
-          BASE_SHA: 52e8d8a2382f335d9d6505ef4fe16a82c2c048e2
-          TESTED_SHA: a1192d47826963592989fc4f66e2428e722c5571
+          BASE_SHA: 07236dfc22eb01dfe00d49fcfe1113b4e2c641a2
+          TESTED_SHA: 963dd91e34d17fe8a6115562174aaa71ee175b62
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "$TESTED_SHA"
@@ -100,7 +100,7 @@ jobs:
         if: matrix.group != 'baseline'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: a1192d47826963592989fc4f66e2428e722c5571
+          ref: 963dd91e34d17fe8a6115562174aaa71ee175b62
           persist-credentials: false
           sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
@@ -244,7 +244,7 @@ jobs:
         if: matrix.group != 'baseline'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: a1192d47826963592989fc4f66e2428e722c5571
+          ref: 963dd91e34d17fe8a6115562174aaa71ee175b62
           persist-credentials: false
           sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
