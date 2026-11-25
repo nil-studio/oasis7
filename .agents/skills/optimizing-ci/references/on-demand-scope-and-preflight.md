@@ -38,6 +38,7 @@
   3. **工作流矩阵与步骤双层守卫 + 保守回退**：在 `rust.yml` 同时用子契约收敛 `strategy.matrix.os` 与各子步骤 `if:`（纯脚本子契约跳过 Rust 工具链安装与冷编译）；当 `scope == 'full'`、`'explicit-full'` 或旧 `policy_sha` 缺少该版本能力时，完整回退三端全步骤执行。
 - **实测效果**：普通运维脚本改动折算计费从 `50.2` 分钟降至约 `8.5` 分钟（`-83%`，macOS/Windows 计费归零）。
 
+<a id="fast-preflight-gate"></a>
 ### 模式 C：`fast-preflight` 极速前置门控全覆盖重编译宿主（`#6925`、`#6940`、`#6941`）
 - **做法**：
   - 对所有重编译宿主 Job（`rust-baseline`、`oasis7-test-build-candidate`、`oasis7-required`、`workspace-support-other`、`custody-native-contracts`、`custody-native`、`custody-wasm-production`、`distfs`、`node`［含合并 `consensus`］、`net`、`launcher-web`、`scenario-regression`［含合并 `pixel_world_bridge`、`cargo_tooling_contracts`］）统一接入（其中 `oasis7-required` 额外保留上游产物依赖 `oasis7-test-build-candidate, oasis7-test-build-trusted`）：
@@ -61,6 +62,7 @@
   3. **容器镜像同源防漂移单测**：在 `ci-workflow.test.py` 断言前置与下游 Job 的 `container.image`（含 `@sha256:...` 摘要）完全一致，防止未来单侧升级镜像导致环境漂移；
   4. **Driver 默认开启、显式变量跳过**：在 `scripts/ci-tests.sh` 用 `if [[ "${OASIS7_SKIP_RUSTFMT:-0}" != 1 ]]; then ... fi` 包裹，确保无该环境变量的既有控制面契约测试（如非演进套件 `ci-formal-process.test.py` 中的 `test_format_failure_precedes_fetch_architecture_and_clippy`）及 `FIXED_TESTS` 保持原行为通过。
 
+<a id="trusted-control-split-and-simulation"></a>
 ## 4. 受信控制面分流边界、两步式前置与 `FIXED_TESTS` 跨版本仿真
 
 自 `#6928` 起，`scripts/ci-python-control-contracts.py` 将 `plan-rust-required-scope.test.py`、`ci-bin-ownership.test.py`、`ci-full-result.test.py`、`ci-workflow.test.py` 列入 `EVOLVING_POLICY_TESTS`：
@@ -84,6 +86,7 @@
    raise SystemExit(0 if unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful() else 1)
    "
    ```
+4. **受信基线断言写法、扩充 `EVOLVING_POLICY_TESTS` 与受管输入路由**：编写不锁死演进态的受信基线断言、提炼新 `FIXED_TESTS` 子集、治理 `UnknownInputsError` / CodeQL `unregistered input` 前置微 PR 以及门禁松绑后的流程惯性清理，详见 [受信基线与输入治理分册](trusted-baseline-and-input-governance.md)。
 
 ## 5. 标准本地闭环命令与防坑核对表
 
@@ -111,5 +114,5 @@ python3 scripts/check-local.py --profile quick --base-ref origin/main
 3. **合并组宿主的连带门控覆盖**：检查宿主 Job（如 `node` 承载 `consensus`、`scenario-regression` 承载 `pixel_world_bridge` 与 `cargo_tooling_contracts`、`fleet-health` 承载 `windows_rollout`）时，单测必须分别构造“宿主原组未选中、仅合并子组选中”的组合输入验证 `if:` 求值，防止漏门控或误跳过合并子组。
 4. **`plan-rust-required-scope.test.py` 临时 Cargo 夹具硬约束**：`cargo_graph` 要求测试夹具根 `Cargo.toml` 显式列出具体 `members = [...]` 路径（不支持 `"crates/*"` 通配）并包含 `[workspace.dependencies]`（推荐基于 `self.ROOT_TOML` 派生），且夹具内所有文件路径须命中已注册规则以免抛 `UnknownInputsError`。
 5. **`FIXED_TESTS` 方法身份与默认行为不可退化**：修改 `scripts/ci-tests.sh` 或控制面测试时，核对 `scripts/ci-python-control-contracts.py` 中的 `FIXED_TESTS` 清单，不得删除受信固定测试方法名或改变无新增环境变量时的默认执行顺序。
-6. **独立 `eval()` 测试与跨子目录字面量断言（`#6831`、`#6926`）**：给 job 的 `if:` 新增 `needs.<gate>.result` 时，除共享 `effective_job_condition` 外，须排查 `ci-workflow.test.py` 中绕过该 helper 的独立 `eval()` 测试（如 `test_consumers_require_their_actual_dependency_and_handle_cancellation`）避免 `NameError`；修改 `required-gate` 等核心条件字面量后，须用 `rg` 搜遍整个 `scripts/`（含 `scripts/security/codeql-rust-model-diagnostic.test.py` 等 `run_governance_remaining` 套件）。
+6. **独立 `eval()` 测试与全仓跨目录字面量断言（`#6831`、`#6926`、`#6987`）**：给 job 的 `if:` 新增 `needs.<gate>.result` 时，除共享 `effective_job_condition` 外，须排查 `ci-workflow.test.py` 中绕过该 helper 的独立 `eval()` 测试（如 `test_consumers_require_their_actual_dependency_and_handle_cancellation`）避免 `NameError`；修改 `ci-required-scope.json` 规则或 `rust.yml` 核心条件后，须用 `rg` 搜遍 `scripts/`、`tools/**` 与 `crates/**`（含 `scripts/security/codeql-rust-model-diagnostic.test.py`、`tools/oasis7-command-center/scripts/test_package_context_cli.py` 等跨目录契约测试）。
 7. **PR 标题/正文必须显式声明 `Slice-Type`**：开 PR 时在标题加 `[Slice: <Type>]` 或正文加 `Slice-Type: <Type>`（如 `Slice-Type: Chore` / `Docs`），避免 `Slice, Scope-Lock & Architecture Ring Gate` 在 20 秒内直接判红。

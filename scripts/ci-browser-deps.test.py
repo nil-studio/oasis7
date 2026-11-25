@@ -261,10 +261,42 @@ class BrowserDependencies(unittest.TestCase):
             execute.assert_not_called()
             self.assertFalse(output.exists())
 
+    def test_agent_requires_pinned_native_platform_package_and_node24(self):
+        with tempfile.TemporaryDirectory(dir=Path(tempfile.gettempdir()).resolve()) as temporary:
+            tools = Path(temporary)
+            modules = tools / 'node_modules'
+            for name, version in (('agent-browser', '0.43.0'), ('playwright', '1.62.1'),
+                                  ('playwright-core', '1.62.1')):
+                manifest = modules / name / 'package.json'
+                manifest.parent.mkdir(parents=True)
+                manifest.write_text(json.dumps({'version': version}))
+            package = modules / '@agent-browser/cli-linux-x64-gnu'
+            binary = package / 'bin' / 'agent-browser'
+            manifest = package / 'package.json'
+            binary.parent.mkdir(parents=True)
+            with patch.object(browser, 'TOOLS', tools), \
+                    patch.object(browser.subprocess, 'check_output', return_value='v24.14.1') as node:
+                with self.assertRaisesRegex(browser.BrowserError, 'missing or linked'):
+                    browser.check_tools('agent')
+                binary.write_text('fixture')
+                manifest.write_text(json.dumps({'name': package.name, 'version': '0.43.0'}))
+                with self.assertRaisesRegex(browser.BrowserError, 'identity mismatch'):
+                    browser.check_tools('agent')
+                manifest.write_text(json.dumps({'name': '@agent-browser/cli-linux-x64-gnu',
+                                                'version': '0.43.0'}))
+                self.assertEqual(browser.check_tools('agent'), binary)
+                binary.rename(tools / 'ambient-agent')
+                binary.symlink_to(tools / 'ambient-agent')
+                with self.assertRaisesRegex(browser.BrowserError, 'missing or linked'):
+                    browser.check_tools('agent')
+                node.return_value = 'v22.23.5'
+                with self.assertRaisesRegex(browser.BrowserError, 'Node 24'):
+                    browser.check_tools('agent')
+
     def test_agent_version_or_launch_failure_cannot_export_runtime_environment(self):
         for outputs in (['agent-browser wrong'],
-                        ['agent-browser 0.37.1', 'Google Chrome for Testing wrong'],
-                        ['agent-browser 0.37.1', 'Google Chrome for Testing 158.0.8127.36', '<body>wrong</body>']):
+                        ['agent-browser 0.43.0', 'Google Chrome for Testing wrong'],
+                        ['agent-browser 0.43.0', 'Google Chrome for Testing 158.0.8127.36', '<body>wrong</body>']):
             with self.subTest(outputs=outputs), tempfile.TemporaryDirectory() as temporary:
                 work = Path(temporary)
                 agent = work / 'agent'

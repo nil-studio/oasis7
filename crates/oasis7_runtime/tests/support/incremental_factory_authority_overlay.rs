@@ -90,7 +90,7 @@ fn overlay_getter_sees_prefix_and_independently_calibrates_noop_final_poll() {
         )
         .unwrap()
     };
-    for (cell, expected, expected_value, expected_bytes) in [
+    let all_cells = [
         (
             FactoryAuthorityCellV1::AuthorizedCount,
             FactoryAuthorityCellValueRefV1::U64(3),
@@ -111,7 +111,13 @@ fn overlay_getter_sees_prefix_and_independently_calibrates_noop_final_poll() {
             },
             " inner-site\0界 ",
         ),
-    ] {
+    ];
+    let cells = if cfg!(feature = "test_tier_full") {
+        &all_cells[..]
+    } else {
+        &all_cells[..2]
+    };
+    for &(cell, expected, expected_value, expected_bytes) in cells {
         let getter_n = Cell::new(0usize);
         for mode in 0..4 {
             let active = Cell::new(false);

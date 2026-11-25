@@ -895,11 +895,15 @@ class Selection(unittest.TestCase):
 
     def test_command_center_shared_tools_keep_dedicated_checks(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('scripts/cargo-dev.sh',
-                     'scripts/find-python-with-module.sh'):
+        for path, dedicated in (
+            ('scripts/cargo-dev.sh', 'cargo_tooling_contracts'),
+            ('scripts/find-python-with-module.sh', 'doc_checker_contracts'),
+        ):
             with self.subTest(path=path):
                 self.write(path, 'shared tool changed')
-                self.assertIn('command_center', self.plan()['groups'])
+                groups = self.plan()['groups']
+                self.assertIn(dedicated, groups)
+                self.assertNotIn('command_center', groups)
                 Path(path).unlink()
                 self.commit()
 
@@ -1710,7 +1714,7 @@ class Selection(unittest.TestCase):
             'new-task-worktree.sh': {'baseline', 'cargo_tooling_contracts', 'fleet_health'},
             'worktree-gc-report.sh': {'baseline', 'workflow_governance'},
             'pr-review-thread-closeout.py': {'baseline', 'workflow_governance'},
-            'cargo-dev.sh': {'baseline', 'cargo_tooling_contracts', 'command_center'},
+            'cargo-dev.sh': {'baseline', 'cargo_tooling_contracts'},
         }
         for filename, expected in cases.items():
             with self.subTest(filename=filename):
@@ -8902,6 +8906,42 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         reordered_head = self.commit()
         self.assertEqual(selector.select(self.config, active_removed, reordered_head, profile='pr-fast')['scope'], 'full')
 
+        # 6) Extending an existing rule's `match` list (order-preserving superset) + introducing
+        #    a new file matching that extension in the SAME PR succeeds without UnknownInputsError
+        #    and stays targeted to workflow_governance + target group.
+        superset_cfg = copy.deepcopy(self.config)
+        superset_cfg['rules'][0]['match'] = [*superset_cfg['rules'][0]['match'], 'scripts/brand-new-hygiene-check.py']
+        target_groups = set(superset_cfg['rules'][0]['groups'])
+        self.write('scripts/ci-required-scope.json', json.dumps(superset_cfg))
+        self.write('scripts/brand-new-hygiene-check.py', '#!/usr/bin/env python3\nprint("ok")\n')
+        same_pr_head = self.commit()
+        same_pr_plan = selector.select(self.config, active_removed, same_pr_head, profile='pr-fast')
+        self.assertEqual(same_pr_plan['scope'], 'targeted')
+        self.assertEqual(set(same_pr_plan['groups']), {'baseline', 'workflow_governance', *target_groups})
+
+        # 7) Co-changing scripts/ci-tests.sh alongside a new script + same-PR rule registration
+        #    still conservatively selects scope='full' for ci-tests.sh, while avoiding UnknownInputsError.
+        self.write('scripts/ci-tests.sh', '#!/usr/bin/env bash\necho updated\n')
+        cochange_head = self.commit()
+        cochange_plan = selector.select(self.config, active_removed, cochange_head, profile='pr-fast')
+        self.assertEqual(cochange_plan['scope'], 'full')
+
+        # 8) Pre-existing unregistered file modified (not newly added) cannot self-register via candidate rules.
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.write('scripts/preexisting-unmapped.py', 'v = 1\n')
+        preexisting_base = self.commit()
+        attempt_cfg = copy.deepcopy(self.config)
+        attempt_cfg['rules'].append({
+            'match': ['scripts/preexisting-unmapped.py'],
+            'groups': ['baseline'],
+            'reason': 'late_self_registration',
+        })
+        self.write('scripts/ci-required-scope.json', json.dumps(attempt_cfg))
+        self.write('scripts/preexisting-unmapped.py', 'v = 2\n')
+        attempt_head = self.commit()
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(self.config, preexisting_base, attempt_head, profile='pr-fast')
+
     def test_standalone_non_workspace_cargo_manifests_scope_to_owners_and_keep_root_or_patch_full(self):
         cases = {
             'tools/oasis7-command-center/Cargo.toml': (
@@ -9199,8 +9239,9 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
         ctx_plan = selector.select(self.config, self.base, ctx_head, profile='pr-fast')
         self.assertEqual(ctx_plan['scope'], 'targeted', ctx_plan['reasons'])
         self.assertIn('oasis7_chain_runtime', ctx_plan['oasis7_required_packages'])
-        self.assertIn('command_center', ctx_plan['groups'])
-        self.assertTrue(ctx_plan['command_center_package'])
+        self.assertNotIn('command_center', ctx_plan['groups'])
+        self.assertFalse(ctx_plan['command_center_package'])
+        self.assertEqual(ctx_plan.get('command_center_offline_version'), 1)
         self.assertNotIn('viewer_js_required', ctx_plan['groups'])
         self.assertNotIn('site_quality', ctx_plan['groups'])
 
@@ -9763,6 +9804,36 @@ class MainFastHistoricalRetiredPathsTests(WorkspaceMemberCargoAndScopedCfgTests)
         unmapped_plan = selector.select(unmapped_cfg, self.base, unmapped_head, profile='pr-fast')
         self.assertEqual(unmapped_plan['fleet_health_checks'], full_checks)
         self.assertEqual(unmapped_plan['fleet_health_oses'], full_oses)
+
+    def test_command_center_offline_version_decouples_shared_crates_and_stamps_all_profiles(self):
+        real_cfg = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.assertEqual(real_cfg.get('command_center_offline_version'), 1)
+        self.assertEqual(real_cfg.get('group_jobs', {}).get('command_center'), 'baseline')
+        for package in ('oasis7_signer_protocol', 'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope'):
+            self.assertNotIn('command_center', real_cfg['package_groups'][package])
+
+        for profile in ('periodic-full', 'candidate-full'):
+            full = selector.full_plan(real_cfg, profile, self.base)
+            self.assertEqual(full.get('command_center_offline_version'), 1)
+            self.assertEqual(full.get('contract_job_consolidation_version'), 5)
+            self.assertIn('command_center', full['groups'])
+
+        self.git('checkout', '-q', self.base)
+        self.write('tools/oasis7-command-center/ui/src/App.tsx', '// paused command-center edit\n')
+        cc_head = self.commit()
+        for profile in ('pr-fast', 'main-fast'):
+            cc_plan = selector.select(real_cfg, self.base, cc_head, profile=profile)
+            self.assertEqual(cc_plan['scope'], 'targeted')
+            self.assertEqual(set(cc_plan['groups']), {'baseline', 'command_center'})
+            self.assertEqual(cc_plan.get('command_center_offline_version'), 1)
+
+        for bad in (
+            dict(real_cfg, command_center_offline_version=2),
+            dict(real_cfg, command_center_offline_version=True),
+            dict(real_cfg, group_jobs={**real_cfg['group_jobs'], 'command_center': 'node'}),
+        ):
+            with self.assertRaises(ValueError):
+                selector.validate_config(bad)
 
 
 if __name__ == '__main__':

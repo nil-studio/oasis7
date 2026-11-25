@@ -1599,6 +1599,7 @@ class DistfsClippyHandoff(unittest.TestCase):
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
                 path = scripts / name
@@ -1757,6 +1758,7 @@ class DistfsNamedIntegrationDriver(unittest.TestCase):
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
                 path = scripts / name
@@ -4071,6 +4073,7 @@ printf '[%s]\\n' "$args_json" >> "$CARGO_CALLS"
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh',
                          'check-standalone-tool-lockfiles.test.sh', 'check-standalone-tool-lockfiles.sh'):
@@ -5139,6 +5142,94 @@ class ParallelFormalExecution(unittest.TestCase):
 
 
 class BuildAndBundles(unittest.TestCase):
+    def test_ordinary_docker_preflight_checks_daemon_and_default_driver(self):
+        responses = {
+            ('info', '--format', '{{json .ServerVersion}}'): '"28.0.4"',
+            ('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'): '28.5.2 1.48',
+            ('buildx', 'version'): 'github.com/docker/buildx v0.29.1 test-commit',
+            ('context', 'show'): 'default',
+            ('buildx', 'inspect'): ('Name:          default\nDriver:        docker\n\nNodes:\n'
+                                    'Name:          default\nEndpoint:      default\nStatus:        running\n'),
+        }
+
+        def invoke(command, **kwargs):
+            self.assertEqual(command[0], 'docker')
+            self.assertEqual(kwargs['timeout'], 15)
+            self.assertTrue(kwargs['text'])
+            for name in ('GH_TOKEN', 'GITHUB_TOKEN', 'ACTIONS_RUNTIME_TOKEN', 'INPUT_GITHUB-TOKEN', 'NODE_OPTIONS'):
+                self.assertNotIn(name, kwargs['env'])
+            if tuple(command[1:]) not in responses:
+                raise subprocess.CalledProcessError(1, command, output='unknown command or flag')
+            return responses[tuple(command[1:])]
+
+        with patch.object(artifacts.Path, 'is_socket', return_value=True), \
+             patch.dict(os.environ, DOCKER_HOST='', DOCKER_CONTEXT='', BUILDX_BUILDER='',
+                        GH_TOKEN='private', GITHUB_TOKEN='private', ACTIONS_RUNTIME_TOKEN='private',
+                        NODE_OPTIONS='private', **{'INPUT_GITHUB-TOKEN': 'private'}), \
+             patch.object(artifacts.subprocess, 'check_output', side_effect=invoke) as execute:
+            self.assertEqual(artifacts.ordinary_docker_preflight(), {
+                'client_version': '28.5.2', 'server_version': '28.0.4', 'server_api': '1.48',
+                'buildx_version': 'v0.29.1', 'context': 'default', 'builder': 'default', 'driver': 'docker',
+                'builder_status': 'running'})
+            self.assertEqual(execute.call_count, 5)
+            for key, invalid in (
+                    (('info', '--format', '{{json .ServerVersion}}'), 'null'),
+                    (('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'), '28.5.2 invalid-api'),
+                    (('buildx', 'version'), 'unknown plugin'),
+                    (('context', 'show'), 'remote'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker-container\n\nNodes:\nStatus: running'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\nError: private\n\nNodes:\nStatus: running'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\n\nNodes:\nStatus: stopped'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\n\nNodes:\nStatus: running\nError: private')):
+                with self.subTest(command=key):
+                    original = responses[key]
+                    responses[key] = invalid
+                    try:
+                        with self.assertRaises(ValueError):
+                            artifacts.ordinary_docker_preflight()
+                    finally:
+                        responses[key] = original
+            for environment in ({'DOCKER_HOST': 'tcp://remote:2375'},
+                                {'DOCKER_CONTEXT': 'remote'}, {'BUILDX_BUILDER': 'remote'}):
+                with self.subTest(environment=environment), patch.dict(os.environ, environment):
+                    execute.reset_mock()
+                    with self.assertRaises(ValueError):
+                        artifacts.ordinary_docker_preflight()
+                    execute.assert_not_called()
+            with patch.object(artifacts.Path, 'is_socket', return_value=False):
+                with self.assertRaisesRegex(ValueError, 'runner-provided Docker socket'):
+                    artifacts.ordinary_docker_preflight()
+            for failure in (subprocess.CalledProcessError(1, ['docker', 'info'], output='private'),
+                            subprocess.TimeoutExpired(['docker', 'info'], 15, output='private')):
+                with self.subTest(failure=type(failure).__name__), \
+                     patch.object(artifacts.subprocess, 'check_output', side_effect=failure):
+                    with self.assertRaisesRegex(ValueError, 'daemon info') as rejected:
+                        artifacts.ordinary_docker_preflight()
+                    self.assertNotIn('private', str(rejected.exception))
+
+    def test_ordinary_image_cli_reports_the_checked_docker_capability(self):
+        docker = {'driver': 'docker', 'server_api': '1.48'}
+        output = io.StringIO()
+        with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+             patch.object(artifacts, 'ordinary_docker_preflight', return_value=docker) as checked, \
+             patch.object(sys, 'argv', ['ci-test-artifacts.py', 'ordinary-image-preflight']), \
+             patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                            FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(output):
+            artifacts.main()
+        checked.assert_called_once_with()
+        self.assertEqual(json.loads(output.getvalue()), {'same_directory': True, 'docker': docker})
+
+    def test_ordinary_image_cli_refuses_missing_canonical_docker(self):
+        with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+             patch.object(artifacts.Path, 'is_socket', return_value=True), \
+             patch.object(artifacts.subprocess, 'check_output', side_effect=FileNotFoundError('docker')), \
+             patch.dict(os.environ, DOCKER_HOST='', DOCKER_CONTEXT='', BUILDX_BUILDER=''), \
+             patch.object(sys, 'argv', ['ci-test-artifacts.py', 'ordinary-image-preflight']), \
+             patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                            FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'Docker CLI'):
+                artifacts.main()
+
     def test_ordinary_image_preflight_preserves_canonical_real_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -6105,6 +6196,253 @@ class MixedLibraryWorkspaceCache(WorkspaceCache):
         local = [unit for unit in units if Path(unit['manifest_path']).is_relative_to(self.root)]
         self.assertTrue(all(unit['fresh'] for unit in local), local)
         self.assertEqual(value, 'alpha:outside:one:one')
+
+
+class CanonicalWorkspaceOutputs(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name).resolve()
+        self.root = self.base / 'checkout'
+        self.root.mkdir()
+        self.manifest = artifacts.ProviderArtifact.MANIFEST
+        self.project = self.root / Path(self.manifest).parent
+        (self.project / 'src').mkdir(parents=True)
+        (self.project / 'Cargo.toml').write_text(
+            '[workspace]\n[package]\nname="canonical_cache_fixture"\nversion="0.1.0"\nedition="2021"\n')
+        (self.project / 'src/lib.rs').write_text('pub fn value() -> u8 { 7 }\n')
+        fingerprint = 'debug/.fingerprint/fixture-' + 'a' * 16
+        self.payload = ['debug/deps/libfixture-' + 'a' * 16 + '.rlib', fingerprint + '/lib-fixture']
+        for name in self.payload:
+            path = self.root / 'target' / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('original native unit')
+        self.fingerprint = fingerprint
+
+    def state(self):
+        state = artifacts.cache_begin(self.root, selection='libraries')
+        state['files'], state['directories'] = self.payload, [self.fingerprint]
+        return state
+
+    def register(self, state, metadata=None):
+        metadata = metadata or dict(workspace_root=str(self.project), target_directory=str(self.project / 'target'))
+        with patch.object(artifacts.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                [], 0, stdout=json.dumps(metadata))) as execute:
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        return execute
+
+    def output(self):
+        path = self.project / 'target/wasm32-unknown-unknown/release/module.wasm'
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'owned compiler output')
+
+    def test_real_standalone_cargo_outputs_do_not_become_native_source_inputs(self):
+        self.assertNotIn('CARGO_TARGET_DIR', os.environ)
+        environment = {key: value for key, value in os.environ.items() if key != 'RUSTC_WRAPPER'}
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.project,
+                       check=True, env=environment, capture_output=True)
+        state = self.state()
+        artifacts.cache_register_canonical_targets(state, [self.manifest])
+        subprocess.run(['cargo', 'build', '--locked', '--offline', '--lib'], cwd=self.project,
+                       check=True, env=environment, capture_output=True)
+        changed = set(artifacts._cache_inputs(self.root)) - set(state['inputs'])
+        self.assertTrue(changed)
+        prefix = (Path(self.manifest).parent / 'target').as_posix() + '/'
+        self.assertTrue(all(name.startswith(prefix) for name in changed))
+        artifacts.cache_finish(state)
+        self.assertTrue(state['complete'])
+        cache = self.base / 'cache'
+        report = artifacts.cache_stage(state, cache)
+        self.assertTrue(report['save'], report)
+        saved = json.loads((cache / 'manifest.json').read_text())
+        self.assertNotIn('generated_cargo_targets', saved)
+        self.assertEqual(saved['inputs'], state['inputs'])
+        # A reader still validates the complete clean checkout; no output
+        # allowlist is supplied by the long-lived archive.
+        shutil.rmtree(self.project / 'target')
+        shutil.rmtree(self.root / 'target')
+        self.assertTrue(artifacts.cache_restore(self.root, cache)['restored'])
+
+    def test_existing_inputs_are_never_removed_by_output_registration(self):
+        self.output()
+        state = self.state()
+        with self.assertRaisesRegex(ValueError, 'captured source input'):
+            self.register(state)
+        self.assertNotIn('generated_cargo_targets', state)
+        self.assertEqual(artifacts._cache_inputs(self.root), state['inputs'])
+
+    def test_outputs_created_by_the_native_phase_cannot_be_registered_later(self):
+        state = self.state()
+        self.output()
+        with self.assertRaisesRegex(ValueError, 'existed before registration'):
+            self.register(state)
+        self.assertNotIn('generated_cargo_targets', state)
+        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
+            artifacts.cache_finish(state)
+
+    def test_metadata_cannot_create_new_inputs_and_then_declare_them_outputs(self):
+        state = self.state()
+        def metadata(*args, **keywords):
+            self.output()
+            return subprocess.CompletedProcess([], 0, stdout=json.dumps(dict(
+                workspace_root=str(self.project), target_directory=str(self.project / 'target'))))
+        with patch.object(artifacts.subprocess, 'run', side_effect=metadata), \
+             self.assertRaisesRegex(ValueError, 'existed before registration'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        self.assertNotIn('generated_cargo_targets', state)
+        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
+            artifacts.cache_finish(state)
+
+    def test_real_source_mutation_and_unknown_nested_output_still_fail_closed(self):
+        for name in ('src/lib.rs', 'other/target/output', '.ignored-input'):
+            with self.subTest(name=name):
+                state = self.state()
+                self.register(state)
+                path = self.project / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                existed = path.exists()
+                original = path.read_bytes() if existed else None
+                path.write_text('changed actual input')
+                with self.assertRaisesRegex(ValueError, 'source inputs changed during the build'):
+                    artifacts.cache_finish(state)
+                self.assertFalse(state['complete'])
+                if existed:
+                    path.write_bytes(original)
+                else:
+                    path.unlink()
+
+    def test_metadata_must_prove_the_exact_default_owned_target(self):
+        state = self.state()
+        for metadata in (dict(workspace_root=str(self.root), target_directory=str(self.project / 'target')),
+                         dict(workspace_root=str(self.project), target_directory=str(self.base / 'outside')),
+                         dict(workspace_root=str(self.project), target_directory=str(self.project / 'src'))):
+            with self.subTest(metadata=metadata), self.assertRaisesRegex(ValueError, 'unsupported output layout'):
+                self.register(state, metadata)
+            self.assertNotIn('generated_cargo_targets', state)
+        with patch.dict(os.environ, CARGO_TARGET_DIR=str(self.project / 'target')), \
+             self.assertRaisesRegex(ValueError, 'original default target'):
+            self.register(state)
+        with patch.object(artifacts.subprocess, 'run', side_effect=subprocess.TimeoutExpired('cargo', 30)), \
+             self.assertRaisesRegex(ValueError, 'cannot verify'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        self.assertNotIn('generated_cargo_targets', state)
+
+    def test_reader_of_state_rejects_forged_and_swapped_output_roots(self):
+        state = self.state()
+        self.register(state)
+        artifacts.cache_finish(state)
+        for records in ({'other/Cargo.toml': 'other/target'}, {self.manifest: 'src'},
+                        {self.manifest: []}):
+            with self.subTest(records=records):
+                forged = dict(state, generated_cargo_targets=records)
+                self.assertFalse(artifacts.cache_stage(forged, self.base / 'cache')['save'])
+        outside = self.base / 'outside'
+        outside.mkdir()
+        (self.project / 'target').symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            artifacts.cache_finish(state)
+        # Re-establish the genuinely completed capture to exercise the stage
+        # parser independently of its incomplete-state rejection.
+        state['complete'] = True
+        for measure in (True, False):
+            report = artifacts.cache_stage(state, self.base / 'cache', measure_only=measure)
+            self.assertFalse(report['save'])
+            self.assertIn('symlink', report['reason'])
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_registration_and_stage_recheck_symlinks_before_metadata_and_after_copy(self):
+        state = self.state()
+        outside = self.base / 'outside'
+        outside.mkdir()
+        output = self.project / 'target'
+        output.symlink_to(outside, target_is_directory=True)
+        with patch.object(artifacts.subprocess, 'run') as execute, \
+             self.assertRaisesRegex(ValueError, 'symlink'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        execute.assert_not_called()
+        output.unlink()
+        self.register(state)
+        artifacts.cache_finish(state)
+        original = artifacts._cache_copy
+        def swap(*args):
+            original(*args)
+            output.symlink_to(outside, target_is_directory=True)
+        with patch.object(artifacts, '_cache_copy', side_effect=swap):
+            report = artifacts.cache_stage(state, self.base / 'cache')
+        self.assertFalse(report['save'])
+        self.assertIn('symlink', report['reason'])
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_optional_cache_metadata_failure_keeps_both_original_material_builds(self):
+        config = self.root / 'suites.json'
+        config.write_text('{}')
+        state_path = self.base / 'state.json'
+        with patch.object(artifacts, 'ROOT', self.root), patch.object(artifacts, 'CONFIG', config), \
+             patch.object(artifacts, 'build_variants', return_value=[]), \
+             patch.object(artifacts, 'output', return_value='host: fixture'), \
+             patch.object(artifacts, 'preview_provider_required', return_value=True), \
+             patch.object(artifacts.BuiltinTestArtifact, 'required', return_value=True), \
+             patch.object(artifacts, 'cache_register_canonical_targets', side_effect=ValueError('unavailable')), \
+             patch.object(artifacts.provider_artifact, 'build', return_value={}) as provider, \
+             patch.object(artifacts.BuiltinTestArtifact, 'build', return_value={}) as builtin:
+            bundle = self.base / 'bundle'
+            artifacts.build(bundle, 'ordinary', state_path)
+        provider.assert_called_once()
+        builtin.assert_called_once()
+        self.assertEqual(json.loads((bundle / 'manifest.json').read_text())['builtin_test_resources'], {})
+        state = json.loads(state_path.read_text())
+        self.assertFalse(state['complete'])
+        self.assertEqual(state['error'], 'unavailable')
+
+    def test_real_build_registers_only_selected_material_roles_before_their_builds(self):
+        catalog = {self.manifest, *(f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+                                   for crate in artifacts.BuiltinTestArtifact.MODULES.values())}
+        for scope in ('ordinary', 'formal'):
+            with self.subTest(scope=scope):
+                for manifest in catalog:
+                    path = self.root / manifest
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if not path.exists():
+                        path.write_text('[workspace]\n')
+                    if (path.parent / 'target').exists():
+                        shutil.rmtree(path.parent / 'target')
+                config = self.root / 'suites.json'
+                config.write_text(json.dumps(dict(suites={}, legacy_ignored_filters={},
+                    environment_formal_batches={}, shell_tests={})))
+                events = []
+                def metadata(command, **keywords):
+                    path = Path(command[-1])
+                    self.assertEqual(command[1:6], ['metadata', '--locked', '--offline', '--no-deps', '--format-version=1'])
+                    self.assertEqual(keywords['timeout'], 30)
+                    events.append('metadata')
+                    return subprocess.CompletedProcess(command, 0, stdout=json.dumps(dict(
+                        workspace_root=str(path.parent), target_directory=str(path.parent / 'target'))))
+                def material(kind):
+                    def build(*args):
+                        events.append(kind)
+                        manifests = {self.manifest} if kind == 'provider' else catalog - {self.manifest}
+                        for manifest in manifests:
+                            output = self.root / Path(manifest).parent / 'target/module.wasm'
+                            output.parent.mkdir(parents=True)
+                            output.write_bytes(b'original material compiler output')
+                        return {}
+                    return build
+                with patch.object(artifacts, 'ROOT', self.root), patch.object(artifacts, 'CONFIG', config), \
+                     patch.object(artifacts, 'build_variants', return_value=[]), \
+                     patch.object(artifacts, 'output', return_value='host: fixture'), \
+                     patch.object(artifacts, 'preview_provider_required', return_value=True), \
+                     patch.object(artifacts.BuiltinTestArtifact, 'required', return_value=True), \
+                     patch.object(artifacts.provider_artifact, 'build', side_effect=material('provider')), \
+                     patch.object(artifacts.BuiltinTestArtifact, 'build', side_effect=material('builtin')), \
+                     patch.object(artifacts.subprocess, 'run', side_effect=metadata):
+                    state_path = self.base / (scope + '.json')
+                    artifacts.build(self.base / scope, scope, state_path)
+                state = json.loads(state_path.read_text())
+                self.assertTrue(state['complete'], state.get('error'))
+                selected = catalog - ({self.manifest} if scope == 'formal' else set())
+                self.assertEqual(set(state['generated_cargo_targets']), selected)
+                self.assertEqual(events, ['metadata'] * len(selected) +
+                                 (['provider', 'builtin'] if scope == 'ordinary' else ['builtin']))
 
 
 class WorkspaceInputPaths(unittest.TestCase):

@@ -290,6 +290,13 @@ if ! run_system_design_traceability_check; then
   fail "system-design traceability contract failed"
 fi
 
+if [[ -f scripts/check-doc-cargo-test-commands.py && -n "${OASIS7_PRODUCT_DOC_BASE:-}" && -n "${OASIS7_PRODUCT_DOC_HEAD:-}" ]]; then
+  "$PYTHON_BIN" scripts/check-doc-cargo-test-commands.py \
+    --repo-root "$repo_root" \
+    --base "$OASIS7_PRODUCT_DOC_BASE" \
+    --head "$OASIS7_PRODUCT_DOC_HEAD"
+fi
+
 # Run historical reports separately, after both scoped strict gates. Their
 # warning policy must never replace or reset a changed-range failure.
 if ((full_corpus == 1)); then

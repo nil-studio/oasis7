@@ -250,6 +250,8 @@ pub struct NodeRuntime {
     replication_network: Option<NodeReplicationNetworkHandle>,
     replication_network_consensus_enabled: bool,
     gossip_endpoint: Option<Arc<GossipEndpoint>>,
+    #[cfg(test)]
+    gossip_socket_for_test: Option<std::net::UdpSocket>,
     feedback_store: Option<Arc<FeedbackStore>>,
     pending_feedback_announces: Arc<Mutex<Vec<FeedbackAnnounce>>>,
     execution_hook: Option<std::sync::Arc<std::sync::Mutex<Box<dyn NodeExecutionHook>>>>,

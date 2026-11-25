@@ -1487,6 +1487,8 @@ run_required_gate_checks() {
   run ./scripts/lint-skills.sh
   run ./scripts/check-windows-paths.sh
   run bash ./scripts/check-script-executable-bits.sh
+  run python3 ./scripts/check-ci-scope-paths.py
+  run python3 ./scripts/check-governance-hygiene.test.py
   if [[ -n "${OASIS7_PRODUCT_DOC_BASE:-}" && -n "${OASIS7_PRODUCT_DOC_HEAD:-}" ]]; then
     run git diff --check "$OASIS7_PRODUCT_DOC_BASE" "$OASIS7_PRODUCT_DOC_HEAD"
   else
@@ -1658,6 +1660,11 @@ run_rust_baseline() {
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh
+  local rust_hygiene_args=()
+  if [[ -n "${OASIS7_PRODUCT_DOC_BASE:-}" && -n "${OASIS7_PRODUCT_DOC_HEAD:-}" ]]; then
+    rust_hygiene_args=(--base "$OASIS7_PRODUCT_DOC_BASE" --head "$OASIS7_PRODUCT_DOC_HEAD")
+  fi
+  run python3 ./scripts/check-rust-hygiene.py "${rust_hygiene_args[@]}"
   run_oasis7_required_clippy_for_group rust_baseline
   while IFS= read -r check; do
     case "$check" in

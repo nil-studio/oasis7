@@ -56,6 +56,7 @@ mod cognition_command;
 mod cognition_economy;
 #[path = "cognition_economy_world.rs"]
 mod cognition_economy_world;
+mod cognition_economy_staged;
 mod cognition_feedback;
 mod cognition_gpd;
 mod cognition_orchestration;
@@ -180,6 +181,7 @@ mod rules;
 mod scheduling;
 mod snapshot;
 mod step;
+pub(crate) mod step_staged_clock;
 pub(crate) mod task_terminal_v2;
 mod tick_consensus;
 mod tick_consensus_state_root;

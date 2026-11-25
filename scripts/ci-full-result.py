@@ -119,9 +119,13 @@ def definition_digest(root, revision):
                        "standalone_cargo_manifest_scope_version",
                        "ordinary_controls_in_rust_baseline_version",
                        "scoped_production_cfg_version",
-                       "auxiliary_workflow_consolidation_version"):
+                       "auxiliary_workflow_consolidation_version",
+                       "command_center_offline_version"):
         if capability in config and (type(config[capability]) is not int or config[capability] != 1):
             raise ValueError(f"invalid trusted {capability} definition")
+    if "command_center_offline_version" in config:
+        if config.get("group_jobs", {}).get("command_center") != "baseline":
+            raise ValueError("invalid trusted command_center_offline_version definition")
     for capability in ("ordinary_scope_config_slice_version",
                        "workspace_member_cargo_manifest_scope_version"):
         if capability in config and (type(config[capability]) is not int or config[capability] not in (1, 2)):

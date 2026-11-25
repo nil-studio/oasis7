@@ -2381,7 +2381,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                           "workspace_member_cargo_manifest_scope_version", "scoped_production_cfg_version",
                           "ordinary_controls_in_rust_baseline_version",
                           "workspace_support_direct_gate_version",
-                          "custody_node_shards_version"):
+                          "custody_node_shards_version",
+                          "command_center_offline_version"):
             bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 9})).encode()
             def fake_check_output(cmd, **_kwargs):
                 target = cmd[-1]
@@ -2395,6 +2396,7 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
     def test_consolidated_full_receipt_requires_skipped_retired_jobs_and_direct_producer_xor(self):
         receipt, run, jobs = fixture()
         receipt["plan"]["contract_job_consolidation_version"] = CONFIG["contract_job_consolidation_version"]
+        receipt["plan"]["command_center_offline_version"] = CONFIG["command_center_offline_version"]
         del receipt["needs"]["oasis7-test-build"]
         receipt["needs"]["oasis7-test-build-candidate"] = {"result": "skipped"}
         receipt["needs"]["oasis7-test-build-trusted"] = {"result": "success"}
@@ -2403,8 +2405,9 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         verified = module.verify_receipt(receipt, run, jobs, source=A, repository="nil-studio/oasis7",
                                          workflow_id=7, config=CONFIG, digest="definition")
         self.assertEqual(verified, receipt)
-        for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report",
-                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout",
+        for retired_job in ("command-center", "compile-metrics", "consensus", "pixel-world-bridge",
+                            "viewer-performance-report", "packaging-contracts",
+                            "cargo-tooling-contracts", "windows-rollout",
                             "operational-contracts"):
             broken = copy.deepcopy(receipt)
             broken["needs"][retired_job] = {"result": "success"}

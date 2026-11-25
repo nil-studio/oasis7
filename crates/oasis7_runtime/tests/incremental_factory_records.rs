@@ -509,10 +509,18 @@ fn full_factory_and_build_source_oracle_survives_cold_roots() {
                     2,
                 ),
             ] {
+                let mut visited = 0usize;
                 visit_factory_record_v1(
                     key,
                     value,
                     &mut |cell, payload| -> Result<(), MemberRecordError> {
+                        visited += 1;
+                        if class == MemoryClass::Recovery
+                            && !cfg!(feature = "test_tier_full")
+                            && visited > 3
+                        {
+                            return Ok(());
+                        }
                         // Each explicit public point query owns a fresh finite
                         // physical operation budget; the API never resets it.
                         let state = store.state_session(physical(), class).unwrap();

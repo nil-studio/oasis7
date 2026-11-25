@@ -9,7 +9,7 @@ fn recovery_resources_readmission_bridges_to_ordinary_delta_tick_and_cold_requal
         &[PageCompression::Raw]
     };
     for &compression in compressions {
-        let (manifest, initial_delta, builtins) = rich_sources();
+        let (manifest, initial_delta, builtins) = transition_sources();
         let builtin_source = BuiltinSource(&builtins);
         let source = RuntimeArtifactResourcesRefV1 {
             chain_resource_manifest: &manifest,
