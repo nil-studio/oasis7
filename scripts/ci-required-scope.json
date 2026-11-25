@@ -6,7 +6,9 @@
   "ordinary_scope_config_slice_version": 2,
   "standalone_cargo_manifest_scope_version": 1,
   "workspace_support_direct_gate_version": 2,
+  "command_center_offline_version": 1,
   "group_jobs": {
+    "command_center": "baseline",
     "codex_agent_config_validation": "baseline",
     "macos_package_contract": "baseline",
     "doc_checker_contracts": "baseline",
@@ -1939,12 +1941,10 @@
       "workspace_support"
     ],
     "oasis7_signer_protocol": [
-      "workspace_support",
-      "command_center"
+      "workspace_support"
     ],
     "oasis7_local_signer": [
-      "workspace_support",
-      "command_center"
+      "workspace_support"
     ],
     "wasm_build_suite": [
       "workspace_support"
@@ -1953,12 +1953,10 @@
       "workspace_support"
     ],
     "oasis7_context": [
-      "workspace_support",
-      "command_center"
+      "workspace_support"
     ],
     "oasis7_secure_envelope": [
-      "workspace_support",
-      "command_center"
+      "workspace_support"
     ],
     "oasis7_executable_image": [
       "oasis7_required"
@@ -2701,9 +2699,7 @@
     },
     {
       "match": [
-        "tools/oasis7-command-center/**",
-        "scripts/cargo-dev.sh",
-        "scripts/find-python-with-module.sh"
+        "tools/oasis7-command-center/**"
       ],
       "exclude": [
         "tools/oasis7-command-center/README.md"

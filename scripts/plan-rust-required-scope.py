@@ -68,6 +68,7 @@ MAIN_FAST_COALESCE_CONCURRENCY_VERSION = 1
 WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 2
 WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS = (1, 2)
 FLEET_HEALTH_SUBCONTRACTS_VERSION = 1
+COMMAND_CENTER_OFFLINE_VERSION = 1
 FLEET_HEALTH_OSES = ('ubuntu-24.04', 'windows-2022', 'macos-15')
 FLEET_HEALTH_CHECKS = ('fleet_script', 'hosted_access', 'macos_signer', 'host_cleanup')
 FLEET_HEALTH_CHECK_OSES = {
@@ -425,7 +426,7 @@ def _classify_standalone_cargo_path(path):
         'tools/oasis7-command-center/core/Cargo.toml',
         'tools/oasis7-command-center/src-tauri/Cargo.toml',
     }:
-        return {'rust_baseline', 'cargo_tooling_contracts', 'command_center'}, set()
+        return {'rust_baseline', 'cargo_tooling_contracts'}, set()
     if path in {
         'tools/wasm_build_suite/templates/minimal_module/Cargo.toml',
         'tools/wasm_build_suite/templates/minimal_module/Cargo.lock',
@@ -1686,6 +1687,13 @@ def validate_config(config):
             if (group not in config['groups'] or not isinstance(job, str)
                     or job not in default_jobs or job == group.replace('_', '-')):
                 raise ValueError('invalid consolidated group job mapping')
+    if 'command_center_offline_version' in config:
+        if (type(config['command_center_offline_version']) is not int
+                or config['command_center_offline_version'] != COMMAND_CENTER_OFFLINE_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION
+                or config.get('contract_job_consolidation_version') != 5
+                or config.get('group_jobs', {}).get('command_center') != 'baseline'):
+            raise ValueError('invalid command center offline capability')
     if 'ordinary_scope_config_slice_version' in config:
         if (type(config['ordinary_scope_config_slice_version']) is not int
                 or config['ordinary_scope_config_slice_version'] not in ORDINARY_SCOPE_CONFIG_SLICE_VERSIONS
@@ -4286,6 +4294,8 @@ def complete_ordinary_partitions(config, plan):
             and config['contract_job_consolidation_version'] in CONTRACT_JOB_CONSOLIDATION_VERSIONS
             and plan.get('fast_plan_version') == FAST_PLAN_VERSION):
         plan['contract_job_consolidation_version'] = config['contract_job_consolidation_version']
+        if config.get('command_center_offline_version') == COMMAND_CENTER_OFFLINE_VERSION:
+            plan['command_center_offline_version'] = COMMAND_CENTER_OFFLINE_VERSION
     # The unchanged producer already supplies both default snapshots and the
     # runtime/component libraries. Actual nonempty inventories remain checked
     # at build and consumption; smaller policy migrations keep the all owner.

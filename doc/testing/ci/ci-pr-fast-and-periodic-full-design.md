@@ -37,7 +37,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `architecture.build_policy_version=1`、`build_policy=ordinary-targets` | 全部直接架构输入由快速目标承接时，保留全部声明/依赖图，额外 profile 编译明确延期到 full；缺少能力或混合未覆盖输入保持原编译选择 |
 | `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
 | `python_control_contract_version=1`、`python_control_paths`、`python_control_tests` | 可信精确路径命中的 CI Python 控制输入及按组归并的非空最低合同，由可信基线执行入口针对候选实现验证 |
-| `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
+| `formal_suites`、`formal_shards`、`command_center_package`、`command_center_offline_version=1` | 完整逻辑 case、实际物理分片，以及兼容历史计划的 Command Center 打包字段与离线收口开关（启用 `command_center_offline_version=1` 时常规快速与完整 profile 均跳过 macOS `command-center` job 并收口至 `baseline`） |
 | `fleet_health_subcontracts_version=1`、`fleet_health_checks`、`fleet_health_oses` | 可信配置启用后，解除 `operational_contracts` 对 `windows_rollout` 与 `fleet_health` 的无条件捆绑，按真实消费输入计算 `fleet-health` 的子契约集合（`fleet_script`、`hosted_access`、`macos_signer`、`host_cleanup`）与最小宿主集合 `fleet_health_oses`（如资源清理脚本仅启动 `ubuntu-24.04` + `macos-15` 且跳过 Rust 安装/冷编译，`local-signer` 仅启动 `macos-15`，组合变更与并入的 `windows_rollout` 取并集）；`scope=full`、`explicit-full`、显式追加或未细分规则保留三平台四项全集，旧 BASE 缺能力时回退原三平台矩阵 |
 | `formal_full_profiles_only_version=1` | 可信 BASE 启用重型 Formal 仅在完整 profile 执行；快速 profile 的组、逻辑 suite 和物理 shard 均不选择 Formal |
 | `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
@@ -132,7 +132,7 @@ DistFS workflow 显式通过 `OASIS7_CI_DISTFS_PLAN_FILE` 传递完整 selection
 
 新增且可证明可达的 item 不等于已有测试门控迁移。普通新增测试及其辅助模块，必须能从实际 Cargo test target 沿静态 `mod`、`#[path]` 或已解析的 `include!` 链确认执行归属，并按该 target 的普通 native Linux Cargo 组合求值，包括实际启用的默认 features。所有引用路由均须闭合到同一真实 package，条件均可判定，且至少一条完整路由及 item 条件成立；同一文件的互斥 production/test 挂载可分别为假/真，不能把两路条件相与，也不能用一条好路遮盖未知或未登记 feature。显式 `--no-default-features` 的 target 仍按其真实组合判断。不能仅凭文件名、函数名或某一层 `cfg(test)` 放行。满足条件时沿用受影响 package、必要反向消费者和风险规则，不追加无关 full features。Windows-only 条件、未知宏、无法解析的外部模块链、禁用 harness/测试 target 或未满足的 required-features 均不能取得普通新增豁免。
 
-生产平台 cfg 的新增 item 只有在真实 ordinary driver 上可达、没有覆盖或替换既有门控时，才保留路径与依赖图确定的必要包及平台范围。既有 item 门控变化、测试删除/改名与新增混合、无法证明的条件或共享控制变化继续保守扩大覆盖：启用 `scoped_production_cfg_version=1` 且全部变更的生产 cfg 路径均属于已解析根 workspace 包闭包、无共享控制或不确定输入时，禁用普通窄 target 快捷裁剪、私有单元测试裁剪与 support 转交，对真实受影响包及反向消费者闭包保留整包测试、适用 WASM、完整架构 profile 矩阵及相应平台消费者组（含命中 `command_center` 时的完整 App 打包与规模风险补测），不再额外拉起与受影响闭包无关的治理、前端或独立跨平台组；缺少该能力、存在未解析归属路径或混合共享控制变化时继续扩展为全仓 `scope=full`。这些检查不把生产 cfg 当作测试退役，也不因新增项可达而减去同一变更中其他输入要求的验证。
+生产平台 cfg 的新增 item 只有在真实 ordinary driver 上可达、没有覆盖或替换既有门控时，才保留路径与依赖图确定的必要包及平台范围。既有 item 门控变化、测试删除/改名与新增混合、无法证明的条件或共享控制变化继续保守扩大覆盖：启用 `scoped_production_cfg_version=1` 且全部变更的生产 cfg 路径均属于已解析根 workspace 包闭包、无共享控制或不确定输入时，禁用普通窄 target 快捷裁剪、私有单元测试裁剪与 support 转交，对真实受影响包及反向消费者闭包保留整包测试、适用 WASM、完整架构 profile 矩阵及相应平台消费者组（含规模风险补测；`command_center` 在暂停推进并启用 `command_center_offline_version=1` 期间不再连带触发 macOS App 构建），不再额外拉起与受影响闭包无关的治理、前端或独立跨平台组；缺少该能力、存在未解析归属路径或混合共享控制变化时继续扩展为全仓 `scope=full`。这些检查不把生产 cfg 当作测试退役，也不因新增项可达而减去同一变更中其他输入要求的验证。
 
 `pixel_world_bridge` 的实际 ordinary 根为默认 features 的 library harness；同次选中的 pixel 组还执行 `wasm32-unknown-unknown` 生产检查。新增直接 free function 内的精确 wasm32 / 非 wasm32 语句门控，可按每个分支及全部祖先的同一真实编译组合证明。所有引用路径均须已知并闭合到该库根；生产检查不能证明 WASM-only 测试已执行，既有函数、新增未知谓词、宏生成归属或共享控制变化仍走保守路径。此能力由可信 BASE planner 登记，候选不能自行授权。
 
@@ -142,7 +142,7 @@ DistFS workflow 显式通过 `OASIS7_CI_DISTFS_PLAN_FILE` 传递完整 selection
 
 ### 现有测试的首批归类依据
 
-下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及 [Command Center workflow](../../../.github/workflows/command-center.yml)。ordinary 对已登记输入按独立 target 合同收窄，其余按 package；support 按 profile，重型 Formal 在完整 profile 执行全部逻辑 suite；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
+下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及已保留只读定义的 [Command Center workflow](../../../.github/workflows/command-center.yml)。ordinary 对已登记输入按独立 target 合同收窄，其余按 package；support 按 profile，重型 Formal 在完整 profile 执行全部逻辑 suite；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
 
 | 现有入口或用例 | PR 快速候选与触发范围 | 合入前必要加测 | 周期完整覆盖 |
 | --- | --- | --- | --- |
@@ -153,7 +153,7 @@ DistFS workflow 显式通过 `OASIS7_CI_DISTFS_PLAN_FILE` 传递完整 selection
 | Viewer `test:frontend-structure`、`test:feedback-contract`、`test:ui` | 前端、接口及消费者变化时执行相关逻辑、反馈合同与必要编译 | auth/会话/权限变化执行 `viewer-auth-browser-security-smoke.mjs`；WASM/runtime 变化验证真实消费者 | 完整浏览器、WASM 构建与跨模块组合 |
 | `oasis7_simulator --test oasis7_init_demo --features test_tier_full`，现有过滤 `oasis7_init_demo_runs_` | 场景资产/初始化及必要消费者变化时保留实际场景验证；能否快速须量测 | 初始化、资源守恒和世界配置的相关完整场景属于必要集合，不因 full 标签推迟 | 全部场景及扩展组合 |
 | Formal 五个逻辑 suite 的完整 case | 有界状态转换与关键不变量由适用库/合同用例验证 | 需要提前验证重型场景时显式运行 candidate-full，普通 PR 不启动重型 Formal | 定期与候选 full 均保留全部逻辑 suite 与原 70/40 次长场景，物理分片不决定覆盖范围 |
-| `workflow_governance`、`packaging_contracts`、Command Center Core/UI/类型合同 | 对应控制、打包、Core/UI 输入变化时执行选测/失败传播/接口等适用合同与编译 | 来源/权限/缓存写边界接受可信旧验证；安装、路径、进程及平台变化验证实际 OS | 完整控制合同、原生 App/打包及运维平台矩阵 |
+| `workflow_governance`、`packaging_contracts`（及暂停推进期间下线收口至 `baseline` 的 Command Center 入口） | 对应控制、打包输入变化时执行选测/失败传播/接口等适用合同；Command Center 仅保留路径归属与独立清单锁审计 | 来源/权限/缓存写边界接受可信旧验证；安装、路径、进程及平台变化验证实际 OS | 完整控制合同与运维平台矩阵（Command Center 暂停期间不启动 macOS 桌面任务） |
 
 例如 [共识用例](../../../crates/oasis7_consensus/src/quorum/tests.rs)中的冲突拒绝和提交后发布可作为快速层的真实不变量检查；[成员恢复认证矩阵](../../../crates/oasis7_consensus/src/membership_restore_auth_tests.rs)使用真实签名并检查拒绝后原状态不变，不能用“只保留成功 smoke”替代。Formal 的 `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` 和 `protected_endpoint_children_sigkill_runtime_durable_phases_resume_original_once` 均在定期或显式候选 full 执行，历史裁剪、重开、durable 阶段及 crash/retry 修改也不改变其所属层。完整选择依据逻辑合同和实际 case，不按物理 shard 名推断覆盖。
 
@@ -265,7 +265,7 @@ Cargo 的测试名过滤只限制执行，不能当作编译范围缩小的证�
 
 对相同 source 和环境，令 R 为适用快速及必要加测集合，M 为从旧 PR 后移的检查，F 为完整回归集合，验证 R 与 M 均包含于 F。periodic-full 从全仓适用库存展开，不只选择本轮差异；必需的平台组合由平台矩阵执行。清单包含稳定检查 ID、真实命令/参数、前置、target/features 与结果，同名命令的不同环境不能互相抵扣。
 
-完整计划展开可信 scope 的全部 26 组，包含组级 Clippy、依赖本轮真实构建的 Viewer auth browser smoke、Command Center App、Windows rollout、macOS 包合同及 fleet-health 三平台。普通产物、Formal 产物/物理矩阵、平台组和 `full-extended` 可并行，`explicit-full-gate` 等待所有组、ordinary producer，以及恰好一个成功的可信或候选 full producer。
+完整计划展开可信 scope 的全部 26 组，包含组级 Clippy、依赖本轮真实构建的 Viewer auth browser smoke、Windows rollout、macOS 包合同及 fleet-health 三平台（`command_center` 在启用 `command_center_offline_version=1` 期间与已合并合同组一致收口至 `baseline` 并校验独立 job 为 `skipped`）。普通产物、Formal 产物/物理矩阵、平台组和 `full-extended` 可并行，`explicit-full-gate` 等待所有组、ordinary producer，以及恰好一个成功的可信或候选 full producer。
 
 `full-extended` 只运行 core 扩展 features、support 的完整 target/feature 组合、fixture smoke 与生产 mock guard，不重复整个 required 清单；它单独成功不代表完整回归。support 按真实 manifest 生成 `--all-targets` 调用，启用适用 full features；没有扩展 feature 或该轮没有 `test_policy_changed` 时也执行，保留不在普通 profile 中的 integration 等 target。`full-standard` 保留本地普通加扩展入口，并补齐原遗漏的 Clippy/browser smoke；`full` 再加 Formal，但两者都不能代签 hosted 的多平台集合。
 

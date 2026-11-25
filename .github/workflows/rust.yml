@@ -458,6 +458,11 @@ jobs:
           if capability in plan and (type(plan[capability]) is not int or plan[capability] not in (1, 2, 3, 4, 5)
                   or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
               raise ValueError('invalid contract job consolidation capability')
+          capability = 'command_center_offline_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('contract_job_consolidation_version')) is not int or plan['contract_job_consolidation_version'] != 5
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
+              raise ValueError('invalid command center offline capability')
           capability = 'workspace_support_direct_gate_version'
           if capability in plan:
               direct_ver = plan[capability]
@@ -507,7 +512,7 @@ jobs:
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
               'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
               'ordinary_main_fast_cache_writer_version',
-              'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
+              'contract_job_consolidation_version', 'command_center_offline_version', 'workspace_support_direct_gate_version',
               'fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks',
               'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version', 'custody_policy_tests_version',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
@@ -966,6 +971,7 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).command_center_offline_version != 1 &&
       (needs.select.outputs.run_command_center == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     uses: ./.github/workflows/command-center.yml
@@ -989,6 +995,8 @@ jobs:
         (needs.select.outputs.run_doc_checker_contracts == 'true' ||
          needs.select.outputs.run_compile_metrics == 'true' ||
          needs.select.outputs.run_packaging_contracts == 'true')) ||
+       (fromJSON(needs.select.outputs.plan).command_center_offline_version == 1 &&
+        needs.select.outputs.run_command_center == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 10
@@ -5515,6 +5523,11 @@ jobs:
           if capability in plan and (type(plan[capability]) is not int or plan[capability] not in (1, 2, 3, 4, 5)
                   or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
               raise ValueError('invalid contract job consolidation capability')
+          capability = 'command_center_offline_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('contract_job_consolidation_version')) is not int or plan['contract_job_consolidation_version'] != 5
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
+              raise ValueError('invalid command center offline capability')
           capability = 'workspace_support_direct_gate_version'
           if capability in plan:
               direct_ver = plan[capability]
@@ -5568,7 +5581,7 @@ jobs:
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
               'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
               'ordinary_main_fast_cache_writer_version',
-              'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
+              'contract_job_consolidation_version', 'command_center_offline_version', 'workspace_support_direct_gate_version',
               'fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks',
               'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version', 'custody_policy_tests_version',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
