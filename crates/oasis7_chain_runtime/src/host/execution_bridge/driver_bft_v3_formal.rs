@@ -184,6 +184,7 @@ impl FormalBftHeaderExecutionV3 {
     /// Detached test preview through the same execution, authorization, manifest
     /// and commitment pipeline. This cannot publish or install a canonical cut.
     #[cfg(test)]
+    #[cfg_attr(not(feature = "test_tier_full"), allow(dead_code))]
     pub(crate) fn preview_candidate_world_for_test(
         &self,
         private_actions: &[u8],

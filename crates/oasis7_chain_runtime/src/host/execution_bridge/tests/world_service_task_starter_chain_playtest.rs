@@ -1,9 +1,11 @@
 //! Claimed-Agent construction and first production through the real native service.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code))]
 use super::*;
 use oasis7_world_service::private_task_context::*;
 use oasis7_world_service::task_factory_quote::*;
 use oasis7_world_service::task_recipe_quote::*;
 use oasis7_runtime::*;
+#[cfg(feature = "test_tier_full")]
 #[path = "world_service_task_starter_chain_expiry_recovery.rs"]
 mod expiry_recovery;
 #[path = "world_service_task_starter_chain_factory_quote_retry.rs"]
@@ -166,6 +168,7 @@ fn private_task_starter_chain_prepared_world_live_service() {
     live_service::run(ready);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn private_task_starter_chain_build_feed_first_product_and_restart() {
     let _scenario_permit = super::private_task_resource_permit();

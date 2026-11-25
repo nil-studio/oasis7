@@ -133,7 +133,12 @@ fn seed(store: &IncrementalPageStore, memory: &MemoryBudget, source: &WorldState
 #[test]
 fn logistics_original_records_qualify_and_point_read_after_cold_reopen() {
     use LogisticsColumnV1 as C;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let roots = {
@@ -352,7 +357,12 @@ fn logistics_point_create_delete_receiver_and_typed_transfer_continue_from_roots
     use LogisticsColumnV1 as C;
     use LogisticsRecordKindV1 as K;
     use LogisticsValueRefV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let source_dir = Directory::new();
         let target_dir = Directory::new();
         let target_path = target_dir.0.join("pages");

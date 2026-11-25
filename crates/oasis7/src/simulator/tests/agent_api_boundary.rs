@@ -18,7 +18,7 @@ fn unaffected_shared_types_are_api_type_identities() {
     fn same_type<T>(_: Option<T>, _: Option<T>) {}
 
     same_type(
-        None::<crate::capability_invocation_context::CapabilityInvocationContext>,
+        None::<oasis7_agent_api::CapabilityInvocationContext>,
         None::<oasis7_agent_api::CapabilityInvocationContext>,
     );
     same_type(

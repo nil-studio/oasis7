@@ -634,13 +634,23 @@ fn creation(
 }
 #[test]
 fn qualified_parent_rejects_original_orphan_and_poisons_prior_prefix() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         creation(true, compression, 165, StateArcMode::Good, false);
     }
 }
 #[test]
 fn fresh_inner_case_accepts_same_transaction_member_and_cold_root_only_recovery() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         creation(false, compression, 165, StateArcMode::Good, false);
     }
 }
@@ -684,7 +694,12 @@ fn undercharged_state_page_arc_must_reject_and_poison_typed_prefix() {
 
 #[test]
 fn post_batch_real_put_cancellation_poisons_and_original_root_can_retry() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         creation(false, compression, 165, StateArcMode::Good, true);
     }
 }

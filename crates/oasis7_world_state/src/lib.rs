@@ -37,7 +37,9 @@ pub mod manifest;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod modules;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod node_points;
+pub mod node_points {
+    pub use oasis7_agent_api::world_action::{EpochSettlementReport, NodeSettlement};
+}
 #[cfg(not(target_arch = "wasm32"))]
 pub mod observation_projection;
 #[cfg(not(target_arch = "wasm32"))]
@@ -54,9 +56,13 @@ pub mod snapshot_delta;
 pub mod state;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub mod builtin_factory_catalog;
+pub mod builtin_factory_catalog {
+    pub use oasis7_agent_api::world_quote::builtin_factory_spec;
+}
 #[cfg(not(target_arch = "wasm32"))]
-pub mod builtin_recipe_catalog;
+pub mod builtin_recipe_catalog {
+    pub use oasis7_agent_api::world_quote::builtin_recipe_plan;
+}
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cognition_feedback_contract;
 #[cfg(not(target_arch = "wasm32"))]
@@ -68,7 +74,16 @@ pub mod cognition_wake;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod service_admission;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod types;
+pub mod types {
+    pub use oasis7_agent_api::world_action::MaterialLedgerId;
+
+    pub type WorldTime = u64;
+    pub type WorldEventId = u64;
+    pub type ActionId = u64;
+    pub type IntentSeq = u64;
+    pub type ProposalId = u64;
+    pub type PatchPath = Vec<String>;
+}
 #[cfg(not(target_arch = "wasm32"))]
 pub mod util;
 #[cfg(not(target_arch = "wasm32"))]

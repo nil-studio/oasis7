@@ -11,7 +11,6 @@
 pub use oasis7_world_state::agent_cell;
 pub use oasis7_world_state::agent_claims;
 pub use oasis7_world_state::audit;
-mod blob_store;
 pub use oasis7_world_state::builtin_factory_catalog;
 pub use oasis7_world_state::builtin_recipe_catalog;
 mod builtin_wasm_identity_manifest;
@@ -39,7 +38,12 @@ pub use oasis7_world_state::consensus;
 pub mod domains;
 pub use oasis7_world_state::effect;
 pub use oasis7_world_state::error;
-mod events;
+mod events {
+    pub use oasis7_world_state::events::*;
+    #[cfg(test)]
+    #[path = "recipe_origin_tests.rs"]
+    pub(crate) mod recipe_origin_tests;
+}
 pub use oasis7_world_state::formal_retained_history;
 mod gameplay;
 pub use oasis7_world_state::gameplay_state;
@@ -71,7 +75,13 @@ pub use snapshot_delta::{
     SnapshotArtifactV1, SnapshotDeltaV1, resolve_snapshot_artifact,
     resolve_snapshot_artifact_with_depth,
 };
-mod state;
+mod state {
+    #[cfg(test)]
+    use crate::*;
+    pub use oasis7_world_state::state::*;
+    #[cfg(test)]
+    mod apply_domain_event_industry_history_tests;
+}
 pub use oasis7_world_state::incremental_cognition_control_overlay;
 pub use oasis7_world_state::incremental_cognition_family;
 pub use oasis7_world_state::incremental_cognition_groups;
@@ -320,7 +330,7 @@ pub use reward_asset::{
 };
 
 // Blob store
-pub use blob_store::{BlobStore, HashAlgorithm, LocalCasStore, blake3_hex};
+pub use oasis7_cas::{BlobStore, HashAlgorithm, LocalCasStore, blake3_hex};
 pub(crate) use builtin_wasm_materializer::load_builtin_wasm_with_fetch_fallback;
 
 #[cfg(test)]

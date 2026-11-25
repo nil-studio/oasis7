@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildViewerEntityLists, renderViewerEntityList } from "./viewer_entity_list_renderer.js";
+import { buildViewerEntityLists, resourceSummary } from "./viewer_entity_list_renderer.js";
 
 describe("viewer entity list renderer", () => {
-  it("renders only visible agents, filters targets, and escapes display values", () => {
-    const state = {
-      selectedKind: "agent",
-      selectedId: "agent-1",
-      selectedSearch: "alpha",
-    };
+  it("filters only visible agents, sorts targets, and formats resource summaries", () => {
     const lists = buildViewerEntityLists({
-      selectedSearch: state.selectedSearch,
+      selectedSearch: "alpha",
       entityCollections: () => ({
         agents: [
           { id: "agent-1", location_id: "alpha-base", resources: { ore: 3 } },
@@ -21,12 +16,9 @@ describe("viewer entity list renderer", () => {
       }),
       isAgentVisibleToCurrentSession: (agentId) => agentId === "agent-1",
     });
-    const html = renderViewerEntityList({ state, lists });
 
-    expect(html).toContain('data-select-id="agent-1"');
-    expect(html).toContain('data-selected="true"');
-    expect(html).not.toContain("agent-2");
-    expect(html).toContain("Alpha &lt;Dock&gt;");
-    expect(html).toContain('data-select-id="alpha&lt;dock"');
+    expect(lists.agents.map((agent) => agent.id)).toEqual(["agent-1"]);
+    expect(lists.locations.map((location) => location.id)).toEqual(["alpha<dock"]);
+    expect(resourceSummary(lists.agents[0].resources)).toBe("ore:3");
   });
 });

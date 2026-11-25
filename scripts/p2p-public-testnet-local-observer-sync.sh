@@ -215,15 +215,6 @@ execution_bridge_state_path_for_root() {
 
 repo_root=$(cd "$script_dir/.." && pwd)
 
-resolve_repo_ref() {
-  local ref=$1
-  if [[ "$ref" = /* ]]; then
-    printf '%s' "$ref"
-  else
-    printf '%s/%s' "$repo_root" "$ref"
-  fi
-}
-
 manifest_authority_metadata() {
   local manifest_path=$1
   local deployment_inventory_path=${2:-}

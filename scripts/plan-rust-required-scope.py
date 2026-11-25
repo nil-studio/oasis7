@@ -48,9 +48,10 @@ CUSTODY_NODE_SHARDS = (0, 1, 2)
 LEGACY_CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 CUSTODY_NODE_SHARDS_VERSION = 2
 ORDINARY_DYNAMIC_PARTITION_VERSION = 1
-CONTRACT_JOB_CONSOLIDATION_VERSION = 4
-CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3, 4)
-ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 1
+CONTRACT_JOB_CONSOLIDATION_VERSION = 5
+CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3, 4, 5)
+ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 2
+ORDINARY_SCOPE_CONFIG_SLICE_VERSIONS = (1, 2)
 STANDALONE_CARGO_MANIFEST_SCOPE_VERSION = 1
 WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSION = 2
 WORKSPACE_MEMBER_CARGO_MANIFEST_SCOPE_VERSIONS = (1, 2)
@@ -64,7 +65,46 @@ SCOPED_MEMBER_TARGET_CFGS = frozenset((
 ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION = 1
 SCOPED_PRODUCTION_CFG_VERSION = 1
 MAIN_FAST_COALESCE_CONCURRENCY_VERSION = 1
-WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 1
+WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 2
+WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS = (1, 2)
+FLEET_HEALTH_SUBCONTRACTS_VERSION = 1
+COMMAND_CENTER_OFFLINE_VERSION = 1
+FLEET_HEALTH_OSES = ('ubuntu-24.04', 'windows-2022', 'macos-15')
+FLEET_HEALTH_CHECKS = ('fleet_script', 'hosted_access', 'macos_signer', 'host_cleanup')
+FLEET_HEALTH_CHECK_OSES = {
+    'fleet_script': FLEET_HEALTH_OSES,
+    'hosted_access': FLEET_HEALTH_OSES,
+    'macos_signer': ('macos-15',),
+    'host_cleanup': ('ubuntu-24.04', 'macos-15'),
+}
+FLEET_HEALTH_PATH_SUBCONTRACTS = {
+    'fleet_script': (
+        'scripts/p2p-public-testnet-fleet-health*',
+        'scripts/public-testnet-validator-triad-inventory.v1.json',
+        'doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md',
+        'doc/testing/evidence/public-testnet-five-node-inventory-2026-06-23.md',
+        'doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-registry-2026-09-15.json',
+        'doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-bootstrap-peers-2026-09-15.txt',
+    ),
+    'macos_signer': (
+        'scripts/ci-local-signer-tests.py',
+        'scripts/local-signer/**',
+        'crates/oasis7_local_signer/**',
+        'crates/oasis7_signer_protocol/**',
+        'crates/oasis7_context/**',
+        'crates/oasis7_secure_envelope/**',
+    ),
+    'host_cleanup': (
+        'scripts/resource-cleanup*',
+        'scripts/new-task-worktree*',
+    ),
+}
+FLEET_HEALTH_SIGNER_PACKAGES = frozenset((
+    'oasis7_local_signer',
+    'oasis7_signer_protocol',
+    'oasis7_context',
+    'oasis7_secure_envelope',
+))
 ORDINARY_SCOPE_SLICE_KEYS = frozenset((
     'ordinary_harness_costs',
     'ordinary_fast_targets',
@@ -106,11 +146,12 @@ SUPPORT_PROFILES = (
 # The distfs group runs these lib harnesses and the registered industry
 # integration target with Cargo defaults on Ubuntu.
 # This proves native target predicates only, never expanded feature activation.
-# The net group similarly runs the oasis7_net lib with Cargo defaults on Ubuntu.
-# Keep synchronized with run_oasis7_distfs_tests/run_oasis7_net_tests and their
+# The net and node groups run their libs with Cargo defaults on Ubuntu.
+# Keep synchronized with run_oasis7_distfs_tests/run_oasis7_net_tests/
+# run_oasis7_node_tests and their
 # rust.yml runners; this does not authorize package bins or optional features.
 NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
-    'oasis7_cas', 'oasis7_formal_protocol', 'oasis7_distfs', 'oasis7_net',
+    'oasis7_cas', 'oasis7_formal_protocol', 'oasis7_distfs', 'oasis7_net', 'oasis7_node',
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
@@ -288,15 +329,126 @@ def _git_regular_blob_bytes(ref, path, *, max_bytes=4 * 1024 * 1024, repo=None):
     return git('cat-file', 'blob', oid, repo=repo)
 
 
-def scoped_scope_config_groups(config, comparisons, paths, *, repo=None):
-    """Narrow ci-required-scope.json only when changed top-level keys stay inside ordinary test slices."""
+def _tracked_tree_paths(ref, *, repo=None):
+    raw = git('ls-tree', '-r', '--name-only', '-z', ref, repo=repo)
+    return tuple(entry.decode('utf-8', 'surrogateescape') for entry in raw.split(b'\0') if entry)
+
+
+def _rule_matches_path(rule, path):
+    return (any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])
+            and not any(fnmatch.fnmatchcase(path, pattern) for pattern in rule.get('exclude', ())))
+
+
+def _rule_non_match_signature(rule):
+    return json.dumps({key: value for key, value in rule.items() if key != 'match'}, sort_keys=True)
+
+
+def _controlled_rules_diff(old_rules, new_rules, before, after, tree_cache, *, repo=None):
+    """Validate order-preserving rule additions, match-superset extensions, and 0-hit retirements.
+
+    Returns `(added_groups, candidate_added_rules)` or `None` when the rules edit
+    reorders, narrows, or alters existing active rules.
+    """
+    old_exact = [json.dumps(rule, sort_keys=True) for rule in old_rules]
+    new_exact = [json.dumps(rule, sort_keys=True) for rule in new_rules]
+    if len(old_exact) != len(set(old_exact)) or len(new_exact) != len(set(new_exact)):
+        return None
+    m, n = len(old_rules), len(new_rules)
+    # Longest order-preserving alignment where an old rule either stays identical
+    # or strictly appends/inserts new `match` patterns while keeping all old
+    # patterns, `groups`, `exclude`, `full`, and `reason` intact.
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+
+    def can_pair(old_rule, new_rule):
+        if old_rule == new_rule:
+            return True
+        if _rule_non_match_signature(old_rule) != _rule_non_match_signature(new_rule):
+            return False
+        if new_rule.get('full', False) or not new_rule.get('groups'):
+            return False
+        old_match = old_rule.get('match', ())
+        new_match = new_rule.get('match', ())
+        if len(old_match) != len(set(old_match)) or len(new_match) != len(set(new_match)):
+            return False
+        it = iter(new_match)
+        return all(any(item == pat for item in it) for pat in old_match)
+
+    for i in range(m - 1, -1, -1):
+        for j in range(n - 1, -1, -1):
+            best = dp[i + 1][j] if dp[i + 1][j] >= dp[i][j + 1] else dp[i][j + 1]
+            if can_pair(old_rules[i], new_rules[j]):
+                cand = 1 + dp[i + 1][j + 1]
+                if cand > best:
+                    best = cand
+            dp[i][j] = best
+
+    paired_old = set()
+    paired_new = {}
+    i = j = 0
+    while i < m and j < n:
+        if can_pair(old_rules[i], new_rules[j]) and dp[i][j] == 1 + dp[i + 1][j + 1]:
+            paired_old.add(i)
+            paired_new[j] = i
+            i += 1
+            j += 1
+        elif dp[i + 1][j] >= dp[i][j + 1]:
+            i += 1
+        else:
+            j += 1
+
+    removed = [old_rules[idx] for idx in range(m) if idx not in paired_old]
+    if removed:
+        for ref in (before, after):
+            if ref not in tree_cache:
+                tree_cache[ref] = _tracked_tree_paths(ref, repo=repo)
+        for rule in removed:
+            if any(_rule_matches_path(rule, tracked)
+                   for ref in (before, after) for tracked in tree_cache[ref]):
+                return None
+
+    added_groups = set()
+    candidate_rules = []
+    for j_idx, new_rule in enumerate(new_rules):
+        if j_idx not in paired_new:
+            if new_rule.get('full', False) or not new_rule.get('groups'):
+                return None
+            added_groups.update(new_rule['groups'])
+            candidate_rules.append({
+                'match': tuple(new_rule['match']),
+                'exclude': tuple(new_rule.get('exclude', ())),
+                'groups': tuple(new_rule['groups']),
+                'reason': new_rule['reason'],
+            })
+        else:
+            old_rule = old_rules[paired_new[j_idx]]
+            if old_rule != new_rule:
+                extra_patterns = tuple(p for p in new_rule['match'] if p not in set(old_rule['match']))
+                if not extra_patterns:
+                    return None
+                added_groups.update(new_rule['groups'])
+                candidate_rules.append({
+                    'match': extra_patterns,
+                    'exclude': tuple(new_rule.get('exclude', ())),
+                    'groups': tuple(new_rule['groups']),
+                    'reason': new_rule['reason'],
+                })
+    return added_groups, candidate_rules
+
+
+def scoped_scope_config_groups(config, comparisons, paths, *, repo=None, allow_driver_cochange=False):
+    """Validate controlled ci-required-scope.json edits and extract verified candidate rules."""
     target = 'scripts/ci-required-scope.json'
     version = config.get('ordinary_scope_config_slice_version')
-    if (target not in paths or 'scripts/ci-tests.sh' in paths or not comparisons
-            or type(version) is not int or version != ORDINARY_SCOPE_CONFIG_SLICE_VERSION):
+    if (target not in paths or (not allow_driver_cochange and 'scripts/ci-tests.sh' in paths)
+            or not comparisons
+            or type(version) is not int or version not in ORDINARY_SCOPE_CONFIG_SLICE_VERSIONS):
         return None
+    allowed_keys = ORDINARY_SCOPE_SLICE_KEYS | ({'rules'} if version == 2 else set())
     try:
         changed_keys = set()
+        added_rule_groups = set()
+        per_comparison_rules = []
+        tree_cache = {}
         for before, after in comparisons:
             old_raw = _git_regular_blob_bytes(before, target, repo=repo)
             new_raw = _git_regular_blob_bytes(after, target, repo=repo)
@@ -304,17 +456,48 @@ def scoped_scope_config_groups(config, comparisons, paths, *, repo=None):
                 return None
             old_cfg = validate_config(_strict_json_object(old_raw))
             new_cfg = validate_config(_strict_json_object(new_raw))
-            changed_keys.update(
+            if set(old_cfg['groups']) != set(config['groups']):
+                return None
+            if set(new_cfg['groups']) != set(config['groups']):
+                return None
+            pair_changed = {
                 key for key in set(old_cfg) | set(new_cfg)
                 if old_cfg.get(key) != new_cfg.get(key)
-            )
-        if not changed_keys or not changed_keys <= ORDINARY_SCOPE_SLICE_KEYS:
+            }
+            changed_keys.update(pair_changed)
+            if 'rules' in pair_changed:
+                if version != 2:
+                    return None
+                diff_res = _controlled_rules_diff(
+                    old_cfg['rules'], new_cfg['rules'], before, after, tree_cache, repo=repo)
+                if diff_res is None:
+                    return None
+                pair_groups, pair_rules = diff_res
+                added_rule_groups.update(pair_groups)
+                per_comparison_rules.append(pair_rules)
+            else:
+                per_comparison_rules.append([])
+        if not changed_keys or not changed_keys <= allowed_keys:
             return None
-        selected = {'workflow_governance', 'rust_baseline', 'oasis7_required'}
-        widens_policy = bool(changed_keys - {'ordinary_harness_costs'})
-        if widens_policy:
-            selected.update(('consensus', 'node', 'distfs'))
-        return selected, widens_policy
+        common_rule_keys = None
+        rule_by_key = {}
+        for pair_rules in per_comparison_rules:
+            keys = set()
+            for r in pair_rules:
+                k = json.dumps(r, sort_keys=True)
+                keys.add(k)
+                rule_by_key[k] = r
+            common_rule_keys = keys if common_rule_keys is None else (common_rule_keys & keys)
+        verified_candidate_rules = [rule_by_key[k] for k in sorted(common_rule_keys or ())]
+        slice_keys_changed = changed_keys & ORDINARY_SCOPE_SLICE_KEYS
+        selected = {'workflow_governance', *added_rule_groups}
+        widens_policy = False
+        if slice_keys_changed:
+            selected.update(('rust_baseline', 'oasis7_required'))
+            widens_policy = bool(slice_keys_changed - {'ordinary_harness_costs'})
+            if widens_policy:
+                selected.update(('consensus', 'node', 'distfs'))
+        return selected, widens_policy, verified_candidate_rules
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
         return None
 
@@ -338,7 +521,7 @@ def _classify_standalone_cargo_path(path):
         'tools/oasis7-command-center/core/Cargo.toml',
         'tools/oasis7-command-center/src-tauri/Cargo.toml',
     }:
-        return {'rust_baseline', 'cargo_tooling_contracts', 'command_center'}, set()
+        return {'rust_baseline', 'cargo_tooling_contracts'}, set()
     if path in {
         'tools/wasm_build_suite/templates/minimal_module/Cargo.toml',
         'tools/wasm_build_suite/templates/minimal_module/Cargo.lock',
@@ -1599,9 +1782,16 @@ def validate_config(config):
             if (group not in config['groups'] or not isinstance(job, str)
                     or job not in default_jobs or job == group.replace('_', '-')):
                 raise ValueError('invalid consolidated group job mapping')
+    if 'command_center_offline_version' in config:
+        if (type(config['command_center_offline_version']) is not int
+                or config['command_center_offline_version'] != COMMAND_CENTER_OFFLINE_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION
+                or config.get('contract_job_consolidation_version') != 5
+                or config.get('group_jobs', {}).get('command_center') != 'baseline'):
+            raise ValueError('invalid command center offline capability')
     if 'ordinary_scope_config_slice_version' in config:
         if (type(config['ordinary_scope_config_slice_version']) is not int
-                or config['ordinary_scope_config_slice_version'] != ORDINARY_SCOPE_CONFIG_SLICE_VERSION
+                or config['ordinary_scope_config_slice_version'] not in ORDINARY_SCOPE_CONFIG_SLICE_VERSIONS
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid ordinary scope config slice capability')
     if 'standalone_cargo_manifest_scope_version' in config:
@@ -1630,7 +1820,7 @@ def validate_config(config):
             raise ValueError('invalid main-fast coalesce concurrency capability')
     if 'workspace_support_direct_gate_version' in config:
         if (type(config['workspace_support_direct_gate_version']) is not int
-                or config['workspace_support_direct_gate_version'] != WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+                or config['workspace_support_direct_gate_version'] not in WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS
                 or type(config.get('workspace_support_partition_version')) is not int
                 or config['workspace_support_partition_version'] != 1
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
@@ -1639,6 +1829,11 @@ def validate_config(config):
         if (type(config['auxiliary_workflow_consolidation_version']) is not int
                 or config['auxiliary_workflow_consolidation_version'] != 1):
             raise ValueError('invalid auxiliary workflow consolidation capability')
+    if 'fleet_health_subcontracts_version' in config:
+        if (type(config['fleet_health_subcontracts_version']) is not int
+                or config['fleet_health_subcontracts_version'] != FLEET_HEALTH_SUBCONTRACTS_VERSION
+                or 'fleet_health' not in groups):
+            raise ValueError('invalid fleet-health subcontracts capability')
     if 'ordinary_harness_costs' in config:
         if config.get('ordinary_artifact_partition_version') not in (1, 2):
             raise ValueError('ordinary harness costs require artifact partitions')
@@ -4194,6 +4389,8 @@ def complete_ordinary_partitions(config, plan):
             and config['contract_job_consolidation_version'] in CONTRACT_JOB_CONSOLIDATION_VERSIONS
             and plan.get('fast_plan_version') == FAST_PLAN_VERSION):
         plan['contract_job_consolidation_version'] = config['contract_job_consolidation_version']
+        if config.get('command_center_offline_version') == COMMAND_CENTER_OFFLINE_VERSION:
+            plan['command_center_offline_version'] = COMMAND_CENTER_OFFLINE_VERSION
     # The unchanged producer already supplies both default snapshots and the
     # runtime/component libraries. Actual nonempty inventories remain checked
     # at build and consumption; smaller policy migrations keep the all owner.
@@ -4282,16 +4479,25 @@ def complete_ordinary_partitions(config, plan):
                     plan['custody_compile_proof_version'] = CUSTODY_COMPILE_PROOF_VERSION
                 else:
                     plan['reasons'].append('tested source retains complete legacy custody approval proofs')
+            if (type(config.get('workspace_support_direct_gate_version')) is int
+                    and config['workspace_support_direct_gate_version'] == 2
+                    and plan.get('fast_plan_version') == FAST_PLAN_VERSION
+                    and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                    and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version', 2)):
+                plan['workspace_support_direct_gate_version'] = 2
         elif (type(config.get('workspace_support_direct_gate_version')) is int
-                and config['workspace_support_direct_gate_version'] == WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+                and config['workspace_support_direct_gate_version'] in WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS
                 and plan.get('fast_plan_version') == FAST_PLAN_VERSION
                 and plan.get('execution_profile') in ('pr-fast', 'main-fast')
                 and plan.get('workspace_support_partitions') == ['other']
                 and 'oasis7_custody_worker' not in plan.get('workspace_support_profiles', ())
-                and not workspace_support_requires_host(plan)
-                and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version',
-                                                      WORKSPACE_SUPPORT_DIRECT_GATE_VERSION)):
-            plan['workspace_support_direct_gate_version'] = WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+                and (not workspace_support_requires_host(plan)
+                     or workspace_support_selects_signer_image(plan))):
+            direct_ver = config['workspace_support_direct_gate_version']
+            if direct_ver == 2 and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version', 2):
+                plan['workspace_support_direct_gate_version'] = 2
+            elif tested_source_supports_capability(plan, 'workspace_support_direct_gate_version', 1):
+                plan['workspace_support_direct_gate_version'] = 1
     if (type(config.get('ordinary_controls_in_rust_baseline_version')) is int
             and config['ordinary_controls_in_rust_baseline_version'] == ORDINARY_CONTROLS_IN_RUST_BASELINE_VERSION
             and plan.get('fast_plan_version') == FAST_PLAN_VERSION
@@ -4322,7 +4528,14 @@ def tested_source_supports_capability(plan, field, expected_version):
         raise ValueError(f'invalid tested protocol configuration for {field}')
     if field not in source_config:
         return False
-    if type(source_config[field]) is not int or source_config[field] != expected_version:
+    actual = source_config[field]
+    if type(actual) is not int or actual < 1:
+        raise ValueError(f'invalid tested capability: {field}')
+    if actual < expected_version:
+        return False
+    if actual != expected_version and not (
+            field == 'workspace_support_direct_gate_version'
+            and actual in WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS):
         raise ValueError(f'invalid tested capability: {field}')
     return True
 
@@ -4364,8 +4577,63 @@ def workspace_support_requires_host(plan):
             or bool(WORKSPACE_SUPPORT_HOST_PROFILES.intersection(plan.get('workspace_support_profiles', ()))))
 
 
+def workspace_support_selects_signer_image(plan):
+    """Replace the host provisioner only for the supported signer profile combinations."""
+    return (plan.get('scope') == 'targeted'
+            and plan.get('test_policy_changed') is False
+            and type(plan.get('workspace_support_profile_version')) is int
+            and plan['workspace_support_profile_version'] == 1
+            and plan.get('workspace_support_profiles') in (
+                ['oasis7_local_signer'],
+                ['oasis7_context', 'oasis7_local_signer'],
+                ['oasis7_local_signer', 'oasis7_signer_protocol'],
+                ['oasis7_context', 'oasis7_local_signer', 'oasis7_signer_protocol']))
+
+
 def support_partitions(profiles):
     return sorted({'custody' if profile == 'oasis7_custody_worker' else 'other' for profile in profiles})
+
+
+def fleet_health_subcontracts(config, chosen, affected, path_rules, *, full=False, additions=()):
+    """Select exact fleet-health host OSes and subcontracts; unmapped or full inputs keep the full matrix."""
+    if config.get('fleet_health_subcontracts_version') != FLEET_HEALTH_SUBCONTRACTS_VERSION:
+        return {}
+    consolidated_rollout = (
+        config.get('contract_job_consolidation_version') in CONTRACT_JOB_CONSOLIDATION_VERSIONS
+        and config.get('group_jobs', {}).get('windows_rollout') == 'fleet-health'
+        and 'windows_rollout' in chosen
+    )
+    checks = set()
+    unmapped = False
+    if 'fleet_health' in chosen:
+        if 'oasis7_hosted_access' in affected:
+            checks.add('hosted_access')
+        if FLEET_HEALTH_SIGNER_PACKAGES.intersection(affected):
+            checks.add('macos_signer')
+        if any('fleet_health' in config['package_groups'].get(package, ())
+               and package != 'oasis7_hosted_access' for package in affected):
+            unmapped = True
+        for path, rule_groups in path_rules.items():
+            if 'fleet_health' not in rule_groups:
+                continue
+            path_checks = {
+                check for check, patterns in FLEET_HEALTH_PATH_SUBCONTRACTS.items()
+                if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+            }
+            if path_checks:
+                checks.update(path_checks)
+            else:
+                unmapped = True
+        if full or 'fleet_health' in additions or unmapped or not checks:
+            checks = set(FLEET_HEALTH_CHECKS)
+    oses = {os_name for check in checks for os_name in FLEET_HEALTH_CHECK_OSES[check]}
+    if consolidated_rollout:
+        oses.add('windows-2022')
+    return {
+        'fleet_health_subcontracts_version': FLEET_HEALTH_SUBCONTRACTS_VERSION,
+        'fleet_health_checks': [check for check in FLEET_HEALTH_CHECKS if check in checks],
+        'fleet_health_oses': [os_name for os_name in FLEET_HEALTH_OSES if os_name in oses],
+    }
 
 
 def full_plan(config, profile, source_head, test_head=None, policy_ref=None, formal_inventory=None):
@@ -4402,6 +4670,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         if config.get('ordinary_case_prefix_contract_version') == 1:
             plan['ordinary_case_prefix_contract_version'] = 1
     plan.update(python_control_plan(config))
+    plan.update(fleet_health_subcontracts(config, set(groups), set(), {}, full=True))
     if config.get('formal_full_profiles_only_version') == 1:
         plan['formal_full_profiles_only_version'] = 1
         plan['formal_deferred_ordinary_cases'] = {}
@@ -4796,6 +5065,8 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                                           if not reason.startswith('necessary Formal risk suites: ')])
         plan['reasons'].append('heavy Formal process tests run only in complete profiles: '
                                'periodic-full and candidate-full')
+    plan.update(fleet_health_subcontracts(config, chosen, affected, path_rules,
+                                          full=conservative, additions=additions))
     return plan
 
 
@@ -5017,8 +5288,15 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                 reasons.append('uncertain Git/dependency inputs: ' + str(error))
         reported_embeds = False
         governance_registrations = additive_governance_registration(config, policy_comparisons, paths)
+        candidate_rule_slice = (
+            scoped_scope_config_groups(config, policy_comparisons, paths, allow_driver_cochange=True)
+            if profile in ('pr-fast', 'main-fast') else None
+        )
+        candidate_added_rules = candidate_rule_slice[2] if candidate_rule_slice is not None else ()
         if profile in ('pr-fast', 'main-fast') and not full:
-            scope_config_slice = scoped_scope_config_groups(config, policy_comparisons, paths)
+            scope_config_slice = (
+                candidate_rule_slice if 'scripts/ci-tests.sh' not in paths else None
+            )
             standalone_manifests = standalone_cargo_manifest_selection(
                 config, graphs, graph_refs, policy_comparisons, paths)
             member_manifests = workspace_member_cargo_manifest_selection(
@@ -5045,6 +5323,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
             elif path == 'scripts/ci-required-scope.json' and scope_config_slice is not None:
                 chosen.update(scope_config_slice[0])
                 path_rules[path].update(scope_config_slice[0])
+                support_rule |= 'workspace_support' in scope_config_slice[0]
                 reasons.append('scoped ordinary CI configuration slice changed: ' + path)
             elif path in standalone_manifests:
                 manifest_groups, manifest_profiles = standalone_manifests[path]
@@ -5055,7 +5334,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
             elif path in member_manifests:
                 manifest_groups, manifest_owners = member_manifests[path]
                 chosen.update(manifest_groups)
-                path_rules[path].update(manifest_groups)
+                path_rules[path].update(manifest_owners and manifest_groups or manifest_groups)
                 for manifests, reverse, _ in graphs:
                     present_owners = manifest_owners.intersection(manifests)
                     if present_owners:
@@ -5108,6 +5387,24 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                     support_rule |= 'workspace_support' in rule.get('groups', [])
                     full |= rule.get('full', False)
                     reasons.append(rule['reason'] + ': ' + path)
+            if not matched and candidate_added_rules:
+                try:
+                    is_newly_added = bool(policy_comparisons) and all(
+                        _git_regular_blob_bytes(before, path) is None
+                        and _git_regular_blob_bytes(after, path) is not None
+                        for before, after in policy_comparisons
+                    )
+                except (OSError, subprocess.CalledProcessError, ValueError, UnicodeError):
+                    is_newly_added = False
+                if is_newly_added:
+                    for rule in candidate_added_rules:
+                        if _rule_matches_path(rule, path):
+                            matched = True
+                            chosen.update(rule['groups'])
+                            chosen.add('workflow_governance')
+                            path_rules[path].update(rule['groups'])
+                            support_rule |= 'workspace_support' in rule['groups']
+                            reasons.append('same-PR controlled rule registration (' + rule['reason'] + '): ' + path)
             # Add an audited cross-package test consumer without flattening the
             # support group. This does not register ownership for unknown paths.
             for support_profile, patterns in config.get('workspace_support_profile_paths', {}).items():
@@ -5255,15 +5552,11 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
     if full:
         chosen = set(groups)
         reasons.append('ordinary required fallback')
-    if 'operational_contracts' in chosen:
-        chosen.update(('windows_rollout', 'fleet_health'))
     if 'packaging_contracts' in chosen:
         chosen.add('macos_package_contract')
     if not set(additions).issubset(groups):
         raise ValueError('additional request names unknown group')
     chosen.update(additions)
-    if 'operational_contracts' in chosen:
-        chosen.update(('windows_rollout', 'fleet_health'))
     if 'packaging_contracts' in chosen:
         chosen.add('macos_package_contract')
     resources = sorted({resource for group in chosen for resource in config['resources'][group]})
@@ -5286,6 +5579,8 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
             'workspace_support_profile_version': 1,
             'reasons': list(dict.fromkeys(reasons)), 'scope': 'full' if full else 'targeted'}
     plan.update(python_controls)
+    plan.update(fleet_health_subcontracts(config, chosen, affected, path_rules,
+                                          full=full, additions=additions))
     if profile is not None:
         if profile not in ('pr-fast', 'main-fast'):
             raise ValueError('select requires a fast execution profile')

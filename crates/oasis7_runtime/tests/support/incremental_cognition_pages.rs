@@ -4,6 +4,11 @@ use oasis7_runtime::{incremental_cognition_family::*, incremental_json_records::
 use std::{path::Path, sync::atomic::AtomicBool};
 pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootSetV1) {
     let cancelled_path = target_path.with_extension("cancelled-zstd");
+    let second_compression = if cfg!(feature = "test_tier_full") {
+        PageCompression::Zstd
+    } else {
+        PageCompression::Raw
+    };
     {
         let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let source = IncrementalPageStore::open(
@@ -17,7 +22,7 @@ pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootS
             IncrementalPageStore::create(target_path, memory.clone(), PageCompression::Raw)
                 .unwrap();
         let second =
-            IncrementalPageStore::create(&cancelled_path, memory.clone(), PageCompression::Zstd)
+            IncrementalPageStore::create(&cancelled_path, memory.clone(), second_compression)
                 .unwrap();
         let state = source
             .state_session(physical(), MemoryClass::Ordinary)
@@ -141,7 +146,7 @@ pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootS
     }
     for (target_path, compression) in [
         (target_path, PageCompression::Raw),
-        (cancelled_path.as_path(), PageCompression::Zstd),
+        (cancelled_path.as_path(), second_compression),
     ] {
         let cold = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
         let target = IncrementalPageStore::open(

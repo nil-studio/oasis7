@@ -25,6 +25,7 @@ mod malformed;
 mod missing;
 #[path = "support/incremental_factory_authority_overlay.rs"]
 mod overlay;
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_factory_authority_pages.rs"]
 mod pages;
 #[path = "support/incremental_factory_authority_points.rs"]
@@ -105,7 +106,12 @@ fn factory_authority_original_fields_cold_root_only_in_raw_and_zstd() {
     use FactoryAuthorityCellV1 as C;
     use FactoryAuthorityRecordKindV1 as K;
     use FactoryAuthorityValueV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let root = {
             let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
@@ -150,12 +156,18 @@ fn factory_authority_original_fields_cold_root_only_in_raw_and_zstd() {
                 take_state_error: || state.take_read_error().map(state_error),
                 cancelled: || false,
             };
-            for (kind, id) in [
-                (K::Site, " outer-site\0界 "),
-                (K::Power, "none"),
-                (K::Power, "empty"),
-                (K::Power, "text"),
-            ] {
+            let records: &[(FactoryAuthorityRecordKindV1, &str)] =
+                if class == MemoryClass::Recovery && !cfg!(feature = "test_tier_full") {
+                    &[(K::Site, " outer-site\0界 "), (K::Power, "text")]
+                } else {
+                    &[
+                        (K::Site, " outer-site\0界 "),
+                        (K::Power, "none"),
+                        (K::Power, "empty"),
+                        (K::Power, "text"),
+                    ]
+                };
+            for &(kind, id) in records {
                 let key = FactoryAuthorityRecordKeyV1 { kind, id };
                 let child = inspect_factory_authority_root_v1(key, &mut ctx)
                     .unwrap()
@@ -268,11 +280,16 @@ fn factory_authority_original_fields_cold_root_only_in_raw_and_zstd() {
 
 #[test]
 fn scalar_receiver_cost_excludes_unchanged_site_text_across_value_chunks() {
+    let expanded_agents = if cfg!(feature = "test_tier_full") {
+        32
+    } else {
+        6
+    };
     scaling::exercise_site_scaling(&[
         (64, 3),
         (
             2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
-            32,
+            expanded_agents,
         ),
     ]);
 }

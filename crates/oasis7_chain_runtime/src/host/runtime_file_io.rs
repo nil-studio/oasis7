@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-#[allow(dead_code)]
 pub(crate) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()

@@ -92,10 +92,14 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
         self.source.read_node(id, max, memory, class)
     }
 }
-#[test]
-fn append_and_receiver_skip_unchanged_signature_through_thirty_two_mib() {
+fn exercise_unchanged_signature(sizes: &[usize]) {
+    let compression = if cfg!(feature = "test_tier_full") {
+        PageCompression::Zstd
+    } else {
+        PageCompression::Raw
+    };
     let mut samples = Vec::new();
-    for text in [64usize, 1 << 20, 32 << 20] {
+    for &text in sizes {
         let directory = Directory::new();
         let path = directory.0.join("scale");
         let roots = {
@@ -105,21 +109,16 @@ fn append_and_receiver_skip_unchanged_signature_through_thirty_two_mib() {
                 .unwrap();
             let mut original = source();
             original.reward_mint_records[0].signature = "x".repeat(text);
-            let store =
-                IncrementalPageStore::create(&path, memory.clone(), PageCompression::Zstd).unwrap();
+            let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
             seed_sized(&store, &memory, &original, text)
         };
         // Original World, source store and producing pool are gone; complete bootstrap
         // consumes Recovery4MiB before any ordinary operation or inherited closure.
         let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
         let _roots = memory.reserve(8192, MemoryClass::Recovery).unwrap();
-        let store = IncrementalPageStore::open(
-            &path,
-            memory.clone(),
-            PageCompression::Zstd,
-            MemoryClass::Recovery,
-        )
-        .unwrap();
+        let store =
+            IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Recovery)
+                .unwrap();
         let (family, forbidden) = {
             let state = store
                 .state_session(physical(), MemoryClass::Recovery)
@@ -362,4 +361,18 @@ fn append_and_receiver_skip_unchanged_signature_through_thirty_two_mib() {
         samples.windows(2).all(|pair| pair[0] == pair[1]),
         "unchanged signature growth changed append/owner-pass work: {samples:?}"
     );
+}
+
+#[test]
+fn append_and_receiver_skip_unchanged_signature_across_value_chunks() {
+    exercise_unchanged_signature(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn append_and_receiver_skip_unchanged_signature_through_thirty_two_mib() {
+    exercise_unchanged_signature(&[64, 1 << 20, 32 << 20]);
 }

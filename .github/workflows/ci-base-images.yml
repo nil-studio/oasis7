@@ -28,7 +28,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build]
+        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust, api-runtime, rust-ordinary-builder, rust-custody-wasm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -144,6 +144,9 @@ jobs:
     timeout-minutes: 10
     permissions:
       packages: write
+    strategy:
+      matrix:
+        group: [base, specialized]
     steps:
       - name: Log in to GHCR and prepare image publisher
         env:
@@ -163,34 +166,77 @@ jobs:
           docker push "$ref"
           digest=$(docker buildx imagetools inspect "$ref" --format "{{json .Manifest}}" | jq -er .digest)
           printf "%s@%s\n" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$target" == codeql-rust ]]; then
+            bytes=$(docker buildx imagetools inspect --raw "$image@$digest" |
+              jq -er '[.layers[].size] | select(length > 0) | add')
+            printf "CodeQL Rust compressed registry layers: %s bytes\n" "$bytes" >> "$GITHUB_STEP_SUMMARY"
+          fi
           docker rmi "$ref" "oasis7-ci-${target}:candidate"
           EOF
           chmod 0700 "$RUNNER_TEMP/publish-ci-image.sh"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'base'
         with:
           name: ci-image-runtime
       - name: Publish verified runtime image
+        if: matrix.group == 'base'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" runtime
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'base'
         with:
           name: ci-image-build
       - name: Publish verified build image
+        if: matrix.group == 'base'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" build
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'base'
         with:
           name: ci-image-browser
       - name: Publish verified browser image
+        if: matrix.group == 'base'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" browser
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'base'
         with:
           name: ci-image-rust-build
       - name: Publish verified rust-build image
+        if: matrix.group == 'base'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-build
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'base'
         with:
           name: ci-image-rust-wasm-build
       - name: Publish verified rust-wasm-build image
+        if: matrix.group == 'base'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-wasm-build
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'specialized'
+        with:
+          name: ci-image-codeql-rust
+      - name: Publish verified CodeQL Rust image
+        if: matrix.group == 'specialized'
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" codeql-rust
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'specialized'
+        with:
+          name: ci-image-api-runtime
+      - name: Publish verified API runtime image
+        if: matrix.group == 'specialized'
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" api-runtime
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'specialized'
+        with:
+          name: ci-image-rust-ordinary-builder
+      - name: Publish verified Rust ordinary builder image
+        if: matrix.group == 'specialized'
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-ordinary-builder
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'specialized'
+        with:
+          name: ci-image-rust-custody-wasm
+      - name: Publish verified Custody WASM image
+        if: matrix.group == 'specialized'
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-custody-wasm
       - name: Log out of GHCR
         if: always()
         run: docker logout ghcr.io

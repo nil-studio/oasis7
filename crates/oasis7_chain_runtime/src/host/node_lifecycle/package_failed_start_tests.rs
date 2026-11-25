@@ -1,4 +1,5 @@
 #![cfg(unix)]
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code))]
 
 use super::Instance;
 use crate::node_lifecycle::{
@@ -7,14 +8,17 @@ use crate::node_lifecycle::{
 };
 use oasis7_runtime::{ChainResourceDerivationContext, Journal, Snapshot};
 use serde_json::{Value, json};
+#[cfg(feature = "test_tier_full")]
+use std::os::unix::process::CommandExt;
+#[cfg(feature = "test_tier_full")]
+use std::sync::mpsc;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
-    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{OnceLock, mpsc},
+    sync::OnceLock,
     thread::JoinHandle,
     time::{Duration, Instant},
 };
@@ -361,6 +365,7 @@ fn package_operation_manager_child_run() {
 /// incarnation, generation, config, and current release unchanged.
 /// This is a test-image transaction proof; shipping-binary different-SHA
 /// compatibility and upgrade behavior remain covered by the package script.
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn package_failed_candidate_start_rolls_back_and_restarts_exact_prior_image() {
     let mut fixture = PackageFixture::new();

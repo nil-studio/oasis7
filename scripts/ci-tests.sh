@@ -231,9 +231,28 @@ PY_VIEWER
 }
 
 run_oasis7_package_tests() {
-  local features="$1"
+  local features="$1" raw_packages package package_args=() scope_config="${driver_dir:-scripts}/ci-required-scope.json"
   shift
-  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_executable_image -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
+  raw_packages="$("${ci_python:-python3}" - "$scope_config" <<'PY_PACKAGES'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+packages = data.get('oasis7_required_packages')
+if (not isinstance(packages, list) or not packages
+        or any(not isinstance(pkg, str) or not pkg or any(ch.isspace() for ch in pkg) for pkg in packages)
+        or len(packages) != len(set(packages))):
+    raise SystemExit('invalid oasis7_required_packages in ' + sys.argv[1])
+for pkg in packages:
+    print(pkg)
+PY_PACKAGES
+  )" || return
+  while IFS= read -r package; do
+    [[ -z "$package" ]] || package_args+=(-p "$package")
+  done <<< "$raw_packages"
+  if [[ ${#package_args[@]} -eq 0 ]]; then
+    echo "Empty oasis7_required_packages in $scope_config" >&2
+    return 2
+  fi
+  run_cargo test "${package_args[@]}" "$@" --features "$features"
 }
 
 run_oasis7_test_tier_with_viewer() {
@@ -278,7 +297,11 @@ run_oasis7_required_tier_tests() {
   fi
   if [[ "${ordinary_partition:-}" == controls ]]; then return; fi
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
-    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}"
+    local bundle_run_args=()
+    if [[ "${OASIS7_LOCAL_CHECK:-0}" != 1 ]]; then
+      bundle_run_args=(--parallel-ordinary)
+    fi
+    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}" "${bundle_run_args[@]}"
     return
   fi
   if [[ -n "${required_plan:-}" ]]; then
@@ -328,7 +351,27 @@ for command in commands:
     fi
     return
   fi
-  run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_executable_image -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
+  local raw_packages package package_args=() scope_config="${driver_dir:-scripts}/ci-required-scope.json"
+  raw_packages="$("${ci_python:-python3}" - "$scope_config" <<'PY_PACKAGES'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+packages = data.get('oasis7_required_packages')
+if (not isinstance(packages, list) or not packages
+        or any(not isinstance(pkg, str) or not pkg or any(ch.isspace() for ch in pkg) for pkg in packages)
+        or len(packages) != len(set(packages))):
+    raise SystemExit('invalid oasis7_required_packages in ' + sys.argv[1])
+for pkg in packages:
+    print(pkg)
+PY_PACKAGES
+  )" || return
+  while IFS= read -r package; do
+    [[ -z "$package" ]] || package_args+=(-p "$package")
+  done <<< "$raw_packages"
+  if [[ ${#package_args[@]} -eq 0 ]]; then
+    echo "Empty oasis7_required_packages in $scope_config" >&2
+    return 2
+  fi
+  run_cargo_clippy "${package_args[@]}" --tests --features test_tier_required
 }
 
 run_oasis7_required_clippy_for_group() {
@@ -996,6 +1039,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-upload-association.test.py
   run python3 ./scripts/security/codeql-platform-observation.test.py
   run python3 ./scripts/security/codeql-acceptance.test.py
+  run python3 ./scripts/security/test_check_pr_boundaries.py
 }
 
 run_workflow_governance_remaining_contract_tests() {
@@ -1055,6 +1099,7 @@ run_operational_node_contract_tests() {
   run ./scripts/state-sync-closure-evidence-template.test.sh
   run ./scripts/s10-five-node-game-soak-summary.test.sh
   run ./scripts/release-gate-bash-preflight.test.sh
+  run bash ./scripts/release-candidate-bundle-smoke.sh
   run python3 ./scripts/release-web-startup.test.py
   run bash ./scripts/p2p-public-testnet-local-observer-sync.test.sh
   run bash ./scripts/build-game-launcher-bundle-dev-cache.test.sh
@@ -1446,6 +1491,8 @@ run_required_gate_checks() {
   run ./scripts/lint-skills.sh
   run ./scripts/check-windows-paths.sh
   run bash ./scripts/check-script-executable-bits.sh
+  run python3 ./scripts/check-ci-scope-paths.py
+  run python3 ./scripts/check-governance-hygiene.test.py
   if [[ -n "${OASIS7_PRODUCT_DOC_BASE:-}" && -n "${OASIS7_PRODUCT_DOC_HEAD:-}" ]]; then
     run git diff --check "$OASIS7_PRODUCT_DOC_BASE" "$OASIS7_PRODUCT_DOC_HEAD"
   else
@@ -1599,7 +1646,9 @@ run_rust_baseline() {
     extra_checks=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
       --plan "$required_plan" --phase baseline-checks) || return
   fi
-  run env -u RUSTC_WRAPPER cargo fmt --all -- --check
+  if [[ "${OASIS7_SKIP_RUSTFMT:-0}" != 1 ]]; then
+    run env -u RUSTC_WRAPPER cargo fmt --all -- --check
+  fi
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
@@ -1615,6 +1664,11 @@ run_rust_baseline() {
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh
+  local rust_hygiene_args=()
+  if [[ -n "${OASIS7_PRODUCT_DOC_BASE:-}" && -n "${OASIS7_PRODUCT_DOC_HEAD:-}" ]]; then
+    rust_hygiene_args=(--base "$OASIS7_PRODUCT_DOC_BASE" --head "$OASIS7_PRODUCT_DOC_HEAD")
+  fi
+  run python3 ./scripts/check-rust-hygiene.py "${rust_hygiene_args[@]}"
   run_oasis7_required_clippy_for_group rust_baseline
   while IFS= read -r check; do
     case "$check" in
