@@ -538,17 +538,6 @@ def _retained_descriptor(path: Path, label: str) -> dict[str, Any]:
     return {"path": str(path), "sha256": hashlib.sha256(value).hexdigest(), "size_bytes": len(value)}
 
 
-def _descriptor(path: Path, label: str) -> dict[str, Any]:
-    _regular_file(path, label)
-    try:
-        value = path.read_bytes()
-    except OSError as error:
-        die(f"cannot read {label}: {error.__class__.__name__}")
-    # Evidence retains the caller's exact path spelling; the signing tool
-    # independently resolves paths while validating authority bindings.
-    return {"path": str(path), "sha256": hashlib.sha256(value).hexdigest(), "size_bytes": len(value)}
-
-
 def _reject_output_aliases(
     outputs: list[tuple[Path, str]], protected: list[tuple[Path, str]]
 ) -> None:
