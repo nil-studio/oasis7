@@ -941,14 +941,19 @@ jobs:
           bash scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}" \
             --repo-root "$GITHUB_WORKSPACE" 2>&1 | tee "$RUNNER_TEMP/pr-fast-preview.log"
       - name: Record preview group timing and outcome
+        id: report
         if: always()
         env:
           PREVIEW_GROUP: ${{ matrix.group }}
           PREVIEW_OUTCOME: ${{ steps.execute.outcome }}
           PREVIEW_TESTED_SHA: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}
         run: |
-          python3 - <<'PY'
-          import json, os, pathlib, time
+          evidence=$(mktemp -d preview-evidence.XXXXXX)
+          log="$RUNNER_TEMP/pr-fast-preview.log"
+          [[ ! -f "$log" ]] || cp "$log" "$evidence/"
+          printf 'path=%s\n' "$evidence" >> "$GITHUB_OUTPUT"
+          python3 - "$evidence" <<'PY'
+          import json, os, pathlib, sys, time
           ended = int(time.time())
           report = {'diagnostic_only': True, 'cache_restored': False,
                     'timing_scope': 'first-step-through-outcome',
@@ -959,7 +964,7 @@ jobs:
                     'tested_sha': os.environ['PREVIEW_TESTED_SHA'],
                     'runner_started_at': int(os.environ['PREVIEW_STARTED_AT']), 'ended_at': ended}
           report['runner_seconds'] = ended - report['runner_started_at']
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'pr-fast-preview-timing.json').write_text(json.dumps(report, indent=2) + '\n')
+          pathlib.Path(sys.argv[1], 'pr-fast-preview-timing.json').write_text(json.dumps(report, indent=2) + '\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
               stream.write('Diagnostic cold group: ' + json.dumps(report) + '\n')
           PY
@@ -967,9 +972,7 @@ jobs:
         if: always()
         with:
           name: pr-fast-preview-${{ matrix.sample }}-${{ matrix.group }}-${{ matrix.partition }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/pr-fast-preview.log
-            ${{ runner.temp }}/pr-fast-preview-timing.json
+          path: ${{ steps.report.outputs.path }}
           retention-days: 14
           if-no-files-found: error
 
