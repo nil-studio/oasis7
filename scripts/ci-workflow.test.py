@@ -698,7 +698,16 @@ def viewer_cache_kind(job):
     assert 'continue-on-error:' not in prepare
     prepare_if = re.search(r'^        if: .*?(?=^        [a-z-]+:|\Z)', prepare, re.M | re.S)
     cache_if = re.search(r'^        if: .*?(?=^        [a-z-]+:|\Z)', cache, re.M | re.S)
-    assert (prepare_if.group(0) if prepare_if else None) == (cache_if.group(0) if cache_if else None)
+    if digest:
+        host_only = "env.VIEWER_IMAGE_COMPATIBLE != 'true'"
+        if cache_if:
+            original = cache_if.group(0).removeprefix('        if: >-\n').strip()
+            expected = "        if: >-\n          " + host_only + " &&\n          (" + original + ")"
+        else:
+            expected = '        if: ' + host_only
+        assert prepare_if and prepare_if.group(0).strip() == expected.strip()
+    else:
+        assert (prepare_if.group(0) if prepare_if else None) == (cache_if.group(0) if cache_if else None)
     assert job.index('rustup default') < job.index(prepare) < job.index(cache)
     before_cache = job[:job.index(cache)]
     assert 'rustup target add wasm32-unknown-unknown' in before_cache
@@ -1534,6 +1543,12 @@ class Workflow(unittest.TestCase):
                     self.assertIn(before, actual)
                     with self.subTest(job=name, mutation=before), self.assertRaises(AssertionError):
                         viewer_cache_kind(actual.replace(before, after))
+                preparation = re.search(r'(?ms)^      - name: Stabilize Rust cache toolchains\n.*?(?=^      - )', actual)[0]
+                false_guard = preparation.replace("env.VIEWER_IMAGE_COMPATIBLE != 'true'",
+                                                  "env.VIEWER_IMAGE_COMPATIBLE == 'true'")
+                self.assertNotEqual(preparation, false_guard)
+                with self.subTest(job=name, mutation='mutable image toolchain'), self.assertRaises(AssertionError):
+                    viewer_cache_kind(actual.replace(preparation, false_guard))
                 continue
             native = actual if kind == 'native' else actual.replace(
                 'shared-key: release-packages-web-wasm-trusted-v3', 'shared-key: ci-shared-native-trusted-v4').replace(

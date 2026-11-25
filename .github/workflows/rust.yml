@@ -3369,11 +3369,12 @@ jobs:
           rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
       - name: Stabilize Rust cache toolchains
         if: >-
-          needs.select.outputs.run_viewer_js_required == 'true' ||
+          env.VIEWER_IMAGE_COMPATIBLE != 'true' &&
+          (needs.select.outputs.run_viewer_js_required == 'true' ||
           needs.select.outputs.run_viewer_performance_report == 'true' ||
           fromJSON(needs.select.outputs.plan).scope == 'full' ||
           fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -3603,6 +3604,7 @@ jobs:
           rustup default "$RUST_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
       - name: Stabilize Rust cache toolchains
+        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
