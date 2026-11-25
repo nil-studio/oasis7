@@ -103,6 +103,16 @@ class ProviderArtifact:
 
 
     @staticmethod
+    def _clean_nested_target(root, manifest_relative, existed_before):
+        if existed_before:
+            return
+        nested_target = root / Path(manifest_relative).parent / 'target'
+        if nested_target.is_symlink():
+            nested_target.unlink()
+        elif nested_target.exists():
+            shutil.rmtree(nested_target)
+
+    @staticmethod
     def build(root, bundle, expected):
         directory = bundle / ProviderArtifact.DIRECTORY
         directory.mkdir(parents=True, exist_ok=False)
@@ -110,12 +120,17 @@ class ProviderArtifact:
         if any(before[key] != expected[key] for key in ('tested_sha', 'source_sha')):
             raise ValueError('provider producer source differs from native identity')
         (root / 'target').mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix='ci-preview-provider-', dir=root / 'target') as temporary:
-            subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
-                            '--manifest-path', ProviderArtifact.MANIFEST, '--out-dir', temporary,
-                            '--module-id', ProviderArtifact.MODULE, '--profile', 'release'], cwd=root, check=True)
-            for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
-                shutil.copy2(Path(temporary) / (ProviderArtifact.MODULE + suffix), directory / (ProviderArtifact.MODULE + suffix))
+        provider_target = root / Path(ProviderArtifact.MANIFEST).parent / 'target'
+        nested_existed = provider_target.exists() or provider_target.is_symlink()
+        try:
+            with tempfile.TemporaryDirectory(prefix='ci-preview-provider-', dir=root / 'target') as temporary:
+                subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
+                                '--manifest-path', ProviderArtifact.MANIFEST, '--out-dir', temporary,
+                                '--module-id', ProviderArtifact.MODULE, '--profile', 'release'], cwd=root, check=True)
+                for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
+                    shutil.copy2(Path(temporary) / (ProviderArtifact.MODULE + suffix), directory / (ProviderArtifact.MODULE + suffix))
+        finally:
+            ProviderArtifact._clean_nested_target(root, ProviderArtifact.MANIFEST, nested_existed)
         files = {kind: f'{ProviderArtifact.DIRECTORY}/{ProviderArtifact.MODULE}{suffix}' for kind, suffix in
                  (('wasm', '.wasm'), ('metadata', '.metadata.json'), ('receipt', '.build-receipt.json'))}
         checker_files, libraries = ProviderArtifact.build_checker(root, bundle, ProviderArtifact.DIRECTORY)
@@ -188,13 +203,19 @@ class BuiltinTestArtifact(ProviderArtifact):
                                    for key, name in checker_files.items()}, libraries=libraries)
         (root / 'target').mkdir(exist_ok=True)
         for module, crate in BuiltinTestArtifact.MODULES.items():
-            with tempfile.TemporaryDirectory(prefix='ci-builtin-resources-', dir=root / 'target') as temporary:
-                subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
-                                '--manifest-path', f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml',
-                                '--out-dir', temporary, '--module-id', module, '--profile', 'release'],
-                               cwd=root, check=True)
-                for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
-                    shutil.copy2(Path(temporary) / (module + suffix), directory / (module + suffix))
+            manifest_rel = f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+            module_target = root / Path(manifest_rel).parent / 'target'
+            nested_existed = module_target.exists() or module_target.is_symlink()
+            try:
+                with tempfile.TemporaryDirectory(prefix='ci-builtin-resources-', dir=root / 'target') as temporary:
+                    subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
+                                    '--manifest-path', manifest_rel,
+                                    '--out-dir', temporary, '--module-id', module, '--profile', 'release'],
+                                   cwd=root, check=True)
+                    for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
+                        shutil.copy2(Path(temporary) / (module + suffix), directory / (module + suffix))
+            finally:
+                ProviderArtifact._clean_nested_target(root, manifest_rel, nested_existed)
             records[module] = {kind: {'path': f'{BuiltinTestArtifact.DIRECTORY}/{module}{suffix}',
                                      'sha256': ProviderArtifact.digest(directory / (module + suffix))}
                                for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
