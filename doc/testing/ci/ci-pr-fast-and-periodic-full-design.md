@@ -43,7 +43,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
-当可信 fast 计划采用 direct gate、未改动测试策略且 other 分区只选择 `oasis7_local_signer` 时，`workspace-support-other` 只启动 `signer-image` 分片。该分片校验 selection artifact 摘要，以 UID/GID 1001 执行原 `--lib` 和 `--test context_cli --locked`，保留文件权限拒绝语义。它复用 Node Rust 分片的固定镜像、mold 安装路径和只读依赖缓存身份。全量、旧计划和混合选择继续使用原 host/image 路由，`oasis7_game_client` 的跨 UID 验证保留在宿主。
+当可信 fast 计划采用 direct gate、未改动测试策略且 other 分区只选择 `oasis7_local_signer` 或精确选择 `oasis7_context` 与 `oasis7_local_signer` 时，`workspace-support-other` 分别只启动 `signer-image` 或 `signer-context-image` 分片。两者都校验 selection artifact 摘要，以 UID/GID 1001 执行原 `--lib` 和 `--test context_cli --locked`，保留文件权限拒绝语义。双 profile 还执行 context 原 `--all-targets --locked`，包括 Git、CLI 和 PTY 交互。单 profile 继续复用 Node Rust 分片的固定镜像、mold 路径和只读缓存。双 profile 使用包含 Git 2.56.1 的固定 Rust 镜像并验证原离线选项，在相同非 root UID 下冷编译。全量、旧计划和其它选测组合继续使用原宿主或镜像路由，`oasis7_game_client` 的跨 UID 验证保留在宿主。
 
 快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan-file <selection.json>`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
 
@@ -83,7 +83,7 @@ workflow 从与选择器相同的 BASE 取得可信合同执行入口，在候�
 
 可信合同本身的演进使用明确的完整验证迁移路径：可信入口核对共同祖先到 source 的分支差异与 BASE 到 tested 的实际合并差异，只有精确策略配置或可信入口变更且计划保留该 profile 的完整必要组时，才允许迁移旧的全量策略断言。可信 Formal 新能力仅允许快速 profile 从全组中排除 `formal_process`，其余缺项仍失败。main 单独前进不构成候选迁移。迁移继续执行固定 BASE 安全断言、真实 Rust fixture 及候选完整合同回归，并接受独立评审；固定最低安全身份不能借迁移删除。日志列明迁移原因与实际范围，不宣称完成已迁出的全部旧合同。普通 Cargo/共享输入与 Python 的混合变化不因 `scope=full` 自动取得迁移资格，也不接受候选自报的迁移开关。
 
-planner 的可信最低合同固定验证必要的选择、未知输入和失败边界，另以离线微型 Cargo 项目实际编译并执行 cfg、features 和测试清单，覆盖词法归属及门控变化。该合同不冻结每个历史路径的全量策略断言，允许经过评审的职责细分进入新 BASE；候选完整 planner 回归仍验证新策略。它不构建产品 workspace，也不替代真正受影响的产品 Rust 验证。
+planner 及高频演进的工作流拓扑、架构所有权与全量汇总套件（`plan-rust-required-scope.test.py`、`ci-workflow.test.py`、`ci-bin-ownership.test.py`、`ci-full-result.test.py`）统一采用“固定 BASE 安全红线子集 + 候选完整回归”分层：可信 BASE 固定执行 `FIXED_TESTS` 中不可妥协的选择/未知输入、权限与缓存写入边界、门禁权威、结果资格及跨包隔离红线（且禁止候选删除或跳过这些红线用例），另以离线微型 Cargo 项目实际编译并执行 cfg、features 和测试清单；同时不冻结随工作流 DAG 接线、镜像预检或模块拆迁演进的具体拓扑/路径快照断言，交由候选分支的完整测试套件（零意外 skip、完整见证）在同 PR 内验证新形态，避免无安全收益的两步式过渡前置 PR。它不构建产品 workspace，也不替代真正受影响的产品 Rust 验证。
 
 完整 profile 保留原全集并执行完整控制合同库存；合同自身迁移仅适用上述明确条件。普通 required 的保守 `scope=full` 执行本次实际命中的控制合同，不混同于完整 profile 的全库存。旧 BASE 未提供此能力时，候选保持旧共享控制范围，不能以自身新规则收窄当前 PR；本轮改变可信配置、执行器和 workflow 的迁移同样接受旧必要检查。纯 Python 具名路径、真实嵌入消费者、混合 Rust 变化、删除/重命名、未知路径、空执行、取消与失败传播分别回归；十分钟效果仍由合入后的真实 hosted 样本验收。
 
