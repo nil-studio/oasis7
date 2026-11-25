@@ -1189,7 +1189,7 @@ jobs:
       (needs.select.outputs.run_rust_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 25
+    timeout-minutes: 32
     permissions:
       contents: read
       packages: read
@@ -1540,6 +1540,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     needs: [select, cache-bootstrap-maintenance]
     outputs:
       cache_key: ${{ steps.ordinary-cache-identity.outputs.key }}
@@ -1563,6 +1564,20 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      ImageOS: ubuntu24
+      ORDINARY_ARTIFACT_CHECKOUT: /home/runner/work/oasis7/oasis7
+      ORDINARY_BUILD_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - &linux-mold-event-tools-checkout
         name: Check out workflow linker setup
@@ -1572,6 +1587,32 @@ jobs:
           persist-credentials: false
           fetch-depth: ${{ github.sha != '' && github.workflow_sha == github.sha && '0' || '1' }}
           sparse-checkout: ${{ (github.sha == '' || github.workflow_sha != github.sha) && '.github/actions/setup-linux-mold' || '' }}
+      - name: Verify trusted ordinary image and source
+        run: |
+          set -euo pipefail
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$ORDINARY_ARTIFACT_CHECKOUT"
+          python3 scripts/ci-test-artifacts.py ordinary-image-preflight
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          test "$(rustc --version | cut -d ' ' -f 2)" = "$RUST_TOOLCHAIN"
+          rustup component list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx clippy-x86_64-unknown-linux-gnu
+          rustup component list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx rustfmt-x86_64-unknown-linux-gnu
+          rustup component list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx rust-src
+          rustup target list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx wasm32-unknown-unknown
+          rustup target list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx "$OASIS7_WASM_TARGET"
+          pkg-config --exists wayland-client xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
+          zstd --version
+          cat > "$RUNNER_TEMP/ordinary-image-cwd.bash" <<'ORDINARY_CWD'
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1
+          ORDINARY_CWD
+          chmod 600 "$RUNNER_TEMP/ordinary-image-cwd.bash"
+          printf 'BASH_ENV=%s\n' "$RUNNER_TEMP/ordinary-image-cwd.bash" >> "$GITHUB_ENV"
       - *ordinary-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ github.sha == '' || github.workflow_sha != github.sha }}
@@ -1580,16 +1621,29 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - *ordinary-download-selection-artifact
-      - *ordinary-actions-setup-python
       - *ordinary-report-ordinary-workspace-cache-capacity
       - *ordinary-reclaim-unused-candidate-sdk-capacity
-      - *ordinary-install-pinned-rust-toolchains
       - *ordinary-stabilize-rust-cache-toolchains
-      - *ordinary-shared-rust-cache
+      - name: Install ordinary dependency cache admission
+        id: ordinary-dependency-cache-tools
+        run: python3 scripts/ci-rust-cache-admission.py install-release
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        env:
+          NODE_OPTIONS: ${{ steps.ordinary-dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.ordinary-dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: ordinary-image
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          shared-key: ci-ordinary-image-f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-provider: github
+          save-if: ${{ job.status == 'success' && steps.ordinary-dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          cache-on-failure: false
       - *ordinary-ordinary-cache-identity
       - *ordinary-ordinary-workspace-cache
       - *ordinary-validate-and-restore-ordinary-workspace-units
-      - *ordinary-install-native-libraries
       - *ordinary-wait-candidate-sdk-capacity
       - *ordinary-build-ordinary-test-artifacts
       - *ordinary-actions-upload-artifact
@@ -2192,7 +2246,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps: &formal-merge-steps
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -2324,7 +2378,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps: *formal-merge-steps
 
   cache-maintenance:
@@ -2406,7 +2460,7 @@ jobs:
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 35
+    timeout-minutes: ${{ (fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline' || contains(fromJSON('["all","component-libs","runtime"]'), matrix.partition)) && 50 || 25 }}
     permissions:
       contents: read
       packages: read
@@ -3329,7 +3383,7 @@ jobs:
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Install pinned performance browser
         uses: ./.github/actions/setup-ci-browser
-        timeout-minutes: 15
+        timeout-minutes: 11
         with:
           browser: agent
       - name: Execute selected group
@@ -3819,6 +3873,45 @@ jobs:
           else
             python3 scripts/ci-worker-build.py ensure --root "$WORKER_TOOL_ROOT"
           fi
+      - name: Identify pinned image Worker wasm-bindgen
+        id: worker-bindgen-meta
+        if: matrix.execution == 'image' && steps.worker-image-meta.outputs.root != ''
+        shell: bash
+        run: |
+          if [[ ! -f scripts/wasm-bindgen-cli-common.sh || ! -x scripts/ensure-wasm-bindgen-cli.sh ]]; then
+            echo 'Historical source has no wasm-bindgen CLI resolver; retaining the original verifier.'
+            exit 0
+          fi
+          # Match the trusted host cache identity. The archive paths are relative
+          # to /home/runner/work/oasis7/oasis7, as with the Worker build tool.
+          export XDG_CACHE_HOME=/home/runner/.cache
+          source scripts/wasm-bindgen-cli-common.sh
+          printf 'version=%s\nroot=%s\n' "$WASM_BINDGEN_LOCK_VERSION" "$WASM_BINDGEN_CACHE_ROOT" >> "$GITHUB_OUTPUT"
+      - name: Restore exact image Worker wasm-bindgen
+        id: worker-bindgen-cache
+        if: steps.worker-bindgen-meta.outputs.root != ''
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ steps.worker-bindgen-meta.outputs.root }}
+          key: wasm-bindgen-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ steps.worker-bindgen-meta.outputs.version }}-${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
+      - name: Prepare verified image Worker wasm-bindgen
+        id: worker-bindgen
+        if: steps.worker-bindgen-meta.outputs.root != ''
+        shell: bash
+        timeout-minutes: 11
+        env:
+          BINDGEN_CACHE_HIT: ${{ steps.worker-bindgen-cache.outputs.cache-hit }}
+          XDG_CACHE_HOME: /.cache
+        run: |
+          if [[ "$BINDGEN_CACHE_HIT" == true ]]; then
+            bindgen_bin="$(bash scripts/ensure-wasm-bindgen-cli.sh --check --print-bin)"
+            source scripts/wasm-bindgen-cli-common.sh
+            test "$bindgen_bin" = "$WASM_BINDGEN_CACHE_ROOT/bin/wasm-bindgen"
+          else
+            bindgen_bin="$(bash scripts/ensure-wasm-bindgen-cli.sh --ensure-cache --print-bin)"
+          fi
+          test "${bindgen_bin:0:1}" = /
+          printf 'bin=%s\n' "$bindgen_bin" >> "$GITHUB_OUTPUT"
       - name: Observe support capacity after cache
         shell: bash
         run: |
@@ -3839,9 +3932,13 @@ jobs:
           SUPPORT_PARTITION: other
           SUPPORT_EXECUTION: ${{ matrix.execution }}
           WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.restored_root }}
+          WORKER_WASM_BINDGEN_BIN: ${{ steps.worker-bindgen.outputs.bin }}
         run: |
           source scripts/ci-tests.sh
           if [[ "$SUPPORT_EXECUTION" == image ]]; then
+            if [[ -n "${WORKER_WASM_BINDGEN_BIN:-}" ]]; then
+              export WASM_BINDGEN_BIN="$WORKER_WASM_BINDGEN_BIN"
+            fi
             export PATH="$PATH:${CARGO_HOME:-$HOME/.cargo}/bin"
             if [[ -n "${WORKER_TOOL_ROOT:-}" ]]; then
               export PATH="$WORKER_TOOL_ROOT/bin:$PATH"
@@ -4279,7 +4376,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 16
+    timeout-minutes: 19
     strategy:
       fail-fast: false
       max-parallel: 4
@@ -4458,7 +4555,7 @@ jobs:
         needs.select.outputs.run_cargo_tooling_contracts == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 8
+    timeout-minutes: 11
     permissions:
       contents: read
       packages: read
@@ -4653,7 +4750,7 @@ jobs:
       actions: read
       packages: read
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 12
+    timeout-minutes: 16
     container:
       image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
       options: --user 1001:1001 --init
@@ -4935,7 +5032,7 @@ jobs:
           node-version: '24'
       - name: Install pinned deck security browser
         uses: ./.github/actions/setup-ci-browser
-        timeout-minutes: 10
+        timeout-minutes: 4
         with:
           browser: playwright
           prebuilt: "true"

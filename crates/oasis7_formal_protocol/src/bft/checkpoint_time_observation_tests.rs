@@ -301,3 +301,216 @@ fn exact_safety_originals_and_capacity() {
     assert!(check(&h(99), b"old", b"stake").is_err());
     check(&pin, b"old", b"stake").unwrap();
 }
+
+#[test]
+fn renewal_read_pins_original_predecessor_clock_and_safety_then_recovers() {
+    use crate::bft::checkpoint_renewal_read::PreparedBftCheckpointRenewalReadV1;
+
+    let policy = policy();
+    let pin = policy.digest().unwrap();
+    let mut predecessor = status(&policy);
+    predecessor.status_sequence = 1;
+    predecessor.issued_at_unix_ms = 39;
+    predecessor.not_before_unix_ms = 39;
+    let previous_bytes = signed("issuer-status", &predecessor, 118);
+    let previous_digest =
+        AuthenticatedBftCheckpointIssuerStatusV1::decode(&previous_bytes, &policy, &pin)
+            .unwrap()
+            .digest()
+            .to_owned();
+    let mut current = status(&policy);
+    current.status_sequence = 3;
+    let current_bytes = signed("issuer-status", &current, 118);
+    let time_bytes = signed("time-observation", &body(&policy), 119);
+    let authenticated_time = AuthenticatedBftCheckpointTimeObservationV1::decode(
+        &time_bytes,
+        &policy,
+        &pin,
+        &challenge(),
+    )
+    .unwrap();
+    let continuity = BftCheckpointTimeContinuityV1 {
+        challenge: challenge(),
+        elapsed_upper_ms: 3,
+        utc_lower_floor_unix_ms: 41,
+        previous_observation: Some(BftCheckpointPreviousObservationV1 {
+            time_generation: 7,
+            clock_epoch: h(53),
+            observation_nonce: h(52),
+            observation_digest: authenticated_time.digest().to_owned(),
+        }),
+    };
+    let check = |old_bytes: &[u8],
+                 old_digest: &str,
+                 next_bytes: &[u8],
+                 time: &[u8],
+                 challenge: &BftCheckpointTimeChallengeV1,
+                 continuation: Option<&BftCheckpointTimeContinuityV1>,
+                 old_constraints: &[u8]| {
+        PreparedBftCheckpointRenewalReadV1::verify(
+            &policy,
+            &pin,
+            old_bytes,
+            old_digest,
+            next_bytes,
+            time,
+            challenge,
+            continuation,
+            old_constraints,
+            b"stake",
+        )
+    };
+    let prepared = check(
+        &previous_bytes,
+        &previous_digest,
+        &current_bytes,
+        &time_bytes,
+        &challenge(),
+        Some(&continuity),
+        b"old",
+    )
+    .unwrap();
+    assert_eq!(prepared.previous_status_digest(), previous_digest);
+    assert_eq!(prepared.interval().earliest_unix_ms(), 41);
+    assert_eq!(prepared.interval().latest_unix_ms(), 45);
+    assert_eq!(prepared.time_digest(), authenticated_time.digest());
+    // Idempotent cold re-read under the *same* independently pinned originals.
+    assert_eq!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .unwrap()
+        .status_digest(),
+        prepared.status_digest()
+    );
+
+    assert!(
+        check(
+            &previous_bytes,
+            &h(99),
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            None,
+            b"old",
+        )
+        .is_err()
+    );
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"modified",
+        )
+        .is_err()
+    );
+    let mut wrong_challenge = challenge();
+    wrong_challenge.observation_nonce = h(100);
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &wrong_challenge,
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
+
+    let mut rollback = current.clone();
+    rollback.status_sequence = 0;
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &signed("issuer-status", &rollback, 118),
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
+    let mut revoked = current.clone();
+    revoked.issuer_keys[0].revoked_at_unix_ms = Some(40);
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &signed("issuer-status", &revoked, 118),
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
+    let mut expired = current.clone();
+    expired.expires_at_unix_ms = 45;
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &signed("issuer-status", &expired, 118),
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .is_err()
+    );
+    let mut missing_history = continuity.clone();
+    missing_history.previous_observation = None;
+    assert!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            Some(&missing_history),
+            b"old",
+        )
+        .is_err()
+    );
+    // A failed candidate is not retained as an authority: the original read
+    // still works after a valid signed original and continuation are restored.
+    assert_eq!(
+        check(
+            &previous_bytes,
+            &previous_digest,
+            &current_bytes,
+            &time_bytes,
+            &challenge(),
+            Some(&continuity),
+            b"old",
+        )
+        .unwrap()
+        .status_digest(),
+        prepared.status_digest()
+    );
+}

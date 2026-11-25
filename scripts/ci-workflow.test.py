@@ -1992,6 +1992,39 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest
         self.assertIn('container:\n      image: ' + image, job)
         self.assertIn('ORDINARY_BUILD_IMAGE: ' + image, job)
+        self.assertIn('      ImageOS: ubuntu24\n', job)
+        checkout = '/home/runner/work/oasis7/oasis7'
+        self.assertIn('ORDINARY_ARTIFACT_CHECKOUT: ' + checkout, job)
+        self.assertIn('      volumes:\n        - ' + checkout + ':' + checkout + '\n', job)
+        self.assertIn('          cd -- "$ORDINARY_ARTIFACT_CHECKOUT"\n', job)
+        self.assertIn('python3 scripts/ci-test-artifacts.py ordinary-image-preflight\n', job)
+        self.assertIn("printf 'BASH_ENV=%s\\n' \"$RUNNER_TEMP/ordinary-image-cwd.bash\" >> \"$GITHUB_ENV\"", job)
+        startup = re.search(r"<<'ORDINARY_CWD'\n(.*?)^          ORDINARY_CWD$", job, re.M | re.S)
+        self.assertIsNotNone(startup)
+        startup = textwrap.dedent(startup[1])
+        expected_startup = ('export ORDINARY_ARTIFACT_CHECKOUT=' + checkout
+                            + '\ncd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1\n')
+        self.assertEqual(startup, expected_startup)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = root / 'canonical'
+            canonical.mkdir()
+            translated = root / 'runner-mapped'
+            translated.mkdir()
+            script = root / 'startup.bash'
+            script.write_text(expected_startup.replace(checkout, shlex.quote(str(canonical))))
+            result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', 'pwd -P'],
+                                    cwd=translated, env=dict(os.environ, BASH_ENV=str(script),
+                                                            ORDINARY_ARTIFACT_CHECKOUT=str(translated)),
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(Path(result.stdout.strip()), canonical.resolve())
+            canonical.rmdir()
+            self.assertNotEqual(subprocess.run(['bash', '--noprofile', '--norc', '-e', '-c', 'exit 0'],
+                cwd=translated, env=dict(os.environ, BASH_ENV=str(script),
+                                         ORDINARY_ARTIFACT_CHECKOUT=str(translated)), capture_output=True).returncode, 0)
+
+
         self.assertIn('timeout-minutes: 45', job)
         self.assertIn('packages: read', job)
         self.assertNotIn('apt-install.py', job)
@@ -6279,7 +6312,10 @@ class AptWorkflow(unittest.TestCase):
     def test_performance_browser_apt_transport_is_bounded_without_skipping_dependencies(self):
         step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', JOBS['viewer-performance-report'], re.M | re.S)
                     if 'name: Install pinned performance browser' in step)
-        self.assertIn('timeout-minutes: 15', step)
+        step_timeout = re.search(r'^        timeout-minutes:\s*(\d+)\s*$', step, re.M)
+        self.assertIsNotNone(step_timeout)
+        self.assertGreater(int(step_timeout.group(1)), 0)
+        self.assertLessEqual(int(step_timeout.group(1)), 11)
         self.assertIn('uses: ./.github/actions/setup-ci-browser', step)
         self.assertIn('browser: agent', step)
         action = (ROOT / '.github/actions/setup-ci-browser/action.yml').read_text()
@@ -6314,13 +6350,19 @@ class AptWorkflow(unittest.TestCase):
 
     def test_browser_install_prepares_the_shared_mirrors_and_blocks_on_failure(self):
         expected = {'viewer-js-required': ('agent', 11),
-                    'viewer-performance-report': ('agent', 15), 'site-quality': ('playwright', 10)}
+                    'viewer-performance-report': ('agent', 11), 'site-quality': ('playwright', 4)}
         for name, (browser, limit) in expected.items():
             job = JOBS[name]
+            job_timeout = int(re.search(r'^    timeout-minutes:\s*(\d+)\s*$', job, re.M).group(1))
             step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                         if 'uses: ./.github/actions/setup-ci-browser' in step)
             self.assertIn('browser: ' + browser, step)
-            self.assertIn(f'timeout-minutes: {limit}', step)
+            step_timeout = re.search(r'^        timeout-minutes:\s*(\d+)\s*$', step, re.M)
+            self.assertIsNotNone(step_timeout)
+            actual_step = int(step_timeout.group(1))
+            self.assertGreater(actual_step, 0)
+            self.assertLessEqual(actual_step, limit)
+            self.assertLess(actual_step, job_timeout)
             self.assertNotIn('continue-on-error', step)
             self.assertLess(job.index('uses: ./.github/actions/setup-ci-browser'), job.index('name: Execute selected group'))
         action = (ROOT / '.github/actions/setup-ci-browser/action.yml').read_text()
@@ -6984,6 +7026,42 @@ class WorkerToolCache(unittest.TestCase):
         self.assertLess(job.index('Prepare verified image Worker build tool'),
                         job.index('Execute selected group'))
 
+    def test_image_worker_bindgen_cache_matches_writer_and_passes_verified_path(self):
+        job = JOBS['workspace-support-other']
+        writer = JOBS['full-regression']
+        key = re.search(r'^          key: (wasm-bindgen-cli-v1-.*)$', writer, re.M)[1]
+        self.assertIn(key.replace('steps.bindgen-meta.outputs', 'steps.worker-bindgen-meta.outputs'), job)
+        self.assertIn("if: matrix.execution == 'image' && steps.worker-image-meta.outputs.root != ''", job)
+        self.assertIn('path: ${{ steps.worker-bindgen-meta.outputs.root }}', job)
+        self.assertIn('WORKER_WASM_BINDGEN_BIN: ${{ steps.worker-bindgen.outputs.bin }}', job)
+        execute = workflow_step_script(job, 'Execute selected group')
+        self.assertIn('export WASM_BINDGEN_BIN="$WORKER_WASM_BINDGEN_BIN"', execute)
+        self.assertNotIn('actions/cache/save@', job)
+        prepare = workflow_step_script(job, 'Prepare verified image Worker wasm-bindgen')
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            env = dict(os.environ, XDG_CACHE_HOME=tmp, GITHUB_OUTPUT=str(cache / 'output'),
+                       BINDGEN_CACHE_HIT='true', WASM_BINDGEN_BIN='')
+            metadata = subprocess.check_output(
+                ['bash', '-c', 'source scripts/wasm-bindgen-cli-common.sh; '
+                 'printf "%s\\n%s\\n" "$WASM_BINDGEN_CACHE_ROOT" "$WASM_BINDGEN_LOCK_VERSION"'],
+                cwd=ROOT, env=env, text=True,
+            ).splitlines()
+            cli_root, version = metadata
+            bindgen = Path(cli_root) / 'bin' / 'wasm-bindgen'
+            bindgen.parent.mkdir(parents=True)
+            bindgen.write_text(f'#!/bin/bash\necho "wasm-bindgen {version}"\n')
+            bindgen.chmod(0o755)
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', prepare], cwd=ROOT, env=env,
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((cache / 'output').read_text(), f'bin={bindgen}\n')
+            bindgen.write_text('#!/bin/bash\necho "wasm-bindgen wrong-version"\n')
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', prepare], cwd=ROOT, env=env,
+                                    text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((cache / 'output').read_text(), f'bin={bindgen}\n')
+
     @unittest.skipUnless(sys.platform == "linux", "Linux cache paths reject macOS /home symlink")
     def test_image_worker_cache_identity_matches_real_host_metadata(self):
         helper = ROOT / 'scripts/ci-worker-build.py'
@@ -7429,6 +7507,11 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
     def test_stable_pr_jobs_declare_bounded_timeout_minutes(self):
         expected_limits = {
             '.github/workflows/rust.yml': {
+                'periodic-admission': 3,
+                'main-fast-admission': 3,
+                'fast-preflight': 5,
+                'cache-bootstrap-maintenance': 5,
+                'cache-maintenance': 5,
                 'formal-process': 5,
                 'workspace-support': 5,
                 'required-gate': 5,
@@ -7442,27 +7525,33 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'macos-package-contract': 5,
                 'site-quality': 5,
                 'packaging-contracts': 5,
-                'scenario-regression': 8,
+                'scenario-regression': 11,
                 'compile-metrics': 5,
                 'cargo-tooling-contracts': 5,
                 'windows-rollout': 7,
                 'fleet-health': 13,
                 'doc-checker-contracts': 10,
-                'workflow-governance': 12,
+                'workflow-governance': 16,
                 'custody-native-contracts': 12,
                 'consensus': 5,
                 'net': 10,
                 'node': 10,
                 'pixel-world-bridge': 5,
-                'custody-node': 16,
+                'custody-node': 19,
                 'custody-native': 17,
                 'custody-wasm-production': 25,
                 'distfs': 16,
-                'rust-baseline': 25,
+                'rust-baseline': 32,
                 'launcher-web': 10,
                 'viewer-js-required': 14,
                 'viewer-performance-report': 15,
                 'newapi-bridge-package': 10,
+            },
+            '.github/workflows/pr-boundary-gate.yml': {
+                'boundary-check': 3,
+            },
+            '.github/workflows/codeql.yml': {
+                'plan': 5,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 5,
@@ -7475,7 +7564,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'desktop': 16,
             },
             '.github/workflows/compile-metrics.yml': {
-                'compile-metrics': 35,
+                'compile-metrics': 45,
                 'compile-metrics-linux': 25,
                 'summarize': 5,
             },
@@ -7489,6 +7578,8 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'web': 18,
                 'native': 135,
                 'native-trusted': 135,
+                'cache-maintenance': 5,
+                'build-metrics': 150,
                 'package': 20,
                 'publish-preview': 10,
             },
@@ -7497,26 +7588,31 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             },
             '.github/workflows/hosted-login-linux-build.yml': {
                 'build-linux-x86-64': 30,
-                'build-viewer': 12,
+                'build-viewer': 16,
                 'assemble': 5,
+                'warm-linux-release-deps': 75,
             },
             '.github/workflows/ci-base-images.yml': {
                 'build': 40,
                 'publish': 10,
             },
             '.github/workflows/native-cache-diagnostic.yml': {
-                'diagnose': 35,
+                'diagnose': 25,
             },
             '.github/workflows/storage-acceptance.yml': {
+                'diagnostics-probe-admission': 2,
+                'diagnostics-probe': 5,
                 'build-components': 125,
                 'build': 10,
                 'verify': 130,
                 'attempt-release-reference': 50,
+                'capacity-long': 360,
+                'full-node-long': 360,
                 'summary': 5,
             },
             '.github/workflows/wasm-darwin-docker-evidence.yml': {
                 'collect-darwin-docker-summaries': 90,
-                'verify-with-linux-summaries': 45,
+                'verify-with-linux-summaries': 30,
             },
             '.github/workflows/rust-cache.yml': {
                 'browser-archive-cache': 6,
@@ -7524,7 +7620,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'shared-native-cache': 120,
                 'rust-image-native-cache': 20,
                 'rust-image-component-cache': 35,
-                'web-wasm-cache': 18,
+                'web-wasm-cache': 22,
             },
         }
         for rel_path, limits in expected_limits.items():
@@ -7598,10 +7694,9 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-debug-build-trusted': 35,
                 'formal-endpoint-build': 35,
                 'formal-endpoint-build-trusted': 35,
-                'formal-test-build': 30,
-                'formal-test-build-trusted': 30,
+                'formal-test-build': 20,
+                'formal-test-build-trusted': 20,
                 'formal-process-tests': 45,
-                'oasis7-required': 35,
                 'workspace-support-legacy': 60,
                 'workspace-support-other': 35,
                 'operational-contracts': 12,
@@ -7620,6 +7715,33 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                     actual = int(match.group(1))
                     self.assertGreater(actual, 0)
                     self.assertLessEqual(actual, max_minutes)
+
+        required_job = workflow_jobs((ROOT / '.github/workflows/rust.yml').read_text())['oasis7-required']
+        expr_match = re.search(r'^    timeout-minutes:\s*(\$\{\{.+?\}\})\s*$', required_job, re.M)
+        self.assertIsNotNone(expr_match, '.github/workflows/rust.yml:oasis7-required must declare partition-bounded timeout-minutes')
+        condition, heavy_raw, fast_raw = re.fullmatch(
+            r'\$\{\{\s*(.+?)\s*&&\s*(\d+)\s*\|\|\s*(\d+)\s*\}\}',
+            expr_match.group(1),
+        ).groups()
+        heavy_minutes, fast_minutes = int(heavy_raw), int(fast_raw)
+        self.assertGreater(fast_minutes, 0)
+        self.assertLessEqual(fast_minutes, 25)
+        self.assertGreater(heavy_minutes, fast_minutes)
+        self.assertLessEqual(heavy_minutes, 50)
+        heavy_list = re.search(r"fromJSON\('([^']+)'\)", condition)[1]
+        for execution, owner in itertools.product(
+            (None, 'inline'),
+            ('controls', 'all', 'runtime', 'component-libs', 'integrations-0', 'integrations-1',
+             'native-0', 'native-1', 'native-2', 'native-3'),
+        ):
+            values = {
+                'fromJSON(needs.select.outputs.plan).ordinary_execution': execution,
+                f"fromJSON('{heavy_list}')": json.loads(heavy_list),
+                'matrix.partition': owner,
+            }
+            expect_heavy = execution == 'inline' or owner in ('all', 'component-libs', 'runtime')
+            with self.subTest(execution=execution, owner=owner):
+                self.assertEqual(effective_job_condition(condition, values, []), expect_heavy)
 
 
 class PriorityRunnerRoutingContractTests(unittest.TestCase):
@@ -8481,6 +8603,37 @@ class FleetHealthSubcontractsExecutionTests(unittest.TestCase):
                     effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)),
                     runner_os != 'Windows',
                 )
+
+
+class WorkflowStepTimeoutBoundTests(unittest.TestCase):
+    def test_numeric_step_timeouts_never_exceed_enclosing_numeric_job_timeout(self):
+        workflow_dir = ROOT / '.github/workflows'
+        workflow_paths = sorted(
+            path for path in workflow_dir.iterdir()
+            if path.is_file() and path.suffix in ('.yml', '.yaml')
+        )
+        checked_steps = 0
+        for path in workflow_paths:
+            rel_path = path.relative_to(ROOT).as_posix()
+            jobs = workflow_jobs(path.read_text())
+            for job_name, body in jobs.items():
+                if re.search(r'^    uses:\s*\S+', body, re.M):
+                    continue
+                job_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', body, re.M)
+                if not job_match:
+                    continue
+                job_minutes = int(job_match.group(1))
+                for step_match in re.finditer(r'^        timeout-minutes:\s*(\d+)\s*$', body, re.M):
+                    checked_steps += 1
+                    step_minutes = int(step_match.group(1))
+                    with self.subTest(workflow=rel_path, job=job_name, step_minutes=step_minutes):
+                        self.assertGreater(step_minutes, 0)
+                        self.assertLess(
+                            step_minutes,
+                            job_minutes,
+                            f'{rel_path}:{job_name} step timeout ({step_minutes}m) must stay strictly below job timeout ({job_minutes}m)',
+                        )
+        self.assertGreater(checked_steps, 0)
 
 
 if __name__ == '__main__':

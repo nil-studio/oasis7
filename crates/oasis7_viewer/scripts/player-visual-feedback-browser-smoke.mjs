@@ -139,27 +139,6 @@ function contentType(pathname) {
   return "application/octet-stream";
 }
 
-function feedPayload(status) {
-  const event = {
-    event_seq: "1",
-    kind: "resource_change",
-    summary: "Fixture ambient resource update",
-    detail: "QA fixture event; no player action receipt.",
-    receipt_ref: null,
-  };
-  return {
-    schema_version: "world_feed/v1",
-    world_id: "fixture-world",
-    reorg_epoch: "0",
-    cursor: status === "empty" ? "" : "1",
-    status,
-    events: ["ready", "replay"].includes(status) ? [event] : [],
-    gap_reason: status === "gap" ? "cursor_gap" : null,
-    unavailable_reason: status === "unavailable" ? "source_unavailable" : null,
-    snapshot_reload_required: status === "gap",
-  };
-}
-
 // This adapter only replaces the bridge module in the test server. The DOM
 // and Viewer source remain the real bundle under test; the canvas is rendered
 // by the repo-owned JS bridge and its derived state is deterministic.
@@ -556,26 +535,6 @@ async function dispatchCanvasZoom(deltaY) {
 
 function cameraState(result) {
   return result.runtime?.pixelWorldCamera || result.runtime?.camera || null;
-}
-
-function projectedCanvasDelta(before, after, hotspot, canvas) {
-  const width = Number(canvas?.width || 960);
-  const height = Number(canvas?.height || 540);
-  const cssWidth = Number(canvas?.rect?.width || 0);
-  const cssHeight = Number(canvas?.rect?.height || 0);
-  const worldWidth = 10_000_000;
-  const worldDepth = 5_000_000;
-  const normalizedX = Math.min(1, Math.max(0, Number(hotspot.worldX ?? 0) / worldWidth));
-  const normalizedY = Math.min(1, Math.max(0, Number(hotspot.worldY ?? 0) / worldDepth));
-  const centeredX = (20 + (normalizedX * Math.max(1, width - 40))) - (width / 2);
-  const centeredY = (20 + (normalizedY * Math.max(1, height - 40))) - (height / 2);
-  const zoomDelta = Number(after.zoom || 1) - Number(before.zoom || 1);
-  const panDeltaX = Number(after.pan_x_px || 0) - Number(before.pan_x_px || 0);
-  const panDeltaY = Number(after.pan_y_px || 0) - Number(before.pan_y_px || 0);
-  return {
-    x: (centeredX * zoomDelta + panDeltaX) * (cssWidth / width),
-    y: (centeredY * zoomDelta + panDeltaY) * (cssHeight / height),
-  };
 }
 
 async function waitShort() { await browserRaw(["wait", "180"]); }
