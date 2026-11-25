@@ -51,7 +51,7 @@
 ## 4. 单 Runner 4 核有界并发 vs 物理挂钟窗口串行红线
 
 1. **Shell 与 Python 契约工作池（`#6295`、`#6321`、`#6606`）**：
-   - `scripts/ci-tests.sh` 的 `run_parallel_contract_commands` 与 `scripts/ci-python-control-contracts.py` 的 `run_contract_batch` 默认取 `min(4, cpu_count)` 有界并发，按耗时降序优先提交重套件（单文件巨型套件补充按 `case.id()` 排序切分的确定性 `--shard INDEX/TOTAL`，如 `clean-room-adapter.test.py --shard 0..3/4`）；
+   - `scripts/ci-tests.sh` 的 `run_parallel_contract_commands` 与 `scripts/ci-python-control-contracts.py` 的 `run_contract_batch` 默认取 `min(4, cpu_count)` 有界并发，按耗时降序优先提交重套件（单文件巨型套件补充按 `case.id()` 排序切分的确定性 `--shard INDEX/TOTAL`，如 `scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 0/4 .. 3/4`）；
    - 每个 worker 使用独立临时目录，按任务序号缓冲并加锁原子刷出 `stdout`/`stderr` 防止并发日志交错，任一任务失败立即停领新任务并精确透传首个非零退出码；
    - **本地检查兼容硬约束**：当 `OASIS7_LOCAL_CHECK=1` 时必须强制回退单流串行（`max_jobs=1`），兼容 `check-local.py` 的逐命令证据采集契约，同时提供 `OASIS7_*_JOBS=1` 串行排障开关。
 2. **前端 Vitest 双池分流与受控浏览器非阻塞并发（`#6697` `viewer-js-required` `10m08s -> 7m29s`）**：

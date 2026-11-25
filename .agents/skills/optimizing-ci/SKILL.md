@@ -45,7 +45,7 @@ file_names:
 - **扩展或修改本 Skill 分册时**：
   - 保持主入口 `SKILL.md <= 300` 行，具体套路、脚本接缝与踩坑案例下沉到 `references/<topic>.md`；
   - 新增分册须同时登记到 frontmatter `file_names`、上表路由及下方 `## Supporting Files`；
-  - 运行 `./scripts/lint-skills.sh`、`./scripts/doc-governance-check.sh`、`./scripts/check-pr-boundaries.sh --slice Docs --allowed-crates none`、`python3 scripts/check-local.py --profile quick --base-ref origin/main` 和 `git diff --check`。
+  - 运行 `./scripts/lint-skills.sh`、`./scripts/doc-governance-check.sh`（需装有 `scripts/doc-governance-requirements.txt` 的 `markdown-it-py==3.0.0` 或显式传 `OASIS7_PYTHON_BIN`）、`./scripts/check-pr-boundaries.sh --slice Docs --allowed-crates none`、`python3 scripts/check-local.py --profile quick --base-ref origin/main` 和 `git diff --check`。
 
 ## Supporting Files
 

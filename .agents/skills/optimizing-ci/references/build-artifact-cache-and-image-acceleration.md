@@ -21,7 +21,7 @@
 | `scripts/ci-image-cache.py` | 定义 `rust-cache.yml` 各容器组件编译上下文的精确预热命令集合 | `scripts/ci-image-cache.test.py` |
 | `scripts/ci-test-artifacts.py` | 构建普通/Formal 测试产物、按需门控 `BuiltinTestArtifact`、并发打包分片产物及 `cache_restore()` 增量 mtime 刷新 | `scripts/ci-formal-process.test.py`、`scripts/ci-builtin-test-resources.test.py` |
 | `scripts/ci-custody-platform.py` | Custody 原生产物副本 `strip`、流式 `zlib` 双摘要压缩打包与原子校验恢复 | `scripts/ci-custody-platform.test.py` |
-| `.github/workflows/ci-base-images.yml`、`docker/ci-base-images/` | 构建、离线自检、Trivy 扫描并发布分层预制 CI 镜像及不可变 `@sha256` 摘要 | `scripts/ci-workflow.test.py` 及镜像目标烟测 |
+| `.github/workflows/ci-base-images.yml`、`docker/ci-base/` | 构建、离线自检、Trivy 扫描并发布分层预制 CI 镜像及不可变 `@sha256` 摘要 | `scripts/ci-workflow.test.py` 及镜像目标烟测 |
 
 ---
 
@@ -62,9 +62,9 @@
 
 ### 模式 E：预制 CI 基础镜像消除冷启动与容器安全隔离五守则（`#6031` 系列）
 将重复安装工具链/系统库的慢 Job 迁入已发布固定镜像（如 `#6802` 省去 4 个 `native` 分片各 `4–5m` 安装、`#6971` 将 CodeQL 平台观察压至 `41s`、`#7001` `required-gate` `16s`、`#7007` `custody-native` `8m42s`）时，严守五条边界：
-1. **按最小职责选镜像叶子并固定 `@sha256` 摘要**：Python 门禁汇总用 `ci-runtime`、GitHub API 只读观察用含固定 `gh` 的 `ci-api-runtime`（`#6949`/`#6971`）、常规 Rust 编译与分片消费用非 root `UID 1001` + Git `2.56.1` + `mold` + `zstd` 的 `ci-rust-build`（`#6802`/`#6910`/`#7007`）、需调用宿主 Docker 构建 canonical WASM 的可信 producer 用仅复制静态 `docker` + `buildx` CLI 的 `ci-rust-ordinary-builder`（`#6977`/`#7005`），Job 仅授予最小 `packages: read` 拉取权限。
+1. **按最小职责选镜像叶子并固定 `@sha256` 摘要**：Python 门禁汇总用 `ci-runtime`、GitHub API 只读观察用含固定 `gh` 的 `ci-api-runtime`（`#6949`/`#6971`）、常规 Rust 编译与分片消费用预装固定 Rust stable/WASM nightly + `Git 2.56.1` + `zstd` + 原生依赖库的 `ci-rust-build`（`#6802`/`#6910`/`#7007`；注意 `mold` 未内置在镜像中，需继续通过 `./.github/actions/setup-linux-mold` 按作业安装）、需调用宿主 Docker 构建 canonical WASM 的可信 producer 用仅复制静态 `docker` + `buildx` CLI 的 `ci-rust-ordinary-builder`（`#6977`/`#7005`），Job 仅授予最小 `packages: read` 拉取权限。
 2. **不可信 PR 容器严禁挂载 Docker Socket（`#6970` vs `#7005`）**：可信 `main` 生产者可在固定镜像内有界预检并复用 runner 默认挂载的宿主 Docker daemon；**不可信候选 PR 容器严禁挂载 `/var/run/docker.sock` 或授予特权**——若候选 Job 含强依赖宿主 Docker 的步骤（如 `BuiltinTestArtifact` 调 `build-wasm-module.sh`），须先按需收敛或拆分（`#6989`），切勿直接塞入无 Docker 容器导致构建失败。
-3. **保持 Canonical 工作区绝对路径、同 `dev+inode` 与非 root `UID 1001` 语义（`#6732`、`#6802`、`#6910`）**：Rust 测试二进制与 `CARGO_BIN_EXE_*` 绑定编译期绝对路径 `/home/runner/work/oasis7/oasis7`；容器预检须核实同目录挂载 `dev+inode`、`Git HEAD`、Docker `init` 僵尸进程回收及非 root `UID 1001`（防止 root 身份令 `mode 000` 权限拒绝测试失效）。
+3. **保持 Canonical 工作区绝对路径、同 `dev+inode`、非 root `--user 1001:1001` 与可写 `mold` 路径（`#6732`、`#6802`、`#6910`）**：Rust 测试二进制与 `CARGO_BIN_EXE_*` 绑定编译期绝对路径 `/home/runner/work/oasis7/oasis7`；工作流通过 `container.options: --user 1001:1001 --init` 以非 root 运行（防止 root 身份令 `mode 000` 权限拒绝测试失效并回收僵尸进程），预检同目录挂载 `dev+inode` 与 `Git HEAD`，并为 `setup-linux-mold` 显式传入可写 `install-dir: ${{ runner.temp }}/...`（非 root `UID 1001` 无免密 `sudo` 写 `/opt/oasis7-mold`）。
 4. **缓存按完整镜像 `@sha256` 命名空间隔离**：不同镜像摘要不得混写同一 Cargo 缓存 key；新增镜像缓存 family 须同步接入准入校验与 `ci-cache-maintenance.py` 清单，PR 侧始终只读。
 5. **先发布正式摘要（必要时先合入 `FIXED_TESTS` 白名单前置如 `#6948`/`#7000`），再用冻结历史真实产物做宿主/镜像双端回放验收**（核对正常汇总与缺分片/上游失败/draft 拒绝行为逐字一致后再切流，`#7001`）。
 
