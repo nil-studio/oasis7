@@ -61,7 +61,7 @@
 <a id="effective-generation-inputs"></a>
 ### 3.2 有效生成输入与空间结构
 
-场景 JSON 不是完整生成配置。输入组合为固定程序版本、场景 spec、有效 `WorldConfig`、初始化配置及 chunk 触发顺序。[空间常量](../../../crates/oasis7_agent_api/src/world_geometry.rs)在当前默认下形成 `100 km × 100 km × 10 km`、`5 × 5 × 1` 个索引 chunk；固定分块为 `20 km × 20 km × 10 km`。索引存在不表示其中已有碎片。
+场景 JSON 不是完整生成配置。输入组合为固定程序版本、场景 spec、有效 `WorldConfig`、初始化配置及 chunk 触发顺序。[空间常量](../../../crates/oasis7_domain_types/src/world_geometry.rs)在当前默认下形成 `100 km × 100 km × 10 km`、`5 × 5 × 1` 个索引 chunk；固定分块为 `20 km × 20 km × 10 km`。索引存在不表示其中已有碎片。
 
 [scenario.rs](../../../crates/oasis7_simulator/src/scenario.rs)先按 spec seed 生成普通地点，再形成初始化配置；[init.rs](../../../crates/oasis7_simulator/src/init.rs)依次生成普通地点所在 `seed_positions`、显式 bootstrap chunks 和 Agent 出生坐标所在 chunks。bootstrap 列表会排序去重；该列表只是显式预生成输入，**不能当作最终生成 chunk 数量或全部生成顺序**。有 origin 或 region 的场景尤其需要核对实际模型。
 

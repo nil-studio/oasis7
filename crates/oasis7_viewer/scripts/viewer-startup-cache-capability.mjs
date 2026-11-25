@@ -1,7 +1,7 @@
 // Three bounded cache capability cases. No Viewer budget, frame or authority claim.
 import { createServer } from 'node:http';
-import { loadPlaywright } from '../../../scripts/playwright-module-loader.mjs';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { browserExecutablePath, loadPlaywright } from '../../../scripts/playwright-module-loader.mjs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -9,8 +9,7 @@ import { readFileSync } from 'node:fs';
 import { verifyStartupCacheCases } from './viewer-startup-cache-policy.mjs';
 import { createStartupProfile, launchOwnedStartupContext, readOwnedStartupProfile } from './viewer-owned-startup-context.mjs';
 const { chromium } = loadPlaywright(import.meta.url);
-const chrome = process.env.OASIS7_PLAYWRIGHT_CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-if (!existsSync(chrome)) throw Error('declare an existing Chrome executable');
+const chrome = browserExecutablePath();
 if (!process.env.VIEWER_STARTUP_OUTPUT) throw Error('declare new VIEWER_STARTUP_OUTPUT');
 const out = resolve(process.env.VIEWER_STARTUP_OUTPUT);
 mkdirSync(dirname(out), {recursive:true}); mkdirSync(out); // No evidence overwrite.
@@ -32,6 +31,7 @@ const bounded = async (operation, label) => {
   finally { clearTimeout(timer); }
 };
 const scripts = Object.fromEntries(['viewer-startup-cache-capability.mjs', 'viewer-startup-cache-policy.mjs', 'viewer-owned-startup-context.mjs'].map(name => [name, createHash('sha256').update(readFileSync(new URL(name, import.meta.url))).digest('hex')]));
+scripts['scripts/playwright-module-loader.mjs'] = createHash('sha256').update(readFileSync(new URL('../../../scripts/playwright-module-loader.mjs', import.meta.url))).digest('hex');
 const result = { cases: [], scripts, source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), limitations: ['Not Viewer UI or first-frame timing.', 'No OS page-cache purge; no WASM compiled-code-cache claim.', 'Not authenticated player, A/B network or P6 acceptance.'], profiles: [profileA.path, profileB.path] };
 result.hardStopMs = 120000;
 const hardStop = setTimeout(() => {

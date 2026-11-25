@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import tomllib
 import unittest
@@ -79,7 +80,10 @@ class RustCoverageTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/codeql.yml").read_text()
         scan_env = workflow.split("    env:\n      RUSTC_WRAPPER:", 1)[1].split("    steps:", 1)[0]
         self.assertIn("CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: ${{ matrix.language == 'rust' && 'true' || 'false' }}", scan_env)
-        self.assertIn("CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: ${{ matrix.language == 'rust' && format('[\"{0}/crates/oasis7_builtin_wasm_modules/_templates\"]', github.workspace) || '[]' }}", scan_env)
+        self.assertIn("CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '[]'", scan_env)
+        template_step = workflow.split('      - name: Set Rust template inclusion from the actual checkout\n', 1)[1].split('\n      - ', 1)[0]
+        self.assertTrue(template_step.startswith("        if: matrix.language == 'rust'\n"))
+        self.assertNotIn("needs.plan.outputs.profile", template_step)
         self.assertNotIn("needs.plan.outputs.profile", scan_env)
         self.assertNotIn("CODEQL_EXTRACTOR_RUST_OPTION_CARGO_FEATURES:", workflow)
         ignored = workflow.split("paths-ignore:", 1)[1].split("      - id: analyze", 1)[0]
@@ -123,8 +127,17 @@ class RustCoverageTests(unittest.TestCase):
 
     def test_extra_include_array_resolves_to_existing_checkout_templates(self):
         workflow = (ROOT / ".github/workflows/codeql.yml").read_text()
-        encoded = re.search(r"OPTION_EXTRA_INCLUDES: .*format\('([^']+)'", workflow).group(1)
-        paths = json.loads(encoded.replace("{0}", str(ROOT)))
+        template_step = workflow.split('      - name: Set Rust template inclusion from the actual checkout\n', 1)[1]
+        body = template_step.split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
+        body = '\n'.join(line[10:] for line in body.splitlines())
+        with tempfile.TemporaryDirectory() as work:
+            env_file = Path(work) / "env"
+            subprocess.run([sys.executable, "-I", "-c", body],
+                           env=dict(GITHUB_WORKSPACE=str(ROOT), GITHUB_ENV=str(env_file)),
+                           check=True, timeout=10)
+            name, encoded = env_file.read_text().split("=", 1)
+        self.assertEqual(name, "CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES")
+        paths = json.loads(encoded)
         self.assertEqual(paths, [str(ROOT / "crates/oasis7_builtin_wasm_modules/_templates")])
         self.assertEqual({p.name for p in Path(paths[0]).glob("*.rs")}, {
             "m4_factory_module_template.rs", "m4_product_module_template.rs",

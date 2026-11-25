@@ -174,6 +174,7 @@ impl NodeBftPeerTransportV3 for BufferedNoise {
         self.inner.drain_public(max)
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn wire3_formal_read_cold_pending_prevote_finishes_before_queued_sameheight_noise_qc() {
     thread::Builder::new()

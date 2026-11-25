@@ -48,9 +48,8 @@ impl Write for HashOutput {
         Ok(())
     }
 }
-#[test]
-fn actual_public_agent_event_streams_large_originals_then_reopens_in_small_recovery_pool() {
-    for length in [32 << 20, 64 << 20] {
+fn exercise_large_originals(sizes: &[usize]) {
+    for &length in sizes {
         let directory = Directory::new();
         let root = directory.0.join("original-large");
         let (id, encoded) = {
@@ -193,6 +192,21 @@ fn actual_public_agent_event_streams_large_originals_then_reopens_in_small_recov
         assert_eq!(*output.hash.finalize().as_bytes(), id);
     }
 }
+
+#[test]
+fn actual_public_agent_event_streams_originals_across_value_chunks_then_reopens_in_small_recovery_pool()
+ {
+    exercise_large_originals(&[
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn actual_public_agent_event_streams_large_originals_then_reopens_in_small_recovery_pool() {
+    exercise_large_originals(&[32 << 20, 64 << 20]);
+}
+
 fn recipes(path: &std::path::Path) -> usize {
     std::fs::read_dir(path.join("recipes")).unwrap().count()
 }

@@ -431,7 +431,7 @@ impl WasmExecutor {
             .len()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     #[cfg(feature = "wasmtime")]
     pub(crate) fn compile_module_cached(
         &self,

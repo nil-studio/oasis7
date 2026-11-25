@@ -30,11 +30,6 @@ export function scheduleCanonicalGoalPending({ ack, feedback, state, clone, requ
   }, 1500);
 }
 
-export function canonicalGoalMarkup(state, agentId, escapeHtml) {
-  const goal = authenticatedCanonicalGoal(state, agentId);
-  return goal ? `<p data-canonical-agent-goal>Current goal: ${escapeHtml(goal.message)}</p>` : "";
-}
-
 export function applyCommittedChatAck({ ack, feedback, state, clone, pushChatHistory }) {
   feedback.stage = "ack";
   feedback.ok = true;

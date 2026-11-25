@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use std::sync::atomic::AtomicBool;
 struct Mirror<'a, A, B> {
@@ -183,6 +184,7 @@ fn transfer_pair(
     };
     Some(roots)
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_governance_pages_transfer_to_two_buffered_formats_then_cold_recover() {
     let directory = Directory::new();
@@ -290,6 +292,7 @@ fn typed_governance_pages_transfer_to_two_buffered_formats_then_cold_recover() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn low_pool_tracking_retains_exact_memory_error() {
     let directory = Directory::new();

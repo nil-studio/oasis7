@@ -401,3 +401,152 @@ assert_contains "$detached_abs_dir/local-letai-game-test.detached.sh" "--reuse-e
 assert_contains "$detached_abs_dir/local-letai-game-test.detached.sh" "--skip-llm-provider-preflight"
 
 echo "local letai game test CLI smoke passed"
+
+# Exercise the actual public-testnet harness entrypoint using a fake checkout
+# and local service/network adapters. Never contact the world or a provider.
+harness="$tmp_dir/public-testnet-harness"
+mkdir -p "$harness/scripts" "$harness/target/debug" "$harness/bin" "$harness/tmp"
+cp scripts/run-local-public-testnet-letai-test-environment.sh "$harness/scripts/"
+cat >"$harness/scripts/cargo-dev-lib.sh" <<'BASH'
+oasis7_cargo_dev_target_dir() { printf '%s/target\n' "$1"; }
+BASH
+cat >"$harness/bin/lsof" <<'BASH'
+#!/usr/bin/env bash
+exit 1
+BASH
+cat >"$harness/bin/curl" <<'BASH'
+#!/usr/bin/env bash
+printf '%s\n' '{"world_id":"fixture","network_tier":{"tier":"public_testnet","chain_id":"fixture","network_id":"fixture"},"readiness":{"status":"ready"}}'
+BASH
+cat >"$harness/bin/launchctl" <<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  remove) exit 0 ;;
+  submit)
+    while [[ "$1" != "--" ]]; do shift; done
+    shift
+    unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY
+    "$@"
+    ;;
+  *) exit 2 ;;
+esac
+BASH
+cat >"$harness/scripts/run-local-letai-provider-bridge.sh" <<'PY'
+#!/usr/bin/env python3
+import json, os, stat, sys
+from pathlib import Path
+args = sys.argv[1:]
+path = Path(args[args.index("--config") + 1])
+if "token_key=fake-harness-test-token" not in path.read_text():
+    raise SystemExit("test fixture token field absent")
+mode = stat.S_IMODE(path.stat().st_mode)
+if mode != 0o600:
+    raise SystemExit("merged config is not private")
+with Path(os.environ["HARNESS_RECEIPT"] + ".provider").open("w") as receipt:
+    json.dump({"config": str(path), "mode": mode,
+               "http_proxy": os.environ.get("http_proxy"),
+               "HTTP_PROXY": os.environ.get("HTTP_PROXY"),
+               "https_proxy": os.environ.get("https_proxy"),
+               "all_proxy": os.environ.get("all_proxy")}, receipt)
+PY
+cat >"$harness/target/debug/oasis7_newapi_bridge_service" <<'PY'
+#!/usr/bin/env python3
+import json, os, stat, sys
+from pathlib import Path
+args = sys.argv[1:]
+path = Path(args[args.index("--state-path") + 1])
+path.write_text("{}\n")
+with Path(os.environ["HARNESS_RECEIPT"] + ".state").open("w") as receipt:
+    json.dump({"state": str(path), "mode": stat.S_IMODE(path.stat().st_mode)}, receipt)
+PY
+chmod +x "$harness"/bin/* "$harness/scripts/run-local-letai-provider-bridge.sh" "$harness/target/debug/oasis7_newapi_bridge_service"
+printf 'token_key=fake-harness-test-token\nbase_url=https://test.invalid\n' >"$harness/token.env"
+printf 'platform_key=fake-harness-test-platform\n' >"$harness/platform.env"
+
+run_public_fixture() (
+  local case_name="$1"
+  shift
+  # Begin with an ordinary permissive umask so the managed outputs must
+  # demonstrate their own privacy rather than relying on this environment.
+  umask 022
+  unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY \
+    OASIS7_LOCAL_TEST_PROXY_URL OASIS7_LOCAL_TEST_SOCKS_PROXY_URL \
+    OASIS7_LETAI_MERGED_CONFIG OASIS7_NEWAPI_BRIDGE_STATE_PATH
+  if [[ "$case_name" == override ]]; then
+    export HTTP_PROXY=http://existing-proxy.test.invalid:18080
+  fi
+  cd "$harness"
+  PATH="$harness/bin:$PATH" TMPDIR="$harness/tmp" HARNESS_RECEIPT="$harness/$case_name" \
+    OASIS7_NEWAPI_BRIDGE_LETAI_PLATFORM_KEY=fake-harness-test-platform \
+    ./scripts/run-local-public-testnet-letai-test-environment.sh \
+      --no-build --skip-viewer-live --skip-static-viewer --skip-viewer-first-user-smoke \
+      --no-operator-commands --pricing-rules pv-1:100:100000:0 \
+      --letai-config "$harness/token.env" --letai-platform-env "$harness/platform.env" \
+      --output-dir "$case_name output" "$@" >"$harness/$case_name.out" 2>&1
+)
+
+run_public_fixture alpha &
+alpha_pid=$!
+run_public_fixture beta &
+beta_pid=$!
+wait "$alpha_pid"
+wait "$beta_pid"
+# In addition to CLI/env precedence, verify an explicit output can replace a
+# previously permissive regular file without retaining its permissive mode.
+printf 'old fixture\n' >"$harness/explicit.env"
+chmod 644 "$harness/explicit.env"
+run_public_fixture override --merged-letai-config explicit.env --newapi-state-path explicit-state.json \
+  --proxy http://explicit-proxy.test.invalid:18888 --socks-proxy socks5://explicit-proxy.test.invalid:18889
+ln -s token.env "$harness/unsafe-link.env"
+if run_public_fixture invalid --merged-letai-config unsafe-link.env; then
+  echo "public testnet harness accepted a symlink output" >&2
+  exit 1
+fi
+test -L "$harness/unsafe-link.env"
+if run_public_fixture alias --merged-letai-config token.env; then
+  echo "public testnet harness attempted to replace an input" >&2
+  exit 1
+fi
+mkdir -p "$harness/loose output/newapi-private"
+chmod 755 "$harness/loose output/newapi-private"
+if run_public_fixture loose; then
+  echo "public testnet harness accepted a public default state directory" >&2
+  exit 1
+fi
+python3 - "$harness" <<'PY'
+import json, stat, sys
+from pathlib import Path
+harness = Path(sys.argv[1]).resolve()
+temporary_paths = set()
+for name in ("alpha", "beta"):
+    provider = json.loads((harness / (name + ".provider")).read_text())
+    state = json.loads((harness / (name + ".state")).read_text())
+    temporary = Path(provider["config"])
+    temporary_paths.add(temporary)
+    assert temporary.parent.parent == harness / "tmp"
+    assert not temporary.parent.exists(), "default credential directory survived startup"
+    assert all(provider[k] is None for k in ("http_proxy", "HTTP_PROXY", "https_proxy", "all_proxy"))
+    assert state["state"] == str(harness / (name + " output") / "newapi-private" / "bridge-state.json")
+    assert stat.S_IMODE(Path(state["state"]).parent.stat().st_mode) == 0o700
+    assert state["mode"] == 0o600
+assert len(temporary_paths) == 2
+provider = json.loads((harness / "override.provider").read_text())
+state = json.loads((harness / "override.state").read_text())
+assert provider["config"] == str(harness / "explicit.env")
+assert stat.S_IMODE((harness / "explicit.env").stat().st_mode) == 0o600
+assert provider["http_proxy"] is None and provider["HTTP_PROXY"] == "http://existing-proxy.test.invalid:18080"
+assert provider["https_proxy"] == "http://explicit-proxy.test.invalid:18888"
+assert provider["all_proxy"] == "socks5://explicit-proxy.test.invalid:18889"
+assert state["state"] == str(harness / "explicit-state.json")
+assert state["mode"] == 0o600
+assert not (harness / "invalid.provider").exists()
+assert not (harness / "alias.provider").exists()
+assert (harness / "token.env").read_text() == "token_key=fake-harness-test-token\nbase_url=https://test.invalid\n"
+assert not (harness / "loose.state").exists()
+PY
+for output in "$harness"/*.out; do
+  assert_not_contains "$output" fake-harness-test-token
+  assert_not_contains "$output" fake-harness-test-platform
+done
+echo "local public testnet isolation and proxy CLI smoke passed"

@@ -10,3 +10,4 @@
 - [requesting-repo-owned-review](requesting-repo-owned-review/SKILL.md)
 - [systematic-debugging](systematic-debugging/SKILL.md)
 - [evaluating-development-methods](evaluating-development-methods/SKILL.md)：按需比较开发方法与 Skill 改动的效果。
+- [optimizing-ci](optimizing-ci/SKILL.md)：通用 CI 诊断与优化入口，按分册管理减少 job 数量、收紧按需选测与前置快速失败门控、收敛全量触发及后续耗时/缓存/稳定性专题。

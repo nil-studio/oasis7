@@ -5,15 +5,10 @@ use std::sync::{Mutex, OnceLock};
 pub mod process_env;
 
 pub const DEFAULT_DEPLOYMENT_MODE: &str = "hosted_public_join";
-#[allow(dead_code)]
 const DEFAULT_MAX_GUEST_SESSIONS: u64 = 32;
-#[allow(dead_code)]
 const DEFAULT_MAX_PLAYER_SESSIONS: u64 = 8;
-#[allow(dead_code)]
 const DEFAULT_ISSUE_RATE_LIMIT_PER_MINUTE: u64 = 60;
-#[allow(dead_code)]
 const DEFAULT_WORLD_FULL_POLICY: &str = "reject";
-#[allow(dead_code)]
 const DEFAULT_KICK_POLICY: &str = "operator_audit_required";
 const HOSTED_STRONG_AUTH_PUBLIC_KEY_ENV: &str = "OASIS7_HOSTED_STRONG_AUTH_PUBLIC_KEY";
 const HOSTED_STRONG_AUTH_PRIVATE_KEY_ENV: &str = "OASIS7_HOSTED_STRONG_AUTH_PRIVATE_KEY";
@@ -32,7 +27,6 @@ pub mod hosted_test_env;
 // Retain the shared test API for existing web-launcher consumers. Launcher
 // environment scenarios use child startup configuration instead of this lock.
 #[cfg(any(test, feature = "test-support"))]
-#[allow(dead_code)]
 pub fn hosted_strong_auth_test_env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -114,18 +108,15 @@ impl DeploymentMode {
         }
     }
 
-    #[allow(dead_code)]
     pub fn requires_loopback_private_control(self) -> bool {
         matches!(self, Self::HostedPublicJoin)
     }
 
-    #[allow(dead_code)]
     pub fn disables_browser_signer_bootstrap(self) -> bool {
         matches!(self, Self::HostedPublicJoin)
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedAdmissionControlContract {
     pub max_guest_sessions: u64,
@@ -135,7 +126,6 @@ pub struct HostedAdmissionControlContract {
     pub kick_policy: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedPlayerAccessContract {
     pub deployment_mode: String,
@@ -152,7 +142,6 @@ pub struct HostedPlayerAccessContract {
     pub admission: HostedAdmissionControlContract,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedActionAccessPolicy {
     pub action_id: String,
@@ -161,7 +150,6 @@ pub struct HostedActionAccessPolicy {
     pub reason: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct HostedViewerAccessHint {
     pub deployment_mode: String,
@@ -173,7 +161,6 @@ pub struct HostedViewerAccessHint {
     pub action_matrix: Vec<HostedActionAccessPolicy>,
 }
 
-#[allow(dead_code)]
 pub fn hosted_player_access_contract(mode: DeploymentMode) -> HostedPlayerAccessContract {
     HostedPlayerAccessContract {
         deployment_mode: mode.as_str().to_string(),
@@ -197,7 +184,6 @@ pub fn hosted_player_access_contract(mode: DeploymentMode) -> HostedPlayerAccess
     }
 }
 
-#[allow(dead_code)]
 pub fn hosted_viewer_access_hint(mode: DeploymentMode) -> HostedViewerAccessHint {
     HostedViewerAccessHint {
         deployment_mode: mode.as_str().to_string(),
@@ -232,7 +218,6 @@ fn hosted_action_policy(
     }
 }
 
-#[allow(dead_code)]
 fn hosted_action_matrix(mode: DeploymentMode) -> Vec<HostedActionAccessPolicy> {
     let hosted_strong_auth_backend_grant_enabled = hosted_strong_auth_backend_grant_enabled();
     let prompt_strong_auth_availability = match mode {
@@ -295,7 +280,6 @@ fn hosted_action_matrix(mode: DeploymentMode) -> Vec<HostedActionAccessPolicy> {
     matrix
 }
 
-#[allow(dead_code)]
 pub fn web_launcher_public_endpoints() -> &'static [&'static str] {
     &[
         "/healthz",
@@ -369,7 +353,6 @@ fn env_non_empty(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-#[allow(dead_code)]
 pub fn web_launcher_private_endpoints() -> &'static [&'static str] {
     &[
         "/",

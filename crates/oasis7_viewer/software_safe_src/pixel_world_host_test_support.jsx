@@ -342,27 +342,6 @@ function sampleSnapshot() {
     },
   };
 }
-function acceptedOnlySnapshot() {
-  const snapshot = clone(sampleSnapshot());
-  const gameplay = snapshot.player_gameplay;
-  gameplay.stage_status = "executing";
-  gameplay.execution_state = "accepted";
-  gameplay.blocker_kind = null;
-  gameplay.blocker_detail = null;
-  gameplay.causality_kind = null;
-  gameplay.causality_detail = null;
-  gameplay.last_world_change = null;
-  gameplay.recent_feedback = {
-    action: "build_factory_smelter_mk1",
-    stage: "accepted",
-    effect: null,
-    reason: null,
-    hint: "Build request queued for agent-0.",
-    delta_logical_time: 0,
-    delta_event_seq: 1,
-  };
-  return snapshot;
-}
 function noReceiptSnapshot() {
   const snapshot = clone(sampleSnapshot());
   const gameplay = snapshot.player_gameplay;
@@ -466,7 +445,6 @@ export {
   clone,
   emptyWorldSnapshot,
   noReceiptSnapshot,
-  acceptedOnlySnapshot,
   bindFirstSnapshotAgentForTest,
   renderPixelWorldHost,
   runtimeMock,

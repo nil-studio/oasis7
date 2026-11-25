@@ -2226,9 +2226,7 @@ dependencies = [
 name = "oasis7_local_signer"
 version = "0.1.0"
 dependencies = [
- "argon2",
  "base64 0.23.1",
- "chacha20poly1305",
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",

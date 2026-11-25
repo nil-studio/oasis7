@@ -8,7 +8,7 @@
 
 ## 范围
 - 覆盖 `scripts/run-launcher-stack.sh --bundle-dir`、`scripts/run-producer-playtest.sh`、`scripts/run-game-test-ab.sh` 在启动器 bundle-first 场景中的职责划分。
-- 覆盖 `testing-manual.md`、启动器人工测试清单、`doc/testing/launcher/README.md` 与 `doc/testing/prd.index.md` 的回写要求；可变任务状态回到 PR 与实际验证记录 与 Git 历史追溯。
+- 覆盖 `testing-manual.md`、启动器人工测试清单、`doc/testing/launcher/README.md` 与 `doc/testing/prd.index.md` 的回写要求；可变任务状态回到 PR、实际验证记录与 Git 历史追溯。
 - 不覆盖 `oasis7_game_launcher` / `oasis7_web_launcher` 的业务功能扩展，也不新增独立第四条自动化链路。
 
 ## 接口 / 数据
@@ -109,7 +109,7 @@
 
 ## 5. Risks & Roadmap
 - Phased Rollout:
-  - MVP (LBFP-1): 建立专题规格、设计与项目拆解并更新 testing 主索引；专题完成后，当前设计与验收口径并入本 PRD，完成态拆解由 PR 与实际验证记录 与 Git 历史承接。
+  - MVP (LBFP-1): 建立专题规格、设计与项目拆解并更新 testing 主索引；专题完成后，当前设计与验收口径并入本 PRD，完成态拆解由 PR、实际验证记录与 Git 历史承接。
   - v1.1 (LBFP-2): 为 `run-launcher-stack.sh` 增加 `--bundle-dir` 并同步帮助文本。
   - v1.2 (LBFP-3): 更新主手册与人工清单，将 bundle-first 明确为人工验收默认入口。
   - v1.3 (LBFP-4): 完成 bundle 实机闭环验证与 devlog 收口。

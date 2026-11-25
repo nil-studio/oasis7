@@ -8,9 +8,7 @@ use std::time::{Duration, Instant};
 use super::agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery, AgentQueryResult,
 };
-use super::runtime_perf::{RuntimePerfCollector, RuntimePerfSnapshot};
-use oasis7_simulator::WorldEventKind;
-use oasis7_simulator::WorldTime;
+use oasis7_simulator::{RuntimePerfCollector, RuntimePerfSnapshot, WorldEventKind, WorldTime};
 
 // ============================================================================
 // Quota and Rate Limiting
