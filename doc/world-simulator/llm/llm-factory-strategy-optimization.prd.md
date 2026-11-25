@@ -33,7 +33,7 @@
 <a id="lfo-recovery-source"></a>
 
 ### 1) Prompt 恢复规则（TODO-1）
-- 位置：`crates/oasis7/src/simulator/llm_agent/prompt_assembly.rs`
+- 位置：`crates/oasis7_agent_harness/src/llm_prompt_assembly.rs`
 - 设计：
   - 在“决策约束”段新增固定恢复规则表（文本模板 + 可枚举 reject reason）。
   - 明确“当上一步因资源拒绝时，下一个动作必须是补资源动作；禁止连续超过 N 次相同采集动作”。
