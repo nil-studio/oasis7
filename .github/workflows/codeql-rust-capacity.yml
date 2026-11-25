@@ -158,6 +158,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'source_root={source}\ndb_location={temporary}/rust-capacity-databases\n')
               out.write(f'bundle={temporary}/rust-capacity-tools/bundle.tar.zst\n')
+              out.write(f'node_options=--require={temporary}/rust-capacity-helper/codeql-rust-action-deadline.cjs\n')
           PYTHON
       - id: init
         uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
@@ -209,7 +210,7 @@ jobs:
         timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
         env:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
-          NODE_OPTIONS: ${{ inputs.mode == 'candidate-workload-research' && format('--require={0}/rust-capacity-helper/codeql-rust-action-deadline.cjs', runner.temp) || env.NODE_OPTIONS }}
+          NODE_OPTIONS: ${{ inputs.mode == 'candidate-workload-research' && steps.tools.outputs.node_options || env.NODE_OPTIONS }}
         with:
           checkout_path: ${{ steps.tools.outputs.source_root }}
           category: oasis7/rust-repo/default

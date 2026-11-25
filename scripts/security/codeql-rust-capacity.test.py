@@ -80,10 +80,13 @@ class Capacity(unittest.TestCase):
                                             env=settings, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(json.loads(env.read_text().split('=', 1)[1]), [str(templates)])
-                    self.assertEqual(dict(line.split('=', 1) for line in output.read_text().splitlines()),
-                                     {'source_root': str(source),
-                                      'db_location': str(temporary / 'rust-capacity-databases'),
-                                      'bundle': str(temporary / 'rust-capacity-tools/bundle.tar.zst')})
+                    expected = {'source_root': str(source),
+                                'db_location': str(temporary / 'rust-capacity-databases'),
+                                'bundle': str(temporary / 'rust-capacity-tools/bundle.tar.zst')}
+                    if basename == 'codeql-rust-capacity.yml':
+                        hook = temporary / 'rust-capacity-helper/codeql-rust-action-deadline.cjs'
+                        expected['node_options'] = '--require=' + str(hook)
+                    self.assertEqual(dict(line.split('=', 1) for line in output.read_text().splitlines()), expected)
                     templates.rmdir()
                     templates.symlink_to(temporary)
                     env.unlink()
@@ -905,6 +908,9 @@ assert value['found_manifests']==[]
         self.assertLess(steps.index(by_id['layout']),steps.index(by_id['init']))
         self.assertIn('          source-root: ${{ steps.tools.outputs.source_root }}',by_id['init'])
         self.assertIn('          checkout_path: ${{ steps.tools.outputs.source_root }}',by_id['analyze'])
+        self.assertIn("NODE_OPTIONS: ${{ inputs.mode == 'candidate-workload-research' && steps.tools.outputs.node_options || env.NODE_OPTIONS }}",
+                      by_id['analyze'])
+
         for phase in ('prepare','capture','finish'):
             self.assertIn('"$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" '+phase,by_id[phase])
             self.assertIn('--source "$GITHUB_WORKSPACE"',by_id[phase])
