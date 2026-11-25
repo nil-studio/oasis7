@@ -8906,6 +8906,42 @@ class ScopeSliceAndDirectSupportGateTests(unittest.TestCase):
         reordered_head = self.commit()
         self.assertEqual(selector.select(self.config, active_removed, reordered_head, profile='pr-fast')['scope'], 'full')
 
+        # 6) Extending an existing rule's `match` list (order-preserving superset) + introducing
+        #    a new file matching that extension in the SAME PR succeeds without UnknownInputsError
+        #    and stays targeted to workflow_governance + target group.
+        superset_cfg = copy.deepcopy(self.config)
+        superset_cfg['rules'][0]['match'] = [*superset_cfg['rules'][0]['match'], 'scripts/brand-new-hygiene-check.py']
+        target_groups = set(superset_cfg['rules'][0]['groups'])
+        self.write('scripts/ci-required-scope.json', json.dumps(superset_cfg))
+        self.write('scripts/brand-new-hygiene-check.py', '#!/usr/bin/env python3\nprint("ok")\n')
+        same_pr_head = self.commit()
+        same_pr_plan = selector.select(self.config, active_removed, same_pr_head, profile='pr-fast')
+        self.assertEqual(same_pr_plan['scope'], 'targeted')
+        self.assertEqual(set(same_pr_plan['groups']), {'baseline', 'workflow_governance', *target_groups})
+
+        # 7) Co-changing scripts/ci-tests.sh alongside a new script + same-PR rule registration
+        #    still conservatively selects scope='full' for ci-tests.sh, while avoiding UnknownInputsError.
+        self.write('scripts/ci-tests.sh', '#!/usr/bin/env bash\necho updated\n')
+        cochange_head = self.commit()
+        cochange_plan = selector.select(self.config, active_removed, cochange_head, profile='pr-fast')
+        self.assertEqual(cochange_plan['scope'], 'full')
+
+        # 8) Pre-existing unregistered file modified (not newly added) cannot self-register via candidate rules.
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.write('scripts/preexisting-unmapped.py', 'v = 1\n')
+        preexisting_base = self.commit()
+        attempt_cfg = copy.deepcopy(self.config)
+        attempt_cfg['rules'].append({
+            'match': ['scripts/preexisting-unmapped.py'],
+            'groups': ['baseline'],
+            'reason': 'late_self_registration',
+        })
+        self.write('scripts/ci-required-scope.json', json.dumps(attempt_cfg))
+        self.write('scripts/preexisting-unmapped.py', 'v = 2\n')
+        attempt_head = self.commit()
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(self.config, preexisting_base, attempt_head, profile='pr-fast')
+
     def test_standalone_non_workspace_cargo_manifests_scope_to_owners_and_keep_root_or_patch_full(self):
         cases = {
             'tools/oasis7-command-center/Cargo.toml': (
