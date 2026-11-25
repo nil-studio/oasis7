@@ -126,7 +126,7 @@ jobs:
           echo "$CAPACITY_BUNDLE_SHA256  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 rustup toolchain install 1.96.0 --profile minimal
       - id: init
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         timeout-minutes: 5
         with:
           languages: rust
@@ -171,7 +171,7 @@ jobs:
             --deadline "$CAPACITY_DEADLINE" --analysis-deadline "$CAPACITY_ANALYSIS_DEADLINE"
       - id: analyze
         name: ${{ (inputs.mode == 'qualifier-research' || inputs.mode == 'candidate-workload-research') && 'Extract the complete fixed source for private research' || 'Extraction and complete official default queries' }}
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
         env:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
@@ -413,7 +413,7 @@ jobs:
           echo "1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b  $RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" | sha256sum --check
           echo "tools_path=$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
       - id: init
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         env:
           CODEQL_OVERLAY_DATABASE_MODE: none
         with:
@@ -507,7 +507,7 @@ jobs:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
           NODE_OPTIONS: ${{ steps.rust_prepare.outputs.node_options }}
           RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           category: oasis7/rust-repo/default
           output: ${{ runner.temp }}/codeql-results
