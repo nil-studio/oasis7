@@ -775,21 +775,27 @@ def validate_candidate_graph(workflow, config):
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
         raise ValueError('failure propagation must remain intact')
     fleet = jobs['fleet-health']
-    expected_fleet_os = (
-        'os: ${{ (needs.select.outputs.run_fleet_health == \'true\' || '
+    subcontract_fleet_os = (
+        'os: ${{ (fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version == 1 && '
+        'fromJSON(needs.select.outputs.plan).scope != \'full\' && '
+        'fromJSON(needs.select.outputs.plan).scope != \'explicit-full\' && '
+        'join(fromJSON(needs.select.outputs.plan).fleet_health_oses, \',\') != \'\') && '
+        'fromJSON(needs.select.outputs.plan).fleet_health_oses || '
+        '((needs.select.outputs.run_fleet_health == \'true\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'full\' || '
         'fromJSON(needs.select.outputs.plan).scope == \'explicit-full\' || '
         '(fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 && '
         'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 && '
         'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5)) && '
-        'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\') }}'
+        'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\') || fromJSON(\'["windows-2022"]\')) }}'
     )
-    if (expected_fleet_os not in fleet
+    if (subcontract_fleet_os not in fleet
             or 'runs-on: ${{ matrix.os }}' not in fleet
             or 'fail-fast: false' not in fleet or 'include:' in fleet or 'exclude:' in fleet
-            or "if: runner.os != 'Windows'" not in fleet or '--host-smoke' not in fleet
+            or not re.search(r"if:\s*(?:>-\s*)?runner\.os != 'Windows'", fleet)
+            or '--host-smoke' not in fleet
             or 'p2p-public-testnet-package-rollout.test.sh' not in fleet):
-        raise ValueError('fleet must run all three hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
+        raise ValueError('fleet must run subcontract-sliced hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
     for group in config['groups']:
         job = jobs[group.replace('_', '-')]
         if group == 'workspace_support':
@@ -1849,7 +1855,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                   'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
                   'check_inventory_version', 'fast_plan_exceptions'}
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
-        self.assertLessEqual(consumers, fields | {
+        fleet_subcontract_fields = {'fleet_health_subcontracts_version', 'fleet_health_oses', 'fleet_health_checks'}
+        self.assertLessEqual(consumers, fields | fleet_subcontract_fields | {
             'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
             'ordinary_main_fast_cache_writer_version',
             'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
@@ -1875,6 +1882,19 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     env=dict(environment, WORKFLOW_PLAN=json.dumps(value)), text=True, capture_output=True)
             result = invoke(projected)
             self.assertEqual(result.returncode, 0, result.stderr)
+            if fleet_subcontract_fields.intersection(consumers):
+                fleet_extra = {
+                    'fleet_health_subcontracts_version': 1,
+                    'fleet_health_checks': ['macos_signer'],
+                    'fleet_health_oses': ['macos-15'],
+                }
+                fleet_projected = project_selection(root, plan | fleet_extra)
+                for key, expected_val in fleet_extra.items():
+                    self.assertEqual(fleet_projected.get(key), expected_val)
+                fleet_result = invoke(fleet_projected)
+                self.assertEqual(fleet_result.returncode, 0, fleet_result.stderr)
+                self.assertNotEqual(invoke(fleet_projected | {'fleet_health_oses': ['windows-2022']}).returncode, 0)
+                project_selection(root, plan)
             for key in fields:
                 for broken in ({k: v for k, v in projected.items() if k != key},
                                projected | {key: {'changed': True}}):
@@ -3003,7 +3023,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_ordinary_build_aggregation_rejects_every_incomplete_lane_combination(self):
         consumer = JOBS['oasis7-required']
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', consumer)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in consumer
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in consumer
+        )
         condition = consumer.split('    runs-on:', 1)[0].split('    if:', 1)[1].strip().removeprefix('>-').strip()
         self.assertIn('always() && !cancelled()', condition)
         self.assertIn("needs.select.result == 'success'", condition)
@@ -3046,6 +3069,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', 'explicit-full', None)):
                         values = {
                             'always()': True, 'cancelled()': cancelled,
+                            'needs.fast-preflight.result': 'success',
                             'needs.oasis7-test-build-candidate.result': result,
                             'needs.oasis7-test-build-trusted.result': 'skipped',
                             'needs.select.result': 'success' if name == 'oasis7-required' else result,
@@ -3300,7 +3324,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_ordinary_matrix_keeps_the_trusted_complete_partition_list_and_failure_boundary(self):
         job = JOBS['oasis7-required']
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', job)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in job
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in job
+        )
         self.assertIn('oasis7-required', JOBS['required-gate'])
         for damaged in (
             job.replace('fail-fast: false', 'fail-fast: true'),
@@ -3975,7 +4002,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_local_signer_and_new_contracts_are_connected_once(self):
         fleet = JOBS['fleet-health']
-        self.assertIn("if: runner.os == 'macOS'", fleet)
+        self.assertRegex(fleet, r"if:\s*(?:>-\s*)?runner\.os == 'macOS'")
         self.assertIn('TMPDIR: /private/tmp', fleet)
         self.assertIn('python3 scripts/ci-local-signer-tests.py --require-darwin', fleet)
         self.assertLess(fleet.index('rustup default "$RUST_TOOLCHAIN"'),
@@ -4889,7 +4916,8 @@ run_cargo() {
 
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
-        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','site-quality','launcher-web','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node','full-regression','candidate-full-regression'})
+        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node','full-regression','candidate-full-regression'})
+        self.assertNotIn('oasis7_viewer', JOBS['launcher-web'])
         self.assertIn("node-version: '24'", JOBS['site-quality'])
         for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node'}:
             self.assertIn('cache: npm',JOBS[name])
@@ -4954,9 +4982,17 @@ run_cargo() {
             if group == 'workspace_support':
                 self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
                 continue
-            dependency = ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]'
-                          if group == 'oasis7_required' else 'needs: select')
-            self.assertIn(dependency, job)
+            preflight_groups = {
+                'rust_baseline', 'node', 'distfs', 'net', 'launcher_web', 'scenario_regression',
+            }
+            allowed = (
+                ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]',
+                 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]')
+                if group == 'oasis7_required'
+                else (('needs: [select, fast-preflight]',)
+                      if group in preflight_groups else ('needs: select',))
+            )
+            self.assertTrue(any(dep in job for dep in allowed), (group, allowed))
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
             self.assertIn("needs.select.result == 'success'", job)
             self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", job)
@@ -5293,7 +5329,16 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertLess(prepare, hosted)
         self.assertLess(hosted, verify)
         preparation = fleet[prepare:hosted]
-        self.assertNotIn('runner.os', preparation)
+        prep_cond = re.search(r'^        if: (.*?)(?=^        [a-z-]+:|\Z)', preparation, re.M | re.S).group(1)
+        for runner_os in ('Linux', 'Windows', 'macOS'):
+            self.assertTrue(effective_job_condition(prep_cond, {
+                'runner.os': runner_os,
+                'needs.select.outputs.run_fleet_health': 'true',
+                'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
+                'fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version': 1,
+                'fromJSON(needs.select.outputs.plan).fleet_health_checks': ['hosted_access'],
+            }, ('success',)), f'hosted_access must prepare Rust toolchain on {runner_os}')
         self.assertIn("needs.select.outputs.run_fleet_health == 'true'", preparation)
         hosted_validation = fleet[hosted:verify]
         self.assertNotIn('runner.os', hosted_validation)
@@ -5304,7 +5349,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertIn('rustup default "$RUST_TOOLCHAIN"', preparation)
         self.assertTrue((ROOT / 'rust-toolchain.toml').is_file())
         validation = fleet[verify:fleet.index('name: Ensure Linux process inspection dependency')]
-        self.assertIn("if: runner.os == 'macOS'", validation)
+        self.assertRegex(validation, r"if:\s*(?:>-\s*)?runner\.os == 'macOS'")
         self.assertIn('cargo test --locked -p oasis7_context -p oasis7_secure_envelope --all-targets', validation)
         self.assertIn('cargo test --locked -p oasis7_local_signer --test context_cli', validation)
 
@@ -6228,7 +6273,7 @@ class AptWorkflow(unittest.TestCase):
 
     def test_existing_lsof_does_not_invoke_package_manager(self):
         step = self.apt_steps()['rust', 'fleet-health', 'Ensure Linux process inspection dependency']
-        self.assertIn("if: runner.os == 'Linux'", step)
+        self.assertRegex(step, r"if:\s*(?:>-\s*)?runner\.os == 'Linux'")
         script = textwrap.dedent(step.split('        run: |\n', 1)[1])
         stub = ('command() { return 0; };\n'
                 'sudo() { echo unexpected-install >&2; return 99; };\n')
@@ -6403,7 +6448,10 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
         self.assertIn('fail-fast: false', header)
         self.assertNotIn('include:', header)
         self.assertNotIn('exclude:', header)
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', header)
+        self.assertTrue(
+            'needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]' in header
+            or 'needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]' in header
+        )
         self.assertIn('oasis7-required', JOBS['required-gate'])
         step = job.split('      - name: Execute selected group\n', 1)[1]
         script = textwrap.dedent(step.split('        run: ', 1)[1])
@@ -7746,16 +7794,31 @@ print({m0!r})
         self.assertIn("github.event_name == 'pull_request'", preflight)
         self.assertIn('cargo +"$RUST_TOOLCHAIN" fmt --all -- --check', preflight)
         self.assertNotIn('fast-preflight', JOBS['required-gate'].split('    steps:', 1)[0])
+        self.assertEqual(
+            re.search(r'^\s+image:\s*(\S+)\s*$', preflight, re.M).group(1),
+            re.search(r'^\s+image:\s*(\S+)\s*$', JOBS['rust-baseline'], re.M).group(1),
+            'fast-preflight and rust-baseline must share the same container image when skipping duplicate rustfmt',
+        )
 
-        for heavy in ('oasis7-test-build-candidate', 'workspace-support-other',
-                      'custody-native-contracts', 'custody-native', 'custody-wasm-production'):
+        for heavy in ('rust-baseline', 'oasis7-test-build-candidate', 'workspace-support-other',
+                      'custody-native-contracts', 'custody-native', 'custody-wasm-production',
+                      'distfs', 'node', 'net', 'launcher-web', 'scenario-regression'):
             job = JOBS[heavy]
             self.assertIn('needs: [select, fast-preflight]', job)
             self.assertIn("(needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped')", job)
             cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', job, re.M | re.S).group(1)
             base_vals = {
                 'needs.select.result': 'success',
+                'needs.select.outputs.run_rust_baseline': 'true',
                 'needs.select.outputs.run_oasis7_required': 'true',
+                'needs.select.outputs.run_distfs': 'true',
+                'needs.select.outputs.run_node': 'true',
+                'needs.select.outputs.run_consensus': 'false',
+                'needs.select.outputs.run_net': 'true',
+                'needs.select.outputs.run_launcher_web': 'true',
+                'needs.select.outputs.run_scenario_regression': 'true',
+                'needs.select.outputs.run_pixel_world_bridge': 'false',
+                'needs.select.outputs.run_cargo_tooling_contracts': 'false',
                 'needs.select.outputs.trusted_source': 'false',
                 'needs.select.outputs.workspace_support_partitions': ['other'],
                 'fromJSON(needs.select.outputs.workspace_support_partitions)': ['other'],
@@ -7767,6 +7830,7 @@ print({m0!r})
                 'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'fromJSON(needs.select.outputs.plan).custody_execution_version': 1,
                 'fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version': 2,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
                 'github.event_name': 'pull_request',
                 'github.ref': 'refs/pull/1/merge',
                 'github.workflow_sha': 'a',
@@ -7782,6 +7846,132 @@ print({m0!r})
             self.assertTrue(effective_job_condition(
                 cond, dict(base_vals, **{'needs.fast-preflight.result': 'skipped'}), ('success', 'skipped'),
             ), f'{heavy} must run when fast-preflight is skipped')
+
+        for host_job, overrides in (
+            ('node', {'needs.select.outputs.run_node': 'false', 'needs.select.outputs.run_consensus': 'true'}),
+            ('scenario-regression', {
+                'needs.select.outputs.run_scenario_regression': 'false',
+                'needs.select.outputs.run_pixel_world_bridge': 'true',
+            }),
+            ('scenario-regression', {
+                'needs.select.outputs.run_scenario_regression': 'false',
+                'needs.select.outputs.run_cargo_tooling_contracts': 'true',
+            }),
+        ):
+            cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', JOBS[host_job], re.M | re.S).group(1)
+            vals = dict(base_vals, **overrides)
+            self.assertFalse(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'failure'}), ('success', 'failure'),
+            ), f'{host_job} consolidated trigger must skip when fast-preflight fails')
+            self.assertTrue(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'success'}), ('success', 'success'),
+            ), f'{host_job} consolidated trigger must run when fast-preflight succeeds')
+            self.assertTrue(effective_job_condition(
+                cond, dict(vals, **{'needs.fast-preflight.result': 'skipped'}), ('success', 'skipped'),
+            ), f'{host_job} consolidated trigger must run when fast-preflight is skipped')
+
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('ci_required_result', ROOT / 'scripts/ci-required-result.py')
+        required_result = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(required_result)
+        plan = {'scope': 'targeted', 'contract_job_consolidation_version': 5, 'groups': ['baseline']}
+        group_jobs = required_result.configured_group_jobs(CONFIG, plan)
+        retired_jobs = required_result.retired_group_jobs(CONFIG, plan)
+        for selected_group in ('rust_baseline', 'distfs', 'node', 'consensus', 'net',
+                               'launcher_web', 'scenario_regression', 'pixel_world_bridge',
+                               'cargo_tooling_contracts'):
+            plan_with_group = dict(plan, groups=['baseline', selected_group])
+            needs = {'select': {'result': 'success'}}
+            for grp, job_name in group_jobs.items():
+                needs[job_name] = {'result': 'skipped'}
+            needs['baseline'] = {'result': 'success'}
+            for rj in retired_jobs:
+                needs[rj] = {'result': 'skipped'}
+            with self.subTest(skipped_group=selected_group), self.assertRaisesRegex(
+                ValueError, rf'{selected_group}: unexpected result \'skipped\'',
+            ):
+                required_result.validate(plan_with_group, needs, group_jobs, retired_jobs=retired_jobs)
+
+        inline_job = JOBS['oasis7-required']
+        self.assertIn('needs: [select, fast-preflight, oasis7-test-build-candidate, oasis7-test-build-trusted]', inline_job)
+        inline_cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', inline_job, re.M | re.S).group(1)
+        inline_vals = {
+            'needs.select.result': 'success',
+            'needs.select.outputs.run_oasis7_required': 'true',
+            'needs.oasis7-test-build-candidate.result': 'skipped',
+            'needs.oasis7-test-build-trusted.result': 'skipped',
+            'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+            'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
+            'fromJSON(needs.select.outputs.plan).ordinary_execution': 'inline',
+        }
+        self.assertFalse(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'failure'}),
+            ('success', 'failure', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must skip when fast-preflight fails')
+        self.assertTrue(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'success'}),
+            ('success', 'success', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must run when fast-preflight succeeds')
+        self.assertTrue(effective_job_condition(
+            inline_cond, dict(inline_vals, **{'needs.fast-preflight.result': 'skipped'}),
+            ('success', 'skipped', 'skipped', 'skipped'),
+        ), 'inline oasis7-required must run when fast-preflight is skipped')
+
+        skip_fmt_match = re.search(
+            r'OASIS7_SKIP_RUSTFMT:\s*\$\{\{\s*(.+?)\s*\}\}',
+            JOBS['rust-baseline'],
+        )
+        self.assertIsNotNone(skip_fmt_match, 'rust-baseline must wire OASIS7_SKIP_RUSTFMT')
+        skip_expr_raw = skip_fmt_match.group(1)
+        for event_name, preflight_res, scope, expected_flag in (
+            ('pull_request', 'success', 'targeted', '1'),
+            ('pull_request', 'skipped', 'targeted', '0'),
+            ('pull_request', 'success', 'full', '0'),
+            ('push', 'skipped', 'targeted', '0'),
+            ('schedule', 'skipped', 'explicit-full', '0'),
+            ('workflow_dispatch', 'skipped', 'explicit-full', '0'),
+        ):
+            py_expr = skip_expr_raw
+            for token, val in {
+                'github.event_name': repr(event_name),
+                'needs.fast-preflight.result': repr(preflight_res),
+                'fromJSON(needs.select.outputs.plan).scope': repr(scope),
+            }.items():
+                py_expr = py_expr.replace(token, val)
+            py_expr = py_expr.replace('&&', ' and ').replace('||', ' or ').replace('!=', ' != ').replace('==', ' == ')
+            with self.subTest(event_name=event_name, preflight=preflight_res, scope=scope):
+                self.assertEqual(eval(py_expr, {'__builtins__': {}}, {}), expected_flag)
+
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_rust_baseline']
+        script = (
+            'set -euo pipefail\ntier=required; required_plan=""\n'
+            'run() { printf "run:%s\\n" "$*"; }\n'
+            'run_cargo() { printf "cargo:%s\\n" "$*"; }\n'
+            'run_rustsec_advisory_check() { echo advisories; }\n'
+            'run_oasis7_required_clippy_for_group() { echo clippy; }\n'
+            'run_newapi_bridge_service_accounting_tests() { echo newapi; }\n'
+            'run_standalone_tool_lockfiles_checks() { echo lockfiles; }\n'
+            'run_rust_baseline() {\n' + body + '}\nrun_rust_baseline\n'
+        )
+        for env_override, expect_fmt in (
+            ({}, True),
+            ({'OASIS7_SKIP_RUSTFMT': '0'}, True),
+            ({'OASIS7_SKIP_RUSTFMT': '1'}, False),
+        ):
+            env = dict(os.environ)
+            env.pop('OASIS7_SKIP_RUSTFMT', None)
+            env.update(env_override)
+            res = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=env, check=True)
+            lines = res.stdout.splitlines()
+            self.assertEqual(
+                'run:env -u RUSTC_WRAPPER cargo fmt --all -- --check' in lines,
+                expect_fmt,
+                (env_override, lines),
+            )
+            self.assertIn('cargo:fetch --locked', lines)
+            self.assertIn('advisories', lines)
+            self.assertIn('clippy', lines)
 
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
@@ -8033,6 +8223,151 @@ class DependabotCoverageGuardTests(unittest.TestCase):
             updates.get('docker', []),
             self.EXCLUDED_DOCKER_DIRECTORIES,
         )
+
+
+class FleetHealthSubcontractsExecutionTests(unittest.TestCase):
+    @staticmethod
+    def _step_conditions(job):
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        result = {}
+        for step in steps:
+            name_match = re.search(r'^      - name: (.+)$', step, re.M)
+            if not name_match:
+                continue
+            cond_match = re.search(r'^        if: (.*?)(?=^        [a-z-]+:|\Z)', step, re.M | re.S)
+            if cond_match:
+                result[name_match.group(1)] = cond_match.group(1)
+        return result
+
+    @staticmethod
+    def _eval_matrix_os(expr, values):
+        body = expr.strip().removeprefix('${{').removesuffix('}}').strip()
+        full_oses = ['ubuntu-24.04', 'windows-2022', 'macos-15']
+        win_only = ['windows-2022']
+        mapping = {
+            'fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\')': full_oses,
+            'fromJSON(\'["windows-2022"]\')': win_only,
+            **values,
+        }
+        for token, val in sorted(mapping.items(), key=lambda item: -len(item[0])):
+            body = body.replace(token, repr(val))
+        py_expr = []
+        i = 0
+        # Evaluate GitHub Actions && / || short-circuit value semantics via Python and/or
+        body = re.sub(r'!(?!=)', 'not ', body.replace('&&', ' and ').replace('||', ' or '))
+        return eval(
+            ' '.join(body.split()),
+            {'__builtins__': {}},
+            {'join': lambda items, sep=',': sep.join(items or ())},
+        )
+
+    def test_fleet_health_matrix_and_subcontract_steps_slice_and_fallback_safely(self):
+        fleet = JOBS['fleet-health']
+        matrix_expr = re.search(r'^\s+os: (\$\{\{.*\}\})$', fleet, re.M).group(1)
+        conds = self._step_conditions(fleet)
+
+        def base_vals(*, scope='targeted', ver=1, checks=(), oses=(), run_fleet='true', run_win='false'):
+            return {
+                'needs.select.outputs.run_fleet_health': run_fleet,
+                'needs.select.outputs.run_windows_rollout': run_win,
+                'fromJSON(needs.select.outputs.plan).scope': scope,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': 5,
+                'fromJSON(needs.select.outputs.plan).fleet_health_subcontracts_version': ver,
+                'fromJSON(needs.select.outputs.plan).fleet_health_checks': list(checks),
+                'fromJSON(needs.select.outputs.plan).fleet_health_oses': list(oses),
+            }
+
+        # 1) Targeted subcontract matrix.os slicing + full/legacy/empty fallbacks
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(checks=['host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])),
+            ['ubuntu-24.04', 'macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(checks=['macos_signer'], oses=['macos-15'])),
+            ['macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(run_fleet='false', run_win='true', checks=[], oses=['windows-2022'])),
+            ['windows-2022'],
+        )
+        for full_scope in ('full', 'explicit-full'):
+            self.assertEqual(
+                self._eval_matrix_os(matrix_expr, base_vals(scope=full_scope, checks=['macos_signer'], oses=['macos-15'])),
+                ['ubuntu-24.04', 'windows-2022', 'macos-15'],
+            )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(ver=None, checks=[], oses=[])),
+            ['ubuntu-24.04', 'windows-2022', 'macos-15'],
+        )
+        self.assertEqual(
+            self._eval_matrix_os(matrix_expr, base_vals(run_fleet='false', run_win='false', checks=[], oses=[])),
+            ['windows-2022'],
+        )
+
+        # 2) Step gating across subcontracts: host_cleanup skips Rust on Linux & macOS
+        cleanup_vals = base_vals(checks=['host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])
+        for runner_os in ('Linux', 'macOS'):
+            vals = cleanup_vals | {'runner.os': runner_os}
+            self.assertFalse(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify private context filesystem and caller on macOS'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify local signer contracts on macOS'], vals, ('success',)))
+            self.assertTrue(effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)))
+            self.assertEqual(
+                effective_job_condition(conds['Ensure Linux process inspection dependency'], vals, ('success',)),
+                runner_os == 'Linux',
+            )
+
+        # 3) Mixed macos_signer + host_cleanup installs Rust ONLY on macOS, not Linux
+        mixed_vals = base_vals(checks=['macos_signer', 'host_cleanup'], oses=['ubuntu-24.04', 'macos-15'])
+        self.assertFalse(effective_job_condition(
+            conds['Prepare native filesystem contract Rust toolchain'],
+            mixed_vals | {'runner.os': 'Linux'}, ('success',),
+        ))
+        self.assertTrue(effective_job_condition(
+            conds['Prepare native filesystem contract Rust toolchain'],
+            mixed_vals | {'runner.os': 'macOS'}, ('success',),
+        ))
+        self.assertTrue(effective_job_condition(
+            conds['Verify local signer contracts on macOS'],
+            mixed_vals | {'runner.os': 'macOS'}, ('success',),
+        ))
+
+        # 4) fleet_script runs Python collector without Rust toolchain on all 3 OSes; windows_rollout-only runs only Windows rollout
+        win_rollout_vals = base_vals(run_fleet='false', run_win='true', checks=[], oses=['windows-2022']) | {'runner.os': 'Windows'}
+        self.assertTrue(effective_job_condition(conds['Execute consolidated Windows rollout contract'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Execute selected group'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], win_rollout_vals, ('success',)))
+        self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], win_rollout_vals, ('success',)))
+
+        fleet_script_vals = base_vals(checks=['fleet_script'], oses=['ubuntu-24.04', 'windows-2022', 'macos-15'])
+        for runner_os in ('Linux', 'Windows', 'macOS'):
+            vals = fleet_script_vals | {'runner.os': runner_os}
+            self.assertTrue(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+            self.assertFalse(effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)))
+
+        # 5) Legacy BASE (ver=None) and full/explicit-full run all platform-appropriate steps
+        for fallback_vals in (
+            base_vals(ver=None, checks=[], oses=[]),
+            base_vals(scope='full', checks=[], oses=[]),
+            base_vals(scope='explicit-full', checks=[], oses=[]),
+        ):
+            for runner_os in ('Linux', 'Windows', 'macOS'):
+                vals = fallback_vals | {'runner.os': runner_os}
+                self.assertTrue(effective_job_condition(conds['Execute selected group'], vals, ('success',)))
+                self.assertTrue(effective_job_condition(conds['Prepare native filesystem contract Rust toolchain'], vals, ('success',)))
+                self.assertTrue(effective_job_condition(conds['Verify hosted access cross-process ownership on native host'], vals, ('success',)))
+                self.assertEqual(
+                    effective_job_condition(conds['Verify local signer contracts on macOS'], vals, ('success',)),
+                    runner_os == 'macOS',
+                )
+                self.assertEqual(
+                    effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)),
+                    runner_os != 'Windows',
+                )
 
 
 if __name__ == '__main__':

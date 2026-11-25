@@ -262,7 +262,8 @@ class Ownership(unittest.TestCase):
         )
         store = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store.rs').read_text()
         codec = (ROOT / 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/provider_original_store_codec.rs').read_text()
-        self.assertIn('use oasis7_world_service::provider_material::{', store)
+        self.assertIn('use oasis7_formal_protocol::provider_material::{', store)
+        self.assertNotIn('use oasis7_world_service::provider_material::{', store)
         native_codec = (ROOT / 'crates/oasis7_world_service/src/provider_material_codec.rs').read_text()
         self.assertIn('use crate::provider_material::ProviderMaterialOwnerBindingV1;', native_codec)
         self.assertIn('pub fn encode_event(record: &EventRecord)', native_codec)
@@ -752,6 +753,23 @@ class Ownership(unittest.TestCase):
 
         host_spec = load_manifest('oasis7_runtime_host')
         host_deps = host_spec.get('dependencies', {})
+        # Preserve the accepted URL-policy admission contract after replacing
+        # the brittle dependency snapshot with architectural invariants.
+        if 'url' in host_deps:
+            policy_path = ROOT / 'crates/oasis7_runtime_host/src/provider_transport_url.rs'
+            host_source = (ROOT / 'crates/oasis7_runtime_host/src/lib.rs').read_text()
+            self.assertIn('pub mod provider_transport_url;', host_source)
+            self.assertTrue(policy_path.is_file(), 'native provider URL owner missing')
+            policy_source = policy_path.read_text()
+            for required in (
+                'pub fn validate_provider_http_base_url(',
+                'url::Url;',
+                'fn is_public_remote_https_host(',
+                'loopback_accepts_only_http_and_explicit_loopback_hosts',
+                'remote_requires_https_and_rejects_local_private_or_linklocal_hosts',
+                'unknown_transport_and_url_syntax_fail_closed',
+            ):
+                self.assertIn(required, policy_source)
         self.assertTrue(
             required_core_edges.issubset(host_deps),
             f'missing core RuntimeHost dependencies: {sorted(required_core_edges - set(host_deps))}',

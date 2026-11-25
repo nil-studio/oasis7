@@ -67,6 +67,43 @@ SCOPED_PRODUCTION_CFG_VERSION = 1
 MAIN_FAST_COALESCE_CONCURRENCY_VERSION = 1
 WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 2
 WORKSPACE_SUPPORT_DIRECT_GATE_VERSIONS = (1, 2)
+FLEET_HEALTH_SUBCONTRACTS_VERSION = 1
+FLEET_HEALTH_OSES = ('ubuntu-24.04', 'windows-2022', 'macos-15')
+FLEET_HEALTH_CHECKS = ('fleet_script', 'hosted_access', 'macos_signer', 'host_cleanup')
+FLEET_HEALTH_CHECK_OSES = {
+    'fleet_script': FLEET_HEALTH_OSES,
+    'hosted_access': FLEET_HEALTH_OSES,
+    'macos_signer': ('macos-15',),
+    'host_cleanup': ('ubuntu-24.04', 'macos-15'),
+}
+FLEET_HEALTH_PATH_SUBCONTRACTS = {
+    'fleet_script': (
+        'scripts/p2p-public-testnet-fleet-health*',
+        'scripts/public-testnet-validator-triad-inventory.v1.json',
+        'doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md',
+        'doc/testing/evidence/public-testnet-five-node-inventory-2026-06-23.md',
+        'doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-registry-2026-09-15.json',
+        'doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-bootstrap-peers-2026-09-15.txt',
+    ),
+    'macos_signer': (
+        'scripts/ci-local-signer-tests.py',
+        'scripts/local-signer/**',
+        'crates/oasis7_local_signer/**',
+        'crates/oasis7_signer_protocol/**',
+        'crates/oasis7_context/**',
+        'crates/oasis7_secure_envelope/**',
+    ),
+    'host_cleanup': (
+        'scripts/resource-cleanup*',
+        'scripts/new-task-worktree*',
+    ),
+}
+FLEET_HEALTH_SIGNER_PACKAGES = frozenset((
+    'oasis7_local_signer',
+    'oasis7_signer_protocol',
+    'oasis7_context',
+    'oasis7_secure_envelope',
+))
 ORDINARY_SCOPE_SLICE_KEYS = frozenset((
     'ordinary_harness_costs',
     'ordinary_fast_targets',
@@ -1689,6 +1726,11 @@ def validate_config(config):
         if (type(config['auxiliary_workflow_consolidation_version']) is not int
                 or config['auxiliary_workflow_consolidation_version'] != 1):
             raise ValueError('invalid auxiliary workflow consolidation capability')
+    if 'fleet_health_subcontracts_version' in config:
+        if (type(config['fleet_health_subcontracts_version']) is not int
+                or config['fleet_health_subcontracts_version'] != FLEET_HEALTH_SUBCONTRACTS_VERSION
+                or 'fleet_health' not in groups):
+            raise ValueError('invalid fleet-health subcontracts capability')
     if 'ordinary_harness_costs' in config:
         if config.get('ordinary_artifact_partition_version') not in (1, 2):
             raise ValueError('ordinary harness costs require artifact partitions')
@@ -4443,6 +4485,48 @@ def support_partitions(profiles):
     return sorted({'custody' if profile == 'oasis7_custody_worker' else 'other' for profile in profiles})
 
 
+def fleet_health_subcontracts(config, chosen, affected, path_rules, *, full=False, additions=()):
+    """Select exact fleet-health host OSes and subcontracts; unmapped or full inputs keep the full matrix."""
+    if config.get('fleet_health_subcontracts_version') != FLEET_HEALTH_SUBCONTRACTS_VERSION:
+        return {}
+    consolidated_rollout = (
+        config.get('contract_job_consolidation_version') in CONTRACT_JOB_CONSOLIDATION_VERSIONS
+        and config.get('group_jobs', {}).get('windows_rollout') == 'fleet-health'
+        and 'windows_rollout' in chosen
+    )
+    checks = set()
+    unmapped = False
+    if 'fleet_health' in chosen:
+        if 'oasis7_hosted_access' in affected:
+            checks.add('hosted_access')
+        if FLEET_HEALTH_SIGNER_PACKAGES.intersection(affected):
+            checks.add('macos_signer')
+        if any('fleet_health' in config['package_groups'].get(package, ())
+               and package != 'oasis7_hosted_access' for package in affected):
+            unmapped = True
+        for path, rule_groups in path_rules.items():
+            if 'fleet_health' not in rule_groups:
+                continue
+            path_checks = {
+                check for check, patterns in FLEET_HEALTH_PATH_SUBCONTRACTS.items()
+                if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+            }
+            if path_checks:
+                checks.update(path_checks)
+            else:
+                unmapped = True
+        if full or 'fleet_health' in additions or unmapped or not checks:
+            checks = set(FLEET_HEALTH_CHECKS)
+    oses = {os_name for check in checks for os_name in FLEET_HEALTH_CHECK_OSES[check]}
+    if consolidated_rollout:
+        oses.add('windows-2022')
+    return {
+        'fleet_health_subcontracts_version': FLEET_HEALTH_SUBCONTRACTS_VERSION,
+        'fleet_health_checks': [check for check in FLEET_HEALTH_CHECKS if check in checks],
+        'fleet_health_oses': [os_name for os_name in FLEET_HEALTH_OSES if os_name in oses],
+    }
+
+
 def full_plan(config, profile, source_head, test_head=None, policy_ref=None, formal_inventory=None):
     """Expand the trusted full inventory, independently of a commit diff."""
     validate_config(config)
@@ -4477,6 +4561,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         if config.get('ordinary_case_prefix_contract_version') == 1:
             plan['ordinary_case_prefix_contract_version'] = 1
     plan.update(python_control_plan(config))
+    plan.update(fleet_health_subcontracts(config, set(groups), set(), {}, full=True))
     if config.get('formal_full_profiles_only_version') == 1:
         plan['formal_full_profiles_only_version'] = 1
         plan['formal_deferred_ordinary_cases'] = {}
@@ -4871,6 +4956,8 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                                           if not reason.startswith('necessary Formal risk suites: ')])
         plan['reasons'].append('heavy Formal process tests run only in complete profiles: '
                                'periodic-full and candidate-full')
+    plan.update(fleet_health_subcontracts(config, chosen, affected, path_rules,
+                                          full=conservative, additions=additions))
     return plan
 
 
@@ -5331,15 +5418,11 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
     if full:
         chosen = set(groups)
         reasons.append('ordinary required fallback')
-    if 'operational_contracts' in chosen:
-        chosen.update(('windows_rollout', 'fleet_health'))
     if 'packaging_contracts' in chosen:
         chosen.add('macos_package_contract')
     if not set(additions).issubset(groups):
         raise ValueError('additional request names unknown group')
     chosen.update(additions)
-    if 'operational_contracts' in chosen:
-        chosen.update(('windows_rollout', 'fleet_health'))
     if 'packaging_contracts' in chosen:
         chosen.add('macos_package_contract')
     resources = sorted({resource for group in chosen for resource in config['resources'][group]})
@@ -5362,6 +5445,8 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
             'workspace_support_profile_version': 1,
             'reasons': list(dict.fromkeys(reasons)), 'scope': 'full' if full else 'targeted'}
     plan.update(python_controls)
+    plan.update(fleet_health_subcontracts(config, chosen, affected, path_rules,
+                                          full=full, additions=additions))
     if profile is not None:
         if profile not in ('pr-fast', 'main-fast'):
             raise ValueError('select requires a fast execution profile')
