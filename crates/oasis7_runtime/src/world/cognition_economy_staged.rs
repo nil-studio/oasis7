@@ -142,4 +142,47 @@ mod tests {
             Err(TransitionReject::World(_))
         ));
     }
+
+    #[test]
+    fn configured_persistence_failure_reverts_cognition_without_world_clone_and_recovers() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp = std::env::temp_dir().join(format!("oasis7-cog-staged-{nanos}"));
+        std::fs::create_dir_all(&temp).unwrap();
+        let bad = temp.join("not-a-dir");
+        std::fs::write(&bad, b"x").unwrap();
+        let dir = temp.join("persisted");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut world = World::new();
+        let untouched = world.cognition.clone();
+        *world.persistence_dir.borrow_mut() = Some(bad.clone());
+        assert!(world.set_cognition_resource_balance("acct", "units", 20).is_err());
+        assert_eq!(world.cognition, untouched);
+
+        *world.persistence_dir.borrow_mut() = Some(dir.clone());
+        world.set_cognition_resource_balance("acct", "units", 20).unwrap();
+        let seeded = world.cognition.clone();
+
+        *world.persistence_dir.borrow_mut() = Some(bad);
+        let req = crate::CognitionLeaseRequestV1::new(
+            "l1", "acct", "agent-a", "s", "t", "r", "d",
+            crate::CognitionLeaseQuoteV1::new("q", "units", 8),
+        );
+        assert!(world.reserve_cognition_lease(req.clone()).is_err());
+        assert_eq!(world.cognition, seeded);
+
+        *world.persistence_dir.borrow_mut() = Some(dir.clone());
+        let lease = world.reserve_cognition_lease(req).unwrap();
+        let settle = world.settle_cognition_lease(&lease.lease_id, 5).unwrap();
+        world
+            .refund_settled_cognition_lease(&lease.lease_id, 2, &settle.receipt_id, "over")
+            .unwrap();
+        let restored = World::load_from_dir(&dir).unwrap();
+        assert_eq!(restored.cognition_economy().unwrap(), world.cognition_economy().unwrap());
+        assert_eq!(restored.cognition_economy().unwrap().available_balance("acct", "units"), 17);
+        let _ = std::fs::remove_dir_all(&temp);
+    }
 }
