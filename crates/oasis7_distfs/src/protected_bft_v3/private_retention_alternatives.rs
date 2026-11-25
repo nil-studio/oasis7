@@ -352,6 +352,14 @@ mod tests {
         // The original CAS pin can be repaired from independently retained
         // authentic bytes. No new source, charge, Ready or signing permission.
         let repaired = scratch.store();
+        assert!(repaired
+            .persist_original_admission_input(&reference, &input)
+            .is_err()); // Immutable corrupt path must never be silently overwritten.
+        drop(repaired);
+        // Simulate an explicit operator-backed replacement from exact retained
+        // originals; this is not an automatic recovery or protected decision.
+        std::fs::remove_file(scratch.blob(&reference.object)).unwrap();
+        let repaired = scratch.store();
         repaired.persist_original_admission_input(&reference, &input).unwrap();
         drop(repaired);
         let cold = scratch.store();
