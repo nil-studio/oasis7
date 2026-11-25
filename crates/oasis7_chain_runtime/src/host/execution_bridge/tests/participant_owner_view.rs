@@ -66,8 +66,13 @@ pub(super) fn exercise(
         "a canonical participant owner read must not require provider provisioning: {projection_error:?}"
     );
     let legacy_bytes = response.bytes().unwrap();
+    let min_legacy_bytes = if cfg!(feature = "test_tier_full") {
+        606_260
+    } else {
+        30_000
+    };
     assert!(
-        legacy_bytes.len() > 606_260,
+        legacy_bytes.len() > min_legacy_bytes,
         "fixture must reproduce oversized legacy owner observation"
     );
     let signed: SignedServiceResponse<ReadWorldViewResponse<Value>> =
@@ -98,6 +103,7 @@ pub(super) fn exercise(
         .bytes()
         .unwrap();
     assert!(compact_bytes.len() < 65_536);
+    assert!(compact_bytes.len() < legacy_bytes.len());
     let compact: SignedServiceResponse<ParticipantOwnerControlResponseV1> =
         serde_json::from_slice(&compact_bytes).unwrap();
     let digest = oasis7_client_api::world_service::request_digest(
@@ -153,7 +159,12 @@ pub(super) fn exercise(
 
 /// Real public catalog state, committed through the normal fixture driver.
 pub(super) fn enlarge_public_fixture(world: &mut RuntimeWorld) {
-    for index in 0..4000 {
+    let profile_count = if cfg!(feature = "test_tier_full") {
+        4000
+    } else {
+        200
+    };
+    for index in 0..profile_count {
         world
             .upsert_material_profile(
                 serde_json::from_value(serde_json::json!({

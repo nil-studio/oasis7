@@ -610,7 +610,12 @@ fn budgeted_consumer_retains_world_and_rotates_seventeen_complete_cycles() {
     let mut driver = fixture.driver(1);
     let mut identities = std::collections::BTreeSet::new();
     let mut totals = (0u64, 0u64, 0u64);
-    for completed in 1..=17u64 {
+    let cycles = if cfg!(feature = "test_tier_full") {
+        17u64
+    } else {
+        3u64
+    };
+    for completed in 1..=cycles {
         driver.poll();
         fixture.require_world(&driver);
         let snapshot = fixture.snapshot();
