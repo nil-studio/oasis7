@@ -51,14 +51,16 @@ impl BftAdmissionInputTransferPlanV2 {
         reference.validate()?;
         let bytes = reference.object.bytes;
         if bytes == 0 || bytes > BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1 as u64 {
-            return Err(invalid("admission v2 original size outside transport contract"));
+            return Err(invalid(
+                "admission v2 original size outside transport contract",
+            ));
         }
         let messages = u32::try_from(bytes.div_ceil(MESSAGE_DATA_BYTES))
             .map_err(|_| invalid("admission v2 message count overflow"))?;
-        if u64::from(messages).div_ceil(PER_PEER_MESSAGES_PER_SECOND)
-            > OPERATION_DEADLINE_SECONDS
-        {
-            return Err(invalid("admission v2 minimum message rate exceeds operation deadline"));
+        if u64::from(messages).div_ceil(PER_PEER_MESSAGES_PER_SECOND) > OPERATION_DEADLINE_SECONDS {
+            return Err(invalid(
+                "admission v2 minimum message rate exceeds operation deadline",
+            ));
         }
         Ok(Self { bytes, messages })
     }
@@ -118,10 +120,10 @@ impl BftAdmissionInputTransferPlanV2 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::{
         BftPrivateRetentionKeyV1, BftPrivateRetentionSourceV1, BftSuccessorWindowArchiveRefV1,
     };
+    use super::*;
 
     fn pinned(bytes: u64) -> BftPrivateRetentionAdmissionInputRefV1 {
         BftPrivateRetentionAdmissionInputRefV1 {
@@ -158,7 +160,9 @@ mod tests {
             assert_eq!(frame.index, index);
             for part in frame.parts.into_iter().flatten() {
                 assert_eq!(part.offset, cursor);
-                assert!(part.bytes > 0 && u64::from(part.bytes) <= BFT_ADMISSION_INPUT_V2_PART_BYTES);
+                assert!(
+                    part.bytes > 0 && u64::from(part.bytes) <= BFT_ADMISSION_INPUT_V2_PART_BYTES
+                );
                 cursor += u64::from(part.bytes);
             }
         }
@@ -187,10 +191,12 @@ mod tests {
             assert!(plan.message(plan.messages()).is_err());
         }
         assert!(BftAdmissionInputTransferPlanV2::for_original(&pinned(0)).is_err());
-        assert!(BftAdmissionInputTransferPlanV2::for_original(&pinned(
-            BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1 as u64 + 1,
-        ))
-        .is_err());
+        assert!(
+            BftAdmissionInputTransferPlanV2::for_original(&pinned(
+                BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1 as u64 + 1,
+            ))
+            .is_err()
+        );
     }
 
     #[test]
@@ -199,13 +205,13 @@ mod tests {
         wrong.source.binding_digest = "not a real digest".into();
         assert!(BftAdmissionInputTransferPlanV2::for_original(&wrong).is_err());
         assert!(BftAdmissionInputTransferPlanV2::check_full_frame_bytes(0).is_err());
-        assert!(BftAdmissionInputTransferPlanV2::check_full_frame_bytes(
-            BFT_ADMISSION_INPUT_V2_FRAME_BYTES + 1,
-        )
-        .is_err());
-        BftAdmissionInputTransferPlanV2::check_full_frame_bytes(
-            BFT_ADMISSION_INPUT_V2_FRAME_BYTES,
-        )
-        .unwrap();
+        assert!(
+            BftAdmissionInputTransferPlanV2::check_full_frame_bytes(
+                BFT_ADMISSION_INPUT_V2_FRAME_BYTES + 1,
+            )
+            .is_err()
+        );
+        BftAdmissionInputTransferPlanV2::check_full_frame_bytes(BFT_ADMISSION_INPUT_V2_FRAME_BYTES)
+            .unwrap();
     }
 }
