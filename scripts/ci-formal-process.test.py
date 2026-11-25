@@ -6277,6 +6277,19 @@ class CanonicalWorkspaceOutputs(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'source inputs changed'):
             artifacts.cache_finish(state)
 
+    def test_metadata_cannot_create_new_inputs_and_then_declare_them_outputs(self):
+        state = self.state()
+        def metadata(*args, **keywords):
+            self.output()
+            return subprocess.CompletedProcess([], 0, stdout=json.dumps(dict(
+                workspace_root=str(self.project), target_directory=str(self.project / 'target'))))
+        with patch.object(artifacts.subprocess, 'run', side_effect=metadata), \
+             self.assertRaisesRegex(ValueError, 'existed before registration'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        self.assertNotIn('generated_cargo_targets', state)
+        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
+            artifacts.cache_finish(state)
+
     def test_real_source_mutation_and_unknown_nested_output_still_fail_closed(self):
         for name in ('src/lib.rs', 'other/target/output', '.ignored-input'):
             with self.subTest(name=name):

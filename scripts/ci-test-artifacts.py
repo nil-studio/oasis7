@@ -2699,7 +2699,7 @@ def cache_register_canonical_targets(state, manifests):
         if (not isinstance(metadata, dict) or metadata.get('workspace_root') != str(source.parent)
                 or metadata.get('target_directory') != str(expected)):
             raise ValueError('canonical Cargo metadata has an unsupported output layout')
-    _cache_generated_targets(proposed)
+    _cache_generated_targets(proposed, fresh=True)
     state['generated_cargo_targets'] = records
 
 
