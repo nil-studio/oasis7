@@ -798,6 +798,8 @@ Formal debug 和 release endpoint 使用独立依赖 namespace `ci-formal-debug-
 
 新 checkout 的源码时间戳会使相同内容的 workspace 产物失效。producer 因此记录构建前后完整源码文件清单，包含未跟踪和 ignored 的普通文件，排除 .git 与实际 Cargo target；只有始末路径、内容、权限和时间戳均一致才允许保存。
 
+原 Provider/Builtin canonical 材料各有独立 Cargo workspace，其实际 target 不能按源码新增处理。仅在本次真实 manifest 决定构建这些材料后，按现有产品 manifest 与离线 Cargo metadata 登记各项目的默认 target；workspace/target 必须精确位于对应 manifest 目录及其 `target` 子目录，所有路径须在 checkout 内且无符号链接。登记目录不能包含初始输入快照中的文件，且在登记前不得已存在，避免事后将 native 编译阶段产生或读取的文件划为输出；已存在输入不因登记而移出保护。仅将这些登记目录中本次后生的编译输出从后续源码扫描剔除；finish 与 stage 每次重新校验受限登记、路径及全部原输入，其它新增、未知嵌套 target 或实际源码变化继续拒绝保存。登记不提供任意排除参数，也不进入长期归档或改变 reader 的输入校验。
+
 恢复时逐路径核对实际长度、权限和 SHA-256，内容相同才还原旧 mtime；内容或权限改变的文件设置严格晚于缓存 Cargo 参考的时间戳，交由 Cargo 正常重编。
 
 新增、删除、重命名输入、symlink、越界路径、不完整或未来时间戳的缓存均保守视为 miss，不回退目录时间戳以隐藏 build.rs 的目录观察。缺失缓存仍完成冷构建，缓存不是产物身份或测试通过的依据。
