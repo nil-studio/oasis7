@@ -4092,6 +4092,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         dockerfile = (ROOT / 'docker/ci-base/Dockerfile').read_text()
         if re.search(r'^FROM build AS codeql-rust$', dockerfile, re.M):
             targets.append('codeql-rust')
+        if re.search(r'^FROM runtime AS api-runtime$', dockerfile, re.M):
+            targets.append('api-runtime')
         self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]
