@@ -11,6 +11,8 @@ pub mod llm_request_budget;
 pub mod provider_json_admission;
 pub mod provider_json_shape;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod provider_loopback_adapter;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod provider_loopback_http;
 #[path = "agent_execution/provider_material_capture.rs"]
 pub mod provider_material_capture;
