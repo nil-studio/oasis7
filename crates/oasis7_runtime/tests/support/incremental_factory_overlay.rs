@@ -111,18 +111,23 @@ fn precise_factory_points_coalesce_and_cold_continue_without_large_siblings() {
             let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
             let _caller = memory.reserve(3 << 20, MemoryClass::Ordinary).unwrap();
             let (mut source, _, _) = source();
+            let sibling_bytes = if cfg!(feature = "test_tier_full") {
+                1 << 20
+            } else {
+                (512 << 10) + (64 << 10)
+            };
             source
                 .factories
                 .get_mut("outer factory")
                 .unwrap()
                 .spec
-                .display_name = "q".repeat(1 << 20);
+                .display_name = "q".repeat(sibling_bytes);
             source
                 .factories
                 .get_mut("outer factory")
                 .unwrap()
                 .production
-                .current_blocker_detail = Some("b".repeat(1 << 20));
+                .current_blocker_detail = Some("b".repeat(sibling_bytes));
             let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
             let parent = parent(seed(&store, &memory, &source, None));
             drop(source);
@@ -570,7 +575,12 @@ fn factory_noops_check_final_read_and_write_cancellation_after_public_resolvers(
     let fk = FactoryRecordKeyV1::Factory("outer factory");
     let jk = FactoryRecordKeyV1::Build(u64::MAX);
     let mut traces = Vec::with_capacity(12);
-    for case in 0..6 {
+    let cases: &[usize] = if cfg!(feature = "test_tier_full") {
+        &[0, 1, 2, 3, 4, 5]
+    } else {
+        &[0, 1, 2, 5]
+    };
+    for &case in cases {
         let mut resolver = 0;
         for phase in 0..3 {
             let state = store.state_session(quota(), MemoryClass::Ordinary).unwrap();
