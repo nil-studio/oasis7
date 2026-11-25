@@ -1,6 +1,7 @@
 //! Qualified-H protected header signer. State and wire domains are independent
 //! from V1/V2 and carry public protocol material only. Backends must provide
 //! independently provisioned fencing and anti-rollback guarantees.
+mod admission_input_transfer_plan;
 mod backend;
 mod binding;
 mod bootstrap_rotation;
@@ -77,6 +78,12 @@ pub use successor_manifest::{
 };
 
 pub use private_retention_alternatives::BftOriginalAlternativesInventoryV1;
+
+pub use admission_input_transfer_plan::{
+    BFT_ADMISSION_INPUT_V2_FRAME_BYTES, BFT_ADMISSION_INPUT_V2_PART_BYTES,
+    BFT_ADMISSION_INPUT_V2_PARTS_PER_MESSAGE, BftAdmissionInputMessageV2, BftAdmissionInputPartV2,
+    BftAdmissionInputTransferPlanV2,
+};
 
 pub use private_retention_input::{
     BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1,
