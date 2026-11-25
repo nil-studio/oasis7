@@ -1,8 +1,8 @@
 //! Unwired native Host HTTP provider client and bounded original material capture.
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{error::Error, fmt, path::Path, time::Duration};
 
 use oasis7_agent_api::{ProviderAgentChatRequest, ProviderAgentChatResponse};
