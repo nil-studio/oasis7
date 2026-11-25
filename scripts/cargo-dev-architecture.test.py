@@ -98,8 +98,21 @@ class RepositoryUpstreams(unittest.TestCase):
         for source in viewer.rglob('*.rs'):
             self.assertNotIn(legacy, source.read_text(encoding='utf-8'), str(source))
         support = (viewer / 'viewer/runtime_live/support.rs').read_text(encoding='utf-8')
+        host_bootstrap = (HERE.parent / 'crates/oasis7_runtime_host/src/bootstrap.rs').read_text(encoding='utf-8')
+        # A compatibility import can call the old umbrella while making the
+        # Viewer source look migrated. Require the real native implementation,
+        # not just the presence of a callsite identifier in the Viewer.
+        self.assertNotIn(
+            'pub(super) use oasis7::runtime_host::bootstrap::bootstrap_generated_sidecar_runtime_world_with_chunk_runtime;',
+            support,
+        )
         self.assertIn('pub(super) use oasis7_runtime_host::bootstrap::*;', support)
         self.assertIn('bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', support)
+        self.assertIn(
+            'pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(',
+            host_bootstrap,
+        )
+        self.assertIn('WorldKernel::load_from_dir(', host_bootstrap)
 
     def test_chain_umbrella_retirement_rule_is_registered_in_all_relevant_profiles(self):
         rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
