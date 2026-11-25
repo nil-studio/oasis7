@@ -4,8 +4,8 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust) ;;
-  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust" >&2; exit 2 ;;
+  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
@@ -204,4 +204,17 @@ subprocess.run(["pkg-config", "--print-errors", "--modversion", *native.NATIVE_M
 PY
     '
   docker image inspect --format 'CodeQL Rust image local bytes: {{.Size}}' "$image"
+fi
+
+if [[ "$target" == api-runtime ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+    --env HOME=/tmp --env GH_PROMPT_DISABLED=1 --env GH_NO_UPDATE_NOTIFIER=1 \
+    "$image" bash -ec '
+      test "$(id -u)" = 1001
+      test "$(command -v gh)" = /usr/local/bin/gh
+      test ! -w /usr/local/bin/gh
+      version=$(gh --version)
+      grep -Eq "^gh version 2[.]105[.]0( |$)" <<< "$version"
+      gh api --help >/dev/null
+    '
 fi
