@@ -1,0 +1,311 @@
+name: Portable cache transport proof
+on:
+  pull_request:
+    types: [opened]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+env:
+  RUST_TOOLCHAIN: 1.96.0
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
+  CODE_SHA: df8837b49da30fc1d3156d01a6225e7921da2464
+jobs:
+  browser-writer:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify frozen runtime helpers and Cargo configuration
+        shell: bash
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          git fetch --no-tags --depth=1 origin "$CODE_SHA"
+          for path in scripts/ci-portable-cache-container.py scripts/ci-worker-build.py scripts/ci-browser-deps.py scripts/ci-tool-cache.py scripts/ci_process_runner.py scripts/ci-cache-maintenance.py scripts/ci-cache-policy.py rust-toolchain.toml .cargo/config.toml; do
+            test "$(git rev-parse "$CODE_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
+          done
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Prepare the actual production tool image and router
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          image=ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+          config=$(mktemp -d "$RUNNER_TEMP/portable-cache-docker.XXXXXX")
+          chmod 700 "$config"
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$image"
+          bootstrap="$RUNNER_TEMP/portable-cache-browser-env.bash"
+          cat > "$bootstrap" <<'PORTABLE_CACHE_ENV'
+          python3() {
+            case "${1:-}" in
+              scripts/ci-browser-deps.py)
+                shift
+                command python3 "$GITHUB_WORKSPACE/scripts/ci-portable-cache-container.py" --kind browser -- "$@"
+                ;;
+              *) command python3 "$@" ;;
+            esac
+          }
+          PORTABLE_CACHE_ENV
+          chmod 600 "$bootstrap"
+          printf 'BASH_ENV=%s\n' "$bootstrap" >> "$GITHUB_ENV"
+      - name: Produce the real portable tool payload
+        id: metadata
+        shell: bash
+        run: |
+          python3 scripts/ci-browser-deps.py metadata --browser agent --github-output "$GITHUB_OUTPUT"
+          python3 scripts/ci-browser-deps.py fetch --component fonts-freefont-ttf
+      - name: Prove this diagnostic cannot authorize a shared cache save
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBE_CACHE_KEY: ${{ steps.metadata.outputs.fonts_freefont_ttf_key }}
+        run: |
+          python3 scripts/ci-browser-deps.py admit-save --component fonts-freefont-ttf --key "$PROBE_CACHE_KEY" > "$RUNNER_TEMP/portable-admission.json"
+          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/portable-admission.json")); assert r["save"] is False; print("diagnostic_save_rejected=true")'
+      - name: Stage the original host archive ABI
+        id: stage
+        env:
+          KIND: browser
+          PAYLOAD_ROOT: ${{ steps.metadata.outputs.fonts_freefont_ttf_root }}
+        run: |
+          python3 - <<'PY_STAGE'
+          import hashlib, json, os, pathlib, stat, subprocess
+          root = pathlib.Path(os.environ['PAYLOAD_ROOT'])
+          kind = os.environ['KIND']
+          expected = pathlib.Path('/home/runner/.cache/oasis7/worker-build/0.7.5') if kind == 'worker' else pathlib.Path(os.environ['RUNNER_TEMP']) / 'oasis7-browser-archives/fonts-freefont-ttf-039c03e75c206d2555b0c40b0f2fe0861a318ade4117c5404c533eb77c81ab5d'
+          assert root == expected and root.is_dir() and not root.is_symlink()
+          items = {}
+          for p in sorted(root.rglob('*')):
+              assert not p.is_symlink()
+              if p.is_dir(): continue
+              assert stat.S_ISREG(p.stat().st_mode)
+              data = p.read_bytes()
+              items[str(p.relative_to(root))] = dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+          assert items and len(items) <= 2000 and sum(x['bytes'] for x in items.values()) <= 128 * 1024**2
+          version = hashlib.sha256('|'.join([str(root), 'zstd-without-long', '1.0']).encode()).hexdigest()
+          assert version == ('057d5ed12ddf291714b0e15f44112c6469c9ec0a79a74779a48613846a0198fc' if kind == 'worker' else 'e336ca23d329e223a6fd89d1cdb9e790d7a74a70081146644002cc77f91aca35')
+          stage = pathlib.Path(subprocess.check_output(['mktemp','-d','portable-cache-stage.XXXXXX'], text=True).strip())
+          member = os.path.relpath(root, os.environ['GITHUB_WORKSPACE'])
+          archive = stage / 'cache.tar'
+          subprocess.run(['tar','--posix','-cf',str(archive),'-P','-C',os.environ['GITHUB_WORKSPACE'],member],check=True)
+          subprocess.run(['zstd','-T0','-q',str(archive),'-o',str(stage/'cache.tar.zst')],check=True)
+          archive.unlink()
+          receipt = dict(schema='oasis7.portable-cache-transport/v1', probe_only=True, shared_cache_saved=False, code_sha=os.environ['CODE_SHA'], source=os.environ['GITHUB_SHA'], run=os.environ['GITHUB_RUN_ID'], attempt=os.environ['GITHUB_RUN_ATTEMPT'], kind=kind, root=str(root), member=member, cache_version=version, archive_sha256=hashlib.sha256((stage/'cache.tar.zst').read_bytes()).hexdigest(), files=items)
+          (stage/'receipt.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out: out.write('path='+str(stage)+'\n')
+          print(json.dumps({k:v for k,v in receipt.items() if k!='files'},sort_keys=True))
+          PY_STAGE
+      - name: Upload this run's diagnostic payload
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: portable-cache-browser-${{ github.run_id }}
+          path: ${{ steps.stage.outputs.path }}
+          if-no-files-found: error
+          retention-days: 2
+  worker-writer:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify frozen runtime helpers and Cargo configuration
+        shell: bash
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          git fetch --no-tags --depth=1 origin "$CODE_SHA"
+          for path in scripts/ci-portable-cache-container.py scripts/ci-worker-build.py scripts/ci-browser-deps.py scripts/ci-tool-cache.py scripts/ci_process_runner.py scripts/ci-cache-maintenance.py scripts/ci-cache-policy.py rust-toolchain.toml .cargo/config.toml; do
+            test "$(git rev-parse "$CODE_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
+          done
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: ./.github/actions/setup-linux-mold
+      - name: Prepare the actual production tool image and router
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          image=ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
+          config=$(mktemp -d "$RUNNER_TEMP/portable-cache-docker.XXXXXX")
+          chmod 700 "$config"
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$image"
+          bootstrap="$RUNNER_TEMP/portable-cache-worker-env.bash"
+          cat > "$bootstrap" <<'PORTABLE_CACHE_ENV'
+          python3() {
+            case "${1:-}" in
+              scripts/ci-worker-build.py)
+                shift
+                command python3 "$GITHUB_WORKSPACE/scripts/ci-portable-cache-container.py" --kind worker -- "$@"
+                ;;
+              *) command python3 "$@" ;;
+            esac
+          }
+          PORTABLE_CACHE_ENV
+          chmod 600 "$bootstrap"
+          printf 'BASH_ENV=%s\n' "$bootstrap" >> "$GITHUB_ENV"
+      - name: Produce the real portable tool payload
+        id: metadata
+        shell: bash
+        run: |
+          python3 scripts/ci-worker-build.py metadata --github-output "$GITHUB_OUTPUT"
+          test ! -e /home/runner/.cache/oasis7/worker-build/0.7.5
+          python3 scripts/ci-worker-build.py metadata | python3 -c 'import json,sys; assert json.load(sys.stdin)["version"] == "0.7.5"'
+          python3 scripts/ci-worker-build.py ensure
+          python3 scripts/ci-worker-build.py check
+      - name: Prove this diagnostic cannot authorize a shared cache save
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBE_CACHE_KEY: worker-build-cli-v1-Linux-X64-1.96.0-0.7.5-${{ steps.metadata.outputs.definition_sha }}
+        run: |
+          python3 scripts/ci-worker-build.py admit-save --key "$PROBE_CACHE_KEY" > "$RUNNER_TEMP/portable-admission.json"
+          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/portable-admission.json")); assert r["save"] is False; print("diagnostic_save_rejected=true")'
+      - name: Stage the original host archive ABI
+        id: stage
+        env:
+          KIND: worker
+          PAYLOAD_ROOT: ${{ steps.metadata.outputs.root }}
+        run: |
+          python3 - <<'PY_STAGE'
+          import hashlib, json, os, pathlib, stat, subprocess
+          root = pathlib.Path(os.environ['PAYLOAD_ROOT'])
+          kind = os.environ['KIND']
+          expected = pathlib.Path('/home/runner/.cache/oasis7/worker-build/0.7.5') if kind == 'worker' else pathlib.Path(os.environ['RUNNER_TEMP']) / 'oasis7-browser-archives/fonts-freefont-ttf-039c03e75c206d2555b0c40b0f2fe0861a318ade4117c5404c533eb77c81ab5d'
+          assert root == expected and root.is_dir() and not root.is_symlink()
+          items = {}
+          for p in sorted(root.rglob('*')):
+              assert not p.is_symlink()
+              if p.is_dir(): continue
+              assert stat.S_ISREG(p.stat().st_mode)
+              data = p.read_bytes()
+              items[str(p.relative_to(root))] = dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+          assert items and len(items) <= 2000 and sum(x['bytes'] for x in items.values()) <= 128 * 1024**2
+          version = hashlib.sha256('|'.join([str(root), 'zstd-without-long', '1.0']).encode()).hexdigest()
+          assert version == ('057d5ed12ddf291714b0e15f44112c6469c9ec0a79a74779a48613846a0198fc' if kind == 'worker' else 'e336ca23d329e223a6fd89d1cdb9e790d7a74a70081146644002cc77f91aca35')
+          stage = pathlib.Path(subprocess.check_output(['mktemp','-d','portable-cache-stage.XXXXXX'], text=True).strip())
+          member = os.path.relpath(root, os.environ['GITHUB_WORKSPACE'])
+          archive = stage / 'cache.tar'
+          subprocess.run(['tar','--posix','-cf',str(archive),'-P','-C',os.environ['GITHUB_WORKSPACE'],member],check=True)
+          subprocess.run(['zstd','-T0','-q',str(archive),'-o',str(stage/'cache.tar.zst')],check=True)
+          archive.unlink()
+          receipt = dict(schema='oasis7.portable-cache-transport/v1', probe_only=True, shared_cache_saved=False, code_sha=os.environ['CODE_SHA'], source=os.environ['GITHUB_SHA'], run=os.environ['GITHUB_RUN_ID'], attempt=os.environ['GITHUB_RUN_ATTEMPT'], kind=kind, root=str(root), member=member, cache_version=version, archive_sha256=hashlib.sha256((stage/'cache.tar.zst').read_bytes()).hexdigest(), files=items)
+          (stage/'receipt.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out: out.write('path='+str(stage)+'\n')
+          print(json.dumps({k:v for k,v in receipt.items() if k!='files'},sort_keys=True))
+          PY_STAGE
+      - name: Upload this run's diagnostic payload
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: portable-cache-worker-${{ github.run_id }}
+          path: ${{ steps.stage.outputs.path }}
+          if-no-files-found: error
+          retention-days: 2
+  host-reader:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-portable-cache-transport-proof'
+    needs: [browser-writer, worker-writer]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: browser
+            artifact: ${{ needs.browser-writer.outputs.artifact }}
+          - kind: worker
+            artifact: ${{ needs.worker-writer.outputs.artifact }}
+    env:
+      KIND: ${{ matrix.kind }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ matrix.artifact }}
+          path: download
+          merge-multiple: true
+      - name: Verify and restore the exact original host paths
+        run: |
+          python3 - <<'PY_READER'
+          import hashlib, json, os, pathlib, stat, subprocess, tarfile
+          stage = pathlib.Path('download')
+          assert {p.name for p in stage.iterdir()} == {'cache.tar.zst','receipt.json'}
+          r = json.loads((stage/'receipt.json').read_text())
+          assert r['probe_only'] is True and r['shared_cache_saved'] is False
+          assert (r['source'],r['run'],r['attempt'],r['code_sha'],r['kind']) == (os.environ['GITHUB_SHA'],os.environ['GITHUB_RUN_ID'],os.environ['GITHUB_RUN_ATTEMPT'],os.environ['CODE_SHA'],os.environ['KIND'])
+          archive=stage/'cache.tar.zst'
+          assert archive.stat().st_size <= 128*1024**2
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == r['archive_sha256']
+          expected = '/home/runner/.cache/oasis7/worker-build/0.7.5' if r['kind']=='worker' else os.environ['RUNNER_TEMP']+'/oasis7-browser-archives/fonts-freefont-ttf-039c03e75c206d2555b0c40b0f2fe0861a318ade4117c5404c533eb77c81ab5d'
+          assert r['root']==expected and r['member']==os.path.relpath(expected,os.environ['GITHUB_WORKSPACE'])
+          assert not pathlib.Path(expected).exists()
+          assert r['cache_version']==hashlib.sha256('|'.join([expected,'zstd-without-long','1.0']).encode()).hexdigest()
+          seen=set(); total=0
+          with subprocess.Popen(['zstd','-d','-q','--stdout',str(archive)],stdout=subprocess.PIPE) as child:
+              with tarfile.open(fileobj=child.stdout,mode='r|') as tar:
+                  for m in tar:
+                      name=m.name.rstrip('/')
+                      assert name not in seen and (name==r['member'] or name.startswith(r['member']+'/'))
+                      suffix=name[len(r['member']):].lstrip('/')
+                      assert '..' not in pathlib.PurePosixPath(suffix).parts and not suffix.startswith('/')
+                      assert m.isfile() or m.isdir()
+                      seen.add(name);total+=m.size
+                      assert len(seen)<=4000 and total<=128*1024**2
+              assert child.wait(timeout=30)==0
+          subprocess.run(['tar','--use-compress-program=unzstd','-xf',str(archive),'-P','-C',os.environ['GITHUB_WORKSPACE']],check=True)
+          root=pathlib.Path(expected)
+          actual={}
+          for p in root.rglob('*'):
+              assert not p.is_symlink()
+              if p.is_dir():continue
+              assert stat.S_ISREG(p.stat().st_mode)
+              data=p.read_bytes();actual[str(p.relative_to(root))]=dict(bytes=len(data),sha256=hashlib.sha256(data).hexdigest())
+          assert actual==r['files']
+          print(json.dumps(dict(probe_only=True,shared_cache_saved=False,kind=r['kind'],cache_version=r['cache_version'],restored_files=len(actual),source=r['source']),sort_keys=True))
+          PY_READER
+      - name: Exercise the existing original host reader
+        shell: bash
+        run: |
+          trap_dir=$(mktemp -d "$RUNNER_TEMP/portable-compiler-trap.XXXXXX")
+          printf '#!/bin/sh\nexit 93\n' > "$trap_dir/cargo"
+          cp "$trap_dir/cargo" "$trap_dir/rustc"
+          chmod 755 "$trap_dir/cargo" "$trap_dir/rustc"
+          export PATH="$trap_dir:$PATH"
+          if [[ "$KIND" == worker ]]; then
+            python3 scripts/ci-worker-build.py check --root /home/runner/.cache/oasis7/worker-build/0.7.5
+          else
+            python3 - <<'PY_HOST'
+          import importlib.util, pathlib, os, sys
+          sys.path.insert(0,"scripts")
+          spec=importlib.util.spec_from_file_location('browser', 'scripts/ci-browser-deps.py')
+          browser=importlib.util.module_from_spec(spec);spec.loader.exec_module(browser)
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'oasis7-browser-archives/fonts-freefont-ttf-039c03e75c206d2555b0c40b0f2fe0861a318ade4117c5404c533eb77c81ab5d'
+          print(browser.check_archive('fonts-freefont-ttf',root))
+          PY_HOST
+          fi
