@@ -632,6 +632,7 @@ mod tests {
             control.commitment_envelope_v2().expect("control post-T v2")
         );
     }
+
     #[test]
     fn rejected_action_rollover_c_to_t_recovery_accepts_next_submission() {
         let mut uninterrupted = World::new();
@@ -696,5 +697,4 @@ mod tests {
                 .expect("uninterrupted new-era commitment")
         );
     }
-
 }
