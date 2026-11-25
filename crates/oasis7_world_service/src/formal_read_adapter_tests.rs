@@ -1,7 +1,7 @@
-use super::super::projection::WorldServiceProjection;
-use super::super::{authority, formal_read_fixtures::*};
-use super::*;
+use crate::formal_read::*;
 use crate::formal_read_response_fixture::response;
+use crate::projection::WorldServiceProjection;
+use crate::{authority, formal_read_fixtures::*};
 use oasis7_client_api::world_service::*;
 use oasis7_formal_protocol::controlled_authority::formal::*;
 #[test]
@@ -23,7 +23,7 @@ fn externally_pinned_actual_world_read_is_independent_of_service_assertion() {
     let observed = verifier
         .verify_view(&response, &request, &public(7))
         .unwrap();
-    let view = super::super::verified_view::VerifiedWorldView::from_verified_projection(
+    let view = crate::verified_view::VerifiedWorldView::from_verified_projection(
         response.clone(),
         &request,
         observed,
@@ -36,12 +36,11 @@ fn externally_pinned_actual_world_read_is_independent_of_service_assertion() {
         min_commit: Some(view.version().commit.clone()),
         fixed_commit: Some(view.version().commit.clone()),
     };
-    let membership =
-        super::super::membership::AuthenticatedMembershipObservation::read_verified_view(
-            &view,
-            &membership_request,
-        )
-        .unwrap();
+    let membership = crate::membership::AuthenticatedMembershipObservation::read_verified_view(
+        &view,
+        &membership_request,
+    )
+    .unwrap();
     assert_eq!(membership.response().commit, view.version().commit);
     assert!(membership.response().applied_consensus_membership.is_none());
     assert!(!membership.response().supports_safe_runtime_update);
@@ -77,10 +76,10 @@ fn formal_projection_trait_preserves_world_tick_binding_and_scope_validation() {
             steps: vec![],
         },
     );
-    let validate = |reply: &ReadWorldViewResponse<
-        super::super::projection::WorldServiceProjection,
-    >| {
-        <super::super::projection::WorldServiceProjection as FormalReadProjection>::validate_contents(reply, &request)
+    let validate = |reply: &ReadWorldViewResponse<crate::projection::WorldServiceProjection>| {
+        <crate::projection::WorldServiceProjection as FormalReadProjection>::validate_contents(
+            reply, &request,
+        )
     };
     validate(&response).unwrap();
     let mut invalid_tick = response.clone();
@@ -101,11 +100,10 @@ fn formal_projection_trait_preserves_world_tick_binding_and_scope_validation() {
         "projection runtime binding differs from committed view"
     );
     let mut private_context = response;
-    private_context.view.feedback_history =
-        Some(super::super::projection::WorldServiceFeedbackHistory {
-            agent_id: "private-agent".into(),
-            records: vec![],
-        });
+    private_context.view.feedback_history = Some(crate::projection::WorldServiceFeedbackHistory {
+        agent_id: "private-agent".into(),
+        records: vec![],
+    });
     assert_eq!(
         validate(&private_context).unwrap_err(),
         "Agent observation differs from authorized visibility scope"

@@ -3232,14 +3232,29 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('ci-fast-preview.py restore --sample "$PREVIEW_SAMPLE"', preview)
         self.assertIn('--metadata "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json.metadata.json"', preview)
         self.assertIn('--plan "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json"', preview)
+        labeled_preview = label_jobs['pr-fast-preview']
+        self.assertEqual(preview.split('    runs-on:', 1)[1].strip(),
+                         labeled_preview.split('    runs-on:', 1)[1].strip())
+        compiler_name = ('Verify the preinstalled WASM C compiler'
+                         if '    container:' in preview else 'Install WASM C compiler')
         compiler = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
-                        if 'name: Install WASM C compiler' in step)
+                        if f'name: {compiler_name}' in step)
         self.assertIn("if: matrix.group == 'net'", compiler)
-        for command in ('sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- clang llvm',
-                        'clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
+        for command in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
             self.assertIn(command, compiler)
-            if not rust_image_cache_namespace('net', JOBS['net']) or not command.startswith('sudo '):
-                self.assertIn(command, JOBS['net'])
+            self.assertIn(command, JOBS['net'])
+        if '    container:' in preview:
+            for text in ("matrix.group == 'baseline' && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9'",
+                         "matrix.group == 'net' && 'ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6'",
+                         "|| 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c'",
+                         'cache-mode: none', 'packages: read', '--user 1001:1001 --init',
+                         "if: matrix.group == 'rust_baseline'", 'tool: cargo-deny@0.19.9',
+                         "'includes_container_initialization': False", "python3 -m venv"):
+                self.assertIn(text, preview)
+            for install in ('ci-apt-install.py', 'rustup toolchain install', 'actions/setup-python@'):
+                self.assertNotIn(install, preview)
+        else:
+            self.assertIn('--hosted-dns-recovery -- clang llvm', compiler)
         self.assertIn('scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}"', preview)
         self.assertIn('--requirement scripts/doc-governance-requirements.txt', preview)
         self.assertIn('OASIS7_CI_PROFILE: pr-fast', preview)
@@ -4142,6 +4157,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             targets.append('codeql-rust')
         if re.search(r'^FROM runtime AS api-runtime$', dockerfile, re.M):
             targets.append('api-runtime')
+        if re.search(r'^FROM rust-build AS rust-ordinary-builder$', dockerfile, re.M):
+            targets.append('rust-ordinary-builder')
+            self.assertRegex(dockerfile, r'(?m)^FROM docker:[0-9]+[.][0-9]+[.][0-9]+-cli@sha256:[0-9a-f]{64} AS docker-cli-tools$')
         self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]
