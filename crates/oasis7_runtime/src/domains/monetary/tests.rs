@@ -121,8 +121,7 @@ fn staged_fee_rejects_missing_balance_without_charge_or_publication() {
         let view = BorrowedWorldView::new(&world).unwrap();
         transition
             .prepare(&view, &TransitionContext::default())
-            .err()
-            .expect("insufficient general fee")
+            .expect_err("insufficient general fee")
     };
     assert!(matches!(
         error,
@@ -150,8 +149,7 @@ fn staged_fee_overflow_preserves_original_checked_arithmetic_and_all_balances() 
         let view = BorrowedWorldView::new(&world).unwrap();
         transition
             .prepare(&view, &TransitionContext::default())
-            .err()
-            .expect("positive overflow must be rejected before Stage 3")
+            .expect_err("positive overflow must be rejected before Stage 3")
     };
     assert!(matches!(
         error,
@@ -213,8 +211,7 @@ fn live_and_staged_rule_fee_share_selected_affordability_before_arithmetic() {
         let view = BorrowedWorldView::new(&world).unwrap();
         accepted
             .prepare(&view, &TransitionContext::default())
-            .err()
-            .expect("distance-only deficit must deny accepted movement")
+            .expect_err("distance-only deficit must deny accepted movement")
     };
     let TransitionReject::World(staged_error) = staged_error else {
         panic!("unexpected staged rejection");
