@@ -348,7 +348,7 @@ jobs:
           echo "f12b84c1ed3540c54691257ddea1b72b62f785c8bb3eca907562c6a8a2361d32  $RUNNER_TEMP/codeql-actions-tools/bundle.tar.zst" | sha256sum --check
           echo "tools_path=$RUNNER_TEMP/codeql-actions-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
       - id: init
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4, official tag resolved 2026-10-01
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4, official tag resolved 2026-10-01
         env:
           CODEQL_OVERLAY_DATABASE_MODE: ${{ steps.rust_tools.outcome == 'success' && 'none' || '' }}
         with:
@@ -456,7 +456,7 @@ jobs:
           OASIS7_CODEQL_PRODUCTION_MODE: ${{ steps.rust_tools.outcome == 'success' && 'rust-default-production' || '' }}
           OASIS7_CODEQL_PRODUCTION_SOURCE: ${{ needs.plan.outputs.checkout }}
           RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           category: ${{ matrix.category }}
           output: ${{ runner.temp }}/codeql-results
@@ -505,7 +505,7 @@ jobs:
       - id: upload
         name: CodeQL SARIF upload
         if: success() && steps.execution.outputs.status == 'success'
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           sarif_file: ${{ runner.temp }}/codeql-results
           category: ${{ matrix.category }}
