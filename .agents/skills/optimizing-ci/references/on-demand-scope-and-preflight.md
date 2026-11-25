@@ -84,6 +84,7 @@
    raise SystemExit(0 if unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful() else 1)
    "
    ```
+4. **受信基线断言写法、扩充 `EVOLVING_POLICY_TESTS` 与受管输入路由**：编写不锁死演进态的受信基线断言、提炼新 `FIXED_TESTS` 子集、治理 `UnknownInputsError` / CodeQL `unregistered input` 前置微 PR 以及门禁松绑后的流程惯性清理，详见 [受信基线与输入治理分册](trusted-baseline-and-input-governance.md)。
 
 ## 5. 标准本地闭环命令与防坑核对表
 
