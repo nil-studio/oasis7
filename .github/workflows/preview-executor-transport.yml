@@ -1,0 +1,94 @@
+name: Preview executor evidence transport
+on:
+  pull_request:
+    types: [opened]
+    branches: [task/engineering-preview-executor-replay-base]
+permissions:
+  contents: read
+jobs:
+  transport:
+    if: github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'task/engineering-preview-executor-transport'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    cache-mode: none
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: baseline
+            image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+            artifact: 14996880850
+            log_sha: 4990f9d029b13c742cb32ed901f47503e645df4febbbab9a360e145ebf9c90d0
+          - group: oasis7_required
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
+            artifact: 14996711499
+            log_sha: bffb041e5d56e1755754106233f613abbf076db0ec42a41213af2c6213457687
+    container:
+      image: ${{ matrix.image }}
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Timing measures this transport-only replay, not the original build.
+      PREVIEW_SAMPLE: executable-image
+      PREVIEW_PARTITION: all
+      PREVIEW_GROUP: ${{ matrix.group }}
+      PREVIEW_TESTED_SHA: 963dd91e34d17fe8a6115562174aaa71ee175b62
+      PREVIEW_OUTCOME: success
+    steps:
+      - name: Start evidence transport measurement
+        run: echo "PREVIEW_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ matrix.artifact }}
+          path: historical
+          merge-multiple: true
+          run-id: 45557779225
+          github-token: ${{ github.token }}
+      - name: Require the exact original log
+        env:
+          LOG_SHA: ${{ matrix.log_sha }}
+        run: |
+          log=historical/__w/_temp/pr-fast-preview.log
+          test "$(id -u):$(id -g)" = 1001:1001
+          printf '%s  %s\n' "$LOG_SHA" "$log" | sha256sum -c -
+          cp "$log" "$RUNNER_TEMP/pr-fast-preview.log"
+      - name: Record preview group timing and outcome
+        id: report
+        if: always()
+        run: |
+          evidence=$(mktemp -d preview-evidence.XXXXXX)
+          log="$RUNNER_TEMP/pr-fast-preview.log"
+          [[ ! -f "$log" ]] || cp "$log" "$evidence/"
+          printf 'path=%s\n' "$evidence" >> "$GITHUB_OUTPUT"
+          python3 - "$evidence" <<'PY'
+          import json, os, pathlib, sys, time
+          ended = int(time.time())
+          report = {'diagnostic_only': True, 'cache_restored': False,
+                    'timing_scope': 'first-step-through-outcome',
+                    'includes_container_initialization': False,
+                    'sample': os.environ['PREVIEW_SAMPLE'],
+                    'partition': os.environ['PREVIEW_PARTITION'],
+                    'group': os.environ['PREVIEW_GROUP'], 'outcome': os.environ['PREVIEW_OUTCOME'],
+                    'tested_sha': os.environ['PREVIEW_TESTED_SHA'],
+                    'runner_started_at': int(os.environ['PREVIEW_STARTED_AT']), 'ended_at': ended}
+          report['runner_seconds'] = ended - report['runner_started_at']
+          pathlib.Path(sys.argv[1], 'pr-fast-preview-timing.json').write_text(json.dumps(report, indent=2) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+              stream.write('Diagnostic cold group: ' + json.dumps(report) + '\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: preview-transport-${{ matrix.group }}-${{ github.run_id }}
+          path: ${{ steps.report.outputs.path }}
+          retention-days: 2
+          if-no-files-found: error
