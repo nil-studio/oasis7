@@ -35,7 +35,7 @@ class Capacity(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory).resolve()
             with patch.object(m.runtime, 'run') as run:
-                m.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, image, maximum_seconds=360)
+                m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, image, maximum_seconds=360)
             self.assertEqual(run.call_count, 2)
             packages, modules = [call.args for call in run.call_args_list]
             self.assertEqual(packages[0][:2], ['dpkg-query', '-W'])
@@ -48,14 +48,16 @@ class Capacity(unittest.TestCase):
             self.assertEqual([step['phase'] for step in receipt['allocations']], ['native-packages', 'native-modules'])
             with patch.object(m.runtime, 'run') as run:
                 with self.assertRaisesRegex(ValueError, 'fixed by digest'):
-                    m.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, 'ci-codeql-rust:latest',
+                    m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, 'ci-codeql-rust:latest',
                                                  maximum_seconds=180)
+                with self.assertRaisesRegex(ValueError, 'unsupported native preparation budget'):
+                    m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, image, maximum_seconds=181)
                 with self.assertRaisesRegex(RuntimeError, 'insufficient native observation budget'):
-                    m.verify_preinstalled_native(ROOT, out, time.monotonic() + 80, {}, image, maximum_seconds=180)
+                    m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 80, {}, image, maximum_seconds=180)
                 run.assert_not_called()
             with patch.object(m.runtime, 'run', side_effect=RuntimeError('native package unavailable')) as run:
                 with self.assertRaisesRegex(RuntimeError, 'native package unavailable'):
-                    m.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, image, maximum_seconds=180)
+                    m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, image, maximum_seconds=180)
                 self.assertEqual(run.call_count, 1)
 
     def test_capacity_image_layout_is_derived_from_the_physical_business_checkout(self):

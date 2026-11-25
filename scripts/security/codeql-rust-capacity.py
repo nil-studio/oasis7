@@ -615,29 +615,6 @@ def analysis_budget(mode,remaining,source_sha=None):
                 f'internal analysis allocation; not a measurement of the complete {budget//60} minute assessment'}
 
 
-
-def verify_preinstalled_native(source, out, end, env, image, *, maximum_seconds):
-    """Record installed extraction dependencies without changing the analysis image."""
-    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[0-9a-f]{64}', image):
-        raise ValueError('native extraction image must be fixed by digest')
-    started = time.monotonic()
-    preparation_end = min(end - 90, started + maximum_seconds)
-    budget = dict(maximum_seconds=maximum_seconds, started_monotonic=started,
-                  parent_deadline_monotonic=end, parent_reserve_seconds=90,
-                  preparation_deadline_monotonic=preparation_end,
-                  source_profile='preinstalled-image', image=image, allocations=[])
-    runtime.save(out / 'native-budget.json', budget, out)
-    for name, command in (
-            ('native-packages', ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n', *native.NATIVE_PACKAGES]),
-            ('native-modules', ['pkg-config', '--print-errors', '--modversion', *native.NATIVE_MODULES])):
-        remaining = min(10, preparation_end - time.monotonic())
-        if remaining < 1:
-            raise RuntimeError('insufficient native observation budget')
-        budget['allocations'].append(dict(phase=name, timeout_seconds=remaining, privileged_timeout_seconds=None))
-        runtime.save(out / 'native-budget.json', budget, out)
-        runtime.run(command, source, out / (name + '.stdout'), preparation_end, remaining, out, env, file_limit=None)
-
-
 def main():
     global SOURCE
     parser=argparse.ArgumentParser(description=__doc__)
@@ -718,9 +695,9 @@ def main():
             # Reuse only native preparation, never the standalone Cargo check.
             # Its end-90 reserve becomes the capacity end-120 reserve.
             maximum_seconds = 360 if qualifier_research else 180
-            if args.preinstalled_native_image:
-                verify_preinstalled_native(source, out, end - 30, env, args.preinstalled_native_image,
-                                           maximum_seconds=maximum_seconds)
+            if args.preinstalled_native_image is not None:
+                native.verify_preinstalled_native(source, out, end - 30, env, args.preinstalled_native_image,
+                                                   maximum_seconds=maximum_seconds)
             else:
                 native.prepare_native(source, out, end - 30, env, maximum_seconds=maximum_seconds)
             terminal['native_preparation']='PASS'

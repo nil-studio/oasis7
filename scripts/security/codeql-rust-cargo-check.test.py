@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -241,6 +242,19 @@ class SingleCheck(unittest.TestCase):
                          'local_now+900-age','ref: '+m.SOURCE,'rustup toolchain install 1.99.0',
                          'include-hidden-files: true','contents: read','actions: read'):
             self.assertIn(required,text)
+        self.assertIn('options: --user 1001:1001 --init --read-only', text)
+        self.assertIn('packages: read', text)
+        image = re.search(r'(?m)^      image: (ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[0-9a-f]{64})$', text)
+        self.assertIsNotNone(image)
+        self.assertIn(f'CARGO_CHECK_NATIVE_IMAGE: {image[1]}', text)
+        self.assertIn('test "$(command -v rustup)" = /opt/oasis7-rust/bin/rustup', text)
+        self.assertIn('test ! -w /opt/oasis7-rust/bin/cargo', text)
+        self.assertIn('export RUSTUP_HOME="$toolchain/rustup" CARGO_HOME="$toolchain/cargo" TMPDIR="$RUNNER_TEMP"', text)
+        self.assertLess(text.index('mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"'),
+                        text.index('timeout 120 rustup toolchain install 1.99.0 --profile minimal --no-self-update'))
+        self.assertIn('rustup which --toolchain 1.99.0 cargo', text)
+        self.assertIn('rustup which --toolchain 1.99.0 rustc', text)
+        self.assertIn('--preinstalled-native-image "$CARGO_CHECK_NATIVE_IMAGE"', text)
         for forbidden in ('github/codeql-action/','security-events: write','upload-sarif',
                           'pull_request:','schedule:','CARGO_TARGET_DIR:'):
             self.assertNotIn(forbidden,text)
