@@ -87,9 +87,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-        with:
-          install-dir: ${{ runner.temp }}/oasis7-codeql-cargo-check-mold
+        run: |
+          python3 .github/actions/setup-linux-mold/setup.py \
+            --install-dir "$RUNNER_TEMP/oasis7-codeql-cargo-check-mold"
       - name: Freeze the existing helper closure outside the business checkout
         run: |
           python3 scripts/security/codeql_rust_capacity_layout.py stage \

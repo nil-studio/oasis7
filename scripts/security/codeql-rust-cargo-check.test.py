@@ -251,6 +251,8 @@ class SingleCheck(unittest.TestCase):
         self.assertIn('test ! -w /opt/oasis7-rust/bin/cargo', text)
         self.assertLess(text.index('printf \'TMPDIR=%s\\n\' "$RUNNER_TEMP"'),
                         text.index('name: Configure mold for Linux host linking'))
+        self.assertIn('python3 .github/actions/setup-linux-mold/setup.py', text)
+        self.assertNotIn('uses: ./.github/actions/setup-linux-mold', text)
         self.assertIn('export RUSTUP_HOME="$toolchain/rustup" CARGO_HOME="$toolchain/cargo"', text)
         self.assertLess(text.index('mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"'),
                         text.index('timeout 120 rustup toolchain install 1.99.0 --profile minimal --no-self-update'))
