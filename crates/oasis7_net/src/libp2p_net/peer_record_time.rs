@@ -47,7 +47,10 @@ impl DiscoveryClock {
     /// UTC lower bound is installed. This does NOT authenticate that bound or
     /// implement cross-process antirollback custody; the caller must supply a
     /// genuine external verifier before it is wired into production consumers.
-    #[cfg_attr(not(test), expect(dead_code, reason = "L0 trusted-clock adapter is not yet provisioned"))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "L0 trusted-clock adapter is not yet provisioned")
+    )]
     pub(super) fn requiring_independent_floor() -> Self {
         Self(Arc::new(Mutex::new(ClockState {
             requires_independent_floor: true,
@@ -58,7 +61,10 @@ impl DiscoveryClock {
     /// Complete one recovery bootstrap without exposing an unanchored lease.
     /// `floor_ms` must be verified by an independent authority before calling.
     /// It is deliberately impossible to seed a legacy/default clock here.
-    #[cfg_attr(not(test), expect(dead_code, reason = "L0 trusted-clock adapter is not yet provisioned"))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "L0 trusted-clock adapter is not yet provisioned")
+    )]
     pub(super) fn install_independently_verified_floor(
         &self,
         floor_ms: i64,
