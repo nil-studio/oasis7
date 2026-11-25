@@ -158,7 +158,8 @@ class Workspace(unittest.TestCase):
                         with self.subTest(scope=scope, variable=variable), patch.dict(os.environ, {variable: 'changed'}):
                             self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
                     ordinary_stable = (
-                        ('scripts/ci-test-artifacts.py',
+                        ('Cargo.lock',
+                         'scripts/ci-test-artifacts.py',
                          'scripts/ci-formal-process-suites.json',
                          'crates/leaf/Cargo.toml')
                         if getattr(cache, 'ORDINARY_STABLE_IDENTITY', False)
@@ -868,6 +869,34 @@ class RealCargoCompact(unittest.TestCase):
                             expected = not ((changed and unit['target']['name'] == 'compact_leaf')
                                             or (scope == 'ordinary' and 'bin' in unit['target']['kind']))
                             self.assertEqual(unit['fresh'], expected, unit)
+
+                    if scope == 'ordinary':
+                        # Dropping the internal dependency edge updates both leaf/Cargo.toml and Cargo.lock;
+                        # ordinary prefix stays compatible and cache_restore refreshes mtimes so Cargo
+                        # keeps compact_base fresh while rebuilding compact_leaf cleanly.
+                        shutil.rmtree(root / 'target')
+                        for name in (*sources, 'Cargo.lock'):
+                            os.utime(root / name, None)
+                        leaf_manifest = root / 'leaf/Cargo.toml'
+                        leaf_source = root / 'leaf/src/lib.rs'
+                        lock_file = root / 'Cargo.lock'
+                        leaf_manifest.write_text('[package]\nname="compact_leaf"\nversion="0.1.0"\nedition="2021"\n')
+                        leaf_source.write_text('pub fn value() -> u32 { 42 }\n')
+                        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, env=env,
+                                       check=True, capture_output=True)
+                        for modified, rel in ((leaf_manifest, 'leaf/Cargo.toml'),
+                                              (leaf_source, 'leaf/src/lib.rs'),
+                                              (lock_file, 'Cargo.lock')):
+                            old_ns = state['inputs'][rel]['mtime_ns']
+                            os.utime(modified, ns=(old_ns, old_ns))
+                        restored = {}
+                        cache.restore_cache(args, restored)
+                        self.assertTrue(restored['restored'], restored)
+                        self.assertEqual(restored['changed_inputs'], 3)
+                        lock_units, value = build()
+                        self.assertEqual(value, '42')
+                        self.assertTrue(all(u['fresh'] for u in lock_units if u['target']['name'] == 'compact_base'))
+                        self.assertTrue(all(not u['fresh'] for u in lock_units if u['target']['name'] == 'compact_leaf'))
 
 
     def test_bounded_subset_rebuilds_omitted_units_and_changed_retained_source(self):

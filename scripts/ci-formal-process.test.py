@@ -2667,6 +2667,26 @@ class CasePartitionArtifactDelivery(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifacts.fast_plan(self.plan | {'ordinary_partitions': ['controls', 'native-0', 'native-1', 'native-2', 'native-3']})
 
+        # Multi-package targeted workloads exceeding 60s of non-runtime harnesses expand to 4 shards
+        # so the ~358s/shard 2-way runtime-tests baseline does not push shards past 8m.
+        bft_like = dict(
+            self.plan,
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_node', 'oasis7_viewer_runtime'],
+        )
+        self.assertEqual(
+            artifacts.targeted_ordinary_artifact_partitions(bft_like),
+            list(artifacts.TARGETED_ORDINARY_ARTIFACT_PARTITIONS),
+        )
+        with self.assertRaises(ValueError):
+            artifacts.fast_plan(bft_like)
+
+        # Verify inventory_pairs preserves exact keys/results under bounded concurrency and OASIS7_LOCAL_CHECK=1.
+        with patch.object(artifacts, 'inventory', side_effect=lambda p, ignored=False, env=None: [f'{p.name}:{int(ignored)}']):
+            for local_flag in ('0', '1'):
+                with patch.dict(os.environ, {'OASIS7_LOCAL_CHECK': local_flag}):
+                    pairs = artifacts.inventory_pairs([('a', Path('/tmp/bin_a')), ('b', Path('/tmp/bin_b'))])
+                self.assertEqual(pairs, {'a': (['bin_a:0'], ['bin_a:1']), 'b': (['bin_b:0'], ['bin_b:1'])})
+
     def test_full_case_partition_delivery_requires_new_authority_and_preserves_profile_gates(self):
         for scope in ('targeted', 'full'):
             for profile in ('pr-fast', 'main-fast'):

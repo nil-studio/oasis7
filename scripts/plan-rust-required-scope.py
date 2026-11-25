@@ -4224,7 +4224,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
 ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1']
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1', 'native-2', 'native-3']
 COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1']
-COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 300000
+COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 60000
 
 
 def targeted_ordinary_artifact_partitions(plan):
