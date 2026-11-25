@@ -6,6 +6,7 @@ pub mod cognition_response_identity;
 pub mod gameplay_actions;
 pub mod gameplay_service;
 pub mod llm_request_budget;
+pub mod llm_prompt_profile;
 pub mod provider_json_shape;
 pub mod provider_transport_url;
 pub mod simulator_archive;
