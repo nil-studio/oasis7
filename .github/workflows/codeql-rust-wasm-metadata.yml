@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 20
     container:
       image: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
-      options: --user 1001:1001 --init
+      options: --user 1001:1001 --init --read-only --tmpfs /tmp:rw,nosuid,nodev,mode=1777
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}

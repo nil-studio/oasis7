@@ -936,7 +936,7 @@ class WorkflowTests(unittest.TestCase):
             image = re.search(r'(?m)^      image: (ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[a-f0-9]{64})$', workflow)
             self.assertIsNotNone(image)
             images.append(image[1])
-            self.assertIn('      options: --user 1001:1001 --init\n', workflow)
+            self.assertIn('      options: --user 1001:1001 --init --read-only --tmpfs /tmp:rw,nosuid,nodev,mode=1777\n', workflow)
             self.assertIn('    permissions:\n      contents: read\n      actions: read\n      packages: read\n', workflow)
             preflight = workflow.split('      - name: Verify the immutable Rust toolchain proxies\n', 1)[1]
             guard, original = preflight.split('      - name: Bind the original deadline', 1)
