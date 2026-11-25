@@ -90,7 +90,7 @@ python3 scripts/system-design-traceability-check.test.py
 python3 scripts/check-local.py --profile quick --base-ref origin/main
 ```
 
-提交前逐项核对 9 个高频陷阱：
+提交前逐项核对 10 个高频陷阱：
 1. **宿主容器环境与 UID**：迁入 `ci-rust-build` 容器（`--user 1001:1001`）或其他宿主 job 时，核对 Python 3.12、`markdown-it-py` venv、`jq`、`ruby`、`rustc`/`cargo`/`clippy` 与 `safe.directory` 是否齐全。
 2. **`baseline` 步级环境变量禁令**：`scripts/resolve-product-doc-ci-range.test.py` 禁止 `baseline` 内任何步骤声明 `OASIS7_PRODUCT_DOC_BASE:` 或 `OASIS7_PRODUCT_DOC_HEAD:` 覆盖前序步骤写入的 `$GITHUB_ENV`。
 3. **Rust 缓存配对 `if:` 不变量**：`scripts/ci-workflow.test.py` 强制要求同一 job 内 `Stabilize Rust cache toolchains` 与 `Swatinem/rust-cache` 的 `if:` 表达式完全相同。
@@ -100,3 +100,4 @@ python3 scripts/check-local.py --profile quick --base-ref origin/main
 7. **`rust.yml` 双投影字段列表同步**：向 `selection.json` 新增工作流消费字段时，必须同时更新 `select` 的 `workflow-plan` 与门禁共用的 `&validate-complete-selection` 两处 `fields` 投影及多键同现校验，并在 `ci-workflow.test.py` 的 `test_large_workflow_projection_preserves_fields_and_binds_complete_file_and_identity` 登记该 `fromJSON(needs.select.outputs.plan).<key>`。
 8. **单行 `if:` 改多行 `if: >-` 破坏静态断言**：给既有步骤追加条件前，先检索 `ci-workflow.test.py` 中对该步骤的 `assertIn("if: runner.os == ...")`，提前放宽为兼容 `if:\s*(?:>-\s*)?` 的正则（单引号 `'` 后勿加 `\b`）。
 9. **`plan-rust-required-scope.test.py` 临时 Cargo 夹具约束**：`cargo_graph` 要求夹具根 `Cargo.toml` 显式列出具体 `members` 路径（禁 `"crates/*"` 通配）并包含 `[workspace.dependencies]`（推荐基于 `self.ROOT_TOML` 派生），且所有夹具文件路径须命中已注册规则以免触发 `UnknownInputsError`。
+10. **合并短合约后的 `scope=full` 宿主 `timeout-minutes` 复核（`#6925` 案例）**：向常驻宿主（如 `viewer-js-required`）并入短合约（如 `site-quality`、`viewer-performance-report`）时，必须按 `scope=full` 最坏叠加路径（冷构建 + 全部合并子步骤）复核并同步放宽宿主 `timeout-minutes`，避免测试全绿却在最后几秒因原超时上限被强杀并触发整轮重跑。
