@@ -3,7 +3,7 @@
 use oasis7_proto::distributed::SnapshotManifest;
 use oasis7_world_state::segmentation as cas;
 
-use super::blob_store::BlobStore;
+use oasis7_cas::BlobStore;
 use super::error::WorldError;
 use super::snapshot::{Journal, Snapshot};
 
