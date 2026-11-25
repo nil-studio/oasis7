@@ -7,9 +7,12 @@ fn open(
     key: MainTokenPolicyKeyV1<'_>,
     family: &ReservedValue<MainTokenPolicyFamilyQualificationV1>,
 ) -> ReservedValue<MainTokenPolicyRecordQualificationV1> {
-    let state = store
+    let mut state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(physical());
     let mut io = logical();
     let mut keys = SemanticKeyBudget {
@@ -61,9 +64,12 @@ fn point_options_closed_status_and_lifecycle_replay_in_one_transaction() {
             },
         };
         let live = parent.fence().unwrap();
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let values = store.value_session(physical());
         let mut io = logical();
         let mut keys = SemanticKeyBudget {
@@ -343,9 +349,12 @@ fn point_options_closed_status_and_lifecycle_replay_in_one_transaction() {
         );
         // Receiving is a separate public operation. Its generic replay and owner
         // pass share these fresh finite sessions continuously, with the same pool.
-        let receiver_state = store
+        let mut receiver_state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            receiver_state = receiver_state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let receiver_values = store.value_session(physical());
         let receiver_verifier = TransitionVerifier {
             parent: &parent,
@@ -402,9 +411,12 @@ fn point_options_closed_status_and_lifecycle_replay_in_one_transaction() {
                 .unwrap();
         }
         let after = &sealed.record.after;
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let values = store.value_session(physical());
         let mut io = logical();
         let mut keys = SemanticKeyBudget {
