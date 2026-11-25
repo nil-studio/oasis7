@@ -52,7 +52,12 @@ impl<W: oasis7_formal_protocol::incremental_value::ValueNodeWriter>
 }
 #[test]
 fn required_unsigned_fields_reopen_in_their_original_namespaces_and_read_classes() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let producer = MemoryBudget::new(32 << 20, 1 << 20).unwrap();

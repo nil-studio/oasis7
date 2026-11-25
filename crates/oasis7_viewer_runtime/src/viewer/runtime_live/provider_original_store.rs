@@ -16,6 +16,10 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use oasis7::simulator::{
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+    ProviderOriginalMaterialStore, ProviderSpoolReservation,
+};
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
@@ -23,16 +27,13 @@ use oasis7_distfs::incremental_page_store::{
 use oasis7_formal_protocol::incremental_state::{
     MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1, StateWriteV1,
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
-use oasis7_runtime_host::agent_execution::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ProviderOriginalMaterialStore, ProviderSpoolReservation,
-};
-use oasis7_world_service::provider_material::{
+use oasis7_formal_protocol::provider_material::{
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
     ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
-    ProviderPendingAttemptSummaryV1, ProviderPendingStateRootsV1,
+    ProviderPendingAttemptSummaryV1, ProviderPendingRootsCursorV1, ProviderPendingRootsPageV1,
+    ProviderPendingStateRootsV1,
 };
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 
 use super::provider_original_store_codec::{
     EventPhase, EventRecord, MAX_EVENT_BYTES, MAX_EVENTS, MAX_OPERATION_ID_BYTES,
@@ -86,7 +87,7 @@ pub struct ProviderOriginalMaterialOwnerV1 {
     memory: MemoryBudget,
     pages: IncrementalPageStore,
     files: OwnerFiles,
-    authority: Arc<dyn oasis7_runtime_host::agent_execution::ProviderMaterialAuthority>,
+    authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
     inner: Mutex<Inner>,
     cancelled: Arc<AtomicBool>,
     writable: bool,
@@ -100,7 +101,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         owner: ProviderMaterialOwnerBindingV1,
         memory: MemoryBudget,
         compression: PageCompression,
-        authority: Arc<dyn oasis7_runtime_host::agent_execution::ProviderMaterialAuthority>,
+        authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
     ) -> Result<Arc<Self>, String> {
         authority.verify_owner_scope(&owner)?;
         let root = root.as_ref();
@@ -146,7 +147,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         memory: MemoryBudget,
         compression: PageCompression,
         class: MemoryClass,
-        authority: Arc<dyn oasis7_runtime_host::agent_execution::ProviderMaterialAuthority>,
+        authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
     ) -> Result<Arc<Self>, String> {
         authority.verify_owner_scope(expected_owner)?;
         let root = root.as_ref();
@@ -702,9 +703,9 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
     }
     fn protected_roots_page(
         &self,
-        cursor: Option<&oasis7_world_service::provider_material::ProviderPendingRootsCursorV1>,
+        cursor: Option<&ProviderPendingRootsCursorV1>,
         limit: usize,
-    ) -> Result<oasis7_world_service::provider_material::ProviderPendingRootsPageV1, String> {
+    ) -> Result<ProviderPendingRootsPageV1, String> {
         self.protected_roots_page_impl(cursor, limit)
     }
     fn validate_request_owner(

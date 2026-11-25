@@ -2,7 +2,7 @@
 use super::*;
 use std::io::Write;
 pub(super) type DecisionObservation =
-    Arc<dyn Fn(&oasis7_runtime_host::agent_execution::ContinuousAgentRequestContextV1) + Send + Sync>;
+    Arc<dyn Fn(&oasis7_agent_api::ContinuousAgentRequestContextV1) + Send + Sync>;
 pub(super) struct MetadataServer {
     pub(super) endpoint: String,
     pub(super) decision_count: Arc<std::sync::atomic::AtomicUsize>,
@@ -146,7 +146,7 @@ impl MetadataServer {
                                 .position(|window| window == b"\r\n\r\n")
                                 .unwrap()
                                 + 4;
-                            let incoming: oasis7_runtime_host::agent_execution::ContinuousAgentRequestContextV1 =
+                            let incoming: oasis7_agent_api::ContinuousAgentRequestContextV1 =
                                 serde_json::from_slice(&bytes[boundary..]).unwrap();
                             incoming.validate_production_lane().unwrap();
                             if preflight_reset && let Some(observe) = &observation {
@@ -177,11 +177,14 @@ impl MetadataServer {
                                 )
                                 .unwrap();
                             }
-                            let base = oasis7_runtime_host::agent_execution::DecisionResponse {
+                            let base = oasis7_agent_api::DecisionResponse::<
+                                oasis7_simulator::Action,
+                                oasis7_simulator::AgentQuery,
+                            > {
                                 decision: if first_wait {
-                                    oasis7_runtime_host::agent_execution::ProviderDecision::WaitTicks { ticks: 2 }
+                                    oasis7_agent_api::ProviderDecision::WaitTicks { ticks: 2 }
                                 } else {
-                                    oasis7_runtime_host::agent_execution::ProviderDecision::Act {
+                                    oasis7_agent_api::ProviderDecision::Act {
                                         action_ref: "move_agent".into(),
                                         action: oasis7_simulator::Action::MoveAgent {
                                             agent_id: incoming.agent_subject.clone(),
@@ -214,7 +217,7 @@ impl MetadataServer {
                                     vec![]
                                 },
                             };
-                            let response = oasis7_runtime_host::agent_execution::ContinuousAgentResponseContextV1 {
+                            let response = oasis7_agent_api::ContinuousAgentResponseContextV1 {
                                 response_digest: oasis7_agent_api::cognition_response_digest(&base),
                                 base_decision_response: base,
                                 context_discriminator: incoming.context_discriminator,
@@ -233,7 +236,7 @@ impl MetadataServer {
                                 bytes.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
                             let raw: serde_json::Value =
                                 serde_json::from_slice(&bytes[boundary..]).unwrap();
-                            let feedback: oasis7_runtime_host::agent_execution::FeedbackEnvelopeV1 =
+                            let feedback: oasis7_agent_api::FeedbackEnvelopeV1 =
                                 serde_json::from_value(raw.clone()).unwrap();
                             assert_eq!(feedback.provenance, "runtime_authoritative");
                             assert!(feedback.feedback_seq > 0);

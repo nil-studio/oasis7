@@ -22,6 +22,8 @@ fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire()
     use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
     use oasis7_runtime_host::simulator_archive::persist::WorldJournal;
 
+    // Serialize the actual native L4 composite archive and rejoin its original
+    // kernel and extension state; the umbrella type is no longer a test oracle.
     let native = WorldKernel::new();
     let snapshot: WorldSnapshot = native.snapshot();
     let journal: WorldJournal = native.journal_snapshot();

@@ -77,7 +77,7 @@ pub(super) fn verify_actual_checkpoint_gate(fixture: &Fixture, bytes: &[u8]) {
             .to_string()
             .contains("native canonical memory survives application process loss")
     );
-    let empty = serde_json::to_value(oasis7_runtime_host::agent_execution::MemoryWriteStore::default()).unwrap();
+    let empty = serde_json::to_value(oasis7_agent_harness::MemoryWriteStore::default()).unwrap();
     for kind in [
         "original_context",
         "original_response",

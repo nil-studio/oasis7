@@ -118,7 +118,7 @@ harvest_radiation、BuyPower 或等待发电的预览按原字段解释状态变
 <a id="ver-lfo-recovery"></a>
 ### 计划验证：失败恢复与反循环
 
-`planned`，`test_tier_required`；`prompt_assembly.rs` 的恢复文本及 `tests_followups_actions.rs` 的 force_replan 三个现有 fixture；新增或补齐原 TODO-3 四步失败起点、FactoryBuilt/RecipeScheduled、data 增长断言，另核同签名 harvest 超阈值后切换。 由 agent_engineer / gameplay_designer 在同一固定候选、明确 builtin lane 与离线/人工环境记录真实源位置和输出。不冻结 N；现有人工 seed 成功序列不代签原失败恢复，也不证明在线模型收敛。
+`planned`，`test_tier_required`；`crates/oasis7_agent_harness/src/llm_prompt_assembly.rs` 的恢复文本及 `tests_followups_actions.rs` 的 force_replan 三个现有 fixture；新增或补齐原 TODO-3 四步失败起点、FactoryBuilt/RecipeScheduled、data 增长断言，另核同签名 harvest 超阈值后切换。 由 agent_engineer / gameplay_designer 在同一固定候选、明确 builtin lane 与离线/人工环境记录真实源位置和输出。不冻结 N；现有人工 seed 成功序列不代签原失败恢复，也不证明在线模型收敛。
 
 <a id="ver-lfo-metrics"></a>
 ### 计划验证：动作触发、成败与首达可分辨

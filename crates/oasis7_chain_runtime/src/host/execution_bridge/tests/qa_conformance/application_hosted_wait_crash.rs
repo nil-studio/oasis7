@@ -86,7 +86,7 @@ fn retained_original(bytes: &[u8]) -> SubmitIntentRequest<WorldServicePayloadV1>
     let wait = &checkpoint["hosted_wait"];
     assert!(wait.is_object(), "real durable hosted Wait missing");
     let cognition = &wait["decision"]["cognition"];
-    let request: oasis7_runtime_host::agent_execution::ContinuousAgentRequestContextV1 =
+    let request: oasis7_agent_api::ContinuousAgentRequestContextV1 =
         serde_json::from_value(cognition["request"]["request_context"].clone()).unwrap();
     request.validate_production_lane().unwrap();
     assert!(

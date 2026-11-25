@@ -202,9 +202,8 @@ jobs:
       actions: read
       packages: read
     container:
-      # Empty image keeps the other analysis rows on the host and preserves the shared job key.
-      image: ${{ (matrix.language == 'python' || matrix.language == 'javascript-typescript') && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:49a7d25c4ffaae310799afb86bcbe793af02f9b1420ea204ef826bf843f1fafa' || matrix.language == 'actions' && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9' || '' }}
-      options: --user 1001:1001
+      image: ${{ matrix.language == 'rust' && 'ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565' || (matrix.language == 'python' || matrix.language == 'javascript-typescript') && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:49a7d25c4ffaae310799afb86bcbe793af02f9b1420ea204ef826bf843f1fafa' || matrix.language == 'actions' && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9' || '' }}
+      options: ${{ matrix.language == 'rust' && '--user 1001:1001 --init' || '--user 1001:1001' }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -220,7 +219,7 @@ jobs:
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
       CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: ${{ matrix.language == 'rust' && 'true' || 'false' }}
-      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: ${{ matrix.language == 'rust' && format('["{0}/crates/oasis7_builtin_wasm_modules/_templates"]', github.workspace) || '[]' }}
+      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '[]'
       CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES: ${{ matrix.language == 'javascript-typescript' && 'true' || 'false' }}
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
@@ -231,16 +230,17 @@ jobs:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
           sparse-checkout: .github/actions/setup-linux-mold
-      - name: Configure mold for Linux host linking
+      - name: Configure mold for Rust analysis
         if: matrix.language == 'rust'
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-codeql-mold
       # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkout }}
           persist-credentials: false
       - name: Verify CodeQL image prerequisites
-        if: matrix.language == 'actions' || matrix.language == 'python' || matrix.language == 'javascript-typescript'
         shell: bash
         run: |
           test "$(id -u)" = 1001
@@ -259,15 +259,36 @@ jobs:
         env:
           EXPECTED_CHECKOUT: ${{ needs.plan.outputs.checkout }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_CHECKOUT"
-      - name: Minimal stable Rust extraction toolchain
+      - name: Set Rust template inclusion from the actual checkout
         if: matrix.language == 'rust'
-        run: rustup toolchain install 1.96.0 --profile minimal
+        shell: bash
+        run: |
+          python3 -I - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          source = Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
+          templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
+          if not templates.is_dir() or templates.resolve(strict=True) != templates:
+              raise SystemExit('Rust template directory is unavailable in the actual checkout')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=' + json.dumps([str(templates)]) + '\n')
+          PY
+      - name: Verify the preinstalled Rust extraction toolchain
+        if: matrix.language == 'rust'
+        shell: bash
+        run: |
+          test "$(command -v rustc)" = /opt/oasis7-rust/bin/rustc
+          test "$(rustc --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
+          test "$(cargo --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
+          rustc -vV
       - id: rust_native
         name: Prepare Rust native extraction prerequisites
         if: matrix.language == 'rust'
         timeout-minutes: 5
         env:
-          CODEQL_NATIVE_SOURCE_PROFILE: ${{ needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && 'ubuntu-archive-https' || 'runner-sources' }}
+          CODEQL_NATIVE_SOURCE_PROFILE: preinstalled-image
+          CODEQL_NATIVE_IMAGE: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
         run: |
           python3 -I - <<'PY'
           import importlib.util, json, os, pathlib, sys, time
@@ -284,16 +305,19 @@ jobs:
                  if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
           profile = os.environ['CODEQL_NATIVE_SOURCE_PROFILE']
           started = time.monotonic()
-          terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180, 'source_profile': profile}
+          terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180, 'source_profile': profile,
+                      'image': os.environ['CODEQL_NATIVE_IMAGE']}
           try:
-              native.prepare_native(source, out, started + 270, env, source_profile=profile)
+              for name, argv in (
+                      ('native-packages', ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n', *native.NATIVE_PACKAGES]),
+                      ('native-modules', ['pkg-config', '--print-errors', '--modversion', *native.NATIVE_MODULES])):
+                  native.runtime.run(argv, source, out / (name + '.stdout'),
+                                     started + 180, 10, out, env, file_limit=None)
               terminal['status'] = 'PASS'
           except Exception as error:
               terminal.update(error_type=type(error).__name__)
               if isinstance(error, native.runtime.PhaseError):
                   terminal.update(exit=error.result.get('exit'), failure_kind=error.result.get('failure_kind'))
-              if hasattr(error, 'native_source_evidence_error'):
-                  terminal['source_evidence_error'] = error.native_source_evidence_error
               raise
           finally:
               terminal['elapsed_seconds'] = time.monotonic() - started

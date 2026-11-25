@@ -10,63 +10,35 @@
 //! - `runner`: AgentRunner, quota, rate limiting, metrics
 //! - `power`: Power system (M4 social system)
 
-#[cfg(target_arch = "wasm32")]
 mod agent;
-#[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::agent;
-#[cfg(target_arch = "wasm32")]
 pub(crate) mod agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
-#[allow(unused_imports)]
-pub(crate) mod agent_api_compat {
-    pub use oasis7_runtime_host::feedback::{feedback_to_api, request_context_to_api};
-}
+mod async_agent_pilot;
 #[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::async_agent_runner;
-#[cfg(target_arch = "wasm32")]
+mod async_agent_runner;
 mod cognition_policy;
-#[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::cognition_policy;
-#[cfg(target_arch = "wasm32")]
 mod cognition_response_identity;
-#[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::cognition_response_identity;
-#[cfg(target_arch = "wasm32")]
 mod continuous_agent_harness;
-#[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::continuous_agent_harness;
-#[cfg(target_arch = "wasm32")]
 mod decision_provider;
-#[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::decision_provider;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod llm_agent;
 mod memory;
-#[cfg(not(target_arch = "wasm32"))]
-mod model_provider;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "persist_host_facade.rs"]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
-pub use oasis7_runtime_host::agent_execution::provider_json_admission;
+pub mod provider_json_admission;
 #[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::provider_loopback_adapter;
+mod provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::provider_loopback_http;
-#[cfg(target_arch = "wasm32")]
+mod provider_loopback_http;
 mod provider_material_capture;
-#[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::provider_material_capture;
-#[cfg(target_arch = "wasm32")]
 mod runner;
 #[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::runner;
-pub(crate) mod runtime_perf;
-#[cfg(not(target_arch = "wasm32"))]
-use oasis7_runtime_host::agent_execution::turn_engine;
+mod turn_engine;
 
 #[cfg(test)]
 mod tests;
@@ -76,72 +48,6 @@ mod tests;
 #[cfg(test)]
 mod canonical_contract_owner_tests {
     use super::*;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn native_host_agent_execution_preserves_original_type_identity() {
-        use oasis7_runtime_host::agent_execution as native;
-        use std::any::TypeId;
-
-        assert_eq!(
-            TypeId::of::<ActionResult>(),
-            TypeId::of::<native::ActionResult>()
-        );
-        assert_eq!(
-            TypeId::of::<dyn AgentBehavior>(),
-            TypeId::of::<dyn native::AgentBehavior>()
-        );
-        assert_eq!(
-            TypeId::of::<AsyncAgentRunner>(),
-            TypeId::of::<native::AsyncAgentRunner>()
-        );
-        assert_eq!(
-            TypeId::of::<TurnEngine>(),
-            TypeId::of::<native::TurnEngine>()
-        );
-        assert_eq!(
-            TypeId::of::<ContinuousAgentRequestContextV1>(),
-            TypeId::of::<native::ContinuousAgentRequestContextV1>()
-        );
-        assert_eq!(
-            TypeId::of::<MemoryWriteStore>(),
-            TypeId::of::<native::MemoryWriteStore>()
-        );
-        assert_eq!(
-            TypeId::of::<ProviderLoopbackHttpClient>(),
-            TypeId::of::<native::ProviderLoopbackHttpClient>()
-        );
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn chain_native_composite_archive_has_one_type_identity_and_original_json_wire() {
-        use oasis7_runtime_host::simulator_archive::{kernel_host, persist};
-
-        // L4 archive-bearing Host is the original composite type, not pure L2.
-        let native = kernel_host::WorldKernel::new();
-        let legacy: WorldKernel = native;
-        let snapshot: persist::WorldSnapshot = legacy.snapshot();
-        let bytes = serde_json::to_vec(&snapshot).expect("native archive snapshot JSON");
-        let decoded: WorldSnapshot =
-            serde_json::from_slice(&bytes).expect("decode through legacy archive API");
-        let (kernel, extensions) = decoded.into_kernel_parts();
-        let rebuilt: persist::WorldSnapshot =
-            WorldSnapshot::from_kernel_parts(kernel, extensions);
-        assert_eq!(
-            bytes,
-            serde_json::to_vec(&rebuilt).expect("legacy archive snapshot JSON"),
-        );
-
-        let journal: persist::WorldJournal = legacy.journal_snapshot();
-        let journal_bytes = serde_json::to_vec(&journal).expect("native archive journal JSON");
-        let decoded: WorldJournal =
-            serde_json::from_slice(&journal_bytes).expect("decode through legacy journal API");
-        assert_eq!(
-            journal_bytes,
-            serde_json::to_vec(&decoded).expect("legacy archive journal JSON"),
-        );
-    }
 
     #[test]
     fn old_simulator_exports_are_canonical_owner_contracts() {
@@ -175,6 +81,8 @@ pub use agent::{
 pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::project_receipt_memory;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
@@ -264,12 +172,6 @@ pub use llm_agent::{
 pub use memory::{
     AgentMemory, LongTermMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind, ShortTermMemory,
 };
-#[cfg(not(target_arch = "wasm32"))]
-pub use model_provider::{
-    LlmCompletionModelProvider, ModelProvider, ModelProviderError, ModelProviderRequest,
-    ModelProviderResponse, ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry,
-    ModelProviderTurn, ModelProviderUsage,
-};
 pub use oasis7_agent_harness::llm_defaults::{
     DEFAULT_CONFIG_FILE_NAME, DEFAULT_LLM_FORCE_REPLAN_AFTER_SAME_ACTION,
     DEFAULT_LLM_LONG_TERM_GOAL, DEFAULT_LLM_MAX_DECISION_STEPS, DEFAULT_LLM_MAX_MODULE_CALLS,
@@ -280,6 +182,14 @@ pub use oasis7_agent_harness::llm_defaults::{
     ENV_LLM_PROMPT_MAX_HISTORY_ITEMS, ENV_LLM_PROMPT_PROFILE, ENV_LLM_SHORT_TERM_GOAL,
     ENV_LLM_SYSTEM_PROMPT, ENV_LLM_TIMEOUT_MS,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use oasis7_agent_harness::{
+    ModelProvider, ModelProviderError, ModelProviderRequest, ModelProviderResponse,
+    ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry, ModelProviderTurn,
+    ModelProviderUsage,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use oasis7_model_provider::legacy_model_adapter::LlmCompletionModelProvider;
 pub use oasis7_simulator::{
     Action, ActionEnvelope, ActionId, ActionSubmitter, AgentId, AssetId,
     CHUNK_GENERATION_SCHEMA_VERSION, CM_PER_KM, ChunkResourceBudget,
@@ -334,7 +244,6 @@ pub use provider_loopback_http::{
     ProviderLoopbackHttpError, REMOTE_HTTPS_PROVIDER_TRANSPORT, evaluate_provider_compatibility,
     provider_agent_chat_log_key, provider_phase1_required_actions,
     provider_phase1_required_capabilities, validate_provider_http_base_url,
-    validate_provider_loopback_http_base_url,
 };
 pub use runner::{
     AgentQuota, AgentRunner, AgentStats, AgentTickResult, RateLimitPolicy, RateLimitState,
@@ -351,7 +260,7 @@ pub use oasis7_simulator::{
     AgentPowerState, AgentPowerStatus, ConsumeReason, PlantStatus, PowerConfig, PowerEvent,
     PowerPlant, PowerSaleQuote, PowerSurvivalQuote,
 };
-pub use runtime_perf::{
+pub use oasis7_simulator::{
     RuntimePerfBottleneck, RuntimePerfHealth, RuntimePerfSeriesSnapshot, RuntimePerfSnapshot,
     unsupported_runtime_perf_snapshot,
 };

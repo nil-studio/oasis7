@@ -4,8 +4,8 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser|rust-build|rust-wasm-build) ;;
-  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build" >&2; exit 2 ;;
+  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
@@ -31,12 +31,21 @@ if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
   [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
   [[ "$nightly" =~ ^nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
   [[ "$wasm_target" == wasm32-unknown-unknown ]]
+  options+=(--build-arg "RUST_TOOLCHAIN=$stable" --build-arg "WASM_TOOLCHAIN=$nightly"
+            --build-arg "WASM_TARGET=$wasm_target")
+elif [[ "$target" == codeql-rust ]]; then
+  stable=$(sed -n "s/^      RUSTUP_TOOLCHAIN: '\([0-9]*\.[0-9]*\.[0-9]*\)'$/\1/p" ../../.github/workflows/codeql.yml)
+  [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  options+=(--build-arg "CODEQL_RUST_TOOLCHAIN=$stable")
+fi
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust ]]; then
   rust_base="rust:${stable}-bookworm"
   rust_digest=$(docker buildx imagetools inspect "$rust_base" --format "{{json .Manifest}}" | jq -er .digest)
-  [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+  [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+    echo "Invalid Rust base digest" >&2
+    exit 1
+  }
   options+=(--build-arg "RUST_BASE=${rust_base}@${rust_digest}"
-            --build-arg "RUST_TOOLCHAIN=$stable" --build-arg "WASM_TOOLCHAIN=$nightly"
-            --build-arg "WASM_TARGET=$wasm_target"
             --label "org.oasis7.ci.rust-base.digest=$rust_digest")
 fi
 docker build "${options[@]}" --platform linux/amd64 --target "$target" \
@@ -165,5 +174,47 @@ if [[ "$target" == rust-wasm-build ]]; then
       clang --target=wasm32-unknown-unknown -c /tmp/wasm-smoke.c -o /tmp/wasm-smoke.o
       llvm-ar rcs /tmp/wasm-smoke.a /tmp/wasm-smoke.o
       test "$(llvm-ar t /tmp/wasm-smoke.a)" = wasm-smoke.o
+    '
+fi
+
+if [[ "$target" == codeql-rust ]]; then
+  repository=$(git rev-parse --show-toplevel)
+  docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+    --env HOME=/tmp --env "CODEQL_EXPECTED_RUST=$stable" \
+    --mount "type=bind,src=$repository/scripts/security,dst=/codeql-check,readonly" \
+    "$image" bash -ec '
+      test "$(id -u)" = 1001
+      test "$(rustc --version | cut -d" " -f2)" = "$CODEQL_EXPECTED_RUST"
+      test "$(cargo --version | cut -d" " -f2)" = "$CODEQL_EXPECTED_RUST"
+      test "$(rustup toolchain list | wc -l)" = 1
+      scratch=$(mktemp -d)
+      trap "rm -rf -- \"$scratch\"" EXIT
+      printf "fn main() {}\n" > "$scratch/probe.rs"
+      rustc --crate-name probe "$scratch/probe.rs" -o "$scratch/probe"
+      "$scratch/probe"
+      PYTHONPATH=/codeql-check python3 -B - <<PY
+import importlib.util
+import subprocess
+
+spec = importlib.util.spec_from_file_location("native", "/codeql-check/codeql-rust-cargo-check.py")
+native = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(native)
+subprocess.run(["dpkg-query", "-W", *native.NATIVE_PACKAGES], check=True)
+subprocess.run(["pkg-config", "--print-errors", "--modversion", *native.NATIVE_MODULES], check=True)
+PY
+    '
+  docker image inspect --format 'CodeQL Rust image local bytes: {{.Size}}' "$image"
+fi
+
+if [[ "$target" == api-runtime ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+    --env HOME=/tmp --env GH_PROMPT_DISABLED=1 --env GH_NO_UPDATE_NOTIFIER=1 \
+    "$image" bash -ec '
+      test "$(id -u)" = 1001
+      test "$(command -v gh)" = /usr/local/bin/gh
+      test ! -w /usr/local/bin/gh
+      version=$(gh --version)
+      grep -Eq "^gh version 2[.]105[.]0( |$)" <<< "$version"
+      gh api --help >/dev/null
     '
 fi

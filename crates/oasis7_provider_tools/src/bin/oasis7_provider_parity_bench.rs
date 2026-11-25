@@ -7,16 +7,16 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use oasis7::simulator::{LlmAgentBehavior, OpenAiChatCompletionClient};
+use oasis7::simulator::{
+    ActionResult, AgentBehavior, AgentRunner, ContinuousAgentRequestContextV1,
+    ContinuousAgentTurnContextV1, LlmAgentBehavior, MockDecisionProvider,
+    OpenAiChatCompletionClient, ProviderCompatibilityStatus, ProviderLoopbackAdapter,
+    ProviderLoopbackHttpClient, evaluate_provider_compatibility, provider_phase1_required_actions,
+    provider_phase1_required_capabilities,
+};
 use oasis7_agent_api::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
     ProviderExecutionMode,
-};
-use oasis7_runtime_host::agent_execution::{
-    ActionResult, AgentBehavior, AgentRunner, ContinuousAgentRequestContextV1,
-    ContinuousAgentTurnContextV1, MockDecisionProvider, ProviderCompatibilityStatus,
-    ProviderLoopbackAdapter, ProviderLoopbackHttpClient, evaluate_provider_compatibility,
-    provider_phase1_required_actions, provider_phase1_required_capabilities,
 };
 use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
 use oasis7_runtime_host::simulator_archive::kernel_host::initialize_kernel;
@@ -266,12 +266,9 @@ struct BuiltinParityBehavior {
 }
 
 struct ProviderBackedLoopbackBehavior {
-    inner:
-        oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior<ProviderLoopbackAdapter>,
-    request_builder:
-        oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior<MockDecisionProvider>,
-    request_builder_state:
-        Arc<Mutex<oasis7_runtime_host::agent_execution::MockDecisionProviderState>>,
+    inner: oasis7::simulator::ProviderBackedAgentBehavior<ProviderLoopbackAdapter>,
+    request_builder: oasis7::simulator::ProviderBackedAgentBehavior<MockDecisionProvider>,
+    request_builder_state: Arc<Mutex<oasis7::simulator::MockDecisionProviderState>>,
     fixture_id: String,
     session_id: String,
     next_turn: u64,
@@ -960,22 +957,21 @@ fn build_behavior(
                 options.agent_provider_connect_timeout_ms,
             )
             .map_err(|err| err.to_string())?;
-            let mut behavior =
-                oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior::new(
-                    agent_id.to_string(),
-                    adapter,
-                    phase1_action_catalog(),
-                )
-                .require_continuous_request_context()
-                .with_provider_config_ref(format!(
-                    "provider://loopback-http/parity/{}/{}",
-                    options.benchmark_run_id, agent_id
-                ))
-                .with_agent_profile(options.agent_provider_profile.clone())
-                .with_execution_mode(options.execution_mode)
-                .with_environment_class(execution_environment_class(options.execution_mode))
-                .with_fixture_id(fixture_id)
-                .with_replay_id(format!("{}:{}", options.benchmark_run_id, fixture_id));
+            let mut behavior = oasis7::simulator::ProviderBackedAgentBehavior::new(
+                agent_id.to_string(),
+                adapter,
+                phase1_action_catalog(),
+            )
+            .require_continuous_request_context()
+            .with_provider_config_ref(format!(
+                "provider://loopback-http/parity/{}/{}",
+                options.benchmark_run_id, agent_id
+            ))
+            .with_agent_profile(options.agent_provider_profile.clone())
+            .with_execution_mode(options.execution_mode)
+            .with_environment_class(execution_environment_class(options.execution_mode))
+            .with_fixture_id(fixture_id)
+            .with_replay_id(format!("{}:{}", options.benchmark_run_id, fixture_id));
             if let Some(fallback_reason) = provider.fallback_reason.as_deref() {
                 behavior = behavior.with_fallback_reason(fallback_reason);
             }
@@ -985,7 +981,7 @@ fn build_behavior(
             let request_builder_provider = MockDecisionProvider::new("parity-request-builder");
             let request_builder_state = request_builder_provider.shared_state();
             let mut request_builder =
-                oasis7_runtime_host::agent_execution::ProviderBackedAgentBehavior::new_legacy_compatibility(
+                oasis7::simulator::ProviderBackedAgentBehavior::new_legacy_compatibility(
                     agent_id.to_string(),
                     request_builder_provider,
                     phase1_action_catalog(),

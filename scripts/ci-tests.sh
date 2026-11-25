@@ -1640,7 +1640,9 @@ run_rust_baseline() {
     extra_checks=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
       --plan "$required_plan" --phase baseline-checks) || return
   fi
-  run env -u RUSTC_WRAPPER cargo fmt --all -- --check
+  if [[ "${OASIS7_SKIP_RUSTFMT:-0}" != 1 ]]; then
+    run env -u RUSTC_WRAPPER cargo fmt --all -- --check
+  fi
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked

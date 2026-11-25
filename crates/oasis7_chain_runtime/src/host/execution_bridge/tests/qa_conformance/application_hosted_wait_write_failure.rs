@@ -248,7 +248,7 @@ pub(super) fn finish(
         .as_object()
         .expect("actual restored queue provenance map");
     for (key, original) in queued {
-        let request: oasis7_runtime_host::agent_execution::ContinuousAgentRequestContextV1 =
+        let request: oasis7_agent_api::ContinuousAgentRequestContextV1 =
             serde_json::from_value(original["cognition"]["request"]["request_context"].clone())
                 .unwrap();
         request.validate_production_lane().unwrap();

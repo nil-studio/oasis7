@@ -1,126 +1,197 @@
-use super::*;
+//! Inactive L4 Host retry-lineage guard for an already awaiting Runtime turn.
+//!
+//! This is a pure control state: it cannot dispatch a provider call, re-admit
+//! an action, mint a receipt, or update the authoritative World. The live
+//! legacy runner remains unchanged until the full actor/cold-resume cutover.
 
-impl AsyncAgentRunner {
-    /// Retry a provider transport for a turn whose actor outcome is awaiting
-    /// Runtime disposition. The semantic request and reduced turn context
-    /// must be the exact awaiting values; this method creates the next wire
-    /// attempt by changing only `transport_attempt`, keeps the original
-    /// [`AsyncTurnId`], and does not re-admit the request to the feedback
-    /// single-flight store.
-    ///
-    /// Callers pass the previously accepted request context (with its current
-    /// transport attempt). A successful retry increments that value by one
-    /// before dispatch. A fresh observation is accepted for the actor, but it
-    /// cannot alter the outer request identity or its Runtime binding.
-    pub fn retry_awaiting_turn_with_request_context_and_observation(
-        &mut self,
-        agent_id: &str,
-        observation: Observation,
-        context: ContinuousAgentTurnContextV1,
-        request_context: ContinuousAgentRequestContextV1,
-    ) -> Result<AsyncTurnId, AsyncAgentRunnerError> {
-        context
-            .validate_for_agent(agent_id)
-            .map_err(|error| AsyncAgentRunnerError::Cognition(error.to_string()))?;
-        request_context
+use oasis7_agent_api::{ContinuousAgentRequestContextV1, Digest32};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryLineageError {
+    InvalidProductionContext,
+    InvalidIdentity,
+    ProviderStillInFlight,
+    AwaitingIdentityMismatch,
+    TransportAttemptMismatch,
+    TransportAttemptOverflow,
+}
+
+/// A snapshot of the *accepted* logical request, not a new request identity.
+/// Only transport_attempt is allowed to advance on an explicit provider retry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AwaitingRetryLineage {
+    pub agent_subject: String,
+    pub agent_turn_id: String,
+    pub decision_request_id: String,
+    pub request_digest: Digest32,
+    pub retry_seq: u64,
+    pub transport_attempt: u64,
+}
+
+impl AwaitingRetryLineage {
+    /// Construct only from the original accepted production request.
+    pub fn from_production_request(
+        request: &ContinuousAgentRequestContextV1,
+    ) -> Result<Self, RetryLineageError> {
+        request
             .validate_production_lane()
-            .map_err(|error| AsyncAgentRunnerError::Cognition(error.to_string()))?;
-        if request_context.agent_subject != agent_id {
-            return Err(AsyncAgentRunnerError::Cognition(
-                "retry request subject does not match the actor".to_string(),
-            ));
-        }
-        if observation.agent_id != agent_id {
-            return Err(AsyncAgentRunnerError::AgentIdentityMismatch {
-                expected: agent_id.to_string(),
-                observed: observation.agent_id,
-            });
-        }
+            .map_err(|_| RetryLineageError::InvalidProductionContext)?;
+        Ok(Self {
+            agent_subject: request.agent_subject.clone(),
+            agent_turn_id: request.agent_turn_id.clone(),
+            decision_request_id: request.decision_request_id.clone(),
+            request_digest: request.request_digest.clone(),
+            retry_seq: request.retry_seq,
+            transport_attempt: request.transport_attempt,
+        })
+    }
 
-        let Some(&turn_id) = self.awaiting_runtime.get(agent_id) else {
-            return Err(AsyncAgentRunnerError::Cognition(
-                "retry requires an active awaiting Runtime turn".to_string(),
-            ));
-        };
-        let Some(outcome) = self.awaiting_outcomes.get(&turn_id) else {
-            return Err(AsyncAgentRunnerError::Cognition(
-                "awaiting Runtime turn identity is unavailable".to_string(),
-            ));
-        };
-        // `poll_completed` moves the lease into the awaiting Runtime outcome.
-        // Put that exact immutable lease back on the transport retry so the
-        // next authoritative outcome cannot silently lose its admission.
-        let cognition_lease = outcome.cognition_lease.clone();
-        let expected_context = outcome.prepared_context.clone().ok_or_else(|| {
-            AsyncAgentRunnerError::Cognition(
-                "retry requires the awaiting turn's cognition context".to_string(),
-            )
-        })?;
-        let expected_request_context =
-            outcome.prepared_request_context.clone().ok_or_else(|| {
-                AsyncAgentRunnerError::Cognition(
-                    "retry requires the awaiting turn's outer request context".to_string(),
-                )
-            })?;
-        if context != expected_context {
-            return Err(AsyncAgentRunnerError::Cognition(
-                "retry cognition identity does not match the awaiting turn".to_string(),
-            ));
+    /// Admit the next wire attempt against the exact awaiting snapshot.
+    ///
+    /// This does not reset the logical request budget, alter retry_seq,
+    /// consume a cognition lease, or remove awaiting Runtime correlation.
+    /// Callers must perform the side-effecting provider dispatch separately.
+    pub fn next_transport_attempt(
+        &self,
+        supplied: &Self,
+        provider_still_in_flight: bool,
+    ) -> Result<Self, RetryLineageError> {
+        if self.agent_subject.is_empty()
+            || self.agent_turn_id.is_empty()
+            || self.decision_request_id.is_empty()
+            || !self.request_digest.is_canonical_blake3()
+            || self.retry_seq == 0
+            || self.transport_attempt == 0
+        {
+            return Err(RetryLineageError::InvalidIdentity);
         }
-        if request_context != expected_request_context {
-            return Err(AsyncAgentRunnerError::Cognition(
-                "retry request identity does not match the awaiting turn".to_string(),
-            ));
+        if provider_still_in_flight {
+            return Err(RetryLineageError::ProviderStillInFlight);
         }
-        let next_transport_attempt = request_context
+        if self.agent_subject != supplied.agent_subject
+            || self.agent_turn_id != supplied.agent_turn_id
+            || self.decision_request_id != supplied.decision_request_id
+            || self.request_digest != supplied.request_digest
+            || self.retry_seq != supplied.retry_seq
+        {
+            return Err(RetryLineageError::AwaitingIdentityMismatch);
+        }
+        if self.transport_attempt != supplied.transport_attempt {
+            return Err(RetryLineageError::TransportAttemptMismatch);
+        }
+        let transport_attempt = self
             .transport_attempt
             .checked_add(1)
-            .ok_or_else(|| {
-                AsyncAgentRunnerError::Cognition(
-                    "retry transport_attempt cannot be incremented".to_string(),
-                )
-            })?;
-        let mut retry_request_context = request_context;
-        retry_request_context.transport_attempt = next_transport_attempt;
+            .ok_or(RetryLineageError::TransportAttemptOverflow)?;
+        Ok(Self {
+            transport_attempt,
+            ..self.clone()
+        })
+    }
+}
 
-        let actor = self
-            .actors
-            .get(agent_id)
-            .ok_or_else(|| AsyncAgentRunnerError::AgentNotRegistered(agent_id.to_string()))?;
-        if self.harness.provider_is_still_in_flight(agent_id) {
-            return Err(AsyncAgentRunnerError::AgentBusy(agent_id.to_string()));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn awaiting() -> AwaitingRetryLineage {
+        AwaitingRetryLineage {
+            agent_subject: "actor-a".into(),
+            agent_turn_id: "turn-a".into(),
+            decision_request_id: "request-a".into(),
+            request_digest: Digest32(format!("blake3:{}", "a".repeat(64))),
+            retry_seq: 1,
+            transport_attempt: 1,
         }
-        let harness_turn_id = *self.harness_turns.get(&turn_id).ok_or_else(|| {
-            AsyncAgentRunnerError::Cognition("retry Harness turn identity is unavailable".into())
-        })?;
-        let key = production_key_from_context(&retry_request_context);
-        actor
-            .control
-            .install_production_input(
-                key.clone(),
-                observation,
-                context,
-                retry_request_context.clone(),
-            )
-            .map_err(|error| AsyncAgentRunnerError::Cognition(error.to_string()))?;
-        if let Err(error) = self.harness.retry_awaiting_turn(
-            harness_turn_id,
-            &super::super::agent_api_compat::request_context_to_api(&expected_request_context),
-        ) {
-            actor.control.clear_production_input(&key);
-            return Err(map_harness_error(error).with_agent(agent_id));
-        }
-        if let Some(metadata) = self.turn_metadata.get_mut(&turn_id) {
-            metadata.request_context = Some(retry_request_context);
-        }
-        if let Some(lease) = cognition_lease {
-            self.cognition_leases.insert(turn_id, lease);
-        }
-        self.active_turns = self.active_turns.saturating_add(1);
-        // The caller has already observed this failed/completed outcome and
-        // is explicitly retrying it. Remove the stale world-facing queue
-        // entry while retaining the awaiting Runtime correlation record.
-        self.completed.retain(|outcome| outcome.turn_id != turn_id);
-        Ok(turn_id)
+    }
+
+    #[test]
+    fn retry_only_advances_transport_attempt_and_keeps_logical_identity() {
+        let accepted = awaiting();
+        let next = accepted.next_transport_attempt(&accepted, false).unwrap();
+        assert_eq!(next.transport_attempt, 2);
+        assert_eq!(next.retry_seq, accepted.retry_seq);
+        assert_eq!(next.request_digest, accepted.request_digest);
+        assert_eq!(next.agent_subject, accepted.agent_subject);
+        assert_eq!(next.agent_turn_id, accepted.agent_turn_id);
+        assert_eq!(next.decision_request_id, accepted.decision_request_id);
+        assert_eq!(
+            next.next_transport_attempt(&next, false)
+                .unwrap()
+                .transport_attempt,
+            3
+        );
+    }
+
+    #[test]
+    fn retry_rejects_cross_actor_turn_request_digest_and_retry_seq() {
+        let accepted = awaiting();
+        let mut forged = accepted.clone();
+        forged.agent_subject = "actor-b".into();
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
+        forged = accepted.clone();
+        forged.agent_turn_id = "turn-b".into();
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
+        forged = accepted.clone();
+        forged.decision_request_id = "request-b".into();
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
+        forged = accepted.clone();
+        forged.request_digest = Digest32(format!("blake3:{}", "b".repeat(64)));
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
+        forged = accepted.clone();
+        forged.retry_seq = 2;
+        assert_eq!(
+            accepted.next_transport_attempt(&forged, false),
+            Err(RetryLineageError::AwaitingIdentityMismatch)
+        );
+    }
+
+    #[test]
+    fn retry_rejects_stale_attempt_and_concurrent_provider_dispatch() {
+        let accepted = awaiting();
+        assert_eq!(
+            accepted.next_transport_attempt(&accepted, true),
+            Err(RetryLineageError::ProviderStillInFlight)
+        );
+        let mut stale = accepted.clone();
+        stale.transport_attempt += 1;
+        assert_eq!(
+            accepted.next_transport_attempt(&stale, false),
+            Err(RetryLineageError::TransportAttemptMismatch)
+        );
+    }
+
+    #[test]
+    fn retry_rejects_invalid_identity_and_transport_overflow() {
+        let mut accepted = awaiting();
+        accepted.retry_seq = 0;
+        assert_eq!(
+            accepted.next_transport_attempt(&accepted, false),
+            Err(RetryLineageError::InvalidIdentity)
+        );
+        accepted = awaiting();
+        accepted.request_digest = Digest32("not-canonical".into());
+        assert_eq!(
+            accepted.next_transport_attempt(&accepted, false),
+            Err(RetryLineageError::InvalidIdentity)
+        );
+        accepted = awaiting();
+        accepted.transport_attempt = u64::MAX;
+        assert_eq!(
+            accepted.next_transport_attempt(&accepted, false),
+            Err(RetryLineageError::TransportAttemptOverflow)
+        );
     }
 }

@@ -626,4 +626,5 @@ mod tests;
 mod durable_v3;
 pub use durable_v3::{
     DurableFullSyncIssuerV3, FullSyncIssuerMigrationResumeV3, FullSyncIssuerV2MigrationConfig,
+    RecoveringFullSyncIssuerV3,
 };
