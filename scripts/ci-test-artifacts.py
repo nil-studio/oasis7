@@ -2012,7 +2012,7 @@ def ordinary_docker_preflight():
 
 def ordinary_build_image():
     image = os.environ.get('ORDINARY_BUILD_IMAGE', '')
-    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}', image):
+    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/(?:ci-rust-build|ci-rust-ordinary-builder)@sha256:[0-9a-f]{64}', image):
         raise ValueError('ordinary build requires a fixed Rust image digest')
     return image
 

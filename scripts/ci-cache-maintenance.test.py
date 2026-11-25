@@ -436,6 +436,7 @@ class DependencyRetentionTests(unittest.TestCase):
     def test_component_image_namespaces_cannot_replace_other_images_linkers_or_versions(self):
         namespaces = (
             'ci-ordinary-image-f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c',
+            'ci-ordinary-image-714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8',
             'ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f',
             'ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6',
             'ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6',
