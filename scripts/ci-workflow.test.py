@@ -6761,7 +6761,8 @@ class BrowserDownloadCache(unittest.TestCase):
             self.assertIn("node-version: '24'", JOBS[job])
             self.assertNotIn('cache-mode: write', JOBS[job])
         lock = json.loads((ROOT / 'scripts/ci-browser-tools/package-lock.json').read_text())
-        for name, version in (('agent-browser', '0.37.1'), ('playwright', '1.62.1'), ('playwright-core', '1.62.1')):
+        for name, version in (('agent-browser', '0.43.0'), ('@agent-browser/cli-linux-x64-gnu', '0.43.0'),
+                              ('playwright', '1.62.1'), ('playwright-core', '1.62.1')):
             entry = lock['packages']['node_modules/' + name]
             self.assertEqual(entry['version'], version)
             self.assertTrue(entry['integrity'].startswith('sha512-'))

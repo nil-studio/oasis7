@@ -938,7 +938,7 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用共享产物合�
 
 Trace refs: O7-REQ-d6c7a0eb-77f3-48b8-943e-9312fd0218ea；落实[浏览器依赖准备要求](ci-tiered-execution.prd.md#ci-install-cache-evidence)。
 
-Viewer JS、安全 smoke 和性能采集共用 agent-browser 0.37.1 与 Chrome for Testing 158.0.8127.36 Linux x64；后者固定到已验证的官方归档 URL、字节长度及 SHA-256，安装时不查询浮动 Stable。解包到本轮私有目录，验证实际版本后通过 `AGENT_BROWSER_EXECUTABLE_PATH` 绑定消费路径，避免系统 Chrome 或旧目录改变受测对象。npm 工具使用独立 lockfile 与 Node 24，满足 CLI 的运行要求。Deck 保持 Playwright 1.62.1 的 Chromium headless-shell，仍由其固定 revision 安装器准备 headless-shell 及配套 ffmpeg，不替换为 Viewer 的完整 Chrome。
+Viewer JS、安全 smoke 和性能采集共用 agent-browser 0.43.0 与 Chrome for Testing 158.0.8127.36 Linux x64；后者固定到已验证的官方归档 URL、字节长度及 SHA-256，安装时不查询浮动 Stable。解包到本轮私有目录，验证实际版本后通过 `AGENT_BROWSER_EXECUTABLE_PATH` 绑定消费路径，避免系统 Chrome 或旧目录改变受测对象。npm 工具使用独立 lockfile 与 Node 24。CI 以 `npm ci --ignore-scripts` 安装工具，再直接校验和使用锁定的 Linux x64 glibc 原生包，不运行 agent-browser 的 npm 启动脚本或安装回退；本地 Viewer 工具合同不变。Deck 保持 Playwright 1.62.1 的 Chromium headless-shell，仍由其固定 revision 安装器准备 headless-shell 及配套 ffmpeg，不替换为 Viewer 的完整 Chrome。
 
 Ubuntu 24.04 x64 的系统清单逐项对应固定 agent-browser 的全部依赖及 Playwright 的 tools/chromium 依赖。两个 Viewer 保留 emoji、CJK 和 Freefont；Deck 保留原字体及 Xvfb 等依赖。容易重复下载的大字体包固定为 Noble 的 `fonts-noto-cjk=1:20230817+repack1-3` 与 `fonts-freefont-ttf=20211204+svn4273-2`，以 Ubuntu 官方包元数据的长度和 SHA-256 验证 `.deb`。缺失字体复制到本轮私有 APT 归档目录并再次校验，文件名包含 APT 编码后的完整 epoch/version；字体单独以 `--no-download --no-remove` 和该归档目录进入正常 APT 安装，保留依赖解析、正常配置与 fontconfig 触发器。只传本地 `.deb` 路径不能阻止 APT 选择同版本远端来源，禁止下载选项和精确归档文件名必须同时保留。系统共享库继续由正常 Ubuntu 源维护。平台不符、包状态异常或固定字体版本冲突均明确失败。
 
