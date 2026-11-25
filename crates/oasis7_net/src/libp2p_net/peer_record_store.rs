@@ -50,9 +50,26 @@ impl PeerRecordStore {
         )
     }
 
+    #[cfg(test)]
     pub(super) fn with_admission_budget_and_receiver(
         peer: PeerId,
         config: MemoryStoreConfig,
+        admission_budget: SharedPeerRecordAdmissionBudget,
+        receiver: SharedPeerRecordReceiver,
+    ) -> Self {
+        Self::with_clock_admission_budget_and_receiver(
+            peer,
+            config,
+            DiscoveryClock::default(),
+            admission_budget,
+            receiver,
+        )
+    }
+
+    pub(super) fn with_clock_admission_budget_and_receiver(
+        peer: PeerId,
+        config: MemoryStoreConfig,
+        clock: DiscoveryClock,
         admission_budget: SharedPeerRecordAdmissionBudget,
         receiver: SharedPeerRecordReceiver,
     ) -> Self {
@@ -60,7 +77,7 @@ impl PeerRecordStore {
         let max_value_bytes = config.max_value_bytes;
         Self {
             inner: MemoryStore::with_config(peer, config),
-            clock: DiscoveryClock::default(),
+            clock,
             leases: HashMap::new(),
             admission_budget,
             receiver,

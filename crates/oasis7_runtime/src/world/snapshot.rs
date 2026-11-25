@@ -632,4 +632,69 @@ mod tests {
             control.commitment_envelope_v2().expect("control post-T v2")
         );
     }
+
+    #[test]
+    fn rejected_action_rollover_c_to_t_recovery_accepts_next_submission() {
+        let mut uninterrupted = World::new();
+        uninterrupted.next_action_id = u64::MAX;
+        uninterrupted.next_action_id_era = 11;
+        let checkpoint_c = uninterrupted.snapshot();
+        let envelope_c = uninterrupted
+            .commitment_envelope_v2()
+            .expect("checkpoint C commitment");
+
+        // The last ID of the old era must be physically rejected in the
+        // nonempty authenticated C..T journal, not inferred from event count.
+        let rejected = uninterrupted.submit_action(Action::MoveAgent {
+            agent_id: "absent-agent".into(),
+            to: crate::tests::pos(1, 0),
+        });
+        assert_eq!(rejected, u64::MAX);
+        uninterrupted.step().expect("rejected rollover tick");
+        assert!(uninterrupted.journal().events.iter().any(|event| matches!(
+            &event.body,
+            crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected { action_id, .. })
+                if *action_id == rejected
+        )));
+        assert_eq!(uninterrupted.next_action_id, 1);
+        assert_eq!(uninterrupted.next_action_id_era, 12);
+
+        let mut recovered = World::from_snapshot_with_commitment_envelope(
+            checkpoint_c,
+            uninterrupted.journal().clone(),
+            Some(&envelope_c),
+        )
+        .expect("recover last old-era rejection from original C..T journal");
+        assert_eq!(recovered.next_action_id, 1);
+        assert_eq!(recovered.next_action_id_era, 12);
+        assert_eq!(recovered.pending_actions, uninterrupted.pending_actions);
+
+        // An unchanged subsequent business input must allocate ID 1 in the
+        // new era on BOTH branches, with identical outcome and commitment.
+        for world in [&mut uninterrupted, &mut recovered] {
+            assert_eq!(
+                world.submit_action(Action::RegisterAgent {
+                    agent_id: "new-agent".into(),
+                    pos: crate::tests::pos(0, 0),
+                }),
+                1
+            );
+            world.step().expect("first new-era nonempty action");
+        }
+        assert_eq!(recovered.next_action_id, uninterrupted.next_action_id);
+        assert_eq!(
+            recovered.next_action_id_era,
+            uninterrupted.next_action_id_era
+        );
+        assert_eq!(recovered.state(), uninterrupted.state());
+        assert_eq!(recovered.journal(), uninterrupted.journal());
+        assert_eq!(
+            recovered
+                .commitment_envelope_v2()
+                .expect("recovered new-era commitment"),
+            uninterrupted
+                .commitment_envelope_v2()
+                .expect("uninterrupted new-era commitment")
+        );
+    }
 }

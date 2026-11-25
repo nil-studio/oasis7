@@ -358,9 +358,3 @@ export function createViewerBrowserRaceHandoffModule({
     offerKeyMaterial,
   };
 }
-
-export const viewerBrowserRaceHandoffConstants = Object.freeze({
-  channelPrefix: CHANNEL_PREFIX,
-  defaultTtlMs: DEFAULT_TTL_MS,
-  schema: HANDOFF_SCHEMA,
-});

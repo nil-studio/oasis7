@@ -61,6 +61,41 @@ VENDOR_PROVENANCE_INPUTS = {
     'vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json',
 }
 
+RUST_TEST_FIXTURE_PATH_RE = re.compile(
+    r'^crates/([A-Za-z0-9_-]+)/'
+    r'(?:fixtures|testdata|tests/fixtures|'
+    r'src/(?:[A-Za-z0-9_.-]+/)*(?:fixtures|test_data|test_fixtures|serialization_fixtures))/'
+    r'(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+$'
+)
+RUST_TEST_FIXTURE_SUFFIXES = ('.json', '.cbor', '.zst')
+
+
+def is_pure_rust_crate_test_fixture(root, path, all_files, hybrid_crates, trees, exclusions):
+    """Admit static test data in pure-Rust crate fixture directories; fail closed on hybrid or cross-language fixtures."""
+    pure_path = pathlib.PurePosixPath(path)
+    if pure_path.suffix not in RUST_TEST_FIXTURE_SUFFIXES:
+        return False
+    match = RUST_TEST_FIXTURE_PATH_RE.match(path)
+    if match is None:
+        return False
+    crate = match.group(1)
+    if f'crates/{crate}/Cargo.toml' not in all_files or crate in hybrid_crates:
+        return False
+    basename = pure_path.name
+    for oid, _, _ in trees:
+        refs = subprocess.run(
+            ['git', '-C', str(root), 'grep', '-I', '-l', '-z', '-F', basename, oid, '--',
+             '*.js', '*.jsx', '*.ts', '*.tsx', '*.mjs', '*.cjs', '*.py', '*.pyi'],
+            capture_output=True,
+        )
+        if refs.returncode not in (0, 1):
+            raise ValueError('cross-language fixture consumer inventory unreadable')
+        for entry in paths(refs.stdout):
+            source = entry.split(':', 1)[1]
+            if not source.startswith(tuple(exclusions)) and not source.startswith('scripts/security/'):
+                return False
+    return True
+
 
 def batch_modes(raw):
     def unique(pairs):
@@ -223,6 +258,13 @@ def plan(args):
         dynamic_includes |= len(literal_matches) < len(re.findall(r'include_(?:str|bytes)!', content))
         for match in literal_matches:
             embedded.add(posixpath.normpath(str(pathlib.PurePosixPath(source).parent / match[1])))
+    all_files = set(base_files) | set(head_files)
+    hybrid_crates = {
+        pathlib.PurePosixPath(p).parts[1]
+        for p in all_files
+        if p.startswith('crates/') and len(pathlib.PurePosixPath(p).parts) >= 3
+        and pathlib.PurePosixPath(p).name in ('package.json', 'wrangler.toml')
+    }
     for path in changed:
         name = pathlib.PurePosixPath(path).name
         suffix = pathlib.PurePosixPath(path).suffix.lower()
@@ -288,6 +330,8 @@ def plan(args):
             # Exact deployment input for the JS ingress and Rust Wasm/DO class.
             # Other TOML remains unregistered; this does not enable any batch.
             add('javascript-repo', path)
+            add('rust-repo', path)
+        elif is_pure_rust_crate_test_fixture(root, path, all_files, hybrid_crates, trees, exclusions):
             add('rust-repo', path)
         elif suffix not in ('.md', '.rst', '.txt', '.adoc', '.sh'):
             raise ValueError('unregistered input: ' + path)

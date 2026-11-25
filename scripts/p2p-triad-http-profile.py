@@ -107,6 +107,43 @@ def valid_pins(pins):
             and len(node.encode("utf-8")) <= 256 and all(unicodedata.category(c) != "Cc" for c in node))
 
 
+BFT_IDENTITY_FIELDS = ("world_id", "chain_id", "operator_instance_id")
+
+
+def bft_identity(value):
+    """Operator-selected diagnostic identity, not authentication or authority."""
+    if len(value) > 4096:
+        raise ValueError("invalid BFT identity")
+    pins = json.loads(value, object_pairs_hook=decode_object,
+                      parse_constant=reject_nonfinite_json_constant,
+                      parse_float=parse_finite_json_float)
+    if (not isinstance(pins, dict) or set(pins) != set(BFT_IDENTITY_FIELDS)
+            or any(adapter.text(pins[key]) is None
+                   or len(pins[key].encode("utf-8")) > 256
+                   or any(unicodedata.category(c) == "Cc" for c in pins[key])
+                   for key in BFT_IDENTITY_FIELDS)):
+        raise ValueError("invalid BFT identity")
+    return pins
+
+
+def project_pinned_bft(status, pins, observed_at):
+    if status.get("api_version") != "oasis7.bft-node-observation/v1":
+        return None, "bft_schema_mismatch"
+    observation = status.get("observation")
+    if not isinstance(observation, dict) or any(
+            observation.get(key) != pins[key] for key in BFT_IDENTITY_FIELDS):
+        return None, "bft_identity_mismatch"
+    profile = adapter.project(status, "http", observed_at)
+    # A producer timestamp is projected only after the adapter validates
+    # the checkpoint/window and clock. Identity + HTTP 200 is insufficient.
+    if profile.get("observed_at_unix_ms") is None:
+        return None, profile["reason"]
+    # Stale but structurally valid history retains its original producer age.
+    # A matching name is not authentication or authority.
+    profile["configured_identity_match"] = True
+    return profile, "success"
+
+
 def controlled_inventory(path):
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
     with os.fdopen(descriptor, "rb") as source:
@@ -252,6 +289,7 @@ def run_controlled_bounded(args, payload, timeout):
 
 
 def observe_controlled(runtime, pins):
+    verification_started = now()
     try:
         # The selected verifier is the operator's trusted shipping binary. Pins
         # go through stdin and raw stdout/error are never published.
@@ -288,20 +326,52 @@ def observe_controlled(runtime, pins):
             or (status["host_reports_ready"] and position is None)):
         return None, "invalid_status"
     received = now()
-    profile = unknown("controlled_authority_qualification_unobserved")
+    # The shipping verifier may supply an exact commitment to the signed Host
+    # assertion and the time it verified it. Preserve that time even if the
+    # optional protected-pair observation or report publication finishes later.
+    # A legacy verifier is still diagnostics-only; never fabricate its receipt.
+    receipt_key = "authenticated_status_receipt_sha256"
+    time_key = "authenticated_status_verified_at_unix_ms"
+    receipt_fields = {}
+    sample_time = received
+    time_basis = "local_authenticated_receipt"
+    reason = "controlled_authority_qualification_unobserved"
+    if receipt_key in status or time_key in status:
+        digest = status.get(receipt_key)
+        if time_key not in status or not hex_digest(digest):
+            return None, "controlled_status_receipt_invalid"
+        sample_time = status[time_key]
+        if sample_time is not None and (adapter.uint(sample_time) is None
+                or not verification_started <= sample_time <= received):
+            return None, "controlled_status_receipt_clock_uncertain"
+        receipt_fields = {receipt_key: digest, time_key: sample_time}
+        time_basis = "local_host_verification"
+        if sample_time is None:
+            reason = "controlled_status_receipt_clock_unavailable"
+    profile = unknown(reason)
     profile.update(source="verified_controlled_status", runtime_profile="formal_live_v1",
                    observation_scope="authenticated_host_diagnostics_only",
                    authority_qualification="unknown", protected_services_readiness="unknown",
-                   sample_time_basis="local_authenticated_receipt", observed_at_unix_ms=received,
+                   sample_time_basis=time_basis, observed_at_unix_ms=sample_time,
+                   **receipt_fields,
                    world_id=pins["expected_world"]["world_id"], genesis_digest=pins["expected_world"]["genesis_digest"],
                    node_id=pins["expected_node_id"],
                    committed_position=position, committed_record_id=record,
                    **{key: status[key] for key in
                       ("host_state", "node_running", "host_reports_ready", "runtime_error_present")})
     if owner is not None:
-        profile["protected_pair"] = project_owner_pair(
-            status.get("protected_pair"), position, record, received,
-        )
+        pair = project_owner_pair(status.get("protected_pair"), position, record, received)
+        # Owner sampling precedes the signed Host challenge. Receipt-aware
+        # observations must bind both times to this invocation, not join
+        # a cached or later pair to the Host. Legacy diagnostics stay separate.
+        if receipt_fields and pair["status"] == "observed":
+            if sample_time is None:
+                pair = {"status": "invalid_observation",
+                        "reason": "protected_pair_host_clock_unavailable"}
+            elif not verification_started <= pair["sample_started_at_unix_ms"] <= sample_time:
+                pair = {"status": "invalid_observation",
+                        "reason": "protected_pair_receipt_clock_uncertain"}
+        profile["protected_pair"] = pair
     return profile, "success"
 
 
@@ -461,6 +531,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for label in LABELS:
         parser.add_argument("--" + label.replace("_", "-") + "-url", action="append", default=[])
+        parser.add_argument("--" + label.replace("_", "-") + "-bft-identity", action="append", default=[])
     parser.add_argument("--controlled-inventory")
     parser.add_argument("--expected-controlled-inventory-digest")
     parser.add_argument("--summary-json")
@@ -474,6 +545,16 @@ def main():
     except ValueError:
         parser.error("invalid profile endpoint")
     urls = {label: values[-1] if values else None for label, values in supplied.items()}
+    bft_pins = {}
+    try:
+        for label in LABELS:
+            values = getattr(args, label + "_bft_identity")
+            if values:
+                if len(values) != 1 or len(supplied[label]) != 1:
+                    raise ValueError("BFT identity requires one explicit HTTP endpoint")
+                bft_pins[label] = bft_identity(values[0])
+    except (ValueError, UnicodeError, RecursionError):
+        parser.error("invalid BFT identity or conflicting profile endpoint")
     runtime, controlled, digest = None, {}, None
     inventory_failed = False
     if args.controlled_inventory:
@@ -507,7 +588,18 @@ def main():
             profile, result = observe_controlled(runtime, pins)
         elif value is not None:
             status, result = fetch(value)
-            profile = adapter.project(status, "http", now()) if result == "success" else None
+            if label in bft_pins:
+                mode = "bft_pinned_http"
+                pins = bft_pins[label]
+                scope = hashlib.sha256(json.dumps(
+                    {"url": value, "identity": pins}, sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")).hexdigest()
+                profile = None
+                if result == "success":
+                    profile, result = project_pinned_bft(status, pins, now())
+            else:
+                profile = adapter.project(status, "http", now()) if result == "success" else None
         else:
             result = "controlled_inventory_unavailable" if inventory_failed else "not_selected"
             profile = None

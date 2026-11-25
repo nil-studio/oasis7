@@ -577,7 +577,12 @@ fn killed_process_cases(
 ) {
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::process::ExitStatusExt;
-    for phase in ["intent", "link", "pins", "reservation-stage", "init-stage"] {
+    let phases: &[&str] = if cfg!(feature = "test_tier_full") {
+        &["intent", "link", "pins", "reservation-stage", "init-stage"]
+    } else {
+        &["intent", "pins"]
+    };
+    for &phase in phases {
         let (root, config, proof) = cli_files(h, prefix, height, block_id);
         let child_name = concat!(
             "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::prefix_ledger_tests::",

@@ -221,3 +221,57 @@ fn response_profile_bounds_actual_nested_variants_and_trace_sidecar() {
         RESPONSE_TRACE_OVERHEAD_BYTES
     );
 }
+
+#[test]
+fn live_scanner_preserves_original_shape_heap_bound_and_rewind() {
+    let input = serde_json::to_vec(&serde_json::json!({
+        "nested": [null, 7, {"escaped": "quoted\\\"".repeat(20_000)}],
+        "tail": [true, false, "text"]
+    }))
+    .expect("multi-chunk JSON fixture");
+    let mut original = Cursor::new(input.as_slice());
+    let mut live = Cursor::new(input.as_slice());
+    let max = input.len() as u64;
+    let (old, old_bytes) = legacy_scan_reader(&mut original, max, &|| false).unwrap();
+    let (new, new_bytes) = scan_reader(&mut live, max, &|| false).unwrap();
+
+    assert_eq!(old_bytes, max);
+    assert_eq!(new_bytes, old_bytes);
+    assert_eq!(live.position(), original.position());
+    assert_eq!(live.position(), 0);
+    assert_eq!(new.array_items, old.array_items);
+    assert_eq!(new.object_members, old.object_members);
+    assert_eq!(new.containers, old.containers);
+    assert_eq!(new.string_bytes, old.string_bytes);
+    assert_eq!(new.largest_string_bytes, old.largest_string_bytes);
+    for (profile, copies) in [
+        (AllocationProfile::request(), 1),
+        (AllocationProfile::response(), 4),
+    ] {
+        assert_eq!(
+            new.heap_bound::<serde_json::Value>(profile, copies)
+                .unwrap(),
+            old.heap_bound::<serde_json::Value>(profile, copies)
+                .unwrap()
+        );
+    }
+}
+
+#[test]
+fn live_scanner_preserves_original_rejection_boundaries() {
+    let nested = "[".repeat(MAX_JSON_DEPTH + 1) + &"]".repeat(MAX_JSON_DEPTH + 1);
+    for (input, limit, cancelled) in [
+        (b"null".as_slice(), 3, false),
+        (nested.as_bytes(), nested.len() as u64, false),
+        (b"null".as_slice(), 4, true),
+    ] {
+        let old = legacy_scan_reader(&mut Cursor::new(input), limit, &|| cancelled)
+            .err()
+            .expect("original scanner rejects");
+        let new = scan_reader(&mut Cursor::new(input), limit, &|| cancelled)
+            .err()
+            .expect("live scanner rejects");
+        assert_eq!(std::mem::discriminant(&old), std::mem::discriminant(&new));
+        assert_eq!(old.to_string(), new.to_string());
+    }
+}

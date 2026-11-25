@@ -125,7 +125,7 @@ opt-level = 3
 
 # Exercise the real envelope KDF at its full memory/iteration cost. Optimize the
 # implementation instead of reducing parameters or replacing vault operations.
-[profile.dev.package."argon2@0.5.3"]
+[profile.dev.package."argon2@0.6.0"]
 opt-level = 3
 
 # Formal CAS reads authenticate every request and protected response. Preserve

@@ -93,6 +93,11 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
     }
 }
 fn exercise_unchanged_signature(sizes: &[usize]) {
+    let compression = if cfg!(feature = "test_tier_full") {
+        PageCompression::Zstd
+    } else {
+        PageCompression::Raw
+    };
     let mut samples = Vec::new();
     for &text in sizes {
         let directory = Directory::new();
@@ -104,21 +109,16 @@ fn exercise_unchanged_signature(sizes: &[usize]) {
                 .unwrap();
             let mut original = source();
             original.reward_mint_records[0].signature = "x".repeat(text);
-            let store =
-                IncrementalPageStore::create(&path, memory.clone(), PageCompression::Zstd).unwrap();
+            let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
             seed_sized(&store, &memory, &original, text)
         };
         // Original World, source store and producing pool are gone; complete bootstrap
         // consumes Recovery4MiB before any ordinary operation or inherited closure.
         let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
         let _roots = memory.reserve(8192, MemoryClass::Recovery).unwrap();
-        let store = IncrementalPageStore::open(
-            &path,
-            memory.clone(),
-            PageCompression::Zstd,
-            MemoryClass::Recovery,
-        )
-        .unwrap();
+        let store =
+            IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Recovery)
+                .unwrap();
         let (family, forbidden) = {
             let state = store
                 .state_session(physical(), MemoryClass::Recovery)

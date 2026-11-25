@@ -164,7 +164,12 @@ fn source() -> WorldState {
 }
 #[test]
 fn four_owner_genesis_root_only_cold_and_ordered_points() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("diplomacy");
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();

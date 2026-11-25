@@ -229,13 +229,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
     })?;
     prepared.publish_status(None);
 
-    let gossip = runtime
-        .config
-        .gossip
-        .as_ref()
-        .map(GossipEndpoint::bind)
-        .transpose()?
-        .map(Arc::new);
+    let gossip = bind_gossip(runtime)?;
     let (stop_tx, stop_rx) = mpsc::channel();
     lock_state(&runtime.state).last_error = None;
     let running = Arc::clone(&runtime.running);
@@ -816,4 +810,24 @@ fn protected_journal_install_digest(
     let mut preimage = b"oasis7.bft.v2.protected-journal-install.v1|".to_vec();
     preimage.extend_from_slice(&encoded);
     Ok(crate::blake3_hex(&preimage))
+}
+
+fn bind_gossip(runtime: &mut NodeRuntime) -> Result<Option<Arc<GossipEndpoint>>, NodeError> {
+    #[cfg(test)]
+    if let Some(socket) = runtime.gossip_socket_for_test.take() {
+        let config = runtime
+            .config
+            .gossip
+            .as_ref()
+            .ok_or_else(|| error("reserved gossip socket requires configuration"))?;
+        return GossipEndpoint::from_reserved_for_test(config, socket)
+            .map(|endpoint| Some(Arc::new(endpoint)));
+    }
+    runtime
+        .config
+        .gossip
+        .as_ref()
+        .map(GossipEndpoint::bind)
+        .transpose()
+        .map(|endpoint| endpoint.map(Arc::new))
 }

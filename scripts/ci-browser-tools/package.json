@@ -6,7 +6,7 @@
     "node": ">=24"
   },
   "dependencies": {
-    "agent-browser": "0.37.1",
+    "agent-browser": "0.43.0",
     "playwright": "1.62.1"
   }
 }
