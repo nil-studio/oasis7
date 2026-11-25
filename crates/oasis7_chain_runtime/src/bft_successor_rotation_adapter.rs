@@ -122,17 +122,41 @@ mod tests {
 
         let mut other_source = source.clone();
         other_source.activation_digest = digest(9);
-        assert!(CandidateSuccessorWindowBridgeV1::check_candidate(
-            candidate.clone(), &other_source, 0, &original, 3, None,
-        ).is_err());
-        assert!(CandidateSuccessorWindowBridgeV1::check_candidate(
-            candidate.clone(), &source, 1, &original, 3, None,
-        ).is_err());
-        assert!(CandidateSuccessorWindowBridgeV1::check_candidate(
-            candidate.clone(), &source, 0, &digest(10), 3, None,
-        ).is_err());
-        assert!(CandidateSuccessorWindowBridgeV1::check_candidate(
-            candidate, &source, 0, &original, 2, None,
-        ).is_err());
+        let foreign = CandidateSuccessorWindowBridgeV1::check_candidate(
+            candidate.clone(),
+            &other_source,
+            0,
+            &original,
+            3,
+            None,
+        );
+        assert!(foreign.is_err());
+        let wrong_sequence = CandidateSuccessorWindowBridgeV1::check_candidate(
+            candidate.clone(),
+            &source,
+            1,
+            &original,
+            3,
+            None,
+        );
+        assert!(wrong_sequence.is_err());
+        let wrong_digest = CandidateSuccessorWindowBridgeV1::check_candidate(
+            candidate.clone(),
+            &source,
+            0,
+            &digest(10),
+            3,
+            None,
+        );
+        assert!(wrong_digest.is_err());
+        let stale_owner = CandidateSuccessorWindowBridgeV1::check_candidate(
+            candidate,
+            &source,
+            0,
+            &original,
+            2,
+            None,
+        );
+        assert!(stale_owner.is_err());
     }
 }
