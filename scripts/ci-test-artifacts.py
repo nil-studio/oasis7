@@ -170,6 +170,7 @@ class BuiltinTestArtifact(ProviderArtifact):
     def required(manifest):
         included = manifest.get('included_binaries', manifest.get('binaries', {}))
         return any(name in included and binary.get('package') == 'oasis7_runtime' and binary.get('test')
+                   and binary.get('target_kind', ['lib']) == ['lib']
                    and {'wasmtime', 'test_tier_full'} <= set(binary.get('features', []))
                    for name, binary in manifest.get('binaries', {}).items())
 
