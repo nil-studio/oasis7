@@ -1710,6 +1710,19 @@ def coalesce_build_invocations(variants):
     return invocations
 
 
+def strip_staged_elf_unneeded(path):
+    """Drop non-alloc symbol/string/DWARF sections from staged Linux ELF copies while keeping target/ intact."""
+    if sys.platform != 'linux':
+        return
+    with path.open('rb') as stream:
+        if stream.read(4) != b'\x7fELF':
+            return
+    strip_bin = shutil.which('strip')
+    if strip_bin is None:
+        return
+    subprocess.run([strip_bin, '--strip-unneeded', str(path)], check=True)
+
+
 def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
     image = storage_build_image() if scope in STORAGE_COMPONENTS else None
@@ -1824,6 +1837,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 source = Path(executable)
                 destination = bundle / 'bin' / logical
                 shutil.copy2(source, destination)
+                if scope == 'ordinary':
+                    strip_staged_elf_unneeded(destination)
                 # Cargo uses the package directory as test cwd, and exposes its binaries.
                 binaries[logical] = dict(path=str(destination.relative_to(bundle)), sha256=digest(destination),
                     profile=artifact['profile'], features=artifact['features'], requested_features=features,
