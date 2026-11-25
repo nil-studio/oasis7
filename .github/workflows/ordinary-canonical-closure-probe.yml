@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           cd /home/runner/work/oasis7/oasis7
-          stage=$(mktemp -d .ordinary-canonical-receipt.XXXXXX)
+          stage=$(mktemp -d ordinary-canonical-receipt.XXXXXX)
           if [[ -d "$RUNNER_TEMP/ordinary-canonical-closure/receipt" ]]; then
             cp -a "$RUNNER_TEMP/ordinary-canonical-closure/receipt/." "$stage/"
           fi
