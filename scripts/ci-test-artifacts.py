@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import shutil
@@ -169,6 +170,7 @@ class BuiltinTestArtifact(ProviderArtifact):
     def required(manifest):
         included = manifest.get('included_binaries', manifest.get('binaries', {}))
         return any(name in included and binary.get('package') == 'oasis7_runtime' and binary.get('test')
+                   and binary.get('target_kind', ['lib']) == ['lib']
                    and {'wasmtime', 'test_tier_full'} <= set(binary.get('features', []))
                    for name, binary in manifest.get('binaries', {}).items())
 
@@ -281,6 +283,7 @@ def preview_provider_required(manifest):
 
 
 ROOT = Path(__file__).resolve().parent.parent
+ORDINARY_HOST_CHECKOUT = Path('/home/runner/work/oasis7/oasis7')
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 FORMAL_AUTHORITY = None
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
@@ -1823,6 +1826,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
         runner_image=os.environ.get('ImageOS', sys.platform), checkout=str(ROOT), binaries=binaries,
         config_sha256=digest(CONFIG), build_timings=timings)
+    if scope == 'ordinary' and os.environ.get('ORDINARY_BUILD_IMAGE'):
+        manifest['image'] = ordinary_build_image()
     if fast_plan(plan) is not None:
         manifest['execution_plan'] = plan
     if ordinary_partition is not None:
@@ -1929,6 +1934,88 @@ def formal_component_targets(scope):
     if not expected:
         raise ValueError('Formal component has no selected Cargo targets')
     return expected
+
+
+def ordinary_image_preflight():
+    """Keep compiled-in ordinary paths identical to the existing host consumers."""
+    checkout = ORDINARY_HOST_CHECKOUT
+    workspace = Path(os.environ.get('GITHUB_WORKSPACE', ''))
+    if (os.environ.get('ORDINARY_ARTIFACT_CHECKOUT') != str(checkout)
+            or ROOT != checkout or Path.cwd() != checkout):
+        raise ValueError('ordinary image requires the actual canonical host checkout')
+    if (not workspace.is_absolute() or workspace.resolve() != workspace
+            or checkout.resolve() != checkout):
+        raise ValueError('ordinary image checkout paths must not be symlinks')
+    original, alias = workspace.stat(), checkout.stat()
+    if (not stat.S_ISDIR(original.st_mode) or not stat.S_ISDIR(alias.st_mode)
+            or (original.st_dev, original.st_ino) != (alias.st_dev, alias.st_ino)):
+        raise ValueError('ordinary image alias must bind the same runner workspace directory')
+    release = platform.freedesktop_os_release()
+    if (os.environ.get('ImageOS') != 'ubuntu24' or release.get('ID') != 'ubuntu'
+            or release.get('VERSION_ID') != '24.04'):
+        raise ValueError('ordinary image requires the verified Ubuntu 24.04 runner identity')
+    return dict(image=ordinary_build_image(), checkout=str(checkout), workspace=str(workspace),
+                device=alias.st_dev, inode=alias.st_ino, same_directory=True,
+                runner_image='ubuntu24', os_release={key: release[key] for key in ('ID', 'VERSION_ID')})
+
+
+def ordinary_docker_preflight():
+    """Check the runner's existing local daemon before compiling native units."""
+    if (os.environ.get('DOCKER_HOST', '') not in ('', 'unix:///var/run/docker.sock')
+            or os.environ.get('DOCKER_CONTEXT', '') not in ('', 'default')
+            or os.environ.get('BUILDX_BUILDER', '') not in ('', 'default')):
+        raise ValueError('ordinary canonical WASM requires the default local Docker context and builder')
+    if not Path('/var/run/docker.sock').is_socket():
+        raise ValueError('ordinary canonical WASM requires the runner-provided Docker socket')
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(('ACTIONS_', 'INPUT_'))
+                   and key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'NODE_OPTIONS')}
+
+    def checked(label, *arguments):
+        try:
+            return subprocess.check_output(['docker', *arguments], env=environment,
+                text=True, stderr=subprocess.STDOUT, timeout=15).strip()
+        except FileNotFoundError:
+            raise ValueError('ordinary canonical WASM requires the Docker CLI') from None
+        except (OSError, subprocess.SubprocessError):
+            raise ValueError('ordinary canonical WASM Docker preflight failed: ' + label) from None
+
+    server = checked('daemon info', 'info', '--format', '{{json .ServerVersion}}')
+    try:
+        server = json.loads(server)
+    except ValueError:
+        raise ValueError('ordinary Docker daemon version is invalid') from None
+    if not isinstance(server, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*', server):
+        raise ValueError('ordinary Docker daemon version is invalid')
+    versions = checked('client/server API', 'version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}').split()
+    if (len(versions) != 2 or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*', versions[0])
+            or not re.fullmatch(r'[0-9]+\.[0-9]+', versions[1])):
+        raise ValueError('ordinary Docker client/server API output is invalid')
+    buildx = checked('Buildx client', 'buildx', 'version')
+    match = re.match(r'github\.com/docker/buildx (v[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*)(?:\s|$)', buildx)
+    if match is None:
+        raise ValueError('ordinary Docker Buildx version is invalid')
+    if checked('default context', 'context', 'show') != 'default':
+        raise ValueError('ordinary canonical WASM requires the default Docker context')
+    # Pinned Buildx 0.29.1 has no inspect --format. Its normal output can also
+    # report a node Error while returning zero, so validate both header and node.
+    inspection = checked('default builder', 'buildx', 'inspect')
+    header, separator, nodes = inspection.partition('\nNodes:\n')
+    if (not separator or re.search(r'^\s*Error:', inspection, re.M)
+            or re.findall(r'^Name:\s*(\S+)\s*$', header, re.M) != ['default']
+            or re.findall(r'^Driver:\s*(\S+)\s*$', header, re.M) != ['docker']
+            or re.findall(r'^\s*Status:\s*(\S+)\s*$', nodes, re.M) != ['running']):
+        raise ValueError('ordinary canonical WASM requires the default docker builder driver')
+    return dict(client_version=versions[0], server_version=server, server_api=versions[1],
+                buildx_version=match[1], context='default', builder='default', driver='docker',
+                builder_status='running')
+
+
+def ordinary_build_image():
+    image = os.environ.get('ORDINARY_BUILD_IMAGE', '')
+    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/(?:ci-rust-build|ci-rust-ordinary-builder)@sha256:[0-9a-f]{64}', image):
+        raise ValueError('ordinary build requires a fixed Rust image digest')
+    return image
 
 
 def storage_build_image():
@@ -3636,7 +3723,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
 def main():
     global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare-provider', 'build', 'merge-formal', 'run', 'pack',
+    parser.add_argument('action', choices=['ordinary-image-preflight', 'prepare-provider', 'build', 'merge-formal', 'run', 'pack',
                         'unpack-ordinary', 'shards', 'required-args',
                         'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
@@ -3668,6 +3755,11 @@ def main():
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
     FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
     plan = json.loads(args.plan.read_text()) if args.plan else None
+    if args.action == 'ordinary-image-preflight':
+        report = ordinary_image_preflight()
+        report['docker'] = ordinary_docker_preflight()
+        print(json.dumps(report, sort_keys=True))
+        return
     if (args.ordinary_partition is not None and args.action not in ('build', 'run', 'unpack-ordinary')
             and not (args.action == 'required-args' and args.phase == 'partition')):
         parser.error('--ordinary-partition requires build, run, or partition validation')

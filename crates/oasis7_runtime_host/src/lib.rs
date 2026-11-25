@@ -1,10 +1,14 @@
 //! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
+#[path = "agent_execution/async_agent_runner_retry.rs"]
+pub mod async_agent_runner_retry;
 pub mod bootstrap;
 pub mod cognition_response_identity;
 pub mod gameplay_actions;
 pub mod gameplay_service;
+pub mod llm_prompt_profile;
 pub mod llm_request_budget;
 pub mod provider_json_shape;
+pub mod provider_transport_url;
 pub mod simulator_archive;
 
 #[path = "agent_execution/llm_agent/decision_flow/field_identity.rs"]

@@ -13,7 +13,7 @@ pub mod activation;
 pub mod fencing;
 pub mod formal;
 mod journal;
-pub mod proof;
+pub use oasis7_formal_protocol::controlled_authority::proof;
 pub mod replicated_protocol;
 mod storage;
 mod writer_lock;

@@ -28,7 +28,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust]
+        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust, api-runtime, rust-ordinary-builder]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -201,6 +201,16 @@ jobs:
           name: ci-image-codeql-rust
       - name: Publish verified CodeQL Rust image
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" codeql-rust
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-api-runtime
+      - name: Publish verified API runtime image
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" api-runtime
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-rust-ordinary-builder
+      - name: Publish verified Rust ordinary builder image
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-ordinary-builder
       - name: Log out of GHCR
         if: always()
         run: docker logout ghcr.io

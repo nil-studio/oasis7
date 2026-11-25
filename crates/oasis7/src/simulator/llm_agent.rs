@@ -16,6 +16,7 @@ use super::agent::{
     LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace,
 };
 use oasis7_agent_harness::llm_defaults::DEFAULT_LLM_MODEL;
+use oasis7_agent_harness::llm_prompt_assembly as prompt_assembly;
 use oasis7_simulator::{
     Action, CM_PER_KM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY, ModuleInstallTarget, ResourceKind,
     ResourceOwner,
@@ -33,14 +34,10 @@ mod behavior_runtime_helpers;
 mod config_helpers;
 mod decision_flow;
 mod execution_controls;
-mod memory_selector;
-#[cfg(test)]
-mod openai_payload;
-mod prompt_assembly;
 mod recipe_coverage;
 use recipe_coverage::RecipeCoverageProgress;
 
-pub use memory_selector::{MemorySelector, MemorySelectorConfig};
+pub use oasis7_simulator::agent_memory_selector::{MemorySelector, MemorySelectorConfig};
 pub use prompt_assembly::{
     PromptAssembler, PromptAssemblyInput, PromptAssemblyOutput, PromptBudget, PromptStepContext,
 };
@@ -63,73 +60,19 @@ use config_helpers::{
 #[cfg(test)]
 use oasis7_model_provider::legacy_tool_names::*;
 #[cfg(test)]
-use oasis7_model_provider::openai_payload::normalize_openai_api_base_url;
+use oasis7_model_provider::openai_payload::{
+    build_responses_request_payload, completion_result_from_sdk_stream_events,
+    normalize_openai_api_base_url, output_item_to_completion_turn, responses_tools,
+    responses_tools_with_debug_mode,
+};
 #[cfg(test)]
 pub(super) use oasis7_model_provider::openai_stream_diagnostics::StreamTransportMetadata;
 #[cfg(test)]
 use oasis7_model_provider::openai_stream_diagnostics::format_stream_transport_diagnostics;
-#[cfg(test)]
-use openai_payload::{
-    build_responses_request_payload, completion_result_from_sdk_stream_events,
-    output_item_to_completion_turn, responses_tools, responses_tools_with_debug_mode,
-};
 
 pub use oasis7_model_provider::config_constants::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LlmPromptProfile {
-    Compact,
-    Balanced,
-}
-
-impl LlmPromptProfile {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "compact" => Some(Self::Compact),
-            "balanced" => Some(Self::Balanced),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Compact => "compact",
-            Self::Balanced => "balanced",
-        }
-    }
-
-    pub fn prompt_budget(self) -> PromptBudget {
-        match self {
-            Self::Compact => PromptBudget {
-                context_window_tokens: 4_096,
-                reserved_output_tokens: 768,
-                safety_margin_tokens: 352,
-            },
-            Self::Balanced => PromptBudget {
-                context_window_tokens: 4_608,
-                reserved_output_tokens: 896,
-                safety_margin_tokens: 480,
-            },
-        }
-    }
-
-    pub fn memory_selector_config(self) -> MemorySelectorConfig {
-        match self {
-            Self::Compact => MemorySelectorConfig {
-                short_term_candidate_limit: 8,
-                long_term_candidate_limit: 12,
-                short_term_top_k: 3,
-                long_term_top_k: 4,
-            },
-            Self::Balanced => MemorySelectorConfig {
-                short_term_candidate_limit: 8,
-                long_term_candidate_limit: 12,
-                short_term_top_k: 2,
-                long_term_top_k: 3,
-            },
-        }
-    }
-}
+pub use oasis7_runtime_host::llm_prompt_profile::{DEFAULT_LLM_PROMPT_PROFILE, LlmPromptProfile};
 
 // One real owner for all portable prompt, goal and execution-budget defaults.
 // Legacy LlmAgentConfig consumers retain the original identical symbols.
@@ -141,7 +84,6 @@ pub use oasis7_agent_harness::llm_defaults::{
 };
 
 pub const DEFAULT_LLM_TIMEOUT_MS: u64 = 180_000;
-pub const DEFAULT_LLM_PROMPT_PROFILE: LlmPromptProfile = LlmPromptProfile::Balanced;
 pub const DEFAULT_LLM_HARVEST_MAX_AMOUNT_CAP: i64 = 100;
 pub const DEFAULT_LLM_EXECUTE_UNTIL_AUTO_REENTER_TICKS: usize = 4;
 pub const DEFAULT_LLM_DEBUG_MODE: bool = false;
@@ -704,3 +646,54 @@ impl Error for LlmAgentBuildError {}
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod memory_selector_owner_tests {
+    use super::{MemorySelector, MemorySelectorConfig};
+    use oasis7_simulator::AgentMemory;
+    use oasis7_simulator::agent_memory_selector as canonical;
+
+    #[test]
+    fn legacy_memory_selector_is_the_canonical_owner() {
+        let config: canonical::MemorySelectorConfig = MemorySelectorConfig::default();
+        let memory = AgentMemory::with_capacities(8, 8);
+        let result: canonical::MemorySelectorResult = MemorySelector::select(&memory, 0, &config);
+        assert_eq!(
+            result,
+            canonical::MemorySelector::select(&memory, 0, &config)
+        );
+    }
+}
+
+#[cfg(test)]
+mod prompt_assembly_owner_tests {
+    use super::{PromptAssembler, PromptAssemblyInput, PromptBudget, PromptStepContext};
+    use oasis7_agent_harness::llm_prompt_assembly as canonical;
+
+    #[test]
+    fn live_llm_prompt_assembly_uses_canonical_owner() {
+        let budget: canonical::PromptBudget = PromptBudget::default();
+        let input = PromptAssemblyInput {
+            agent_id: "agent-1",
+            base_system_prompt: "base prompt",
+            short_term_goal: "short goal",
+            long_term_goal: "long goal",
+            observation_json: "{}",
+            module_history_json: "[]",
+            conversation_history_json: "[]",
+            memory_digest: None,
+            step_context: PromptStepContext {
+                step_index: 0,
+                max_steps: 4,
+                module_calls_used: 0,
+                module_calls_max: 3,
+            },
+            harvest_max_amount_cap: 100,
+            prompt_budget: budget,
+        };
+        let output: canonical::PromptAssemblyOutput = PromptAssembler::assemble(input);
+        assert!(output.system_prompt.contains("base prompt"));
+        assert!(output.system_prompt.contains("short goal"));
+        assert!(output.user_prompt.contains("observation(json)"));
+    }
+}

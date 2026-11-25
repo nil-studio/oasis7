@@ -31,6 +31,16 @@ MAX_BYTES = 2 * 1024 * 1024
 CADENCE_SECONDS = 4 * 3600
 MAIN_FAST_COOLDOWN_SECONDS = 2 * 3600
 MAIN_FAST_DEFERRED_ARTIFACT_PREFIX = "ci-main-fast-deferred-"
+MAIN_FAST_CACHE_ROTATION_FILES = frozenset({
+    "Cargo.lock",
+    "Cargo.toml",
+    "rust-toolchain",
+    "rust-toolchain.toml",
+    "scripts/ci-workspace-cache.py",
+    "scripts/ci-cache-archive.py",
+    "scripts/ci-rust-cache-toolchains.py",
+})
+MAIN_FAST_CACHE_ROTATION_PREFIXES = (".cargo/",)
 API_BUDGET_SECONDS = 120
 MAX_API_REQUESTS = 800
 API_RETRY_DELAYS = (0.5, 1.0)
@@ -109,9 +119,13 @@ def definition_digest(root, revision):
                        "standalone_cargo_manifest_scope_version",
                        "ordinary_controls_in_rust_baseline_version",
                        "scoped_production_cfg_version",
-                       "auxiliary_workflow_consolidation_version"):
+                       "auxiliary_workflow_consolidation_version",
+                       "command_center_offline_version"):
         if capability in config and (type(config[capability]) is not int or config[capability] != 1):
             raise ValueError(f"invalid trusted {capability} definition")
+    if "command_center_offline_version" in config:
+        if config.get("group_jobs", {}).get("command_center") != "baseline":
+            raise ValueError("invalid trusted command_center_offline_version definition")
     for capability in ("ordinary_scope_config_slice_version",
                        "workspace_member_cargo_manifest_scope_version"):
         if capability in config and (type(config[capability]) is not int or config[capability] not in (1, 2)):
@@ -1018,7 +1032,42 @@ def _run_is_main_fast_deferred(api, run_id, cache):
     return deferred
 
 
-def admit_main_fast(api, now, *, current_run_id=None, cooldown_seconds=MAIN_FAST_COOLDOWN_SECONDS):
+def _main_fast_cache_rotation_files(repo_root, base_sha, head_sha):
+    if repo_root is None or not base_sha or not head_sha or base_sha == head_sha:
+        return []
+    try:
+        base = commit(base_sha)
+        head = commit(head_sha)
+    except ValueError:
+        return []
+    root = Path(repo_root).resolve()
+    for rev in (base, head):
+        check = subprocess.run(
+            ["git", "-c", "safe.directory=*", "-C", str(root), "cat-file", "-e", f"{rev}^{{commit}}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if check.returncode != 0:
+            return []
+    diff = subprocess.run(
+        ["git", "-c", "safe.directory=*", "-C", str(root), "diff", "--name-only", f"{base}..{head}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if diff.returncode != 0:
+        return []
+    changed = [line.strip() for line in diff.stdout.splitlines() if line.strip()]
+    return sorted(
+        path for path in changed
+        if path in MAIN_FAST_CACHE_ROTATION_FILES
+        or path.startswith(MAIN_FAST_CACHE_ROTATION_PREFIXES)
+    )
+
+
+def admit_main_fast(api, now, *, current_run_id=None, cooldown_seconds=MAIN_FAST_COOLDOWN_SECONDS,
+                    repo_root=None, head_sha=None):
     if type(cooldown_seconds) is not int or cooldown_seconds < 0 or cooldown_seconds > 24 * 3600:
         raise ValueError("cooldown_seconds must be an integer between 0 and 86400")
     workflow_id = api.get("actions/workflows/rust.yml").get("id")
@@ -1078,6 +1127,21 @@ def admit_main_fast(api, now, *, current_run_id=None, cooldown_seconds=MAIN_FAST
         completed_at = timestamp(completed_raw)
         elapsed = (now.astimezone(timezone.utc) - completed_at).total_seconds()
         if elapsed < cooldown_seconds:
+            cache_rotation_files = _main_fast_cache_rotation_files(
+                repo_root, run.get("head_sha"), head_sha,
+            )
+            if cache_rotation_files:
+                return dict(
+                    base,
+                    run_main_fast=True,
+                    reason="cache_rotation_bypass",
+                    last_verified_run_id=run["id"],
+                    last_verified_sha=run.get("head_sha"),
+                    last_verified_completed_at=completed_at.isoformat().replace("+00:00", "Z"),
+                    elapsed_seconds=max(0, int(elapsed)),
+                    remaining_seconds=max(0, int(cooldown_seconds - elapsed)),
+                    cache_rotation_files=cache_rotation_files,
+                )
             return dict(
                 base,
                 run_main_fast=False,
@@ -1190,6 +1254,8 @@ def main():
     admission.add_argument("--output", type=Path, required=True)
     admission.add_argument("--github-output", type=Path, required=True)
     admit_mf = commands.add_parser("admit-main-fast")
+    admit_mf.add_argument("--repo-root", type=Path)
+    admit_mf.add_argument("--head")
     admit_mf.add_argument("--output", type=Path, required=True)
     admit_mf.add_argument("--github-output", type=Path, required=True)
     admit_mf.add_argument("--cooldown-seconds", type=int, default=MAIN_FAST_COOLDOWN_SECONDS)
@@ -1225,6 +1291,7 @@ def main():
         receipt = admit_main_fast(
             api, datetime.now(timezone.utc),
             current_run_id=current_run_id, cooldown_seconds=args.cooldown_seconds,
+            repo_root=root if args.head else None, head_sha=args.head,
         )
         args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
         with args.github_output.open("a") as output:

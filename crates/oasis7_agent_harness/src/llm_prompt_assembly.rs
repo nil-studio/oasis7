@@ -764,4 +764,352 @@ mod tests {
         assert!(schema.included);
         assert!(output.system_prompt.contains("[Tool Protocol]"));
     }
+
+    #[test]
+    fn prompt_budget_truncates_history_before_drop() {
+        let history = "x".repeat(50_000);
+        let input = PromptAssemblyInput {
+            agent_id: "agent-1",
+            base_system_prompt: "base prompt",
+            short_term_goal: "short goal",
+            long_term_goal: "long goal",
+            observation_json: "{\"time\":1}",
+            module_history_json: history.as_str(),
+            conversation_history_json: "[]",
+            memory_digest: Some("obs@T1 ..."),
+            step_context: PromptStepContext {
+                step_index: 0,
+                max_steps: 4,
+                module_calls_used: 0,
+                module_calls_max: 3,
+            },
+            harvest_max_amount_cap: 100,
+            prompt_budget: PromptBudget {
+                context_window_tokens: 8_192,
+                reserved_output_tokens: 256,
+                safety_margin_tokens: 128,
+            },
+        };
+
+        let output = PromptAssembler::assemble(input);
+        let history = output
+            .section_trace
+            .iter()
+            .find(|trace| trace.kind == PromptSectionKind::History)
+            .expect("history trace");
+        assert!(history.included);
+        assert!(history.emitted_tokens < history.estimated_tokens);
+    }
+
+    #[test]
+    fn prompt_budget_keeps_soft_sections_when_budget_is_sufficient() {
+        let history = "x".repeat(3_000);
+        let input = PromptAssemblyInput {
+            agent_id: "agent-1",
+            base_system_prompt: "base prompt",
+            short_term_goal: "short goal",
+            long_term_goal: "long goal",
+            observation_json: "{\"time\":1}",
+            module_history_json: history.as_str(),
+            conversation_history_json: "[]",
+            memory_digest: Some("obs@T1 ..."),
+            step_context: PromptStepContext {
+                step_index: 0,
+                max_steps: 4,
+                module_calls_used: 0,
+                module_calls_max: 3,
+            },
+            harvest_max_amount_cap: 100,
+            prompt_budget: PromptBudget::default(),
+        };
+
+        let output = PromptAssembler::assemble(input);
+        let history = output
+            .section_trace
+            .iter()
+            .find(|trace| trace.kind == PromptSectionKind::History)
+            .expect("history trace");
+        assert!(history.included);
+        assert_eq!(history.emitted_tokens, history.estimated_tokens);
+    }
+
+    #[test]
+    fn prompt_budget_peak_targets_are_below_effective_budget() {
+        let budget = PromptBudget {
+            context_window_tokens: 4_608,
+            reserved_output_tokens: 896,
+            safety_margin_tokens: 512,
+        };
+        let step = PromptStepContext {
+            step_index: 0,
+            max_steps: 4,
+            module_calls_used: 0,
+            module_calls_max: 3,
+        };
+
+        let effective = budget.effective_input_budget_tokens();
+        let (soft, hard) = PromptAssembler::peak_targets_tokens(step, effective);
+
+        assert!(soft <= hard);
+        assert!(hard < effective);
+    }
+
+    #[test]
+    fn prompt_budget_peak_targets_are_stricter_near_finalize_phase() {
+        let budget = PromptBudget {
+            context_window_tokens: 4_608,
+            reserved_output_tokens: 896,
+            safety_margin_tokens: 512,
+        };
+
+        let early = PromptStepContext {
+            step_index: 0,
+            max_steps: 4,
+            module_calls_used: 0,
+            module_calls_max: 3,
+        };
+        let near_finalize = PromptStepContext {
+            step_index: 3,
+            max_steps: 4,
+            module_calls_used: 2,
+            module_calls_max: 3,
+        };
+
+        let effective = budget.effective_input_budget_tokens();
+        let (_, early_hard) = PromptAssembler::peak_targets_tokens(early, effective);
+        let (_, finalize_hard) = PromptAssembler::peak_targets_tokens(near_finalize, effective);
+
+        assert!(finalize_hard < early_hard);
+    }
+
+    #[test]
+    fn prompt_budget_soft_caps_are_relaxed_for_stability_phase() {
+        let early = PromptStepContext {
+            step_index: 0,
+            max_steps: 4,
+            module_calls_used: 0,
+            module_calls_max: 3,
+        };
+        let near_finalize = PromptStepContext {
+            step_index: 3,
+            max_steps: 4,
+            module_calls_used: 2,
+            module_calls_max: 3,
+        };
+
+        assert_eq!(PromptAssembler::soft_section_caps(early), (256, 192));
+        assert_eq!(
+            PromptAssembler::soft_section_caps(near_finalize),
+            (192, 128)
+        );
+    }
+
+    #[test]
+    fn prompt_budget_peak_targets_use_relaxed_reserve_values() {
+        let step = PromptStepContext {
+            step_index: 0,
+            max_steps: 4,
+            module_calls_used: 0,
+            module_calls_max: 3,
+        };
+        let near_finalize = PromptStepContext {
+            step_index: 3,
+            max_steps: 4,
+            module_calls_used: 2,
+            module_calls_max: 3,
+        };
+        let budget_tokens = 3_328;
+
+        let (early_soft, early_hard) = PromptAssembler::peak_targets_tokens(step, budget_tokens);
+        let (finalize_soft, finalize_hard) =
+            PromptAssembler::peak_targets_tokens(near_finalize, budget_tokens);
+
+        assert_eq!(early_hard, 3_200);
+        assert_eq!(early_soft, 3_072);
+        assert_eq!(finalize_hard, 3_136);
+        assert_eq!(finalize_soft, 3_008);
+    }
+
+    #[test]
+    fn prompt_budget_peak_budget_enforces_hard_target_on_large_inputs() {
+        let history = "h".repeat(14_000);
+        let memory = "m".repeat(6_000);
+        let step_context = PromptStepContext {
+            step_index: 0,
+            max_steps: 4,
+            module_calls_used: 0,
+            module_calls_max: 3,
+        };
+        let budget = PromptBudget {
+            context_window_tokens: 4_608,
+            reserved_output_tokens: 896,
+            safety_margin_tokens: 512,
+        };
+        let input = PromptAssemblyInput {
+            agent_id: "agent-1",
+            base_system_prompt: "base prompt",
+            short_term_goal: "short goal",
+            long_term_goal: "long goal",
+            observation_json: "{\"time\":1}",
+            module_history_json: history.as_str(),
+            conversation_history_json: "[]",
+            memory_digest: Some(memory.as_str()),
+            step_context,
+            harvest_max_amount_cap: 100,
+            prompt_budget: budget,
+        };
+
+        let output = PromptAssembler::assemble(input);
+        let (_, hard_target) = PromptAssembler::peak_targets_tokens(
+            step_context,
+            budget.effective_input_budget_tokens(),
+        );
+
+        // Keep prompt near hard target while allowing limited drift when industrial guidance expands.
+        let tolerated_hard_target = hard_target + 512;
+        assert!(
+            output.estimated_input_tokens <= tolerated_hard_target,
+            "estimated_input_tokens={} hard_target={} tolerated_hard_target={}",
+            output.estimated_input_tokens,
+            hard_target,
+            tolerated_hard_target
+        );
+    }
+
+    #[test]
+    fn prompt_assembly_includes_tool_call_constraints() {
+        let output = PromptAssembler::assemble(sample_input());
+        assert!(output.system_prompt.contains("每轮只允许调用一个 tool"));
+        assert!(output.system_prompt.contains("message_to_user"));
+        assert!(output.user_prompt.contains("[Output Hard Rules]"));
+        assert!(output.user_prompt.contains("agent_submit_decision"));
+        assert!(output.user_prompt.contains("message_to_user"));
+    }
+
+    #[test]
+    fn prompt_assembly_omits_step_meta_hints_in_dialogue_mode() {
+        let mut input = sample_input();
+        input.step_context.step_index = 2;
+        input.step_context.max_steps = 4;
+        input.step_context.module_calls_used = 2;
+        input.step_context.module_calls_max = 3;
+
+        let output = PromptAssembler::assemble(input);
+        assert!(!output.user_prompt.contains("[Step]"));
+        assert!(!output.user_prompt.contains("module_calls_remaining"));
+        assert!(!output.user_prompt.contains("turns_remaining"));
+    }
+
+    #[test]
+    fn prompt_assembly_includes_harvest_max_amount_cap() {
+        let mut input = sample_input();
+        input.harvest_max_amount_cap = 42;
+
+        let output = PromptAssembler::assemble(input);
+        assert!(output.user_prompt.contains("<i64 1..=42>"));
+        assert!(output.user_prompt.contains("\"max_ticks\":<u64 1..=3>"));
+        assert!(output.user_prompt.contains("不超过 42"));
+        assert!(output.user_prompt.contains("硬裁剪到 3"));
+        assert!(
+            output
+                .user_prompt
+                .contains("move_agent.to 不能是当前所在位置")
+        );
+        assert!(output.user_prompt.contains("transfer_resource"));
+        assert!(output.user_prompt.contains("buy_power"));
+        assert!(output.user_prompt.contains("sell_power"));
+        assert!(output.user_prompt.contains("place_power_order"));
+        assert!(output.user_prompt.contains("cancel_power_order"));
+        assert!(output.user_prompt.contains("refine_compound"));
+        assert!(output.user_prompt.contains("build_factory"));
+        assert!(output.user_prompt.contains("schedule_recipe"));
+        assert!(output.user_prompt.contains("factory.smelter.mk1"));
+        assert!(output.user_prompt.contains("recipe.smelter.iron_ingot"));
+        assert!(
+            output
+                .user_prompt
+                .contains("post_onboarding 工业主线优先级")
+        );
+        assert!(output.user_prompt.contains("publish_social_fact"));
+        assert!(output.user_prompt.contains("challenge_social_fact"));
+        assert!(output.user_prompt.contains("adjudicate_social_fact"));
+        assert!(output.user_prompt.contains("revoke_social_fact"));
+        assert!(output.user_prompt.contains("declare_social_edge"));
+        assert!(output.user_prompt.contains("open_governance_proposal"));
+        assert!(output.user_prompt.contains("cast_governance_vote"));
+        assert!(output.user_prompt.contains("resolve_crisis"));
+        assert!(output.user_prompt.contains("grant_meta_progress"));
+        assert!(output.user_prompt.contains("open_economic_contract"));
+        assert!(output.user_prompt.contains("accept_economic_contract"));
+        assert!(output.user_prompt.contains("settle_economic_contract"));
+        assert!(output.user_prompt.contains("factory_kind 当前支持"));
+        assert!(output.user_prompt.contains("recipe_id 当前支持"));
+        assert!(output.user_prompt.contains("recipe.smelter.copper_wire"));
+        assert!(output.user_prompt.contains("recipe.smelter.polymer_resin"));
+        assert!(output.user_prompt.contains("recipe.smelter.alloy_plate"));
+        assert!(output.user_prompt.contains("recipe.assembler.gear"));
+        assert!(output.user_prompt.contains("recipe.assembler.sensor_pack"));
+        assert!(output.user_prompt.contains("recipe.assembler.module_rack"));
+        assert!(output.user_prompt.contains("recipe.assembler.factory_core"));
+        assert!(
+            output
+                .user_prompt
+                .contains("默认 recipe_hardware_cost_per_batch")
+        );
+        assert!(output.user_prompt.contains("iron_ingot=2"));
+        assert!(output.user_prompt.contains("control_chip=2"));
+        assert!(output.user_prompt.contains("factory_core=8"));
+        assert!(
+            output
+                .user_prompt
+                .contains("schedule_recipe.batches 必须 <= floor(self_resources.data")
+        );
+        assert!(output.user_prompt.contains("compound_mass_g >= 1000"));
+        assert!(
+            output
+                .user_prompt
+                .contains("owner 字段仅允许 self/agent:<id>/location:<id>")
+        );
+        assert!(
+            output
+                .user_prompt
+                .contains("publish_social_fact.confidence_ppm 必须在 1..=1000000")
+        );
+        assert!(
+            output
+                .user_prompt
+                .contains("adjudicate_social_fact.adjudication 仅允许 confirm/retract")
+        );
+        assert!(output.user_prompt.contains("[Failure Recovery Policy]"));
+        assert!(
+            output
+                .user_prompt
+                .contains("insufficient_resource.data -> mine_compound")
+        );
+        assert!(
+            output
+                .user_prompt
+                .contains("insufficient_resource.electricity -> harvest_radiation")
+        );
+        assert!(
+            output
+                .user_prompt
+                .contains("factory_not_found -> build_factory")
+        );
+        assert!(
+            output
+                .user_prompt
+                .contains("agent_already_at_location -> 禁止重复 move_agent")
+        );
+        assert!(output.user_prompt.contains("推荐 harvest 模板"));
+        assert!(output.user_prompt.contains("推荐 move 模板"));
+        assert!(output.user_prompt.contains("推荐 gameplay 模板（简版）"));
+        assert!(output.user_prompt.contains("推荐 economic 合约链路"));
+        assert!(output.user_prompt.contains("治理节奏建议"));
+        assert!(
+            output
+                .user_prompt
+                .contains("优先切换到另一种 gameplay 动作")
+        );
+    }
 }

@@ -78,3 +78,20 @@ ENV RUSTUP_HOME=/opt/oasis7-rust/rustup
 ENV PATH=/opt/oasis7-rust/bin:$PATH
 ENV RUSTUP_TOOLCHAIN=${CODEQL_RUST_TOOLCHAIN}
 ENV RUSTUP_AUTO_INSTALL=0
+
+FROM runtime AS api-runtime
+RUN curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 --max-time 120 \
+      --proto '=https' --proto-redir '=https' \
+      https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_amd64.tar.gz \
+      --output /tmp/gh.tar.gz \
+    && echo '79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f  /tmp/gh.tar.gz' | sha256sum --check \
+    && tar -xOzf /tmp/gh.tar.gz gh_2.105.0_linux_amd64/bin/gh >/tmp/gh \
+    && install -m 0755 /tmp/gh /usr/local/bin/gh \
+    && rm -f /tmp/gh /tmp/gh.tar.gz
+
+# Official Linux/amd64 CLI image containing Docker 28.5.2 and Buildx 0.29.1.
+FROM docker:28.5.2-cli@sha256:cd58b396e427d1ee8cddcc3f3b7e8d8c2ba45755c5dd5b821b6e615e1ccf4586 AS docker-cli-tools
+
+FROM rust-build AS rust-ordinary-builder
+COPY --from=docker-cli-tools --chown=0:0 --chmod=0755 /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli-tools --chown=0:0 --chmod=0755 /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx

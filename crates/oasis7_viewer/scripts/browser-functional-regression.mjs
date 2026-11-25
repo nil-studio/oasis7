@@ -174,22 +174,6 @@ export async function runBoundedConcurrency(items, concurrency, worker) {
   return results;
 }
 
-function runBlocking(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: options.cwd || repoRoot,
-    encoding: "utf8",
-    timeout: options.timeout || 10_000,
-    env: options.env || process.env,
-  });
-  return {
-    command: [command, ...args].join(" "),
-    status: result.status,
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    error: result.error ? String(result.error) : null,
-  };
-}
-
 // ---- page fixture -------------------------------------------------------
 
 function fakeTransportSource(endpoint) {

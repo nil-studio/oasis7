@@ -2292,6 +2292,42 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         self.assertTrue(decision_empty["run_main_fast"])
         self.assertEqual(decision_empty["reason"], "no_recent_executed_main_fast")
 
+    def test_admit_main_fast_bypasses_cooldown_on_cache_rotation_files_only(self):
+        m0, m1, _, _, _ = self.commits
+        now = datetime(2026, 11, 24, 9, 30, 0, tzinfo=timezone.utc)
+        runs = [self.run_item(10, m0, "completed", "success", updated_at="2026-11-24T08:00:00Z")]
+
+        # Ordinary source change between m0 and m1 keeps cooldown active.
+        decision_normal = module.admit_main_fast(
+            self.make_api(runs), now, repo_root=self.repo, head_sha=m1,
+        )
+        self.assertFalse(decision_normal["run_main_fast"])
+        self.assertEqual(decision_normal["reason"], "cooldown_active")
+
+        # Missing/unfetched commit falls back safely to cooldown_active.
+        decision_missing = module.admit_main_fast(
+            self.make_api(runs), now, repo_root=self.repo, head_sha="f" * 40,
+        )
+        self.assertFalse(decision_missing["run_main_fast"])
+        self.assertEqual(decision_missing["reason"], "cooldown_active")
+
+        # Cache-rotating file changes bypass cooldown immediately.
+        for rel in ("Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "scripts/ci-workspace-cache.py"):
+            with self.subTest(path=rel):
+                target = self.repo / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(f"updated {rel}\n")
+                self.git("add", rel)
+                self.git("commit", "-m", f"update {rel}")
+                head = self.git("rev-parse", "HEAD")
+                decision = module.admit_main_fast(
+                    self.make_api(runs), now, repo_root=self.repo, head_sha=head,
+                )
+                self.assertTrue(decision["run_main_fast"])
+                self.assertEqual(decision["reason"], "cache_rotation_bypass")
+                self.assertIn(rel, decision["cache_rotation_files"])
+                self.git("reset", "--hard", m1)
+
     def test_rejects_non_ancestor_before_and_never_narrows_wide_push(self):
         import inspect
         self.assertEqual(
@@ -2345,7 +2381,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                           "workspace_member_cargo_manifest_scope_version", "scoped_production_cfg_version",
                           "ordinary_controls_in_rust_baseline_version",
                           "workspace_support_direct_gate_version",
-                          "custody_node_shards_version"):
+                          "custody_node_shards_version",
+                          "command_center_offline_version"):
             bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 9})).encode()
             def fake_check_output(cmd, **_kwargs):
                 target = cmd[-1]
@@ -2359,6 +2396,7 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
     def test_consolidated_full_receipt_requires_skipped_retired_jobs_and_direct_producer_xor(self):
         receipt, run, jobs = fixture()
         receipt["plan"]["contract_job_consolidation_version"] = CONFIG["contract_job_consolidation_version"]
+        receipt["plan"]["command_center_offline_version"] = CONFIG["command_center_offline_version"]
         del receipt["needs"]["oasis7-test-build"]
         receipt["needs"]["oasis7-test-build-candidate"] = {"result": "skipped"}
         receipt["needs"]["oasis7-test-build-trusted"] = {"result": "success"}
@@ -2367,8 +2405,9 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         verified = module.verify_receipt(receipt, run, jobs, source=A, repository="nil-studio/oasis7",
                                          workflow_id=7, config=CONFIG, digest="definition")
         self.assertEqual(verified, receipt)
-        for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report",
-                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout",
+        for retired_job in ("command-center", "compile-metrics", "consensus", "pixel-world-bridge",
+                            "viewer-performance-report", "packaging-contracts",
+                            "cargo-tooling-contracts", "windows-rollout",
                             "operational-contracts"):
             broken = copy.deepcopy(receipt)
             broken["needs"][retired_job] = {"result": "success"}

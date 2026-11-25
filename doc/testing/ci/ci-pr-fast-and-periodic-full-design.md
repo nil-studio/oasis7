@@ -37,12 +37,13 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `architecture.build_policy_version=1`、`build_policy=ordinary-targets` | 全部直接架构输入由快速目标承接时，保留全部声明/依赖图，额外 profile 编译明确延期到 full；缺少能力或混合未覆盖输入保持原编译选择 |
 | `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
 | `python_control_contract_version=1`、`python_control_paths`、`python_control_tests` | 可信精确路径命中的 CI Python 控制输入及按组归并的非空最低合同，由可信基线执行入口针对候选实现验证 |
-| `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
+| `formal_suites`、`formal_shards`、`command_center_package`、`command_center_offline_version=1` | 完整逻辑 case、实际物理分片，以及兼容历史计划的 Command Center 打包字段与离线收口开关（启用 `command_center_offline_version=1` 时常规快速与完整 profile 均跳过 macOS `command-center` job 并收口至 `baseline`） |
+| `fleet_health_subcontracts_version=1`、`fleet_health_checks`、`fleet_health_oses` | 可信配置启用后，解除 `operational_contracts` 对 `windows_rollout` 与 `fleet_health` 的无条件捆绑，按真实消费输入计算 `fleet-health` 的子契约集合（`fleet_script`、`hosted_access`、`macos_signer`、`host_cleanup`）与最小宿主集合 `fleet_health_oses`（如资源清理脚本仅启动 `ubuntu-24.04` + `macos-15` 且跳过 Rust 安装/冷编译，`local-signer` 仅启动 `macos-15`，组合变更与并入的 `windows_rollout` 取并集）；`scope=full`、`explicit-full`、显式追加或未细分规则保留三平台四项全集，旧 BASE 缺能力时回退原三平台矩阵 |
 | `formal_full_profiles_only_version=1` | 可信 BASE 启用重型 Formal 仅在完整 profile 执行；快速 profile 的组、逻辑 suite 和物理 shard 均不选择 Formal |
 | `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
-当可信 fast 计划采用 direct gate、未改动测试策略且 other 分区只选择 `oasis7_local_signer` 时，`workspace-support-other` 只启动 `signer-image` 分片。该分片校验 selection artifact 摘要，以 UID/GID 1001 执行原 `--lib` 和 `--test context_cli --locked`，保留文件权限拒绝语义。它复用 Node Rust 分片的固定镜像、mold 安装路径和只读依赖缓存身份。全量、旧计划和混合选择继续使用原 host/image 路由，`oasis7_game_client` 的跨 UID 验证保留在宿主。
+当可信 fast 计划采用 direct gate、未改动测试策略且 other 分区只选择 `oasis7_local_signer` 或精确选择 `oasis7_context` 与 `oasis7_local_signer` 时，`workspace-support-other` 分别只启动 `signer-image` 或 `signer-context-image` 分片。两者都校验 selection artifact 摘要，以 UID/GID 1001 执行原 `--lib` 和 `--test context_cli --locked`，保留文件权限拒绝语义。双 profile 还执行 context 原 `--all-targets --locked`，包括 Git、CLI 和 PTY 交互。单 profile 继续复用 Node Rust 分片的固定镜像、mold 路径和只读缓存。双 profile 使用包含 Git 2.56.1 的固定 Rust 镜像并验证原离线选项，在相同非 root UID 下冷编译。当精确选择 signer 与 `oasis7_signer_protocol` 并可选 context 时，`signer-protocol-image` 使用同一 Git 可用的非 root Rust 镜像，保留协议原 Clippy 全目标和库测试，继续冷编译。全量、旧计划和其它选测组合继续使用原宿主或镜像路由，`oasis7_game_client` 的跨 UID 验证保留在宿主。
 
 快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan-file <selection.json>`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
 
@@ -82,7 +83,7 @@ workflow 从与选择器相同的 BASE 取得可信合同执行入口，在候�
 
 可信合同本身的演进使用明确的完整验证迁移路径：可信入口核对共同祖先到 source 的分支差异与 BASE 到 tested 的实际合并差异，只有精确策略配置或可信入口变更且计划保留该 profile 的完整必要组时，才允许迁移旧的全量策略断言。可信 Formal 新能力仅允许快速 profile 从全组中排除 `formal_process`，其余缺项仍失败。main 单独前进不构成候选迁移。迁移继续执行固定 BASE 安全断言、真实 Rust fixture 及候选完整合同回归，并接受独立评审；固定最低安全身份不能借迁移删除。日志列明迁移原因与实际范围，不宣称完成已迁出的全部旧合同。普通 Cargo/共享输入与 Python 的混合变化不因 `scope=full` 自动取得迁移资格，也不接受候选自报的迁移开关。
 
-planner 的可信最低合同固定验证必要的选择、未知输入和失败边界，另以离线微型 Cargo 项目实际编译并执行 cfg、features 和测试清单，覆盖词法归属及门控变化。该合同不冻结每个历史路径的全量策略断言，允许经过评审的职责细分进入新 BASE；候选完整 planner 回归仍验证新策略。它不构建产品 workspace，也不替代真正受影响的产品 Rust 验证。
+planner 及高频演进的工作流拓扑、架构所有权与全量汇总套件（`plan-rust-required-scope.test.py`、`ci-workflow.test.py`、`ci-bin-ownership.test.py`、`ci-full-result.test.py`）统一采用“固定 BASE 安全红线子集 + 候选完整回归”分层：可信 BASE 固定执行 `FIXED_TESTS` 中不可妥协的选择/未知输入、权限与缓存写入边界、门禁权威、结果资格及跨包隔离红线（且禁止候选删除或跳过这些红线用例），另以离线微型 Cargo 项目实际编译并执行 cfg、features 和测试清单；同时不冻结随工作流 DAG 接线、镜像预检或模块拆迁演进的具体拓扑/路径快照断言，交由候选分支的完整测试套件（零意外 skip、完整见证）在同 PR 内验证新形态，避免无安全收益的两步式过渡前置 PR。它不构建产品 workspace，也不替代真正受影响的产品 Rust 验证。
 
 完整 profile 保留原全集并执行完整控制合同库存；合同自身迁移仅适用上述明确条件。普通 required 的保守 `scope=full` 执行本次实际命中的控制合同，不混同于完整 profile 的全库存。旧 BASE 未提供此能力时，候选保持旧共享控制范围，不能以自身新规则收窄当前 PR；本轮改变可信配置、执行器和 workflow 的迁移同样接受旧必要检查。纯 Python 具名路径、真实嵌入消费者、混合 Rust 变化、删除/重命名、未知路径、空执行、取消与失败传播分别回归；十分钟效果仍由合入后的真实 hosted 样本验收。
 
@@ -131,7 +132,7 @@ DistFS workflow 显式通过 `OASIS7_CI_DISTFS_PLAN_FILE` 传递完整 selection
 
 新增且可证明可达的 item 不等于已有测试门控迁移。普通新增测试及其辅助模块，必须能从实际 Cargo test target 沿静态 `mod`、`#[path]` 或已解析的 `include!` 链确认执行归属，并按该 target 的普通 native Linux Cargo 组合求值，包括实际启用的默认 features。所有引用路由均须闭合到同一真实 package，条件均可判定，且至少一条完整路由及 item 条件成立；同一文件的互斥 production/test 挂载可分别为假/真，不能把两路条件相与，也不能用一条好路遮盖未知或未登记 feature。显式 `--no-default-features` 的 target 仍按其真实组合判断。不能仅凭文件名、函数名或某一层 `cfg(test)` 放行。满足条件时沿用受影响 package、必要反向消费者和风险规则，不追加无关 full features。Windows-only 条件、未知宏、无法解析的外部模块链、禁用 harness/测试 target 或未满足的 required-features 均不能取得普通新增豁免。
 
-生产平台 cfg 的新增 item 只有在真实 ordinary driver 上可达、没有覆盖或替换既有门控时，才保留路径与依赖图确定的必要包及平台范围。既有 item 门控变化、测试删除/改名与新增混合、无法证明的条件或共享控制变化继续保守扩大覆盖：启用 `scoped_production_cfg_version=1` 且全部变更的生产 cfg 路径均属于已解析根 workspace 包闭包、无共享控制或不确定输入时，禁用普通窄 target 快捷裁剪、私有单元测试裁剪与 support 转交，对真实受影响包及反向消费者闭包保留整包测试、适用 WASM、完整架构 profile 矩阵及相应平台消费者组（含命中 `command_center` 时的完整 App 打包与规模风险补测），不再额外拉起与受影响闭包无关的治理、前端或独立跨平台组；缺少该能力、存在未解析归属路径或混合共享控制变化时继续扩展为全仓 `scope=full`。这些检查不把生产 cfg 当作测试退役，也不因新增项可达而减去同一变更中其他输入要求的验证。
+生产平台 cfg 的新增 item 只有在真实 ordinary driver 上可达、没有覆盖或替换既有门控时，才保留路径与依赖图确定的必要包及平台范围。既有 item 门控变化、测试删除/改名与新增混合、无法证明的条件或共享控制变化继续保守扩大覆盖：启用 `scoped_production_cfg_version=1` 且全部变更的生产 cfg 路径均属于已解析根 workspace 包闭包、无共享控制或不确定输入时，禁用普通窄 target 快捷裁剪、私有单元测试裁剪与 support 转交，对真实受影响包及反向消费者闭包保留整包测试、适用 WASM、完整架构 profile 矩阵及相应平台消费者组（含规模风险补测；`command_center` 在暂停推进并启用 `command_center_offline_version=1` 期间不再连带触发 macOS App 构建），不再额外拉起与受影响闭包无关的治理、前端或独立跨平台组；缺少该能力、存在未解析归属路径或混合共享控制变化时继续扩展为全仓 `scope=full`。这些检查不把生产 cfg 当作测试退役，也不因新增项可达而减去同一变更中其他输入要求的验证。
 
 `pixel_world_bridge` 的实际 ordinary 根为默认 features 的 library harness；同次选中的 pixel 组还执行 `wasm32-unknown-unknown` 生产检查。新增直接 free function 内的精确 wasm32 / 非 wasm32 语句门控，可按每个分支及全部祖先的同一真实编译组合证明。所有引用路径均须已知并闭合到该库根；生产检查不能证明 WASM-only 测试已执行，既有函数、新增未知谓词、宏生成归属或共享控制变化仍走保守路径。此能力由可信 BASE planner 登记，候选不能自行授权。
 
@@ -141,7 +142,7 @@ DistFS workflow 显式通过 `OASIS7_CI_DISTFS_PLAN_FILE` 传递完整 selection
 
 ### 现有测试的首批归类依据
 
-下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及 [Command Center workflow](../../../.github/workflows/command-center.yml)。ordinary 对已登记输入按独立 target 合同收窄，其余按 package；support 按 profile，重型 Formal 在完整 profile 执行全部逻辑 suite；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
+下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及已保留只读定义的 [Command Center workflow](../../../.github/workflows/command-center.yml)。ordinary 对已登记输入按独立 target 合同收窄，其余按 package；support 按 profile，重型 Formal 在完整 profile 执行全部逻辑 suite；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
 
 | 现有入口或用例 | PR 快速候选与触发范围 | 合入前必要加测 | 周期完整覆盖 |
 | --- | --- | --- | --- |
@@ -152,7 +153,7 @@ DistFS workflow 显式通过 `OASIS7_CI_DISTFS_PLAN_FILE` 传递完整 selection
 | Viewer `test:frontend-structure`、`test:feedback-contract`、`test:ui` | 前端、接口及消费者变化时执行相关逻辑、反馈合同与必要编译 | auth/会话/权限变化执行 `viewer-auth-browser-security-smoke.mjs`；WASM/runtime 变化验证真实消费者 | 完整浏览器、WASM 构建与跨模块组合 |
 | `oasis7_simulator --test oasis7_init_demo --features test_tier_full`，现有过滤 `oasis7_init_demo_runs_` | 场景资产/初始化及必要消费者变化时保留实际场景验证；能否快速须量测 | 初始化、资源守恒和世界配置的相关完整场景属于必要集合，不因 full 标签推迟 | 全部场景及扩展组合 |
 | Formal 五个逻辑 suite 的完整 case | 有界状态转换与关键不变量由适用库/合同用例验证 | 需要提前验证重型场景时显式运行 candidate-full，普通 PR 不启动重型 Formal | 定期与候选 full 均保留全部逻辑 suite 与原 70/40 次长场景，物理分片不决定覆盖范围 |
-| `workflow_governance`、`packaging_contracts`、Command Center Core/UI/类型合同 | 对应控制、打包、Core/UI 输入变化时执行选测/失败传播/接口等适用合同与编译 | 来源/权限/缓存写边界接受可信旧验证；安装、路径、进程及平台变化验证实际 OS | 完整控制合同、原生 App/打包及运维平台矩阵 |
+| `workflow_governance`、`packaging_contracts`（及暂停推进期间下线收口至 `baseline` 的 Command Center 入口） | 对应控制、打包输入变化时执行选测/失败传播/接口等适用合同；Command Center 仅保留路径归属与独立清单锁审计 | 来源/权限/缓存写边界接受可信旧验证；安装、路径、进程及平台变化验证实际 OS | 完整控制合同与运维平台矩阵（Command Center 暂停期间不启动 macOS 桌面任务） |
 
 例如 [共识用例](../../../crates/oasis7_consensus/src/quorum/tests.rs)中的冲突拒绝和提交后发布可作为快速层的真实不变量检查；[成员恢复认证矩阵](../../../crates/oasis7_consensus/src/membership_restore_auth_tests.rs)使用真实签名并检查拒绝后原状态不变，不能用“只保留成功 smoke”替代。Formal 的 `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` 和 `protected_endpoint_children_sigkill_runtime_durable_phases_resume_original_once` 均在定期或显式候选 full 执行，历史裁剪、重开、durable 阶段及 crash/retry 修改也不改变其所属层。完整选择依据逻辑合同和实际 case，不按物理 shard 名推断覆盖。
 
@@ -166,7 +167,7 @@ DistFS workflow 显式通过 `OASIS7_CI_DISTFS_PLAN_FILE` 传递完整 selection
 | --- | --- | --- |
 | Runtime `pr_fast_runtime` | `src/tests/basic.rs` 的 20 个用例 | 已登记的动作测试和独立 round-robin 调度，包含拒绝、ID 回绕、余额溢出、容量与 tick authority 不变量 |
 | World State `pr_fast_reducers` | Runtime `src/tests/apply_domain_event_guards.rs` 的 11 个用例 | 已登记归约测试源，保留幂等、篡改重复、legacy 格式、错误 service 合约及缺失角色的拒绝与状态不变 |
-| Runtime `pr_fast_incremental` | `oasis7/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
+| Runtime `pr_fast_incremental` | `oasis7_runtime/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
 | Runtime `--lib` | 全部非 ignored 原生 unit tests | 已登记的增量 commit/allocator/clock/body/scheduler 实现或测试变化始终执行，同时以最低清单保留 parent/fence 拒绝、取消无成功前缀、stale clock、重复实例与 allocator 错误等负例 |
 | 组件 `--lib` | World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability、Launcher Config 各自全部非 ignored unit tests | 可信源码合同和真实 target 可达性同时成立；World State 的生产及未证明私有测试输入同时执行 Runtime lib 与 `pr_fast_reducers`，保留跨 crate 的真实行为测试 owner；不以函数名过滤减少执行 |
 | Viewer Runtime `--lib` | `runtime_live/agent_service_*.rs` 与 `stream_budget_diagnostics.rs` 的行为由全部非 ignored library tests 承接 | 无默认 feature、启用 `test_tier_required`；最低清单保留同阶段精确分派、身份变化拒绝、失败后原请求查询恢复和诊断有界性；其他 Viewer 源码继续使用原范围 |
@@ -244,7 +245,7 @@ Viewer 的 Vitest UI 测试保留单 worker、逐文件独立 fork 与 jsdom，�
 
 `ci-fast-preview.py` 按样本分别记录实际 PR BASE/source/target、分支共同祖先和触发比较范围，以及 benchmark 的 policy/source/tested、合成 BASE/tree、固定输入、全部组与 ordinary 分区，下游 runner 按样本与确定性 Git 身份重建比较对象。独立样本最多并行规划两路，各自使用临时 Git index 和独立输出路径，不修改 checkout、真实 index 或 ref。`plan-matrix` 只有在所有样本完整校验成功后才一次发布执行矩阵；不发布半份成功。每行绑定 sample、group、partition 与该样本的合成 BASE，恢复时重核行归属；selection、metadata 和结果 artifact 分别命名，结果名称及时间记录包含 partition，禁止跨样本或分区复用。Runtime 的额外消费者组仍全部执行，样本完成时间取所有分区及其余组的最后完成时间。缺项、未解释的额外需求或错误 feature 策略均不能被静默省略。
 
-预览矩阵直接消费已验证计划输出的完整组列表，所有选中组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；每个样本从 workflow 创建到其全部所选 job 完成的时长独立验收，包含排队、规划和产物上传，不能把单个 job 的 runner_seconds 当成端到端或混用另一份样本的完成时间。不能只运行三个核心组而漏掉计划中的消费者。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
+预览矩阵直接消费已验证计划输出的完整组列表，所有选中组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；每个样本从 workflow 创建到其全部所选 job 完成的时长独立验收，包含排队、规划和产物上传，单个镜像 job 的 `runner_seconds` 从镜像初始化后的第一个步骤计到结果生成。现场核对冷拉取和初始化时长时，以该 job 的容器初始化日志为准。不得混用另一份样本的完成时间。不能只运行三个核心组而漏掉计划中的消费者。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
 
 baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。baseline 不自动附加 `--full-corpus` 历史内容报告；需要存量分析时显式运行，不能把其历史告警升级为当前无关改动的阻断。改变规则、范围选择或解析器时仍运行全部适用回归并核对完整适用文档集合。
 
@@ -264,13 +265,13 @@ Cargo 的测试名过滤只限制执行，不能当作编译范围缩小的证�
 
 对相同 source 和环境，令 R 为适用快速及必要加测集合，M 为从旧 PR 后移的检查，F 为完整回归集合，验证 R 与 M 均包含于 F。periodic-full 从全仓适用库存展开，不只选择本轮差异；必需的平台组合由平台矩阵执行。清单包含稳定检查 ID、真实命令/参数、前置、target/features 与结果，同名命令的不同环境不能互相抵扣。
 
-完整计划展开可信 scope 的全部 26 组，包含组级 Clippy、依赖本轮真实构建的 Viewer auth browser smoke、Command Center App、Windows rollout、macOS 包合同及 fleet-health 三平台。普通产物、Formal 产物/物理矩阵、平台组和 `full-extended` 可并行，`explicit-full-gate` 等待所有组、ordinary producer，以及恰好一个成功的可信或候选 full producer。
+完整计划展开可信 scope 的全部 26 组，包含组级 Clippy、依赖本轮真实构建的 Viewer auth browser smoke、Windows rollout、macOS 包合同及 fleet-health 三平台（`command_center` 在启用 `command_center_offline_version=1` 期间与已合并合同组一致收口至 `baseline` 并校验独立 job 为 `skipped`）。普通产物、Formal 产物/物理矩阵、平台组和 `full-extended` 可并行，`explicit-full-gate` 等待所有组、ordinary producer，以及恰好一个成功的可信或候选 full producer。
 
 `full-extended` 只运行 core 扩展 features、support 的完整 target/feature 组合、fixture smoke 与生产 mock guard，不重复整个 required 清单；它单独成功不代表完整回归。support 按真实 manifest 生成 `--all-targets` 调用，启用适用 full features；没有扩展 feature 或该轮没有 `test_policy_changed` 时也执行，保留不在普通 profile 中的 integration 等 target。`full-standard` 保留本地普通加扩展入口，并补齐原遗漏的 Clippy/browser smoke；`full` 再加 Formal，但两者都不能代签 hosted 的多平台集合。
 
 PR 汇总只等待本 PR 计划的必要检查，周期汇总等待本轮完整集合。保留可靠 always 收口：规划失败、选中任务失败/取消/超时/缺失、应执行却 skipped 均失败；未选中可以 skipped。预期矩阵单元须全部终态，不能用其它单元成功或总测试数掩盖漏项。新提交取消的旧运行不为新 source HEAD 放行。
 
-保留稳定 required check 名称，避免对整个必需 workflow 加 paths 过滤造成 Pending；依赖失败也必须进入最终汇总。`pull_request` 订阅 `opened`、`synchronize`、`reopened`、`ready_for_review`：Draft PR 跳过 `select` 及全部下游重型组以释放共享 runner 容量，同时 `required-gate` 仍运行并快速失败阻断，避免在 `strict: false` 分支保护下产生 `skipped` 通过记录；PR 转为 Ready 时由 `ready_for_review` 自动触发完整规划与验证。针对 PR 选中 Rust 基线或完整范围的场景，新增极速前置门禁 `fast-preflight`（在预构建 `ci-rust-build` 镜像中执行浅克隆与 `cargo fmt --all -- --check`，约半分钟内完成），前置阻断五组高耗重型编译/测试入口（`oasis7-test-build-candidate`、`workspace-support-other`、`custody-native-contracts`、`custody-native`、`custody-wasm-production`），避免格式等低级失败导致重型任务空跑并在随后 push 时被大面积取消（`push`/`schedule`/`workflow_dispatch` 与非 Rust PR 跳过该门禁，不影响 `required-gate` 既有依赖合同）。手动候选验证不替代 PR 必需事件产生的检查。若发布所需平台不在本轮完整集合内，补跑准确候选的相应范围后再消费结果，不能把“不适用”用于隐藏缺环境。
+保留稳定 required check 名称，避免对整个必需 workflow 加 paths 过滤造成 Pending；依赖失败也必须进入最终汇总。`pull_request` 订阅 `opened`、`synchronize`、`reopened`、`ready_for_review`：Draft PR 跳过 `select` 及全部下游重型组以释放共享 runner 容量，同时 `required-gate` 仍运行并快速失败阻断，避免在 `strict: false` 分支保护下产生 `skipped` 通过记录；PR 转为 Ready 时由 `ready_for_review` 自动触发完整规划与验证。针对 PR 选中 Rust 基线或完整范围的场景，新增极速前置门禁 `fast-preflight`（在预构建 `ci-rust-build` 镜像中执行浅克隆与 `cargo fmt --all -- --check`，约半分钟内完成），前置阻断高耗重型编译/测试入口（`rust-baseline`、`oasis7-test-build-candidate`、`oasis7-required` 含 `inline` 模式、`workspace-support-other`、`custody-native-contracts`、`custody-native`、`custody-wasm-production`、`distfs`、`node` 含合并 `consensus`、`net`、`launcher-web`、`scenario-regression` 含合并 `pixel_world_bridge` 与 `cargo_tooling_contracts`），避免格式等低级失败导致重型任务空跑并在随后 push 时被大面积取消；同时在 `pull_request` 且 `fast-preflight` 已成功、非 `full` 范围时向 `rust-baseline` 注入 `OASIS7_SKIP_RUSTFMT=1` 省去二次重复 `cargo fmt --all -- --check`（本地 CLI、`push`/`schedule`/`workflow_dispatch` 与 `scope == 'full'` 仍保留原格式检查，非 Rust PR 跳过该门禁且不影响 `required-gate` 既有依赖合同）。手动候选验证不替代 PR 必需事件产生的检查。若发布所需平台不在本轮完整集合内，补跑准确候选的相应范围后再消费结果，不能把“不适用”用于隐藏缺环境。
 
 ### 调度、并发与主线健康
 
