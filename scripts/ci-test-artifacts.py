@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -1887,6 +1888,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     manifest['selection'] = None
     provider_required = scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'}))
     builtin_required = BuiltinTestArtifact.required(manifest)
+    if os.environ.get('OASIS7_FORBID_ORDINARY_DOCKER_WASM') == '1' and (provider_required or builtin_required):
+        raise ValueError('candidate ordinary image forbids canonical Docker WASM builds')
     if cache_state is not None and not cache_state.get('error'):
         material_manifests = ([ProviderArtifact.MANIFEST] if provider_required else [])
         if builtin_required:
@@ -2041,6 +2044,62 @@ def ordinary_docker_preflight():
     return dict(client_version=versions[0], server_version=server, server_api=versions[1],
                 buildx_version=match[1], context='default', builder='default', driver='docker',
                 builder_status='running')
+
+
+def ordinary_candidate_image_eligible(plan):
+    """Allow the non-root candidate image only when no Docker WASM build can be requested."""
+    if (not isinstance(plan, dict)
+            or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+            or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+            or plan.get('test_policy_changed') is not False
+            or 'ordinary_full_fast_targets' in plan):
+        return False
+    risk_targets = plan.get('ordinary_risk_targets')
+    if risk_targets is None:
+        return True
+    if not isinstance(risk_targets, list):
+        return False
+    return all(
+        isinstance(target, dict)
+        and target.get('target_kind') == 'test'
+        and (target.get('package') != 'oasis7_chain_runtime'
+             or plan.get('scope') not in ('full', 'explicit-full'))
+        for target in risk_targets
+    )
+
+
+def ordinary_candidate_isolation_preflight(socket_path=Path('/var/run/docker.sock')):
+    """Verify non-root UID/GID 1001 and kernel-enforced Docker socket denial."""
+    ids = (os.getuid(), os.getgid(), os.geteuid(), os.getegid())
+    groups = set(os.getgroups())
+    if ids != (1001, 1001, 1001, 1001) or not groups <= {1001}:
+        raise ValueError('candidate ordinary image requires unprivileged 1001:1001 identity without extra groups')
+    if os.environ.get('DOCKER_HOST', '') != '':
+        raise ValueError('candidate ordinary image forbids DOCKER_HOST')
+    if os.access(socket_path, os.R_OK) or os.access(socket_path, os.W_OK):
+        raise ValueError('candidate ordinary image must not access the Docker socket')
+    exists = False
+    try:
+        socket_path.lstat()
+        exists = True
+    except FileNotFoundError:
+        socket_state = 'absent'
+    except PermissionError:
+        socket_state = 'permission_denied'
+    if exists:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(2)
+            try:
+                client.connect(str(socket_path))
+            except PermissionError:
+                socket_state = 'permission_denied'
+            except FileNotFoundError:
+                socket_state = 'absent'
+            except OSError as error:
+                raise ValueError('unexpected candidate Docker socket error: ' + type(error).__name__) from None
+            else:
+                raise ValueError('candidate ordinary image must not connect to the Docker socket')
+    return dict(uid=1001, gid=1001, groups=sorted(groups), docker_socket=socket_state)
 
 
 def ordinary_build_image():
@@ -3890,6 +3949,8 @@ def main():
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--ordinary-partition', help='exact execution owner declared by the complete trusted plan')
     parser.add_argument('--parallel-ordinary', action='store_true', help='run prebuilt ordinary bundle harnesses with bounded pool')
+    parser.add_argument('--forbid-docker', action='store_true', help='verify non-root 1001:1001 isolation and Docker socket denial')
+    parser.add_argument('--expected-selection-sha256', help='expected SHA-256 of --plan for candidate image preflight')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
     parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'wasm-group', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'partition'], default='native')
     args = parser.parse_args()
@@ -3899,9 +3960,24 @@ def main():
     plan = json.loads(args.plan.read_text()) if args.plan else None
     if args.parallel_ordinary and (args.action != 'run' or args.suite != 'ordinary' or args.shard is not None):
         parser.error('--parallel-ordinary requires run --suite ordinary without --shard')
+    if (args.forbid_docker or args.expected_selection_sha256 is not None) and args.action != 'ordinary-image-preflight':
+        parser.error('--forbid-docker and --expected-selection-sha256 require ordinary-image-preflight')
+    if args.expected_selection_sha256 is not None and not args.forbid_docker:
+        parser.error('--expected-selection-sha256 requires --forbid-docker')
     if args.action == 'ordinary-image-preflight':
         report = ordinary_image_preflight()
-        report['docker'] = ordinary_docker_preflight()
+        if args.forbid_docker:
+            if args.plan is None or not args.expected_selection_sha256:
+                raise ValueError('candidate ordinary image preflight requires --plan and --expected-selection-sha256')
+            if (not re.fullmatch('[0-9a-f]{64}', args.expected_selection_sha256)
+                    or hashlib.sha256(args.plan.read_bytes()).hexdigest() != args.expected_selection_sha256):
+                raise ValueError('candidate ordinary selection digest mismatch')
+            validate_plan_identity(plan)
+            if not ordinary_candidate_image_eligible(plan):
+                raise ValueError('candidate ordinary plan is not eligible for Docker-less image execution')
+            report['candidate_isolation'] = ordinary_candidate_isolation_preflight()
+        else:
+            report['docker'] = ordinary_docker_preflight()
         print(json.dumps(report, sort_keys=True))
         return
     if (args.ordinary_partition is not None and args.action not in ('build', 'run', 'unpack-ordinary')

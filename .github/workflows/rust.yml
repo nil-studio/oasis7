@@ -274,6 +274,7 @@ jobs:
       workspace_support_signer_only: ${{ steps.workflow-plan.outputs.workspace_support_signer_only }}
       workspace_support_signer_context: ${{ steps.workflow-plan.outputs.workspace_support_signer_context }}
       workspace_support_signer_protocol: ${{ steps.workflow-plan.outputs.workspace_support_signer_protocol }}
+      ordinary_candidate_image: ${{ steps.workflow-plan.outputs.ordinary_candidate_image }}
       command_center_package: ${{ steps.select.outputs.command_center_package || 'true' }}
       run_baseline: ${{ steps.select.outputs.run_baseline }}
       run_command_center: ${{ steps.select.outputs.run_command_center }}
@@ -560,6 +561,27 @@ jobs:
                   ['oasis7_context', 'oasis7_local_signer', 'oasis7_signer_protocol'],
               )
               output.write('workspace_support_signer_protocol=' + str(signer_protocol).lower() + '\n')
+              risk_targets = plan.get('ordinary_risk_targets')
+              ordinary_candidate_image = (
+                  type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+                  and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                  and plan.get('test_policy_changed') is False
+                  and 'ordinary_full_fast_targets' not in plan
+                  and (
+                      risk_targets is None
+                      or (
+                          isinstance(risk_targets, list)
+                          and all(
+                              isinstance(target, dict)
+                              and target.get('target_kind') == 'test'
+                              and (target.get('package') != 'oasis7_chain_runtime'
+                                   or plan.get('scope') not in ('full', 'explicit-full'))
+                              for target in risk_targets
+                          )
+                      )
+                  )
+              )
+              output.write('ordinary_candidate_image=' + str(ordinary_candidate_image).lower() + '\n')
           PY
       - id: formal-select
         name: Resolve formal selection with conservative old-baseline fallback
@@ -1346,6 +1368,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     needs: [select, fast-preflight]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
@@ -1367,6 +1390,19 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 40
+    container:
+      image: >-
+        ${{ needs.select.outputs.ordinary_candidate_image == 'true' &&
+            'ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8' || '' }}
+      options: --user 1001:1001 --init --tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - *linux-mold-tools-checkout
       - &ordinary-configure-linux-mold
@@ -1385,8 +1421,49 @@ jobs:
           path: ${{ runner.temp }}
       - &ordinary-actions-setup-python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        if: ${{ !job.container.id }}
         with:
           python-version: '3.12'
+      - name: Verify candidate ordinary image and source
+        if: job.container.id
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          EXPECTED_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
+          EXPECTED_ORDINARY_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8
+        run: |
+          set -euo pipefail
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          export ImageOS=ubuntu24
+          export ORDINARY_BUILD_IMAGE="$EXPECTED_ORDINARY_IMAGE"
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT"
+          test "$(id -u):$(id -g)" = 1001:1001
+          [[ "$(< /proc/1/comm)" =~ ^(docker-init|tini)$ ]]
+          test -w "$ORDINARY_ARTIFACT_CHECKOUT" && test -w "$RUNNER_TEMP"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$ORDINARY_ARTIFACT_CHECKOUT"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_TESTED_SHA"
+          python3 scripts/ci-test-artifacts.py ordinary-image-preflight --forbid-docker \
+            --plan "$RUNNER_TEMP/selection.json" --expected-selection-sha256 "$SELECTION_SHA256"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          export RUSTUP_AUTO_INSTALL=0
+          test "$(rustc --version | cut -d ' ' -f 2)" = "$RUST_TOOLCHAIN"
+          rustup component list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx clippy-x86_64-unknown-linux-gnu
+          rustup component list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx rustfmt-x86_64-unknown-linux-gnu
+          rustup component list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx rust-src
+          rustup target list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx wasm32-unknown-unknown
+          rustup target list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx "$OASIS7_WASM_TARGET"
+          pkg-config --exists wayland-client xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
+          test "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER" = /opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc
+          test -x "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"
+          zstd --version
+          cat > "$RUNNER_TEMP/ordinary-image-cwd.bash" <<'ORDINARY_CWD'
+          export ORDINARY_ARTIFACT_CHECKOUT=/home/runner/work/oasis7/oasis7
+          cd -- "$ORDINARY_ARTIFACT_CHECKOUT" || exit 1
+          ORDINARY_CWD
+          chmod 600 "$RUNNER_TEMP/ordinary-image-cwd.bash"
+          printf 'ImageOS=ubuntu24\nORDINARY_BUILD_IMAGE=%s\nOASIS7_FORBID_ORDINARY_DOCKER_WASM=1\nBASH_ENV=%s\n' \
+            "$EXPECTED_ORDINARY_IMAGE" "$RUNNER_TEMP/ordinary-image-cwd.bash" >> "$GITHUB_ENV"
       - &ordinary-report-ordinary-workspace-cache-capacity
         name: Report ordinary workspace cache capacity
         env:
@@ -1394,13 +1471,14 @@ jobs:
         run: python3 scripts/ci-workspace-cache.py preflight --scope ordinary --report "$RUNNER_TEMP/ordinary-cache-preflight.json"
       - &ordinary-reclaim-unused-candidate-sdk-capacity
         name: Reclaim unused candidate SDK capacity
-        if: github.job == 'oasis7-test-build-candidate'
+        if: github.job == 'oasis7-test-build-candidate' && !job.container.id
         env:
           OASIS7_CAPACITY_PURPOSE: ordinary-native-candidate-v1
         run: |
           sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_JOB,GITHUB_WORKFLOW_REF,GITHUB_WORKSPACE,RUNNER_TEMP,OASIS7_CAPACITY_PURPOSE python3 scripts/ci-candidate-capacity.py --start "$RUNNER_TEMP/sdk-reclaim.json" --apply --min-free-bytes 1073741824 --min-free-inodes 10000
       - &ordinary-install-pinned-rust-toolchains
         name: Install pinned Rust toolchains
+        if: ${{ !job.container.id }}
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -1416,9 +1494,10 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v4
+          shared-key: ${{ job.container.id && 'ci-ordinary-image-714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8' || 'ci-shared-native-trusted-v4' }}
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-provider: github
           cache-on-failure: false
       - &ordinary-ordinary-cache-identity
         name: Identify ordinary workspace cache
@@ -1445,13 +1524,14 @@ jobs:
             --report "$RUNNER_TEMP/ordinary-cache-restore.json"
       - &ordinary-install-native-libraries
         name: Install native libraries
+        if: ${{ !job.container.id }}
         shell: bash
         timeout-minutes: 11
         run: |
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - &ordinary-wait-candidate-sdk-capacity
         name: Wait for candidate SDK reclamation
-        if: github.job == 'oasis7-test-build-candidate'
+        if: github.job == 'oasis7-test-build-candidate' && !job.container.id
         env:
           OASIS7_CAPACITY_PURPOSE: ordinary-native-candidate-v1
         run: |

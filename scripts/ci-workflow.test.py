@@ -281,6 +281,8 @@ def comparable_source_steps(name):
         expected.insert(-1, '- name: Install ordinary dependency cache admission')
     else:
         expected.insert(4, '- uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7')
+        if '    container:' in JOBS['oasis7-test-build-candidate']:
+            expected.insert(5, '- name: Verify candidate ordinary image and source')
         expected.insert(-2, '- name: Install pinned Rust toolchains')
     actual = [step.splitlines()[0].strip()
               for step in re.findall(r'^      - .*?(?=^      - |\Z)', prefix, re.M | re.S)]
@@ -2070,10 +2072,92 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             with self.subTest(cache_admission=changed), self.assertRaises(AssertionError):
                 ordinary_image_cache_admission(changed)
         candidate = JOBS['oasis7-test-build-candidate']
-        self.assertNotIn('    container:', candidate)
-        host_cache = rust_cache_steps(candidate)[0]
-        self.assertIn('shared-key: ci-shared-native-trusted-v4', host_cache)
-        self.assertIn('save-if: false', host_cache)
+        self.assertIn('cache-mode: read', candidate)
+        self.assertNotIn('cache-mode: write', candidate)
+        self.assertIn('packages: read', candidate)
+        self.assertNotIn('GH_TOKEN:', candidate)
+        self.assertNotIn('ordinary-dependency-cache-tools', candidate)
+        self.assertIn(
+            "    container:\n"
+            "      image: >-\n"
+            "        ${{ needs.select.outputs.ordinary_candidate_image == 'true' &&\n"
+            f"            '{image}' || '' }}}}\n"
+            "      options: --user 1001:1001 --init --tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec\n"
+            f"      volumes:\n        - {checkout}:{checkout}\n",
+            candidate,
+        )
+        candidate_cache = rust_cache_steps(candidate)[0]
+        self.assertIn(
+            f"shared-key: ${{{{ job.container.id && 'ci-ordinary-image-{digest}' || 'ci-shared-native-trusted-v4' }}}}\n",
+            candidate_cache,
+        )
+        self.assertIn('save-if: false', candidate_cache)
+        self.assertIn('cache-provider: github', candidate_cache)
+        candidate_preflight = workflow_step_script(candidate, 'Verify candidate ordinary image and source')
+        for guard in (
+            'test "$(id -u):$(id -g)" = 1001:1001',
+            '[[ "$(< /proc/1/comm)" =~ ^(docker-init|tini)$ ]]',
+            'test "$(git rev-parse HEAD)" = "$EXPECTED_TESTED_SHA"',
+            'python3 scripts/ci-test-artifacts.py ordinary-image-preflight --forbid-docker',
+            '--plan "$RUNNER_TEMP/selection.json" --expected-selection-sha256 "$SELECTION_SHA256"',
+            'test "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER" = /opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc',
+            'OASIS7_FORBID_ORDINARY_DOCKER_WASM=1',
+        ):
+            self.assertIn(guard, candidate_preflight)
+        for fallback_marker in (
+            'uses: actions/setup-python@',
+            'name: Install pinned Rust toolchains',
+            'name: Install native libraries',
+        ):
+            fallback_step = next(
+                step for step in re.findall(r'^      - .*?(?=^      - |\Z)', candidate, re.M | re.S)
+                if fallback_marker in step
+            )
+            self.assertIn('if: ${{ !job.container.id }}', fallback_step)
+        for sdk_marker in ('name: Reclaim unused candidate SDK capacity', 'name: Wait for candidate SDK reclamation'):
+            sdk_step = next(
+                step for step in re.findall(r'^      - .*?(?=^      - |\Z)', candidate, re.M | re.S)
+                if sdk_marker in step
+            )
+            self.assertIn("if: github.job == 'oasis7-test-build-candidate' && !job.container.id", sdk_step)
+        self.assertIn(
+            'ordinary_candidate_image: ${{ steps.workflow-plan.outputs.ordinary_candidate_image }}',
+            JOBS['select'],
+        )
+        projection_script = workflow_step_script(JOBS['select'], 'Publish workflow scheduling projection')
+        with tempfile.TemporaryDirectory() as proj_tmp:
+            proj_root = Path(proj_tmp)
+            proj_out = proj_root / 'github_output'
+            base_plan = {
+                'scope': 'targeted',
+                'groups': ['baseline', 'rust_baseline', 'oasis7_required'],
+                'execution_profile': 'pr-fast',
+                'fast_plan_version': 1,
+                'test_policy_changed': False,
+            }
+            for overrides, expected_eligible in (
+                ({}, True),
+                ({'scope': 'full', 'ordinary_risk_targets': [
+                    {'package': 'oasis7_runtime', 'target_kind': 'test'}]}, True),
+                ({'execution_profile': 'main-fast'}, True),
+                ({'test_policy_changed': True}, False),
+                ({'execution_profile': 'candidate-full'}, False),
+                ({'ordinary_full_fast_targets': []}, False),
+                ({'ordinary_risk_targets': [{'package': 'oasis7_runtime', 'target_kind': 'lib'}]}, False),
+                ({'scope': 'full', 'ordinary_risk_targets': [
+                    {'package': 'oasis7_chain_runtime', 'target_kind': 'test'}]}, False),
+            ):
+                (proj_root / 'selection.json').write_text(json.dumps(base_plan | overrides))
+                proj_out.unlink(missing_ok=True)
+                subprocess.run(
+                    ['bash', '--noprofile', '--norc', '-euo', 'pipefail', '-c', projection_script],
+                    env=dict(os.environ, RUNNER_TEMP=proj_tmp, GITHUB_OUTPUT=str(proj_out)),
+                    check=True,
+                )
+                self.assertIn(
+                    f'ordinary_candidate_image={str(expected_eligible).lower()}\n',
+                    proj_out.read_text(),
+                )
         boundary = '      - name: Identify ordinary workspace cache'
         for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
             original = JOBS[name]
@@ -4896,6 +4980,18 @@ run_cargo() {
             if 'save-if: false' in job and 'Swatinem/rust-cache@' in job:
                 if name in ('viewer-js-required', 'viewer-performance-report'):
                     viewer_cache_kind(job)
+                    continue
+                if name == 'oasis7-test-build-candidate' and '    container:' in job:
+                    trusted_image = re.search(
+                        r'^      image: ghcr\.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:([0-9a-f]{64})$',
+                        JOBS['oasis7-test-build-trusted'], re.M,
+                    )
+                    self.assertIsNotNone(trusted_image)
+                    self.assertIn(
+                        f"shared-key: ${{{{ job.container.id && 'ci-ordinary-image-{trusted_image[1]}' || 'ci-shared-native-trusted-v4' }}}}\n",
+                        job, name,
+                    )
+                    self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job, name)
                     continue
                 component = re.fullmatch(r'formal-(debug|endpoint)-build(?:-trusted)?', name)
                 namespace = f'ci-formal-{component[1]}-deps-trusted-v1' if component else 'ci-shared-native-trusted-v4'
