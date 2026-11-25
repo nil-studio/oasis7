@@ -27,7 +27,8 @@ from ci_process_runner import run
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / 'scripts/ci-browser-tools'
-AGENT_VERSION = '0.37.1'
+AGENT_VERSION = '0.43.0'
+AGENT_PLATFORM_PACKAGE = '@agent-browser/cli-linux-x64-gnu'
 PLAYWRIGHT_VERSION = '1.62.1'
 CHROME_VERSION = '158.0.8127.36'
 SHELL_VERSION = '151.0.7922.34'
@@ -49,8 +50,8 @@ ARCHIVES = {
         url='https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-freefont/fonts-freefont-ttf_20211204+svn4273-2_all.deb'),
 }
 
-# Complete v0.37.1 apt_dependency_specs, resolved for Ubuntu 24.04 x64.
-# https://github.com/vercel-labs/agent-browser/blob/v0.37.1/cli/src/install.rs
+# Complete v0.43.0 apt_dependency_specs, resolved for Ubuntu 24.04 x64.
+# https://github.com/vercel-labs/agent-browser/blob/v0.43.0/cli/src/install.rs
 AGENT_PACKAGES = (
     'libxcb-shm0', 'libx11-xcb1', 'libx11-6', 'libxcb1', 'libxext6', 'libxrandr2',
     'libxcomposite1', 'libxcursor1', 'libxdamage1', 'libxfixes3', 'libxi6',
@@ -312,12 +313,18 @@ def check_tools(browser):
         manifest = TOOLS / 'node_modules' / name / 'package.json'
         if json.loads(manifest.read_text()).get('version') != version:
             raise BrowserError(f'installed browser tool version mismatch: {name}')
-    # The npm integrity covers this bundled binary. Never invoke the package's
-    # postinstall fallback, which may download an unverified release or relink
-    # an unrelated global installation.
-    binary = TOOLS / 'node_modules/agent-browser/bin/agent-browser-linux-x64'
-    if browser == 'agent' and (binary.is_symlink() or not binary.is_file()):
-        raise BrowserError('pinned npm package is missing its bundled agent-browser binary')
+    # Run the native executable from the lockfile-pinned Linux glibc package.
+    # Do not run the JS launcher or postinstall: both can rewrite bin links.
+    package = TOOLS / 'node_modules' / AGENT_PLATFORM_PACKAGE
+    binary = package / 'bin' / 'agent-browser'
+    if browser == 'agent':
+        manifest = package / 'package.json'
+        if (not manifest.is_file() or manifest.resolve() != manifest
+                or not binary.is_file() or binary.resolve() != binary):
+            raise BrowserError('pinned Linux agent-browser platform package or binary is missing or linked')
+        info = json.loads(manifest.read_text())
+        if info.get('name') != AGENT_PLATFORM_PACKAGE or info.get('version') != AGENT_VERSION:
+            raise BrowserError('installed agent-browser platform package identity mismatch')
     return binary
 
 
@@ -325,7 +332,8 @@ def install_tools():
     with tempfile.TemporaryDirectory(prefix='ci-browser-npm-') as temporary:
         work = Path(temporary)
         checked_command(['npm', 'ci', '--prefix', str(TOOLS), '--ignore-scripts',
-                         '--no-audit', '--no-fund', '--fetch-retries=2', '--fetch-timeout=20000'],
+                         '--include=optional', '--no-audit', '--no-fund', '--fetch-retries=2',
+                         '--fetch-timeout=20000'],
                         work, 'npm-ci', 120)
         check_tools('agent')
 
