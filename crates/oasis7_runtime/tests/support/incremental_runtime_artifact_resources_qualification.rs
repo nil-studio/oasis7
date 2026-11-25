@@ -601,6 +601,22 @@ fn rich_sources() -> (
     (manifest, delta, builtins)
 }
 
+pub(super) fn transition_sources() -> (
+    ChainResourceManifest,
+    ChainResourceDelta,
+    BTreeMap<String, BTreeMap<String, BuiltinReleaseManifestEntry>>,
+) {
+    let (manifest, delta, builtins) = rich_sources();
+    if cfg!(feature = "test_tier_full") {
+        return (manifest, delta, builtins);
+    }
+    let mut manifest = ChainResourceManifest::empty_at_height("artifact-world", 17, 4);
+    manifest.refresh_hashes();
+    let mut delta = ChainResourceDelta::empty_for_manifest("artifact-world", "base", 5, 12);
+    delta.chain_id = "chain-4".into();
+    (manifest, delta, builtins)
+}
+
 #[test]
 fn artifact_qualification_rejects_generic_valid_same_name_in_wrong_root_namespace() {
     let directory = Directory::new();
@@ -616,7 +632,12 @@ fn artifact_qualification_rejects_generic_valid_same_name_in_wrong_root_namespac
     .unwrap();
     let mut base_roots = bounded_root_set(StateRootV1::from_canonical_bytes(&canonical).unwrap());
     install_governance_control_roots(&store, &memory, &mut base_roots);
-    for namespace in [StateNamespaceV1::Authorization, StateNamespaceV1::Allocator] {
+    let namespaces: &[StateNamespaceV1] = if cfg!(feature = "test_tier_full") {
+        &[StateNamespaceV1::Authorization, StateNamespaceV1::Allocator]
+    } else {
+        &[StateNamespaceV1::Authorization]
+    };
+    for &namespace in namespaces {
         let mut root_set = base_roots.clone();
         install_wrong_namespace_artifact_alias(&store, &memory, &mut root_set, namespace);
         assert!(matches!(
@@ -875,7 +896,7 @@ fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
     for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
-        let (manifest, delta, builtins) = rich_sources();
+        let (manifest, delta, builtins) = transition_sources();
         let initial_tick = delta.tick;
         let builtin_source = BuiltinSource(&builtins);
         let source = RuntimeArtifactResourcesRefV1 {
