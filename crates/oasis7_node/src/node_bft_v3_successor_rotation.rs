@@ -113,7 +113,7 @@ impl BftWindowSchedulePinV1 {
         }
         if let Some(np) = rep {
             np.validate()?;
-            if np.source_height != h || np.target_authority_epoch <= self.authority_epoch {
+            if np.source_height != h || np.target_authority_epoch != self.authority_epoch {
                 return Err(err("wire-3 new transition height/epoch invalid"));
             }
             return Ok(Self {
@@ -518,6 +518,9 @@ fn validate_phase(m: &BftSuccessorRotationMachineV1, start_h: u64) -> Result<(),
                 .map_err(|_| err("wire-3 sealed usage"))?;
             if m.committed_in_window != BFT_V3_WINDOW_MAX_COMMITS
                 || s.cut.height != max_h
+                || m.last_head.as_ref() != Some(&BftWindowHeadPinV1::from_cut(&s.cut))
+                || m.last_driver_install_digest.as_deref()
+                    != Some(s.cut.driver_install_digest.as_str())
                 || !digest(&s.public_manifest_digest)
                 || !digest(&s.execution_manifest_digest)
             {
@@ -731,8 +734,11 @@ mod tests {
             source_height: 164,
             activation_height: 166,
             new_validator_set_hash: s2.clone(),
-            target_authority_epoch: 2,
+            target_authority_epoch: 1,
         };
+        let mut wrong_epoch = pin.clone();
+        wrong_epoch.target_authority_epoch = 2;
+        assert!(m.record_nonempty_commit(mk_step(164, 64, 1, &s1, Some(wrong_epoch))).is_err());
         m.record_nonempty_commit(mk_step(164, 64, 1, &s1, Some(pin)))
             .unwrap();
         assert!(
@@ -741,6 +747,10 @@ mod tests {
         );
         let (cut, pm, em, inst) = artifacts(&m, 1, 8);
         m.seal_window(cut, &pm, &em).unwrap();
+        let mut tampered = m.clone();
+        let BftWindowRotationPhaseV1::Sealed(s) = &mut tampered.phase else { unreachable!() };
+        s.cut.header_id = h("forged sealed head", 164);
+        assert!(tampered.verify_cold_resume(&src, 0, &m.minimum_checkpoint_digest, 5, m.last_head.as_ref()).is_err());
         let mut stale = inst.clone();
         stale.lease_generation = 4;
         assert!(m.adopt_successor_window(&stale).is_err());
@@ -752,7 +762,7 @@ mod tests {
         assert!(m.adopt_successor_window(&dropped).is_err());
         m.adopt_successor_window(&inst).unwrap();
         commit_range(&mut m, 65..=65, &s1);
-        assert_eq!(m.active_schedule.authority_epoch, 2);
+        assert_eq!(m.active_schedule.authority_epoch, 1);
         assert_eq!(m.active_schedule.active_set_hash, s2);
         let saved = m.clone();
         let d_min = saved.minimum_checkpoint_digest.clone();
@@ -767,7 +777,7 @@ mod tests {
             .verify_cold_resume(&src, 1, &d_min, 9, d_head.as_ref())
             .unwrap();
         resumed
-            .record_nonempty_commit(mk_step(166, 66, 2, &s2, None))
+            .record_nonempty_commit(mk_step(166, 66, 1, &s2, None))
             .unwrap();
         assert_eq!(resumed.total_nonempty_commits().unwrap(), 66);
     }
