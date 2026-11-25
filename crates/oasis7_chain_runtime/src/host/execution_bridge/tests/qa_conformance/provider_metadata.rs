@@ -2,7 +2,7 @@
 use super::*;
 use std::io::Write;
 pub(super) type DecisionObservation =
-    Arc<dyn Fn(&oasis7::simulator::ContinuousAgentRequestContextV1) + Send + Sync>;
+    Arc<dyn Fn(&oasis7_agent_api::ContinuousAgentRequestContextV1) + Send + Sync>;
 pub(super) struct MetadataServer {
     pub(super) endpoint: String,
     pub(super) decision_count: Arc<std::sync::atomic::AtomicUsize>,
@@ -146,7 +146,7 @@ impl MetadataServer {
                                 .position(|window| window == b"\r\n\r\n")
                                 .unwrap()
                                 + 4;
-                            let incoming: oasis7::simulator::ContinuousAgentRequestContextV1 =
+                            let incoming: oasis7_agent_api::ContinuousAgentRequestContextV1 =
                                 serde_json::from_slice(&bytes[boundary..]).unwrap();
                             incoming.validate_production_lane().unwrap();
                             if preflight_reset && let Some(observe) = &observation {
@@ -214,7 +214,7 @@ impl MetadataServer {
                                     vec![]
                                 },
                             };
-                            let response = oasis7::simulator::ContinuousAgentResponseContextV1 {
+                            let response = oasis7_agent_api::ContinuousAgentResponseContextV1 {
                                 response_digest: oasis7_agent_api::cognition_response_digest(&base),
                                 base_decision_response: base,
                                 context_discriminator: incoming.context_discriminator,
@@ -233,7 +233,7 @@ impl MetadataServer {
                                 bytes.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
                             let raw: serde_json::Value =
                                 serde_json::from_slice(&bytes[boundary..]).unwrap();
-                            let feedback: oasis7::simulator::FeedbackEnvelopeV1 =
+                            let feedback: oasis7_agent_api::FeedbackEnvelopeV1 =
                                 serde_json::from_value(raw.clone()).unwrap();
                             assert_eq!(feedback.provenance, "runtime_authoritative");
                             assert!(feedback.feedback_seq > 0);
