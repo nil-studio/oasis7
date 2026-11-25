@@ -536,15 +536,16 @@ def na_design(*, disposition: str) -> str:
 
 def scenario_complete_na() -> None:
     module = load_checker()
-    root, _base, _head = make_repo(
-        design_text=na_design(
-            disposition="N/A: reason=该条款不涉及运行时技术义务；scope=本次文档治理变更；owner_role=repository_health_engineer；evidence_ref=https://github.com/eng-cc/oasis7/issues/3671#issuecomment-5636906114；re-evaluate=下次改变跨组件行为时。"
+    for org in ("nil-studio", "eng-cc"):
+        root, _base, _head = make_repo(
+            design_text=na_design(
+                disposition=f"N/A: reason=该条款不涉及运行时技术义务；scope=本次文档治理变更；owner_role=repository_health_engineer；evidence_ref=https://github.com/{org}/oasis7/issues/3671#issuecomment-5636906114；re-evaluate=下次改变跨组件行为时。"
+            )
         )
-    )
-    try:
-        assert_no_errors(module, root / DESIGN)
-    finally:
-        shutil.rmtree(root)
+        try:
+            assert_no_errors(module, root / DESIGN)
+        finally:
+            shutil.rmtree(root)
 
 
 def scenario_na_accepts_readable_repository_path_fragment() -> None:

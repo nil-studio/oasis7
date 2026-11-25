@@ -73,7 +73,7 @@ def check(root=ROOT):
             if len(provenance) == 1:
                 need(provenance[0][1].get('data-evidence-source') == attrs.get('data-evidence-source'), f'{prefix}: runtime capture source disclosure mismatch')
             need(bool(re.fullmatch(r'[0-9a-f]{40}', attrs.get('data-source-version', ''))), f'{prefix}: fixed case version required')
-            need(bool(re.fullmatch(r'https://github\.com/eng-cc/oasis7/blob/[0-9a-f]{40}/doc/testing/evidence/[^?#]+', attrs.get('data-evidence-source', ''))), f'{prefix}: immutable case report required')
+            need(bool(re.fullmatch(r'https://github\.com/(?:nil-studio|eng-cc)/oasis7/blob/[0-9a-f]{40}/doc/testing/evidence/[^?#]+', attrs.get('data-evidence-source', ''))), f'{prefix}: immutable case report required')
         articles = []
         identities = set()
         for family, kind in families.items():
@@ -107,7 +107,7 @@ def check(root=ROOT):
                         for field in ['data-source-build', 'data-runtime-profile', 'data-source-scenario', 'data-source-window']:
                             need(attrs.get(field, '').strip().lower() not in {'', 'unknown', 'n/a', 'none'}, f'{path}: incomplete runtime provenance: {field}')
                         source = attrs.get('data-source-url', '')
-                        need(source.startswith(f'https://github.com/eng-cc/oasis7/blob/{version}/'), f'{path}: immutable trusted runtime source required')
+                        need(bool(re.match(rf'^https://github\.com/(?:nil-studio|eng-cc)/oasis7/blob/{re.escape(version)}/', source)), f'{path}: immutable trusted runtime source required')
                         need(any(tag == 'a' and a.get('href') == source for tag, a in page.nodes), f'{path}: runtime source link missing')
                 articles.append((family, path, attrs, page))
         paired[locale] = {(family, attrs.get('data-content-id')): attrs for family, _, attrs, _ in articles}

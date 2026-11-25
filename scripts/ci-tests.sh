@@ -297,7 +297,11 @@ run_oasis7_required_tier_tests() {
   fi
   if [[ "${ordinary_partition:-}" == controls ]]; then return; fi
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
-    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}"
+    local bundle_run_args=()
+    if [[ "${OASIS7_LOCAL_CHECK:-0}" != 1 ]]; then
+      bundle_run_args=(--parallel-ordinary)
+    fi
+    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}" "${bundle_run_args[@]}"
     return
   fi
   if [[ -n "${required_plan:-}" ]]; then

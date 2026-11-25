@@ -74,6 +74,8 @@ pub(super) struct DurablePeerRecordPublisher {
     lock: File,
     keypair: Keypair,
     template: PeerRecord,
+    clock: super::peer_record_time::DiscoveryClock,
+    persisted_published_at_ms: Option<i64>,
     state: PublisherStateV2,
     poisoned: bool,
 }
@@ -84,10 +86,20 @@ pub(super) enum LocalPeerRecordPublisher {
 }
 
 impl LocalPeerRecordPublisher {
+    #[cfg(test)]
     pub(super) fn open(
         directory: Option<&Path>,
         keypair: &Keypair,
         template: Option<&PeerRecord>,
+    ) -> Result<Self, WorldError> {
+        Self::open_with_clock(directory, keypair, template, Default::default())
+    }
+
+    pub(super) fn open_with_clock(
+        directory: Option<&Path>,
+        keypair: &Keypair,
+        template: Option<&PeerRecord>,
+        clock: super::peer_record_time::DiscoveryClock,
     ) -> Result<Self, WorldError> {
         let Some(directory) = directory else {
             return Ok(Self::Legacy);
@@ -97,9 +109,9 @@ impl LocalPeerRecordPublisher {
                 "durable peer publication requires a configured peer-record template".into(),
             )
         })?;
-        Ok(Self::Durable(Box::new(DurablePeerRecordPublisher::open(
-            directory, keypair, template,
-        )?)))
+        Ok(Self::Durable(Box::new(
+            DurablePeerRecordPublisher::open_with_clock(directory, keypair, template, clock)?,
+        )))
     }
 
     pub(super) fn sign(
@@ -166,10 +178,20 @@ impl DurablePeerRecordPublisher {
         initialization::initialize(directory, keypair, template)
     }
 
+    #[cfg(test)]
     pub(super) fn open(
         directory: &Path,
         keypair: &Keypair,
         template: &PeerRecord,
+    ) -> Result<Self, WorldError> {
+        Self::open_with_clock(directory, keypair, template, Default::default())
+    }
+
+    pub(super) fn open_with_clock(
+        directory: &Path,
+        keypair: &Keypair,
+        template: &PeerRecord,
+        clock: super::peer_record_time::DiscoveryClock,
     ) -> Result<Self, WorldError> {
         let (template, binding) = publisher_binding(template, keypair)?;
         require_private_persistence_platform()?;
@@ -197,6 +219,8 @@ impl DurablePeerRecordPublisher {
             lock,
             keypair: keypair.clone(),
             template,
+            clock,
+            persisted_published_at_ms: None,
             state: PublisherStateV2 {
                 schema_version: STATE_SCHEMA_VERSION,
                 binding: binding.clone(),
@@ -220,7 +244,7 @@ impl DurablePeerRecordPublisher {
             return self.sign_and_persist_pending();
         }
         let record = self.normalize_and_check_materialized_record(record)?;
-        ensure_record_is_unexpired(&record)?;
+        self.ensure_record_is_unexpired(&record)?;
         let record_bytes = canonical_cbor(&record)?;
         ensure_record_capacity(record_bytes.len())?;
 
@@ -234,6 +258,7 @@ impl DurablePeerRecordPublisher {
             return self.sign_and_persist_pending();
         }
 
+        self.ensure_non_regressing_timestamp(&record)?;
         let sequence = self.next_sequence()?;
         let pending = PendingPublicationV2 {
             sequence,
@@ -245,6 +270,7 @@ impl DurablePeerRecordPublisher {
         next.last_sequence = sequence;
         next.pending = Some(pending);
         self.persist_state(next)?;
+        self.persisted_published_at_ms = Some(record.published_at_ms);
         self.sign_and_persist_pending()
     }
 
@@ -311,7 +337,8 @@ impl DurablePeerRecordPublisher {
                 record.relay_addrs.clear();
                 record.published_at_ms = super::now_ms();
                 let record = self.normalize_and_check_tombstone_record(&record)?;
-                ensure_record_is_unexpired(&record)?;
+                self.ensure_record_is_unexpired(&record)?;
+                self.ensure_non_regressing_timestamp(&record)?;
                 let record_bytes = canonical_cbor(&record)?;
                 ensure_record_capacity(record_bytes.len())?;
                 let sequence = self.next_sequence()?;
@@ -325,6 +352,7 @@ impl DurablePeerRecordPublisher {
                     state: PeerRecordPublicationStateV2::Tombstone,
                 });
                 self.persist_state(next)?;
+                self.persisted_published_at_ms = Some(record.published_at_ms);
                 self.sign_and_persist_pending().map(|_| ())
             }
             PeerRecordPublicationTransition::Resume => {
@@ -365,6 +393,12 @@ impl DurablePeerRecordPublisher {
             ));
         }
         validate_state(&state, &expected_binding, &self.keypair)?;
+        self.persisted_published_at_ms = state
+            .pending
+            .as_ref()
+            .and_then(|p| serde_cbor::from_slice::<PeerRecord>(&p.materialized_record_cbor).ok())
+            .map(|r| r.published_at_ms)
+            .filter(|ms| *ms > 0);
         self.state = state;
         Ok(())
     }
@@ -381,6 +415,7 @@ impl DurablePeerRecordPublisher {
         }
         let record: PeerRecord = serde_cbor::from_slice(&pending.materialized_record_cbor)
             .map_err(|error| protocol_error(format!("reserved record decode failed: {error}")))?;
+        self.ensure_record_is_unexpired(&record)?;
         let signed = sign_peer_record_v2(
             &record,
             PeerRecordPublicationV2 {
@@ -420,7 +455,7 @@ impl DurablePeerRecordPublisher {
         let signed: SignedPeerRecord = serde_cbor::from_slice(signed_bytes)
             .map_err(|error| protocol_error(format!("stored signature decode failed: {error}")))?;
         verify_signed_peer_record(&signed)?;
-        ensure_record_is_unexpired(&signed.record)?;
+        self.ensure_record_is_unexpired(&signed.record)?;
         let record: PeerRecord = serde_cbor::from_slice(&pending.materialized_record_cbor)
             .map_err(|error| protocol_error(format!("reserved record decode failed: {error}")))?;
         let publication = signed
@@ -445,11 +480,29 @@ impl DurablePeerRecordPublisher {
         Ok(signed)
     }
 
+    fn ensure_record_is_unexpired(&self, record: &PeerRecord) -> Result<(), WorldError> {
+        self.clock.check(record)?;
+        Ok(())
+    }
+
+    fn ensure_non_regressing_timestamp(&self, record: &PeerRecord) -> Result<(), WorldError> {
+        if self
+            .persisted_published_at_ms
+            .is_some_and(|prev| record.published_at_ms < prev)
+        {
+            return Err(protocol_error(
+                "peer record publication timestamp regressed behind durable publisher state".into(),
+            ));
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     fn reserve_materialized_record(&mut self, record: &PeerRecord) -> Result<u64, WorldError> {
         self.ensure_usable()?;
         let record = self.normalize_and_check_materialized_record(record)?;
-        ensure_record_is_unexpired(&record)?;
+        self.ensure_record_is_unexpired(&record)?;
+        self.ensure_non_regressing_timestamp(&record)?;
         let record_bytes = canonical_cbor(&record)?;
         ensure_record_capacity(record_bytes.len())?;
         let sequence = self.next_sequence()?;
@@ -462,6 +515,7 @@ impl DurablePeerRecordPublisher {
             state: PeerRecordPublicationStateV2::Live,
         });
         self.persist_state(next)?;
+        self.persisted_published_at_ms = Some(record.published_at_ms);
         Ok(sequence)
     }
 
@@ -723,16 +777,6 @@ pub(super) fn canonical_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, WorldEr
 fn ensure_record_capacity(bytes: usize) -> Result<(), WorldError> {
     if bytes > MAX_RECORD_BYTES {
         return Err(protocol_error("peer record capacity exceeded".into()));
-    }
-    Ok(())
-}
-
-fn ensure_record_is_unexpired(record: &PeerRecord) -> Result<(), WorldError> {
-    let expiry = record.expires_at_ms().map_err(protocol_error)?;
-    if crate::util::unix_now_ms_i64() >= expiry {
-        return Err(protocol_error(
-            "materialized peer record has expired; allocate a fresh publication sequence".into(),
-        ));
     }
     Ok(())
 }

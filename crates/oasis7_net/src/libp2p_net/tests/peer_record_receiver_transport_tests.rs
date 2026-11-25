@@ -278,6 +278,177 @@ fn tcp_dht_receiver_persists_v2_floor_across_restart_and_allows_higher_sequence(
     drop(source);
     std::thread::sleep(Duration::from_millis(100));
     std::fs::remove_dir_all(&scratch).expect("remove isolated TCP receiver fixture");
+
+    {
+        use super::super::api::install_verified_discovery_floor as install_floor;
+        use super::super::durable_peer_record_publisher::DurablePeerRecordPublisher;
+        use super::super::peer_record_cache::PeerRecordCache;
+        use super::super::peer_record_time::DiscoveryClock;
+        use super::super::receiver_floor::{PeerRecordReceiver, ReceiverAdmission};
+        use std::collections::HashMap;
+
+        let temp = tempfile::tempdir_in(&physical_temp_dir).unwrap();
+        let mk_dir = |name: &str| {
+            let dir = temp.path().join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+            dir
+        };
+        let (pub_dir, recv_dir, snap_dir) = (mk_dir("pub"), mk_dir("recv"), mk_dir("snap"));
+        let (pub_key, recv_key) = (Keypair::generate_ed25519(), Keypair::generate_ed25519());
+        let pub_peer = PeerId::from(pub_key.public());
+        let now = super::now_ms();
+        let mut pub_tpl = super::signed_discovery_peer_record(
+            &pub_key,
+            vec![crate::dht::PeerDiscoverySource::Dht],
+            now - 100,
+        )
+        .record;
+        pub_tpl.ttl_ms = 15_000;
+        let recv_tpl = super::signed_discovery_peer_record(&recv_key, Vec::new(), now).record;
+        let recv_cfg = PeerRecordReceiverConfig {
+            mode: PeerRecordReceiverMode::DurableCompatible,
+            directory: Some(recv_dir.clone()),
+        };
+        DurablePeerRecordPublisher::initialize(&pub_dir, &pub_key, &pub_tpl).unwrap();
+        PeerRecordReceiver::initialize(&recv_cfg, &recv_key, &recv_tpl).unwrap();
+
+        let pub_clock = DiscoveryClock::requiring_independent_floor();
+        let mut publisher = DurablePeerRecordPublisher::open_with_clock(
+            &pub_dir,
+            &pub_key,
+            &pub_tpl,
+            pub_clock.clone(),
+        )
+        .unwrap();
+        assert!(publisher.publish_materialized(&pub_tpl).is_err());
+        let t0 = Instant::now();
+        assert!(
+            pub_clock
+                .install_independently_verified_floor(now, now - 1, t0)
+                .is_err()
+        );
+        pub_clock
+            .install_independently_verified_floor(now, now, t0)
+            .unwrap();
+        let seq1 = publisher.publish_materialized(&pub_tpl).unwrap();
+        let seq1_expiry = seq1.record.expires_at_ms().unwrap();
+        drop(publisher);
+
+        let receiver = PeerRecordReceiver::open(&recv_cfg, &recv_key, Some(&recv_tpl)).unwrap();
+        let recv_clock = DiscoveryClock::requiring_independent_floor();
+        install_floor(&recv_clock, &receiver, now, now, t0).unwrap();
+        assert_eq!(
+            receiver.admit_serialized(&seq1).unwrap(),
+            ReceiverAdmission::Accepted
+        );
+        drop(receiver);
+        for entry in std::fs::read_dir(&recv_dir).unwrap() {
+            let entry = entry.unwrap();
+            let dst = snap_dir.join(entry.file_name());
+            std::fs::copy(entry.path(), &dst).unwrap();
+            std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+
+        let snap_cfg = PeerRecordReceiverConfig {
+            mode: PeerRecordReceiverMode::DurableCompatible,
+            directory: Some(snap_dir.clone()),
+        };
+        let restored = PeerRecordReceiver::open(&snap_cfg, &recv_key, Some(&recv_tpl)).unwrap();
+        let cold_clock = DiscoveryClock::requiring_independent_floor();
+        assert!(install_floor(&cold_clock, &restored, now - 1, now, Instant::now()).is_err());
+        install_floor(&cold_clock, &restored, now, now, Instant::now()).unwrap();
+        assert!(install_floor(&cold_clock, &restored, now + 1, now + 1, Instant::now()).is_err());
+        assert_eq!(restored.persisted_time_floor_ms().unwrap(), Some(now));
+        restored.observe_trusted_time(seq1_expiry).unwrap();
+        assert!(restored.admit_serialized(&seq1).is_err());
+        assert!(restored.lease_guard(&seq1).is_err());
+        drop(restored);
+
+        let pub_cold = DiscoveryClock::requiring_independent_floor();
+        let mut reopened_pub = DurablePeerRecordPublisher::open_with_clock(
+            &pub_dir,
+            &pub_key,
+            &pub_tpl,
+            pub_cold.clone(),
+        )
+        .unwrap();
+        assert!(reopened_pub.publish_materialized(&pub_tpl).is_err());
+        let now2 = super::now_ms();
+        pub_cold
+            .install_independently_verified_floor(now2, now2, Instant::now())
+            .unwrap();
+        let mut regressed = pub_tpl.clone();
+        regressed.published_at_ms -= 1;
+        assert!(reopened_pub.publish_materialized(&regressed).is_err());
+        drop(reopened_pub);
+        let mut fresh = pub_tpl.clone();
+        fresh.published_at_ms = now2;
+        fresh.ttl_ms = 60_000;
+        let pub_recover = DiscoveryClock::requiring_independent_floor();
+        pub_recover
+            .install_independently_verified_floor(now2, now2, Instant::now())
+            .unwrap();
+        let mut reopened_pub =
+            DurablePeerRecordPublisher::open_with_clock(&pub_dir, &pub_key, &fresh, pub_recover)
+                .unwrap();
+        let seq2 = reopened_pub.publish_materialized(&fresh).unwrap();
+        assert_eq!(seq2.publication.as_ref().unwrap().sequence, 2);
+        drop(reopened_pub);
+
+        let source = Libp2pNetwork::try_new(config(&pub_key, None, Vec::new(), None)).unwrap();
+        let gated_cfg = config(
+            &recv_key,
+            Some(recv_tpl),
+            vec![tcp_peer_address(&source)],
+            Some(snap_dir),
+        )
+        .requiring_independent_discovery_clock_floor();
+        let live_recv = open_receiver(&gated_cfg);
+        connect(&live_recv, pub_peer);
+        store_and_verify_source_record(&source, &seq1);
+        assert_remote_record_rejected(&live_recv, pub_peer, "independent UTC floor");
+        assert!(
+            live_recv
+                .install_verified_discovery_clock_floor(now - 1)
+                .is_err()
+        );
+        live_recv
+            .install_verified_discovery_clock_floor(super::now_ms())
+            .unwrap();
+        live_recv
+            .observe_peer_record_receiver_trusted_time(seq1_expiry)
+            .unwrap();
+        assert_remote_record_rejected(&live_recv, pub_peer, "expired");
+
+        store_and_verify_source_record(&source, &seq2);
+        assert_eq!(
+            live_recv
+                .get_peer_record("world-a", &pub_peer.to_string())
+                .unwrap(),
+            Some(seq2.clone())
+        );
+
+        let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
+            live_recv.discovery_clock.clone(),
+            Default::default(),
+            Arc::clone(&live_recv.peer_record_receiver),
+        );
+        let lease2 = cache
+            .prepare(pub_peer, &seq2)
+            .unwrap()
+            .with_receiver_guard(live_recv.peer_record_receiver.lease_guard(&seq2).unwrap());
+        cache.install(pub_peer, seq2.clone(), lease2);
+        live_recv
+            .observe_peer_record_receiver_trusted_time(seq2.record.expires_at_ms().unwrap())
+            .unwrap();
+        assert!(cache.get(&pub_peer).is_none());
+        let path = super::super::transport_paths::peer_record_transport_paths(&seq2)
+            .unwrap()
+            .remove(0);
+        assert!(cache.prune(&HashMap::from([(pub_peer, path)])));
+        assert!(cache.session_record(&pub_peer).is_some());
+    }
 }
 
 #[cfg(unix)]
