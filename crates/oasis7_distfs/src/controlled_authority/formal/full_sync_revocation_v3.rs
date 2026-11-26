@@ -69,6 +69,19 @@ impl FullSyncRevocationInventoryV1 {
             ));
         }
         let target = command.body.target.clone();
+        // Later commands for this target supersede the exact lease generation.
+        let superseded = state.entries().iter().any(|later| {
+            later.record.next_anchor.revision > entry.record.next_anchor.revision
+                && matches!(
+                    &later.record.event,
+                    FullSyncIssuerEventV3::Management(next) if next.body.target == target
+                )
+        });
+        if superseded {
+            return Err(FormalError::Conflict(
+                "V3 revocation superseded by later target transition".into(),
+            ));
+        }
         let target_state = state
             .target_state(&target)
             .ok_or_else(|| FormalError::Conflict("V3 revocation target absent".into()))?;
