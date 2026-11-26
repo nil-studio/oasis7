@@ -249,7 +249,9 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
 
 
 class DependabotCoverageGuardTests(unittest.TestCase):
-    EXCLUDED_NPM_DIRECTORIES = {}
+    EXCLUDED_NPM_DIRECTORIES = {
+        '/.github/actions/cache-sdk': 'vendored fixed actions/cache 55cc SDK closure; update patch/provenance together',
+    }
     EXCLUDED_CARGO_DIRECTORIES = {
         '/tests/libp2p-compat/candidate': 'compatibility test fixture',
         '/tests/libp2p-compat/common': 'compatibility test fixture',

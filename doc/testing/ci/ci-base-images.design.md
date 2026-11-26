@@ -42,6 +42,11 @@ Viewer 必需检查和历史性能报告共用 `rust-viewer`。可信选择作�
 
 Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；同一 textual key 不保证宿主与容器可互用。runtime 共用层预装 zstd，全部镜像 smoke test 验证 tar/zstd 往返；消费者使用可信 writer 的归档路径并保持原工具身份校验，正式日志仍须验证 exact hit。
 
+归档运输库前置固定 `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` 所用 SDK 6.1.0 和 npm integrity 锁。可审源补丁仅增加 V2 的显式 archiveWorkingDirectory 与下载后、首次 tar 解析前的 beforeExtract 回调；默认不传选项时保持上游行为，V1 显式选用则拒绝，回调失败传播 ValidationError。原 raw paths、压缩方法、版本 salt 与 getCacheVersion 不变，不通过修改 GITHUB_* 环境伪造工作根。
+
+第三方 SDK 生成库和许可证置于 `vendor/actions-cache-explicit-context/`，自有构建入口、源补丁及 provenance 保留在 `.github/actions/cache-sdk/`。npm 元数据没有 toolkit Git commit，provenance 如实记录为空；不能以 npm 字段缺失冒称源码证明。该构建包复用现有 vendored-source 的 Dependabot 精确例外，版本升级须与上游快照、源补丁、lock、provenance 及生成库同批审阅；不独立自动更新这份固定依赖闭包。构建使用固定 ncc 的 minify 输出，避免第三方生成格式的行尾空白，不手工改写字符串或放宽全局格式检查。清洁复现入口是在该目录执行 `npm ci --ignore-scripts --no-audit --no-fund && npm run build`，回执绑定输入与生成文件摘要，真实 SDK tar 四向及本地 V2 HTTP 回归只证明运输行为，不代表共享缓存上传。本前置默认没有动作入口和生产调用；有限 contract、提取前有界检查以及原两个 mixed producer 的 container 切换在后续消费批次交付，原权限、准入、6/12 分钟和 20 GB 预算保持。
+
+
 镜像 digest 加入依赖系统库或工具链的 native 缓存身份，防止跨环境恢复不兼容产物。镜像拉取或依赖探测失败时保持 job 失败，按已有流程退回上一已验证 digest 或回退迁移提交。禁止以自动 apt 回退掩盖镜像缺件，让安装步骤重新进入常规路径。
 
 ## 迁移与验收验证
@@ -122,3 +127,10 @@ original source and Docker workspace path. Adoption preserves
 wasm-bindgen, and sentinel archive path and version compatibility before
 moving their writers. Candidate full regression retains its current
 runner until its canonical build can use an isolated Docker boundary.
+
+
+### 有限归档 Adapter 的消费边界
+
+有限入口位于 `.github/actions/portable-cache-transport/`，直接导入上述固定 SDK，不另行安装依赖或打包自有逻辑。它只接受原 `worker-build` 与三种 `browser-archive` component，由原 metadata helper 派生 key、root、条目与字节上限；调用者不能指定 cwd、raw paths 或 fallback keys。SDK 使用固定宿主 canonical 工作根，保留原归档相对成员和缓存版本，不改 `GITHUB_*`。执行前核对实际 checkout HEAD、工作区和动作目录 inode、可信 main workflow/job、V2/read-write 模式与 UID/GID；save 仍依赖原 helper 的 REST/库存/20 GB 准入及测量结果，不新增授权路径。
+
+恢复回调先绑定 exact matched key，再在解包前以 no-follow/nonblocking 描述符检查实际下载归档。有界 zstd 流覆盖 header、PAX、padding 和 payload；仅允许精确旧 prefix 内的普通文件及目录，拒绝链接、设备、sparse、未知 PAX、重复、路径穿越、文件目录冲突和当前目标 symlink。检查器沿现有 process runner 的 60 秒边界与进程回收运行；该边界不是同 UID 沙箱，也不保证硬终止后仍可执行用户态清理。SDK 缺失回调或检查失败不得作为成功命中。当前阶段只有入口与回归，没有生产 workflow 调用；两个 mixed job 的容器切换和自然 writer/reader 证据由下一消费批次独立交付。
