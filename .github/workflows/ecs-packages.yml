@@ -118,14 +118,30 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Verify preinstalled trusted Rust build environment
+        id: native-environment
+        if: github.job == 'native-trusted'
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          test "$(command -v rustc)" = /opt/oasis7-rust/bin/rustc
+          test "$(rustc --version | cut -d' ' -f2)" = "$RUST_TOOLCHAIN"
+          test "$(cargo --version | cut -d' ' -f2)" = "$RUST_TOOLCHAIN"
+          pkg-config --modversion x11 xi xcursor xrandr xinerama alsa libudev
+          /usr/bin/time --version
+          printf 'mold=%s/oasis7-ecs-native-mold\n' "$(realpath -- "$RUNNER_TEMP")" >> "$GITHUB_OUTPUT"
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ steps.native-environment.outputs.mold }}
       - name: Preflight ECS workspace cache capacity
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-ecs-cache.py preflight --report "$RUNNER_TEMP/ecs-cache-preflight.json"
       - name: Install Rust and system libraries
+        if: github.job == 'native'
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup default "$RUST_TOOLCHAIN"
@@ -134,7 +150,12 @@ jobs:
       - name: Normalize Rust cache toolchains
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
+        run: |
+          toolchains=("$RUST_TOOLCHAIN")
+          if [[ "$GITHUB_JOB" == 'native-trusted' ]]; then
+            toolchains+=("$OASIS7_WASM_TOOLCHAIN")
+          fi
+          python3 scripts/ci-rust-cache-toolchains.py "${toolchains[@]}"
       - name: Install dependency cache admission
         id: dependency-cache-tools
         if: hashFiles('scripts/ci-rust-cache-admission.py') != ''
@@ -144,23 +165,26 @@ jobs:
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'
         env:
           PATH: ${{ steps.dependency-cache-tools.outputs.path }}
-          OASIS7_DEPENDENCY_CACHE_FAMILY: ecs
+          OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ github.job == 'native-trusted' && 'ecs-image' || 'ecs' }}
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
         with:
-          shared-key: oasis7-ecs-native-linux-ecs-v2
+          shared-key: ${{ env.ECS_NATIVE_DEPENDENCY_NAMESPACE || 'oasis7-ecs-native-linux-ecs-v2' }}
+          cache-provider: github
           save-if: ${{ job.status == 'success' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Identify ECS workspace cache
         id: ecs-cache-identity
         continue-on-error: true
-        run: python3 scripts/ci-ecs-cache.py identity
+        run: |
+          printf 'archive=%s/ecs-workspace-cache/workspace-units.tar.gz\n' "$(realpath -- "$RUNNER_TEMP")" >> "$GITHUB_OUTPUT"
+          python3 scripts/ci-ecs-cache.py identity
       - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         id: ecs-workspace-cache
         if: steps.ecs-cache-identity.outputs.key != ''
         continue-on-error: true
         with:
-          path: ${{ runner.temp }}/ecs-workspace-cache/workspace-units.tar.gz
+          path: ${{ steps.ecs-cache-identity.outputs.archive }}
           key: ${{ steps.ecs-cache-identity.outputs.key }}
           restore-keys: ${{ steps.ecs-cache-identity.outputs.prefix }}
       - name: Validate ECS workspace cache
@@ -197,17 +221,19 @@ jobs:
           /usr/bin/time -v -o "$resource_dir/ecs-time.txt" \
             python3 scripts/package-ecs.py native --out "$RUNNER_TEMP/ecs-native" --cache-state "$RUNNER_TEMP/ecs-cache-state.json"
       - name: Compile actual cold entry integration probe
+        id: cold-entry-probe
         env:
           CARGO_BUILD_JOBS: ${{ inputs.native_build_jobs || '2' }}
         run: |
           env -u RUSTC_WRAPPER cargo build --locked --profile ecs -p oasis7_game_client --example cold_entry_probe
           mkdir -p "$RUNNER_TEMP/ecs-cold-entry-probe"
           cp target/ecs/examples/cold_entry_probe "$RUNNER_TEMP/ecs-cold-entry-probe/cold_entry_probe"
+          printf 'binary=%s/ecs-cold-entry-probe/cold_entry_probe\n' "$(realpath -- "$RUNNER_TEMP")" >> "$GITHUB_OUTPUT"
       - name: Stage separate cold entry probe
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ecs-cold-entry-probe-stage
-          path: ${{ runner.temp }}/ecs-cold-entry-probe/cold_entry_probe
+          path: ${{ steps.cold-entry-probe.outputs.binary }}
           if-no-files-found: error
       - name: Stage ECS workspace cache
         id: ecs-cache-stage
@@ -230,7 +256,7 @@ jobs:
         if: github.job == 'native-trusted' && steps.ecs-cache-stage.outputs.save == 'true'
         continue-on-error: true
         with:
-          path: ${{ runner.temp }}/ecs-workspace-cache/workspace-units.tar.gz
+          path: ${{ steps.ecs-cache-identity.outputs.archive }}
           key: ${{ steps.ecs-cache-identity.outputs.key }}
       - name: Confirm ECS workspace cache save
         id: ecs-cache-observe
@@ -252,7 +278,7 @@ jobs:
           path: output/native.tar.gz
           if-no-files-found: error
       - name: Upload native Cargo timings
-        if: always()
+        if: always() && github.job == 'native'
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -262,6 +288,29 @@ jobs:
             ${{ runner.temp }}/ecs-reports/
             ${{ runner.temp }}/ecs-cache-*.json
             ${{ runner.temp }}/ecs-units.json
+          if-no-files-found: ignore
+
+      - id: image-timings
+        name: Stage the original native timing evidence for image upload
+        if: always() && github.job == 'native-trusted'
+        continue-on-error: true
+        run: |
+          root=$(mktemp -d "$RUNNER_TEMP/ecs-native-timings.XXXXXX")
+          mkdir -p "$root/oasis7/oasis7/target" "$root/_temp"
+          if [[ -d target/cargo-timings ]]; then
+            cp -r -- target/cargo-timings "$root/oasis7/oasis7/target/"
+          fi
+          for evidence in "$RUNNER_TEMP"/ecs-reports "$RUNNER_TEMP"/ecs-cache-*.json "$RUNNER_TEMP"/ecs-units.json; do
+            if [[ -e "$evidence" ]]; then cp -r -- "$evidence" "$root/_temp/"; fi
+          done
+          printf 'path=%s\n' "$(realpath -- "$root")" >> "$GITHUB_OUTPUT"
+      - name: Upload image native Cargo timings
+        if: always() && steps.image-timings.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecs-native-timings
+          path: ${{ steps.image-timings.outputs.path }}
           if-no-files-found: ignore
 
   native-trusted:
@@ -275,6 +324,24 @@ jobs:
     cache-mode: write
     runs-on: ubuntu-24.04
     timeout-minutes: 135
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container:
+      image: &ecs-native-trusted-image ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The workspace cache hashes the complete Rust configuration, including this digest.
+      RUST_ECS_NATIVE_IMAGE: *ecs-native-trusted-image
+      ECS_NATIVE_DEPENDENCY_NAMESPACE: oasis7-ecs-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
     steps: *native-steps
 
   cache-maintenance:

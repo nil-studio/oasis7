@@ -443,6 +443,30 @@ class AdmissionTests(unittest.TestCase):
         self.run['path'] = '.github/workflows/ecs-packages.yml'
         self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
 
+    def test_ecs_image_writer_requires_frozen_image_source_and_namespace(self):
+        namespace, workflow, job = admission.FAMILIES['ecs-image']
+        image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.removeprefix('oasis7-ecs-native-image-')
+        self.run.update(event='workflow_dispatch', path=workflow)
+        environment = self.environment | {
+            'OASIS7_DEPENDENCY_CACHE_FAMILY': 'ecs-image', 'RUST_ECS_NATIVE_IMAGE': image,
+            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_JOB': job,
+            'GITHUB_WORKFLOW_REF': f'nil-studio/oasis7/{workflow}@refs/heads/main',
+            'INPUT_SHARED-KEY': namespace, 'INPUT_CACHE-PROVIDER': 'github',
+        }
+        self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        self.assertIn(namespace, admission.maintenance.DEPENDENCY_NAMESPACES)
+        for override in ({'GITHUB_JOB': 'native'}, {'GITHUB_REF': 'refs/heads/candidate'},
+                         {'RUST_ECS_NATIVE_IMAGE': image[:-1] + '0'}, {'RUST_ECS_NATIVE_IMAGE': ''},
+                         {'INPUT_SHARED-KEY': 'oasis7-ecs-native-linux-ecs-v2'}, {'INPUT_CACHE-PROVIDER': 'buildjet'}):
+            with self.subTest(override=override):
+                self.api.list_caches.reset_mock()
+                self.assertFalse(admission.check_archive(self.archive, environment | override, self.api)['allowed'])
+                self.api.list_caches.assert_not_called()
+        subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=CI fixture',
+                        '-c', 'user.email=ci-fixture@example.invalid', 'commit', '-q',
+                        '--allow-empty', '-m', 'different native source'], check=True)
+        self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+
     def test_release_writers_require_matching_platform_source_and_workflow(self):
         web = admission.FAMILIES['release-web']
         self.assertIn(web, (
