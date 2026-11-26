@@ -41,8 +41,10 @@ pub(crate) fn freeze_original_pending(
     }
     let (_, state_path, socket_path) = paths(config_path, &instance.operation_id)?;
     let current = read_owner_record(&state_path)?.ok_or("original pending owner receipt missing")?;
-    if current.snapshot.instance != *instance || current.snapshot.state != "ready" {
-        return Err("original pending freeze requires the exact ready owner".into());
+    if current.snapshot.instance != *instance
+        || !matches!(current.snapshot.state.as_str(), "ready" | "unknown" | "stopping")
+    {
+        return Err("original pending freeze requires the exact active owner".into());
     }
     let stream = UnixStream::connect(socket_path)
         .map_err(|_| "original pending exact owner control unavailable")?;
@@ -73,7 +75,6 @@ pub(crate) fn freeze_original_pending(
     pin.validate(&expected_owner)?;
     Ok(pin)
 }
-
 pub(crate) fn read_original_pending_pin_candidate(
     config_path: &Path,
     instance: &FormalRuntimeInstanceV1,
@@ -104,7 +105,6 @@ pub(crate) fn read_original_pending_pin_candidate(
         &expected_owner,
     )
 }
-
 pub(crate) fn cold_read_original_pending_for_owner(
     config_path: &Path,
     instance: &FormalRuntimeInstanceV1,
