@@ -1013,6 +1013,11 @@ impl World {
             WorldEventBody::Domain(event) => {
                 let committed_receipt_event_id =
                     self.validate_agent_intent_receipt_reference(event, envelope_event_seq)?;
+                if let DomainEvent::ModuleTickScheduleUpdated { instance_id, next_tick } = event {
+                    self.apply_module_tick_schedule_update(instance_id, *next_tick);
+                    self.state.time = time;
+                    return Ok(());
+                }
                 if matches!(
                     event,
                     DomainEvent::ModuleInstalled { .. }

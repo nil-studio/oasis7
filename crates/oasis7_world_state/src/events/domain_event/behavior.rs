@@ -61,7 +61,8 @@ impl<'a> From<&'a DomainEvent> for DomainEventView<'a> {
             | DomainEvent::ModuleArtifactDestroyed { .. }
             | DomainEvent::ModuleArtifactBidPlaced { .. }
             | DomainEvent::ModuleArtifactBidCancelled { .. }
-            | DomainEvent::ModuleArtifactSaleCompleted { .. } => {
+            | DomainEvent::ModuleArtifactSaleCompleted { .. }
+            | DomainEvent::ModuleTickScheduleUpdated { .. } => {
                 Self::ModuleLifecycle(module_lifecycle::ModuleLifecycleView::from_event(event))
             }
             DomainEvent::ResourceTransferred { .. }

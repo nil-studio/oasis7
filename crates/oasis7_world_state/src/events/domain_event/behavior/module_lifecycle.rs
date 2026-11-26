@@ -152,6 +152,10 @@ pub(super) enum ModuleLifecycleView<'a> {
         listing_order_id: &'a Option<u64>,
         bid_order_id: &'a Option<u64>,
     },
+    ModuleTickScheduleUpdated {
+        instance_id: &'a String,
+        next_tick: &'a Option<WorldTime>,
+    },
 }
 
 impl<'a> ModuleLifecycleView<'a> {
@@ -435,6 +439,13 @@ impl<'a> ModuleLifecycleView<'a> {
                 sale_id,
                 listing_order_id,
                 bid_order_id,
+            },
+            DomainEvent::ModuleTickScheduleUpdated {
+                instance_id,
+                next_tick,
+            } => Self::ModuleTickScheduleUpdated {
+                instance_id,
+                next_tick,
             },
             _ => unreachable!("event was routed to the wrong module_lifecycle view"),
         }
