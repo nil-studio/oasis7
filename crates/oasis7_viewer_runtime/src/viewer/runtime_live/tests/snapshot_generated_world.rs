@@ -17,7 +17,9 @@ fn write_generated_world_fixture(label: &str) -> PathBuf {
     std::fs::create_dir_all(&sidecar_dir).expect("create generated sidecar dir");
     let config = WorldConfig::default();
     let init = WorldInitConfig::from_scenario(WorldScenario::AsteroidFragmentBootstrap, &config);
-    let (kernel, _) = oasis7_simulator::initialize_kernel(config, init).expect("initialize kernel");
+    let (kernel, _) =
+        oasis7_runtime_host::simulator_archive::kernel_host::initialize_kernel(config, init)
+            .expect("initialize kernel");
     kernel
         .save_to_dir(&sidecar_dir)
         .expect("save generated sidecar world");
