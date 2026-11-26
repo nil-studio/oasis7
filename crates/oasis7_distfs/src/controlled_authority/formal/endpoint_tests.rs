@@ -1117,3 +1117,14 @@ mod storage_maintenance_tests;
 #[cfg(unix)]
 #[path = "endpoint_incremental_tests.rs"]
 mod incremental_tests;
+
+// Production Store with signed current checkpoint and actual object index,
+// not an arbitrary detached DTO qualification.
+#[cfg(unix)]
+pub(super) fn with_store_for_bounded_index_fixture<T>(
+    run: impl FnOnce(&mut Store, &Path) -> T,
+) -> T {
+    let fixture = Fixture::new();
+    let mut endpoint = fixture.endpoint(EndpointRole::Primary);
+    run(&mut endpoint.store, &fixture.pdir)
+}
