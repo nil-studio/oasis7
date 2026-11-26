@@ -36,6 +36,18 @@ pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_loopback_http;
 pub(crate) use oasis7_runtime_host::provider_material_capture;
+#[cfg(any())]
+#[path = "provider_json_admission.rs"]
+mod retired_provider_json_admission;
+#[cfg(any())]
+#[path = "provider_loopback_adapter.rs"]
+mod retired_provider_loopback_adapter;
+#[cfg(any())]
+#[path = "provider_loopback_http.rs"]
+mod retired_provider_loopback_http;
+#[cfg(any())]
+#[path = "provider_material_capture.rs"]
+mod retired_provider_material_capture;
 mod runner;
 #[cfg(not(target_arch = "wasm32"))]
 mod turn_engine;
