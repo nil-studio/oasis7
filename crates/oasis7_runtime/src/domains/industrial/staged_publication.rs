@@ -17,7 +17,7 @@ use crate::{
     WorldEventId,
 };
 
-pub(super) enum StagedIndustrialPublication<'a> {
+pub(in crate::world) enum StagedIndustrialPublication<'a> {
     State(&'a DomainEvent),
     History(&'a DomainEvent),
     RouteOnly(&'a DomainEvent, &'a str),
@@ -25,7 +25,7 @@ pub(super) enum StagedIndustrialPublication<'a> {
 }
 
 impl<'a> StagedIndustrialPublication<'a> {
-    pub(super) fn from_body(body: &'a WorldEventBody) -> Option<Self> {
+    pub(in crate::world) fn from_body(body: &'a WorldEventBody) -> Option<Self> {
         if matches!(body, WorldEventBody::ProductValidationDeliveryCursorUpdated(_)) {
             return Some(Self::DeliveryCursor(body));
         }
@@ -62,7 +62,7 @@ impl<'a> StagedIndustrialPublication<'a> {
     }
 }
 
-pub(super) struct IndustrialPublicationDelta {
+pub(in crate::world) struct IndustrialPublicationDelta {
     event: WorldEvent,
     state_delta: PreparedEventStateDelta,
     next_event_id: WorldEventId,
@@ -84,6 +84,75 @@ impl SubsystemDelta for IndustrialPublicationDelta {
         if let WorldEventBody::Domain(event) = &self.event.body {
             ctx.state_mut().route_domain_event(event);
         }
+    }
+}
+
+#[derive(Default)]
+pub(in crate::world) struct IndustrialBatchPublicationDelta {
+    steps: Vec<(WorldEvent, PreparedEventStateDelta)>,
+    next_event_id: WorldEventId,
+    next_event_id_era: u64,
+    journal_events: Vec<WorldEvent>,
+    journal_events_evicted: u64,
+}
+
+impl SubsystemDelta for IndustrialBatchPublicationDelta {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        if self.steps.is_empty() {
+            return;
+        }
+        for (event, state_delta) in self.steps {
+            state_delta.install_infallible(ctx.world_mut());
+            ctx.state_mut().time = event.time;
+            if let WorldEventBody::Domain(domain_event) = &event.body {
+                ctx.state_mut().route_domain_event(domain_event);
+            }
+        }
+        ctx.install_journal_tail(
+            self.next_event_id,
+            self.next_event_id_era,
+            self.journal_events,
+            self.journal_events_evicted,
+        );
+    }
+}
+
+impl StagedIndustrialPublication<'_> {
+    fn prepare_state_delta(
+        &self,
+        world: &World,
+        state: &crate::WorldState,
+    ) -> Result<(WorldEventBody, PreparedEventStateDelta), TransitionReject> {
+        let (body, delta) = match self {
+            Self::State(event) => (
+                WorldEventBody::Domain((*event).clone()),
+                PreparedEventStateDelta::Industry(PreparedIndustryEvent::prepare(
+                    state, event, state.time,
+                )?),
+            ),
+            Self::History(event) => (
+                WorldEventBody::Domain((*event).clone()),
+                PreparedEventStateDelta::IndustryHistory(PreparedIndustryHistoryEvent::prepare(
+                    state, event, state.time,
+                )?),
+            ),
+            Self::RouteOnly(event, agent_id) => (
+                WorldEventBody::Domain((*event).clone()),
+                PreparedEventStateDelta::DomainRouteOnly {
+                    event: (*event).clone(),
+                    agent_id: (*agent_id).to_owned(),
+                },
+            ),
+            Self::DeliveryCursor(body) => (
+                (*body).clone(),
+                PreparedEventStateDelta::for_body(world, body).ok_or_else(|| {
+                    WorldError::ResourceBalanceInvalid {
+                        reason: "unclassified product validation delivery cursor".to_string(),
+                    }
+                })?,
+            ),
+        };
+        Ok((body, delta))
     }
 }
 
@@ -110,35 +179,7 @@ impl SynchronousEventTransition for StagedIndustrialPublication<'_> {
         world: &World,
         ctx: &TransitionContext,
     ) -> Result<(WorldEventId, TickConsensusRecord, Self::Delta), TransitionReject> {
-        let (body, state_delta) = match self {
-            Self::State(event) => (
-                WorldEventBody::Domain((*event).clone()),
-                PreparedEventStateDelta::Industry(PreparedIndustryEvent::prepare(
-                    &world.state, event, world.state.time,
-                )?),
-            ),
-            Self::History(event) => (
-                WorldEventBody::Domain((*event).clone()),
-                PreparedEventStateDelta::IndustryHistory(PreparedIndustryHistoryEvent::prepare(
-                    &world.state, event, world.state.time,
-                )?),
-            ),
-            Self::RouteOnly(event, agent_id) => (
-                WorldEventBody::Domain((*event).clone()),
-                PreparedEventStateDelta::DomainRouteOnly {
-                    event: (*event).clone(),
-                    agent_id: (*agent_id).to_owned(),
-                },
-            ),
-            Self::DeliveryCursor(body) => (
-                (*body).clone(),
-                PreparedEventStateDelta::for_body(world, body).ok_or_else(|| {
-                    WorldError::ResourceBalanceInvalid {
-                        reason: "unclassified product validation delivery cursor".to_string(),
-                    }
-                })?,
-            ),
-        };
+        let (body, state_delta) = self.prepare_state_delta(world, &world.state)?;
         let PreparedEventPublication {
             event,
             next_event_id,
@@ -171,6 +212,108 @@ impl World {
     ) -> Result<WorldEventId, WorldError> {
         let ctx = TransitionContext::new(self.state.time, caused_by);
         publish_synchronous_event(self, &transition, &ctx)
+    }
+
+    #[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
+    pub(in crate::world) fn prepare_industrial_action_rejected_publication(
+        &self,
+        body: WorldEventBody,
+        caused_by: Option<CausedBy>,
+    ) -> Result<(TickConsensusRecord, IndustrialPublicationDelta), WorldError> {
+        if !matches!(body, WorldEventBody::Domain(DomainEvent::ActionRejected { .. })) {
+            return Err(WorldError::ResourceBalanceInvalid { reason: "expected ActionRejected event body".into() });
+        }
+        let state_delta = PreparedEventStateDelta::NoState(body.clone());
+        let p = self.prepare_event_publication(body, caused_by, state_delta)?;
+        Ok((
+            p.consensus_record,
+            IndustrialPublicationDelta {
+                event: p.event, state_delta: p.state_delta, next_event_id: p.next_event_id,
+                next_event_id_era: p.next_event_id_era, journal_events: p.journal_events,
+                journal_events_evicted: p.journal_events_evicted,
+            },
+        ))
+    }
+
+    #[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
+    pub(in crate::world) fn prepare_industrial_batch_publication(
+        &self,
+        bodies: &[WorldEventBody],
+        caused_by: Option<CausedBy>,
+    ) -> Result<(Option<TickConsensusRecord>, IndustrialBatchPublicationDelta), WorldError> {
+        if bodies.is_empty() {
+            return Ok((None, IndustrialBatchPublicationDelta::default()));
+        }
+        if bodies.len() == 1 {
+            let transition = StagedIndustrialPublication::from_body(&bodies[0]).ok_or_else(|| {
+                WorldError::ResourceBalanceInvalid { reason: format!("unclassified industrial event: {:?}", bodies[0]) }
+            })?;
+            let ctx = TransitionContext::new(self.state.time, caused_by);
+            let (_, consensus_record, single) = transition.prepare_event(self, &ctx).map_err(TransitionReject::into_world_error)?;
+            return Ok((
+                Some(consensus_record),
+                IndustrialBatchPublicationDelta {
+                    steps: vec![(single.event, single.state_delta)],
+                    next_event_id: single.next_event_id, next_event_id_era: single.next_event_id_era,
+                    journal_events: single.journal_events, journal_events_evicted: single.journal_events_evicted,
+                },
+            ));
+        }
+
+        let mut working_state = self.state.clone();
+        let (mut next_event_id, mut next_event_id_era) = (self.next_event_id, self.next_event_id_era);
+        let mut journal_events = self.journal.events.clone();
+        let max_len = self.runtime_memory_limits.max_journal_events.max(1);
+        let mut journal_events_evicted = 0_u64;
+        let mut steps = Vec::with_capacity(bodies.len());
+        let last_event_time = working_state.time;
+
+        for (idx, body) in bodies.iter().enumerate() {
+            let transition = StagedIndustrialPublication::from_body(body).ok_or_else(|| {
+                WorldError::ResourceBalanceInvalid { reason: format!("unclassified industrial event: {body:?}") }
+            })?;
+            let (_, state_delta) = transition.prepare_state_delta(self, &working_state).map_err(TransitionReject::into_world_error)?;
+            let (event_id, next_id, next_era) = Self::preview_next_event_id(next_event_id, next_event_id_era);
+            if let WorldEventBody::Domain(domain_event) = body {
+                self.validate_agent_intent_receipt_reference(domain_event, Some(event_id))?;
+            }
+            let event = WorldEvent { id: event_id, time: working_state.time, caused_by: caused_by.clone(), body: body.clone() };
+            (next_event_id, next_event_id_era) = (next_id, next_era);
+
+            journal_events.push(event.clone());
+            let overflow = journal_events.len().saturating_sub(max_len);
+            if overflow > 0 {
+                journal_events.drain(0..overflow);
+                journal_events_evicted = journal_events_evicted.saturating_add(overflow as u64);
+            }
+            if idx + 1 < bodies.len() {
+                let (_, working_delta) = transition.prepare_state_delta(self, &working_state).map_err(TransitionReject::into_world_error)?;
+                match working_delta {
+                    PreparedEventStateDelta::Industry(p) => p.install(&mut working_state),
+                    PreparedEventStateDelta::IndustryHistory(p) => p.install(&mut working_state),
+                    _ => {}
+                }
+                if let WorldEventBody::Domain(domain_event) = &event.body {
+                    working_state.route_domain_event(domain_event);
+                }
+            }
+            steps.push((event, state_delta));
+        }
+
+        let tick_events: Vec<WorldEvent> = journal_events.iter().filter(|e| e.time == last_event_time).cloned().collect();
+        let state_root = match &steps.last().expect("nonempty").1 {
+            PreparedEventStateDelta::Industry(p) => self.state_root_hash_for_state_with_industry_overlay(&working_state, p)?,
+            _ => self.state_root_hash_for_state(&working_state)?,
+        };
+        let consensus_record = self.build_tick_consensus_record_for_prepared_events(last_event_time, &tick_events, state_root.clone())?;
+        self.validate_tick_consensus_candidate_for_prepared_publication(&consensus_record, &tick_events, &state_root)?;
+
+        Ok((
+            Some(consensus_record),
+            IndustrialBatchPublicationDelta {
+                steps, next_event_id, next_event_id_era, journal_events, journal_events_evicted,
+            },
+        ))
     }
 }
 

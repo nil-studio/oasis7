@@ -61,3 +61,21 @@ impl LogisticsSlaMetrics {
         self.total_delay_ticks as f64 / self.completed_transits as f64
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::world) struct LogisticsSlaMetricsDelta {
+    next_metrics: LogisticsSlaMetrics,
+}
+
+impl LogisticsSlaMetricsDelta {
+    #[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
+    pub(in crate::world) fn new(next_metrics: LogisticsSlaMetrics) -> Self {
+        Self { next_metrics }
+    }
+}
+
+impl super::transition::SubsystemDelta for LogisticsSlaMetricsDelta {
+    fn apply_infallible(self, ctx: &mut super::transition::RootInstallContext<'_>) {
+        ctx.world_mut().set_logistics_sla_metrics(self.next_metrics);
+    }
+}

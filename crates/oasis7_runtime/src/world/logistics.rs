@@ -11,9 +11,9 @@ use super::super::{
 };
 use super::{LogisticsSlaMetrics, World};
 
-struct PreparedDueMaterialTransits {
-    bodies: Vec<WorldEventBody>,
-    logistics_sla_metrics: LogisticsSlaMetrics,
+pub(in crate::world) struct PreparedDueMaterialTransits {
+    pub(in crate::world) bodies: Vec<WorldEventBody>,
+    pub(in crate::world) logistics_sla_metrics: LogisticsSlaMetrics,
 }
 
 pub(super) const MATERIAL_TRANSFER_MAX_DISTANCE_KM: i64 = 10_000;
@@ -934,7 +934,10 @@ impl World {
         })
     }
 
-    fn prepare_due_material_transits_at(&self, now: WorldTime) -> PreparedDueMaterialTransits {
+    pub(in crate::world) fn prepare_due_material_transits_at(
+        &self,
+        now: WorldTime,
+    ) -> PreparedDueMaterialTransits {
         let mut due_jobs: Vec<_> = self
             .state
             .pending_material_transits
@@ -975,6 +978,10 @@ impl World {
             bodies,
             logistics_sla_metrics,
         }
+    }
+
+    pub(in crate::world) fn set_logistics_sla_metrics(&mut self, metrics: LogisticsSlaMetrics) {
+        self.logistics_sla_metrics = metrics;
     }
 
     #[cfg(test)]

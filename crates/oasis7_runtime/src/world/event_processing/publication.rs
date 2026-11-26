@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod prepared_state_delta;
 pub(super) use prepared_state_delta::PreparedEventStateDelta;
 #[path = "../../domains/industrial/staged_publication.rs"]
-mod staged_industrial;
+pub(in crate::world) mod staged_industrial;
 #[path = "../../domains/institutions/staged_publication.rs"]
 mod staged_institutions;
 #[path = "../../domains/institutions/staged_governance.rs"]
