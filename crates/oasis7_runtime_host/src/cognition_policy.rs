@@ -322,7 +322,7 @@ impl MemoryWriteStore {
     /// Harness transition after the supplied host authority verifies the
     /// receipt.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn apply_runtime_receipt_with_authority<A: HarnessRuntimeAuthority>(
+    pub fn apply_runtime_receipt_with_authority<A: HarnessRuntimeAuthority>(
         &mut self,
         intent: NormalizedMemoryWriteIntentV1,
         digest: Digest32,
@@ -344,7 +344,7 @@ impl MemoryWriteStore {
     /// Finalize only corrections bound to a receipt accepted by the same
     /// authority boundary as memory writes.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn finalize_corrections_with_authority<A: HarnessRuntimeAuthority>(
+    pub fn finalize_corrections_with_authority<A: HarnessRuntimeAuthority>(
         &mut self,
         receipt: &A::Receipt,
         context: &MemoryWritePolicyContextV1,
