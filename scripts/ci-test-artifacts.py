@@ -349,6 +349,7 @@ def targeted_ordinary_artifact_partitions(plan):
     if (isinstance(plan, dict)
             and plan.get('ordinary_dynamic_partition_version') == 1
             and plan.get('scope') == 'targeted'
+            and plan.get('test_policy_changed') is False
             and isinstance(plan.get('ordinary_harness_costs'), dict)
             and isinstance(plan.get('oasis7_required_packages'), list)):
         selected = set(plan['oasis7_required_packages'])
@@ -426,8 +427,8 @@ def fast_plan(plan):
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions',
          'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
-         'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
-         'ordinary_wasm_group'}.intersection(plan))
+         'ordinary_dynamic_partition_version', 'ordinary_universal_sharding_version',
+         'ordinary_controls_in_rust_baseline_version', 'ordinary_wasm_group'}.intersection(plan))
     if (isinstance(plan, dict) and 'ordinary_clippy_group' in plan
             and 'fast_execution_version' not in plan
             and 'ordinary_controls_in_rust_baseline_version' not in plan):
@@ -587,6 +588,17 @@ def validate_distfs_clippy_handoff(plan):
         raise ValueError('invalid complete native DistFS Clippy handoff')
 
 
+def _ordinary_packages_support_universal_v2(plan):
+    packages = plan.get('oasis7_required_packages')
+    if not isinstance(packages, list) or not packages:
+        return False
+    selected = set(packages)
+    if 'oasis7_chain_runtime' in selected:
+        return True
+    harnesses = plan.get('ordinary_harness_costs', {}).get('harnesses', ())
+    return sum(1 for row in harnesses if row['package'] in selected) >= 4
+
+
 def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
     # Match the trusted planner's bounded v1 policy-migration layout without
@@ -621,6 +633,19 @@ def validate_ordinary_partitions(plan):
                 or plan.get('ordinary_artifact_partition_version') != 2
                 or 'ordinary_harness_costs' not in plan):
             raise ValueError('invalid ordinary dynamic partition capability')
+    universal_v2 = False
+    if 'ordinary_universal_sharding_version' in plan:
+        if (type(plan['ordinary_universal_sharding_version']) is not int
+                or plan['ordinary_universal_sharding_version'] != 1
+                or plan.get('ordinary_artifact_partition_version') != 2
+                or plan.get('ordinary_artifact_delivery_version') != 2
+                or 'ordinary_harness_costs' not in plan
+                or plan.get('scope') != 'targeted'
+                or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                or type(plan.get('test_policy_changed')) is not bool
+                or not _ordinary_packages_support_universal_v2(plan)):
+            raise ValueError('invalid ordinary universal sharding capability')
+        universal_v2 = True
     if 'ordinary_artifact_delivery_version' in plan:
         if (type(plan['ordinary_artifact_delivery_version']) is not int
                 or plan['ordinary_artifact_delivery_version'] not in (1, 2)
@@ -644,10 +669,10 @@ def validate_ordinary_partitions(plan):
                     (plan.get('scope') != 'targeted' and not (
                         plan.get('scope') == 'full' and plan.get('ordinary_artifact_delivery_version') == 2))
                     or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
-                    or plan.get('test_policy_changed') is not False
+                    or (plan.get('test_policy_changed') is not False and not universal_v2)
                     or 'ordinary_fast_targets' in plan or 'ordinary_full_fast_targets' in plan
                     or not isinstance(plan.get('oasis7_required_packages'), list)
-                    or 'oasis7_chain_runtime' not in plan.get('oasis7_required_packages', [])))):
+                    or ('oasis7_chain_runtime' not in plan.get('oasis7_required_packages', []) and not universal_v2)))):
             raise ValueError('invalid complete ordinary artifact partitions')
         return
     targets = plan.get('ordinary_fast_targets')
@@ -2565,7 +2590,13 @@ def ordinary_delivery_layout(manifest, plan, diagnostic=False):
             manifest['binaries'][name].get('package'), manifest['binaries'][name].get('target'),
             manifest['binaries'][name].get('target_kind'), manifest['binaries'][name].get('variant')) == (
                 'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')}
-        if len(runtime) != 1 or shared != runtime or any(ownership[name] != set(owners) for name in shared):
+        if plan.get('ordinary_universal_sharding_version') == 1 and not runtime:
+            if len(shared) > 1 or any(ownership[name] != set(owners) for name in shared):
+                raise ValueError('universal ordinary delivery may share at most one complete batch target across all owners')
+            for name in shared:
+                if manifest['binaries'][name].get('ordinary') is not True:
+                    raise ValueError('universal ordinary delivery shared binary must be an ordinary test target')
+        elif len(runtime) != 1 or shared != runtime or any(ownership[name] != set(owners) for name in shared):
             raise ValueError('ordinary delivery may share only the complete required runtime')
 
         def coverage(items):
@@ -3804,48 +3835,14 @@ def expand_ordinary_batches(entries, binaries):
 
 
 def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
-    """Partition real runtime cases, retaining every other complete harness."""
+    """Partition real runtime cases or multi-harness packages, retaining every complete harness."""
     effective_plan = manifest.get('execution_plan') if plan is None else plan
+    universal_sharding = (isinstance(effective_plan, dict)
+                          and effective_plan.get('ordinary_universal_sharding_version') == 1)
     owners = tuple(native_ordinary_partitions(effective_plan))
     if owners not in (COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:], TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]):
         raise ValueError('unsupported targeted ordinary native owners')
     entries = expand_ordinary_batches(ordinary_entries(manifest), manifest['binaries'])
-    runtime = [entry for entry in entries if entry.get('batch') and (
-        manifest['binaries'][entry['binary']].get('package'),
-        manifest['binaries'][entry['binary']].get('target'),
-        manifest['binaries'][entry['binary']].get('target_kind'),
-        manifest['binaries'][entry['binary']].get('variant')) == (
-            'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')]
-    if len(runtime) != 1:
-        raise ValueError('targeted ordinary partitions require one complete runtime library')
-    parent = runtime[0]
-    binary = manifest['binaries'][parent['binary']]
-    if len(binary['tests']) != len(set(binary['tests'])):
-        raise ValueError('duplicate runtime case inventory')
-    skipped = set(parent.get('skip', ())) | set(parent.get('skip_exact', ()))
-    cases = set(binary['tests']) - set(binary['ignored_tests']) - skipped
-    if len(cases) < len(owners):
-        raise ValueError('targeted ordinary runtime partitions must each execute behavior tests')
-    # No per-case duration history exists yet. Hash ordering avoids clustering
-    # names from one module, then round-robin balances counts deterministically.
-    ordered = sorted(cases, key=lambda name: (hashlib.sha256(name.encode()).digest(), name))
-    selected = {owner: set(ordered[index::len(owners)]) for index, owner in enumerate(owners)}
-    if (set.union(*selected.values()) != cases
-            or sum(map(len, selected.values())) != len(cases)
-            or any(not names for names in selected.values())):
-        raise ValueError('incomplete or overlapping runtime case partitions')
-    profile = manifest.get('execution_plan', {}).get('ordinary_harness_costs')
-    costs = {}
-    if profile is not None:
-        validate_ordinary_harness_costs(profile)
-        costs = {tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector')):
-                 row['elapsed_ms'] for row in profile['harnesses']}
-    buckets, loads, counts = {}, {}, {}
-    for owner, names in selected.items():
-        buckets[owner] = [dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - names)),
-                               count=len(names))]
-        loads[owner] = 0 if profile is not None else len(names)
-        counts[owner] = len(names)
 
     def behavior_count(entry):
         target = manifest['binaries'][entry['binary']]
@@ -3856,6 +3853,73 @@ def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
             return sum(entry['filter'] in name for name in tests)
         return 1
 
+    runtime = [entry for entry in entries if entry.get('batch') and (
+        manifest['binaries'][entry['binary']].get('package'),
+        manifest['binaries'][entry['binary']].get('target'),
+        manifest['binaries'][entry['binary']].get('target_kind'),
+        manifest['binaries'][entry['binary']].get('variant')) == (
+            'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')]
+    parent = None
+    if len(runtime) == 1:
+        parent = runtime[0]
+    elif len(runtime) > 1 or not universal_sharding:
+        raise ValueError('targeted ordinary partitions require one complete runtime library')
+    elif len(entries) < len(owners):
+        batch_candidates = [entry for entry in entries if entry.get('batch')]
+        if not batch_candidates:
+            raise ValueError('targeted ordinary partitions have fewer harnesses than shards and no batch target')
+        parent = max(batch_candidates, key=lambda item: (behavior_count(item), item['binary']))
+
+    profile = (effective_plan or {}).get('ordinary_harness_costs')
+    if profile is None:
+        profile = manifest.get('execution_plan', {}).get('ordinary_harness_costs')
+    costs = {}
+    if profile is not None:
+        validate_ordinary_harness_costs(profile)
+        costs = {tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector')):
+                 row['elapsed_ms'] for row in profile['harnesses']}
+
+    if parent is not None:
+        binary = manifest['binaries'][parent['binary']]
+        if len(binary['tests']) != len(set(binary['tests'])):
+            raise ValueError('duplicate runtime case inventory')
+        skipped = set(parent.get('skip', ())) | set(parent.get('skip_exact', ()))
+        cases = set(binary['tests']) - set(binary['ignored_tests']) - skipped
+        if len(cases) < len(owners):
+            raise ValueError('targeted ordinary runtime partitions must each execute behavior tests')
+        # No per-case duration history exists yet. Hash ordering avoids clustering
+        # names from one module, then round-robin balances counts deterministically.
+        ordered = sorted(cases, key=lambda name: (hashlib.sha256(name.encode()).digest(), name))
+        selected = {owner: set(ordered[index::len(owners)]) for index, owner in enumerate(owners)}
+        if (set.union(*selected.values()) != cases
+                or sum(map(len, selected.values())) != len(cases)
+                or any(not names for names in selected.values())):
+            raise ValueError('incomplete or overlapping runtime case partitions')
+        sub_batch = universal_sharding and len(cases) >= 2 * len(owners)
+        buckets, loads, counts = {}, {}, {}
+        for index, owner in enumerate(owners):
+            names = selected[owner]
+            if sub_batch:
+                owner_ordered = ordered[index::len(owners)]
+                halves = (set(owner_ordered[0::2]), set(owner_ordered[1::2]))
+                buckets[owner] = [
+                    dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - half)),
+                         count=len(half), batch_label=f"{parent['binary']}[{sub_index}/2]")
+                    for sub_index, half in enumerate(halves)
+                ]
+            else:
+                buckets[owner] = [dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - names)),
+                                       count=len(names))]
+            loads[owner] = 0 if profile is not None else len(names)
+            counts[owner] = len(names)
+    else:
+        cases = set()
+        selected = {owner: set() for owner in owners}
+        buckets = {owner: [] for owner in owners}
+        loads = {owner: 0 for owner in owners}
+        counts = {owner: 0 for owner in owners}
+
+    sliced_counts = {owner: len(buckets[owner]) for owner in owners}
     remaining = [entry for entry in entries if entry is not parent]
     identities = [(entry['binary'], entry.get('filter'), entry.get('name')) for entry in remaining]
     if len(identities) != len(set(identities)):
@@ -3881,22 +3945,25 @@ def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
         buckets[owner].append(entry)
         loads[owner] += weight(entry)
         counts[owner] += count
-    if sum(len(items) - 1 for items in buckets.values()) != len(remaining):
+    if sum(len(buckets[owner]) - sliced_counts[owner] for owner in owners) != len(remaining):
         raise ValueError('incomplete ordinary harness partition inventory')
+    if any(not buckets[owner] for owner in owners):
+        raise ValueError('targeted ordinary partitions must each execute behavior tests')
     if partition == 'controls':
         return []
     if partition not in buckets:
         raise ValueError('unknown targeted ordinary artifact partition')
+    complete_slice = buckets[partition][sliced_counts[partition]:]
     estimate = {} if profile is None else dict(
         harness_estimated_ms=loads[partition], cost_evidence=profile['evidence'],
-        cost_matched=sum(cost_identity(entry) in costs for entry in buckets[partition][1:]),
-        cost_fallback=sum(cost_identity(entry) not in costs for entry in buckets[partition][1:]))
+        cost_matched=sum(cost_identity(entry) in costs for entry in complete_slice),
+        cost_fallback=sum(cost_identity(entry) not in costs for entry in complete_slice))
     print('ordinary_partition_inventory=' + json.dumps(dict(
-        partition=partition, runtime_binary=parent['binary'], runtime_count=len(selected[partition]),
-        runtime_total=len(cases), runtime_inventory_sha256=hashlib.sha256(
-            '\n'.join(sorted(cases)).encode()).hexdigest(),
+        partition=partition, runtime_binary=parent['binary'] if parent is not None else None,
+        runtime_count=len(selected[partition]), runtime_total=len(cases),
+        runtime_inventory_sha256=hashlib.sha256('\n'.join(sorted(cases)).encode()).hexdigest(),
         runtime_selected_sha256=hashlib.sha256('\n'.join(sorted(selected[partition])).encode()).hexdigest(),
-        complete_harnesses=[entry['binary'] for entry in buckets[partition][1:]],
+        complete_harnesses=[entry['binary'] for entry in complete_slice],
         expected_count=counts[partition], **estimate)), flush=True)
     return buckets[partition]
 
@@ -3971,7 +4038,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
         else:
             binary = manifest['binaries'][entry['binary']]
             command = [str(bundle / binary['path'])]
-            name = entry.get('name', entry['binary'])
+            name = entry.get('batch_label', entry.get('name', entry['binary']))
             if entry.get('batch'):
                 excluded = sorted(set(entry.get('skip', [])) | set(entry.get('skip_exact', [])))
                 count = len(set(binary['tests']) - set(binary['ignored_tests']) - set(excluded))
@@ -3993,7 +4060,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
             if logical_suite != 'ordinary':
                 command += ['--test-threads=1', '--nocapture']
             elif entry.get('exclusive'):
-                command.append('--test-threads=1')
+                command += ['--test-threads=1']
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
         job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
@@ -4024,10 +4091,34 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                         '' if entry.get('batch') else entry.get('filter', entry.get('name', '')))
             return (-costs.get(identity, 0), -(item['count'] or 0), item['name'])
         jobs.sort(key=_job_sort_key)
-    elif parallel_artifact_partition and plan.get('ordinary_artifact_partition_version') == 1:
-        # Start the largest libraries/suites first so long-running crates do not
-        # trail behind short targets at the end of a v1 partition.
-        jobs.sort(key=lambda item: -(item['count'] or 0))
+    elif parallel_artifact_partition and plan.get('ordinary_artifact_partition_version') in (1, 2):
+        if plan.get('ordinary_universal_sharding_version') == 1:
+            costs = _ordinary_bundle_cost_lookup(plan, manifest)
+            def _v2_job_sort_key(item):
+                entry = item['_entry']
+                binary = manifest['binaries'][entry['binary']]
+                kinds = binary.get('target_kind') or ()
+                identity = (binary.get('package'), '-'.join(kinds), binary.get('target'), binary.get('variant'),
+                            'batch' if entry.get('batch') else 'filter' if 'filter' in entry else 'exact',
+                            '' if entry.get('batch') else entry.get('filter', entry.get('name', '')))
+                runtime_slice_ms = (
+                    (item['count'] or 0) * 800
+                    if entry.get('batch') and (
+                        binary.get('package'), binary.get('target'), kinds, binary.get('variant')) == (
+                            'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')
+                    else 0
+                )
+                return (
+                    bool(item.get('exclusive')),
+                    -max(costs.get(identity, 0), runtime_slice_ms),
+                    -(item['count'] or 0),
+                    item['name'],
+                )
+            jobs.sort(key=_v2_job_sort_key)
+        else:
+            # Start the largest libraries/suites first so long-running crates do not
+            # trail behind short targets at the end of a v1 partition.
+            jobs.sort(key=lambda item: -(item['count'] or 0))
     for item in jobs:
         item.pop('_entry', None)
     if formal or inline or parallel_artifact_partition or parallel_bundle_ordinary:

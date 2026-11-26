@@ -49,6 +49,7 @@ CUSTODY_NODE_SHARDS = (0, 1, 2)
 LEGACY_CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 CUSTODY_NODE_SHARDS_VERSION = 2
 ORDINARY_DYNAMIC_PARTITION_VERSION = 1
+ORDINARY_UNIVERSAL_SHARDING_VERSION = 1
 CONTRACT_JOB_CONSOLIDATION_VERSION = 5
 CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3, 4, 5)
 ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 2
@@ -1772,6 +1773,11 @@ def validate_config(config):
         if (type(config['ordinary_dynamic_partition_version']) is not int
                 or config['ordinary_dynamic_partition_version'] != ORDINARY_DYNAMIC_PARTITION_VERSION):
             raise ValueError('invalid ordinary dynamic partition capability')
+    if 'ordinary_universal_sharding_version' in config:
+        if (type(config['ordinary_universal_sharding_version']) is not int
+                or config['ordinary_universal_sharding_version'] != ORDINARY_UNIVERSAL_SHARDING_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid ordinary universal sharding capability')
     if 'custody_node_shards_version' in config:
         if (type(config['custody_node_shards_version']) is not int
                 or config['custody_node_shards_version'] != CUSTODY_NODE_SHARDS_VERSION):
@@ -4236,6 +4242,7 @@ COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 60000
 def targeted_ordinary_artifact_partitions(plan):
     if (plan.get('ordinary_dynamic_partition_version') == ORDINARY_DYNAMIC_PARTITION_VERSION
             and plan.get('scope') == 'targeted'
+            and plan.get('test_policy_changed') is False
             and isinstance(plan.get('ordinary_harness_costs'), dict)
             and isinstance(plan.get('oasis7_required_packages'), list)):
         selected = set(plan['oasis7_required_packages'])
@@ -4252,6 +4259,13 @@ def targeted_ordinary_artifact_partitions(plan):
             if non_runtime_ms <= COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS:
                 return list(COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS)
     return list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS)
+
+
+def _ordinary_packages_support_universal_v2(config, packages):
+    if 'oasis7_chain_runtime' in packages:
+        return True
+    harnesses = config.get('ordinary_harness_costs', {}).get('harnesses', ())
+    return sum(1 for row in harnesses if row['package'] in packages) >= 4
 
 
 SCALE_EXPRESSION_MACROS = frozenset(('format', 'vec', 'assert', 'assert_eq', 'assert_ne', 'matches', 'panic'))
@@ -4410,23 +4424,41 @@ def complete_ordinary_partitions(config, plan):
         and all(package in plan['oasis7_required_packages'] for package in (
             'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
     )
+    universal_v2 = (
+        config.get('ordinary_universal_sharding_version') == ORDINARY_UNIVERSAL_SHARDING_VERSION
+        and config.get('ordinary_artifact_delivery_version') == 2
+        and 'ordinary_harness_costs' in config
+        and plan['scope'] == 'targeted'
+        and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+        and type(plan.get('test_policy_changed')) is bool
+        and 'ordinary_fast_targets' not in plan
+        and 'ordinary_full_fast_targets' not in plan
+        and isinstance(plan.get('oasis7_required_packages'), list)
+        and _ordinary_packages_support_universal_v2(config, set(plan['oasis7_required_packages']))
+        and tested_source_supports_capability(
+            plan, 'ordinary_universal_sharding_version', ORDINARY_UNIVERSAL_SHARDING_VERSION)
+    )
     if (config.get('ordinary_artifact_partition_version') in (1, 2)
             and 'oasis7_required' in plan['groups']
             and plan.get('ordinary_execution') != 'inline'):
         if (config.get('ordinary_artifact_partition_version') == 2
-                and (plan['scope'] == 'targeted' or (
-                    plan['scope'] == 'full' and config.get('ordinary_artifact_delivery_version') == 2))
-                and plan.get('execution_profile') in ('pr-fast', 'main-fast')
-                and plan.get('test_policy_changed') is False
-                and 'ordinary_fast_targets' not in plan and 'ordinary_full_fast_targets' not in plan
-                and 'oasis7_chain_runtime' in plan.get('oasis7_required_packages', ())):
+                and ((
+                    (plan['scope'] == 'targeted' or (
+                        plan['scope'] == 'full' and config.get('ordinary_artifact_delivery_version') == 2))
+                    and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                    and plan.get('test_policy_changed') is False
+                    and 'ordinary_fast_targets' not in plan and 'ordinary_full_fast_targets' not in plan
+                    and 'oasis7_chain_runtime' in plan.get('oasis7_required_packages', ())
+                ) or universal_v2)):
             # The original producer and every target/feature remain unchanged.
-            # Only the complete runtime case inventory gets multiple owners.
             plan['ordinary_artifact_partition_version'] = 2
             if 'ordinary_harness_costs' in config:
                 plan['ordinary_harness_costs'] = config['ordinary_harness_costs']
+            if universal_v2:
+                plan['ordinary_universal_sharding_version'] = ORDINARY_UNIVERSAL_SHARDING_VERSION
             if (config.get('ordinary_dynamic_partition_version') == ORDINARY_DYNAMIC_PARTITION_VERSION
-                    and plan['scope'] == 'targeted' and 'ordinary_harness_costs' in plan
+                    and plan['scope'] == 'targeted' and plan.get('test_policy_changed') is False
+                    and 'ordinary_harness_costs' in plan
                     and tested_source_supports_capability(plan, 'ordinary_dynamic_partition_version',
                                                           ORDINARY_DYNAMIC_PARTITION_VERSION)):
                 candidate_partitions = targeted_ordinary_artifact_partitions(
