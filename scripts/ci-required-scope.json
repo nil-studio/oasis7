@@ -1391,7 +1391,8 @@
     "scripts/plan-rust-required-scope-slice-and-cfg.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py": ["workflow_governance"],
-    "scripts/plan-rust-required-scope-selection-part1.test.py": ["workflow_governance"]
+    "scripts/plan-rust-required-scope-selection-part1.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-selection-part2.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
     "scripts/ci-hosted-login-package.test.py",
@@ -1407,6 +1408,7 @@
     "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py",
     "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py",
     "scripts/plan-rust-required-scope-selection-part1.test.py",
+    "scripts/plan-rust-required-scope-selection-part2.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
     "scripts/ci-python-control-contracts.test.py",
@@ -2038,7 +2040,8 @@
         "scripts/plan-rust-required-scope-slice-and-cfg.test.py",
         "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py",
         "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py",
-        "scripts/plan-rust-required-scope-selection-part1.test.py"
+        "scripts/plan-rust-required-scope-selection-part1.test.py",
+        "scripts/plan-rust-required-scope-selection-part2.test.py"
       ]
     },
     "scripts/plan-rust-required-scope.test.py": {
@@ -2090,6 +2093,10 @@
     "scripts/plan-rust-required-scope-selection-part1.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/plan-rust-required-scope-selection-part1.test.py"]
+    },
+    "scripts/plan-rust-required-scope-selection-part2.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-selection-part2.test.py"]
     },
     "scripts/ci-governance-preview.py": {
       "group": "workflow_governance",
