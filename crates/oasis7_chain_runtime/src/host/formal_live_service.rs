@@ -1147,33 +1147,9 @@ impl FormalLiveService {
     }
 }
 
-fn anchor_ref(anchor: &VerifiedFormalReadAnchorV1) -> Result<FormalReadAnchorRefV1, FormalReadError> {
-    Ok(FormalReadAnchorRefV1 {
-        position: anchor.head().record().position,
-        record_id: anchor.head().head().record_id.clone(),
-        active_authority_id: anchor
-            .authority()
-            .authority_id()
-            .map_err(FormalReadError::from)?,
-    })
-}
-
-fn validate_anchor_ref(
-    expected: &FormalReadAnchorRefV1,
-    anchor: &VerifiedFormalReadAnchorV1,
-) -> Result<(), FormalReadError> {
-    if &anchor_ref(anchor)? != expected {
-        return Err(FormalReadError::Integrity("formal read origin differs from exact caller anchor".into()));
-    }
-    Ok(())
-}
-
-fn same_anchor(
-    first: &VerifiedFormalReadAnchorV1,
-    second: &VerifiedFormalReadAnchorV1,
-) -> Result<bool, FormalReadError> {
-    Ok(anchor_ref(first)? == anchor_ref(second)?)
-}
+#[path = "formal_live_service_anchor_helpers.rs"]
+mod anchor_helpers;
+use anchor_helpers::{anchor_ref, same_anchor, validate_anchor_ref};
 
 pub(super) fn parse_strict<T: DeserializeOwned>(body: &[u8]) -> Result<T, String> {
     if body.is_empty() || body.len() > MAX_REQUEST_BODY {
