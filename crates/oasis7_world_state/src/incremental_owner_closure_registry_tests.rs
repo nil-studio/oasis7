@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 
 #[test]
@@ -237,6 +238,7 @@ fn text_and_byte_owners_require_registered_metadata_and_exact_member_profiles() 
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn owner_semantic_key_probe_handles_utf8_boundaries_and_rejects_wrong_tokens() {
     let ascii_prefix_len = 64 * 1024 - (SEMANTIC_KEY_DOMAIN.len() + 9) - 1;
@@ -262,6 +264,7 @@ fn owner_semantic_key_probe_handles_utf8_boundaries_and_rejects_wrong_tokens() {
     assert!(!invalid_utf8.finish());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn missing_required_u64_entry_fails_closed_even_when_all_metadata_is_present() {
     let fixture = fixture(false);
@@ -273,6 +276,7 @@ fn missing_required_u64_entry_fails_closed_even_when_all_metadata_is_present() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn full_owner_scan_observes_cancellation() {
     let fixture = fixture(true);
@@ -282,6 +286,7 @@ fn full_owner_scan_observes_cancellation() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn text_byte_owner_scan_observes_late_cancellation() {
     let fixture = fixture(true);
@@ -297,6 +302,7 @@ fn text_byte_owner_scan_observes_late_cancellation() {
     assert_eq!(calls.get(), 64);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn id_set_metadata_and_unit_member_cannot_move_to_another_namespace_root() {
     let misplaced = fixture_with_issue(true, Some(FixtureIssue::MisplacedIdSetNamespace));

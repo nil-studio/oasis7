@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::incremental_cognition_history::CognitionOriginalIdentityStatusV1;
 use serde_json::{Value, json};
@@ -184,6 +185,7 @@ fn original_lifecycle_key_projection_distinguishes_missing_null_and_empty() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn lifecycle_optional_original_id_has_no_new_text_cap_or_normalization() {
     use CognitionOriginalTextProjectionV1::*;
@@ -232,6 +234,7 @@ fn lifecycle_optional_original_id_has_no_new_text_cap_or_normalization() {
     assert_eq!(memory.used(), 4 << 20);
     drop(hold);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn local_record_fields_match_literal_originals_without_claiming_cross_record_relations() {
     for (field, value, scope, kind) in [
@@ -279,6 +282,7 @@ fn local_record_fields_match_literal_originals_without_claiming_cross_record_rel
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn provision_later_sequence_requires_a_nonempty_canonical_parent_locally() {
     let field = CognitionHistoryFieldV1::EconomyProvisionJournal;
@@ -313,6 +317,7 @@ fn provision_later_sequence_requires_a_nonempty_canonical_parent_locally() {
     refresh(field, &mut later);
     assert!(strict(field, &later).is_ok());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn digest_only_success_does_not_grant_strict_local_fields() {
     for (field, source, changes) in [
@@ -413,6 +418,7 @@ fn digest_only_success_does_not_grant_strict_local_fields() {
         );
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn response_scope_retains_optional_originals_and_never_claims_nested_artifact_business_validity() {
     let artifact =
@@ -456,6 +462,7 @@ fn response_scope_retains_optional_originals_and_never_claims_nested_artifact_bu
         Err(ValueTreeError::Invalid(_))
     ));
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn strict_read_reuses_one_continuous_source_and_preserves_resource_failures() {
     let bytes = bytes(&journal());
@@ -580,6 +587,7 @@ fn strict_read_reuses_one_continuous_source_and_preserves_resource_failures() {
     ));
     assert_eq!(input.reads, 0);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn strict_response_large_artifact_uses_fixed_recovery_memory_without_a_json_model() {
     const LENGTH: u64 = 32 << 20;
@@ -640,6 +648,7 @@ fn strict_response_large_artifact_uses_fixed_recovery_memory_without_a_json_mode
     assert_eq!(memory.used(), 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn causal_entries_reuse_fixed_metadata_and_provision_hashes_spend_the_same_node_allowance() {
     let mut peak_baseline = None;

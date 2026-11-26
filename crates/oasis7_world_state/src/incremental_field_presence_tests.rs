@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::incremental_projection::{FieldDestination, FieldOwner, FieldShape};
 use oasis7_formal_protocol::{
@@ -186,6 +187,7 @@ fn independent_metadata_and_group_vectors_keep_empty_existence_separate() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn malformed_framing_precedes_limits_and_never_returns_presence() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -247,6 +249,7 @@ fn malformed_framing_precedes_limits_and_never_returns_presence() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_reads_use_their_class_when_ordinary_is_full() {
     let source_memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -284,6 +287,7 @@ fn recovery_reads_use_their_class_when_ordinary_is_full() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cancelled_key_output_is_not_retried_and_short_writes_hash_only_accepted_bytes() {
     struct Output<'a> {
@@ -348,6 +352,7 @@ fn cancelled_key_output_is_not_retried_and_short_writes_hash_only_accepted_bytes
     assert_eq!(output.calls, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn pre_cancel_and_exhausted_work_or_io_cannot_return_a_root() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();

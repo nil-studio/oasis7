@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::behavior_samples::{debug_samples, settlement_event};
 use super::{DomainEvent, MaterialLedgerId};
 
@@ -8,6 +9,7 @@ fn equality_is_reflexive_for_debug_samples() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn equality_still_compares_fields_and_variant_identity() {
     let original = DomainEvent::FactoryDurabilityChanged {
@@ -33,12 +35,14 @@ fn equality_still_compares_fields_and_variant_identity() {
     assert_ne!(original, different_variant);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn equality_preserves_nan_behavior_in_nested_fields() {
     let event = settlement_event(f64::NAN);
     assert_ne!(event, event.clone());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn debug_matches_legacy_normal_and_pretty_output() {
     let expected: Vec<serde_json::Value> =
@@ -64,6 +68,7 @@ fn debug_matches_legacy_normal_and_pretty_output() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn equality_rejects_different_sample_groups() {
     let samples = debug_samples();

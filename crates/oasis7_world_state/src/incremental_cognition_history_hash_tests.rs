@@ -1,4 +1,5 @@
 //! Only this oracle collects small legacy CBOR. Production caches no old body.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use serde_json::Value;
 
@@ -95,6 +96,7 @@ fn original_three_formats_and_all_twenty_nine_offsets() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn absolute_chunk_counters_and_header_width_crossings_match_flat_hash() {
     let _input_pool = MemoryBudget::new(16 << 20, 0).unwrap();
@@ -115,6 +117,7 @@ fn absolute_chunk_counters_and_header_width_crossings_match_flat_hash() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn immutable_append_reuses_prefix_and_can_seal_an_exact_tail_chunk() {
     let memory = pool();
@@ -155,6 +158,7 @@ fn immutable_append_reuses_prefix_and_can_seal_an_exact_tail_chunk() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn one_byte_append_really_completes_the_selected_physical_tail() {
     let memory = pool();
@@ -197,6 +201,7 @@ fn one_byte_append_really_completes_the_selected_physical_tail() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn all_offsets_include_large_header_geometry_without_claiming_record_schema() {
     // The 9+9 header width corresponds to >2^32 records. This deliberately
@@ -243,6 +248,7 @@ fn all_offsets_include_large_header_geometry_without_claiming_record_schema() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn finite_work_pool_class_and_last_cancel_are_not_relabelled() {
     let memory = pool();
@@ -303,6 +309,7 @@ fn finite_work_pool_class_and_last_cancel_are_not_relabelled() {
     assert_eq!(memory.used(), before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn large_literal_record_uses_fixed_cache_and_old_body_is_not_an_append_input() {
     // Oracle-only source/output storage is paid separately before allocation.
@@ -338,6 +345,7 @@ fn large_literal_record_uses_fixed_cache_and_old_body_is_not_an_append_input() {
     assert!(memory.used() < 2 << 20);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn persisted_frontier_roundtrips_original_heads_and_rejects_malformed_wire() {
     let records = vec![serde_json::json!({"opaque":"汉🙂".repeat(3000)})];

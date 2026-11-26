@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_formal_protocol::incremental_state::{StateDeltaV1, StateNodeWriteV1, StateWriteV1};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryReservation, ReservedValue};
@@ -141,6 +142,7 @@ fn organization_changed_tree_skips_unchanged_branches_and_preserves_exact_edges(
     })
     .unwrap();
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn organization_changed_tree_rejects_canonical_leaf_at_wrong_route_and_bad_counts() {
     let mut pages = Pages::new();
@@ -220,6 +222,7 @@ fn organization_changed_tree_rejects_canonical_leaf_at_wrong_route_and_bad_count
         Err(ValueTreeError::Invalid("organization diff leaf count"))
     ));
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn organization_changed_tree_cancellation_and_limits_never_return_success() {
     let mut pages = Pages::new();
@@ -286,6 +289,7 @@ fn encoded(token: Vec<u8>) -> Vec<u8> {
     bytes.extend(token);
     bytes
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn organization_relative_key_decoder_accepts_only_closed_original_shapes() {
     let case = OrganizationRootKeyV1::Case("outer-ignored");

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::cognition_recovery::cognition_digest_v1;
 use oasis7_formal_protocol::incremental_value::ValueTreeError;
@@ -124,6 +125,7 @@ fn event(field: CognitionHistoryFieldV1) -> Value {
     value["event_digest"] = json!(id);
     value
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn borrowed_history_originals_preserve_wire_and_distinguish_semantic_identity() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -166,6 +168,7 @@ fn borrowed_history_originals_preserve_wire_and_distinguish_semantic_identity() 
         assert_eq!(context.records_remaining, 3);
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn disabled_history_does_not_invent_a_projection_or_rewrite_nullable_records() {
     for input in [None, Some(&Value::Null)] {
@@ -231,6 +234,7 @@ impl CognitionHistoryOriginalSinkV1 for CancelAfter<'_> {
         Ok(())
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn original_stream_failures_cannot_return_completion_or_reuse_allowances() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -291,6 +295,7 @@ impl CognitionHistoryOriginalSinkV1 for IgnoreFailure {
         Ok(())
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn original_producer_cannot_hide_a_failed_stream_by_retrying() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();

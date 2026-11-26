@@ -799,21 +799,27 @@ fn large_inner_identity_streams_without_allocating_a_complete_read_buffer() {
 mod overlay;
 
 // Consolidated sibling incremental integration suites (4-shard LPT balanced).
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_delivery_cursor.rs"]
 mod incremental_delivery_cursor;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_ledger_value.rs"]
 mod incremental_ledger_value;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_world_rule_effects.rs"]
 mod incremental_world_rule_effects;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_world_rule_lineages.rs"]
 mod incremental_world_rule_lineages;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_world_text_maps.rs"]
 mod incremental_world_text_maps;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_world_u64.rs"]
 mod incremental_world_u64;
