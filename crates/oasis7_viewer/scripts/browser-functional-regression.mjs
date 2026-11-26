@@ -196,7 +196,6 @@ function assert(condition, message, details = undefined) {
   }
 }
 
-let nextDriverId = 0;
 
 export function resolveRunnerConcurrency(env = process.env, parallelism = availableParallelism()) {
   const configured = Number.parseInt(env.OASIS7_BFR_CONCURRENCY || "", 10);

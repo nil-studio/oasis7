@@ -12,6 +12,8 @@ function assert(condition, message, details = undefined) {
   }
 }
 
+let nextDriverId = 0;
+
 export function createBrowserDriver({ sessionPrefix, headed, outDir }) {
   const binary = resolveBrowserBinary(process.env.AGENT_BROWSER_BIN || "agent-browser");
   // agent-browser derives a Unix socket path from the calling worktree; the
