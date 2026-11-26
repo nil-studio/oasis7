@@ -1,0 +1,102 @@
+name: Trusted full regression Cargo mount proof
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-full-regression-cargo-mount-base]
+    paths: [.github/workflows/full-regression-cargo-mount-proof.yml]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+jobs:
+  prove:
+    if: >-
+      github.repository == 'nil-studio/oasis7' && github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/engineering-full-regression-cargo-mount-proof' &&
+      github.base_ref == 'codex/engineering-full-regression-cargo-mount-base'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE: 5a6607f06501c30b7011d8c49fdbdba831460960
+      IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify fixed launcher source
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse 'HEAD^1')" = "$SOURCE"
+          test "$(git diff --name-only "$SOURCE" HEAD)" = .github/workflows/full-regression-cargo-mount-proof.yml
+      - name: Pull the fixed image
+        timeout-minutes: 3
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          config=$(mktemp -d "$RUNNER_TEMP/cargo-mount-docker.XXXXXX")
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s\n' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$IMAGE"
+      - name: Verify actual writable Cargo home and both production mounts
+        run: |
+          python3 -I - <<'PY'
+          import os
+          from pathlib import Path
+          import runpy
+          import subprocess
+          import tempfile
+          import uuid
+
+          assert (os.getuid(), os.getgid()) == (1001, 1001)
+          tool = runpy.run_path('scripts/ci-trusted-full-regression.py')
+          command = tool['image_command']
+          assert tool['IMAGE'] == os.environ['IMAGE']
+          name = 'oasis7-full-mount-proof-' + uuid.uuid4().hex
+          with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'], prefix='full-mount-proof-') as work:
+              root = Path(work)
+              scratch = root / 'scratch'
+              scratch.mkdir(mode=0o700)
+              mold_fixture = root / 'mold-fixture'
+              mold_fixture.mkdir(mode=0o700)
+              # The test only covers mounts. The production mold binary and
+              # original Provider entry were exercised by the separate probe.
+              command.__globals__['MOLD'] = mold_fixture
+              source = os.environ['GITHUB_SHA']
+              argv = command('governance', source, scratch, name,
+                             dict(OASIS7_PRODUCT_DOC_BASE=os.environ['SOURCE'],
+                                  OASIS7_PRODUCT_DOC_HEAD=source))
+              assert argv[-5:] == [tool['IMAGE'], 'python3', 'scripts/ci-trusted-full-regression.py', '_inside', 'governance']
+              assert '/var/run/docker.sock' not in ' '.join(argv) and '--group-add' not in argv
+              check = """
+          import os
+          from pathlib import Path
+          assert (os.getuid(), os.getgid()) == (1001, 1001)
+          cargo = Path(os.environ['CARGO_HOME'])
+          assert cargo.stat().st_uid == 1001
+          for name in ('.package-cache', '.global-cache', 'registry/marker', 'git/marker'):
+              with (cargo / ('oasis7-' + name if '/' not in name else name.replace('marker', 'oasis7-mount-proof'))).open('xb') as file:
+                  file.write(b'mounted')
+          """
+              args = argv[:-4] + ['python3', '-I', '-c', check]
+              args[2:2] = ['--network', 'none']
+              environment = {'PATH': os.environ['PATH']}
+              try:
+                  subprocess.run(args, env=environment, check=True)
+                  for category in ('registry', 'git'):
+                      marker = tool['HOST_CARGO'] / category / 'oasis7-mount-proof'
+                      assert marker.read_bytes() == b'mounted'
+                  for lock in ('oasis7-.package-cache', 'oasis7-.global-cache'):
+                      assert (scratch / 'cargo' / lock).read_bytes() == b'mounted'
+              finally:
+                  for category in ('registry', 'git'):
+                      (tool['HOST_CARGO'] / category / 'oasis7-mount-proof').unlink(missing_ok=True)
+                  subprocess.run(['docker', 'rm', '-f', name], env=environment, check=False,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+              print('probe_only=true cargo_home_owner=1001 registry_bind=write_seen git_bind=write_seen docker_socket=none')
+          PY
