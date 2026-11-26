@@ -421,7 +421,7 @@ pub struct World {
     #[serde(default)]
     capability_effect_receipt_links: BTreeMap<String, CapabilityEffectReceiptLink>,
     policies: PolicySet,
-    proposals: BTreeMap<ProposalId, Proposal>,
+    pub(crate) proposals: BTreeMap<ProposalId, Proposal>,
     scheduler_cursor: Option<String>,
     #[serde(skip)]
     receipt_signer: Option<ReceiptSigner>,
