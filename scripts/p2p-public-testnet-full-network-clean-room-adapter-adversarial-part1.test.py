@@ -16,7 +16,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER_PATH = ROOT / "scripts" / "p2p-public-testnet-full-network-clean-room-adapter.py"
-ADAPTER_TEST_PATH = ROOT / "scripts" / "p2p-public-testnet-full-network-clean-room-adapter.test.py"
+STORAGE_ADAPTER_RED_TEST_PATH = (
+    ROOT / "scripts" / "p2p-public-testnet-full-network-clean-room-adapter-storage-adapter-red.test.py"
+)
 FIXTURES_PATH = ROOT / "scripts" / "p2p-public-testnet-clean-room-adapter-test-fixtures.py"
 
 
@@ -41,7 +43,8 @@ def _storage_first_adapter_red_tests() -> type[unittest.TestCase]:
     global _STORAGE_FIRST_ADAPTER_RED_TESTS
     if _STORAGE_FIRST_ADAPTER_RED_TESTS is None:
         module = load_module(
-            "p2p_public_testnet_clean_room_adapter_base_tests", ADAPTER_TEST_PATH
+            "p2p_public_testnet_clean_room_adapter_storage_adapter_red_tests",
+            STORAGE_ADAPTER_RED_TEST_PATH,
         )
         _STORAGE_FIRST_ADAPTER_RED_TESTS = module.StorageFirstAdapterRedTests
     return _STORAGE_FIRST_ADAPTER_RED_TESTS
