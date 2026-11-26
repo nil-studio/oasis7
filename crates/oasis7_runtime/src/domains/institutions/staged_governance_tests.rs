@@ -215,8 +215,22 @@ fn staged_organization_continuity_write_links_v2_commitment_envelope() {
     world.chain_resource_manifest.world_id = "world-1".into();
     world.chain_resource_manifest.chain_id = "chain-1".into();
     world.chain_resource_manifest.genesis_ref = Some("genesis-1".into());
-    for agent_id in ["owner", "primary", "recipient"] {
+    for (agent_id, player_id) in [
+        ("owner", "player-owner"),
+        ("primary", "player-primary"),
+        ("recipient", "player-recipient"),
+    ] {
         world.submit_action(Action::RegisterAgent { agent_id: agent_id.into(), pos: crate::tests::pos(1, 1) });
+        world.state.starter_oc_claims.insert(
+            agent_id.into(),
+            crate::gameplay_state::StarterOcClaimState {
+                agent_id: agent_id.into(),
+                player_id: player_id.into(),
+                public_key: Some(format!("key-{agent_id}")),
+                claimed_at: 1,
+                ..Default::default()
+            },
+        );
     }
     world.step().expect("register organization agents");
     let charter = crate::world_rules::OrganizationContinuityCharterV1 {
@@ -233,7 +247,7 @@ fn staged_organization_continuity_write_links_v2_commitment_envelope() {
     let alliance = DomainEvent::AllianceFormed {
         proposer_agent_id: "owner".into(),
         alliance_id: "org-1".into(),
-        members: vec!["owner".into(), "primary".into(), "recipient".into()],
+        members: vec!["owner".into(), "primary".into()],
         charter: charter_json,
     };
     world.append_event_for_test(WorldEventBody::Domain(alliance), None).expect("form alliance");
