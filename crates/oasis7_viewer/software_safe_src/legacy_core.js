@@ -84,15 +84,9 @@ import { createViewerGameplayActionModule } from "./viewer_gameplay_action_modul
 import { createViewerPromptRequestModule } from "./viewer_prompt_request_module.js";
 import { createViewerSemanticQueueChatModule } from "./viewer_semantic_queue_chat_module.js";
 import { createViewerAuthoritativeRecoveryModule } from "./viewer_authoritative_recovery_module.js";
+import { createViewerWsTransportModule } from "./viewer_ws_transport_module.js";
 export const state = createSoftwareSafeState();
 let socket = null;
-let reconnectTimer = null;
-let helloAckTimer = null;
-let initialSnapshotRequested = false;
-let currentConnectionSnapshotReceived = false;
-let initialSnapshotReadFailed = false;
-let initialSnapshotRetryTimer = null;
-let initialSnapshotRetryCount = 0;
 let hostedSessionRefreshTimer = null;
 let requestId = 0;
 let authNonceCounter = 0;
@@ -652,20 +646,6 @@ function sendJson(payload) {
   socket.send(JSON.stringify(payload));
 }
 
-function clearInitialSnapshotRetryTimer() {
-  if (initialSnapshotRetryTimer) {
-    window.clearTimeout(initialSnapshotRetryTimer);
-    initialSnapshotRetryTimer = null;
-  }
-}
-
-function clearHelloAckTimer() {
-  if (helloAckTimer) {
-    window.clearTimeout(helloAckTimer);
-    helloAckTimer = null;
-  }
-}
-
 const {
   clearPendingAgentChatAckTimer,
   setPendingAgentChatAckTimer,
@@ -709,59 +689,6 @@ const {
   authConnectionGeneration,
   render,
 });
-
-function closeSocketForReconnect(targetSocket) {
-  if (!targetSocket || targetSocket.readyState === WebSocket.CLOSING || targetSocket.readyState === WebSocket.CLOSED) {
-    return;
-  }
-  try {
-    targetSocket.close();
-  } catch (_) {
-  }
-}
-
-function scheduleHelloAckTimeout(targetSocket) {
-  clearHelloAckTimer();
-  helloAckTimer = window.setTimeout(() => {
-    helloAckTimer = null;
-    if (socket !== targetSocket || state.server || targetSocket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    closeSocketForReconnect(targetSocket);
-  }, HELLO_ACK_TIMEOUT_MS);
-}
-
-function sendInitialSnapshotRequest() {
-  sendJson({ type: "subscribe", streams: ["snapshot", "events", "metrics"], event_kinds: [] }); worldFeedTransport.requestWorldFeed({ cursor: null });
-  sendJson({ type: "request_snapshot" });
-}
-
-function scheduleInitialSnapshotRetry() {
-  clearInitialSnapshotRetryTimer();
-  if (currentConnectionSnapshotReceived) {
-    return;
-  }
-  if (initialSnapshotRetryCount >= 8) {
-    initialSnapshotReadFailed = true;
-    state.lastError = "World snapshot unavailable. Refresh the snapshot to retry.";
-    render(); return;
-  }
-  const retryDelay =
-    initialSnapshotRetryCount >= INITIAL_SNAPSHOT_SLOW_RETRY_AFTER
-      ? INITIAL_SNAPSHOT_SLOW_RETRY_DELAY_MS
-      : INITIAL_SNAPSHOT_RETRY_DELAY_MS;
-  initialSnapshotRetryTimer = window.setTimeout(() => {
-    initialSnapshotRetryTimer = null;
-    if (currentConnectionSnapshotReceived || !socket || socket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    initialSnapshotRetryCount += 1;
-    try {
-      sendInitialSnapshotRequest();
-    } catch (_) {
-    } finally { scheduleInitialSnapshotRetry(); }
-  }, retryDelay);
-}
 
 function gameplayActionByProtocolAction(protocolAction) {
   return normalizedGameplayActions().find((action) => gameplayProtocolAction(action) === protocolAction) || null;
@@ -900,12 +827,8 @@ const {
   state, MAX_EVENTS, MAX_DECISION_TRACES, EMPTY_ENTITY_SNAPSHOT_REFRESH_DELAY_MS,
   LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE, STARTER_AGENT_ID, LOCAL_TEST_PLAYER_ID_PREFIX,
   isWorldScopedCrisisRuntimeEvent,
-  onSnapshotReceived() {
-    if (initialSnapshotReadFailed) state.lastError = null;
-    initialSnapshotReadFailed = false;
-    currentConnectionSnapshotReceived = true;
-  },
-  clearInitialSnapshotRetryTimer, quoteProtocolFacade, recoverGameplayFeedback, hostedWorldAccount,
+  onSnapshotReceived: () => markSnapshotReceived(),
+  clearInitialSnapshotRetryTimer: () => clearInitialSnapshotRetryTimer(), quoteProtocolFacade, recoverGameplayFeedback, hostedWorldAccount,
   getGameplayRecoveryScope, clearPendingGameplayActionAckTimer, requestGameplayResult, sendJson,
   entityCollections, applySelection, syncAgentInteractionDrafts, hydrateChatHistoryFromStorage,
   reconcilePendingPromptAuthoritativeRefresh, canonicalOwnerRead, worldFeedTransport, isTestApiEnabled,
@@ -1196,187 +1119,29 @@ const scopeSnapshotTransport = createScopeSnapshotTransport({send:sendJson,getSc
 export const requestScopeSnapshot = () => scopeSnapshotTransport.request();
 // Host authorizes the captured scope before this existing adopter triggers render.
 export const acceptScopeSnapshot = snapshot => handleSnapshot(snapshot);
-function handleViewerMessage(message, sourceSocket = null) { if (sourceSocket && socket !== sourceSocket) return;
-  if (message?.request_auth_nonce != null) {
-    for (const key of ["ack", "error", "quote"]) if (message[key]) message[key].request_auth_nonce = message.request_auth_nonce;
-  }
-  if (scopeSnapshotTransport.handle(message)) return;
-  if (worldViewTransport.handle(message)) return;
-  if (quoteProtocolFacade.handleQuoteViewerMessage(message)) return;
-  switch (message?.type) {
-    case "hello_ack":
-      clearHelloAckTimer();
-      viewerPromptControlModule?.handleHelloAck(message);
-      state.server = message.server || null;
-      state.worldId = message.world_id || null;
-      state.controlProfile = message.control_profile || "playback";
-      liveControlState.hello(message);
-      hydrateChatHistoryFromStorage();
-      if (!initialSnapshotRequested) {
-        initialSnapshotRequested = true;
-        initialSnapshotRetryCount = 0;
-        sendInitialSnapshotRequest();
-        scheduleInitialSnapshotRetry();
-      }
-      void ensureHostedPlayerAuthAvailable().then(() => {
-        void syncHostedPlayerSessionOnConnect().catch((error) => { state.auth.error = String(error); render(); });
-        render();
-      }).catch((error) => { state.auth.error = String(error); render(); });
-      break;
-    case "live_control_state":
-      liveControlState.receive(message.state);
-      break;
-    case "snapshot":
-      handleSnapshot(message.snapshot);
-      break;
-    case "world_feed":
-      worldFeedTransport.handleWorldFeed(message.feed, sourceSocket);
-      hostedWorldAccount.restoreGameplayRequest(getGameplayRecoveryScope(state)); break;
-    case "event": {
-      addRecentEvent(message.event);
-      const chatEntry = extractAgentSpokeEntry(message.event);
-      if (chatEntry) {
-        pushChatHistory(chatEntry);
-      }
-      state.logicalTime = Math.max(state.logicalTime, Number(message.event?.time || 0));
-      state.tick = state.logicalTime; worldFeedTransport.refreshAfterWorldActivity();
-      break;
-    }
-    case "metrics":
-      handleMetrics(message.time, message.metrics);
-      break;
-    case "decision_trace":
-      handleDecisionTrace(message.trace);
-      break;
-    case "control_completion_ack":
-      handleControlCompletionAck(message.ack);
-      break;
-    case "prompt_control_ack":
-      handlePromptControlAck(message.ack);
-      break;
-    case "prompt_control_error":
-      handlePromptControlError(message.error);
-      break;
-    case "safe_alternative_result": safeAlternative.receive(message); break;
-    case "canonical_agent_owner_read_context": void canonicalOwnerRead.handleContext(message.context); break;
-    case "canonical_agent_owner_view": canonicalOwnerRead.handleView(message); break;
-    case "agent_chat_ack":
-      handleAgentChatAck(message.ack);
-      break;
-    case "agent_chat_error":
-      handleAgentChatError(message.error);
-      break;
-    case "gameplay_action_result":
-      if (receiveGameplayResult(state, getGameplayRecoveryScope(state), hostedWorldAccount, message)) {
-        clearPendingGameplayActionAckTimer();
-        requestSnapshotSafe();
-        render();
-      }
-      break;
-    case "gameplay_action_ack":
-      handleGameplayActionAck(message.ack);
-      break;
-    case "gameplay_action_error":
-      handleGameplayActionError(message.error);
-      break;
-    case "authoritative_recovery_ack":
-      handleAuthoritativeRecoveryAck(message.ack);
-      break;
-    case "authoritative_recovery_error":
-      handleAuthoritativeRecoveryError(message.error);
-      break;
-    case "error":
-      reportFatalError(message.message, "viewer");
-      break;
-    default:
-      break;
-  }
-  // These streams change telemetry only; preserve UI notification without
-  // rebuilding the snapshot/selection/event-based pixel-world input.
-  render({ pixelWorldChanged: message?.type !== "metrics" && message?.type !== "decision_trace" });
-}
-
-function attachSocket(ws) {
-  ws.addEventListener("open", () => { if (socket !== ws) return; worldFeedTransport.resetGeneration(ws);
-    resetViewerProtocolForConnection();
-    state.connectionStatus = "connected";
-    state.lastError = null;
-    state.server = null;
-    state.worldId = null;
-    initialSnapshotRequested = false;
-    currentConnectionSnapshotReceived = false;
-    initialSnapshotReadFailed = false;
-    initialSnapshotRetryCount = 0;
-    clearHelloAckTimer();
-    clearInitialSnapshotRetryTimer();
-    sendJson({ type: "hello_v2", client: "viewer", version: 2, capabilities: [PROMPT_CONTROL_RESULT_CAPABILITY, LIVE_CONTROL_STATE_CAPABILITY, "gameplay_result_lookup_v1", "canonical_agent_chat_v1", "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"] });
-    scheduleHelloAckTimeout(ws);
-    syncHostedSessionRefreshLoop();
-    render();
-  });
-
-  ws.addEventListener("message", (event) => { if (socket !== ws) return;
-    try {
-      const message = JSON.parse(String(event.data || "null"));
-      handleViewerMessage(message, ws);
-    } catch (error) {
-      reportFatalError(String(error), "viewer.parse");
-    }
-  });
-
-  ws.addEventListener("error", () => { if (socket !== ws) return;
-    reportFatalError("websocket error", "viewer.ws");
-  });
-
-  ws.addEventListener("close", () => { if (socket !== ws) return; invalidateAuthConnection(); cancelHostedLeaseRefresh(); worldFeedTransport.markDisconnected(ws);
-    resetViewerProtocolForConnection();
-    state.connectionStatus = "connecting";
-    clearHostedRuntimeSyncTimer();
-    if (state.auth.available && state.auth.source !== LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE) {
-      state.auth.syncInFlight = false;
-      state.auth.runtimeStatus = "disconnected";
-    }
-    worldViewTransport.clear();
-    scopeSnapshotTransport.clear();
-    clearPendingSessionRegisterWaiter("websocket disconnected during player session registration");
-    failPendingAgentChatAck(
-      "websocket disconnected before agent_chat ack/error returned",
-      "agent_chat websocket disconnected",
-    );
-    failPendingPromptControlAck(
-      "websocket disconnected before prompt_control ack/error returned",
-      "prompt_control websocket disconnected",
-    );
-    failPendingGameplayActionAck(
-      "websocket disconnected before gameplay_action ack/error returned",
-      "gameplay_action websocket disconnected",
-    );
-    stopHostedSessionRefreshLoop();
-    render();
-    if (reconnectTimer) {
-      window.clearTimeout(reconnectTimer);
-    }
-    clearHelloAckTimer();
-    clearInitialSnapshotRetryTimer();
-    reconnectTimer = window.setTimeout(connect, 1200);
-  });
-}
-
-function connect() {
-  invalidateAuthConnection();
-  if (socket) {
-    try {
-      socket.close();
-    } catch (_) {
-    }
-  }
-  cancelHostedLeaseRefresh();
-  state.wsUrl = initialWsUrl();
-  state.connectionStatus = "connecting";
-  render();
-  socket = new WebSocket(state.wsUrl);
-  attachSocket(socket);
-}
+const {
+  clearInitialSnapshotRetryTimer, markSnapshotReceived, getInitialSnapshotState, handleViewerMessage, connect,
+} = createViewerWsTransportModule({
+  state, getSocket: () => socket, setSocket: (ws) => { socket = ws; },
+  getViewerPromptControlModule: () => viewerPromptControlModule,
+  helloAckTimeoutMs: HELLO_ACK_TIMEOUT_MS, initialSnapshotRetryDelayMs: INITIAL_SNAPSHOT_RETRY_DELAY_MS,
+  initialSnapshotSlowRetryDelayMs: INITIAL_SNAPSHOT_SLOW_RETRY_DELAY_MS,
+  initialSnapshotSlowRetryAfter: INITIAL_SNAPSHOT_SLOW_RETRY_AFTER,
+  promptControlResultCapability: PROMPT_CONTROL_RESULT_CAPABILITY,
+  sendJson, initialWsUrl, render: (inv) => render(inv), reportFatalError, resetViewerProtocolForConnection,
+  worldFeedTransport, worldViewTransport, scopeSnapshotTransport, quoteProtocolFacade,
+  liveControlState, hostedWorldAccount, safeAlternative, canonicalOwnerRead,
+  hydrateChatHistoryFromStorage, ensureHostedPlayerAuthAvailable, syncHostedPlayerSessionOnConnect,
+  handleSnapshot, addRecentEvent, extractAgentSpokeEntry, pushChatHistory,
+  handleMetrics, handleDecisionTrace, handleControlCompletionAck,
+  handlePromptControlAck, handlePromptControlError, handleAgentChatAck, handleAgentChatError,
+  clearPendingGameplayActionAckTimer, requestSnapshotSafe,
+  handleGameplayActionAck, handleGameplayActionError,
+  handleAuthoritativeRecoveryAck, handleAuthoritativeRecoveryError,
+  cancelHostedLeaseRefresh, clearHostedRuntimeSyncTimer, clearPendingSessionRegisterWaiter,
+  failPendingAgentChatAck, failPendingPromptControlAck, failPendingGameplayActionAck,
+  stopHostedSessionRefreshLoop, syncHostedSessionRefreshLoop,
+});
 
 function modelLists() {
   return buildViewerEntityLists({
@@ -1389,12 +1154,12 @@ function modelLists() {
 function buildTargetSyncProgress() {
   const { agents, locations } = entityCollections();
   const lists = modelLists();
-  const snapshotReceived = currentConnectionSnapshotReceived;
+  const { snapshotReceived, snapshotReadFailed, snapshotRequested, snapshotRetryCount } = getInitialSnapshotState();
   const serverReady = !!state.server;
   const sessionSyncing = !!state.auth.syncInFlight || !!pendingSessionRegisterWaiter;
   let stage = "connecting";
   if (state.connectionStatus === "connected") {
-    if (initialSnapshotReadFailed) {
+    if (snapshotReadFailed) {
       stage = "error";
     } else if (!serverReady) {
       stage = "handshake";
@@ -1414,8 +1179,8 @@ function buildTargetSyncProgress() {
     stage,
     connectionStatus: state.connectionStatus,
     serverReady,
-    snapshotRequested: initialSnapshotRequested,
-    snapshotRetryCount: initialSnapshotRetryCount,
+    snapshotRequested,
+    snapshotRetryCount,
     snapshotReceived,
     totalAgentCount: agents.length,
     visibleAgentCount: lists.agents.length,
