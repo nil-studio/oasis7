@@ -473,4 +473,3 @@ fn staged_root_composes_module_runtime_charge_and_bootstrap_catalog_with_rollbac
     assert!(world.product_profile("iron_ingot").is_some());
     assert!(world.recipe_profile("recipe.smelter.iron_ingot").is_some());
 }
-
