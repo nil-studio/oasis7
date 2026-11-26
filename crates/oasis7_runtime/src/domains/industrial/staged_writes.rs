@@ -248,28 +248,23 @@ mod tests {
         world.step().unwrap();
 
         let mut job = RecipeJobState {
-            industrial_root_ref: Some(oasis7_agent_api::world_action::IndustrialRefV1 {
-                world_binding: "b".into(), domain: "d".into(), schema: "s".into(), id: "i".into(), revision: 1, digest: "h".into(),
-            }),
-            emergency_power_world_binding: Some("stale".into()), committed_recipe_origin: None,
+            industrial_root_ref: None, emergency_power_world_binding: Some("stale".into()), committed_recipe_origin: None,
             job_id: 200, requester_agent_id: builder.clone(), factory_id: spec.factory_id.clone(),
             recipe_id: "recipe.comp.1".into(), accepted_batches: 1, consume: Vec::new(),
             produce: Vec::new(), byproducts: Vec::new(), power_required: 0,
             power_owner_agent_id: Some(builder.clone()), duration_ticks: 1,
-            consume_ledger: MaterialLedgerId::agent(builder.clone()),
-            output_ledger: MaterialLedgerId::agent(builder.clone()),
-            bottleneck_tags: Vec::new(), logistics_route_ids: Vec::new(),
-            logistics_path_ids: Vec::new(), ready_at: world.state().time,
+            consume_ledger: MaterialLedgerId::agent(builder.clone()), output_ledger: MaterialLedgerId::agent(builder.clone()),
+            bottleneck_tags: Vec::new(), logistics_route_ids: Vec::new(), logistics_path_ids: Vec::new(), ready_at: world.state().time,
         };
-        world.state.pending_recipe_jobs.insert(200, job.clone());
         let before = world.snapshot();
         let view = BorrowedWorldView::new(&world).unwrap();
-        assert!(matches!(
-            StagedIndustrialCompletion { job: &job }.prepare(&view, &TransitionContext::new(view.time(), None)),
-            Err(TransitionReject::World(_))
-        ));
+        assert!(matches!(StagedIndustrialCompletion { job: &job }.prepare(&view, &TransitionContext::new(view.time(), None)), Err(TransitionReject::World(_))));
 
         job.emergency_power_world_binding = None;
+        job.industrial_root_ref = Some(oasis7_agent_api::world_action::IndustrialRefV1 {
+            world_binding: "b".into(), domain: "d".into(), schema: "s".into(), id: "i".into(), revision: 1, digest: "h".into(),
+        });
+        world.state.pending_recipe_jobs.insert(200, job.clone());
         let blocked = StagedIndustrialCompletion { job: &job };
         let prep = |w: &World| {
             let v = BorrowedWorldView::new(w).unwrap();

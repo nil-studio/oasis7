@@ -286,22 +286,25 @@ impl World {
                 journal_events.drain(0..overflow);
                 journal_events_evicted = journal_events_evicted.saturating_add(overflow as u64);
             }
-            let (_, working_delta) = transition.prepare_state_delta(self, &working_state).map_err(TransitionReject::into_world_error)?;
-            match working_delta {
-                PreparedEventStateDelta::Industry(p) => p.install(&mut working_state),
-                PreparedEventStateDelta::IndustryHistory(p) => p.install(&mut working_state),
-                _ => {}
-            }
-            if idx + 1 < bodies.len()
-                && let WorldEventBody::Domain(domain_event) = &event.body
-            {
-                working_state.route_domain_event(domain_event);
+            if idx + 1 < bodies.len() {
+                let (_, working_delta) = transition.prepare_state_delta(self, &working_state).map_err(TransitionReject::into_world_error)?;
+                match working_delta {
+                    PreparedEventStateDelta::Industry(p) => p.install(&mut working_state),
+                    PreparedEventStateDelta::IndustryHistory(p) => p.install(&mut working_state),
+                    _ => {}
+                }
+                if let WorldEventBody::Domain(domain_event) = &event.body {
+                    working_state.route_domain_event(domain_event);
+                }
             }
             steps.push((event, state_delta));
         }
 
         let tick_events: Vec<WorldEvent> = journal_events.iter().filter(|e| e.time == last_event_time).cloned().collect();
-        let state_root = self.state_root_hash_for_state(&working_state)?;
+        let state_root = match &steps.last().expect("nonempty").1 {
+            PreparedEventStateDelta::Industry(p) => self.state_root_hash_for_state_with_industry_overlay(&working_state, p)?,
+            _ => self.state_root_hash_for_state(&working_state)?,
+        };
         let consensus_record = self.build_tick_consensus_record_for_prepared_events(last_event_time, &tick_events, state_root.clone())?;
         self.validate_tick_consensus_candidate_for_prepared_publication(&consensus_record, &tick_events, &state_root)?;
 
