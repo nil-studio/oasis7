@@ -265,7 +265,7 @@ pub struct PlayerGameplayAgencyReadModel {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub referenced_memory_context: Option<serde_json::Value>,
     #[serde(default)]
-    pub memory_corrections: Vec<crate::simulator::MemoryCorrectionV1>,
+    pub memory_corrections: Vec<oasis7_agent_harness::MemoryCorrectionV1>,
 }
 
 /// The durable, player-authored intent currently handed to an in-world Agent.
