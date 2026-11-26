@@ -16,6 +16,7 @@ if (patch.sdk !== '6.1.0' || JSON.parse(fs.readFileSync(path.join(sdkRoot, 'pack
 for (const [file, change] of Object.entries(patch.files)) {
   if (!/^lib\/(?:internal\/)?[A-Za-z]+(?:\.d)?\.js$/.test(file) && !/^lib\/(?:internal\/)?[A-Za-z]+\.d\.ts$/.test(file)) throw Error('unexpected patch path');
   const target = path.join(sdkRoot, file);
+  if (JSON.stringify(provenance.patched_files[file]) !== JSON.stringify({before_sha256: change.before_sha256, after_sha256: change.after_sha256})) throw Error('provenance patch mismatch');
   let data = fs.readFileSync(target, 'utf8');
   if (digest(data) === change.after_sha256) continue;
   if (digest(data) !== change.before_sha256) throw Error(`SDK preimage mismatch: ${file}`);
@@ -25,7 +26,6 @@ for (const [file, change] of Object.entries(patch.files)) {
     data = data.split(replacement.before).join(replacement.after);
   }
   if (digest(data) !== change.after_sha256) throw Error(`SDK postimage mismatch: ${file}`);
-  if (JSON.stringify(provenance.patched_files[file]) !== JSON.stringify({before_sha256: change.before_sha256, after_sha256: change.after_sha256})) throw Error('provenance patch mismatch');
   fs.writeFileSync(target, data);
 }
 if (process.argv.includes('--patch-only')) process.exit(0);

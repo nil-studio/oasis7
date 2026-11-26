@@ -71,6 +71,7 @@ test('real V2 HTTP download invokes fatal validation before SDK extraction', {ti
     const requests=[];
     server=http.createServer((request,response)=>{
       if(request.url==='/archive'){response.writeHead(200,{'content-length':bytes.length});response.end(bytes);return;}
+      assert.equal(request.headers['user-agent'],'@actions/cache-6.1.0');
       let body='';request.on('data',chunk=>body+=chunk);request.on('end',()=>{
         requests.push(JSON.parse(body));response.setHeader('content-type','application/json');
         response.end(JSON.stringify({ok:true,signedDownloadUrl:`http://127.0.0.1:${server.address().port}/archive`,matchedKey:'fixed'}));

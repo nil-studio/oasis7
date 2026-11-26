@@ -1240,8 +1240,6 @@
     ".github/actions/cache-sdk/sdk-patch.json": ["workflow_governance"],
     ".github/actions/cache-sdk/sdk.test.cjs": ["workflow_governance"],
     "scripts/ci-cache-sdk.test.py": ["workflow_governance"],
-    "vendor/actions-cache-explicit-context/index.mjs": ["workflow_governance"],
-    "vendor/actions-cache-explicit-context/licenses.txt": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
@@ -2132,6 +2130,7 @@
     ]
   },
   "rules": [
+    {"match": ["vendor/actions-cache-explicit-context/**"], "groups": ["workflow_governance"]},
     {
       "match": ["scripts/storage-producer-diagnostics.cjs", "scripts/storage-producer-diagnostics.test.cjs"],
       "groups": ["workflow_governance"],
