@@ -1006,16 +1006,15 @@ impl World {
     }
 
     pub(super) fn process_due_material_transits(&mut self) -> Result<Vec<WorldEvent>, WorldError> {
-        let prepared = self.prepare_due_material_transits_at(self.state.time);
-        let mut emitted = Vec::with_capacity(prepared.bodies.len());
-        for body in prepared.bodies {
-            self.append_event(body, None)?;
-            if let Some(event) = self.journal.events.last() {
-                emitted.push(event.clone());
-            }
-        }
-        self.logistics_sla_metrics = prepared.logistics_sla_metrics;
-
-        Ok(emitted)
+        let prev_next_event_id = self.next_event_id;
+        self.install_staged_industrial(
+            &super::industrial::staged_writes::StagedDueMaterialTransits {
+                now: Some(self.state.time),
+            },
+            None,
+        )?;
+        let added = self.next_event_id.saturating_sub(prev_next_event_id) as usize;
+        let start = self.journal.events.len().saturating_sub(added);
+        Ok(self.journal.events[start..].to_vec())
     }
 }

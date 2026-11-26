@@ -15,7 +15,7 @@ use super::super::{
     M4_PRODUCT_IRON_INGOT_MODULE_ID, M4_PRODUCT_LOGISTICS_DRONE_MODULE_ID,
     M4_PRODUCT_MODULE_RACK_MODULE_ID, M4_PRODUCT_MOTOR_MODULE_ID, M4_PRODUCT_SENSOR_PACK_MODULE_ID,
     MaterialLedgerId, ProductValidationReceiptV1, RejectReason, WorldError, WorldEvent,
-    WorldEventBody, WorldTime,
+    WorldEventBody,
 };
 use super::World;
 use oasis7_agent_api::world_action::ResourceKind;
@@ -69,7 +69,7 @@ pub(super) fn invalid_recipe_plan_stack_note(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ProductionQueuePriority {
+pub(super) enum ProductionQueuePriority {
     Survival = 0,
     Energy = 1,
     Scale = 2,
@@ -370,7 +370,8 @@ impl World {
         }
     }
 
-    fn prepare_due_economy_event_bodies_at(&self, now: WorldTime) -> Vec<WorldEventBody> {
+    #[cfg(test)]
+    fn prepare_due_economy_event_bodies_at(&self, now: super::super::WorldTime) -> Vec<WorldEventBody> {
         let mut due_builds: Vec<_> = self
             .state
             .pending_factory_builds
@@ -432,21 +433,13 @@ impl World {
     #[cfg(test)]
     pub(crate) fn prepared_due_economy_event_bodies_for_test(
         &self,
-        now: WorldTime,
+        now: super::super::WorldTime,
     ) -> Vec<WorldEventBody> {
         self.prepare_due_economy_event_bodies_at(now)
     }
 
     pub(super) fn process_due_economy_jobs(&mut self) -> Result<Vec<WorldEvent>, WorldError> {
-        let bodies = self.prepare_due_economy_event_bodies_at(self.state.time);
-        let mut emitted = Vec::with_capacity(bodies.len());
-        for body in bodies {
-            self.append_event(body, None)?;
-            if let Some(event) = self.journal.events.last() {
-                emitted.push(event.clone());
-            }
-        }
-        Ok(emitted)
+        self.process_due_industrial_completions()
     }
 
     pub(super) fn process_due_economy_jobs_with_modules(
@@ -502,10 +495,11 @@ impl World {
         });
 
         for job in due_recipes {
-            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
-                if let Some(body) = body {
-                    self.append_event(*body, None)?;
-                    if let Some(event) = self.journal.events.last() { emitted.push(event.clone()); }
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(_) =
+                self.industrial_completion_guard(&job)
+            {
+                if let Some(event) = self.install_staged_industrial_completion(&job)? {
+                    emitted.push(event);
                 }
                 continue;
             }
@@ -684,12 +678,8 @@ impl World {
             if validation_rejected {
                 continue;
             }
-            self.append_event(
-                Self::recipe_completion_body(job),
-                None,
-            )?;
-            if let Some(event) = self.journal.events.last() {
-                emitted.push(event.clone());
+            if let Some(event) = self.install_staged_industrial_completion(&job)? {
+                emitted.push(event);
             }
         }
         Ok(emitted)
@@ -831,7 +821,7 @@ impl World {
         )
     }
 
-    fn production_priority_for_factory_job(
+    pub(super) fn production_priority_for_factory_job(
         &self,
         job: &super::super::FactoryBuildJobState,
     ) -> ProductionQueuePriority {
@@ -848,7 +838,7 @@ impl World {
         )
     }
 
-    fn production_priority_for_recipe_job(
+    pub(super) fn production_priority_for_recipe_job(
         &self,
         job: &super::super::RecipeJobState,
     ) -> ProductionQueuePriority {
