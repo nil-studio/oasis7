@@ -550,6 +550,7 @@ fn build_chain_status_payload_warns_when_finality_p95_exceeds_budget() {
     assert!(alert.summary.contains("finality_budget_ms="));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_warns_when_transfer_lifecycle_failures_cross_threshold() {
     let transactions = super::transfer_submit_api::ChainTransferMetricsStatus {
@@ -591,6 +592,7 @@ fn build_chain_status_payload_warns_when_transfer_lifecycle_failures_cross_thres
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_surfaces_persisted_module_tick_routing_metrics() {
     let dir = temp_dir("module-routing-status");
@@ -644,6 +646,7 @@ fn build_chain_status_payload_surfaces_persisted_module_tick_routing_metrics() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_warns_when_module_tick_routing_is_degraded() {
     let dir = temp_dir("module-routing-observability-alert");
@@ -684,6 +687,7 @@ fn build_chain_status_payload_warns_when_module_tick_routing_is_degraded() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_does_not_warn_for_historical_module_tick_miss_after_recovery() {
     let dir = temp_dir("module-routing-observability-historical-miss");
@@ -722,6 +726,7 @@ fn build_chain_status_payload_does_not_warn_for_historical_module_tick_miss_afte
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_does_not_claim_persisted_module_tick_duration_degradation() {
     let dir = temp_dir("module-routing-observability-one-slow-route");
@@ -762,6 +767,7 @@ fn build_chain_status_payload_does_not_claim_persisted_module_tick_duration_degr
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_warns_for_sustained_slow_live_module_tick_routes() {
     let dir = temp_dir("module-routing-observability-sustained-slow-live");
@@ -802,6 +808,7 @@ fn build_chain_status_payload_warns_for_sustained_slow_live_module_tick_routes()
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_warns_for_udp_gossip_send_failures() {
     let mut gossip = GossipTrafficMetricsSnapshot::default();
@@ -841,6 +848,7 @@ fn build_chain_status_payload_warns_for_udp_gossip_send_failures() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_does_not_warn_for_transient_udp_gossip_send_failure() {
     let mut gossip = GossipTrafficMetricsSnapshot::default();
@@ -873,6 +881,7 @@ fn build_chain_status_payload_does_not_warn_for_transient_udp_gossip_send_failur
     assert_ne!(payload.observability.status, "warn");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_chain_status_payload_warns_when_only_wasm_is_degraded() {
     let mut wasm = minimal_wasm_status();
@@ -899,6 +908,7 @@ fn build_chain_status_payload_warns_when_only_wasm_is_degraded() {
 // Kept separate to keep status-payload test responsibilities and file size bounded.
 mod status_payload_release_policy_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn feedback_p2p_is_disabled_for_observer_role() {
     assert!(
@@ -910,4 +920,26 @@ fn feedback_p2p_is_disabled_for_observer_role() {
     assert!(
         super::feedback_p2p_config_for_role(NodeRole::Storage, TrafficProfile::Default).is_some()
     );
+}
+
+const _: () = {
+    let _: Option<super::status_payload::RuntimePerfGateTier> = None;
+    let _ = (
+        super::status_payload::publication_lifecycle_rejection_reason,
+        super::explorer_p0_api::reset_store_for_tests,
+        super::node_lifecycle::tests::operation_stubborn_fixture,
+        _keep_publication_lifecycle_test_hooks,
+    );
+};
+
+#[allow(unreachable_code, clippy::diverging_sub_expression)]
+fn _keep_publication_lifecycle_test_hooks() {
+    let _ = (
+        super::publication_lifecycle::PublicationLifecycleObserver::with_before_final_generation_check_hook_for_test,
+        super::publication_lifecycle::PublicationLifecycleObserver::with_before_native_replace_hook_for_test,
+        super::publication_lifecycle::PublicationLifecycleObserver::with_publication_result_hook_for_test,
+    );
+    if false {
+        let _ = super::publication_lifecycle::replace_file_with(todo!(), todo!(), |_, _| Ok(()));
+    }
 }

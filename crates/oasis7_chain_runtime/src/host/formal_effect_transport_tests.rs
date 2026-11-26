@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1;
 use oasis7_runtime::{EffectIntent, EffectOrigin};
@@ -168,6 +169,7 @@ fn formal_effect_receiver_contract_digest_binds_loopback_endpoint_and_preapprove
     assert!(two.validate().is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_localhost_fixture_reconciles_lost_reply_and_preserves_original_receipt() {
     let sender = SigningKey::from_bytes(&[37; 32]);
@@ -221,6 +223,7 @@ fn formal_effect_localhost_fixture_reconciles_lost_reply_and_preserves_original_
     receiver.stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_terminal_state_requires_receiver_signed_matching_outcome() {
     let sender = SigningKey::from_bytes(&[38; 32]);
@@ -290,6 +293,7 @@ fn formal_effect_terminal_state_requires_receiver_signed_matching_outcome() {
     receiver.stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_retry_revalidates_persisted_not_found_against_exact_query() {
     let sender = SigningKey::from_bytes(&[47; 32]);
@@ -367,6 +371,7 @@ fn formal_effect_retry_revalidates_persisted_not_found_against_exact_query() {
     receiver.stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_slow_fragmented_response_retains_unknown_delivery_state() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -453,6 +458,7 @@ fn accept_deadline_test_stream(listener: &TcpListener) -> TcpStream {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_http_slow_fragmented_response_obeys_one_absolute_deadline() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -506,6 +512,7 @@ fn formal_effect_http_slow_fragmented_response_obeys_one_absolute_deadline() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_localhost_lost_reply_fresh_store_and_successor_queries_receipt_without_duplicate_effect()
  {
@@ -664,6 +671,7 @@ fn formal_effect_localhost_lost_reply_fresh_store_and_successor_queries_receipt_
     assert!(attempt_preceded_post.load(Ordering::SeqCst));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_signed_complete_not_found_authorizes_only_same_identity_idempotent_retry() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -792,6 +800,7 @@ fn formal_effect_signed_complete_not_found_authorizes_only_same_identity_idempot
     assert_eq!(query_count.load(Ordering::SeqCst), 2);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_non_idempotent_contract_is_blocked_before_first_post() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -819,6 +828,7 @@ fn formal_effect_non_idempotent_contract_is_blocked_before_first_post() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_effect_signed_not_found_does_not_retry_without_idempotent_post_guarantee() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -990,3 +1000,7 @@ fn cbor_record_phase_is(bytes: &[u8], expected: &str) -> bool {
     };
     phase.get(&CborValue::Text("state".into())) == Some(&CborValue::Text(expected.into()))
 }
+
+const _: () = {
+    let _ = (FormalEffectDeliveryStore::replace_terminal_response_for_test, super::test_support::LocalEffectReceiverFixture::wait_for_queries);
+};

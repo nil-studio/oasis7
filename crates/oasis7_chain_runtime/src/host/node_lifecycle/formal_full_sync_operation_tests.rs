@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::super::local_io;
 use super::{
     direct_http,
@@ -146,6 +147,7 @@ fn cold_open_rejects_zero_exchange_sequence_but_keeps_real_exchange() {
     assert_eq!(reopened.snapshot(), &real_snapshot);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn elapsed_admission_persistence_does_not_renew_attempt_or_refund_its_slot() {
     let temp = TestDir::new();
@@ -177,6 +179,7 @@ fn elapsed_admission_persistence_does_not_renew_attempt_or_refund_its_slot() {
     assert_eq!(reopened.snapshot(), &spent);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn exchange_persisted_after_deadline_cannot_issue_a_new_io_permit() {
     let temp = TestDir::new();
@@ -205,6 +208,7 @@ fn exchange_persisted_after_deadline_cannot_issue_a_new_io_permit() {
     assert_eq!(reopened.snapshot(), &spent);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reserved_body_window_persisted_after_deadline_never_returns_token() {
     let temp = TestDir::new();
@@ -237,6 +241,7 @@ fn reserved_body_window_persisted_after_deadline_never_returns_token() {
     assert_eq!(reopened.snapshot().charged().unwrap(), paid_before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cancellation_after_durable_admission_never_releases_new_io_permission() {
     use std::sync::{
@@ -287,6 +292,7 @@ fn cancellation_after_durable_admission_never_releases_new_io_permission() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn real_tcp_body_accounting_survives_original_identity_reopen() {
     let temp = TestDir::new();
@@ -353,6 +359,7 @@ fn real_tcp_body_accounting_survives_original_identity_reopen() {
     assert_eq!(restored.snapshot().encoded_rx_actual, 5);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn unresolved_reservation_is_not_refunded_by_reopen() {
     let temp = TestDir::new();
@@ -373,6 +380,7 @@ fn unresolved_reservation_is_not_refunded_by_reopen() {
     assert!(restored.begin_attempt().is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn foreign_token_and_policy_changes_are_rejected() {
     let temp = TestDir::new();
@@ -403,6 +411,7 @@ fn foreign_token_and_policy_changes_are_rejected() {
     assert!(Ledger::open(&temp.path().join("a.json"), &original, &changed, 0).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn inadequate_initial_credit_never_starts_network_or_charges_exchange() {
     let temp = TestDir::new();
@@ -439,6 +448,7 @@ fn inadequate_initial_credit_never_starts_network_or_charges_exchange() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn initial_duplex_credit_survives_crash_and_foreign_finish_cannot_release_it() {
     let temp = TestDir::new();
@@ -466,6 +476,7 @@ fn initial_duplex_credit_survives_crash_and_foreign_finish_cannot_release_it() {
     assert_eq!(restored.snapshot().encoded_rx_actual, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn proof_and_material_charges_are_durable_and_exhaustion_does_not_reset_them() {
     let temp = TestDir::new();
@@ -501,6 +512,7 @@ fn proof_and_material_charges_are_durable_and_exhaustion_does_not_reset_them() {
     assert_eq!(reopened.snapshot(), &final_state);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn uncertain_proof_persistence_invalidates_active_permit() {
     let temp = TestDir::new();
@@ -517,6 +529,7 @@ fn uncertain_proof_persistence_invalidates_active_permit() {
     assert_eq!(std::fs::read(&path).unwrap(), b"{broken");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn late_target_persistence_keeps_original_selection_without_granting_more_io() {
     let temp = TestDir::new();
@@ -561,6 +574,7 @@ fn late_target_persistence_keeps_original_selection_without_granting_more_io() {
     assert_eq!(recovered.snapshot(), &saved);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn original_verified_target_is_durable_and_cannot_be_replaced() {
     let temp = TestDir::new();
@@ -586,6 +600,7 @@ fn original_verified_target_is_durable_and_cannot_be_replaced() {
     assert_eq!(reopened.snapshot(), &original);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn original_request_is_retained_exactly_and_tampering_blocks_reopen() {
     let temp = TestDir::new();
@@ -619,6 +634,7 @@ fn original_request_is_retained_exactly_and_tampering_blocks_reopen() {
     assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn original_request_cannot_be_backfilled_after_attempt_start() {
     let temp = TestDir::new();
@@ -634,6 +650,7 @@ fn original_request_cannot_be_backfilled_after_attempt_start() {
     assert_eq!(ledger.snapshot(), &before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn late_publication_intent_persistence_never_authorizes_external_pin_cas() {
     let temp = TestDir::new();
@@ -679,6 +696,7 @@ fn late_publication_intent_persistence_never_authorizes_external_pin_cas() {
     assert_eq!(reopened.snapshot(), &pending);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
     let temp = TestDir::new();
@@ -723,6 +741,7 @@ fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
     assert_eq!(ledger.snapshot(), &pending);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn publication_intent_and_ack_block_new_real_http_exchange() {
     let temp = TestDir::new();
@@ -793,6 +812,7 @@ fn publication_intent_and_ack_block_new_real_http_exchange() {
     assert_eq!(reopened.snapshot(), &finished);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn publication_intent_freezes_proof_and_material_progress_through_cold_reopen() {
     let temp = TestDir::new();
@@ -848,6 +868,7 @@ fn publication_intent_freezes_proof_and_material_progress_through_cold_reopen() 
     assert_eq!(reopened.snapshot(), &completed);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn publication_acknowledgement_is_durable_but_not_install_authority() {
     let temp = TestDir::new();
@@ -874,6 +895,7 @@ fn publication_acknowledgement_is_durable_but_not_install_authority() {
     assert!(ledger.begin_attempt().is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn fenced_pre_target_reopen_preserves_the_original_pending_reservation() {
     use super::super::process;
@@ -947,6 +969,7 @@ fn fenced_pre_target_reopen_preserves_the_original_pending_reservation() {
     assert_eq!(reopened.snapshot(), &closed);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn native_initial_ledger_durably_publishes_the_complete_original_request() {
     use super::super::process;
@@ -1017,6 +1040,7 @@ fn native_initial_ledger_durably_publishes_the_complete_original_request() {
 #[path = "formal_full_sync_operation_wire_tests.rs"]
 mod wire_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn incomplete_operation_does_not_admit_an_unverified_grant_transition() {
     let temp = TestDir::new();
@@ -1039,3 +1063,5 @@ fn incomplete_operation_does_not_admit_an_unverified_grant_transition() {
         .unwrap()
     );
 }
+
+const _: () = { let _: usize = super::MAX_SYNC_PROVIDERS; let _ = direct_http::post; };
