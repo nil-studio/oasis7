@@ -11,7 +11,6 @@ use oasis7_wasm_abi::{
     AgentCommandResponse, CapabilityCatalogSnapshot, CapabilityGrantV2, ModuleCommandDeclaration,
     ModuleCommandValidationError, ModuleSchemaDeclarations, validate_module_command_declarations,
 };
-use serde_json::Value;
 
 use crate::decision_provider::ProviderCapabilityContext;
 pub use crate::decision_provider::{DecisionProvider, DecisionProviderError};
@@ -26,7 +25,6 @@ use crate::provider_loopback_http::{
 use crate::provider_material_capture::{
     ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
 };
-use crate::simulator_archive::archive::WorldEvent;
 
 const DEFAULT_ID: &str = "provider_loopback_http";
 const PHASE1_REFS: &[&str] = &[
