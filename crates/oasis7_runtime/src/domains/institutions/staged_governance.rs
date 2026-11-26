@@ -11,8 +11,9 @@ use oasis7_agent_api::world_action::WorldRuleCommandV1;
 use super::super::prepared_governance_events;
 use super::{PreparedEventPublication, PreparedEventStateDelta};
 use crate::world::transition::{
-    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition, SubsystemDelta,
-    SynchronousEventTransition, TransitionContext, TransitionReject, publish_synchronous_event,
+    BorrowedWorldView, DurableCommitConfirmation, PreparedStagedCommit, RootInstallContext,
+    StagedTransition, SubsystemDelta, SynchronousEventTransition, TransitionContext,
+    TransitionReject, publish_synchronous_event,
 };
 use crate::{
     CausedBy, DomainEvent, GovernanceEvent, Proposal, ProposalId, TickConsensusRecord, World,
@@ -23,8 +24,7 @@ use crate::{
 #[path = "staged_governance_tests.rs"]
 mod tests;
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub(super) enum StagedInstitutionsGovernanceTransition<'a> {
+pub(in crate::world::event_processing) enum StagedInstitutionsGovernanceTransition<'a> {
     ProposalState(&'a GovernanceEvent),
     IdentityPenaltySidecar(&'a GovernanceEvent),
     EmergencyBrakeSidecar(&'a GovernanceEvent),
@@ -32,8 +32,7 @@ pub(super) enum StagedInstitutionsGovernanceTransition<'a> {
 }
 
 impl<'a> StagedInstitutionsGovernanceTransition<'a> {
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn from_body(body: &'a WorldEventBody) -> Option<Self> {
+    pub(in crate::world::event_processing) fn from_body(body: &'a WorldEventBody) -> Option<Self> {
         match body {
             WorldEventBody::Governance(event) => match event {
                 GovernanceEvent::Proposed { .. }
@@ -107,8 +106,7 @@ impl<'a> StagedInstitutionsGovernanceTransition<'a> {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub(super) struct InstitutionsGovernanceDelta {
+pub(in crate::world::event_processing) struct InstitutionsGovernanceDelta {
     event: WorldEvent,
     state_delta: PreparedEventStateDelta,
     next_event_id: WorldEventId,
@@ -182,13 +180,11 @@ impl SynchronousEventTransition for StagedInstitutionsGovernanceTransition<'_> {
 }
 
 /// Staged adapter for atomic `Approved` (+ optional `Queued`) governance proposal transitions.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct StagedGovernanceApproval<'a> {
     pub(super) approved: &'a GovernanceEvent,
     pub(super) queued: Option<&'a GovernanceEvent>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) struct GovernanceApprovalDelta {
     proposal_id: ProposalId,
     proposal: Proposal,
@@ -242,13 +238,35 @@ impl StagedTransition for StagedGovernanceApproval<'_> {
 }
 
 impl World {
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn append_staged_institutions_governance_event(
+    pub(in crate::world::event_processing) fn append_staged_institutions_governance_event(
         &mut self,
         transition: StagedInstitutionsGovernanceTransition<'_>,
         caused_by: Option<CausedBy>,
     ) -> Result<WorldEventId, WorldError> {
         let ctx = TransitionContext::new(self.state.time, caused_by);
         publish_synchronous_event(self, &transition, &ctx)
+    }
+
+    pub(in crate::world) fn append_staged_governance_approval(
+        &mut self,
+        approved: &GovernanceEvent,
+        queued: Option<&GovernanceEvent>,
+    ) -> Result<(), WorldError> {
+        let transition = StagedGovernanceApproval { approved, queued };
+        let prepared = {
+            let view = BorrowedWorldView::new(self)?;
+            let ctx = TransitionContext::new(self.state.time, None);
+            transition
+                .prepare(&view, &ctx)
+                .map_err(TransitionReject::into_world_error)?
+        };
+        if self.take_fail_next_append_after_publication_prepare_for_test() {
+            return Err(WorldError::ResourceBalanceInvalid {
+                reason: "injected append_event failure after publication preparation".to_string(),
+            });
+        }
+        prepared
+            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
+            .map_err(TransitionReject::into_world_error)
     }
 }

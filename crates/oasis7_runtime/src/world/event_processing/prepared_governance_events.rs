@@ -424,21 +424,6 @@ impl World {
         Ok(proposal)
     }
 
-    pub(crate) fn append_prepared_governance_approval(
-        &mut self,
-        approved_event: GovernanceEvent,
-        queued_event: Option<GovernanceEvent>,
-    ) -> Result<(), WorldError> {
-        let prepared = self.prepare_governance_approval(approved_event, queued_event)?;
-        if self.take_fail_next_append_after_publication_prepare_for_test() {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: "injected append_event failure after publication preparation".to_string(),
-            });
-        }
-        prepared.install(self)?;
-        Ok(())
-    }
-
     pub(in crate::world::event_processing) fn prepare_governance_approval(
         &self,
         approved_event: GovernanceEvent,

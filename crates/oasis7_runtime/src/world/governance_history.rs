@@ -157,7 +157,27 @@ impl World {
             }
             hot.insert(cursor, event);
         }
-        let mut projection = self.clone();
+        let mut projected_state = crate::WorldState::default();
+        projected_state.time = self.state.time;
+        projected_state.governance_validator_admissions =
+            self.state.governance_validator_admissions.clone();
+        projected_state.governance_finality_key_rotations =
+            self.state.governance_finality_key_rotations.clone();
+        projected_state.governance_bootstrap_finality_key_rotations =
+            self.state.governance_bootstrap_finality_key_rotations.clone();
+        projected_state.governance_authorization_nonces =
+            self.state.governance_authorization_nonces.clone();
+        projected_state.governance_main_token_controller_registry =
+            self.state.governance_main_token_controller_registry.clone();
+        projected_state.governance_finality_signer_registry =
+            self.state.governance_finality_signer_registry.clone();
+        projected_state.node_identity_bindings = self.state.node_identity_bindings.clone();
+        projected_state.node_main_token_account_bindings =
+            self.state.node_main_token_account_bindings.clone();
+        let mut projection = World::new_with_state_for_restore(projected_state);
+        projection.governance_execution_policy = self.governance_execution_policy.clone();
+        projection.devlocal_participant_authority = self.devlocal_participant_authority.clone();
+        projection.bft_governance_parent = self.bft_governance_parent.clone();
         projection.governance_replaying = true;
         let mut budget = ByteBudget(MAX_BYTES, false);
         let mut touched = BTreeSet::new();
