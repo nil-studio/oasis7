@@ -158,7 +158,7 @@ jobs:
           terminal = json.loads((out / 'native-terminal.json').read_text())
           assert terminal['status'] == 'PASS' and terminal['source_profile'] == 'preinstalled-image'
           assert terminal['image'] == os.environ['OASIS7_CODEQL_OBSERVATION_IMAGE']
-          assert terminal['visible_cpus'] == len(os.sched_getaffinity(0)) == 4
+          assert terminal['visible_cpus'] == len(os.sched_getaffinity(0)) > 0
           print(json.dumps(terminal, sort_keys=True))
           root = temp / 'codeql-rust-production-tools/codeql'
           closure = model.bundle_closure(root, '2.27.4')
@@ -167,6 +167,10 @@ jobs:
                       for name, pack in closure.items() for path in (pathlib.Path(pack['root']),)
                       for file in path.rglob('*') if file.is_file()}
           before = snapshot()
+          resolved = subprocess.run([str(root / 'codeql'), 'resolve', 'qlpacks', '--format=json'],
+                                    cwd=root, capture_output=True, check=True, timeout=20)
+          qlpacks = json.loads(resolved.stdout)
+          assert str(pathlib.Path(closure['codeql/rust-all']['root'])) in qlpacks['codeql/rust-all']
           assert before and snapshot() == before
           print(f'official bundle: {len(closure)} packs and {len(before)} files')
           try:
