@@ -1,0 +1,85 @@
+name: ECS trusted native image ABI and archive proof
+on:
+  pull_request:
+    types: [opened]
+    paths: [.github/workflows/ecs-native-image-proof.yml]
+    branches: [codex/ecs-native-image-proof-base]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+jobs:
+  prove:
+    if: github.repository == 'nil-studio/oasis7' && github.base_ref == 'codex/ecs-native-image-proof-base' && github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/ecs-native-image-proof'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    container:
+      image: &image ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUST_TOOLCHAIN: 1.96.0
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      RUST_ECS_NATIVE_IMAGE: *image
+      PYTHONDONTWRITEBYTECODE: '1'
+      CARGO_NET_OFFLINE: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c6c35737a43d1e7cf4dc2e310e31ca64e2b13f45
+          persist-credentials: false
+      - name: Verify exact source and immutable toolchain
+        run: |
+          test "$(git rev-parse HEAD)" = c6c35737a43d1e7cf4dc2e310e31ca64e2b13f45
+          test -z "$(git status --porcelain)"
+          test "$(id -u):$(id -g)" = 1001:1001
+          test ! -w /var/run/docker.sock
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          test "$(command -v rustc)" = /opt/oasis7-rust/bin/rustc
+          test "$(rustc --version | cut -d' ' -f2)" = "$RUST_TOOLCHAIN"
+          test "$(cargo --version | cut -d' ' -f2)" = "$RUST_TOOLCHAIN"
+          python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          pkg-config --modversion x11 xi xcursor xrandr xinerama alsa libudev
+          /usr/bin/time --version
+      - name: Configure and test the pinned mold linker
+        run: |
+          python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/oasis7-ecs-native-mold"
+      - name: Measure a real link and inspect all required ELF dependencies
+        run: |
+          printf '%s\n' 'int main(void) { return 0; }' > "$RUNNER_TEMP/ecs-abi.c"
+          read -r -a libs <<< "$(pkg-config --libs x11 xi xcursor xrandr xinerama alsa libudev)"
+          /usr/bin/time -v -o "$RUNNER_TEMP/ecs-time.txt"             "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER" "$RUNNER_TEMP/ecs-abi.c"             -Wl,--no-as-needed "${libs[@]}" -o "$RUNNER_TEMP/ecs-abi"
+          "$RUNNER_TEMP/ecs-abi"
+          dependencies=$(ldd "$RUNNER_TEMP/ecs-abi")
+          printf '%s\n' "$dependencies"
+          if grep -F 'not found' <<<"$dependencies"; then exit 1; fi
+          grep -F 'Maximum resident set size' "$RUNNER_TEMP/ecs-time.txt"
+      - name: Verify cache identity separation and original archive admission tests
+        run: |
+          python3 -I - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          tool = ['python3', 'scripts/ci-ecs-cache.py']
+          environment = dict(os.environ)
+          environment.pop('GITHUB_OUTPUT', None)
+          image = json.loads(subprocess.check_output([*tool, 'identity'], env=environment))
+          environment.pop('RUST_ECS_NATIVE_IMAGE')
+          without = json.loads(subprocess.check_output([*tool, 'identity'], env=environment))
+          assert image['key'] != without['key'] and image['prefix'] != without['prefix']
+          assert image['key'].endswith('-'+subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip())
+          cache = Path(os.environ['RUNNER_TEMP']) / 'ecs-workspace-cache'
+          cache.mkdir()
+          mismatch = subprocess.check_output([*tool,'restore','--cache',str(cache),
+              '--requested-key',image['key'],'--matched-key',without['key'],'--cache-hit','true'])
+          assert json.loads(mismatch)['reason'] == 'ECS cache miss or incompatible action matched key'
+          print('digest changed the actual workspace key and incompatible restore was refused')
+          PY
+          python3 scripts/ci-ecs-cache.test.py
+          python3 scripts/ci-rust-cache-admission.test.py
