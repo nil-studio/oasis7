@@ -4065,11 +4065,16 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertEqual(ok.returncode, 0, ok.stderr)
             peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
             self.assertGreaterEqual(max(peaks), 2)
-            for shard in range(4):
+            adapter_subsuites = sorted(
+                (ROOT / 'scripts').glob('p2p-public-testnet-full-network-clean-room-adapter*.test.py')
+            )
+            self.assertGreaterEqual(len(adapter_subsuites), 2)
+            for subsuite in adapter_subsuites:
                 self.assertIn(
-                    f'OUT:python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard {shard}/4',
+                    f'OUT:python3 ./scripts/{subsuite.name}',
                     ok.stdout,
                 )
+            self.assertNotIn('--shard', ok.stdout)
             self.assertIn('OUT:./scripts/smoke-a.test.sh', ok.stdout)
             self.assertIn('ERR:./scripts/smoke-a.test.sh', ok.stderr)
 
@@ -4094,20 +4099,37 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertEqual(max(serial_peaks), 1)
 
         import importlib.util
-        adapter_test_path = ROOT / 'scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py'
-        spec = importlib.util.spec_from_file_location('clean_room_adapter_test_mod', adapter_test_path)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules['clean_room_adapter_test_mod'] = mod
-        try:
-            spec.loader.exec_module(mod)
-            loaded = unittest.defaultTestLoader.loadTestsFromModule(mod)
-            all_ids = sorted(case.id() for case in mod._flatten_suite(loaded))
-        finally:
-            sys.modules.pop('clean_room_adapter_test_mod', None)
-        shards = [all_ids[index::4] for index in range(4)]
-        self.assertTrue(all(shards))
-        self.assertEqual(sum(len(shard) for shard in shards), len(all_ids))
-        self.assertEqual(sorted(item for shard in shards for item in shard), all_ids)
+
+        def _flatten(suite):
+            cases = []
+            for item in suite:
+                if isinstance(item, unittest.TestSuite):
+                    cases.extend(_flatten(item))
+                else:
+                    cases.append(item)
+            return cases
+
+        discovered_ids: list[str] = []
+        subsuite_loader = unittest.TestLoader()
+        for idx, subsuite in enumerate(adapter_subsuites):
+            mod_name = f'clean_room_adapter_subsuite_mod_{idx}'
+            spec = importlib.util.spec_from_file_location(mod_name, subsuite)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = mod
+            try:
+                spec.loader.exec_module(mod)
+                loaded = subsuite_loader.loadTestsFromModule(mod)
+                cases = _flatten(loaded)
+            finally:
+                sys.modules.pop(mod_name, None)
+            self.assertTrue(cases, f'no tests discovered in {subsuite.name}')
+            self.assertFalse(
+                any(case.__class__.__name__ == '_FailedTest' for case in cases),
+                f'failed test discovery in {subsuite.name}',
+            )
+            for case in cases:
+                discovered_ids.append(case.id().removeprefix(f'{mod_name}.'))
+        self.assertEqual(len(discovered_ids), len(set(discovered_ids)), 'duplicate test ids across adapter subsuites')
 
     def test_doc_checker_and_compile_metrics_contracts_use_parallel_pool(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
