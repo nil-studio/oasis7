@@ -1,6 +1,7 @@
 use super::{NodeRuntimeExecutionDriver, StorageProfileConfig};
 
 impl NodeRuntimeExecutionDriver {
+    #[allow(dead_code)]
     pub(crate) fn set_controlled_capture_enabled(&mut self, enabled: bool) -> Result<(), String> {
         if enabled && !cfg!(unix) {
             return Err("durable history capture is unsupported on this platform".into());
@@ -45,6 +46,7 @@ impl NodeRuntimeExecutionDriver {
 }
 
 impl NodeRuntimeExecutionDriver {
+    #[allow(dead_code)]
     pub(crate) fn new_with_participant_control(
         state_path: std::path::PathBuf,
         world_dir: std::path::PathBuf,
