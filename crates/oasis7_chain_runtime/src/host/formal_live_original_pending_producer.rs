@@ -272,7 +272,7 @@ fn read_exact_file(directory: &Path, leaf: &str, limit: u64) -> Result<Vec<u8>, 
     {
         return Err("original pending owned file invalid/oversized".into());
     }
-    let mut file = File::open(&path).map_err(|err| err.to_string())?;
+    let file = File::open(&path).map_err(|err| err.to_string())?
     let mut bytes = Vec::new();
     file.take(limit + 1)
         .read_to_end(&mut bytes)
@@ -446,7 +446,7 @@ mod tests {
         assert!(OriginalPendingProducerV1::open(&scratch.0, owner()).is_err());
         assert!(cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, 1).is_err());
         assert_eq!(producer.begin_freeze(&scratch.0).unwrap(), pin);
-        assert!(producer.is_frozen() == false);
+        assert!(!producer.is_frozen());
         assert!(producer.finish_node_freeze(&scratch.0).is_ok());
         assert!(producer.note_accepted_enqueue(identity("new"), vec![1]).is_err());
     }
