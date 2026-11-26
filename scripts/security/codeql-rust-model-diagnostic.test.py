@@ -310,19 +310,19 @@ class Runtime(unittest.TestCase):
                 program = '''import os, signal, sys, time
 from pathlib import Path
 ready, release = map(Path, sys.argv[1:3])
-def terminate(*_):
-    while not release.exists():
-        time.sleep(.001)
-    if sys.argv[3] == 'signal':
-        os.kill(os.getpid(), signal.SIGKILL)
-    os._exit(23)
-signal.signal(signal.SIGTERM, terminate)
+# This fixture controls exit from the first poll, regardless of when the
+# supervisor's separate TERM delivery reaches the child.
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
 ready.touch()
-while True:
-    signal.pause()
+while not release.exists():
+    time.sleep(.001)
+if sys.argv[3] == 'signal':
+    os.kill(os.getpid(), signal.SIGKILL)
+os._exit(23)
 '''
                 actual_popen = r.subprocess.Popen
                 observed = []
+                first_poll = True
 
                 def synchronized_popen(*args, **kwargs):
                     process = actual_popen(*args, **kwargs)
@@ -334,8 +334,10 @@ while True:
                         actual_poll = process.poll
 
                         def poll_before_exit():
+                            nonlocal first_poll
                             value = actual_poll()
-                            if not observed:
+                            if first_poll:
+                                first_poll = False
                                 self.assertIsNone(value)
                                 release.touch()
                                 # Observe a real exit without reaping it. The immediately
@@ -365,6 +367,7 @@ while True:
                 receipt = caught.exception.result
                 self.assertEqual(len(observed), 1)
                 self.assertEqual(observed[0].si_pid, receipt['pid'])
+                self.assertEqual(observed[0].si_code, os.CLD_EXITED if mode == 'exit' else os.CLD_KILLED)
                 self.assertEqual(observed[0].si_status, abs(expected))
                 self.assertEqual(receipt['failure_kind'], 'timeout', receipt)
                 self.assertEqual(receipt['error'], 'TIMEOUT')
