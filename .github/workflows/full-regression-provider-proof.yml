@@ -1,0 +1,70 @@
+name: Trusted full regression Provider and cache geometry proof
+on:
+  pull_request:
+    branches: [codex/engineering-full-regression-provider-base]
+    types: [opened]
+    paths:
+      - .github/workflows/full-regression-provider-proof.yml
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+jobs:
+  prove:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/engineering-full-regression-provider-proof' &&
+      github.base_ref == 'codex/engineering-full-regression-provider-base'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      PROBE_SOURCE: 359bb83027b57cf9106bc572ccf2eebe71b63437
+      PROBE_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify and stage frozen diagnostic launcher
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse 'HEAD^1')" = "$PROBE_SOURCE"
+          expected=$'.github/workflows/full-regression-provider-proof.yml\nscripts/ci-full-regression-image.py'
+          test "$(git diff --name-only "$PROBE_SOURCE" HEAD)" = "$expected"
+          install -m 0400 scripts/ci-full-regression-image.py "$RUNNER_TEMP/full-regression-provider.py"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PROBE_SOURCE }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Verify the four legacy host archive geometries
+        run: |
+          set -euo pipefail
+          source scripts/wasm-bindgen-cli-common.sh
+          python3 "$RUNNER_TEMP/full-regression-provider.py" verify-cache-geometry \
+            --source "$PROBE_SOURCE" --controller "$GITHUB_SHA" \
+            --npm-root "$(npm config get cache)" --bindgen-root "$WASM_BINDGEN_CACHE_ROOT"
+      - name: Pull the fixed trusted full image
+        timeout-minutes: 3
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          config=$(mktemp -d "$RUNNER_TEMP/full-regression-docker.XXXXXX")
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$PROBE_IMAGE"
+      - name: Run the original Provider builder and receipt checker in the fixed image
+        run: |
+          python3 "$RUNNER_TEMP/full-regression-provider.py" verify-provider \
+            --source "$PROBE_SOURCE" --controller "$GITHUB_SHA"
