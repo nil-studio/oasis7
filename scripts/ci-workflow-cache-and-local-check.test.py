@@ -185,7 +185,7 @@ class PortableCacheContainers(unittest.TestCase):
         for kind, name in (('browser', 'browser-archive-cache'), ('worker', 'worker-build-cache')):
             job = jobs[name]
             for before, after in [('--user 1001:1001', '--user 0:0'),
-                                  ('${{ runner.temp }}:/home/runner/work/_temp', '/:/home/runner/work/_temp'),
+                                  ('/home/runner/work/_temp:/home/runner/work/_temp', '/:/home/runner/work/_temp'),
                                   ('operation: restore', 'operation: lookup'),
                                   ('outputs.upload_bound_bytes', 'outputs.unbounded')]:
                 self.assertIn(before, job)
