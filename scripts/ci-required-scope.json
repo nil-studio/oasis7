@@ -2223,6 +2223,11 @@
   },
   "rules": [
     {
+      "match": ["vendor/actions-cache-explicit-context/index.mjs", "vendor/actions-cache-explicit-context/licenses.txt"],
+      "groups": ["workflow_governance"],
+      "reason": "portable_cache_sdk_inputs"
+    },
+    {
       "match": ["scripts/storage-producer-diagnostics.cjs", "scripts/storage-producer-diagnostics.test.cjs"],
       "groups": ["workflow_governance"],
       "reason": "storage_producer_diagnostics"
