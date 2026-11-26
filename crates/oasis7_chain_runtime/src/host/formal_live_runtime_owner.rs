@@ -115,6 +115,8 @@ pub(crate) enum DurableSetControlRequestV1 {
 #[serde(deny_unknown_fields)]
 struct ControlReply {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    original_pending_pin: Option<super::super::formal_live_original_pending_producer::OriginalPendingPinV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     prepared_transition:
         Option<oasis7_distfs::controlled_authority::formal::SignedNormalDurableSetTransitionV1>,
     api_version: String,
@@ -851,22 +853,48 @@ fn run_owner_with_fixed_trust(
     let initial_authority =
         super::super::formal_live_history::verified_startup_authority(&validated)?;
     let node_id = validated.config.node_id.clone();
+    let incarnation = super::super::node_lifecycle::local_io::random_id()?;
+    let original_pending_directory = operation_root.join("original-pending");
+    super::super::node_lifecycle::local_io::private_dir(&original_pending_directory)?;
+    let original_owner =
+        super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+            authority_id: initial_authority.authority_id().map_err(|error| error.to_string())?,
+            operation_id: operation_id.into(),
+            request_digest: request_digest.into(),
+            config_digest: config_digest_value.clone(),
+            incarnation: incarnation.clone(),
+        };
+    let original_owner_authority_id = original_owner.authority_id.clone();
+    let original_pending = std::sync::Arc::new(std::sync::Mutex::new(
+        super::super::formal_live_original_pending_producer::OriginalPendingProducerV1::open(
+            &original_pending_directory,
+            original_owner,
+        )?,
+    ));
     // Restore and verify lineage before binding the immutable attempt identity.
-    // An open runtime does not serve until the receipt and socket are ready.
-    let restored = FormalLiveRuntime::open_from_validated_with_native_history(validated);
+    // The same exact tracker is injected into both real HTTP ingress and Node hook.
+    let restored = FormalLiveRuntime::open_from_validated_with_original_pending_owner_adapter(
+        validated,
+        std::sync::Arc::clone(&original_pending),
+        original_pending_directory,
+    );
     let active = restored
         .as_ref()
         .map_or(&initial_authority, |runtime| runtime.active_authority());
+    let active_authority_id = active.authority_id().map_err(|error| error.to_string())?;
+    if active_authority_id != original_owner_authority_id {
+        return Err("original pending owner authority differs from restored runtime".into());
+    }
     let instance = FormalRuntimeInstanceV1 {
         api_version: OWNER_API.into(),
         operation_id: operation_id.into(),
         request_digest: request_digest.into(),
-        incarnation: super::super::node_lifecycle::local_io::random_id()?,
+        incarnation,
         config_digest: config_digest_value,
         node_id,
         world_id: active.definition().world.world_id.clone(),
         chain_id: active.definition().world.chain_id.clone(),
-        authority_id: active.authority_id().map_err(|error| error.to_string())?,
+        authority_id: active_authority_id,
         authority_epoch: active.definition().epoch,
         profile_version: active.definition().profile_version,
         process_id: std::process::id(),
@@ -982,6 +1010,7 @@ fn run_owner_with_fixed_trust(
                     let mut durable_set_status = None;
                     let mut prepared_transition = None;
                     let mut protected_observation = None;
+                    let mut original_pending_pin = None;
                     match request.action.as_str() {
                         "query" => {}
                         "observe_protected" => {
@@ -999,6 +1028,19 @@ fn run_owner_with_fixed_trust(
                             write_owner_record(&state_path, snapshot.clone())?;
                             runtime
                                 .stop(stop_deadline.saturating_duration_since(Instant::now()))?;
+                            snapshot.state = "stopped".into();
+                            write_owner_record(&state_path, snapshot.clone())?;
+                        }
+                        "freeze_original_pending" => {
+                            if !matches!(snapshot.state.as_str(), "ready" | "unknown" | "stopping") {
+                                return Err("original pending freeze requires the exact live owner".into());
+                            }
+                            stop_started = true;
+                            snapshot.state = "stopping".into();
+                            write_owner_record(&state_path, snapshot.clone())?;
+                            original_pending_pin = Some(runtime.freeze_original_pending(
+                                Duration::from_millis(request.timeout_ms),
+                            )?);
                             snapshot.state = "stopped".into();
                             write_owner_record(&state_path, snapshot.clone())?;
                         }
@@ -1052,6 +1094,7 @@ fn run_owner_with_fixed_trust(
                             snapshot: snapshot.clone(),
                             durable_set_status,
                             prepared_transition,
+                            original_pending_pin,
                             control_error: None,
                             protected_observation,
                         },
@@ -1059,7 +1102,7 @@ fn run_owner_with_fixed_trust(
                     stream
                         .shutdown(Shutdown::Both)
                         .map_err(|error| format!("close owner control reply: {error}"))?;
-                    Ok(request.action == "stop")
+                    Ok(request.action == "stop" || request.action == "freeze_original_pending")
                 })();
                 match result {
                     Ok(true) => return Ok(()),
@@ -1079,6 +1122,7 @@ fn run_owner_with_fixed_trust(
                                     snapshot: snapshot.clone(),
                                     durable_set_status: None,
                                     prepared_transition: None,
+                                    original_pending_pin: None,
                                     control_error: Some(bounded_reason(&error)),
                                     protected_observation: None,
                                 },
@@ -1098,8 +1142,9 @@ fn run_owner_with_fixed_trust(
                                 snapshot: snapshot.clone(),
                                 durable_set_status: None,
                                 prepared_transition: None,
+                                original_pending_pin: None,
                                 control_error: Some(bounded_reason(&error)),
-                                    protected_observation: None,
+                                protected_observation: None,
                             },
                         );
                         if snapshot.state == "stopped" {
@@ -1119,6 +1164,123 @@ fn run_owner_with_fixed_trust(
             }
         }
     }
+}
+
+/// Request an exact-owner Freeze. The returned pin is only a candidate for
+/// an independent protected witness; it is not a recovery permission.
+pub(crate) fn freeze_original_pending(
+    config_path: &Path,
+    instance: &FormalRuntimeInstanceV1,
+    timeout: Duration,
+) -> Result<super::super::formal_live_original_pending_producer::OriginalPendingPinV1, String> {
+    if timeout.is_zero() || timeout > Duration::from_secs(60) {
+        return Err("original pending owner control timeout in (0,60s]".into());
+    }
+    let (_, state_path, socket_path) = paths(config_path, &instance.operation_id)?;
+    let current = read_owner_record(&state_path)?.ok_or("original pending owner receipt missing")?;
+    if current.snapshot.instance != *instance || current.snapshot.state != "ready" {
+        return Err("original pending freeze requires the exact ready owner".into());
+    }
+    let stream = UnixStream::connect(socket_path)
+        .map_err(|_| "original pending exact owner control unavailable")?;
+    let reply = control::send_control_reply(
+        &state_path,
+        instance,
+        "freeze_original_pending",
+        Instant::now() + timeout,
+        stream,
+    )?;
+    if let Some(error) = reply.control_error {
+        return Err(error);
+    }
+    if reply.snapshot.state != "stopped" {
+        return Err("original pending owner freeze did not stop the exact Node".into());
+    }
+    let pin = reply
+        .original_pending_pin
+        .ok_or("original pending owner freeze reply omitted its prepared pin")?;
+    let expected_owner =
+        super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+            authority_id: instance.authority_id.clone(),
+            operation_id: instance.operation_id.clone(),
+            request_digest: instance.request_digest.clone(),
+            config_digest: instance.config_digest.clone(),
+            incarnation: instance.incarnation.clone(),
+        };
+    pin.validate(&expected_owner)?;
+    Ok(pin)
+}
+
+/// Read the prepared pin after a lost Freeze reply. This is deliberately an
+/// untrusted candidate; only a separately pinned root/count can authorize the
+/// exact cold reader below.
+pub(crate) fn read_original_pending_pin_candidate(
+    config_path: &Path,
+    instance: &FormalRuntimeInstanceV1,
+) -> Result<super::super::formal_live_original_pending_producer::OriginalPendingPinV1, String> {
+    let (root, state_path, _) = paths(config_path, &instance.operation_id)?;
+    let record = read_owner_record(&state_path)?.ok_or("original pending owner receipt missing")?;
+    validate_snapshot(
+        &record.snapshot,
+        &instance.operation_id,
+        &instance.request_digest,
+        &instance.config_digest,
+        Some(&instance.incarnation),
+    )?;
+    if !matches!(record.snapshot.state.as_str(), "stopping" | "stopped" | "unknown") {
+        return Err("original pending pin candidate requires a freeze attempt".into());
+    }
+    let directory = operation_root(&root, &instance.operation_id)?.join("original-pending");
+    let expected_owner =
+        super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+            authority_id: instance.authority_id.clone(),
+            operation_id: instance.operation_id.clone(),
+            request_digest: instance.request_digest.clone(),
+            config_digest: instance.config_digest.clone(),
+            incarnation: instance.incarnation.clone(),
+        };
+    super::super::formal_live_original_pending_producer::read_prepared_pin_candidate(
+        &directory,
+        &expected_owner,
+    )
+}
+
+/// Cold-open only after the exact owner is no longer serving. The root/count
+/// are supplied by an independent witness; no local owner marker is trusted
+/// as permission to recover original request bytes.
+pub(crate) fn cold_read_original_pending_for_owner(
+    config_path: &Path,
+    instance: &FormalRuntimeInstanceV1,
+    independent_root: &str,
+    independent_count: usize,
+) -> Result<oasis7_formal_protocol::controlled_authority::formal::RecoveryPendingHandoffV1, String> {
+    let (root, state_path, _) = paths(config_path, &instance.operation_id)?;
+    let record = read_owner_record(&state_path)?.ok_or("original pending owner receipt missing")?;
+    validate_snapshot(
+        &record.snapshot,
+        &instance.operation_id,
+        &instance.request_digest,
+        &instance.config_digest,
+        Some(&instance.incarnation),
+    )?;
+    if !matches!(record.snapshot.state.as_str(), "stopping" | "stopped" | "unknown") {
+        return Err("original pending cold read requires a non-serving exact owner".into());
+    }
+    let directory = operation_root(&root, &instance.operation_id)?.join("original-pending");
+    let expected_owner =
+        super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+            authority_id: instance.authority_id.clone(),
+            operation_id: instance.operation_id.clone(),
+            request_digest: instance.request_digest.clone(),
+            config_digest: instance.config_digest.clone(),
+            incarnation: instance.incarnation.clone(),
+        };
+    super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
+        &directory,
+        &expected_owner,
+        independent_root,
+        independent_count,
+    )
 }
 
 fn validate_control(
