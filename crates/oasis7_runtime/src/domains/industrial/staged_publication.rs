@@ -214,6 +214,7 @@ impl World {
         publish_synchronous_event(self, &transition, &ctx)
     }
 
+    #[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
     pub(in crate::world) fn prepare_industrial_action_rejected_publication(
         &self,
         body: WorldEventBody,
@@ -234,6 +235,7 @@ impl World {
         ))
     }
 
+    #[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
     pub(in crate::world) fn prepare_industrial_batch_publication(
         &self,
         bodies: &[WorldEventBody],
