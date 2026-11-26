@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) enum PreparedEventStateDelta {
+pub(in crate::world::event_processing) enum PreparedEventStateDelta {
     NoState(WorldEventBody),
     WorldRule(Box<crate::world_rules::PreparedWorldRule>),
     ProductValidationDeliveryCursorUpdated {
@@ -133,7 +133,7 @@ pub(crate) enum PreparedEventStateDelta {
 }
 
 impl PreparedEventStateDelta {
-    pub(crate) fn for_body(world: &World, body: &WorldEventBody) -> Option<Self> {
+    pub(super) fn for_body(world: &World, body: &WorldEventBody) -> Option<Self> {
         match body {
             WorldEventBody::PolicyDecisionRecorded(_)
             | WorldEventBody::RuleDecisionRecorded(_)
@@ -461,7 +461,7 @@ impl PreparedEventStateDelta {
         }
     }
 
-    pub(crate) fn install_infallible(self, world: &mut World) {
+    pub(super) fn install_infallible(self, world: &mut World) {
         match self {
             Self::WorldRule(prepared) => prepared.install(&mut world.state),
             Self::ModuleMarketplace(prepared) => prepared.install_infallible(&mut world.state),

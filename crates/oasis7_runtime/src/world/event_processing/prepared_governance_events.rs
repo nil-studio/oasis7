@@ -7,14 +7,14 @@ use super::super::World;
 use super::PreparedEventStateDelta;
 
 pub(crate) struct PreparedGovernanceApprovalPublication {
-    pub(crate) proposal_id: ProposalId,
-    pub(crate) proposal: Proposal,
-    pub(crate) events: Vec<WorldEvent>,
-    pub(crate) next_event_id: WorldEventId,
-    pub(crate) next_event_id_era: u64,
-    pub(crate) journal_events: Vec<WorldEvent>,
-    pub(crate) journal_events_evicted: u64,
-    pub(crate) consensus_record: TickConsensusRecord,
+    pub(in crate::world::event_processing) proposal_id: ProposalId,
+    pub(in crate::world::event_processing) proposal: Proposal,
+    pub(in crate::world::event_processing) events: Vec<WorldEvent>,
+    pub(in crate::world::event_processing) next_event_id: WorldEventId,
+    pub(in crate::world::event_processing) next_event_id_era: u64,
+    pub(in crate::world::event_processing) journal_events: Vec<WorldEvent>,
+    pub(in crate::world::event_processing) journal_events_evicted: u64,
+    pub(in crate::world::event_processing) consensus_record: TickConsensusRecord,
 }
 
 impl PreparedGovernanceApprovalPublication {
@@ -45,7 +45,7 @@ impl PreparedGovernanceApprovalPublication {
     }
 }
 
-pub(crate) fn prepare(
+pub(super) fn prepare(
     world: &World,
     body: &WorldEventBody,
 ) -> Result<Option<PreparedEventStateDelta>, WorldError> {
@@ -439,7 +439,7 @@ impl World {
         Ok(())
     }
 
-    pub(crate) fn prepare_governance_approval(
+    pub(in crate::world::event_processing) fn prepare_governance_approval(
         &self,
         approved_event: GovernanceEvent,
         queued_event: Option<GovernanceEvent>,

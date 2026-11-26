@@ -68,7 +68,7 @@ mod effect_publication;
 #[cfg(test)]
 mod effect_publication_transaction_regressions;
 mod effects;
-pub(crate) mod event_processing;
+mod event_processing;
 mod formal_execution_tick;
 mod formal_retention;
 mod formal_tick_consensus;
@@ -421,7 +421,7 @@ pub struct World {
     #[serde(default)]
     capability_effect_receipt_links: BTreeMap<String, CapabilityEffectReceiptLink>,
     policies: PolicySet,
-    pub(crate) proposals: BTreeMap<ProposalId, Proposal>,
+    proposals: BTreeMap<ProposalId, Proposal>,
     scheduler_cursor: Option<String>,
     #[serde(skip)]
     receipt_signer: Option<ReceiptSigner>,

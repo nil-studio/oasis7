@@ -8,9 +8,6 @@ mod governance_candidate_projection;
 mod governance_membership;
 mod governance_projection;
 mod governance_quote;
-pub(crate) mod staged_governance;
-#[cfg(test)]
-mod staged_governance_tests;
 
 pub use governance_candidate_projection::WorldGovernanceCandidateRegistryProjectionV2;
 pub use governance_membership::{

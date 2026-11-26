@@ -8,10 +8,8 @@
 
 use oasis7_agent_api::world_action::WorldRuleCommandV1;
 
-use crate::world::event_processing::prepared_governance_events;
-use crate::world::event_processing::publication::{
-    PreparedEventPublication, PreparedEventStateDelta,
-};
+use super::super::prepared_governance_events;
+use super::{PreparedEventPublication, PreparedEventStateDelta};
 use crate::world::transition::{
     BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition, SubsystemDelta,
     SynchronousEventTransition, TransitionContext, TransitionReject, publish_synchronous_event,
@@ -21,11 +19,12 @@ use crate::{
     WorldError, WorldEvent, WorldEventBody, WorldEventId,
 };
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "cutover wiring deferred to #6141 PR 5/5")
-)]
-pub(crate) enum StagedInstitutionsGovernanceTransition<'a> {
+#[cfg(test)]
+#[path = "staged_governance_tests.rs"]
+mod tests;
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) enum StagedInstitutionsGovernanceTransition<'a> {
     ProposalState(&'a GovernanceEvent),
     IdentityPenaltySidecar(&'a GovernanceEvent),
     EmergencyBrakeSidecar(&'a GovernanceEvent),
@@ -33,11 +32,8 @@ pub(crate) enum StagedInstitutionsGovernanceTransition<'a> {
 }
 
 impl<'a> StagedInstitutionsGovernanceTransition<'a> {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "cutover wiring deferred to #6141 PR 5/5")
-    )]
-    pub(crate) fn from_body(body: &'a WorldEventBody) -> Option<Self> {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn from_body(body: &'a WorldEventBody) -> Option<Self> {
         match body {
             WorldEventBody::Governance(event) => match event {
                 GovernanceEvent::Proposed { .. }
@@ -111,7 +107,8 @@ impl<'a> StagedInstitutionsGovernanceTransition<'a> {
     }
 }
 
-pub(crate) struct InstitutionsGovernanceDelta {
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) struct InstitutionsGovernanceDelta {
     event: WorldEvent,
     state_delta: PreparedEventStateDelta,
     next_event_id: WorldEventId,
@@ -185,13 +182,14 @@ impl SynchronousEventTransition for StagedInstitutionsGovernanceTransition<'_> {
 }
 
 /// Staged adapter for atomic `Approved` (+ optional `Queued`) governance proposal transitions.
-#[cfg_attr(not(test), expect(dead_code, reason = "cutover deferred to #6141 PR 5/5"))]
-pub(crate) struct StagedGovernanceApproval<'a> {
-    pub(crate) approved: &'a GovernanceEvent,
-    pub(crate) queued: Option<&'a GovernanceEvent>,
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) struct StagedGovernanceApproval<'a> {
+    pub(super) approved: &'a GovernanceEvent,
+    pub(super) queued: Option<&'a GovernanceEvent>,
 }
 
-pub(crate) struct GovernanceApprovalDelta {
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) struct GovernanceApprovalDelta {
     proposal_id: ProposalId,
     proposal: Proposal,
     events: Vec<WorldEvent>,
@@ -244,8 +242,8 @@ impl StagedTransition for StagedGovernanceApproval<'_> {
 }
 
 impl World {
-    #[cfg_attr(not(test), expect(dead_code, reason = "cutover deferred to #6141 PR 5/5"))]
-    pub(crate) fn append_staged_institutions_governance_event(
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn append_staged_institutions_governance_event(
         &mut self,
         transition: StagedInstitutionsGovernanceTransition<'_>,
         caused_by: Option<CausedBy>,

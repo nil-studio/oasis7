@@ -1,9 +1,9 @@
-use super::staged_governance::{
-    StagedGovernanceApproval, StagedInstitutionsGovernanceTransition,
+use super::{
+    InstitutionsGovernanceDelta, StagedGovernanceApproval, StagedInstitutionsGovernanceTransition,
 };
 use crate::world::transition::{
-    BorrowedWorldView, DurableCommitConfirmation, StagedTransition, TransitionContext,
-    TransitionReject,
+    BorrowedWorldView, DurableCommitConfirmation, PreparedStagedCommit, StagedTransition,
+    TransitionContext, TransitionReject,
 };
 use crate::{
     Action, DomainEvent, GovernanceEvent, GovernanceIdentityStatus, Manifest, ProposalDecision,
@@ -23,12 +23,7 @@ fn local_guardians() -> Vec<String> {
 fn prepare_staged(
     world: &World,
     body: &WorldEventBody,
-) -> Result<
-    crate::world::transition::PreparedStagedCommit<
-        super::staged_governance::InstitutionsGovernanceDelta,
-    >,
-    TransitionReject,
-> {
+) -> Result<PreparedStagedCommit<InstitutionsGovernanceDelta>, TransitionReject> {
     let view = BorrowedWorldView::new(world)?;
     StagedInstitutionsGovernanceTransition::from_body(body)
         .expect("institutions governance transition must classify body")
