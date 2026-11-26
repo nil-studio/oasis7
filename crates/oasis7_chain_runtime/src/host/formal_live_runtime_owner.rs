@@ -30,6 +30,7 @@ use control_wire::{bounded_reason, read_message, write_message};
 mod control;
 #[path = "formal_live_runtime_owner_original_pending.rs"]
 mod original_pending;
+pub(super) use original_pending::{operation_root, owner_root, paths};
 pub(crate) use original_pending::{
     cold_read_original_pending_for_owner, freeze_original_pending,
     read_original_pending_pin_candidate,
@@ -139,43 +140,6 @@ struct ControlReply {
 #[path = "formal_live_owner_diagnostics.rs"]
 mod diagnostics;
 use diagnostics::{WorkerDiagnostics, append_worker_diagnostic};
-
-fn owner_root(config_path: &Path) -> Result<PathBuf, String> {
-    let validated = FormalLiveConfigV1::load(config_path)?;
-    Ok(validated.config.writer_directory.join("runtime-owner"))
-}
-
-fn operation_root(root: &Path, operation_id: &str) -> Result<PathBuf, String> {
-    if operation_id.is_empty()
-        || operation_id.len() > 128
-        || !operation_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-_:".contains(&byte))
-    {
-        return Err("invalid formal runtime owner operation identity".into());
-    }
-    let digest = super::super::node_lifecycle::local_io::digest(&operation_id)?;
-    Ok(root.join("operations").join(digest))
-}
-
-fn prepare_operation_root(root: &Path, operation_id: &str) -> Result<PathBuf, String> {
-    super::super::node_lifecycle::local_io::private_dir(root)?;
-    let operations = root.join("operations");
-    super::super::node_lifecycle::local_io::private_dir(&operations)?;
-    let operation = operation_root(root, operation_id)?;
-    super::super::node_lifecycle::local_io::private_dir(&operation)?;
-    Ok(operation)
-}
-
-fn paths(config_path: &Path, operation_id: &str) -> Result<(PathBuf, PathBuf, PathBuf), String> {
-    let root = owner_root(config_path)?;
-    let operation = operation_root(&root, operation_id)?;
-    Ok((
-        root,
-        operation.join("owner.json"),
-        socket_path(config_path, operation_id)?,
-    ))
-}
 
 fn socket_path(config_path: &Path, operation_id: &str) -> Result<PathBuf, String> {
     let uid = unsafe { libc::geteuid() };
