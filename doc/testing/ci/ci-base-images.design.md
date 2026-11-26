@@ -134,3 +134,15 @@ runner until its canonical build can use an isolated Docker boundary.
 有限入口位于 `.github/actions/portable-cache-transport/`，直接导入上述固定 SDK，不另行安装依赖或打包自有逻辑。它只接受原 `worker-build` 与三种 `browser-archive` component，由原 metadata helper 派生 key、root、条目与字节上限；调用者不能指定 cwd、raw paths 或 fallback keys。SDK 使用固定宿主 canonical 工作根，保留原归档相对成员和缓存版本，不改 `GITHUB_*`。执行前核对实际 checkout HEAD、工作区和动作目录 inode、可信 main workflow/job、V2/read-write 模式与 UID/GID；save 仍依赖原 helper 的 REST/库存/20 GB 准入及测量结果，不新增授权路径。
 
 恢复回调先绑定 exact matched key，再在解包前以 no-follow/nonblocking 描述符检查实际下载归档。有界 zstd 流覆盖 header、PAX、padding 和 payload；仅允许精确旧 prefix 内的普通文件及目录，拒绝链接、设备、sparse、未知 PAX、重复、路径穿越、文件目录冲突和当前目标 symlink。检查器沿现有 process runner 的 60 秒边界与进程回收运行；该边界不是同 UID 沙箱，也不保证硬终止后仍可执行用户态清理。SDK 缺失回调或检查失败不得作为成功命中。当前阶段只有入口与回归，没有生产 workflow 调用；两个 mixed job 的容器切换和自然 writer/reader 证据由下一消费批次独立交付。
+
+The trusted full-regression job uses the image for npm dependency
+installation, the original `full-extended` command, and the governance
+report. GitHub cache actions remain on the host for npm, Trunk,
+wasm-bindgen, and the sentinel, retaining their original keys, roots,
+and permissions. Host Rust setup remains for the existing cache action
+and tool preparation. Native Cargo restore uses the separate read-only
+image identity, so the prior host target cache cannot enter the image.
+The runner mounts only the workspace and selected tool data. The
+original local Docker socket is bound for the trusted test command
+alone after checking the trusted execution identity. Candidate full
+regression continues through the original runner.

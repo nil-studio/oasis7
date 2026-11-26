@@ -598,7 +598,7 @@ class WorkflowCorePart13(unittest.TestCase):
         self.assertIn('fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\')', JOBS['fleet-health'])
         self.assertIn('--host-smoke', JOBS['fleet-health'])
         self.assertEqual(WORKFLOW.count('testnet-packages-macos-arm64-contract.test.sh'), 2)
-        self.assertIn('./scripts/ci-tests.sh full', JOBS['full-regression'])
+        self.assertIn('scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"', JOBS['full-regression'])
         self.assertIn('package-newapi-bridge-service.sh', JOBS['newapi-bridge-package'])
         report = JOBS['viewer-performance-report']
         self.assertIn('rustup default', report)
