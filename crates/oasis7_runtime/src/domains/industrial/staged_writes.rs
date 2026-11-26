@@ -222,28 +222,16 @@ mod tests {
         let (builder, site_id) = ("builder-staged-1".to_string(), "site-staged-1".to_string());
         let (mut staged, spec) = setup_factory_world(&builder, &site_id, "factory-staged-1", 3);
         let mut ordinary = staged.clone();
-        let tx = StagedFactoryConstruction {
-            action_id: 42, builder_agent_id: &builder, site_id: &site_id,
-            spec: &spec, validate_materials: true, module_id: None,
-        };
-        let prep = |w: &World| {
-            let v = BorrowedWorldView::new(w).unwrap();
-            tx.prepare(&v, &TransitionContext::new(v.time(), None)).unwrap()
-        };
+        let tx = StagedFactoryConstruction { action_id: 42, builder_agent_id: &builder, site_id: &site_id, spec: &spec, validate_materials: true, module_id: None };
+        let prep = |w: &World| { let v = BorrowedWorldView::new(w).unwrap(); tx.prepare(&v, &TransitionContext::new(v.time(), None)).unwrap() };
         let before = staged.snapshot();
-        assert!(matches!(
-            prep(&staged).install_confirmed(&mut staged, DurableCommitConfirmation::StatusUnknown { reason: "lost".into() }),
-            Err(TransitionReject::StatusUnknownFenced { .. })
-        ));
+        assert!(matches!(prep(&staged).install_confirmed(&mut staged, DurableCommitConfirmation::StatusUnknown { reason: "lost".into() }), Err(TransitionReject::StatusUnknownFenced { .. })));
         assert_eq!(staged.snapshot(), before);
 
         let stale_commit = prep(&staged);
         let mut stale_world = staged.clone();
         stale_world.set_ledger_material_balance(MaterialLedgerId::agent(builder.clone()), "steel_plate", 99).unwrap();
-        assert!(matches!(
-            stale_commit.install_confirmed(&mut stale_world, DurableCommitConfirmation::Confirmed),
-            Err(TransitionReject::BaseHeadStale)
-        ));
+        assert!(matches!(stale_commit.install_confirmed(&mut stale_world, DurableCommitConfirmation::Confirmed), Err(TransitionReject::BaseHeadStale)));
 
         prep(&staged).install_confirmed(&mut staged, DurableCommitConfirmation::Confirmed).unwrap();
         let body = ordinary.build_factory_to_event(42, &builder, &site_id, &spec, true).unwrap();
@@ -260,16 +248,20 @@ mod tests {
         world.step().unwrap();
 
         let mut job = RecipeJobState {
-            industrial_root_ref: None, emergency_power_world_binding: Some("stale".into()),
-            committed_recipe_origin: None, job_id: 200, requester_agent_id: builder.clone(),
-            factory_id: spec.factory_id.clone(), recipe_id: "recipe.comp.1".into(),
-            accepted_batches: 1, consume: Vec::new(), produce: Vec::new(), byproducts: Vec::new(),
-            power_required: 0, power_owner_agent_id: Some(builder.clone()), duration_ticks: 1,
+            industrial_root_ref: Some(oasis7_agent_api::world_action::IndustrialRefV1 {
+                world_binding: "b".into(), domain: "d".into(), schema: "s".into(), id: "i".into(), revision: 1, digest: "h".into(),
+            }),
+            emergency_power_world_binding: Some("stale".into()), committed_recipe_origin: None,
+            job_id: 200, requester_agent_id: builder.clone(), factory_id: spec.factory_id.clone(),
+            recipe_id: "recipe.comp.1".into(), accepted_batches: 1, consume: Vec::new(),
+            produce: Vec::new(), byproducts: Vec::new(), power_required: 0,
+            power_owner_agent_id: Some(builder.clone()), duration_ticks: 1,
             consume_ledger: MaterialLedgerId::agent(builder.clone()),
             output_ledger: MaterialLedgerId::agent(builder.clone()),
             bottleneck_tags: Vec::new(), logistics_route_ids: Vec::new(),
             logistics_path_ids: Vec::new(), ready_at: world.state().time,
         };
+        world.state.pending_recipe_jobs.insert(200, job.clone());
         let before = world.snapshot();
         let view = BorrowedWorldView::new(&world).unwrap();
         assert!(matches!(

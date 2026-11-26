@@ -268,7 +268,7 @@ impl World {
         let mut steps = Vec::with_capacity(bodies.len());
         let last_event_time = working_state.time;
 
-        for body in bodies {
+        for (idx, body) in bodies.iter().enumerate() {
             let transition = StagedIndustrialPublication::from_body(body).ok_or_else(|| {
                 WorldError::ResourceBalanceInvalid { reason: format!("unclassified industrial event: {body:?}") }
             })?;
@@ -292,7 +292,9 @@ impl World {
                 PreparedEventStateDelta::IndustryHistory(p) => p.install(&mut working_state),
                 _ => {}
             }
-            if let WorldEventBody::Domain(domain_event) = &event.body {
+            if idx + 1 < bodies.len()
+                && let WorldEventBody::Domain(domain_event) = &event.body
+            {
                 working_state.route_domain_event(domain_event);
             }
             steps.push((event, state_delta));
