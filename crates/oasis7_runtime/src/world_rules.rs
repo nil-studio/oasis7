@@ -120,6 +120,7 @@ use oasis7_agent_api::world_action::WorldRuleCommandV1;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 pub(crate) fn emergency_authorize_fixture() -> (crate::World, oasis7_agent_api::world_action::Action)
 {
     tests::emergency_authorize_fixture()

@@ -137,6 +137,7 @@ mod organization_continuity_tests;
 mod organization_tests;
 mod supply_tests;
 
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 pub fn emergency_authorize_fixture() -> (World, Action) {
     supply_tests::emergency_authorize_fixture()
 }

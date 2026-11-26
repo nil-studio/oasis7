@@ -656,6 +656,7 @@ fn emergency_commands_cannot_inherit_another_world_registration() {
     assert!(format!("{error:?}").contains("emergency_supply_world_binding_mismatch"));
 }
 
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 fn observed_authorization_fixture(starts_at: u64) -> (WorldState, WorldRuleCommandV1) {
     let mut state = registered_fixture();
     for tick in [720, 780, 840] {
@@ -693,6 +694,7 @@ fn observed_authorization_fixture(starts_at: u64) -> (WorldState, WorldRuleComma
     state.time = 840;
     (state, authorization)
 }
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 pub fn authorized_preparation_fixture() -> (World, Action) {
     let (state, command) = observed_authorization_fixture(900);
     (
