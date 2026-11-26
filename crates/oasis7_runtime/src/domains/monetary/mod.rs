@@ -421,7 +421,7 @@ impl StagedTransition for StagedBootstrapCatalogDefaults {
 enum MonetaryDeltaInner {
     RuleFee(PreparedRuleFeeDelta),
     Cognition(Box<CognitionEconomyStateV1>, CognitionEconomyDelta),
-    Publication(MonetaryPublicationDelta),
+    Publication(Box<MonetaryPublicationDelta>),
     BootstrapCatalog(PreparedBootstrapCatalogDelta),
 }
 
@@ -429,7 +429,7 @@ pub(crate) struct MonetaryDomainDelta(MonetaryDeltaInner);
 
 impl MonetaryDomainDelta {
     pub(crate) fn from_publication(delta: MonetaryPublicationDelta) -> Self {
-        Self(MonetaryDeltaInner::Publication(delta))
+        Self(MonetaryDeltaInner::Publication(Box::new(delta)))
     }
 }
 
