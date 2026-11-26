@@ -437,6 +437,94 @@ def _controlled_rules_diff(old_rules, new_rules, before, after, tree_cache, *, r
     return added_groups, candidate_rules
 
 
+GOVERNANCE_SPLIT_CONFIG_KEYS = frozenset((
+    'scoped_control_paths',
+    'workflow_governance_python_tests',
+    'python_control_contracts',
+))
+GOVERNANCE_SPLIT_TEST_RE = re.compile(
+    r'scripts/(?:ci-|build-|plan-rust-required-scope)[A-Za-z0-9._-]*\.test\.py'
+)
+EVOLVING_GOVERNANCE_SPLIT_PARENTS = frozenset((
+    'scripts/plan-rust-required-scope.test.py',
+    'scripts/ci-bin-ownership.test.py',
+    'scripts/ci-formal-process.test.py',
+    'scripts/ci-full-result.test.py',
+    'scripts/ci-workflow.test.py',
+    'scripts/ci-workspace-cache.test.py',
+))
+
+
+def _is_order_preserving_subsequence(old_seq, new_seq):
+    pending = iter(old_seq)
+    expected = next(pending, None)
+    if expected is None:
+        return True
+    for item in new_seq:
+        if item == expected:
+            expected = next(pending, None)
+            if expected is None:
+                return True
+    return False
+
+
+def _controlled_governance_test_split_diff(old_cfg, new_cfg, before, after, paths, *, repo=None):
+    """Validate strictly additive governance Python test split registrations."""
+    old_scp = old_cfg.get('scoped_control_paths')
+    new_scp = new_cfg.get('scoped_control_paths')
+    old_wgpt = old_cfg.get('workflow_governance_python_tests')
+    new_wgpt = new_cfg.get('workflow_governance_python_tests')
+    old_pcc = old_cfg.get('python_control_contracts')
+    new_pcc = new_cfg.get('python_control_contracts')
+    if (not isinstance(old_scp, dict) or not isinstance(new_scp, dict)
+            or not isinstance(old_wgpt, list) or not isinstance(new_wgpt, list)
+            or not isinstance(old_pcc, dict) or not isinstance(new_pcc, dict)):
+        return None
+    for existing_path, existing_groups in old_scp.items():
+        if existing_path not in new_scp or new_scp[existing_path] != existing_groups:
+            return None
+    added_tests = sorted(set(new_scp) - set(old_scp))
+    if not added_tests:
+        return None
+    added_set = set(added_tests)
+    for other_path in set(paths) - {'scripts/ci-required-scope.json'} - added_set:
+        if other_path.endswith('.test.py') and other_path not in EVOLVING_GOVERNANCE_SPLIT_PARENTS:
+            return None
+    for test_path in added_tests:
+        if (GOVERNANCE_SPLIT_TEST_RE.fullmatch(test_path) is None
+                or not any(fnmatch.fnmatchcase(test_path, pattern) for pattern in CONTROL)
+                or test_path in FORBIDDEN_SCOPED_CONTROL_PATHS
+                or new_scp[test_path] != ['workflow_governance']
+                or _git_regular_blob_bytes(before, test_path, repo=repo) is not None
+                or _git_regular_blob_bytes(after, test_path, repo=repo) is None):
+            return None
+    if (len(new_wgpt) != len(set(new_wgpt))
+            or not _is_order_preserving_subsequence(old_wgpt, new_wgpt)
+            or (set(new_wgpt) - set(old_wgpt)) != added_set):
+        return None
+    for existing_key, old_contract in old_pcc.items():
+        if existing_key not in new_pcc:
+            return None
+        new_contract = new_pcc[existing_key]
+        if new_contract.get('group') != old_contract.get('group'):
+            return None
+        old_tests = old_contract.get('tests', ())
+        new_tests = new_contract.get('tests', ())
+        if (len(new_tests) != len(set(new_tests))
+                or not _is_order_preserving_subsequence(old_tests, new_tests)):
+            return None
+        extra_tests = set(new_tests) - set(old_tests)
+        if extra_tests and (new_contract.get('group') != 'workflow_governance'
+                            or not (extra_tests <= added_set)):
+            return None
+    if (set(new_pcc) - set(old_pcc)) != added_set:
+        return None
+    for test_path in added_tests:
+        if new_pcc.get(test_path) != {'group': 'workflow_governance', 'tests': [test_path]}:
+            return None
+    return frozenset(added_tests)
+
+
 def scoped_scope_config_groups(config, comparisons, paths, *, repo=None, allow_driver_cochange=False):
     """Validate controlled ci-required-scope.json edits and extract verified candidate rules."""
     target = 'scripts/ci-required-scope.json'
@@ -445,11 +533,14 @@ def scoped_scope_config_groups(config, comparisons, paths, *, repo=None, allow_d
             or not comparisons
             or type(version) is not int or version not in ORDINARY_SCOPE_CONFIG_SLICE_VERSIONS):
         return None
-    allowed_keys = ORDINARY_SCOPE_SLICE_KEYS | ({'rules'} if version == 2 else set())
+    allowed_keys = ORDINARY_SCOPE_SLICE_KEYS | (
+        ({'rules'} | GOVERNANCE_SPLIT_CONFIG_KEYS) if version == 2 else set()
+    )
     try:
         changed_keys = set()
         added_rule_groups = set()
         per_comparison_rules = []
+        per_comparison_gov_tests = []
         tree_cache = {}
         for before, after in comparisons:
             old_raw = _git_regular_blob_bytes(before, target, repo=repo)
@@ -479,6 +570,16 @@ def scoped_scope_config_groups(config, comparisons, paths, *, repo=None, allow_d
                 per_comparison_rules.append(pair_rules)
             else:
                 per_comparison_rules.append([])
+            if pair_changed & GOVERNANCE_SPLIT_CONFIG_KEYS:
+                if version != 2:
+                    return None
+                gov_tests = _controlled_governance_test_split_diff(
+                    old_cfg, new_cfg, before, after, paths, repo=repo)
+                if gov_tests is None:
+                    return None
+                per_comparison_gov_tests.append(gov_tests)
+            else:
+                per_comparison_gov_tests.append(frozenset())
         if not changed_keys or not changed_keys <= allowed_keys:
             return None
         common_rule_keys = None
@@ -491,6 +592,10 @@ def scoped_scope_config_groups(config, comparisons, paths, *, repo=None, allow_d
                 rule_by_key[k] = r
             common_rule_keys = keys if common_rule_keys is None else (common_rule_keys & keys)
         verified_candidate_rules = [rule_by_key[k] for k in sorted(common_rule_keys or ())]
+        verified_candidate_gov_tests = (
+            frozenset.intersection(*per_comparison_gov_tests)
+            if per_comparison_gov_tests else frozenset()
+        )
         slice_keys_changed = changed_keys & ORDINARY_SCOPE_SLICE_KEYS
         selected = {'workflow_governance', *added_rule_groups}
         widens_policy = False
@@ -499,7 +604,7 @@ def scoped_scope_config_groups(config, comparisons, paths, *, repo=None, allow_d
             widens_policy = bool(slice_keys_changed - {'ordinary_harness_costs'})
             if widens_policy:
                 selected.update(('consensus', 'node', 'distfs'))
-        return selected, widens_policy, verified_candidate_rules
+        return selected, widens_policy, verified_candidate_rules, verified_candidate_gov_tests
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
         return None
 
@@ -5376,6 +5481,9 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
             if profile in ('pr-fast', 'main-fast') else None
         )
         candidate_added_rules = candidate_rule_slice[2] if candidate_rule_slice is not None else ()
+        candidate_added_gov_tests = (
+            candidate_rule_slice[3] if candidate_rule_slice is not None else frozenset()
+        )
         if profile in ('pr-fast', 'main-fast') and not full:
             scope_config_slice = (
                 candidate_rule_slice if 'scripts/ci-tests.sh' not in paths else None
@@ -5408,6 +5516,10 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                 path_rules[path].update(scope_config_slice[0])
                 support_rule |= 'workspace_support' in scope_config_slice[0]
                 reasons.append('scoped ordinary CI configuration slice changed: ' + path)
+            elif path in candidate_added_gov_tests and scope_config_slice is not None:
+                chosen.add('workflow_governance')
+                path_rules[path].add('workflow_governance')
+                reasons.append('same-PR controlled governance test registration: ' + path)
             elif path in standalone_manifests:
                 manifest_groups, manifest_profiles = standalone_manifests[path]
                 chosen.update(manifest_groups)

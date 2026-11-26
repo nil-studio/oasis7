@@ -53,7 +53,8 @@
   1. 所有保留旧规则的相对顺序严格不变（不改变 first-match 遮蔽语义）；`v2` 同时支持在不改 `groups`/`exclude`/`full`/`reason` 及既有 `match` 顺序的前提下，向既有规则**保序追加 `match` 超集模式**；
   2. 被删除旧规则在 `before` 与 `after` 两个受追踪 Git tree 中均匹配 **0** 个文件（仅清理已退役死路径）；
   3. 新增规则或保序扩充模式满足 `not rule.get('full', False)` 且声明非空合法 `groups`（禁静默新增 `groups: []` 忽略规则；若含 `workspace_support` 则同步传播 `support_rule`）；
-  4. **同 PR 新引入文件直连候选受控规则（`#7015`）**：同次比较区间内全新创建的文件（`before` 不存在、`after` 为 regular Git blob）可直接命中经全部比较对一致校验通过的本 PR 受控新增/扩充规则模式（同批若合改 `scripts/ci-tests.sh` 等共享总控入口仍回退 `scope=full`，但不再误报 `unknown CI inputs`；既有未登记文件的修改仍严禁自授权并继续报 `UnknownInputsError`）。
+  4. **同 PR 新引入文件直连候选受控规则（`#7015`）**：同次比较区间内全新创建的文件（`before` 不存在、`after` 为 regular Git blob）可直接命中经全部比较对一致校验通过的本 PR 受控新增/扩充规则模式（同批若合改 `scripts/ci-tests.sh` 等共享总控入口仍回退 `scope=full`，但不再误报 `unknown CI inputs`；既有未登记文件的修改仍严禁自授权并继续报 `UnknownInputsError`）；
+  5. **同 PR 演进型治理 Python 单测拆分直连 `workflow_governance`**：从 `EVOLVING_POLICY_TESTS` 演进套件拆分（或纯新增独立受控治理单测）并新增命中 `CONTROL` 的 `scripts/{ci-*,build-*,plan-rust-required-scope*}.test.py` 时，若在 `scoped_control_paths`（固定 `["workflow_governance"]`）、`workflow_governance_python_tests`（保序超集）及 `python_control_contracts`（新文件自合同及既有 `workflow_governance` 合同 `tests` 保序超集）做严格纯增量登记且不删改任何既有映射，直接收口至 `baseline`（`workflow_governance`）；若同批修改非演进 `.test.py` 则保留 `scope=full` 以授权基线用例身份迁移。
 
 ### 模式 E：暂停推进模块与 `workflow_call` 可复用工作流的零算力下线（`#6987`）
 - **适用场景**：独立工具或子工程（如 `tools/oasis7-command-center/`）阶段性暂停推进、代码保留在仓内，但其专属工作流（尤其是 `macos-15` / `windows-2022` 高倍率 Job）仍在 PR、主线与定时全量中持续消耗算力。

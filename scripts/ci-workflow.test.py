@@ -466,10 +466,14 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     if planner is None:
         json_blocks = re.findall(r"fromJSON\('(\[.*?\])'\)", header, re.DOTALL)
         if json_blocks:
-            assert len(json_blocks) == 2 and "inputs.run_mode == 'image-support' &&" in header
+            assert len(json_blocks) in (2, 3) and "inputs.run_mode == 'image-support' &&" in header
             support_records = json.loads(' '.join(json_blocks[0].split()))
-            records = json.loads(' '.join(json_blocks[1].split()))
+            records = json.loads(' '.join(json_blocks[-1].split()))
             assert support_records == [row for row in records if row.get('profile') == 'support']
+            if len(json_blocks) == 3:
+                assert "inputs.run_mode == 'image-viewer' &&" in header
+                viewer_records = json.loads(' '.join(json_blocks[1].split()))
+                assert viewer_records == [row for row in records if row.get('profile') == 'viewer']
             rows = {row['profile']: {key: value for key, value in row.items() if key != 'profile'}
                     for row in records}
         else:
@@ -493,6 +497,9 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     support_family = 'rust-image-support'
     if 'support' in rows or support_family in families:
         expected['support'] = (('workspace-support-other',), support_family)
+    viewer_family = 'rust-image-viewer'
+    if 'viewer' in rows or viewer_family in families:
+        expected['viewer'] = (('viewer-js-required', 'viewer-performance-report'), viewer_family)
     assert len(records) == len(rows) == len(expected) and set(rows) == set(expected)
     for profile, (names, family) in expected.items():
         row = rows[profile]
@@ -502,8 +509,34 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                                         'rust-image-component-cache')
         for name in names:
             reader = readers[name]
-            assert re.fullmatch(r'ghcr.io/nil-studio/oasis7/ci-rust-(?:wasm-)?build@sha256:[0-9a-f]{64}', row['image'])
+            expected_image_re = (
+                r'ghcr.io/nil-studio/oasis7/ci-rust-viewer@sha256:[0-9a-f]{64}'
+                if profile == 'viewer'
+                else r'ghcr.io/nil-studio/oasis7/ci-rust-(?:wasm-)?build@sha256:[0-9a-f]{64}'
+            )
+            assert re.fullmatch(expected_image_re, row['image'])
             assert row['namespace'] == row['image'].rsplit('/', 1)[1].replace('@sha256:', '-')
+            if name in ('viewer-js-required', 'viewer-performance-report'):
+                assert ("needs.select.outputs.viewer_image_compatible == 'true' && '"
+                        + row['image'] + "' || ''") in reader
+                assert row['options'] == '--user 1001:1001 --init'
+                assert '      options: --user 1001:1001 --init\n' in reader
+                assert row['mold-dir'] == 'oasis7-viewer-mold'
+                assert ("needs.select.outputs.viewer_image_compatible == 'true' && "
+                        "format('{0}/" + row['mold-dir'] + "', runner.temp) || ''") in reader
+                caches = rust_cache_steps(reader)
+                assert len(caches) == 1
+                assert ("env.VIEWER_IMAGE_COMPATIBLE == 'true' && '"
+                        + row['namespace'] + "' || 'release-packages-web-wasm-trusted-v3'") in caches[0]
+                assert 'save-if: false\n' in caches[0]
+                assert 'add-rust-environment-hash-key: true' in caches[0]
+                assert 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST\n' in caches[0]
+                assert not re.search(
+                    r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets):',
+                    caches[0],
+                    re.M,
+                )
+                continue
             if name == 'workspace-support-other':
                 assert workspace_support_image_matrix(reader) == row['namespace']
                 assert row['options'] == row['mold-dir'] == ''
@@ -559,11 +592,16 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     caches = rust_cache_steps(job)
     assert len(caches) == 1
     cache = caches[0]
+    expected_env_vars = (
+        "env-vars: ${{ matrix.profile == 'viewer' && 'CARGO CC CFLAGS CXX CMAKE RUST' || 'CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' }}"
+        if 'viewer' in rows
+        else 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM'
+    )
     for required in ('Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0',
                      'OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ matrix.family }}',
                      'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
                      'shared-key: ${{ matrix.namespace }}', 'add-rust-environment-hash-key: true',
-                     'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',
+                     expected_env_vars,
                      'cache-on-failure: false'):
         assert required in cache
     assert not re.search(r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets|restore-keys):', cache, re.M)
@@ -622,7 +660,7 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
         tool_jobs.add(component_writer)
     else:
         assert not {'rust-image-components', 'rust-image-net', 'rust-image-launcher',
-                    'rust-image-tooling', 'rust-image-support'}.intersection(families)
+                    'rust-image-tooling', 'rust-image-support', 'rust-image-viewer'}.intersection(families)
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs
                                | ({'plan-image-component-cache'} if 'plan-image-component-cache' in cache_jobs else set())), 'incomplete cache producer layout'
@@ -1015,6 +1053,9 @@ class Workflow(unittest.TestCase):
         if 'rust-image-support' in families:
             expected_profiles.add('support')
             image_families.add('rust-image-support')
+        if 'rust-image-viewer' in families:
+            expected_profiles.add('viewer')
+            image_families.add('rust-image-viewer')
         self.assertEqual(set(component_image_cache_writer(job, families, planner=planner)), expected_profiles)
         # These global values enter the upstream Rust environment hash. The
         # matrix must not create a different identity before any Cargo runs.
@@ -1022,12 +1063,17 @@ class Workflow(unittest.TestCase):
             header = text.split('\njobs:\n', 1)[0]
             return dict(re.findall(r'^  ((?:CARGO|RUST|OASIS7_WASM)[A-Z0-9_]*): (.+)$', header, re.M))
         self.assertEqual(cache_environment(workflow), cache_environment(RAW_WORKFLOW))
+        current_env_vars_line = (
+            "env-vars: ${{ matrix.profile == 'viewer' && 'CARGO CC CFLAGS CXX CMAKE RUST' || 'CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' }}"
+            if 'rust-image-viewer' in families
+            else 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM'
+        )
         mutations = (
             job.replace('max-parallel: 1', 'max-parallel: 5', 1),
             job.replace('add-rust-environment-hash-key: true', 'add-rust-environment-hash-key: false', 1),
             job.replace('cache-on-failure: false', 'cache-on-failure: true', 1),
             job.replace('shared-key: ${{ matrix.namespace }}', 'shared-key: ci-shared-native-trusted-v4', 1),
-            job.replace('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', 'env-vars: CARGO', 1),
+            job.replace(current_env_vars_line, 'env-vars: CARGO', 1),
             job.replace('cache-on-failure: false', 'cache-on-failure: false\n          workspaces: . -> other-target', 1),
             job.replace('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
                         'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: 999999999999', 1),
@@ -4398,6 +4444,58 @@ class WorkflowEnvUsageTests(unittest.TestCase):
             [],
             'Top-level custom workflow env vars with zero consumers: ' + ', '.join(unused),
         )
+
+
+class ViewerImageCacheWriterGuardTests(unittest.TestCase):
+    def test_component_image_cache_writer_accepts_optional_viewer_profile_and_rejects_mismatch(self):
+        cache_jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
+        admission_source = (ROOT / 'scripts/ci-rust-cache-admission.py').read_text()
+        assignments = [
+            node for node in ast.parse(admission_source).body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == 'FAMILIES' for t in node.targets)
+        ]
+        families = dict(ast.literal_eval(assignments[0].value))
+        base_job = cache_jobs['rust-image-component-cache']
+        rows = component_image_cache_writer(base_job, families)
+        self.assertNotIn('viewer', rows)
+
+        viewer_match = re.search(
+            r"(ghcr\.io/nil-studio/oasis7/ci-rust-viewer@sha256:[0-9a-f]{64})",
+            JOBS['viewer-js-required'],
+        )
+        self.assertIsNotNone(viewer_match)
+        viewer_image = viewer_match.group(1)
+        viewer_ns = viewer_image.rsplit('/', 1)[1].replace('@sha256:', '-')
+        viewer_row_json = json.dumps({
+            'profile': 'viewer',
+            'family': 'rust-image-viewer',
+            'image': viewer_image,
+            'namespace': viewer_ns,
+            'options': '--user 1001:1001 --init',
+            'mold-dir': 'oasis7-viewer-mold',
+        }, separators=(',', ':'))
+        # Replace the final fromJSON block (all profiles), not the first (image-support).
+        blocks = re.findall(r"fromJSON\('(\[.*?\])'\)", base_job, re.DOTALL)
+        migrated_all = blocks[-1].rstrip()[:-1].rstrip() + ',\n              ' + viewer_row_json + '\n            ]'
+        migrated_job = base_job.replace(blocks[-1], migrated_all, 1).replace(
+            'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',
+            "env-vars: ${{ matrix.profile == 'viewer' && 'CARGO CC CFLAGS CXX CMAKE RUST' || 'CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' }}",
+        )
+        migrated_families = dict(
+            families,
+            **{'rust-image-viewer': (viewer_ns, '.github/workflows/rust-cache.yml', 'rust-image-component-cache')},
+        )
+        migrated_rows = component_image_cache_writer(migrated_job, migrated_families)
+        self.assertIn('viewer', migrated_rows)
+
+        # Mismatched options or dropping $OASIS7_WASM_TOOLCHAIN stabilization must fail closed.
+        for bad_job in (
+            migrated_job.replace('--user 1001:1001 --init', ''),
+            migrated_job.replace('"$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"', '"$RUST_TOOLCHAIN"'),
+        ):
+            with self.assertRaises(AssertionError):
+                component_image_cache_writer(bad_job, migrated_families)
 
 
 if __name__ == '__main__':
