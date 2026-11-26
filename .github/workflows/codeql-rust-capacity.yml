@@ -355,6 +355,19 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && (inputs.mode == 'rust-default-fixed-source-observation' || inputs.mode == 'rust-default-negative-projection-observation')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    container:
+      image: &observe-image ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
@@ -369,7 +382,7 @@ jobs:
       CODEQL_RAM: ''
       CODEQL_THREADS: ''
       CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: 'true'
-      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '["${{ github.workspace }}/crates/oasis7_builtin_wasm_modules/_templates"]'
+      OASIS7_CODEQL_OBSERVATION_IMAGE: *observe-image
     steps:
       - name: Reject incompatible observation inputs
         run: |
@@ -383,7 +396,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
+        run: |
+          python3 .github/actions/setup-linux-mold/setup.py \
+            --install-dir "$RUNNER_TEMP/oasis7-codeql-fixed-observation-mold"
       - id: snapshot
         name: Freeze production helpers outside the collection tree
         timeout-minutes: 1
@@ -406,8 +421,27 @@ jobs:
             --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/codeql-rust-fixed-source-helper" \
             --output "$RUNNER_TEMP/codeql-rust-fixed-source-layout" \
             --source-sha "$OASIS7_CODEQL_PRODUCTION_SOURCE" --deadline "$(python3 -c 'import time; print(time.time() + 180)')"
-      - name: Minimal stable Rust extraction toolchain
-        run: rustup toolchain install 1.96.0 --profile minimal
+      - id: image_paths
+        name: Verify fixed image tools and template input
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          test "$(command -v rustc)" = /opt/oasis7-rust/bin/rustc
+          test "$(rustc --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
+          test "$(cargo --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
+          python3 -I - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          source = Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
+          templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
+          if not templates.is_dir() or templates.resolve(strict=True) != templates:
+              raise SystemExit('Rust template directory is unavailable in the actual checkout')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=' + json.dumps([str(templates)]) + '\n')
+          temporary = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'source_root={source}\ndb_location={temporary}/codeql_databases\n')
+              out.write(f'sarif_output={temporary}/codeql-results\n')
+          PYTHON
       - id: rust_native
         name: Prepare Rust native extraction prerequisites
         timeout-minutes: 5
@@ -428,7 +462,13 @@ jobs:
           started = time.monotonic()
           terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180}
           try:
-              native.prepare_native(source, out, started + 270, env)
+              image = os.environ['OASIS7_CODEQL_OBSERVATION_IMAGE']
+              cgroup = pathlib.Path('/sys/fs/cgroup')
+              terminal.update(source_profile='preinstalled-image', image=image,
+                              cpu_max=(cgroup / 'cpu.max').read_text().strip(),
+                              memory_max=(cgroup / 'memory.max').read_text().strip(),
+                              visible_cpus=len(os.sched_getaffinity(0)))
+              native.verify_preinstalled_native(source, out, started + 270, env, image)
               terminal['status'] = 'PASS'
           except Exception as error:
               terminal.update(error_type=type(error).__name__, error=str(error))
@@ -455,7 +495,8 @@ jobs:
           tools: ${{ steps.rust_tools.outputs.tools_path }}
           languages: rust
           build-mode: none
-          db-location: ${{ runner.temp }}/codeql_databases
+          source-root: ${{ steps.image_paths.outputs.source_root }}
+          db-location: ${{ steps.image_paths.outputs.db_location }}
           ram: 14570
           threads: 4
           dependency-caching: false
@@ -545,7 +586,7 @@ jobs:
         uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           category: oasis7/rust-repo/default
-          output: ${{ runner.temp }}/codeql-results
+          output: ${{ steps.image_paths.outputs.sarif_output }}
           upload: never
           skip-queries: true
           upload-database: false
