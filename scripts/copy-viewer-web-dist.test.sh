@@ -19,7 +19,12 @@ printf '\0asm\n' > "$viewer_root/dist/browser-game-client/oasis7_browser_game_cl
 
 printf '<!doctype html><link rel="stylesheet" href="./viewer_base.css"><link rel="stylesheet" href="./viewer_terminal_shell.css"><script type="module" src="./viewer.js"></script>\n' > "$viewer_root/viewer.html"
 printf ':root { color-scheme: dark; }\n' > "$viewer_root/viewer_base.css"
+printf ':root { --bg: #000; }\n' > "$viewer_root/viewer_base_tokens.css"
+printf '.layout { display: grid; }\n' > "$viewer_root/viewer_base_layout.css"
+printf '.component { display: block; }\n' > "$viewer_root/viewer_base_components.css"
 printf '.shell { grid-template-columns: minmax(0, 1fr); }\n' > "$viewer_root/viewer_terminal_shell.css"
+printf '.shell-base { display: grid; }\n' > "$viewer_root/viewer_terminal_shell_base.css"
+printf '.shell-panels { display: flex; }\n' > "$viewer_root/viewer_terminal_shell_panels.css"
 printf 'console.log("canonical bundle");\n' > "$viewer_root/viewer.js"
 cp "$ROOT_DIR/crates/oasis7_viewer/viewer_first_agent_claim_evidence.html" \
   "$viewer_root/viewer_first_agent_claim_evidence.html"
@@ -53,7 +58,12 @@ expect_cmp "$viewer_root/viewer.html" "$dist_dir/index.html"
 expect_cmp "$viewer_root/viewer.html" "$dist_dir/viewer.html"
 expect_cmp "$viewer_root/dist/software_safe.html" "$dist_dir/software_safe.html"
 expect_cmp "$viewer_root/viewer_base.css" "$dist_dir/viewer_base.css"
+expect_cmp "$viewer_root/viewer_base_tokens.css" "$dist_dir/viewer_base_tokens.css"
+expect_cmp "$viewer_root/viewer_base_layout.css" "$dist_dir/viewer_base_layout.css"
+expect_cmp "$viewer_root/viewer_base_components.css" "$dist_dir/viewer_base_components.css"
 expect_cmp "$viewer_root/viewer_terminal_shell.css" "$dist_dir/viewer_terminal_shell.css"
+expect_cmp "$viewer_root/viewer_terminal_shell_base.css" "$dist_dir/viewer_terminal_shell_base.css"
+expect_cmp "$viewer_root/viewer_terminal_shell_panels.css" "$dist_dir/viewer_terminal_shell_panels.css"
 expect_cmp "$viewer_root/viewer_first_agent_claim_evidence.html" "$dist_dir/viewer_first_agent_claim_evidence.html"
 expect_cmp "$viewer_root/dist/software_safe_first_agent_claim_evidence.html" "$dist_dir/software_safe_first_agent_claim_evidence.html"
 if [[ -e "$viewer_root/software_safe.html" || -e "$viewer_root/software_safe.js" \
@@ -334,7 +344,7 @@ payload = manifest["pixel_world_bridge_bindgen_bg.wasm"]
 assert payload == {"available": False, "reason": "source_missing"}, payload
 PY
 
-for css_file in viewer_base.css viewer_terminal_shell.css; do
+for css_file in viewer_base.css viewer_base_tokens.css viewer_base_layout.css viewer_base_components.css viewer_terminal_shell.css viewer_terminal_shell_base.css viewer_terminal_shell_panels.css; do
   if ! viewer_web_dist_contract_pairs | grep -Fxq "${css_file} ${css_file}"; then
     echo "viewer dist contract must include ${css_file}" >&2
     failures=1

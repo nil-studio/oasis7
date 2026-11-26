@@ -1,3 +1,4 @@
+import { readExpandedCssSync } from "./test_support/read_expanded_css.js";
 import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +17,7 @@ import {
 } from "./pixel_world_host_test_support.jsx";
 describe("pixel world host", () => {
   it("keeps world focus stage resets scoped away from nested command panels", () => {
-    const html = readFileSync("viewer_base.css", "utf8");
+    const html = readExpandedCssSync("viewer_base.css");
 
     expect(html).toContain("body.pixel-world-focus-active .panel--stage > .panel__body");
     expect(html).toContain(".panel--stage > .panel__body");
@@ -322,7 +323,7 @@ describe("pixel world host", () => {
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
   it("keeps the primary action hit area at least 44px on mobile and exposes pending state in place", async () => {
-    const css = readFileSync("viewer_terminal_shell.css", "utf8");
+    const css = readExpandedCssSync("viewer_terminal_shell.css");
     expect(css).toMatch(/@media\s*\(max-width:\s*1240px\)[\s\S]*?\.pixel-world-command-cell__action\s*\{[^}]*min-height:\s*44px;/);
 
     useTestRustRenderState();
