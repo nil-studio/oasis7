@@ -28,6 +28,17 @@ def manifest(package):
     return tomllib.loads((ROOT / 'crates' / package / 'Cargo.toml').read_text())
 
 
+def flat_rust_imports(source, crate_path):
+    """Read direct, unaliased members of one Rust import path."""
+    pattern = '^use ' + re.escape(crate_path) + r'::(?:([A-Za-z_]\w*)|\{([^{};]*)\});'
+    return {
+        member.strip()
+        for direct, group in re.findall(pattern, source, re.MULTILINE)
+        for member in ([direct] if direct else group.split(','))
+        if re.fullmatch(r'[A-Za-z_]\w*', member.strip())
+    }
+
+
 def require_materialized_native_archive(root):
     """The trusted gate requires real L4 archive behavior and selected facades."""
     native = root / 'crates/oasis7_runtime_host/src/simulator_archive'
@@ -304,7 +315,9 @@ class Ownership(unittest.TestCase):
         server = (ROOT / 'crates/oasis7_viewer_runtime/src/server.rs').read_text()
         test_source = (ROOT / 'crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/tests.rs').read_text()
         self.assertIn('use oasis7_simulator::{AgentDecisionTrace, RunnerMetrics, WorldEventKind, WorldTime};', cli)
-        self.assertIn('use oasis7_simulator::{PersistError, RunnerMetrics, WorldTime};', server)
+        self.assertLessEqual(
+            {'PersistError', 'RunnerMetrics', 'WorldTime'}, flat_rust_imports(server, 'oasis7_simulator'),
+        )
         require_materialized_native_archive(ROOT)
         self.require_viewer_archive_wire_owner(cli, server, test_source)
         self.assertNotIn('oasis7::simulator::AgentDecisionTrace', cli)
@@ -333,7 +346,7 @@ class Ownership(unittest.TestCase):
         self.assertIn(native_server, server)
         self.assertTrue(
             any(
-                f'use {owner}::RuntimePerfSnapshot;' in server
+                'RuntimePerfSnapshot' in flat_rust_imports(server, owner)
                 for owner in ('oasis7::simulator', 'oasis7_simulator', 'oasis7_runtime_host::simulator_archive')
             ),
             'server must import canonical RuntimePerfSnapshot owner',
@@ -371,6 +384,14 @@ class Ownership(unittest.TestCase):
             'oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new()'
         )
         self.require_viewer_archive_wire_owner(cli, server, test_source)
+        grouped = server.replace(
+            'use oasis7::simulator::RuntimePerfSnapshot;',
+            'use oasis7_simulator::{\n    PersistError, RuntimePerfSnapshot, WorldTime,\n};',
+        )
+        self.require_viewer_archive_wire_owner(cli, grouped, test_source)
+        for invalid in ('RuntimePerfSnapshot as Alias', 'ProviderSnapshot'):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(AssertionError, 'canonical RuntimePerfSnapshot'):
+                self.require_viewer_archive_wire_owner(cli, grouped.replace('RuntimePerfSnapshot', invalid), test_source)
 
     def test_viewer_archive_transition_rejects_partial_or_wrong_owner(self):
         cli = 'use oasis7::simulator::{WorldEvent, WorldSnapshot};'
