@@ -4,12 +4,15 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / '.github/actions/cache-sdk'
 VENDOR = ROOT / 'vendor/actions-cache-explicit-context'
+sys.path.insert(0, str(ROOT / 'scripts'))
+from ci_process_runner import run
 
 
 class CacheSdkTests(unittest.TestCase):
@@ -49,9 +52,16 @@ class CacheSdkTests(unittest.TestCase):
             self.assertIn('provenance patch mismatch', result.stderr)
 
     def test_real_sdk_tar_handoffs_and_v2_pre_extract_failure(self):
-        result = subprocess.run(['node', '--test', str(ACTION / 'sdk.test.cjs')], cwd=ROOT,
-                                capture_output=True, text=True, timeout=120)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with tempfile.TemporaryDirectory(prefix='cache-sdk-fixture-') as temporary:
+            # This suite owns a fake loopback backend. Do not inherit real cache
+            # endpoints, credentials or HTTP proxies from the hosted job.
+            import os
+            environment = {'PATH': os.environ['PATH'], 'HOME': temporary,
+                           'TMPDIR': temporary, 'LANG': 'C.UTF-8'}
+            result = run(['node', '--test', str(ACTION / 'sdk.test.cjs')], ROOT,
+                         environment, 'ci-tools', 'cache-sdk-loopback',
+                         Path(temporary) / 'processes.jsonl', timeout_seconds=120)
+            self.assertTrue(result['passed'], result)
 
 
 if __name__ == '__main__':

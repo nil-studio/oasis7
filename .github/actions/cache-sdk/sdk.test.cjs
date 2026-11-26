@@ -9,7 +9,9 @@ test('actual published SDK archive versions and four directional tar handoffs', 
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'portable-sdk-'));
   const oldEnv=process.env.GITHUB_WORKSPACE;
   try {
+    console.log('cache-sdk-fixture phase=load-sdk');
     const patched=await import('../../../vendor/actions-cache-explicit-context/index.mjs');
+    console.log('cache-sdk-fixture phase=tar-handoffs');
     const original=patched; // No options invokes the byte-preserved upstream defaults.
     const root=path.join(temporary,'home/runner/.cache/oasis7/worker-build/0.7.5');
     const host=path.join(temporary,'home/runner/work/oasis7/oasis7');
@@ -58,6 +60,7 @@ test('real V2 HTTP download invokes fatal validation before SDK extraction', {ti
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'portable-http-'));
   const variables=['GITHUB_WORKSPACE','ACTIONS_CACHE_SERVICE_V2','ACTIONS_RESULTS_URL','ACTIONS_RUNTIME_TOKEN','GITHUB_SERVER_URL','RUNNER_TEMP'];
   const old=Object.fromEntries(variables.map(key=>[key,process.env[key]]));
+  console.log('cache-sdk-fixture phase=http-loopback');
   const {utils,tar,sdk}=await import('../../../vendor/actions-cache-explicit-context/index.mjs');
   const workspace=path.join(temporary,'workspace'), root=path.join(temporary,'root'), archive=path.join(temporary,'archive');
   for(const directory of [workspace,root,archive])fs.mkdirSync(directory,{recursive:true});
@@ -81,11 +84,13 @@ test('real V2 HTTP download invokes fatal validation before SDK extraction', {ti
     process.env.ACTIONS_CACHE_SERVICE_V2='True';process.env.ACTIONS_RESULTS_URL=`http://127.0.0.1:${server.address().port}`;
     process.env.ACTIONS_RUNTIME_TOKEN='local-fixture-only';process.env.GITHUB_SERVER_URL='https://github.com';process.env.RUNNER_TEMP=temporary;
     let callbacks=0;
+    console.log('cache-sdk-fixture phase=reject-before-extract');
     await assert.rejects(sdk.restoreCache([root],'fixed',[],{archiveWorkingDirectory:workspace,beforeExtract:async(file,compression,matched)=>{
       callbacks++;assert.equal(matched,'fixed');assert.equal(compression,'zstd-without-long');assert.deepEqual(fs.readFileSync(file),bytes);
       assert.equal(fs.existsSync(root),false);throw Error('malicious fixture rejected');
     }}), {name:'ValidationError',message:'Explicit archive validation rejected downloaded cache'});
     assert.equal(callbacks,1);assert.equal(fs.existsSync(root),false);
+    console.log('cache-sdk-fixture phase=accept-before-extract');
     const match=await sdk.restoreCache([root],'fixed',[],{archiveWorkingDirectory:workspace,beforeExtract:async()=>{callbacks++;assert.equal(fs.existsSync(root),false);}});
     assert.equal(match,'fixed');assert.equal(callbacks,2);assert.equal(fs.readFileSync(path.join(root,'payload'),'utf8'),'actual SDK download');
     assert.equal(requests.length,2);
