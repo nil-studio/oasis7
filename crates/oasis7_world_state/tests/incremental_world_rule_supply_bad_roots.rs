@@ -727,21 +727,27 @@ fn recovery_family_qualification_cannot_be_used_by_an_ordinary_context() {
 }
 
 // Consolidated sibling incremental integration suites (4-shard LPT balanced).
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_authorization_mapsets.rs"]
 mod incremental_authorization_mapsets;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_field_member.rs"]
 mod incremental_field_member;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_json_records.rs"]
 mod incremental_json_records;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_world_number_maps.rs"]
 mod incremental_world_number_maps;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_world_rule_organization_root_closure.rs"]
 mod incremental_world_rule_organization_root_closure;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_world_rule_supply_cold_point.rs"]
 mod incremental_world_rule_supply_cold_point;

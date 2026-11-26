@@ -1,4 +1,5 @@
 //! Public ordinary operations after a real typed prefix; no physical claim.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::{body_tests::*, *};
 use crate::{
     incremental_field_member::*, incremental_field_overlay::*, incremental_record_tree as tree,
@@ -391,46 +392,55 @@ fn typed_prefix_class_faults_and_independent_getter_noop_completion() {
     run(Mode::NoOp, true, Some(getter + 1));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_rejects_recovery_family_qualification() {
     run(Mode::Family, false, None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_rejects_recovery_body_qualification() {
     run(Mode::Body, false, None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_rejects_recovery_json_qualification() {
     run(Mode::Json, false, None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_aborts_after_injected_put_failure() {
     run(Mode::Put, false, None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_aborts_after_injected_read_failure() {
     run(Mode::Read, false, None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_rejects_foreign_memory_qualification() {
     run(Mode::Foreign, false, None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_rejects_exhausted_write_quota() {
     run(Mode::Quota, false, None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_field_cancel_after_put_aborts() {
     run(Mode::AfterPut, false, None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn typed_prefix_write_cancel_after_put_aborts() {
     run(Mode::AfterPut, true, None);
