@@ -20,7 +20,7 @@ use std::{
     io::{self, Write},
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
 struct Reader<'a> {
@@ -604,5 +604,5 @@ fn installed_target_genesis_requires_complete_records_and_never_publishes_prefix
     }
 }
 
-#[path = "support/incremental_installed_target_overlay.rs"]
+#[path = "../support/incremental_installed_target_overlay.rs"]
 mod overlay;

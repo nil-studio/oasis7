@@ -10,7 +10,7 @@ use oasis7_runtime::{
 };
 use serde_json::json;
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
 const PROFILE: &str = " outer-profile\0界 ";
@@ -425,17 +425,17 @@ fn material_family_cold_roots_qualify_both_namespaces() {
     }
 }
 
-#[path = "support/incremental_material_points.rs"]
+#[path = "../support/incremental_material_points.rs"]
 mod points;
 
-#[path = "support/incremental_material_boundaries.rs"]
+#[path = "../support/incremental_material_boundaries.rs"]
 mod boundaries;
 #[cfg(feature = "test_tier_full")]
-#[path = "support/incremental_material_pages.rs"]
+#[path = "../support/incremental_material_pages.rs"]
 mod pages;
 
-#[path = "support/incremental_material_overlay.rs"]
+#[path = "../support/incremental_material_overlay.rs"]
 mod overlay_reads;
 
-#[path = "support/incremental_material_current_profile.rs"]
+#[path = "../support/incremental_material_current_profile.rs"]
 mod current_profile;

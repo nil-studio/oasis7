@@ -25,7 +25,7 @@ use oasis7_runtime::{
 use std::io;
 
 #[allow(dead_code)]
-#[path = "support/incremental_factory_record_closure_fixture.rs"]
+#[path = "../support/incremental_factory_record_closure_fixture.rs"]
 mod fixture;
 
 fn physical() -> oasis7_distfs::incremental_page_store::PageIoBudget {

@@ -37,11 +37,11 @@ use oasis7_runtime::{
 };
 
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
 
-#[path = "support/incremental_runtime_artifact_resources_qualification.rs"]
+#[path = "../support/incremental_runtime_artifact_resources_qualification.rs"]
 mod qualification;
 
 struct EmptyModuleSet;

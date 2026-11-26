@@ -9,7 +9,7 @@ use oasis7_runtime::{
     incremental_governance_records::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, physical};
 fn physical_scope() -> PageIoBudget {
@@ -358,29 +358,29 @@ fn state_error(e: oasis7_distfs::incremental_page_store::PageStoreError) -> Valu
     }
 }
 
-#[path = "support/incremental_governance_overlay.rs"]
+#[path = "../support/incremental_governance_overlay.rs"]
 mod overlay;
 
-#[path = "support/incremental_governance_points.rs"]
+#[path = "../support/incremental_governance_points.rs"]
 mod points;
 
-#[path = "support/incremental_governance_pages.rs"]
+#[path = "../support/incremental_governance_pages.rs"]
 mod pages;
 
-#[path = "support/incremental_governance_malformed.rs"]
+#[path = "../support/incremental_governance_malformed.rs"]
 mod malformed;
 
-#[path = "support/incremental_governance_carriers.rs"]
+#[path = "../support/incremental_governance_carriers.rs"]
 mod carriers;
 
-#[path = "support/incremental_governance_put.rs"]
+#[path = "../support/incremental_governance_put.rs"]
 mod put;
 
-#[path = "support/incremental_governance_missing.rs"]
+#[path = "../support/incremental_governance_missing.rs"]
 mod missing;
 
-#[path = "support/incremental_governance_scaling.rs"]
+#[path = "../support/incremental_governance_scaling.rs"]
 mod scaling;
 
-#[path = "support/incremental_governance_empty.rs"]
+#[path = "../support/incremental_governance_empty.rs"]
 mod empty;

@@ -9,7 +9,7 @@ use oasis7_runtime::{
     incremental_field_overlay::*, incremental_field_read::*, incremental_logistics_records::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, physical};
 fn physical_scope() -> PageIoBudget {
@@ -761,7 +761,7 @@ fn logistics_point_create_delete_receiver_and_typed_transfer_continue_from_roots
     }
 }
 
-#[path = "support/incremental_logistics_boundaries.rs"]
+#[path = "../support/incremental_logistics_boundaries.rs"]
 mod boundaries;
 #[test]
 fn logistics_noops_cancel_after_public_resolver_and_poison_real_prefix() {
@@ -773,39 +773,39 @@ fn logistics_state_and_value_carriers_require_caller_pool_and_capacity() {
     boundaries::state_and_value_carriers_require_the_actual_caller_pool_and_capacity();
 }
 
-#[path = "support/incremental_logistics_malformed.rs"]
+#[path = "../support/incremental_logistics_malformed.rs"]
 mod malformed;
 #[test]
 fn logistics_malformed_raw_and_changed_closures_are_rejected() {
     malformed::malformed_raw_and_changed_closures_are_rejected();
 }
 
-#[path = "support/incremental_logistics_scaling.rs"]
+#[path = "../support/incremental_logistics_scaling.rs"]
 mod scaling;
 #[test]
 fn logistics_fixed_scalar_receiver_cost_excludes_unchanged_text_and_vectors() {
     scaling::fixed_scalar_receiver_cost_excludes_unchanged_text_and_vectors();
 }
 
-#[path = "support/incremental_logistics_missing.rs"]
+#[path = "../support/incremental_logistics_missing.rs"]
 mod missing;
 #[test]
 fn logistics_generic_complete_top_roots_do_not_prove_missing_typed_child() {
     missing::generic_complete_top_roots_do_not_prove_missing_typed_child();
 }
-#[path = "support/incremental_logistics_put_boundaries.rs"]
+#[path = "../support/incremental_logistics_put_boundaries.rs"]
 mod put_boundaries;
 #[test]
 fn logistics_final_real_root_put_cancel_or_failure_never_seals_prefix() {
     put_boundaries::final_real_root_put_cancel_or_failure_never_seals_the_successful_prefix();
 }
 
-#[path = "support/incremental_logistics_flush.rs"]
+#[path = "../support/incremental_logistics_flush.rs"]
 mod flush;
-#[path = "support/incremental_logistics_oracle.rs"]
+#[path = "../support/incremental_logistics_oracle.rs"]
 mod oracle;
 
-#[path = "support/incremental_material_logistics.rs"]
+#[path = "../support/incremental_material_logistics.rs"]
 mod combined;
 #[test]
 fn material_and_logistics_namespaces_qualify_together_from_same_roots() {

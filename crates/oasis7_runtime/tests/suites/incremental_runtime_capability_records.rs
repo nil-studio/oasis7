@@ -12,7 +12,7 @@ use oasis7_runtime::{
     incremental_runtime_capability_records::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
 use oasis7_wasm_abi::CapabilitySubject;
@@ -450,24 +450,24 @@ fn capability_records_cold_original_values() {
     }
 }
 
-#[path = "support/incremental_runtime_capability_operations.rs"]
+#[path = "../support/incremental_runtime_capability_operations.rs"]
 mod operations;
 
-#[path = "support/incremental_runtime_capability_schema.rs"]
+#[path = "../support/incremental_runtime_capability_schema.rs"]
 mod schema;
 
 #[cfg(feature = "test_tier_full")]
-#[path = "support/incremental_runtime_capability_pages.rs"]
+#[path = "../support/incremental_runtime_capability_pages.rs"]
 mod pages;
 
 #[cfg(feature = "test_tier_full")]
-#[path = "support/incremental_runtime_capability_scaling.rs"]
+#[path = "../support/incremental_runtime_capability_scaling.rs"]
 mod scaling;
 
-#[path = "support/incremental_runtime_capability_faults.rs"]
+#[path = "../support/incremental_runtime_capability_faults.rs"]
 mod faults;
 
-#[path = "support/incremental_runtime_capability_class.rs"]
+#[path = "../support/incremental_runtime_capability_class.rs"]
 mod class;
 
 #[test]

@@ -15,7 +15,7 @@ use oasis7_runtime::{
     types::MaterialLedgerId,
 };
 use std::{cell::Cell, rc::Rc};
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::*;
 fn typed(e: PageStoreError) -> ValueTreeError {
@@ -464,5 +464,5 @@ fn cancellation_after_group_output_stops_before_member_encoding_and_no_success_e
     );
 }
 
-#[path = "support/incremental_inventory_transaction.rs"]
+#[path = "../support/incremental_inventory_transaction.rs"]
 mod transaction;

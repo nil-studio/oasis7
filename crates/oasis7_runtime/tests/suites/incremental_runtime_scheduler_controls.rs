@@ -12,7 +12,7 @@ use oasis7_runtime::{
     incremental_runtime_scheduler_controls::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
 fn physical() -> PageIoBudget {
@@ -273,28 +273,28 @@ fn scheduler_controls_root_only_cold_original_values() {
     }
 }
 
-#[path = "support/incremental_runtime_scheduler_operations.rs"]
+#[path = "../support/incremental_runtime_scheduler_operations.rs"]
 mod operations;
 
-#[path = "support/incremental_runtime_scheduler_schema.rs"]
+#[path = "../support/incremental_runtime_scheduler_schema.rs"]
 mod schema;
 
 #[cfg(feature = "test_tier_full")]
-#[path = "support/incremental_runtime_scheduler_pages.rs"]
+#[path = "../support/incremental_runtime_scheduler_pages.rs"]
 mod pages;
 
-#[path = "support/incremental_runtime_scheduler_faults.rs"]
+#[path = "../support/incremental_runtime_scheduler_faults.rs"]
 mod faults;
 
 #[cfg(feature = "test_tier_full")]
-#[path = "support/incremental_runtime_scheduler_scaling.rs"]
+#[path = "../support/incremental_runtime_scheduler_scaling.rs"]
 mod scaling;
 
-#[path = "support/incremental_runtime_scheduler_literal.rs"]
+#[path = "../support/incremental_runtime_scheduler_literal.rs"]
 mod literal;
 
-#[path = "support/incremental_runtime_scheduler_genesis.rs"]
+#[path = "../support/incremental_runtime_scheduler_genesis.rs"]
 mod genesis;
 
-#[path = "support/incremental_runtime_scheduler_class.rs"]
+#[path = "../support/incremental_runtime_scheduler_class.rs"]
 mod class;

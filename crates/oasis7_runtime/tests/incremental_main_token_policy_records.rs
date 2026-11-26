@@ -405,3 +405,17 @@ fn point_and_receiver_skip_unchanged_symbol_across_value_chunks() {
         2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
     ]);
 }
+
+// Consolidated sibling integration suites (4-shard LPT balanced).
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_agent_subtree.rs"]
+mod incremental_agent_subtree;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_installed_module_targets.rs"]
+mod incremental_installed_module_targets;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_runtime_artifact_resources.rs"]
+mod incremental_runtime_artifact_resources;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_runtime_effect_records.rs"]
+mod incremental_runtime_effect_records;

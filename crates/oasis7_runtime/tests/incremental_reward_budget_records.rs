@@ -360,3 +360,29 @@ mod scaling;
 
 #[path = "support/incremental_reward_budget_genesis.rs"]
 mod genesis;
+
+// Consolidated sibling integration suites (4-shard LPT balanced).
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_agent_authority_records.rs"]
+mod incremental_agent_authority_records;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_agent_genesis.rs"]
+mod incremental_agent_genesis;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_factory_record_closure.rs"]
+mod incremental_factory_record_closure;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_module_marketplace_physical.rs"]
+mod incremental_module_marketplace_physical;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_runtime_governance_controls.rs"]
+mod incremental_runtime_governance_controls;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_runtime_scheduler_controls.rs"]
+mod incremental_runtime_scheduler_controls;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/module_state.rs"]
+mod module_state;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/module_subscription_filters.rs"]
+mod module_subscription_filters;
