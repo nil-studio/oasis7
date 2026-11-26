@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::{
     Action, FactoryProductionState, FactoryState, MainTokenSupplyState, World, WorldStateProjection,
@@ -129,7 +130,9 @@ fn organization_fixture() -> WorldState {
     state
 }
 
+#[cfg(feature = "test_tier_full")]
 mod industrial_tests;
+#[cfg(feature = "test_tier_full")]
 mod organization_continuity_tests;
 mod organization_tests;
 mod supply_tests;

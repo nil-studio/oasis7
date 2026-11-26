@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::cli::TrafficProfile;
 use super::{build_chain_status_payload, release_security_policy_for_storage_profile};
 use ed25519_dalek::{Signer, SigningKey};

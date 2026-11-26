@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
+
 use super::{
     apply_world_governance_registry_overrides, ensure_world_governance_validator_registry,
 };
@@ -127,6 +129,9 @@ fn public_testnet_loaded_manifest_with_paths(
     }
 }
 
+const _: () = { let _ = (apply_world_governance_registry_overrides, ensure_world_governance_validator_registry); };
+
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_registry_overrides_node_controller_binding() {
     let temp_dir = temp_dir("registry-override");
@@ -199,6 +204,7 @@ fn world_registry_overrides_node_controller_binding() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_finality_registry_overrides_node_pos_config() {
     let temp_dir = temp_dir("finality-override");
@@ -279,6 +285,7 @@ fn world_finality_registry_overrides_node_pos_config() {
     assert_eq!(config.pos_config.proposal_tick_phase, 9);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn genesis_validator_registry_initializes_empty_world_and_uses_stake() {
     let temp_dir = temp_dir("genesis-finality-registry");
@@ -345,6 +352,7 @@ fn genesis_validator_registry_initializes_empty_world_and_uses_stake() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn network_tier_genesis_bootstrap_initializes_full_governance_world_for_empty_observer() {
     let temp_dir = temp_dir("network-tier-governance-bootstrap");
@@ -560,6 +568,7 @@ fn network_tier_genesis_bootstrap_initializes_full_governance_world_for_empty_ob
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn network_tier_genesis_bootstrap_resolves_repo_root_relative_child_refs() {
     let repo_root = temp_dir("network-tier-bootstrap-repo-root");
@@ -755,6 +764,7 @@ fn network_tier_genesis_bootstrap_resolves_repo_root_relative_child_refs() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn genesis_public_manifest_requires_explicit_threshold_for_four_validators() {
     let temp_dir = temp_dir("genesis-public-manifest-threshold");
@@ -802,6 +812,7 @@ fn genesis_public_manifest_requires_explicit_threshold_for_four_validators() {
     assert!(err.contains("requires explicit threshold"), "{err}");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn genesis_public_manifest_preserves_explicit_three_of_four_threshold() {
     let temp_dir = temp_dir("genesis-public-manifest-three-of-four");
@@ -859,6 +870,7 @@ fn genesis_public_manifest_preserves_explicit_three_of_four_threshold() {
     assert_eq!(registry.signer_bindings.len(), 4);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn genesis_validator_registry_rejects_existing_world_without_registry() {
     let temp_dir = temp_dir("genesis-existing-world");
@@ -900,6 +912,7 @@ fn genesis_validator_registry_rejects_existing_world_without_registry() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn genesis_validator_registry_allows_existing_world_with_registry() {
     let temp_dir = temp_dir("genesis-existing-world-with-registry");
@@ -947,6 +960,7 @@ fn genesis_validator_registry_allows_existing_world_with_registry() {
     .expect("existing world with registry should be idempotent");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn public_tier_existing_world_with_finality_but_without_rollback_registry_fails_startup() {
     let temp_dir = temp_dir("public-existing-world-missing-rollback-registry");
@@ -983,6 +997,7 @@ fn public_tier_existing_world_with_finality_but_without_rollback_registry_fails_
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn public_tier_without_world_registry_or_genesis_manifest_fails() {
     let temp_dir = temp_dir("public-missing-registry");
@@ -1000,6 +1015,7 @@ fn public_tier_without_world_registry_or_genesis_manifest_fails() {
     assert!(err.contains("--genesis-validator-registry"), "{err}");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_finality_registry_strips_slot_prefix_from_validator_ids() {
     let temp_dir = temp_dir("finality-prefix-override");
@@ -1069,4 +1085,5 @@ fn world_finality_registry_strips_slot_prefix_from_validator_ids() {
 }
 
 #[path = "governance_registry_effective_tests.rs"]
+#[cfg(feature = "test_tier_full")]
 mod effective_registry_tests;

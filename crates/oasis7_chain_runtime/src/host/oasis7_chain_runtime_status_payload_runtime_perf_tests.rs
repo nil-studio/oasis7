@@ -1,3 +1,5 @@
+#![cfg(feature = "test_tier_full")]
+
 use super::{build_minimal_status_payload, build_minimal_status_payload_with_runtime_perf};
 use oasis7_simulator::{
     RuntimePerfBottleneck, RuntimePerfHealth, RuntimePerfSeriesSnapshot, RuntimePerfSnapshot,

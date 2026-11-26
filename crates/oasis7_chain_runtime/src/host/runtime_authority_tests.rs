@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
+
 use super::*;
 use oasis7_client_api::network_tier_manifest::{
     LoadedNetworkTierManifest, NETWORK_TIER_MANIFEST_SCHEMA_V1, NetworkTierClaimsPolicy,
@@ -276,6 +278,9 @@ fn persisted_tree_bytes(root: &Path) -> BTreeMap<String, Vec<u8>> {
     files
 }
 
+const _: () = { let _ = (load_runtime_authority_binding, load_runtime_authority_binding_for_node); };
+
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn captures_actual_refs_and_file_digests() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -311,6 +316,7 @@ fn captures_actual_refs_and_file_digests() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_partial_authority_inputs() {
     let error = load_runtime_authority_binding(
@@ -323,6 +329,7 @@ fn rejects_partial_authority_inputs() {
     assert!(error.contains("--deployment-inventory"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_public_testnet_without_authority_inputs() {
     let error = load_runtime_authority_binding(
@@ -335,6 +342,7 @@ fn rejects_public_testnet_without_authority_inputs() {
     assert!(error.contains("public-testnet deployment authority"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_manifest_inventory_digest_drift() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -361,6 +369,7 @@ fn rejects_manifest_inventory_digest_drift() {
     assert!(error.contains("digest mismatch"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_generated_registry_digest_drift() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -377,6 +386,7 @@ fn rejects_generated_registry_digest_drift() {
     assert!(error.contains("generated validator registry digest mismatch"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_inventory_digest_drift_without_mutating_existing_world() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -419,6 +429,7 @@ fn rejects_inventory_digest_drift_without_mutating_existing_world() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_explicit_registry_that_does_not_match_persisted_effective_registry() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -470,6 +481,7 @@ fn rejects_explicit_registry_that_does_not_match_persisted_effective_registry() 
     assert!(error.contains("does not match persisted effective governance registry"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn accepts_governed_registry_after_persisted_world_normalizes_threshold_bps() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -511,6 +523,7 @@ fn accepts_governed_registry_after_persisted_world_normalizes_threshold_bps() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn accepts_registry_only_authority_for_non_managed_observer() {
     let (registry, manifest_path) = write_observer_authority_fixture();
@@ -552,6 +565,7 @@ fn accepts_registry_only_authority_for_non_managed_observer() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn managed_triad_observer_role_cannot_use_registry_only_authority() {
     let (registry, manifest_path) = write_observer_authority_fixture();
@@ -573,6 +587,7 @@ fn managed_triad_observer_role_cannot_use_registry_only_authority() {
     assert!(error.contains("--deployment-inventory"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn observer_registry_semantic_digest_drift_fails_closed() {
     let (registry, manifest_path) = write_observer_authority_fixture();
@@ -609,6 +624,7 @@ fn observer_registry_semantic_digest_drift_fails_closed() {
     assert!(error.contains("semantic digest mismatch"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn observer_registry_authority_survives_persisted_world_restart_without_mutation() {
     let (registry, manifest_path) = write_observer_authority_fixture();
@@ -646,6 +662,7 @@ fn observer_registry_authority_survives_persisted_world_restart_without_mutation
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_foreign_node_id_with_governed_triad_inventory() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -668,6 +685,7 @@ fn rejects_foreign_node_id_with_governed_triad_inventory() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_persisted_unbound_world_for_public_testnet_authority() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -705,6 +723,7 @@ fn rejects_persisted_unbound_world_for_public_testnet_authority() {
     assert!(error.contains("unbound"), "unexpected error: {error}");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn accepts_observer_registry_path_after_canonicalization() {
     let (registry, manifest_path) = write_observer_authority_fixture();
@@ -746,6 +765,7 @@ fn accepts_observer_registry_path_after_canonicalization() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_authority_when_persisted_world_id_does_not_match_inventory() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -790,6 +810,7 @@ fn rejects_authority_when_persisted_world_id_does_not_match_inventory() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_authority_when_effective_runtime_world_id_override_drifts() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -813,6 +834,7 @@ fn rejects_authority_when_effective_runtime_world_id_override_drifts() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejects_managed_node_with_wrong_runtime_role() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
@@ -832,6 +854,7 @@ fn rejects_managed_node_with_wrong_runtime_role() {
     assert!(error.contains("runtime role"), "unexpected error: {error}");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn accepts_managed_nodes_with_governed_runtime_roles() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
