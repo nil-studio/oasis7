@@ -62,8 +62,8 @@ pub(super) fn test_provider_context(
                 world_time: 12,
                 mode: crate::simulator::ProviderExecutionMode::PlayerParity,
                 observation_schema_version:
-                    crate::simulator::DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION.to_string(),
-                action_schema_version: crate::simulator::DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION
+                    oasis7_agent_api::DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION.to_string(),
+                action_schema_version: oasis7_agent_api::DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION
                     .to_string(),
                 environment_class: Some("runtime_live".to_string()),
                 fallback_reason: None,

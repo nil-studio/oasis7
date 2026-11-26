@@ -125,3 +125,12 @@ RUN bash -euo pipefail -c '\
     fi; \
     mv /tmp/oasis7-viewer-browser/chrome /opt/oasis7-viewer-browser/chrome; \
     rm -rf /tmp/oasis7-viewer-browser /tmp/oasis7-viewer-archives /var/lib/apt/lists/* /root/.npm'
+
+# The trusted extended regression runner uses the original external Docker
+# daemon for the canonical WASM build. This image contains only the clients.
+FROM rust-custody-wasm AS rust-full-regression
+COPY --from=rust-ordinary-builder /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=rust-ordinary-builder /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends clang llvm \
+    && rm -rf /var/lib/apt/lists/*
