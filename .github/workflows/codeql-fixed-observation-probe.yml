@@ -1,7 +1,7 @@
-name: Fixed Rust CodeQL image preparation proof
+name: Fixed Rust CodeQL evidence transport proof
 on:
   pull_request:
-    types: [opened]
+    types: [synchronize]
     branches: [codex/codeql-fixed-observation-probe-base]
     paths: [.github/workflows/codeql-fixed-observation-probe.yml]
 permissions:
@@ -22,200 +22,46 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      OASIS7_CODEQL_OBSERVATION_IMAGE: *probe-image
-      FROZEN_TOOL: ea4a20a42bbadf4e1ada97e288c2f5ef118cd94e
-      OASIS7_CODEQL_PRODUCTION_SOURCE: 2bcc4edafdc615f395c9138a0b39ede366726d34
-      RUSTUP_TOOLCHAIN: '1.96.0'
-      PYTHONDONTWRITEBYTECODE: '1'
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ea4a20a42bbadf4e1ada97e288c2f5ef118cd94e
-          persist-credentials: false
-      - name: Verify frozen source and observation request
+      - name: Write transport-only fixtures for the four accepted paths
         run: |
-          test "$(git rev-parse HEAD)" = "$FROZEN_TOOL"
-          test -z "$(git status --porcelain)"
-          grep -F '          ram: 14570' .github/workflows/codeql-rust-capacity.yml
-          grep -F '          threads: 4' .github/workflows/codeql-rust-capacity.yml
-          grep -F '          upload: never' .github/workflows/codeql-rust-capacity.yml
-      - name: Configure mold for Linux host linking
-        run: |
-          python3 .github/actions/setup-linux-mold/setup.py \
-            --install-dir "$RUNNER_TEMP/oasis7-codeql-fixed-observation-mold"
-      - id: snapshot
-        name: Freeze production helpers outside the collection tree
-        timeout-minutes: 1
-        run: |
-          python3 scripts/security/codeql_rust_capacity_layout.py stage --production-default \
-            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/codeql-rust-fixed-source-helper" \
-            --output "$RUNNER_TEMP/codeql-rust-fixed-source-layout" \
-            --tool-sha "$FROZEN_TOOL" --deadline "$(python3 -c 'import time; print(time.time() + 180)')"
-      - name: Check out the fixed business source at the collection root
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: 2bcc4edafdc615f395c9138a0b39ede366726d34
-          clean: true
-          persist-credentials: false
-      - id: layout
-        name: Verify business identity and isolated helpers before init
-        timeout-minutes: 1
-        run: |
-          GITHUB_SHA="$FROZEN_TOOL" python3 "$RUNNER_TEMP/codeql-rust-fixed-source-helper/codeql_rust_capacity_layout.py" check --production-default \
-            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/codeql-rust-fixed-source-helper" \
-            --output "$RUNNER_TEMP/codeql-rust-fixed-source-layout" \
-            --source-sha "$OASIS7_CODEQL_PRODUCTION_SOURCE" --deadline "$(python3 -c 'import time; print(time.time() + 180)')"
-      - id: image_paths
-        name: Verify fixed image tools and template input
-        run: |
-          test "$(id -u):$(id -g)" = 1001:1001
-          test "$(command -v rustc)" = /opt/oasis7-rust/bin/rustc
-          test "$(rustc --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
-          test "$(cargo --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
-          python3 -I - <<'PYTHON'
-          import json, os
-          from pathlib import Path
-          source = Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
-          templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
-          if not templates.is_dir() or templates.resolve(strict=True) != templates:
-              raise SystemExit('Rust template directory is unavailable in the actual checkout')
-          with open(os.environ['GITHUB_ENV'], 'a') as out:
-              out.write('CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=' + json.dumps([str(templates)]) + '\n')
-          temporary = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
-              out.write(f'source_root={source}\ndb_location={temporary}/codeql_databases\n')
-              out.write(f'sarif_output={temporary}/codeql-results\n')
-          PYTHON
-      - id: rust_native
-        name: Prepare Rust native extraction prerequisites
-        timeout-minutes: 5
+          for name in codeql-rust-fixed-source-layout codeql-rust-native codeql-rust-production-evidence; do
+            mkdir "$RUNNER_TEMP/$name"
+            printf '%s\n' "$name" >"$RUNNER_TEMP/$name/probe-only.txt"
+          done
+          printf '%s\n' 'probe-budget-only' >"$RUNNER_TEMP/codeql-rust-production-budget.json"
+          printf '%s\n' 'persistence-must-not-collect-unlisted-paths' >"$RUNNER_TEMP/unlisted.txt"
+          printf '%s\n' 'hidden-evidence' >"$RUNNER_TEMP/codeql-rust-production-evidence/.guard-probe"
+      - id: observation_evidence
+        name: Stage the bounded observation evidence
+        if: always()
         run: |
           python3 -I - <<'PY'
-          import importlib.util, json, os, pathlib, sys, time
-          source = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
-          helpers = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-fixed-source-helper'
-          sys.path.insert(0, str(helpers))
-          spec = importlib.util.spec_from_file_location('native_prerequisites', helpers / 'codeql-rust-cargo-check.py')
-          native = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(native)
-          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-native'
-          out.mkdir(exist_ok=False)
-          native.runtime.CAP, native.runtime.WRITE_CAP = 16 * 1024**2, 15 * 1024**2
-          env = {key: value for key, value in os.environ.items()
-                 if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
-          started = time.monotonic()
-          terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180}
-          try:
-              image = os.environ['OASIS7_CODEQL_OBSERVATION_IMAGE']
-              cgroup = pathlib.Path('/sys/fs/cgroup')
-              terminal.update(source_profile='preinstalled-image', image=image,
-                              cpu_max=(cgroup / 'cpu.max').read_text().strip(),
-                              memory_max=(cgroup / 'memory.max').read_text().strip(),
-                              visible_cpus=len(os.sched_getaffinity(0)))
-              native.verify_preinstalled_native(source, out, started + 270, env, image)
-              terminal['status'] = 'PASS'
-          except Exception as error:
-              terminal.update(error_type=type(error).__name__, error=str(error))
-              raise
-          finally:
-              terminal['elapsed_seconds'] = time.monotonic() - started
-              (out / 'native-terminal.json').write_text(json.dumps(terminal, sort_keys=True) + '\n')
+          import os, shutil, tempfile
+          from itertools import chain
+          from pathlib import Path
+          runner = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+          stage = Path(tempfile.mkdtemp(prefix='fixed-observation-upload-', dir=runner))
+          for name in ('codeql-rust-fixed-source-layout', 'codeql-rust-native',
+                       'codeql-rust-production-evidence', 'codeql-rust-production-budget.json'):
+              source = runner / name
+              paths = chain((source,), source.rglob('*'))
+              if any(path.is_symlink() or (path.exists() and not (path.is_file() or path.is_dir()))
+                     for path in paths):
+                  raise SystemExit('Unsafe observation evidence path: ' + name)
+              if source.is_dir():
+                  shutil.copytree(source, stage / name)
+              elif source.is_file():
+                  shutil.copyfile(source, stage / name)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'path={stage}\n')
           PY
-      - id: rust_tools
-        name: Verify the pinned Rust default production bundle
-        timeout-minutes: 5
-        run: |
-          mkdir "$RUNNER_TEMP/codeql-rust-production-tools"
-          curl --fail --location --connect-timeout 20 --max-time 240 \
-            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst \
-            --output "$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst"
-          echo "1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b  $RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" | sha256sum --check
-          echo "tools_path=$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
-      - name: Verify cohort, unchanged official libraries and fail-closed inputs
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$OASIS7_CODEQL_PRODUCTION_SOURCE"
-          test -z "$(git status --porcelain)"
-          test -x "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"
-          test -x "$RUNNER_TEMP/oasis7-codeql-fixed-observation-mold/bin/mold"
-          "$RUNNER_TEMP/oasis7-codeql-fixed-observation-mold/bin/mold" --version
-          tar --zstd -xf "$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" -C "$RUNNER_TEMP/codeql-rust-production-tools"
-          "$RUNNER_TEMP/codeql-rust-production-tools/codeql/codeql" version --format=json
-          python3 -I - <<'PYTHON'
-          import hashlib, importlib.util, json, os, pathlib, shutil, subprocess, sys
-          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
-          helper = temp / 'codeql-rust-fixed-source-helper'
-          sys.path.insert(0, str(helper))
-          def module(name, file):
-              spec = importlib.util.spec_from_file_location(name, helper / file)
-              loaded = importlib.util.module_from_spec(spec)
-              spec.loader.exec_module(loaded)
-              return loaded
-          native = module('native', 'codeql-rust-cargo-check.py')
-          model = module('model', 'codeql-rust-model-diagnostic.py')
-          out = temp / 'codeql-rust-native'
-          terminal = json.loads((out / 'native-terminal.json').read_text())
-          assert terminal['status'] == 'PASS' and terminal['source_profile'] == 'preinstalled-image'
-          assert terminal['image'] == os.environ['OASIS7_CODEQL_OBSERVATION_IMAGE']
-          assert terminal['visible_cpus'] == len(os.sched_getaffinity(0)) > 0
-          print(json.dumps(terminal, sort_keys=True))
-          root = temp / 'codeql-rust-production-tools/codeql'
-          closure = model.bundle_closure(root, '2.27.4')
-          def snapshot():
-              return {name + '/' + str(file.relative_to(path)): hashlib.sha256(file.read_bytes()).hexdigest()
-                      for name, pack in closure.items() for path in (pathlib.Path(pack['root']),)
-                      for file in path.rglob('*') if file.is_file()}
-          before = snapshot()
-          query = temp / 'fixed-observation-probe-query'
-          query.mkdir()
-          (query / 'qlpack.yml').write_text(
-              'name: oasis7/fixed-observation-probe\nversion: 0.0.0\ndependencies:\n'
-              f"  codeql/rust-all: {closure['codeql/rust-all']['version']}\n")
-          (query / 'Inventory.ql').write_text('import rust\nselect 1\n')
-          additional = os.pathsep.join(pack['root'] for pack in closure.values())
-          resolved = subprocess.run([str(root / 'codeql'), 'resolve', 'library-path',
-                                     '--query=' + str(query / 'Inventory.ql'), '--format=json',
-                                     '--additional-packs=' + additional],
-                                    cwd=query, capture_output=True, check=True, timeout=20)
-          model.verify_library_path(json.loads(resolved.stdout), query, 'Inventory', closure,
-                                    pack_name='oasis7/fixed-observation-probe')
-          assert before and snapshot() == before
-          print(f'official bundle: {len(closure)} packs and {len(before)} files')
-          try:
-              native.verify_preinstalled_native(pathlib.Path.cwd(), out, 0, {}, 'ubuntu:latest')
-          except ValueError:
-              pass
-          else:
-              raise AssertionError('unpinned image accepted')
-          env = dict(os.environ, GITHUB_SHA=os.environ['FROZEN_TOOL'])
-          denied = temp / 'rejected-layout'
-          denied.mkdir()
-          shutil.copyfile(temp / 'codeql-rust-fixed-source-layout/tool-snapshot.json', denied / 'tool-snapshot.json')
-          check = ['python3', str(helper / 'codeql_rust_capacity_layout.py'), 'check', '--production-default',
-                   '--source', str(pathlib.Path.cwd()), '--tools', str(helper),
-                   '--output', str(denied), '--source-sha', os.environ['FROZEN_TOOL'],
-                   '--deadline', str(__import__('time').time() + 30)]
-          assert subprocess.run(check, env=env, capture_output=True, timeout=15).returncode != 0
-          rejected = json.loads((denied / 'collection-layout.json').read_text())
-          assert rejected['tool_snapshot_gate'] == 'PASS' and rejected['errors'] == ['BUSINESS_IDENTITY_NOT_PASS']
-          PYTHON
-      - name: Mark probe-only transport samples
-        if: always()
-        run: |
-          mkdir -p "$RUNNER_TEMP/codeql-rust-production-evidence"
-          printf '%s\n' '{"diagnostic_only":true,"analysis_executed":false}' >"$RUNNER_TEMP/codeql-rust-production-evidence/probe-only.json"
-          printf '%s\n' '{"diagnostic_only":true,"budget_allocated":false}' >"$RUNNER_TEMP/codeql-rust-production-budget.json"
-      - name: Persist bounded probe transport evidence
-        if: always()
+      - name: Persist bounded observation evidence
+        if: always() && steps.observation_evidence.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: draft-probe-codeql-fixed-observation-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/codeql-rust-fixed-source-layout
-            ${{ runner.temp }}/codeql-rust-native
-            ${{ runner.temp }}/codeql-rust-production-evidence
-            ${{ runner.temp }}/codeql-rust-production-budget.json
+          name: draft-probe-codeql-fixed-observation-transport-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.observation_evidence.outputs.path }}
           include-hidden-files: true
           if-no-files-found: error
           overwrite: false
