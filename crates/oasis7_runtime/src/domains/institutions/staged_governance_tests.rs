@@ -234,12 +234,12 @@ fn staged_organization_continuity_write_links_v2_commitment_envelope() {
     let charter_json = serde_json::to_string(&charter).expect("serialize charter");
     let expected_charter_hash = crate::util::sha256_hex(charter_json.as_bytes());
     let alliance = DomainEvent::AllianceFormed {
+        proposer_agent_id: "owner".into(),
         alliance_id: "org-1".into(),
-        name: "Org One".into(),
-        founder_agent_id: "owner".into(),
+        members: vec!["owner".into(), "primary".into(), "recipient".into()],
         charter: charter_json,
     };
-    world.append_event(WorldEventBody::Domain(alliance), None).expect("form alliance");
+    world.append_event_for_test(WorldEventBody::Domain(alliance), None).expect("form alliance");
 
     let env_before = assert_v2_envelope_linked(&world);
     let org_enable_body = WorldEventBody::Domain(DomainEvent::WorldRuleCommitted {
