@@ -5,116 +5,10 @@ use super::super::continuous_agent_harness::{
 };
 use super::super::decision_provider::ProviderDecision;
 
-use super::super::continuous_agent_harness::BudgetContractV1;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CognitionBudgetKind {
-    ModelCall,
-    ToolCall,
-}
-
-impl CognitionBudgetKind {
-    pub(super) const fn name(self) -> &'static str {
-        match self {
-            Self::ModelCall => "max_model_calls",
-            Self::ToolCall => "max_tool_calls",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct CognitionBudgetExhausted {
-    pub(super) kind: CognitionBudgetKind,
-    pub(super) used: u32,
-    pub(super) limit: u32,
-}
-
-impl CognitionBudgetExhausted {
-    pub(super) fn message(self) -> String {
-        format!(
-            "budget_exhausted: {} used={} max={}",
-            self.kind.name(),
-            self.used,
-            self.limit
-        )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct CognitionBudgetSnapshot {
-    pub(super) max_model_calls: u32,
-    pub(super) model_calls_used: u32,
-    pub(super) max_tool_calls: u32,
-    pub(super) tool_calls_used: u32,
-}
-
-/// Per-behavior logical-request accounting.  The digest is the stable
-/// request identity, so transport retries with a different attempt number
-/// retain the same counters while a new request starts cleanly.
-#[derive(Debug, Default)]
-pub(super) struct CognitionBudgetLedger {
-    request_digest: Option<String>,
-    model_calls: u32,
-    tool_calls: u32,
-}
-
-impl CognitionBudgetLedger {
-    pub(super) fn bind_request(&mut self, request_digest: Option<&str>) {
-        let request_digest = request_digest.map(str::to_owned);
-        if self.request_digest != request_digest {
-            self.request_digest = request_digest;
-            self.model_calls = 0;
-            self.tool_calls = 0;
-        }
-    }
-
-    pub(super) fn admit_model_call(
-        &mut self,
-        budget: &BudgetContractV1,
-    ) -> Result<(), CognitionBudgetExhausted> {
-        Self::admit(
-            CognitionBudgetKind::ModelCall,
-            &mut self.model_calls,
-            budget.max_model_calls,
-        )
-    }
-
-    pub(super) fn admit_tool_call(
-        &mut self,
-        budget: &BudgetContractV1,
-    ) -> Result<(), CognitionBudgetExhausted> {
-        Self::admit(
-            CognitionBudgetKind::ToolCall,
-            &mut self.tool_calls,
-            budget.max_tool_calls,
-        )
-    }
-
-    pub(super) fn snapshot(&self, budget: &BudgetContractV1) -> CognitionBudgetSnapshot {
-        CognitionBudgetSnapshot {
-            max_model_calls: budget.max_model_calls,
-            model_calls_used: self.model_calls,
-            max_tool_calls: budget.max_tool_calls,
-            tool_calls_used: self.tool_calls,
-        }
-    }
-
-    fn admit(
-        kind: CognitionBudgetKind,
-        used: &mut u32,
-        limit: u32,
-    ) -> Result<(), CognitionBudgetExhausted> {
-        if *used >= limit {
-            return Err(CognitionBudgetExhausted {
-                kind,
-                used: *used,
-                limit,
-            });
-        }
-        *used = (*used).saturating_add(1);
-        Ok(())
-    }
-}
+pub(super) use oasis7_runtime_host::llm_request_budget::{
+    BudgetExhausted as CognitionBudgetExhausted, BudgetSnapshot as CognitionBudgetSnapshot,
+    RequestBudgetLedger as CognitionBudgetLedger,
+};
 
 #[derive(Debug, Default)]
 pub(super) struct ContinuousAgentContext {
@@ -275,5 +169,32 @@ pub(super) fn builtin_provider_decision(decision: &AgentDecision) -> ProviderDec
         AgentDecision::ModuleCommand { response } => ProviderDecision::ModuleCommandResponse {
             response: response.clone(),
         },
+    }
+}
+
+#[cfg(test)]
+mod budget_owner_tests {
+    use super::*;
+    use oasis7_runtime_host::llm_request_budget::RequestBudgetLedger;
+
+    #[test]
+    fn live_context_uses_canonical_request_budget_ledger() {
+        let mut context = ContinuousAgentContext::default();
+        let ledger: &mut RequestBudgetLedger = &mut context.budget_ledger;
+        let budget = super::super::super::continuous_agent_harness::BudgetContractV1 {
+            max_latency_ms: 5_000,
+            max_repair_attempts: 1,
+            max_model_calls: 1,
+            max_tool_calls: 1,
+        };
+        ledger.bind_request(Some("logical-request"));
+        ledger.admit_model_call(&budget).unwrap();
+        ledger.admit_tool_call(&budget).unwrap();
+        ledger.bind_request(Some("logical-request"));
+        assert_eq!(ledger.admit_model_call(&budget).unwrap_err().used, 1);
+        assert_eq!(ledger.admit_tool_call(&budget).unwrap_err().used, 1);
+        ledger.bind_request(Some("new-request"));
+        assert_eq!(ledger.snapshot(&budget).model_calls_used, 0);
+        assert_eq!(ledger.snapshot(&budget).tool_calls_used, 0);
     }
 }

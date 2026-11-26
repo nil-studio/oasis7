@@ -114,6 +114,7 @@ fn empty_ledger(fixture: &Fixture, mode: PeerRecordReceiverMode) -> ReceiverLedg
         mode,
         floors: BTreeMap::new(),
         pruned_trusted_time_watermark_ms: None,
+        trusted_time_floor_ms: None,
         pre_migration_v1_expiries: BTreeMap::new(),
     }
 }
@@ -306,6 +307,7 @@ fn full_receiver_floor_rejects_new_peers_but_allows_existing_peer_updates() {
         mode: fixture.config.mode,
         floors,
         pruned_trusted_time_watermark_ms: None,
+        trusted_time_floor_ms: None,
         pre_migration_v1_expiries: BTreeMap::new(),
     };
     write_state(&fixture, &state_bytes(&ledger));

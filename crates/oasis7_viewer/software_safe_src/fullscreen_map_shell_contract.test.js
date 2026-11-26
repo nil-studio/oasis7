@@ -29,11 +29,12 @@ function findRule(source, selectorPattern) {
 }
 
 async function readViewerHtml() {
-  const [viewerHtml, terminalShellCss] = await Promise.all([
+  const [viewerHtml, baseCss, terminalShellCss] = await Promise.all([
     readFile("viewer.html", "utf8"),
+    readFile("viewer_base.css", "utf8"),
     readFile("viewer_terminal_shell.css", "utf8"),
   ]);
-  return { viewerHtml, terminalShellCss };
+  return { viewerHtml: `${baseCss}\n${viewerHtml}`, terminalShellCss };
 }
 
 describe("fullscreen map shell contract", () => {

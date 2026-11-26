@@ -207,7 +207,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 ## CI 现状与缺口（事实口径）
 
-要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。源码已接入快速 profile、完整库存、周期准入和发布结果消费；Rust workflow 每小时第 17/37/57 分钟检查是否到期，四小时是完整回归的启动目标；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
+要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。源码已接入快速 profile、完整库存、周期准入和发布结果消费；Rust workflow 每小时第 17/37/57 分钟检查是否到期，四小时是完整回归的启动目标；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。诊断与优化 CI 工作流、按需选测切片、慢测试分层/并发、编译缓存、预制基础镜像、`timeout-minutes` 棘轮及受信基线演进的操作方法见 [optimizing-ci](.agents/skills/optimizing-ci/SKILL.md)。
 
 <a id="ci-fast-pr-periodic-full-validation"></a>
 ### 快速 PR 与周期完整回归的实施验收
@@ -1663,15 +1663,6 @@ rg -n "conflicting attestation already exists|attestation threshold not met|atte
 4. L3 失败：优先检查分布式状态恢复、签名校验、网络行为。
 5. L4 失败：先判定是否环境问题（端口、launcher 进程、wasm 初始化），再判定 UI 回归。
 6. L5 失败：只针对真实人类或受控外部玩家样本，先核验样本、环境、继续游玩意愿与反馈采集；性能、资源泄漏和长时状态累计问题回到对应技术套件（S8/S9/S10）分诊。
-
-## TODO（待收口）
-- [x] TODO-1：修正 S7 场景矩阵回归命令的覆盖口径。
-  - 处理结果（2026-03-05）：S7 的 `oasis7_init_demo_runs_` 已切换到 `test_tier_full` 执行档位。
-  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full oasis7_init_demo_runs_ -- --nocapture` 命中多场景用例（非 1 条）。
-
-- [x] TODO-2：修复 S5 Pixel World Bridge（Bevy）测试编译阻塞。
-  - 处理结果（2026-02-21）：当前 `pixel_world_bridge` lib 测试已恢复可编译可执行，并纳入 `scripts/ci-tests.sh` 的 full support-crate shard。
-  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p pixel_world_bridge --lib` 通过。
 
 ## 风险
 - 风险 1：把 `required/full` 当作整应用全覆盖。

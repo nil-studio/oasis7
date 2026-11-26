@@ -46,10 +46,57 @@ pub struct Libp2pNetwork {
     pub(super) traffic_metrics: SharedLibp2pTrafficMetrics,
     pub(super) wire_byte_counters: SharedLibp2pWireByteCounters,
     pub(super) peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
+    pub(super) discovery_clock: super::peer_record_time::DiscoveryClock,
     pub(super) resource_budget: Option<ActiveResourceBudget>,
     pub(super) _shutdown_guard: Arc<super::drop_support::ShutdownGuard>,
 }
 const LIBP2P_COMMAND_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+
+pub(super) fn install_verified_discovery_floor(
+    discovery_clock: &super::peer_record_time::DiscoveryClock,
+    peer_record_receiver: &super::receiver_floor::SharedPeerRecordReceiver,
+    floor_ms: i64,
+    wall_ms: i64,
+    instant: Instant,
+) -> Result<(), WorldError> {
+    let _ingress = peer_record_receiver.begin_ingress()?;
+    if floor_ms <= 0 {
+        return Err(WorldError::NetworkProtocolUnavailable {
+            protocol: "peer record time policy: independent UTC floor must be positive".into(),
+        });
+    }
+    if let Some(persisted_floor) = peer_record_receiver.persisted_time_floor_ms()?
+        && floor_ms < persisted_floor
+    {
+        return Err(WorldError::NetworkProtocolUnavailable {
+            protocol: "verified UTC floor regressed behind durable receiver floor".into(),
+        });
+    }
+    discovery_clock.preflight_independent_floor(floor_ms, wall_ms)?;
+    peer_record_receiver.record_verified_time_floor(floor_ms)?;
+    discovery_clock.install_independently_verified_floor(floor_ms, wall_ms, instant)
+}
+
+pub(super) fn open_discovery_clock(
+    config: &super::config::Libp2pNetworkConfig,
+    receiver: &super::receiver_floor::SharedPeerRecordReceiver,
+) -> Result<super::peer_record_time::DiscoveryClock, WorldError> {
+    if config.require_independent_discovery_clock_floor
+        || config.verified_discovery_clock_floor_ms.is_some()
+    {
+        let clock = super::peer_record_time::DiscoveryClock::requiring_independent_floor();
+        if let Some(floor_ms) = config.verified_discovery_clock_floor_ms {
+            let wall = super::peer_record_time::wall_now_ms()?;
+            install_verified_discovery_floor(&clock, receiver, floor_ms, wall, Instant::now())?;
+        }
+        return Ok(clock);
+    }
+    let clock = super::peer_record_time::DiscoveryClock::default();
+    if let Some(floor) = receiver.persisted_time_floor_ms()? {
+        clock.seed_persisted_floor(floor)?;
+    }
+    Ok(clock)
+}
 
 impl Libp2pNetwork {
     pub fn peer_id(&self) -> PeerId {
@@ -64,11 +111,28 @@ impl Libp2pNetwork {
         self.peer_record_receiver.floor_count()
     }
 
+    /// Install an independently verified UTC lower bound onto a floor-gated
+    /// discovery clock and durable receiver, then resume local publication/discovery.
+    pub fn install_verified_discovery_clock_floor(&self, floor_ms: i64) -> Result<(), WorldError> {
+        install_verified_discovery_floor(
+            &self.discovery_clock,
+            &self.peer_record_receiver,
+            floor_ms,
+            super::peer_record_time::wall_now_ms()?,
+            Instant::now(),
+        )?;
+        let _ = super::try_send_command(&self.command_tx, Command::RepublishProviders);
+        let _ = super::try_send_command(&self.command_tx, Command::RefreshPeerDiscovery);
+        Ok(())
+    }
+
     pub fn prune_peer_record_receiver_live(
         &self,
         trusted_now_ms: i64,
         retained_peers: &std::collections::BTreeSet<String>,
     ) -> Result<usize, WorldError> {
+        self.discovery_clock
+            .ensure_trusted_floor_ready(trusted_now_ms)?;
         let mut all_retained = retained_peers.clone();
         for peer in self.connected_peers() {
             all_retained.insert(peer.to_string());
@@ -81,6 +145,8 @@ impl Libp2pNetwork {
         &self,
         trusted_now_ms: i64,
     ) -> Result<(), WorldError> {
+        self.discovery_clock
+            .ensure_trusted_floor_ready(trusted_now_ms)?;
         self.peer_record_receiver
             .observe_trusted_time(trusted_now_ms)
     }

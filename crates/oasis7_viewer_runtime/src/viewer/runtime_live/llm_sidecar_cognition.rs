@@ -1,11 +1,13 @@
 use super::*;
 use crate::simulator::{
     BudgetContractV1, CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION,
-    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
+    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, DecisionRequest, Digest32,
+    ObservationEnvelope, ProviderInteractionTarget, ProviderMissionContext, ProviderNavigationNode,
+    ProviderNearbyEntity, ProviderObservation, ProviderRecentEvent, ProviderSelfState,
+    RuntimeBindingV1, h_v1,
+};
+use oasis7_agent_api::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
-    DecisionRequest, Digest32, ObservationEnvelope, ProviderInteractionTarget,
-    ProviderMissionContext, ProviderNavigationNode, ProviderNearbyEntity, ProviderObservation,
-    ProviderRecentEvent, ProviderSelfState, RuntimeBindingV1, h_v1,
 };
 use oasis7_simulator::Observation;
 

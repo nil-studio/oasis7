@@ -97,7 +97,12 @@ impl Write for CancelOutput<'_> {
 #[test]
 fn original_text_maps_authenticate_utf8_empty_values_and_cold_namespaces() {
     use WorldTextMapFieldV1 as Field;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let dir = Directory::new();
         let path = dir.0.join("pages");
         let producer = MemoryBudget::new(32 << 20, 1 << 20).unwrap();

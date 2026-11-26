@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Viewer warning feedback styling", () => {
   it("gives feedback-summary--warn a warm visible treatment without changing neutral feedback", async () => {
-    const source = await readFile("viewer.html", "utf8");
+    const source = await readFile("viewer_base.css", "utf8");
     const warningRule = source.match(/\.feedback-summary--warn\s*\{([^}]*)\}/)?.[1] || "";
     const neutralRule = source.match(/\.feedback-summary\s*\{([^}]*)\}/)?.[1] || "";
 

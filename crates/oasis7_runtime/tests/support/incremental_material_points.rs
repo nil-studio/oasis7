@@ -5,7 +5,12 @@ fn state_error(e: impl std::fmt::Display) -> ValueTreeError {
 }
 #[test]
 fn original_point_columns_and_route_options_share_one_transaction_and_receiver() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store = IncrementalPageStore::create(

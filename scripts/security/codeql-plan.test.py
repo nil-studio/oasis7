@@ -49,6 +49,73 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_pure_rust_crate_test_fixtures_add_modify_move_delete_route_rust(self):
+        self.write('crates/oasis7/Cargo.toml', '[package]\nname="oasis7"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_runtime_host/Cargo.toml', '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\n')
+        self.base = self.commit()
+        for path in (
+            'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json',
+            'crates/oasis7_runtime_host/tests/fixtures/sample_case.cbor',
+            'crates/oasis7_runtime_host/fixtures/compressed.zst',
+            'crates/oasis7_runtime_host/testdata/nested/case.json',
+            'crates/oasis7_runtime_host/src/codec/serialization_fixtures/v1.json',
+        ):
+            for value in ('{"decision":"first"}', '{"decision":"second"}', None):
+                with self.subTest(path=path, value=value):
+                    self.base = self.git('rev-parse', 'HEAD')
+                    if value is None:
+                        (self.root / path).unlink()
+                    else:
+                        self.write(path, value)
+                    self.commit()
+                    result = self.run_plan()
+                    self.assertEqual(result['completeness']['diff_paths'], [path])
+                    self.assertEqual(result['candidate_units'], ['rust-repo'])
+                    self.assertEqual(result['selected_units'], ['rust-repo'])
+                    self.assertEqual(result['reasons']['rust-repo'], [path])
+                    self.assertEqual(self.run_plan(batch_modes='{}')['selected_units'], [])
+
+        # Moving a golden fixture from crates/oasis7 to crates/oasis7_runtime_host routes both endpoints to rust-repo.
+        old_path = 'crates/oasis7/src/simulator/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json'
+        new_path = 'crates/oasis7_runtime_host/src/agent_execution/llm_agent/decision_flow/fixtures/llm_decision_payload_legacy_all_fields.json'
+        self.write(old_path, '{"decision":"wait"}')
+        self.base = self.commit()
+        self.write(new_path, '{"decision":"wait"}')
+        (self.root / old_path).unlink()
+        self.commit()
+        moved = self.run_plan()
+        self.assertEqual(moved['selected_units'], ['rust-repo'])
+        self.assertEqual(moved['completeness']['diff_paths'], sorted([old_path, new_path]))
+
+    def test_rust_crate_test_fixture_boundaries_stay_fail_closed(self):
+        self.write('crates/oasis7_runtime_host/Cargo.toml', '[package]\nname="oasis7_runtime_host"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_hybrid/Cargo.toml', '[package]\nname="oasis7_hybrid"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_hybrid/subpkg/package.json', '{"name":"hybrid"}\n')
+        self.write('web/consumer.ts', 'const f = "../../crates/oasis7_runtime_host/tests/fixtures/shared_with_ts.json";\n')
+        self.write('scripts/reader.py', 'PATH = "crates/oasis7_runtime_host/tests/fixtures/shared_with_py.json"\n')
+        self.base = self.commit()
+        for path in (
+            'crates/untracked_crate/tests/fixtures/other.json',
+            'crates/oasis7_hybrid/tests/fixtures/other.json',
+            'crates/oasis7_runtime_host/tests/fixtures/shared_with_ts.json',
+            'crates/oasis7_runtime_host/tests/fixtures/shared_with_py.json',
+            'crates/oasis7_runtime_host/src/not_fixture_dir/other.json',
+            'crates/oasis7_runtime_host/src/world/artifacts/other.json',
+            'crates/oasis7_runtime_host/scenarios/other.json',
+            'crates/oasis7_runtime_host/tests/fixtures/other.yaml',
+            'crates/oasis7_runtime_host/tests/fixtures/other.toml',
+            'crates/oasis7_runtime_host/tests/fixtures/other.JSON',
+        ):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}')
+                self.commit()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input: ' + path):
+                        self.run_plan(full=full)
+                (self.root / path).unlink()
+                self.commit()
+
     def test_triad_fixture_add_modify_delete_routes_only_rust(self):
         path = 'tools/scenario_test_runner/scenarios/triad_p2p.yaml'
         for value in ('name: before', 'name: after', None):
@@ -352,6 +419,59 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(deleted['selected_units'], ['rust-repo'])
                 self.assertIn(path, deleted['reasons']['rust-repo'])
 
+    def test_cache_sdk_metadata_routes_exact_add_modify_delete(self):
+        for path in ('.github/actions/cache-sdk/build-receipt.json',
+                     '.github/actions/cache-sdk/provenance.json', '.github/actions/cache-sdk/sdk-patch.json'):
+            for value in ('{"fixture":1}', '{"fixture":2}', None):
+                self.base = self.git('rev-parse', 'HEAD')
+                if value is None:
+                    (self.root / path).unlink()
+                else:
+                    self.write(path, value)
+                self.commit()
+                result = self.run_plan()
+                expected = ['python-repo'] if path.endswith('/build-receipt.json') else ['python-repo', 'javascript-repo']
+                self.assertEqual(result['candidate_units'], expected)
+                self.assertEqual(result['selected_units'], expected)
+                self.assertEqual(result['fallback_reasons'], [])
+                self.assertEqual(self.run_plan(batch_modes='{}')['selected_units'], [])
+
+    def test_cache_sdk_metadata_neighbors_remain_unregistered(self):
+        for path in ('.github/actions/cache-sdk/unknown.json', '.github/actions/other/provenance.json',
+                     '.github/actions/cache-sdk/nested/provenance.json',
+                     '.github/actions/cache-sdk/provenance.JSON',
+                     'vendor/actions-cache-explicit-context/provenance.json'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write(path, '{}'); self.commit()
+            for full in (False, True):
+                with self.subTest(path=path, full=full), self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan(full=full)
+
+    def test_cache_sdk_metadata_rename_validates_both_endpoints(self):
+        original = '.github/actions/cache-sdk/build-receipt.json'
+        known = '.github/actions/cache-sdk/provenance.json'
+        unknown = '.github/actions/cache-sdk/unknown.json'
+        self.write(original, '{"unique":"rename"}'); self.base = self.commit()
+        (self.root / original).rename(self.root / known); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'javascript-repo'])
+        for source, destination in ((known, unknown), (unknown, known)):
+            self.base = self.git('rev-parse', 'HEAD')
+            (self.root / source).rename(self.root / destination); self.commit()
+            with self.assertRaisesRegex(ValueError, 'unregistered input: ' + unknown):
+                self.run_plan()
+
+    def test_cache_sdk_metadata_preserves_old_rust_consumers_and_batch_hold(self):
+        path = '.github/actions/cache-sdk/sdk-patch.json'
+        self.write(path, '{}')
+        self.write('src/sdk.rs', 'const SDK: &str = include_str!("../' + path + '");')
+        self.base = self.commit()
+        (self.root / path).unlink(); (self.root / 'src/sdk.rs').unlink(); self.commit()
+        result = self.run_plan(batch_modes=json.dumps({'javascript-repo/default': 'observe'}))
+        self.assertEqual(result['candidate_units'], ['python-repo', 'javascript-repo', 'rust-repo'])
+        self.assertEqual(result['selected_units'], ['javascript-repo'])
+        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+
     def test_fixed_vendor_provenance_routes_to_python_and_rust_including_deletion(self):
         for path in ('vendor/if-watch-3.2.2/upstream-source-sha256.json',
                      'vendor/libp2p-quic-0.15.0/local-patch-sha256.json',
@@ -393,23 +513,23 @@ class PlannerTests(unittest.TestCase):
                         self.run_plan(full=full)
 
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
-        path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
-        for value in ('body { color: red; }', 'body { color: blue; }'):
+        for path in ('crates/oasis7_viewer/viewer_base.css', 'crates/oasis7_viewer/viewer_terminal_shell.css'):
+            for value in ('body { color: red; }', 'body { color: blue; }'):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, value); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['javascript-repo'])
+                self.assertIn(path, result['reasons']['javascript-repo'])
+                self.assertEqual(result['fallback_reasons'], [])
+            for source, destination in ((path, 'moved.js'), ('moved.js', path)):
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / source).rename(self.root / destination); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['javascript-repo'])
+                self.assertEqual(result['completeness']['diff_paths'], sorted([source, destination]))
             self.base = self.git('rev-parse', 'HEAD')
-            self.write(path, value); self.commit()
-            result = self.run_plan()
-            self.assertEqual(result['selected_units'], ['javascript-repo'])
-            self.assertIn(path, result['reasons']['javascript-repo'])
-            self.assertEqual(result['fallback_reasons'], [])
-        for source, destination in ((path, 'moved.js'), ('moved.js', path)):
-            self.base = self.git('rev-parse', 'HEAD')
-            (self.root / source).rename(self.root / destination); self.commit()
-            result = self.run_plan()
-            self.assertEqual(result['selected_units'], ['javascript-repo'])
-            self.assertEqual(result['completeness']['diff_paths'], sorted([source, destination]))
-        self.base = self.git('rev-parse', 'HEAD')
-        (self.root / path).unlink(); self.commit()
-        self.assertEqual(self.run_plan()['selected_units'], ['javascript-repo'])
+            (self.root / path).unlink(); self.commit()
+            self.assertEqual(self.run_plan()['selected_units'], ['javascript-repo'])
 
     def test_viewer_stylesheet_unknown_rename_endpoint_fails_closed(self):
         known = 'crates/oasis7_viewer/viewer_terminal_shell.css'

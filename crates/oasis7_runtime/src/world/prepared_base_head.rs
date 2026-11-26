@@ -61,7 +61,14 @@ impl WorldPreparedBaseHead {
                 &world.capability_budget_accounts,
                 &world.capability_effect_receipt_links,
             ))?,
-            policy: hash_json(&(&world.policies, &world.proposals, &world.scheduler_cursor))?,
+            policy: hash_json(&(
+                &world.policies,
+                &world.proposals,
+                &world.scheduler_cursor,
+                // Monetary/cognition balances and receipts live outside WorldState.
+                // They must invalidate every delayed root-staged preparation.
+                &world.cognition,
+            ))?,
             scheduling: hash_json(&(
                 &world.pending_actions,
                 &world.pending_effects,

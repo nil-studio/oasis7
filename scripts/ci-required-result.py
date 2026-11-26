@@ -33,7 +33,18 @@ DIRECT_CUSTODY_JOBS = (
 
 
 def _consolidation_overrides(config, plan):
-    if not isinstance(plan, dict) or 'contract_job_consolidation_version' not in plan:
+    if not isinstance(plan, dict):
+        return None
+    offline = plan.get('command_center_offline_version')
+    if 'command_center_offline_version' in plan:
+        config_offline = config.get('command_center_offline_version')
+        if type(offline) is not int or offline != 1:
+            raise ValueError('unsupported command center offline version')
+        if (type(config_offline) is not int or config_offline != 1
+                or config.get('group_jobs', {}).get('command_center') != 'baseline'
+                or plan.get('contract_job_consolidation_version') != 5):
+            raise ValueError('untrusted command center offline capability')
+    if 'contract_job_consolidation_version' not in plan:
         return None
     version = plan['contract_job_consolidation_version']
     config_version = config.get('contract_job_consolidation_version')
@@ -65,7 +76,10 @@ def _consolidation_overrides(config, plan):
             if version in (3, 4) and 'packaging_contracts' in result:
                 result['packaging_contracts'] = 'doc-checker-contracts'
         return result
-    return dict(overrides)
+    result = dict(overrides)
+    if offline != 1:
+        result.pop('command_center', None)
+    return result
 
 
 def _direct_workspace_support_gate_version(config, plan):

@@ -7,7 +7,24 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ZH_ENTRY="${REPO_ROOT}/site/index.html"
 EN_ENTRY="${REPO_ROOT}/site/en/index.html"
 APP_JS="${REPO_ROOT}/site/assets/app.js"
-STYLES="${REPO_ROOT}/site/assets/styles.css"
+STYLES_ENTRY="${REPO_ROOT}/site/assets/styles.css"
+STYLES="$(mktemp)"
+trap 'rm -f "${STYLES}"' EXIT
+python3 - "${STYLES_ENTRY}" "${STYLES}" <<'PY'
+import pathlib, re, sys
+entry = pathlib.Path(sys.argv[1])
+def load_css(path, seen):
+    real = path.resolve()
+    if real in seen:
+        return ""
+    seen.add(real)
+    text = real.read_text(encoding="utf-8")
+    def repl(match):
+        target = (real.parent / match.group(1)).resolve()
+        return load_css(target, seen)
+    return re.sub(r'@import\s+["\']([^"\']+)["\']\s*;', repl, text)
+pathlib.Path(sys.argv[2]).write_text(load_css(entry, set()), encoding="utf-8")
+PY
 
 contains_fixed_pattern() {
   local pattern="$1"
@@ -431,7 +448,7 @@ def check_page(path: Path, language: str, site_root: Path) -> tuple[dict[str, tu
         import re
         if not re.fullmatch(r"[0-9a-f]{40}", proof["version"]):
             errors.append(f"{path}: fixed test source version required")
-        if not re.fullmatch(r"https://github\.com/eng-cc/oasis7/blob/[0-9a-f]{40}/doc/testing/evidence/[^?#]+", proof["source"]):
+        if not re.fullmatch(r"https://github\.com/(?:nil-studio|eng-cc)/oasis7/blob/[0-9a-f]{40}/doc/testing/evidence/[^?#]+", proof["source"]):
             errors.append(f"{path}: immutable trusted case report required")
         for step in [n for n in nodes if "data-decision-panel" in n.attrs]:
             children = descendants(parser, step)

@@ -16,6 +16,11 @@ oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+url = "2"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+blake3 = "1"
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
 
 [features]
 default = []

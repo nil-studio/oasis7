@@ -145,9 +145,12 @@ fn child_changes(
     child: StateRootV1,
     changes: Vec<(WorldFieldKeyV1, Option<[u8; 32]>)>,
 ) -> StateRootV1 {
-    let state = store
+    let mut state = store
         .state_session(physical_scope(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let mut rows: Vec<_> = changes
         .into_iter()
         .map(|(key, after)| StateWriteV1 {
@@ -188,9 +191,12 @@ fn changed_roots(
     outer: &WorldFieldKeyV1,
     value: [u8; 32],
 ) -> RootSetV1 {
-    let state = store
+    let mut state = store
         .state_session(physical_scope(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let index = roots
         .state
         .iter()
@@ -224,9 +230,12 @@ fn raw(
     memory: &MemoryBudget,
     roots: &RootSetV1,
 ) -> Result<ReservedValue<AgentAuthorityFamilyQualificationV1>, ValueTreeError> {
-    let state = store
+    let mut state = store
         .state_session(physical_scope(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(physical_scope());
     qualify_agent_authority_family_v1(
         roots,
@@ -353,7 +362,12 @@ fn malformed_raw_and_changed_closures_are_rejected() {
         },
     };
     let live = parent.fence().unwrap();
-    for case in 0..7 {
+    let cases: &[usize] = if cfg!(feature = "test_tier_full") {
+        &[0, 1, 2, 3, 4, 5, 6]
+    } else {
+        &[0, 2, 4, 6]
+    };
+    for &case in cases {
         let bad = match case {
             0 => {
                 let row = member!(
@@ -418,9 +432,12 @@ fn malformed_raw_and_changed_closures_are_rejected() {
             matches!(raw_result, Err(ValueTreeError::Invalid(_))),
             "raw scenario={case}: {raw_result:?}"
         );
-        let state = store
+        let mut state = store
             .state_session(physical_scope(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let mut tx = ExecutionTransaction::begin(
             parent.clone(),
             [0x93; 32],

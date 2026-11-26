@@ -297,7 +297,11 @@ run_oasis7_required_tier_tests() {
   fi
   if [[ "${ordinary_partition:-}" == controls ]]; then return; fi
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
-    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}"
+    local bundle_run_args=()
+    if [[ "${OASIS7_LOCAL_CHECK:-0}" != 1 ]]; then
+      bundle_run_args=(--parallel-ordinary)
+    fi
+    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}" "${bundle_run_args[@]}"
     return
   fi
   if [[ -n "${required_plan:-}" ]]; then
@@ -1008,6 +1012,10 @@ run_workflow_governance_baseline_contract_tests() {
 }
 
 run_workflow_governance_operational_contract_tests() {
+  run python3 ./scripts/security/test_codeql_rust_resolver.py
+  run python3 ./scripts/security/codeql-rust-action-deadline.test.py
+  run python3 ./scripts/security/codeql-rust-production.test.py
+  run python3 ./scripts/security/codeql-rust-candidate-workload.test.py
   run python3 ./scripts/security/codeql-plan.test.py
   run python3 ./scripts/security/codeql-workflow.test.py
   run python3 ./scripts/security/codeql-rust-coverage.test.py
@@ -1020,11 +1028,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-rust-wasm-metadata.test.py
   run python3 ./scripts/security/codeql-rust-wasm-context.test.py
   run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
-  run python3 ./scripts/security/codeql-rust-candidate-workload.test.py
-  run python3 ./scripts/security/codeql-rust-production.test.py
-  run python3 ./scripts/security/test_codeql_rust_resolver.py
   run python3 ./scripts/security/test_codeql_rust_candidate_profile.py
-  run python3 ./scripts/security/codeql-rust-action-deadline.test.py
   run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
   run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py
@@ -1038,8 +1042,19 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/test_check_pr_boundaries.py
 }
 
+_collect_workflow_governance_remaining_parallel_tests() {
+  run_workflow_governance_operational_contract_tests
+  run_workflow_governance_baseline_contract_tests
+  run python3 ./scripts/package-source-plan.test.py
+  run python3 ./scripts/safe-git-archive.test.py
+}
+
 run_workflow_governance_remaining_contract_tests() {
   run_engineering_telemetry_contract_tests
+  if declare -F run_parallel_contract_commands >/dev/null && declare -F _collect_workflow_governance_remaining_parallel_tests >/dev/null; then
+    run_parallel_contract_commands OASIS7_WORKFLOW_GOVERNANCE_REMAINING_JOBS workflow-governance-remaining _collect_workflow_governance_remaining_parallel_tests
+    return $?
+  fi
   run_workflow_governance_baseline_contract_tests
   run_workflow_governance_operational_contract_tests
   run python3 ./scripts/package-source-plan.test.py
@@ -1076,10 +1091,17 @@ run_packaging_contract_tests() {
 }
 
 run_operational_identity_contract_tests() {
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 0/4
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 1/4
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 2/4
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 3/4
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-core-part1.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-core-part2.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-boundaries.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-formal-findings.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-storage-adapter-red.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-storage-red.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-adversarial-part1.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-adversarial-part2.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-adversarial-part3.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-blockchain-p1.test.py
   run python3 ./scripts/p2p-public-testnet-full-network-clean-room.test.py
   run python3 ./scripts/p2p-public-testnet-identity-v2-cli-bridge.test.py
   run python3 ./scripts/p2p-public-testnet-identity-v2-signing-tool.test.py
@@ -1487,6 +1509,8 @@ run_required_gate_checks() {
   run ./scripts/lint-skills.sh
   run ./scripts/check-windows-paths.sh
   run bash ./scripts/check-script-executable-bits.sh
+  run python3 ./scripts/check-ci-scope-paths.py
+  run python3 ./scripts/check-governance-hygiene.test.py
   if [[ -n "${OASIS7_PRODUCT_DOC_BASE:-}" && -n "${OASIS7_PRODUCT_DOC_HEAD:-}" ]]; then
     run git diff --check "$OASIS7_PRODUCT_DOC_BASE" "$OASIS7_PRODUCT_DOC_HEAD"
   else
@@ -1640,7 +1664,9 @@ run_rust_baseline() {
     extra_checks=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
       --plan "$required_plan" --phase baseline-checks) || return
   fi
-  run env -u RUSTC_WRAPPER cargo fmt --all -- --check
+  if [[ "${OASIS7_SKIP_RUSTFMT:-0}" != 1 ]]; then
+    run env -u RUSTC_WRAPPER cargo fmt --all -- --check
+  fi
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
@@ -1656,6 +1682,11 @@ run_rust_baseline() {
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh
+  local rust_hygiene_args=()
+  if [[ -n "${OASIS7_PRODUCT_DOC_BASE:-}" && -n "${OASIS7_PRODUCT_DOC_HEAD:-}" ]]; then
+    rust_hygiene_args=(--base "$OASIS7_PRODUCT_DOC_BASE" --head "$OASIS7_PRODUCT_DOC_HEAD")
+  fi
+  run python3 ./scripts/check-rust-hygiene.py "${rust_hygiene_args[@]}"
   run_oasis7_required_clippy_for_group rust_baseline
   while IFS= read -r check; do
     case "$check" in

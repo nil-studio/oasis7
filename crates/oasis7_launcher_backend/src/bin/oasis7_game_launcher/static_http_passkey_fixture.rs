@@ -89,14 +89,7 @@ fn hosted_passkey_virtual_authenticator_fixture() {
         root.join("viewer_account_email_recovery.js"),
     )
     .unwrap();
-    let viewer_html = std::fs::read_to_string(source.join("../viewer.html")).unwrap();
-    let style = viewer_html
-        .split_once("<style>")
-        .unwrap()
-        .1
-        .split_once("</style>")
-        .unwrap()
-        .0;
+    let style = std::fs::read_to_string(source.join("../viewer_base.css")).unwrap();
     std::fs::write(root.join("fixture.css"), style).unwrap();
     std::fs::write(root.join("index.html"),"<!doctype html><meta charset=utf-8><link rel=stylesheet href=/fixture.css><main style=\"padding:16px;max-width:640px;margin:auto\"><div id=account class=stack></div></main><script type=module>import {mountPasskeyAccount} from '/viewer_passkey_account_module.js';mountPasskeyAccount(document.querySelector('#account'));</script>").unwrap();
     let issuer = Arc::new(Mutex::new(

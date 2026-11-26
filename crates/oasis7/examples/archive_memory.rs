@@ -207,8 +207,8 @@ fn main() {
             &prefix.events,
         );
         if extended {
-            let mut runtime = oasis7::runtime::World::new();
-            runtime.submit_action(oasis7::runtime::Action::RegisterAgent {
+            let mut runtime = oasis7_runtime::World::new();
+            runtime.submit_action(oasis7_runtime::Action::RegisterAgent {
                 agent_id: "historical-agent".into(),
                 pos: GeoPos::new(1, 2, 3),
             });
@@ -236,8 +236,8 @@ fn main() {
         let mut journal = host_journal(journal);
         let mut prefix = prefix;
         if extended {
-            let mut runtime = oasis7::runtime::World::new();
-            runtime.submit_action(oasis7::runtime::Action::RegisterAgent {
+            let mut runtime = oasis7_runtime::World::new();
+            runtime.submit_action(oasis7_runtime::Action::RegisterAgent {
                 agent_id: "historical-agent".into(),
                 pos: GeoPos::new(1, 2, 3),
             });

@@ -114,7 +114,21 @@ python3() { printf 'diagnostic:%s\\n' "$*" >> "$TRACE"; return "$DIAGNOSTIC_STAT
                 self.assertEqual(len(installs), 1)
                 self.assertIn('          browser: agent\n', installs[0])
                 self.assertNotIn('continue-on-error:', installs[0])
-                self.assertNotIn('        if:', installs[0])
+                activations = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                               if 'name: Activate the preinstalled Viewer Chrome' in step]
+                if 'VIEWER_IMAGE_COMPATIBLE:' not in job.split('    steps:', 1)[0]:
+                    self.assertNotIn('        if:', installs[0])
+                    self.assertFalse(activations)
+                    continue
+                self.assertEqual(len(activations), 1)
+                self.assertEqual(re.findall(r'^        if: (.*)$', installs[0], re.M),
+                                 ["env.VIEWER_IMAGE_COMPATIBLE != 'true'"])
+                self.assertEqual(re.findall(r'^        if: (.*)$', activations[0], re.M),
+                                 ["env.VIEWER_IMAGE_COMPATIBLE == 'true'"])
+                self.assertIn('activate --prebuilt --browser agent', activations[0])
+                self.assertNotIn('continue-on-error:', activations[0])
+                self.assertLess(job.index(installs[0]), job.index('name: Execute selected group'))
+                self.assertLess(job.index(activations[0]), job.index('name: Execute selected group'))
 
 
 if __name__ == '__main__': unittest.main()

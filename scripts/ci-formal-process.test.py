@@ -1599,6 +1599,7 @@ class DistfsClippyHandoff(unittest.TestCase):
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
                 path = scripts / name
@@ -1757,6 +1758,7 @@ class DistfsNamedIntegrationDriver(unittest.TestCase):
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
                 path = scripts / name
@@ -2115,299 +2117,6 @@ class CompleteArtifactPartitions(unittest.TestCase):
         self.assertEqual(len({(entry.get('binary'), entry.get('name'), entry.get('script')) for entry in combined}), len(combined))
 
 
-class OrdinaryArtifactDelivery(unittest.TestCase):
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
-        self.bundle, self.archives = self.root / 'producer', self.root / 'archives'
-        self.bundle.mkdir()
-        self.config = self.root / 'suites.json'
-        self.config.write_text('{}')
-        self.plan = CompleteArtifactPartitions().selection() | dict(
-            ordinary_artifact_delivery_version=1,
-            oasis7_required_packages=['oasis7', 'oasis7_runtime', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'])
-        self.manifest = CompleteArtifactPartitions().manifest(self.plan)
-        self.manifest['binaries']['viewer-component'] = dict(
-            package='oasis7_viewer_runtime', target='oasis7_viewer_runtime', target_kind=['lib'],
-            variant='required', ordinary=True, tests=['viewer_behavior'], ignored_tests=[], cwd='.')
-        self.manifest['binaries']['viewer'] = dict(test=False, ordinary=False, tests=[], ignored_tests=[])
-        self.manifest['binaries']['required-executable-helper'] = dict(test=False, ordinary=False, tests=[], ignored_tests=[])
-        for name, entry in self.manifest['binaries'].items():
-            entry.update(test=entry.get('test', True), path='bin/' + name, libraries=[])
-            entry['original_executable'] = str(self.root / 'target/debug' / name)
-            text = ('#!' + sys.executable + '\nimport sys\n'
-                    'names = ' + repr(entry['tests']) + '\n'
-                    'if "--ignored" not in sys.argv:\n'
-                    '    for name in names: print(name + ": test")\n')
-            self.file(entry['path'], text.encode(), executable=True)
-            entry['sha256'] = artifacts.digest(self.bundle / entry['path'])
-        # The two helpers intentionally have identical bytes, exercising safe
-        # archive-local hardlinks without conflating their logical identities.
-        self.file('lib/runtime.so', b'fixture dynamic library')
-        self.manifest['binaries']['runtime-tests']['libraries'] = ['lib/runtime.so']
-        self.manifest.update(schema_version=2, suites={},
-            source_sha='source', tested_sha='tested', producer_run_id='local', producer_attempt='1',
-            checkout=str(self.root), config_sha256=artifacts.digest(self.config), formal_authority_sha256=None,
-            rust_toolchain='local', runner_image=sys.platform,
-            libraries={'lib/runtime.so': artifacts.digest(self.bundle / 'lib/runtime.so')})
-        stack = ExitStack()
-        self.addCleanup(stack.close)
-        stack.enter_context(patch.object(artifacts, 'ROOT', self.root))
-        stack.enter_context(patch.object(artifacts, 'CONFIG', self.config))
-        # Reduce only the package universe to this fixture; retain real parent,
-        # closure, partition, archive, file and actual executable inventory checks.
-        stack.enter_context(patch.object(artifacts, 'required_packages',
-                                         return_value=self.plan['oasis7_required_packages']))
-        stack.enter_context(patch.object(artifacts, 'output', return_value='tested'))
-        stack.enter_context(patch.dict(os.environ, SOURCE_SHA='source', GITHUB_RUN_ID='local',
-                                       RUST_TOOLCHAIN='local', ImageOS=sys.platform, GITHUB_RUN_ATTEMPT='2'))
-        self.write_parent()
-
-    def file(self, name, data, executable=False):
-        path = self.bundle / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        path.chmod(0o755 if executable else 0o644)
-        return dict(path=name, sha256=artifacts.digest(path))
-
-    def write_parent(self):
-        (self.bundle / 'manifest.json').write_text(json.dumps(self.manifest))
-
-    def pack(self, diagnostic=False):
-        self.write_parent()
-        return artifacts.pack_ordinary_delivery(self.bundle, self.archives, self.plan, diagnostic=diagnostic)
-
-    def unpack(self, owner, common=None, payload=None, diagnostic=False):
-        destination = self.root / ('consume-' + owner)
-        return destination, artifacts.unpack_ordinary_delivery(
-            common or self.archives / 'common.tar.gz', payload or self.archives / (owner + '.tar.gz'),
-            destination, self.plan, owner, diagnostic=diagnostic)
-
-    def mutate_archive(self, source, mutate):
-        members = []
-        with tarfile.open(source) as archive:
-            for member in archive:
-                members.append((member, archive.extractfile(member).read() if member.isfile() else None))
-        mutate(members)
-        destination = self.root / 'damaged.tar.gz'
-        with tarfile.open(destination, 'w:gz') as archive:
-            for member, raw in members:
-                if raw is not None:
-                    member.size = len(raw)
-                archive.addfile(member, io.BytesIO(raw) if raw is not None else None)
-        return destination
-
-    def test_transport_preserves_parent_union_snapshots_helpers_libraries_and_prior_attempt(self):
-        report = self.pack()
-        ordinary = self.root / 'ordinary.tar.gz'
-        artifacts.pack(self.bundle, ordinary, suite='ordinary', plan=self.plan)
-        with tarfile.open(ordinary) as archive:
-            parent = archive.extractfile('manifest.json').read()
-        self.assertEqual(report['parent_manifest_sha256'], hashlib.sha256(parent).hexdigest())
-        total = []
-        for owner in artifacts.ORDINARY_ARTIFACT_PARTITIONS[1:]:
-            destination, receipt = self.unpack(owner)
-            manifest, env = artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition=owner)
-            self.assertEqual((destination / 'manifest.json').read_bytes(), parent)
-            self.assertEqual(manifest['producer_attempt'], '1')
-            self.assertTrue((destination / 'lib/runtime.so').is_file())
-            self.assertIn('PRE2_VIEWER_BINARY', env)
-            self.assertTrue((self.root / 'target/debug/required-executable-helper').is_file())
-            selected = artifacts.ordinary_artifact_entries(manifest, self.plan, owner)
-            total.extend(selected)
-            expected = {manifest['binaries'][name]['path'] for name in receipt['included_binaries']}
-            self.assertEqual({p.relative_to(destination).as_posix() for p in (destination / 'bin').iterdir()}, expected)
-        self.assertCountEqual(total, artifacts.ordinary_entries(json.loads(parent)))
-        with tarfile.open(self.archives / 'common.tar.gz') as archive:
-            self.assertTrue(any(member.islnk() for member in archive))
-        self.assertNotIn('controls', report['archives'])
-
-    def test_wrong_capability_cannot_publish_or_consume_delivery(self):
-        for value in (True, False, 0, 2, '1', None):
-            with self.subTest(value=value), self.assertRaises(ValueError):
-                artifacts.fast_plan(self.plan | {'ordinary_artifact_delivery_version': value})
-        for change in ({'ordinary_artifact_partition_version': 2}, {'ordinary_execution': 'inline'},
-                       {'ordinary_partitions': ['all']}, {'scope': 'targeted'}):
-            with self.subTest(change=change), self.assertRaises(ValueError):
-                artifacts.fast_plan(self.plan | change)
-        for field in ('ordinary_artifact_partition_version', 'fast_plan_version'):
-            changed = dict(self.plan)
-            changed.pop(field)
-            with self.subTest(field=field), self.assertRaises(ValueError):
-                artifacts.fast_plan(changed)
-        self.plan.pop('ordinary_artifact_delivery_version')
-        self.write_parent()
-        with self.assertRaises(ValueError):
-            self.pack()
-        # A legacy complete package still works; diagnostics cannot authorize run.
-        legacy = self.root / 'legacy.tar.gz'
-        artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
-        self.pack(diagnostic=True)
-        destination, _ = self.unpack('runtime', diagnostic=True)
-        with self.assertRaises(ValueError):
-            artifacts.load(destination, 'ordinary', plan=self.plan)
-        with self.assertRaises(ValueError):
-            artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition='runtime')
-
-    def test_receipts_reject_missing_duplicate_wrong_owner_and_mixed_parent(self):
-        self.pack()
-        for change in ({'schema_version': True}, {'schema_version': 2}, {'diagnostic_only': True},
-                       {'partition': 'integrations-0'}, {'parent_manifest_sha256': '0' * 64},
-                       {'included_binaries': []}, {'included_binaries': ['runtime-tests'] * 2}):
-            def mutate(members):
-                member, raw = members[0]
-                members[0] = member, json.dumps(json.loads(raw) | change).encode()
-            damaged = self.mutate_archive(self.archives / 'runtime.tar.gz', mutate)
-            with self.subTest(change=change), self.assertRaises(ValueError):
-                self.unpack('runtime', payload=damaged)
-        payload = self.root / 'earlier-runtime.tar.gz'
-        shutil.copyfile(self.archives / 'runtime.tar.gz', payload)
-        self.manifest['producer_attempt'] = '2'
-        self.pack()
-        with self.assertRaises(ValueError):
-            self.unpack('runtime', payload=payload)
-
-    def test_archive_refuses_overwrites_missing_files_and_external_links(self):
-        self.pack()
-        source = self.archives / 'runtime.tar.gz'
-        for name in ('manifest.json', artifacts.ORDINARY_DELIVERY_RECEIPTS[0],
-                     'bin/viewer', 'lib/runtime.so', '../outside', '/absolute'):
-            def append(members):
-                member = tarfile.TarInfo(name)
-                member.mode = 0o644
-                members.append((member, b'foreign payload'))
-            damaged = self.mutate_archive(source, append)
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                self.unpack('runtime', payload=damaged)
-        for damage in ('duplicate', 'missing', 'symlink', 'cross-hardlink', 'corrupt'):
-            def mutate(members):
-                if damage == 'duplicate':
-                    members.append(copy.deepcopy(members[-1]))
-                elif damage == 'missing':
-                    members.pop()
-                elif damage == 'corrupt':
-                    members[-1] = members[-1][0], b'corrupt bytes'
-                else:
-                    member, _ = members[-1]
-                    member.type = tarfile.SYMTYPE if damage == 'symlink' else tarfile.LNKTYPE
-                    member.linkname, member.size = 'bin/viewer', 0
-                    members[-1] = member, None
-            damaged = self.mutate_archive(source, mutate)
-            with self.subTest(damage=damage), self.assertRaises(ValueError):
-                self.unpack('runtime', payload=damaged)
-        self.assertFalse((self.root / 'outside').exists())
-
-    def test_pack_ordinary_delivery_compresses_archives_concurrently_and_preserves_order(self):
-        entered = threading.Barrier(2)
-        lock = threading.Lock()
-        active = [0, 0]
-        original_write = artifacts.write_artifact_archive
-
-        def tracked_write(bundle, archive_path, metadata_files, files):
-            with lock:
-                active[0] += 1
-                active[1] = max(active)
-            try:
-                if active[0] <= 2:
-                    try:
-                        entered.wait(timeout=1.5)
-                    except threading.BrokenBarrierError:
-                        pass
-                return original_write(bundle, archive_path, metadata_files, files)
-            finally:
-                with lock:
-                    active[0] -= 1
-
-        with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
-                patch.object(artifacts, 'write_artifact_archive', side_effect=tracked_write):
-            report = self.pack()
-        self.assertGreaterEqual(active[1], 2)
-        expected_owners = ['common', *artifacts.ordinary_partitions(self.plan)[1:]]
-        self.assertEqual(list(report['archives'].keys()), expected_owners)
-        for owner in expected_owners[1:]:
-            self.unpack(owner)
-
-    def test_load_keeps_real_inventory_executable_source_and_complete_parent_checks(self):
-        self.pack()
-        for damage in ('mode', 'missing', 'inventory', 'parent', 'source', 'tested', 'plan'):
-            destination, _ = self.unpack('runtime')
-            manifest = json.loads((destination / 'manifest.json').read_bytes())
-            executable = destination / manifest['binaries']['runtime-tests']['path']
-            if damage == 'mode':
-                executable.chmod(0o644)
-            elif damage == 'missing':
-                executable.unlink()
-            else:
-                if damage == 'inventory':
-                    manifest['binaries']['runtime-tests']['tests'].append('invented_case')
-                elif damage == 'parent':
-                    del manifest['binaries']['component']
-                elif damage == 'plan':
-                    manifest['execution_plan']['policy_sha'] = 'changed'
-                else:
-                    manifest[damage + '_sha'] = 'different'
-                raw = json.dumps(manifest).encode()
-                (destination / 'manifest.json').write_bytes(raw)
-                for receipt_name in artifacts.ORDINARY_DELIVERY_RECEIPTS:
-                    path = destination / receipt_name
-                    receipt = json.loads(path.read_bytes())
-                    receipt['parent_manifest_sha256'] = hashlib.sha256(raw).hexdigest()
-                    path.write_text(json.dumps(receipt))
-            with self.subTest(damage=damage), self.assertRaises(ValueError):
-                artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition='runtime')
-            shutil.rmtree(destination)
-
-    def test_shared_provider_and_builtin_resources_keep_full_parent_requirements(self):
-        self.manifest['binaries']['runtime-tests']['features'] = ['test_tier_full']
-        self.manifest['binaries']['component']['features'] = ['wasmtime', 'test_tier_full']
-        identity = dict(source_sha='source', tested_sha='tested', checkout_tree_sha256='tree')
-        provider = artifacts.ProviderArtifact
-        provider_files = {kind: self.file(provider.DIRECTORY + '/' + provider.MODULE + suffix,
-                                          b'explicit synthetic verifier fixture')
-                          for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
-                                                ('receipt', '.build-receipt.json'))}
-        provider_files['checker'] = self.file(provider.DIRECTORY + '/sync_builtin_wasm_identity', b'checker', True)
-        self.manifest['preview_provider'] = dict(identity, files=provider_files, libraries=[])
-        builtin = artifacts.BuiltinTestArtifact
-        modules = {module: {kind: self.file(builtin.DIRECTORY + '/' + module + suffix, b'builtin fixture')
-                            for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
-                                                  ('receipt', '.build-receipt.json'))}
-                   for module in builtin.MODULES}
-        checker = self.file(builtin.DIRECTORY + '/sync_builtin_wasm_identity', b'checker', True)
-        self.manifest['builtin_test_resources'] = dict(identity, modules=modules,
-                                                       checker=dict(files={'checker': checker}, libraries=[]))
-        original_run = subprocess.run
-        verified = []
-        def official_verifier_fixture(command, *args, **kwargs):
-            # Only the canonical Rust verifier is mocked. File identities,
-            # requirements, environments and actual native --list stay real.
-            if any(flag in command for flag in ('--verify-provider-artifact', '--verify-builtin-test-artifact')):
-                verified.append(command)
-                return subprocess.CompletedProcess(command, 0)
-            return original_run(command, *args, **kwargs)
-        with patch.object(provider, 'tree_digest', return_value='tree'), \
-             patch.object(subprocess, 'run', side_effect=official_verifier_fixture):
-            self.pack()
-            for owner in self.plan['ordinary_partitions'][1:]:
-                destination, _ = self.unpack(owner)
-                parent, env = artifacts.load(destination, 'ordinary', plan=self.plan,
-                                              ordinary_artifact_partition=owner)
-                self.assertEqual(parent['selection'], {'suite': 'ordinary'})
-                self.assertTrue(builtin.required(parent))
-                self.assertTrue(provider.VARIABLES[0] in env and 'OASIS7_BUILTIN_WASM_FETCHER' in env)
-            self.assertEqual(len(verified), 25)  # Producer and all four consumers, all five resources.
-            destination = self.root / ('consume-' + self.plan['ordinary_partitions'][1])
-            for entry in (provider_files['wasm'], modules['m1.memory.core']['metadata']):
-                path = destination / entry['path']
-                data = path.read_bytes()
-                path.write_bytes(b'corrupt shared resource')
-                with self.subTest(path=entry['path']), self.assertRaises(ValueError):
-                    artifacts.load(destination, 'ordinary', plan=self.plan,
-                                   ordinary_artifact_partition=self.plan['ordinary_partitions'][1])
-                path.write_bytes(data)
-
-
 class OrdinaryExclusiveExecution(unittest.TestCase):
     def manifest(self, selected=None):
         selected = selected or CompleteArtifactPartitions().selection()
@@ -2576,189 +2285,6 @@ class OrdinaryExclusiveExecution(unittest.TestCase):
             self.assertEqual([(record['test_name'], record['expected_count']) for record in records],
                              [('runtime', 3), ('heavy', 1), ('other', 1)])
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
-
-
-class CasePartitionArtifactDelivery(unittest.TestCase):
-    file = OrdinaryArtifactDelivery.file
-    write_parent = OrdinaryArtifactDelivery.write_parent
-    pack = OrdinaryArtifactDelivery.pack
-    unpack = OrdinaryArtifactDelivery.unpack
-    mutate_archive = OrdinaryArtifactDelivery.mutate_archive
-
-    def setUp(self):
-        OrdinaryArtifactDelivery.setUp(self)
-        self.plan.update(ordinary_artifact_partition_version=2, ordinary_artifact_delivery_version=2,
-                         ordinary_partitions=list(artifacts.TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
-        runtime = self.manifest['binaries']['runtime-tests']
-        runtime['tests'] = sorted([f'case_{index}' for index in range(12)] + list(artifacts.ORDINARY_EXCLUSIVE_RUNTIME_CASES))
-        text = ('#!' + sys.executable + '\nimport sys\n'
-                'names = ' + repr(runtime['tests']) + '\n'
-                'if "--ignored" not in sys.argv:\n'
-                '    for name in names: print(name + ": test")\n')
-        self.file(runtime['path'], text.encode(), executable=True)
-        runtime['sha256'] = artifacts.digest(self.bundle / runtime['path'])
-        self.write_parent()
-
-    def test_shared_provider_and_builtin_resources_keep_full_parent_requirements(self):
-        OrdinaryArtifactDelivery.test_shared_provider_and_builtin_resources_keep_full_parent_requirements(self)
-
-    def test_common_shares_only_runtime_and_payloads_cover_every_other_complete_harness(self):
-        report = self.pack()
-        whole = self.root / 'ordinary.tar.gz'
-        artifacts.pack(self.bundle, whole, suite='ordinary', plan=self.plan)
-        with tarfile.open(whole) as archive:
-            parent = archive.extractfile('manifest.json').read()
-        common = set(report['archives']['common']['included_binaries'])
-        self.assertEqual({name for name in common if self.manifest['binaries'][name]['test']}, {'runtime-tests'})
-        self.assertEqual(set(report['archives']), {'common', *self.plan['ordinary_partitions'][1:]})
-        cases, payloads = [], []
-        for owner in self.plan['ordinary_partitions'][1:]:
-            destination, receipt = self.unpack(owner)
-            manifest, env = artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition=owner)
-            self.assertEqual((destination / 'manifest.json').read_bytes(), parent)
-            self.assertEqual(manifest['producer_attempt'], '1')
-            self.assertTrue((destination / 'lib/runtime.so').is_file())
-            self.assertIn('PRE2_VIEWER_BINARY', env)
-            self.assertTrue((self.root / 'target/debug/required-executable-helper').is_file())
-            selected = artifacts.ordinary_artifact_entries(manifest, self.plan, owner)
-            actual = TargetedArtifactPartitions().coverage(manifest, selected)
-            self.assertTrue(actual)
-            self.assertTrue(any(name == 'runtime-tests' for name, _ in actual))
-            cases.extend(actual)
-            payload = set(report['archives'][owner]['included_binaries'])
-            self.assertFalse(payload & common)
-            payloads.extend(payload)
-            self.assertEqual(set(receipt['included_binaries']), common | payload)
-            self.assertEqual({p.relative_to(destination).as_posix() for p in (destination / 'bin').iterdir()},
-                             {manifest['binaries'][name]['path'] for name in common | payload})
-        self.assertEqual(len(payloads), len(set(payloads)))
-        self.assertEqual(set(payloads) | common, set(json.loads(parent)['included_binaries']))
-        self.assertCountEqual(cases, TargetedArtifactPartitions().coverage(self.manifest,
-                              artifacts.ordinary_entries(self.manifest)))
-        self.assertEqual(len(cases), len(set(cases)))
-        self.assertTrue(all(any(binary == owner for binary, _ in cases)
-                            for owner, _ in artifacts.DEFAULT_SNAPSHOT_REGRESSIONS))
-        self.assertEqual(report['consumer_compressed_bytes'], sum(
-            report['archives']['common']['compressed_bytes'] + report['archives'][owner]['compressed_bytes']
-            for owner in self.plan['ordinary_partitions'][1:]))
-
-    def test_compact_three_partition_delivery_covers_every_case_and_binary(self):
-        self.plan.update(
-            scope='targeted',
-            oasis7_required_packages=['oasis7_chain_runtime'],
-            ordinary_dynamic_partition_version=1,
-            ordinary_partitions=list(artifacts.COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS),
-            ordinary_harness_costs=json.loads((HERE / 'ci-required-scope.json').read_text())['ordinary_harness_costs'],
-        )
-        self.write_parent()
-        report = self.pack()
-        self.assertEqual(set(report['archives']), {'common', 'native-0', 'native-1'})
-        cases = []
-        for owner in ('native-0', 'native-1'):
-            destination, _ = self.unpack(owner)
-            manifest, _ = artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition=owner)
-            selected = artifacts.ordinary_artifact_entries(manifest, self.plan, owner)
-            cases.extend(TargetedArtifactPartitions().coverage(manifest, selected))
-        self.assertCountEqual(cases, TargetedArtifactPartitions().coverage(
-            self.manifest, artifacts.ordinary_entries(self.manifest)))
-        self.assertEqual(len(cases), len(set(cases)))
-        with self.assertRaises(ValueError):
-            artifacts.fast_plan(self.plan | {'ordinary_partitions': ['controls', 'native-0', 'native-1', 'native-2', 'native-3']})
-
-    def test_full_case_partition_delivery_requires_new_authority_and_preserves_profile_gates(self):
-        for scope in ('targeted', 'full'):
-            for profile in ('pr-fast', 'main-fast'):
-                selected = self.plan | dict(scope=scope, execution_profile=profile)
-                self.assertEqual(artifacts.fast_plan(selected), selected)
-        for change in ({'ordinary_artifact_delivery_version': 1}, {'ordinary_artifact_delivery_version': True},
-                       {'ordinary_artifact_partition_version': 1}, {'scope': 'explicit-full'},
-                       {'execution_profile': 'periodic-full'}, {'execution_profile': 'candidate-full'},
-                       {'test_policy_changed': True}, {'ordinary_fast_targets': []},
-                       {'ordinary_full_fast_targets': []}, {'ordinary_execution': 'inline'}):
-            with self.subTest(change=change), self.assertRaises(ValueError):
-                artifacts.fast_plan(self.plan | change)
-        legacy = dict(self.plan)
-        legacy.pop('ordinary_artifact_delivery_version')
-        with self.assertRaises(ValueError):
-            artifacts.fast_plan(legacy)
-        legacy['scope'] = 'targeted'
-        artifacts.fast_plan(legacy)
-        with self.assertRaises(ValueError):
-            self.pack(diagnostic=True)
-
-    def test_changed_partition_inventory_cannot_drop_repeat_or_share_another_harness(self):
-        original = artifacts.ordinary_artifact_entries
-        groups = {owner: original(self.manifest, self.plan, owner) for owner in self.plan['ordinary_partitions'][1:]}
-        for damage in ('missing-case', 'duplicate-case', 'empty-case', 'wrong-count',
-                       'missing-owner', 'missing-harness', 'shared-harness'):
-            changed = copy.deepcopy(groups)
-            runtime = changed['native-0'][0]
-            case = next(name for binary, name in TargetedArtifactPartitions().coverage(self.manifest, [runtime]))
-            if damage == 'missing-case':
-                runtime['skip_exact'].append(case)
-                runtime['count'] -= 1
-            elif damage == 'duplicate-case':
-                changed['native-0'][0] = copy.deepcopy(changed['native-1'][0])
-            elif damage == 'empty-case':
-                runtime.update(skip_exact=self.manifest['binaries']['runtime-tests']['tests'], count=0)
-            elif damage == 'wrong-count':
-                runtime['count'] += 1
-            elif damage == 'missing-owner':
-                changed['native-0'] = []
-            else:
-                owner, index = next((owner, index) for owner, entries in changed.items()
-                                    for index, entry in enumerate(entries) if entry['binary'] != 'runtime-tests')
-                entry = changed[owner][index]
-                if damage == 'missing-harness':
-                    changed[owner].pop(index)
-                else:
-                    other = next(name for name in changed if name != owner)
-                    changed[other].append(entry)
-            with self.subTest(damage=damage), patch.object(artifacts, 'ordinary_artifact_entries',
-                    side_effect=lambda manifest, plan, owner: changed[owner]), self.assertRaises(ValueError):
-                self.pack()
-
-    def test_v2_receipts_and_archives_reject_cross_parent_wrong_owner_and_common_overwrites(self):
-        report = self.pack()
-        owner = next(owner for owner in self.plan['ordinary_partitions'][1:]
-                     if report['archives'][owner]['included_binaries'])
-        payload = self.archives / (owner + '.tar.gz')
-        for change in ({'partition': 'native-other'}, {'parent_manifest_sha256': '0' * 64},
-                       {'included_binaries': ['runtime-tests']}, {'diagnostic_only': True}):
-            def mutate(members):
-                member, raw = members[0]
-                members[0] = member, json.dumps(json.loads(raw) | change).encode()
-            damaged = self.mutate_archive(payload, mutate)
-            with self.subTest(change=change), self.assertRaises(ValueError):
-                self.unpack(owner, payload=damaged)
-        for source, field in ((payload, 'payload'), (self.archives / 'common.tar.gz', 'common')):
-            for damage in ('missing', 'corrupt', 'duplicate', 'common-overwrite', 'external-link'):
-                def mutate(members):
-                    if damage == 'missing':
-                        members.pop()
-                    elif damage == 'corrupt':
-                        member, _ = next((member, raw) for member, raw in reversed(members) if member.isfile())
-                        index = next(index for index, (item, _) in enumerate(members) if item is member)
-                        members[index] = member, b'corrupt bytes'
-                    elif damage == 'duplicate':
-                        members.append(copy.deepcopy(members[-1]))
-                    else:
-                        member = tarfile.TarInfo('bin/runtime-tests')
-                        member.mode = 0o755
-                        if damage == 'external-link':
-                            member.type, member.linkname = tarfile.SYMTYPE, '../outside'
-                            members.append((member, None))
-                        else:
-                            members.append((member, b'overwrite common runtime'))
-                damaged = self.mutate_archive(source, mutate)
-                with self.subTest(field=field, damage=damage), self.assertRaises(ValueError):
-                    self.unpack(owner, **{field: damaged})
-        earlier = self.root / 'earlier-payload.tar.gz'
-        shutil.copyfile(payload, earlier)
-        self.manifest['producer_attempt'] = '2'
-        self.pack()
-        with self.assertRaises(ValueError):
-            self.unpack(owner, payload=earlier)
 
 
 class TargetedArtifactPartitions(unittest.TestCase):
@@ -2981,467 +2507,6 @@ class TargetedArtifactPartitions(unittest.TestCase):
                    calls.append(name) or dict(passed=True, cleanup_result='clean')):
             artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results', plan=selected)
         self.assertCountEqual(calls, ['runtime-tests', 'integration', 'new-integration'])
-
-
-class TargetedArtifactProcess(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.temporary = tempfile.TemporaryDirectory()
-        cls.addClassCleanup(cls.temporary.cleanup)
-        cls.root = Path(cls.temporary.name).resolve()
-        (cls.root / 'Cargo.toml').write_text('[workspace]\nmembers=["runtime","viewer","risk","core"]\nresolver="2"\n')
-        (cls.root / '.gitignore').write_text('target/\nbundle/\nconsumer/\n*.tar.gz\n')
-        runtime, viewer, risk, core = (cls.root / name for name in ('runtime', 'viewer', 'risk', 'core'))
-        for member in (runtime, viewer, risk, core):
-            (member / 'src').mkdir(parents=True)
-        (runtime / 'Cargo.toml').write_text(
-            '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\nedition="2021"\n'
-            '[features]\ndefault=["wasmtime","node-libp2p"]\nwasmtime=[]\nnode-libp2p=[]\n'
-            'test_tier_required=[]\n')
-        source = r'''
-#[cfg(not(all(feature="wasmtime", feature="node-libp2p", feature="test_tier_required")))]
-compile_error!("the original runtime feature combination is required");
-pub fn mark(name: &str) {
-    let path = std::path::PathBuf::from(std::env::var("FIXTURE_RECORDS").unwrap()).join(name);
-    std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();
-}
-#[test] fn case() { mark("case"); }
-#[test] fn case_suffix() { mark("case_suffix"); }
-#[test] fn prefix_case() { mark("prefix_case"); }
-#[test] fn exclusive_first() { mark("exclusive_first"); }
-#[test] fn exclusive_second() { mark("exclusive_second"); }
-#[test] fn parent() {
-    let result = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "ignored_child", "--ignored"])
-        .env("FIXTURE_CHILD", "1").output().unwrap();
-    assert!(result.status.success(), "{:?}", result);
-    mark("parent");
-}
-#[test] #[ignore] fn ignored_child() {
-    assert_eq!(std::env::var("FIXTURE_CHILD").unwrap(), "1");
-    mark("child-called");
-}
-#[test] fn fault() {
-    let mode = std::env::var("FIXTURE_MODE").unwrap_or_default();
-    if mode == "panic" { panic!("real shard failure"); }
-    if mode == "timeout" || mode == "cancel" {
-        mark("fault-started");
-        std::thread::sleep(std::time::Duration::from_secs(30));
-    }
-    if mode == "leak" {
-        let child = std::process::Command::new(std::env::var("FIXTURE_PYTHON").unwrap())
-            .args(["-c", "import time; time.sleep(30)"])
-            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null()).spawn().unwrap();
-        std::fs::write(std::path::PathBuf::from(std::env::var("FIXTURE_RECORDS").unwrap())
-            .join("leaked-pid"), child.id().to_string()).unwrap();
-        std::mem::forget(child);
-    }
-    mark("fault");
-}
-'''
-        source += ''.join(f'#[test] fn generated_{index}() {{ mark("generated_{index}"); }}\n'
-                          for index in range(12))
-        source += ''.join(f'#[test] fn {name}() {{ mark("{name}"); }}\n'
-                          for name in TargetedArtifactPartitions.full_sync_cases)
-        (runtime / 'src/lib.rs').write_text(source)
-        (runtime / 'src/main.rs').write_text('fn main() {}\n')
-        (runtime / 'tests').mkdir()
-        (runtime / 'tests/process.rs').write_text(
-            '#[test] fn complete_integration() {\n'
-            ' assert!(std::process::Command::new(env!("CARGO_BIN_EXE_oasis7_chain_runtime")).status().unwrap().success());\n'
-            ' oasis7_chain_runtime::mark("complete_integration");\n}\n'
-            '#[test] fn new_integration_case() { oasis7_chain_runtime::mark("new_integration_case"); }\n')
-        (risk / 'Cargo.toml').write_text(
-            '[package]\nname="oasis7_viewer_codec"\nversion="0.1.0"\nedition="2021"\n'
-            '[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n'
-            '[[test]]\nname="full_scales"\npath="tests/full_scales.rs"\nrequired-features=["test_tier_full"]\n')
-        (risk / 'src/lib.rs').write_text(
-            'pub fn mark(name: &str) {\n'
-            ' let path = std::path::PathBuf::from(std::env::var("FIXTURE_RECORDS").unwrap()).join(name);\n'
-            ' std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();\n}\n'
-            '#[test] fn risk_required() { assert!(cfg!(feature="test_tier_required")); mark("risk_required"); }\n'
-            '#[cfg(feature="test_tier_full")] #[test] fn newly_added_full_case() {\n'
-            ' assert_ne!(std::env::var("FIXTURE_MODE").unwrap_or_default(), "policy-panic");\n'
-            ' mark("newly_added_full_case");\n}\n')
-        (risk / 'tests').mkdir()
-        (risk / 'tests/full_scales.rs').write_text(
-            '#[cfg(not(feature="test_tier_full"))] compile_error!("full risk tier is required");\n' +
-            ''.join(f'#[test] fn full_scale_{index}() {{ oasis7_viewer_codec::mark("full_scale_{index}"); }}\n'
-                    for index in range(5)))
-        (viewer / 'Cargo.toml').write_text(
-            '[package]\nname="oasis7_viewer_runtime"\nversion="0.1.0"\nedition="2021"\n'
-            '[features]\ntest_tier_required=[]\n[[bin]]\nname="oasis7_viewer_live"\npath="src/main.rs"\n')
-        (viewer / 'src/main.rs').write_text('fn main() {}\n')
-        (core / 'Cargo.toml').write_text(
-            '[package]\nname="oasis7"\nversion="0.1.0"\nedition="2021"\n'
-            '[features]\ntest_tier_required=[]\n')
-        marker = (
-            'pub fn mark(name: &str) {\n'
-            ' let path = std::path::PathBuf::from(std::env::var("FIXTURE_RECORDS").unwrap()).join(name);\n'
-            ' std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();\n}\n')
-        (core / 'src/lib.rs').write_text(marker +
-            '#[test] fn ordinary_core() { mark("ordinary_core"); }\n'
-            '#[test] fn snapshot_player_gameplay_execution_state_backfills_from_legacy_fields() {\n'
-            ' mark(if cfg!(feature="test_tier_required") { "core_snapshot_required" } else { "core_snapshot_default" });\n}\n')
-        (viewer / 'src/lib.rs').write_text(marker +
-            '#[test] fn ordinary_viewer() { mark("ordinary_viewer"); }\n'
-            '#[cfg(test)] mod snapshot_progress {\n'
-            ' #[test] fn restored() { super::mark(if cfg!(feature="test_tier_required")\n'
-            ' { "viewer_snapshot_required" } else { "viewer_snapshot_default" }); }\n}\n')
-        cls.config = cls.root / 'scripts/ci-formal-process-suites.json'
-        cls.config.parent.mkdir()
-        cls.config.write_text('{}')
-        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=cls.root, check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        for command in (['git', 'init', '-q'], ['git', 'add', '.'],
-                        ['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
-                         'commit', '-qm', 'fixture']):
-            subprocess.run(command, cwd=cls.root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        cls.sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=cls.root, text=True).strip()
-        cls.selected = TargetedArtifactPartitions().selection() | dict(
-            source_sha=cls.sha, tested_sha=cls.sha, policy_sha=cls.sha,
-            architecture=dict(source=cls.sha, tested=cls.sha),
-            ordinary_harness_costs=TargetedArtifactPartitions.costs([
-                dict(package='oasis7_chain_runtime', target_kind='test', target_name='process',
-                     variant='required', mode='batch', selector='', elapsed_ms=5000)]))
-        cls.bundle, cls.consumer = cls.root / 'bundle', cls.root / 'consumer'
-        with patch.object(artifacts, 'ROOT', cls.root), patch.object(artifacts, 'CONFIG', cls.config), \
-             patch.dict(os.environ, SOURCE_SHA=cls.sha):
-            artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
-            archive = cls.root / 'ordinary.tar.gz'
-            artifacts.pack(cls.bundle, archive, suite='ordinary', plan=cls.selected)
-        cls.consumer.mkdir()
-        with tarfile.open(archive) as compressed:
-            compressed.extractall(cls.consumer, filter='data')
-        cls.manifest = json.loads((cls.consumer / 'manifest.json').read_text())
-
-    def context(self, records, **environment):
-        stack = ExitStack()
-        stack.enter_context(patch.object(artifacts, 'ROOT', self.root))
-        stack.enter_context(patch.object(artifacts, 'CONFIG', self.config))
-        stack.enter_context(patch.object(artifacts, 'ORDINARY_EXCLUSIVE_RUNTIME_CASES',
-                                        frozenset(('exclusive_first', 'exclusive_second'))))
-        stack.enter_context(patch.dict(os.environ, SOURCE_SHA=self.sha, FIXTURE_RECORDS=str(records),
-                                        FIXTURE_PYTHON=sys.executable, **environment))
-        return stack
-
-    def test_real_build_pack_load_and_four_owners_equal_the_original_complete_execution(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            baseline, partitioned = root / 'baseline', root / 'partitioned'
-            baseline.mkdir()
-            partitioned.mkdir()
-            with self.context(baseline):
-                artifacts.execute(self.consumer, 'ordinary', root / 'baseline.jsonl', plan=self.selected)
-            tools = root / 'tools'
-            tools.mkdir()
-            calls = root / 'unexpected-compiler'
-            for name in ('cargo', 'rustc', 'rustup'):
-                executable = tools / name
-                executable.write_text('#!' + sys.executable + '\nfrom pathlib import Path\n'
-                                      f'Path({str(calls)!r}).write_text("unexpected compiler")\nraise SystemExit(91)\n')
-                executable.chmod(0o755)
-            with self.context(partitioned, PATH=str(tools) + os.pathsep + os.environ['PATH']):
-                with ThreadPoolExecutor(max_workers=4) as pool:
-                    futures = [pool.submit(artifacts.execute, self.consumer, 'ordinary',
-                               root / (owner + '.jsonl'), plan=self.selected, ordinary_partition=owner)
-                               for owner in self.selected['ordinary_partitions'][1:]]
-                    for future in futures:
-                        future.result()
-            self.assertFalse(calls.exists(), 'compiled consumers cannot require Cargo, rustc or rustup')
-            self.assertEqual(sorted(path.name for path in baseline.iterdir()),
-                             sorted(path.name for path in partitioned.iterdir()))
-            self.assertTrue((partitioned / 'child-called').is_file())
-            self.assertTrue(all((partitioned / name).is_file()
-                                for name in TargetedArtifactPartitions.full_sync_cases))
-            baseline_records = [json.loads(line) for line in (root / 'baseline.jsonl').read_text().splitlines()]
-            records = [json.loads(line) for owner in self.selected['ordinary_partitions'][1:]
-                       for line in (root / (owner + '.jsonl')).read_text().splitlines()]
-            self.assertEqual(sum(record['expected_count'] for record in records),
-                             sum(record['expected_count'] for record in baseline_records))
-            self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
-
-    def test_real_v1_delivery_preserves_behavior_and_restores_cargo_binary_paths_without_compiling(self):
-        selected = self.selected | dict(scope='full', ordinary_artifact_partition_version=1,
-            ordinary_artifact_delivery_version=1, ordinary_partitions=list(artifacts.ORDINARY_ARTIFACT_PARTITIONS))
-        selected.pop('ordinary_harness_costs')
-        self.assert_delivery_roundtrip(selected)
-
-    def test_real_targeted_policy_delivery_keeps_full_cases_risks_and_both_default_snapshots(self):
-        for profile in ('pr-fast', 'main-fast'):
-            selected = self.selected | dict(execution_profile=profile, test_policy_changed=True,
-                ordinary_artifact_partition_version=1, ordinary_artifact_delivery_version=1,
-                ordinary_partitions=list(artifacts.ORDINARY_ARTIFACT_PARTITIONS),
-                oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_codec', 'oasis7_viewer_runtime'],
-                oasis7_required_wasm_packages=['oasis7_viewer_codec', 'oasis7_viewer_runtime'],
-                risk_test_inventory_version=1,
-                ordinary_risk_targets=[dict(package='oasis7_viewer_codec', target_kind='test',
-                    target_name='full_scales', default_features=True, features=['test_tier_full'],
-                    cases=[f'full_scale_{index}' for index in range(5)])])
-            selected.pop('ordinary_harness_costs')
-            with self.subTest(profile=profile):
-                self.assert_delivery_roundtrip(selected)
-
-    def test_real_full_fast_v2_delivery_preserves_full_risks_exact_deferrals_and_failures(self):
-        for profile in ('pr-fast', 'main-fast'):
-            selected = self.selected | dict(scope='full', execution_profile=profile,
-                ordinary_artifact_delivery_version=2, risk_test_inventory_version=1,
-                oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_viewer_codec'],
-                ordinary_risk_targets=[dict(package='oasis7_viewer_codec', target_kind='test',
-                    target_name='full_scales', default_features=True, features=['test_tier_full'],
-                    cases=[f'full_scale_{index}' for index in range(5)])],
-                formal_full_profiles_only_version=1, formal_shards=[],
-                formal_deferred_ordinary_cases={'runtime-tests': ['case']})
-            with self.subTest(profile=profile):
-                self.assert_delivery_roundtrip(selected)
-
-    def assert_delivery_roundtrip(self, selected):
-        owners = selected['ordinary_partitions'][1:]
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            baseline, records = root / 'baseline', root / 'records'
-            baseline.mkdir()
-            records.mkdir()
-            with self.context(baseline) as context:
-                if selected['scope'] in ('full', 'explicit-full'):
-                    context.enter_context(patch.object(artifacts, 'required_packages',
-                                                      return_value=selected['oasis7_required_packages']))
-                bundle, archives = root / 'bundle', root / 'archives'
-                artifacts.build(bundle, 'ordinary', plan=selected)
-                artifacts.pack_ordinary_delivery(bundle, archives, selected)
-                artifacts.execute(bundle, 'ordinary', root / 'baseline.jsonl', plan=selected)
-                manifest = json.loads((bundle / 'manifest.json').read_bytes())
-                helpers = [Path(entry['original_executable']) for entry in manifest['binaries'].values()
-                           if not entry['test']]
-                tools = root / 'tools'
-                tools.mkdir()
-                compiler_called = root / 'unexpected-compiler'
-                for name in ('cargo', 'rustc', 'rustup'):
-                    executable = tools / name
-                    executable.write_text('#!' + sys.executable + '\nfrom pathlib import Path\n'
-                        f'Path({str(compiler_called)!r}).touch()\nraise SystemExit(91)\n')
-                    executable.chmod(0o755)
-                with patch.dict(os.environ, FIXTURE_RECORDS=str(records), PATH=str(tools) + os.pathsep + os.environ['PATH']):
-                    for owner in owners:
-                        for helper in helpers:
-                            helper.unlink(missing_ok=True)
-                        destination = root / owner
-                        artifacts.unpack_ordinary_delivery(archives / 'common.tar.gz', archives / (owner + '.tar.gz'),
-                                                           destination, selected, owner)
-                        parent, _ = artifacts.load(destination, 'ordinary', plan=selected, ordinary_artifact_partition=owner)
-                        self.assertTrue(all(helper.is_file() for helper in helpers))
-                        entries = artifacts.ordinary_artifact_entries(parent, selected, owner)
-                        if selected.get('test_policy_changed') is True:
-                            self.assertTrue(entries, 'each admitted policy partition must actually execute')
-                        if selected['ordinary_artifact_partition_version'] == 2:
-                            self.assertTrue(entries)
-                        elif entries:
-                            artifacts.execute(destination, 'ordinary', root / (owner + '.jsonl'),
-                                              plan=selected, ordinary_partition=owner)
-                    if selected['ordinary_artifact_partition_version'] == 2:
-                        with ThreadPoolExecutor(max_workers=4) as pool:
-                            futures = [pool.submit(artifacts.execute, root / owner, 'ordinary',
-                                       root / (owner + '.jsonl'), plan=selected, ordinary_partition=owner)
-                                       for owner in owners]
-                            for future in futures:
-                                future.result()
-                        self.assertFalse((records / 'case').exists())
-                        self.assertTrue(all((records / name).is_file() for name in
-                            ('case_suffix', 'prefix_case', 'exclusive_first', 'exclusive_second', 'child-called',
-                             *(f'full_scale_{index}' for index in range(5)))))
-                        risk = [entry for entry in manifest['binaries'].values()
-                                if entry.get('variant', '').startswith('required-risk-')]
-                        self.assertEqual(len(risk), 1)
-                        self.assertEqual(risk[0]['requested_features'], ['test_tier_full'])
-                        self.assertEqual(len(risk[0]['tests']), 5)
-                        self.assertNotIn('test_tier_full', manifest['binaries']['runtime-tests']['features'])
-                        self.assertTrue((records / 'risk_required').is_file())
-                        if selected['execution_profile'] == 'pr-fast':
-                            self.assert_failed_owners({owner: root / owner for owner in owners}, selected, manifest)
-                    else:
-                        if selected.get('test_policy_changed') is True:
-                            self.assertTrue(all((records / name).is_file() for name in (
-                                'ordinary_core', 'ordinary_viewer', 'core_snapshot_required', 'core_snapshot_default',
-                                'viewer_snapshot_required', 'viewer_snapshot_default', 'newly_added_full_case',
-                                *(f'full_scale_{index}' for index in range(5)))))
-                            risk = [entry for entry in manifest['binaries'].values()
-                                    if entry.get('package') == 'oasis7_viewer_codec' and entry.get('target') == 'full_scales']
-                            self.assertEqual(len(risk), 1)
-                            self.assertEqual(risk[0]['variant'], 'required')
-                            self.assertIn('test_tier_full', risk[0]['features'])
-                            self.assertFalse(any(entry.get('variant', '').startswith('required-risk-')
-                                                 for entry in manifest['binaries'].values()))
-                            full_failure = root / 'full-failure'
-                            full_failure.mkdir()
-                            with patch.dict(os.environ, FIXTURE_MODE='policy-panic', FIXTURE_RECORDS=str(full_failure)), \
-                                 self.assertRaises(RuntimeError):
-                                artifacts.execute(root / 'component-libs', 'ordinary', root / 'full-failure.jsonl',
-                                                  plan=selected, ordinary_partition='component-libs')
-                            failures = [json.loads(line) for line in (root / 'full-failure.jsonl').read_text().splitlines()]
-                            self.assertTrue(any(not row['passed'] for row in failures))
-                        fault_records = root / 'fault'
-                        fault_records.mkdir()
-                        with patch.dict(os.environ, FIXTURE_MODE='panic', FIXTURE_RECORDS=str(fault_records)), self.assertRaises(RuntimeError):
-                            artifacts.execute(root / 'runtime', 'ordinary', root / 'failure.jsonl',
-                                              plan=selected, ordinary_partition='runtime')
-                self.assertFalse(compiler_called.exists())
-                self.assertEqual(sorted(path.name for path in baseline.iterdir()), sorted(path.name for path in records.iterdir()))
-                expected = [json.loads(line) for line in (root / 'baseline.jsonl').read_text().splitlines()]
-                actual = [json.loads(line) for owner in owners
-                          if (root / (owner + '.jsonl')).exists()
-                          for line in (root / (owner + '.jsonl')).read_text().splitlines()]
-                self.assertEqual(sum(row['expected_count'] for row in actual), sum(row['expected_count'] for row in expected))
-                self.assertTrue(all(row['passed'] and row['count_ok'] and row['cleanup_result'] == 'clean' for row in actual))
-
-    def test_real_panic_partial_count_timeout_cancel_and_leaked_child_fail_the_owner(self):
-        self.assert_failed_owners(self.consumer, self.selected, self.manifest)
-
-    def assert_failed_owners(self, bundles, selected, manifest):
-        for mode in ('panic', 'count', 'timeout', 'cancel', 'leak'):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
-                records = root / 'records'
-                records.mkdir()
-                receipts = root / 'receipts.jsonl'
-                with self.context(records, FIXTURE_MODE=mode):
-                    owner = next(owner for owner in selected['ordinary_partitions'][1:] if
-                        ('runtime-tests', 'fault') in TargetedArtifactPartitions().coverage(manifest,
-                         artifacts.ordinary_artifact_entries(manifest, selected, owner)))
-                    def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
-                        if mode == 'count' and name == 'runtime-tests':
-                            command = command + ['--skip', 'fault']
-                        stop, waiter = threading.Event(), None
-                        if mode == 'cancel' and name == 'runtime-tests':
-                            def cancel_after_start():
-                                deadline = time.monotonic() + 5
-                                while not (records / 'fault-started').exists() and time.monotonic() < deadline:
-                                    time.sleep(0.01)
-                                stop.set()
-                            waiter = threading.Thread(target=cancel_after_start)
-                            waiter.start()
-                        try:
-                            return run(command, cwd, env, suite, name, results, expected_count=expected_count,
-                                       timeout_seconds=0.3 if mode == 'timeout' else 6,
-                                       cancellation_event=stop)
-                        finally:
-                            if waiter:
-                                waiter.join(timeout=6)
-                    with patch('ci_process_runner.run', side_effect=invoke):
-                        with self.assertRaises(RuntimeError):
-                            artifacts.execute(bundles[owner] if isinstance(bundles, dict) else bundles,
-                                              'ordinary', receipts, plan=selected, ordinary_partition=owner)
-                failed = next(record for record in map(json.loads, receipts.read_text().splitlines())
-                              if record['test_name'] == 'runtime-tests')
-                self.assertFalse(failed['passed'])
-                if mode == 'panic':
-                    self.assertNotEqual(failed['exit_code'], 0)
-                elif mode == 'count':
-                    self.assertEqual(failed['exit_code'], 0)
-                    self.assertFalse(failed['count_ok'])
-                else:
-                    self.assertTrue(failed[{'timeout': 'timeout', 'cancel': 'cancelled',
-                                            'leak': 'leaked_processes'}[mode]])
-                    self.assertEqual(failed['cleanup_result'], 'clean')
-
-    def test_actual_downloaded_inventory_and_source_tested_policy_identity_remain_required(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            with self.context(root):
-                for field in ('source_sha', 'tested_sha', 'policy_sha'):
-                    with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'identity|execution plan'):
-                        artifacts.load(self.consumer, 'ordinary', plan=self.selected | {field: 'f' * 40})
-                damaged = root / 'damaged'
-                shutil.copytree(self.consumer, damaged)
-                manifest = copy.deepcopy(self.manifest)
-                manifest['binaries']['runtime-tests']['tests'].remove('case_suffix')
-                (damaged / 'manifest.json').write_text(json.dumps(manifest))
-                with self.assertRaisesRegex(ValueError, 'downloaded test inventory'):
-                    artifacts.execute(damaged, 'ordinary', root / 'never-created', plan=self.selected,
-                                      ordinary_partition='native-0')
-                self.assertFalse((root / 'never-created').exists())
-
-    def test_native_artifact_partition_runs_complete_harnesses_with_bounded_concurrency(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            with self.context(root):
-                entered = threading.Barrier(2)
-                lock = threading.Lock()
-                calls, active = [], [0, 0]
-
-                def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
-                    with lock:
-                        active[0] += 1
-                        active[1] = max(active)
-                        calls.append((name, env.get('RUST_TEST_THREADS')))
-                    try:
-                        if active[1] <= 2 and len(calls) <= 2:
-                            entered.wait(timeout=2)
-                        return ParallelNativeExecution.receipt(suite, name, results, expected_count)
-                    finally:
-                        with lock:
-                            active[0] -= 1
-
-                receipts = root / 'results.jsonl'
-                with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
-                        patch('ci_process_runner.run', side_effect=invoke):
-                    artifacts.execute(self.consumer, 'ordinary', receipts, plan=self.selected,
-                                      ordinary_partition='native-0')
-                records = [json.loads(line) for line in receipts.read_text().splitlines()]
-                self.assertEqual(active[1], 2)
-                self.assertTrue(all(threads == '2' for _, threads in calls))
-                self.assertEqual(len(records), len(calls))
-                self.assertTrue(all(record['passed'] for record in records))
-
-    def test_v1_component_libs_partition_runs_largest_first_with_bounded_concurrency(self):
-        selected = CompleteArtifactPartitions().selection()
-        manifest = CompleteArtifactPartitions().manifest(selected)
-        manifest['binaries'].update({
-            'alpha-small-lib': dict(
-                package='oasis7_cas', target='oasis7_cas', target_kind=['lib'],
-                variant='required', ordinary=True, path='alpha-small-lib', cwd='.',
-                tests=['s_0'], ignored_tests=[],
-            ),
-            'omega-large-lib': dict(
-                package='oasis7_world_state', target='oasis7_world_state', target_kind=['lib'],
-                variant='required', ordinary=True, path='omega-large-lib', cwd='.',
-                tests=[f'w_{index}' for index in range(20)], ignored_tests=[],
-            ),
-            'zeta-medium-lib': dict(
-                package='oasis7_runtime', target='oasis7_runtime', target_kind=['lib'],
-                variant='required', ordinary=True, path='zeta-medium-lib', cwd='.',
-                tests=[f'r_{index}' for index in range(15)], ignored_tests=[],
-            ),
-        })
-        entered = threading.Barrier(2)
-        lock = threading.Lock()
-        calls, active = [], [0, 0]
-
-        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
-            with lock:
-                active[0] += 1
-                active[1] = max(active)
-                calls.append((name, expected_count, env.get('RUST_TEST_THREADS')))
-            try:
-                if len(calls) <= 2:
-                    entered.wait(timeout=2)
-                return ParallelNativeExecution.receipt(suite, name, results, expected_count)
-            finally:
-                with lock:
-                    active[0] -= 1
-
-        with tempfile.TemporaryDirectory() as temporary, \
-                patch.object(artifacts, 'load', return_value=(manifest, {})), \
-                patch.object(artifacts, 'native_cpu_budget', return_value=4), \
-                patch('ci_process_runner.run', side_effect=invoke):
-            receipts = Path(temporary) / 'results.jsonl'
-            artifacts.execute(Path(temporary), 'ordinary', receipts, plan=selected,
-                              ordinary_partition='component-libs')
-            records = [json.loads(line) for line in receipts.read_text().splitlines()]
-        self.assertEqual(active[1], 2)
-        self.assertEqual({name for name, _, _ in calls[:2]}, {'omega-large-lib', 'zeta-medium-lib'})
-        self.assertTrue(all(threads == '2' for _, _, threads in calls))
-        self.assertEqual(len(records), len(calls))
 
 
 class NativePackagePartitions(unittest.TestCase):
@@ -4045,6 +3110,7 @@ printf '[%s]\\n' "$args_json" >> "$CARGO_CALLS"
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh',
                          'check-standalone-tool-lockfiles.test.sh', 'check-standalone-tool-lockfiles.sh'):
@@ -4375,498 +3441,6 @@ class FormalBuildComponents(unittest.TestCase):
             artifacts.validate_profile('endpoint', endpoint, 'formal-endpoint')
 
 
-class RealFormalComponents(unittest.TestCase):
-    """The actual four Cargo contexts, reduced only to tiny standalone crates."""
-
-    @classmethod
-    def context(cls):
-        stack = ExitStack()
-        stack.enter_context(patch.object(artifacts, 'ROOT', cls.root))
-        stack.enter_context(patch.object(artifacts, 'CONFIG', cls.configuration))
-        stack.enter_context(patch.object(artifacts, 'FORMAL_AUTHORITY', None))
-        stack.enter_context(patch.dict(os.environ, SOURCE_SHA=cls.sha, GITHUB_RUN_ID='42',
-            GITHUB_RUN_ATTEMPT='2', CARGO_INCREMENTAL='0', CARGO_NET_OFFLINE='true',
-            CARGO_PROFILE_DEV_DEBUG='0', CARGO_PROFILE_TEST_DEBUG='0',
-            CARGO_PROFILE_DEV_OPT_LEVEL='2', CARGO_PROFILE_TEST_OPT_LEVEL='2',
-            CARGO_PROFILE_DEV_DEBUG_ASSERTIONS='false', CARGO_PROFILE_TEST_DEBUG_ASSERTIONS='false',
-            CARGO_PROFILE_DEV_OVERFLOW_CHECKS='false', CARGO_PROFILE_TEST_OVERFLOW_CHECKS='false'))
-        return stack
-
-    @classmethod
-    def setUpClass(cls):
-        cls.temporary = tempfile.TemporaryDirectory(prefix='oasis7-formal-components-fixture-')
-        cls.addClassCleanup(cls.temporary.cleanup)
-        cls.base = Path(cls.temporary.name)
-        cls.root = cls.base / 'checkout'
-        cls.root.mkdir()
-        (cls.root / 'Cargo.toml').write_text(
-            '[workspace]\nmembers=["world","runtime","distfs"]\nresolver="2"\n')
-        common = '''
-#[cfg(all(test, not(debug_assertions)))] compile_error!("test assertions were disabled");
-pub fn value() -> u8 { 7 }
-#[test] fn formal_contract() {
-    assert_eq!(value(), 7);
-    let value = std::hint::black_box(u8::MAX);
-    assert!(std::panic::catch_unwind(|| value + std::hint::black_box(1)).is_err());
-}
-#[test] #[ignore] fn acceptance() { assert_eq!(value(), 7); }
-'''
-        paired = '''
-fn rendezvous(name: &str, peer: &str) {
-    let Some(directory) = std::env::var_os("OASIS7_FORMAL_FIXTURE_RENDEZVOUS") else { return; };
-    let directory = std::path::PathBuf::from(directory);
-    std::fs::write(directory.join(name), b"started").unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !directory.join(peer).exists() {
-        assert!(std::time::Instant::now() < deadline, "complete Formal cases did not overlap");
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    if std::env::var_os("OASIS7_FORMAL_FIXTURE_FAIL").is_some() {
-        assert_ne!(name, "a", "real case failure");
-        std::thread::sleep(std::time::Duration::from_secs(30));
-    }
-}
-#[test] fn formal_parallel_a() { rendezvous("a", "b"); }
-#[test] fn formal_parallel_b() { rendezvous("b", "a"); }
-'''
-        for directory, package in (('world', 'oasis7'), ('runtime', 'oasis7_chain_runtime'),
-                                   ('distfs', 'oasis7_distfs')):
-            member = cls.root / directory
-            (member / 'src').mkdir(parents=True)
-            features = '[features]\ndefault=[]\ntest_tier_required=[]\nci_formal_required_features=[]\n'
-            (member / 'Cargo.toml').write_text('[package]\nname="' + package +
-                '"\nversion="0.1.0"\nedition="2021"\n' + features)
-            (member / 'src/lib.rs').write_text(common + (paired if directory == 'runtime' else ''))
-            if directory == 'runtime':
-                (member / 'src/main.rs').write_text('fn main() { println!("fixture runtime"); }\n')
-            if directory == 'distfs':
-                (member / 'src/bin').mkdir()
-                (member / 'src/bin/oasis7_durability_endpoint.rs').write_text(
-                    '#[cfg(debug_assertions)] compile_error!("endpoint is not release");\nfn main() {}\n')
-                (member / 'build.rs').write_text(
-                    'fn main() { println!("cargo:rerun-if-changed=src/lib.rs"); }\n')
-        config = dict(schema_version=2, suites={suite: [] for suite in artifacts.SHARDS},
-            legacy_ignored_filters={}, environment_formal_batches={}, shell_tests={},
-            binary_dependencies={'runtime-tests': ['runtime', 'endpoint'],
-                                 'oasis7-lib-tests': ['runtime', 'endpoint'],
-                                 'distfs-tests': ['endpoint']},
-            parallel_cases={'runtime-tests': {'formal_parallel_a': 1, 'formal_parallel_b': 1}})
-        for name, suite in (('runtime-tests', 'runtime-protocol'), ('oasis7-lib-tests', 'runtime-protocol'),
-                            ('distfs-tests', 'storage-recovery')):
-            config['suites'][suite].append(dict(binary=name, name='acceptance', ignored=True))
-            config['legacy_ignored_filters'][name] = ['acceptance']
-            config['environment_formal_batches'][name] = suite
-        cls.configuration = cls.root / 'scripts/ci-formal-process-suites.json'
-        cls.configuration.parent.mkdir()
-        cls.configuration.write_text(json.dumps(config))
-        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=cls.root,
-                       check=True, capture_output=True)
-        # This temporary Git fixture is independent of the project worktree.
-        for command in (['git', 'init', '-q'], ['git', 'add', '.'],
-                        ['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
-                         'commit', '-qm', 'fixture']):
-            subprocess.run(command, cwd=cls.root, check=True, capture_output=True)
-        cls.sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=cls.root, text=True).strip()
-        cls.debug, cls.endpoint = cls.base / 'debug', cls.base / 'endpoint'
-        with cls.context():
-            with patch.dict(os.environ, GITHUB_RUN_ATTEMPT='1'):
-                artifacts.build(cls.debug, 'formal-debug', cls.base / 'debug-state.json')
-            artifacts.build(cls.endpoint, 'formal-endpoint', cls.base / 'endpoint-state.json')
-            artifacts.build(cls.base / 'single', 'formal')
-
-    def setUp(self):
-        self.stack = self.context()
-        self.addCleanup(self.stack.close)
-        temporary = tempfile.TemporaryDirectory(dir=self.base, prefix='case-')
-        self.addCleanup(temporary.cleanup)
-        self.case = Path(temporary.name)
-
-    def copy_components(self):
-        debug, endpoint = self.case / 'debug', self.case / 'endpoint'
-        shutil.copytree(self.debug, debug)
-        shutil.copytree(self.endpoint, endpoint)
-        return debug, endpoint
-
-    @staticmethod
-    def failed_observer(mode):
-        original = artifacts.subprocess.Popen
-        observed = []
-
-        def launch(command, *args, **kwargs):
-            if len(command) > 1 and Path(command[1]).name == 'package-ecs-resource-monitor.py':
-                observed.append(command)
-                if mode == 'spawn-error':
-                    raise OSError('fixture observer unavailable')
-                process = original([sys.executable, '-c', 'raise SystemExit(19)'], *args, **kwargs)
-                process.wait(timeout=5)
-                return process
-            return original(command, *args, **kwargs)
-
-        return patch.object(artifacts.subprocess, 'Popen', side_effect=launch), observed
-
-    def test_real_split_merge_matches_original_full_inventory_and_executes_every_case(self):
-        merged = self.case / 'merged'
-        artifacts.merge_formal(self.debug, self.endpoint, merged)
-        manifest = json.loads((merged / 'manifest.json').read_text())
-        original = json.loads((self.base / 'single/manifest.json').read_text())
-        self.assertEqual(set(manifest['binaries']), set(original['binaries']))
-        for logical, binary in manifest['binaries'].items():
-            for field in ('package', 'variant', 'target', 'target_kind', 'requested_features',
-                          'features', 'profile', 'tests', 'ignored_tests', 'cwd'):
-                self.assertEqual(binary.get(field), original['binaries'][logical].get(field), (logical, field))
-            self.assertEqual(binary['profile']['opt_level'], '3' if logical == 'endpoint' else '0')
-            if logical != 'endpoint':
-                self.assertIs(binary['profile']['debug_assertions'], True)
-                self.assertIs(binary['profile']['overflow_checks'], True)
-        self.assertEqual(manifest['suites'], original['suites'])
-        self.assertEqual(manifest['formal_execution_version'], 1)
-        self.assertEqual({role: value['producer_attempt'] for role, value in manifest['components'].items()},
-                         {'formal-debug': '1', 'formal-endpoint': '2'})
-        rendezvous = self.case / 'rendezvous'
-        rendezvous.mkdir()
-        count = 0
-        for shard in ('runtime-protocol', 'storage-recovery'):
-            archive = self.case / (shard + '.tar.gz')
-            artifacts.pack(merged, archive, shard=shard)
-            consumer = self.case / shard
-            with tarfile.open(archive) as package:
-                package.extractall(consumer, filter='data')
-            results = self.case / (shard + '.jsonl')
-            with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
-                 patch.dict(os.environ, OASIS7_FORMAL_FIXTURE_RENDEZVOUS=str(rendezvous)):
-                artifacts.execute(consumer, 'ordinary', results, shard=shard)
-            records = [json.loads(line) for line in results.read_text().splitlines()]
-            expected = artifacts.selected_entries(manifest, artifacts.formal_configuration(), shard=shard)
-            self.assertCountEqual([(record['suite'], record['test_name']) for record in records],
-                                  [(entry['suite'], entry['name']) for entry in expected])
-            self.assertTrue(all(record['passed'] and record['count_ok'] and record['cleanup_result'] == 'clean'
-                                and record['shard'] == shard and record['expected_count'] == 1 for record in records))
-            count += len(records)
-        self.assertEqual(count, 8)
-        self.assertTrue((rendezvous / 'a').exists() and (rendezvous / 'b').exists())
-
-    def test_each_component_cache_restores_complete_real_units_without_rebuild(self):
-        for scope, component in (('formal-debug', 'debug'), ('formal-endpoint', 'endpoint')):
-            with self.subTest(scope=scope):
-                state = json.loads((self.base / (component + '-state.json')).read_text())
-                self.assertEqual(state['selection'], 'all')
-                self.assertTrue(state['complete'], state)
-                cache = self.case / (component + '-cache')
-                staged = artifacts.cache_stage(state, cache)
-                self.assertTrue(staged['save'], staged)
-                shutil.rmtree(self.root / 'target')
-                restored = artifacts.cache_restore(self.root, cache)
-                self.assertTrue(restored['restored'], restored)
-                bundle = self.case / (component + '-rebuilt')
-                artifacts.build(bundle, scope)
-                manifest = json.loads((bundle / 'manifest.json').read_text())
-                self.assertTrue(all(timing['local_rebuilt'] == 0 for timing in manifest['build_timings']), manifest['build_timings'])
-                # Restore the other profile before staging its original state.
-                if component == 'debug':
-                    artifacts.build(self.case / 'endpoint-for-cache', 'formal-endpoint')
-
-    def test_real_failed_case_cancels_running_peer_and_keeps_prior_completed_receipts(self):
-        merged = self.case / 'merged'
-        artifacts.merge_formal(self.debug, self.endpoint, merged)
-        rendezvous = self.case / 'rendezvous'
-        rendezvous.mkdir()
-        results = self.case / 'failed.jsonl'
-        with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
-             patch.dict(os.environ, OASIS7_FORMAL_FIXTURE_RENDEZVOUS=str(rendezvous),
-                        OASIS7_FORMAL_FIXTURE_FAIL='1'):
-            with self.assertRaisesRegex(RuntimeError, 'formal failed'):
-                artifacts.execute(merged, 'ordinary', results, shard='runtime-protocol')
-        records = [json.loads(line) for line in results.read_text().splitlines()]
-        self.assertEqual(len(records), 5)
-        failed = next(record for record in records if record['test_name'] == 'formal_parallel_a')
-        peer = next(record for record in records if record['test_name'] == 'formal_parallel_b')
-        self.assertFalse(failed['passed'])
-        self.assertEqual(failed['exit_code'], 101)
-        self.assertFalse(peer['passed'])
-        self.assertTrue(peer['cancelled'])
-        self.assertEqual(peer['exit_code'], -signal.SIGTERM)
-        self.assertTrue(all(record['cleanup_result'] == 'clean' for record in records))
-        # The existing runner records a live owner requiring termination as
-        # leaked, even when cancellation successfully reaps it. It cannot pass.
-        self.assertTrue(peer['leaked_processes'])
-        self.assertTrue(all(not record['leaked_processes'] for record in records if record is not peer))
-        self.assertTrue(all(record['passed'] for record in records
-                            if record['test_name'] not in ('formal_parallel_a', 'formal_parallel_b')))
-
-    def test_real_cli_components_merge_pack_and_consumer_use_the_identical_trusted_plan(self):
-        authority = self.case / 'authority.json'
-        authority.write_text(self.configuration.read_text())
-        selected = dict(fast_plan_version=1, execution_profile='pr-fast', scope='targeted',
-            groups=['formal_process'], formal_suites=['runtime-protocol', 'storage-recovery'],
-            formal_shards=['runtime-protocol', 'storage-recovery'],
-            architecture=dict(source=self.sha, tested=self.sha))
-        plan_path = self.case / 'selection.json'
-        plan_path.write_text(json.dumps(selected))
-        common = [sys.executable, str(HERE / 'ci-test-artifacts.py'), '--repo-root', str(self.root),
-                  '--plan', str(plan_path), '--formal-config', str(authority)]
-        def call(*args):
-            result = subprocess.run([*common, *map(str, args)], text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            return result
-        debug, endpoint, merged = (self.case / name for name in ('cli-debug', 'cli-endpoint', 'cli-merged'))
-        for scope, bundle, variants in (
-                ('formal-debug', debug, ('formal-required', 'runtime', 'distfs-tests')),
-                ('formal-endpoint', endpoint, ('endpoint',))):
-            diagnostics = self.case / (scope + '-diagnostics')
-            call('build', '--scope', scope, '--bundle', bundle, '--build-diagnostics', diagnostics)
-            self.assertEqual({path.name for path in diagnostics.iterdir()}, set(variants))
-            for variant in variants:
-                report = json.loads((diagnostics / variant / 'build.json').read_text())
-                self.assertEqual(report['variant'], variant)
-                self.assertEqual(report['status'], 'success')
-                self.assertEqual(report['cargo_exit_code'], 0)
-                self.assertGreaterEqual(report['elapsed_seconds'], 0)
-                self.assertTrue(report['timings'], report)
-                for name in report['timings']:
-                    self.assertTrue(name.startswith('cargo-timing') and name.endswith('.html'))
-                    self.assertIn('<html', (diagnostics / variant / name).read_text().lower())
-        call('merge-formal', '--debug-bundle', debug, '--endpoint-bundle', endpoint, '--bundle', merged)
-        archives = self.case / 'archives'
-        call('pack', '--bundle', merged, '--split-formal', '--output', archives)
-        self.assertEqual(sorted(path.name for path in archives.iterdir()),
-                         ['runtime-protocol.tar.gz', 'runtime-protocol.tar.size.json',
-                          'storage-recovery.tar.gz', 'storage-recovery.tar.size.json'])
-        consumer = self.case / 'cli-consumer'
-        with tarfile.open(archives / 'runtime-protocol.tar.gz') as archive:
-            archive.extractall(consumer, filter='data')
-        results = self.case / 'cli-results.jsonl'
-        call('run', '--bundle', consumer, '--shard', 'runtime-protocol', '--results', results)
-        records = [json.loads(line) for line in results.read_text().splitlines()]
-        self.assertEqual(len(records), 6)
-        self.assertTrue(all(record['passed'] for record in records))
-        selected['architecture']['source'] = 'f' * 40
-        plan_path.write_text(json.dumps(selected))
-        rejected = subprocess.run([*common, 'merge-formal', '--debug-bundle', str(debug),
-            '--endpoint-bundle', str(endpoint), '--bundle', str(self.case / 'wrong-plan')],
-            text=True, capture_output=True)
-        self.assertNotEqual(rejected.returncode, 0)
-        self.assertFalse((self.case / 'wrong-plan').exists())
-
-    def test_observer_failure_cannot_turn_a_successful_real_build_into_failure(self):
-        for mode in ('spawn-error', 'nonzero-exit'):
-            observer, observed = self.failed_observer(mode)
-            diagnostics = self.case / (mode + '-diagnostics')
-            bundle = self.case / (mode + '-bundle')
-            with self.subTest(observer=mode), observer:
-                artifacts.build(bundle, 'formal-endpoint', diagnostics_dir=diagnostics)
-            self.assertEqual(len(observed), 1)
-            self.assertEqual(observed[0][-4:], ['--label', 'endpoint', '--heartbeat-seconds', '20'])
-            self.assertIn('--pid', observed[0])
-            report = json.loads((diagnostics / 'endpoint/build.json').read_text())
-            self.assertEqual((report['status'], report['cargo_exit_code']), ('success', 0))
-            self.assertTrue((bundle / 'manifest.json').is_file())
-
-    def test_failed_real_cargo_records_its_exit_and_never_starts_later_variants(self):
-        checkout = self.case / 'broken-checkout'
-        shutil.copytree(self.root, checkout, ignore=shutil.ignore_patterns('target', '.git'))
-        (checkout / 'world/src/lib.rs').write_text('compile_error!("intentional build failure");\n')
-        diagnostics, bundle = self.case / 'failed-diagnostics', self.case / 'failed-bundle'
-        observer, observed = self.failed_observer('nonzero-exit')
-        with patch.object(artifacts, 'ROOT', checkout), \
-             patch.object(artifacts, 'CONFIG', checkout / 'scripts/ci-formal-process-suites.json'), observer:
-            with self.assertRaisesRegex(RuntimeError, 'build failed: formal-required'):
-                artifacts.build(bundle, 'formal-debug', diagnostics_dir=diagnostics)
-        self.assertEqual(len(observed), 1)
-        self.assertEqual({path.name for path in diagnostics.iterdir()}, {'formal-required'})
-        report = json.loads((diagnostics / 'formal-required/build.json').read_text())
-        self.assertEqual(report['cargo_exit_code'], 101)
-        self.assertEqual(report['status'], 'failure')
-        self.assertEqual(report['error_type'], 'RuntimeError')
-        self.assertFalse((bundle / 'manifest.json').exists())
-
-    def test_real_opt2_artifacts_are_rejected_before_merge_or_case_execution(self):
-        environment, validate = artifacts.build_environment, artifacts.validate_profile
-
-        def previous_environment(scope):
-            result = environment(scope)
-            for profile in ('DEV', 'TEST'):
-                result[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2'
-            return result
-
-        def previous_profile(logical, binary, scope=None):
-            # Reproduce the former opt2 contract through the unchanged storage
-            # profile. Cargo, executable bytes, metadata and hashes remain real.
-            return validate(logical, binary, 'storage' if scope in
-                            ('formal', 'formal-debug', 'formal-endpoint') else scope)
-
-        debug, endpoint, complete = (self.case / name for name in
-                                     ('old-opt2-debug', 'old-opt2-endpoint', 'old-opt2-formal'))
-        with patch.object(artifacts, 'build_environment', side_effect=previous_environment), \
-             patch.object(artifacts, 'validate_profile', side_effect=previous_profile):
-            artifacts.build(debug, 'formal-debug')
-            artifacts.build(endpoint, 'formal-endpoint')
-            artifacts.build(complete, 'formal')
-        old = json.loads((complete / 'manifest.json').read_text())
-        self.assertEqual({binary['profile']['opt_level'] for logical, binary in old['binaries'].items()
-                          if logical != 'endpoint'}, {'2'})
-        self.assertEqual(old['binaries']['endpoint']['profile']['opt_level'], '3')
-
-        for label, left, right in (('debug-environment', debug, self.endpoint),
-                                    ('endpoint-environment', self.debug, endpoint)):
-            with self.subTest(component=label):
-                destination = self.case / label
-                with self.assertRaisesRegex(ValueError, 'compiler_environment'):
-                    artifacts.merge_formal(left, right, destination)
-                self.assertFalse(destination.exists())
-        # A forged current environment cannot make actual opt2 target profiles
-        # acceptable. The merger must reject before executing any --list call.
-        manifest = json.loads((debug / 'manifest.json').read_text())
-        manifest['compiler_environment'] = artifacts.compiler_environment(environment('formal'))
-        (debug / 'manifest.json').write_text(json.dumps(manifest))
-        with self.subTest(component='target-profile'), \
-             patch.object(artifacts, 'inventory', wraps=artifacts.inventory) as listing:
-            with self.assertRaisesRegex(ValueError, 'artifact'):
-                artifacts.merge_formal(debug, self.endpoint, self.case / 'profile-forgery')
-            listing.assert_not_called()
-            self.assertFalse((self.case / 'profile-forgery').exists())
-
-        archive, consumer = self.case / 'old-opt2.tar.gz', self.case / 'old-opt2-consumer'
-        artifacts.pack(complete, archive, shard='runtime-protocol')
-        with tarfile.open(archive) as payload:
-            payload.extractall(consumer, filter='data')
-        downloaded = json.loads((consumer / 'manifest.json').read_text())
-        for version, schema in itertools.product((1, None, 999), (2, None, 1, 99, 2.0)):
-            altered = copy.deepcopy(downloaded)
-            if version is None:
-                altered.pop('formal_execution_version')
-            else:
-                altered['formal_execution_version'] = version
-            if schema is None:
-                altered.pop('schema_version')
-            else:
-                altered['schema_version'] = schema
-            (consumer / 'manifest.json').write_text(json.dumps(altered))
-            results = self.case / ('old-opt2-results-' + str(version) + '-' + str(schema) + '.jsonl')
-            with self.subTest(execution_version=version, schema=schema), \
-                 patch('ci_process_runner.run', side_effect=AssertionError('old opt2 case started')) as run_case, \
-                 patch.object(artifacts, 'inventory', wraps=artifacts.inventory) as listing:
-                with self.assertRaisesRegex(ValueError, 'artifact'):
-                    artifacts.execute(consumer, 'ordinary', results, shard='runtime-protocol')
-                run_case.assert_not_called()
-                listing.assert_not_called()
-            self.assertFalse(results.exists())
-
-    def test_named_formal_bundle_requires_current_schema_even_with_valid_opt0_profiles(self):
-        bundle = self.case / 'invalid-schema'
-        shutil.copytree(self.base / 'single', bundle)
-        original = json.loads((bundle / 'manifest.json').read_text())
-        for schema in (None, 1, 99, 2.0):
-            manifest = copy.deepcopy(original)
-            if schema is None:
-                manifest.pop('schema_version')
-            else:
-                manifest['schema_version'] = schema
-            (bundle / 'manifest.json').write_text(json.dumps(manifest))
-            with self.subTest(schema=schema), patch.object(artifacts, 'inventory') as listing:
-                with self.assertRaisesRegex(ValueError, 'schema 2'):
-                    artifacts.load(bundle, shard='runtime-protocol')
-                listing.assert_not_called()
-
-    def test_merge_rejects_identity_profile_target_and_inventory_damage_before_output(self):
-        debug, endpoint = self.copy_components()
-        original = (debug / 'manifest.json').read_text()
-        mutations = {
-            'source': lambda m: m.update(source_sha='f' * 40),
-            'tested': lambda m: m.update(tested_sha='f' * 40),
-            'run': lambda m: m.update(producer_run_id='other'),
-            'future-attempt': lambda m: m.update(producer_attempt='3'),
-            'bad-attempt': lambda m: m.update(producer_attempt='0'),
-            'authority': lambda m: m.update(formal_authority_sha256='wrong'),
-            'compiler': lambda m: m.update(rustc_version='wrong compiler'),
-            'target': lambda m: m.update(target_triple='wrong-target'),
-            'compiler-flags': lambda m: m['compiler_environment'].update(RUSTFLAGS='--cfg other_behavior'),
-            'host-linker': lambda m: m['compiler_environment'].update(
-                CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER='/changed/linker'),
-            'scope': lambda m: m.update(scope='formal-endpoint'),
-            'missing-bin': lambda m: m['binaries'].pop('required-test-oasis7_chain_runtime-bin-oasis7_chain_runtime'),
-            'features': lambda m: m['binaries']['runtime-tests'].update(requested_features=[]),
-            'profile': lambda m: m['binaries']['runtime-tests']['profile'].update(overflow_checks=False),
-            'alias': lambda m: m['binaries'].update(alias=copy.deepcopy(m['binaries']['runtime-tests'])),
-            'variant': lambda m: m['binaries']['runtime-tests'].update(variant='runtime'),
-            'inventory': lambda m: m['binaries']['runtime-tests']['tests'].append('absent'),
-        }
-        for name, change in mutations.items():
-            with self.subTest(damage=name):
-                manifest = json.loads(original)
-                change(manifest)
-                (debug / 'manifest.json').write_text(json.dumps(manifest))
-                output = self.case / ('rejected-' + name)
-                with self.assertRaises((ValueError, KeyError)):
-                    artifacts.merge_formal(debug, endpoint, output)
-                self.assertFalse(output.exists())
-        (debug / 'manifest.json').write_text(original)
-
-    def test_consistent_forged_inventory_is_rejected_by_the_real_binary_listing(self):
-        debug, endpoint = self.copy_components()
-        manifest = json.loads((debug / 'manifest.json').read_text())
-        binary = manifest['binaries']['runtime-tests']
-        binary['tests'] = sorted([*binary['tests'], 'formal_absent_from_compiled_binary'])
-        binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
-        (debug / 'manifest.json').write_text(json.dumps(manifest))
-        output = self.case / 'forged-inventory'
-        with patch.object(artifacts, 'inventory', wraps=artifacts.inventory) as listing:
-            with self.assertRaisesRegex(ValueError, 'actual test inventory mismatch'):
-                artifacts.merge_formal(debug, endpoint, output)
-        self.assertTrue(any(call.args[0] == debug / binary['path']
-                            for call in listing.call_args_list))
-        self.assertFalse(output.exists())
-
-    def test_merge_rejects_corrupt_nonexecutable_and_symlinked_files_before_listing(self):
-        debug, endpoint = self.copy_components()
-        file = endpoint / 'bin/endpoint'
-        original, mode = file.read_bytes(), file.stat().st_mode
-        for damage in ('bytes', 'mode', 'symlink'):
-            with self.subTest(damage=damage):
-                if damage == 'bytes':
-                    file.write_bytes(b'corrupted')
-                elif damage == 'mode':
-                    file.chmod(0o644)
-                else:
-                    file.unlink()
-                    file.symlink_to(self.endpoint / 'bin/endpoint')
-                with patch.object(artifacts, 'inventory') as listing:
-                    with self.assertRaises(ValueError):
-                        artifacts.merge_formal(debug, endpoint, self.case / ('rejected-' + damage))
-                    listing.assert_not_called()
-                file.unlink()
-                file.write_bytes(original)
-                file.chmod(mode)
-
-    def test_partial_and_unknown_scope_cannot_be_consumed_or_packed(self):
-        for component in (self.debug, self.endpoint):
-            with self.subTest(component=component.name), patch('ci_process_runner.run') as execute:
-                with self.assertRaisesRegex(ValueError, 'component'):
-                    artifacts.execute(component, 'ordinary', self.case / 'partial.jsonl', shard='runtime-protocol')
-                with self.assertRaisesRegex(ValueError, 'component'):
-                    artifacts.pack(component, self.case / 'partial.tar.gz', shard='runtime-protocol')
-                execute.assert_not_called()
-        unknown = self.case / 'unknown'
-        shutil.copytree(self.base / 'single', unknown)
-        manifest = json.loads((unknown / 'manifest.json').read_text())
-        manifest['scope'] = 'future-unchecked-scope'
-        (unknown / 'manifest.json').write_text(json.dumps(manifest))
-        for operation in (lambda: artifacts.load(unknown),
-                          lambda: artifacts.pack(unknown, self.case / 'unknown.tar.gz', shard='runtime-protocol')):
-            with self.assertRaisesRegex(ValueError, 'scope'):
-                operation()
-
-    def test_merge_binds_effective_compile_inputs_but_not_network_output_or_worker_count(self):
-        with patch.dict(os.environ, CARGO_BUILD_JOBS='1', CARGO_TERM_COLOR='never', CARGO_NET_RETRY='1',
-                        CARGO_REGISTRY_TOKEN='must-not-be-part-of-manifest'):
-            artifacts.merge_formal(self.debug, self.endpoint, self.case / 'execution-knobs')
-        for key, value in (('RUSTFLAGS', '--cfg changed'), ('CARGO_ENCODED_RUSTFLAGS', '--cfg\x1fchanged'),
-                           ('CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS', '--cfg changed'),
-                           ('CARGO_BUILD_TARGET', 'aarch64-unknown-linux-gnu'), ('CFLAGS', '-DCHANGED')):
-            with self.subTest(key=key), patch.dict(os.environ, {key: value}):
-                with self.assertRaisesRegex(ValueError, 'compiler_environment'):
-                    artifacts.merge_formal(self.debug, self.endpoint, self.case / ('changed-' + key))
-
-
 class BuildDiagnostics(unittest.TestCase):
     def test_completed_unit_receipt_is_bounded_and_does_not_claim_active_stage(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -5112,707 +3686,6 @@ class ParallelFormalExecution(unittest.TestCase):
         self.assertFalse(next(record for record in records if record['test_name'] == 'failure')['passed'])
 
 
-class BuildAndBundles(unittest.TestCase):
-    def test_build_timings_include_dependency_freshness_per_variant(self):
-        with tempfile.TemporaryDirectory() as temp:
-            base = Path(temp)
-            root = base / 'checkout'
-            root.mkdir()
-            config = root / 'suites.json'
-            config.write_text('{}')
-            def artifact(local, fresh):
-                return dict(reason='compiler-artifact', fresh=fresh,
-                    manifest_path=str((root if local else base / 'dependency') / 'Cargo.toml'))
-            messages = [
-                [artifact(True, False), artifact(False, True), artifact(True, True),
-                 artifact(False, False), artifact(False, False), dict(reason='build-script-executed')],
-                [artifact(False, True), artifact(True, True), dict(reason='build-finished', success=True)],
-            ]
-            class CargoOutput:
-                def __init__(self, entries):
-                    self.stdout = iter(json.dumps(entry) + '\n' for entry in entries)
-                def __enter__(self):
-                    return self
-                def __exit__(self, *args):
-                    pass
-                def wait(self):
-                    return 0
-            bundle = base / 'bundle'
-            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
-                 patch.object(artifacts, 'build_variants', return_value=[('first', ['build'], []), ('second', ['test'], [])]), \
-                 patch.object(artifacts.subprocess, 'Popen', side_effect=[CargoOutput(entries) for entries in messages]), \
-                 patch.object(artifacts, 'output', return_value='host: fixture'), patch('builtins.print') as printed:
-                artifacts.build(bundle, 'ordinary')
-            timings = json.loads((bundle / 'manifest.json').read_text())['build_timings']
-            observed = [{key: value for key, value in timing.items() if key != 'elapsed_seconds'} for timing in timings]
-            self.assertEqual(observed, [
-                dict(variant='first', local_units=2, local_fresh=1, local_rebuilt=1,
-                     dependency_units=3, dependency_fresh=1, dependency_rebuilt=2),
-                dict(variant='second', local_units=1, local_fresh=1, local_rebuilt=0,
-                     dependency_units=1, dependency_fresh=1, dependency_rebuilt=0),
-            ])
-            reported = [json.loads(call.args[0].removeprefix('native_build='))
-                        for call in printed.call_args_list if call.args[0].startswith('native_build=')]
-            self.assertEqual(reported, timings)
-
-    def test_ordinary_cache_state_selects_libraries_and_other_scopes_keep_all(self):
-        with tempfile.TemporaryDirectory() as temp:
-            base = Path(temp)
-            root = base / 'checkout'
-            root.mkdir()
-            manifest = root / 'Cargo.toml'
-            manifest.write_text('[package]\nname="cache_local"\nversion="0.1.0"\n')
-            source = root / 'lib.rs'
-            source.write_text('pub fn value() {}\n')
-            config = root / 'suites.json'
-            config.write_text(json.dumps(dict(suites={}, legacy_ignored_filters={},
-                                             environment_formal_batches={}, shell_tests={})))
-            variants = ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests', 'required-full-fast-0')
-            messages, fingerprints = [], []
-            for index, variant in enumerate(variants):
-                unit_hash = f'{index + 1:016x}'
-                library = root / 'target/debug/deps' / ('libcache_local-' + unit_hash + '.rlib')
-                library.parent.mkdir(parents=True, exist_ok=True)
-                library.write_text(variant)
-                fingerprint = 'debug/.fingerprint/cache_local-' + unit_hash
-                fingerprints.append(fingerprint)
-                directory = root / 'target' / fingerprint
-                directory.mkdir(parents=True)
-                (directory / 'lib-cache_local').write_text(variant)
-                messages.append(dict(reason='compiler-artifact', fresh=index == 1,
-                    manifest_path=str(manifest), package_id='cache_local', filenames=[str(library)],
-                    target=dict(name='cache_local', kind=['lib'], src_path=str(source)), profile=dict(test=False)))
-
-            class CargoOutput:
-                def __init__(self, entries):
-                    self.stdout = iter(json.dumps(entry) + '\n' for entry in entries)
-                def __enter__(self):
-                    return self
-                def __exit__(self, *args):
-                    pass
-                def wait(self):
-                    return 0
-
-            for scope in ('ordinary', 'formal', 'storage', 'all'):
-                with self.subTest(scope=scope), \
-                     patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
-                     patch.object(artifacts, 'build_variants', return_value=[(name, ['test'], []) for name in variants]), \
-                     patch.object(artifacts.subprocess, 'Popen', side_effect=[CargoOutput([message])
-                         for message in messages[:-1]] + [CargoOutput([dict(messages[0], fresh=True), messages[-1]])]), \
-                     patch.object(artifacts, 'output', return_value='host: fixture'), \
-                     patch.object(artifacts, 'cache_begin', wraps=artifacts.cache_begin) as begin, \
-                     patch('builtins.print'):
-                    state_path = base / (scope + '-state.json')
-                    artifacts.build(base / scope, scope, state_path)
-                    selection = 'libraries' if scope == 'ordinary' else 'all'
-                    begin.assert_called_once_with(root, selection=selection)
-                    state = json.loads(state_path.read_text())
-                    self.assertEqual(state['selection'], selection)
-                    self.assertTrue(state['complete'])
-                    self.assertEqual(state['directories'], fingerprints)
-                    if scope == 'ordinary':
-                        self.assertEqual(state['ordinary_baseline_units'], fingerprints[:-1])
-                    else:
-                        self.assertNotIn('ordinary_baseline_units', state)
-
-    def test_formal_builder_does_not_wait_for_ordinary_targets(self):
-        formal = artifacts.build_variants('formal')
-        ordinary = artifacts.build_variants('ordinary')
-        self.assertEqual({v[0] for v in formal}, {'formal-required', 'runtime', 'endpoint', 'distfs-tests'})
-        expected_ordinary = {'viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests'}
-        if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
-            expected_ordinary.add(artifacts.RUNTIME_WORKER_VARIANT)
-        self.assertEqual({v[0] for v in ordinary}, expected_ordinary)
-        args = next(args for name, args, _ in formal if name == 'formal-required')
-        self.assertIn('--bins', args)
-        self.assertIn('--lib', args)
-        self.assertNotIn('oasis7_viewer_runtime', args)
-        self.assertNotIn('oasis7_ops_tools', args)
-        self.assertIn('ci_formal_required_features', args[args.index('--features') + 1].split(','))
-        for variant, command, features in [*ordinary, *formal[1:], *artifacts.build_variants('all')]:
-            self.assertNotIn('ci_formal_required_features', features, variant)
-            self.assertFalse(any('ci_formal_required_features' in arg for arg in command), variant)
-        for owner, package in [('snapshot-tests', 'oasis7'), ('viewer-snapshot-tests', 'oasis7_viewer_runtime')]:
-            snapshot = next(args for name, args, _ in ordinary if name == owner)
-            self.assertEqual(snapshot, ['test', '-p', package, '--lib', '--no-run'])
-            self.assertEqual(next(features for name, _, features in ordinary if name == owner), [])
-        required = next(args for name, args, _ in ordinary if name == 'required')
-        required_packages = [required[index + 1] for index, value in enumerate(required) if value == '-p']
-        scope_required_packages = json.loads((HERE / 'ci-required-scope.json').read_text(encoding='utf-8'))['oasis7_required_packages']
-        self.assertEqual(required_packages, scope_required_packages)
-        self.assertCountEqual(required_packages, [
-            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_runtime_host', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_executable_image', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
-            'oasis7_newapi_bridge_service', 'oasis7_ops_tools', 'oasis7_provider_local_bridge',
-            'oasis7_provider_tools', 'oasis7_viewer_runtime', 'oasis7_viewer_codec', 'oasis7_observability',
-            'oasis7_hosted_access', 'oasis7_letai_credit_adapter', 'oasis7_launcher_config',
-            'oasis7_wasm_materializer', 'oasis7_game_client', 'oasis7_browser_game_client', 'oasis7_cas', 'oasis7_formal_protocol',
-        ])
-        self.assertIn('--tests', required)
-        shell = (HERE / 'ci-tests.sh').read_text()
-        self.assertIn('run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::', shell)
-        self.assertIn('run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields', shell)
-
-    def test_formal_alias_requires_owning_package_and_exact_target_kind(self):
-        classify = artifacts.artifact_logical_name
-        for variant in ('required', 'formal-required'):
-            with self.subTest(variant=variant):
-                self.assertEqual(classify(variant, 'oasis7_chain_runtime',
-                    dict(name='oasis7_chain_runtime', kind=['lib']), True), 'runtime-tests')
-                self.assertEqual(classify(variant, 'oasis7',
-                    dict(name='oasis7', kind=['lib']), True), 'oasis7-lib-tests')
-                for package, kind, name in [('oasis7_chain_runtime', 'bin', 'oasis7_chain_runtime'),
-                                            ('other_package', 'bin', 'oasis7_chain_runtime'),
-                                            ('oasis7', 'bin', 'oasis7')]:
-                    logical = classify(variant, package, dict(name=name, kind=[kind]), True)
-                    self.assertNotIn(logical, ('runtime-tests', 'oasis7-lib-tests'))
-                    self.assertIn(package + '-' + kind + '-', logical)
-                self.assertTrue(classify(variant, 'oasis7_chain_runtime',
-                    dict(name='oasis7_chain_runtime', kind=['bin']), False).startswith('required-executable-'))
-
-    def test_chain_library_and_binary_harnesses_keep_distinct_suite_owners(self):
-        # Cargo emits both executable harnesses with target.name == package name.
-        # Exercise the producer JSON path without compiling a Cargo workspace.
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            package = root / 'crates/oasis7_chain_runtime'
-            package.mkdir(parents=True)
-            manifest_path = package / 'Cargo.toml'
-            manifest_path.write_text('[package]\nname = "oasis7_chain_runtime"\n')
-            messages = []
-            for kind in ('lib', 'bin'):
-                executable = root / ('chain-' + kind)
-                executable.write_bytes(kind.encode())
-                messages.append(dict(reason='compiler-artifact', manifest_path=str(manifest_path),
-                    package_id='path+file://' + str(package) + '#0.1.0', fresh=False,
-                    target=dict(name='oasis7_chain_runtime', kind=[kind]),
-                    profile=dict(test=True, opt_level='0', debug_assertions=True, overflow_checks=True),
-                    features=[], executable=str(executable)))
-            class CargoOutput:
-                def __enter__(self):
-                    self.stdout = iter(json.dumps(message) + '\n' for message in messages)
-                    return self
-                def __exit__(self, *args):
-                    pass
-                def wait(self):
-                    return 0
-            config_path = root / 'suites.json'
-            config = dict(suites={'runtime-protocol': [dict(binary='runtime-tests', name='formal_case', ignored=True)]},
-                          legacy_ignored_filters={'runtime-tests': ['formal_case']},
-                          environment_formal_batches={}, shell_tests={})
-            config_path.write_text(json.dumps(config))
-            def inventory(path, ignored=False, env=None):
-                if path.name == 'runtime-tests':
-                    return ['formal_case'] if ignored else ['config::contract']
-                return []
-            for variant, scope in [('required', 'ordinary'), ('formal-required', 'formal')]:
-                with self.subTest(variant=variant):
-                    bundle = root / variant
-                    with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config_path), \
-                         patch.object(artifacts, 'build_variants', return_value=[(variant, ['test'], [])]), \
-                         patch.object(artifacts.subprocess, 'Popen', return_value=CargoOutput()), \
-                         patch.object(artifacts, 'inventory', side_effect=inventory), \
-                         patch.object(artifacts, 'output', return_value='host: fixture'), \
-                         patch.object(artifacts.sys, 'platform', 'fixture'):
-                        artifacts.build(bundle, scope)
-                    built = json.loads((bundle / 'manifest.json').read_text())
-                    binaries = built['binaries']
-                    library = next(name for name, binary in binaries.items() if binary.get('target_kind') == ['lib'])
-                    self.assertEqual(library, 'runtime-tests')
-                    self.assertEqual(binaries['runtime-tests']['target_kind'], ['lib'])
-                    self.assertEqual(binaries[library]['package'], 'oasis7_chain_runtime')
-                    self.assertEqual(binaries[library]['ordinary'], scope == 'ordinary')
-                    if scope == 'formal':
-                        entries = artifacts.selected_entries(built, config, suite='runtime-protocol')
-                        self.assertEqual([entry['binary'] for entry in entries], ['runtime-tests'])
-                        continue
-                    for owner, pattern in artifacts.DEFAULT_SNAPSHOT_REGRESSIONS:
-                        binaries[owner] = dict(path=owner, cwd='.', test=True, ordinary=False,
-                            tests=[pattern + ('one' if pattern.endswith('::') else '')], ignored_tests=[])
-                    self.assertIn(library, artifacts.dependency_closure(built, config, suite='ordinary'))
-                    with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'load', return_value=(built, {})), \
-                         patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')) as run_test:
-                        artifacts.execute(bundle, 'ordinary', root / 'results.jsonl')
-                    library_runs = [call for call in run_test.call_args_list
-                                    if call.args[0][0] == str(bundle / binaries[library]['path'])]
-                    self.assertEqual(len(library_runs), 1)
-                    self.assertEqual(library_runs[0].kwargs['expected_count'], 1)
-            messages.append(messages[0])
-            with patch.object(artifacts, 'ROOT', root), \
-                 patch.object(artifacts, 'build_variants', return_value=[('required', ['test'], [])]), \
-                 patch.object(artifacts.subprocess, 'Popen', return_value=CargoOutput()), \
-                 patch.object(artifacts.sys, 'platform', 'fixture'):
-                with self.assertRaisesRegex(ValueError, 'duplicate executable: runtime-tests'):
-                    artifacts.build(root / 'duplicate', 'ordinary')
-
-    def test_closure_contains_child_executables_but_not_other_suites(self):
-        config = {'binary_dependencies': {'runtime-tests': ['runtime', 'endpoint'],
-                                           'distfs-tests': ['endpoint']}, 'script_dependencies': {}}
-        binaries = {name: {'test': name.endswith('tests')} for name in
-                    ('runtime-tests', 'runtime', 'endpoint', 'distfs-tests', 'viewer', 'snapshot-tests', 'viewer-snapshot-tests')}
-        manifest = {'binaries': binaries, 'suites': {'storage-recovery': [
-            {'binary': 'distfs-tests', 'name': 'storage', 'ignored': True}]}}
-        self.assertEqual(artifacts.dependency_closure(manifest, config, suite='storage-recovery'),
-                         {'distfs-tests', 'endpoint'})
-        del binaries['endpoint']
-        with self.assertRaises(ValueError):
-            artifacts.dependency_closure(manifest, config, suite='storage-recovery')
-
-    def test_low_compression_package_preserves_modes_and_omits_unused_binary(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            bundle = root / 'bundle'
-            (bundle / 'bin').mkdir(parents=True)
-            (bundle / 'lib').mkdir()
-            binaries = {}
-            for name in ('viewer', 'snapshot-tests', 'viewer-snapshot-tests', 'required-test-lib-example', 'endpoint'):
-                path = bundle / 'bin' / name
-                path.write_bytes(b'fixture executable\n' * 2000)
-                path.chmod(0o755)
-                binaries[name] = dict(path=f'bin/{name}', sha256=artifacts.digest(path),
-                    bytes=path.stat().st_size, test=name.endswith('tests') or name.startswith('required-test'),
-                    ordinary=name.startswith('required-test'), tests=['one'], ignored_tests=[], libraries=[])
-            (bundle / 'manifest.json').write_text(json.dumps(dict(schema_version=2, scope='all',
-                binaries=binaries, suites={}, libraries={})))
-            config = root / 'suites.json'
-            config.write_text(json.dumps({}))
-            with patch.object(artifacts, 'CONFIG', config):
-                report = artifacts.pack(bundle, root / 'ordinary.tar.gz', suite='ordinary')
-            self.assertLess(report['compressed_bytes'], report['raw_bytes'])
-            with tarfile.open(root / 'ordinary.tar.gz') as archive:
-                names = archive.getnames()
-                self.assertNotIn('bin/endpoint', names)
-                self.assertIn('bin/viewer', names)
-                self.assertEqual(archive.getmember('bin/viewer').mode & 0o777, 0o755)
-                manifest = json.load(archive.extractfile('manifest.json'))
-                self.assertEqual(manifest['selection'], {'suite': 'ordinary'})
-                self.assertNotIn('endpoint', manifest['included_binaries'])
-                self.assertTrue({'snapshot-tests', 'viewer-snapshot-tests'} <= set(manifest['included_binaries']))
-            for owner in ('snapshot-tests', 'viewer-snapshot-tests'):
-                incomplete = dict(binaries)
-                del incomplete[owner]
-                with self.assertRaisesRegex(ValueError, 'missing default-feature snapshot harness: ' + owner):
-                    artifacts.dependency_closure(dict(binaries=incomplete), {}, suite='ordinary')
-
-    def test_cache_budget_is_a_skip_decision_not_a_test_failure(self):
-        with tempfile.TemporaryDirectory() as temp:
-            target = Path(temp)
-            (target / 'artifact').write_bytes(b'x' * 101)
-            self.assertFalse(artifacts.cache_budget(target, 100)['save'])
-            self.assertTrue(artifacts.cache_budget(target, 101)['save'])
-
-
-class WorkspaceCacheSelection(unittest.TestCase):
-    """Cargo JSON fixtures cover unit selection without requiring a toolchain."""
-
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.base = Path(temporary.name)
-        self.root = self.base / 'checkout'
-        self.root.mkdir()
-        self.target = self.root / 'target'
-        self.cache = self.base / 'cache'
-        self.manifest = self.root / 'Cargo.toml'
-        self.manifest.write_text('[package]\nname="cache_local"\nversion="0.1.0"\n')
-        (self.root / 'lib.rs').write_text('pub fn value() {}')
-        (self.root / 'build.rs').write_text('fn main() {}')
-        self.messages, self.library_files, self.other_files = [], set(), set()
-        for name, kinds, unit_hash, test, suffixes in [
-                ('cache_lib', ['lib'], 'a' * 16, False, ['rlib', 'rmeta']),
-                ('cache_macro', ['proc-macro'], 'b' * 16, False, ['so']),
-                ('cache_lib', ['lib'], 'c' * 16, True, ['']),
-                ('cache_tool', ['bin'], 'd' * 16, False, [''])]:
-            selected = self.library_files if not test and 'bin' not in kinds else self.other_files
-            filenames = []
-            for suffix in suffixes:
-                path = f'debug/deps/{"lib" if suffix else ""}{name}-{unit_hash}' + ('.' + suffix if suffix else '')
-                self.write(path, selected)
-                filenames.append(str(self.target / path))
-            self.write(f'debug/deps/{name}-{unit_hash}.d', selected)
-            self.write(f'debug/.fingerprint/cache_local-{unit_hash}/invoked.timestamp', selected)
-            self.write(f'debug/.fingerprint/cache_local-{unit_hash}/unit.json', selected)
-            self.messages.append(dict(reason='compiler-artifact', manifest_path=str(self.manifest),
-                package_id='cache_local', filenames=filenames, target=dict(name=name, kind=kinds, src_path=str(self.root / 'lib.rs')),
-                profile=dict(test=test)))
-        compile_dir = 'debug/build/cache_local-' + 'e' * 16
-        run_dir = 'debug/build/cache_local-' + 'f' * 16
-        for path in (compile_dir + '/build-script-build', compile_dir + '/build_script_build.d',
-                     'debug/.fingerprint/cache_local-' + 'e' * 16 + '/build-script-build-script-build',
-                     run_dir + '/out/generated.rs', run_dir + '/output', run_dir + '/root-output',
-                     run_dir + '/invoked.timestamp', run_dir + '/stderr',
-                     'debug/.fingerprint/cache_local-' + 'f' * 16 + '/run-build-script-build-script-build'):
-            self.write(path, self.library_files)
-        self.messages += [
-            dict(reason='compiler-artifact', manifest_path=str(self.manifest), package_id='cache_local',
-                 filenames=[str(self.target / compile_dir / 'build-script-build')],
-                 target=dict(name='build-script-build', kind=['custom-build'], src_path=str(self.root / 'build.rs')), profile=dict(test=False)),
-            dict(reason='build-script-executed', package_id='cache_local', out_dir=str(self.target / run_dir / 'out')),
-            dict(reason='compiler-artifact', manifest_path=str(self.base / 'external/Cargo.toml')),
-            dict(reason='build-script-executed', package_id='external', out_dir=str(self.base / 'external/out')),
-        ]
-
-    def write(self, name, selection):
-        path = self.target / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(name)
-        selection.add(name)
-
-    def record(self, state):
-        for message in self.messages:
-            artifacts.cache_record(state, message)
-        artifacts.cache_finish(state)
-
-    def test_libraries_keep_complete_build_scripts_and_omit_binaries_and_harnesses(self):
-        state = artifacts.cache_begin(self.root, selection='libraries')
-        self.record(state)
-        report = artifacts.cache_stage(state, self.cache)
-        self.assertTrue(report['save'], report)
-        self.assertEqual(report['selection'], 'libraries')
-        manifest = json.loads((self.cache / 'manifest.json').read_text())
-        self.assertEqual(set(manifest['files']), self.library_files)
-        self.assertTrue(all((self.cache / 'target' / name).is_file() for name in self.library_files))
-        self.assertFalse(any((self.cache / 'target' / name).exists() for name in self.other_files))
-        self.assertEqual(report['file_count'], len(self.library_files))
-        self.assertLess(report['raw_bytes'], report['target_raw_bytes'])
-
-    def test_default_and_legacy_state_keep_all_complete_units(self):
-        for legacy in (False, True):
-            with self.subTest(legacy=legacy):
-                state = artifacts.cache_begin(self.root)
-                self.assertEqual(state['selection'], 'all')
-                if legacy:
-                    del state['selection']
-                self.record(state)
-                report = artifacts.cache_stage(state, self.cache)
-                self.assertTrue(report['save'], report)
-                self.assertEqual(report['selection'], 'all')
-                manifest = json.loads((self.cache / 'manifest.json').read_text())
-                self.assertEqual(set(manifest['files']), self.library_files | self.other_files)
-
-    def test_unknown_selection_and_oversize_library_units_do_not_stage(self):
-        with self.assertRaisesRegex(ValueError, 'selection'):
-            artifacts.cache_begin(self.root, selection='binaries')
-        state = artifacts.cache_begin(self.root, selection='libraries')
-        self.record(state)
-        report = artifacts.cache_stage(state, self.cache, maximum=1)
-        self.assertFalse(report['save'], report)
-        self.assertFalse(report['eligible'], report)
-        self.assertGreater(report['raw_bytes'], 1)
-        self.assertFalse(self.cache.exists())
-
-
-class WorkspaceCache(unittest.TestCase):
-    """Real Cargo units, including both build-script units and a dependency cache."""
-
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.base = Path(self.temporary.name)
-        self.root = self.base / 'checkout'
-        self.cache = self.base / 'workspace-cache'
-        self.dependencies = self.base / 'dependency-cache'
-        dependency = self.base / 'dependency'
-        (dependency / 'src').mkdir(parents=True)
-        (dependency / 'Cargo.toml').write_text('[package]\nname="cache_external"\nversion="0.1.0"\nedition="2021"\n')
-        (dependency / 'src/lib.rs').write_text('pub fn value() -> &\'static str { "outside" }')
-        self.sources = {
-            'Cargo.toml': '[workspace]\nmembers=["support", "app"]\nresolver="2"\n[profile.dev]\ndebug=0\nincremental=false\n',
-            '.gitignore': 'app/input.txt\n',
-            'support/Cargo.toml': '[package]\nname="cache_support"\nversion="0.1.0"\nedition="2021"\n',
-            'support/src/lib.rs': 'pub fn value() -> &\'static str { "alpha" }',
-            'app/Cargo.toml': '[package]\nname="cache_app"\nversion="0.1.0"\nedition="2021"\n[dependencies]\ncache_support={path="../support"}\ncache_external={path="../../dependency"}\n',
-            'app/src/main.rs': 'include!(concat!(env!("OUT_DIR"), "/generated.rs"));\nfn main() { println!("{}:{}:{}:{}", cache_support::value(), cache_external::value(), GENERATED, include_str!("../input.txt").trim()); }',
-            # This file is deliberately not tracked, and .gitignore excludes it.
-            'app/input.txt': 'one\n',
-            'app/build.rs': 'use std::os::unix::fs::PermissionsExt; fn main() { let v=std::fs::read_to_string("input.txt").unwrap(); let mode=std::fs::metadata("input.txt").unwrap().permissions().mode(); let v=format!("{}{}", v.trim(), if mode & 0o111 != 0 { ":executable" } else { "" }); let out=std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()); std::fs::write(out.join("generated.rs"), format!("const GENERATED: &str = {:?};", v)).unwrap(); println!("cargo:rerun-if-changed=input.txt"); println!("cargo:rerun-if-env-changed=CACHE_FIXTURE_ENV"); }',
-        }
-        self.checkout()
-        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
-        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
-        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.root,
-                       check=True, capture_output=True)
-        self.sources['Cargo.lock'] = (self.root / 'Cargo.lock').read_text()
-
-    def checkout(self):
-        if self.root.exists():
-            shutil.rmtree(self.root)
-        for name, content in self.sources.items():
-            path = self.root / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
-        if self.dependencies.exists():
-            shutil.copytree(self.dependencies, self.root / 'target', copy_function=shutil.copy2)
-
-    def cargo(self, state=None, success=True, extra_env=None, extra_args=()):
-        env = dict(os.environ, CARGO_INCREMENTAL='0', CACHE_FIXTURE_ENV='original')
-        env.pop('RUSTC_WRAPPER', None)
-        env.update(extra_env or {})
-        messages = []
-        with tempfile.TemporaryFile(mode='w+') as errors:
-            with subprocess.Popen(['cargo', 'build', '--workspace', '--offline', '--locked',
-                                   '--message-format=json', *extra_args], cwd=self.root, env=env,
-                                  stdout=subprocess.PIPE, stderr=errors, text=True) as process:
-                for line in process.stdout:
-                    if line.startswith('{'):
-                        message = json.loads(line)
-                        messages.append(message)
-                        if state is not None:
-                            artifacts.cache_record(state, message)
-                process.wait()
-            errors.seek(0)
-            self.assertEqual(process.returncode == 0, success, errors.read())
-        if state is not None:
-            artifacts.cache_finish(state)
-        units = [m for m in messages if m.get('reason') == 'compiler-artifact']
-        if success:
-            value = subprocess.check_output([str(self.root / 'target/debug/cache_app')], text=True).strip()
-        else:
-            value = None
-        return units, value
-
-    def seed(self, selection='all'):
-        state = artifacts.cache_begin(self.root, selection=selection)
-        units, value = self.cargo(state)
-        self.assertEqual(value, 'alpha:outside:one:one')
-        self.assertTrue(all(not u['fresh'] for u in units))
-        report = artifacts.cache_stage(state, self.cache)
-        self.assertTrue(report['save'], report)
-        self.assertGreater(report['target_raw_bytes'], report['raw_bytes'])
-        # Restore only the external dependency, like the existing dependency
-        # cache. No local-package outputs survive without the workspace overlay.
-        for subdirectory in ('deps', '.fingerprint'):
-            source = self.root / 'target/debug' / subdirectory
-            for path in source.iterdir():
-                if not path.name.startswith(('cache_external-', 'libcache_external-')):
-                    continue
-                destination = self.dependencies / 'debug' / subdirectory / path.name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                if path.is_dir():
-                    shutil.copytree(path, destination, copy_function=shutil.copy2)
-                else:
-                    shutil.copy2(path, destination)
-        # An ordinary archive can round file mtimes to seconds. The manifest
-        # must restore exact Cargo timestamps instead of trusting tar headers.
-        archive_path = self.base / 'cache.tar'
-        with tarfile.open(archive_path, 'w', format=tarfile.USTAR_FORMAT) as archive:
-            archive.add(self.cache, arcname='cache')
-        shutil.rmtree(self.cache)
-        with tarfile.open(archive_path) as archive:
-            archive.extractall(self.base / 'restored', filter='data')
-        shutil.move(self.base / 'restored/cache', self.cache)
-        return state
-
-    def test_library_overlay_reuses_libraries_and_build_scripts_but_rebuilds_binary(self):
-        self.seed(selection='libraries')
-        manifest = json.loads((self.cache / 'manifest.json').read_text())
-        self.assertNotIn('debug/cache_app', manifest['files'])
-        self.assertFalse(any(name.startswith('debug/deps/cache_app-') for name in manifest['files']))
-        self.checkout()
-        restored = artifacts.cache_restore(self.root, self.cache)
-        self.assertTrue(restored['restored'], restored)
-        self.assertFalse((self.root / 'target/debug/cache_app').exists())
-        units, value = self.cargo()
-        self.assertEqual(value, 'alpha:outside:one:one')
-        for unit in units:
-            self.assertEqual(unit['fresh'], 'bin' not in unit['target']['kind'], unit)
-        self.checkout()
-        changed = self.root / 'support/src/lib.rs'
-        changed.write_text(self.sources['support/src/lib.rs'].replace('alpha', 'bravo'))
-        original_mtime = manifest['inputs']['support/src/lib.rs']['mtime_ns']
-        os.utime(changed, ns=(original_mtime, original_mtime))
-        self.assertTrue(artifacts.cache_restore(self.root, self.cache)['restored'])
-        units, value = self.cargo()
-        self.assertEqual(value, 'bravo:outside:one:one')
-        self.assertTrue(any(not unit['fresh'] and unit['target']['name'] == 'cache_support' for unit in units))
-
-    def test_real_overlay_is_fresh_and_changed_inputs_rebuild(self):
-        self.seed()
-        self.checkout()
-        restored = artifacts.cache_restore(self.root, self.cache)
-        self.assertTrue(restored['restored'], restored)
-        units, value = self.cargo()
-        self.assertTrue(all(u['fresh'] for u in units), units)
-        self.assertEqual(value, 'alpha:outside:one:one')
-        manifest = json.loads((self.cache / 'manifest.json').read_text())
-        cases = [
-            ('support/src/lib.rs', self.sources['support/src/lib.rs'].replace('alpha', 'bravo'), None,
-             'bravo:outside:one:one'),
-            ('app/input.txt', 'two\n', None, 'alpha:outside:two:two'),
-            ('app/input.txt', 'one\n', 0o755, 'alpha:outside:one:executable:one'),
-        ]
-        for name, text, mode, expected in cases:
-            with self.subTest(input=name, mode=mode):
-                self.checkout()
-                path = self.root / name
-                path.write_text(text)
-                if mode is not None:
-                    path.chmod(mode)
-                old_mtime = manifest['inputs'][name]['mtime_ns']
-                os.utime(path, ns=(old_mtime, old_mtime))
-                restored = artifacts.cache_restore(self.root, self.cache)
-                self.assertTrue(restored['restored'], restored)
-                self.assertEqual(restored['changed_inputs'], 1)
-                units, value = self.cargo()
-                self.assertTrue(any(not u['fresh'] and u['target']['name'] == 'cache_app' for u in units), units)
-                self.assertEqual(value, expected)
-        self.checkout()
-        self.assertTrue(artifacts.cache_restore(self.root, self.cache)['restored'])
-        units, _ = self.cargo(extra_env={'CACHE_FIXTURE_ENV': 'changed'})
-        self.assertTrue(any(not u['fresh'] and u['target']['name'] == 'cache_app' for u in units), units)
-
-    def test_path_changes_rebuild_and_unsafe_cache_inputs_are_misses(self):
-        # Also retain Cargo's default package-directory observation when a
-        # build script does not narrow its inputs with rerun-if directives.
-        self.sources['app/build.rs'] = self.sources['app/build.rs'].replace(
-            'println!("cargo:rerun-if-changed=input.txt"); println!("cargo:rerun-if-env-changed=CACHE_FIXTURE_ENV");', '')
-        (self.root / 'app/build.rs').write_text(self.sources['app/build.rs'])
-        self.seed()
-        for change in ('new', 'deleted', 'renamed', 'source-symlink'):
-            with self.subTest(change=change):
-                self.checkout()
-                path = self.root / 'app/input.txt'
-                if change == 'new':
-                    (self.root / 'app/new.txt').write_text('new ignored input')
-                elif change == 'renamed':
-                    path.rename(self.root / 'app/renamed-input.txt')
-                else:
-                    path.unlink()
-                    if change == 'source-symlink':
-                        path.symlink_to(self.base / 'dependency/src/lib.rs')
-                report = artifacts.cache_restore(self.root, self.cache)
-                if change == 'source-symlink':
-                    self.assertFalse(report['restored'], report)
-                    self.assertFalse((self.root / 'target/debug/cache_app').exists())
-                else:
-                    self.assertTrue(report['restored'], report)
-                    units, _ = self.cargo(success=change not in ('deleted', 'renamed'))
-                    self.assertTrue(any(not u['fresh'] for u in units))
-        original = json.loads((self.cache / 'manifest.json').read_text())
-        for damage in ('digest', 'missing', 'payload-symlink', 'traversal', 'future', 'checkout'):
-            with self.subTest(damage=damage):
-                self.checkout()
-                broken = self.base / ('broken-' + damage)
-                shutil.copytree(self.cache, broken, copy_function=shutil.copy2)
-                manifest = copy.deepcopy(original)
-                name = next(iter(manifest['files']))
-                path = broken / 'target' / name
-                if damage == 'digest':
-                    path.write_bytes(b'broken')
-                elif damage == 'missing':
-                    path.unlink()
-                elif damage == 'payload-symlink':
-                    path.unlink()
-                    path.symlink_to(self.base / 'dependency/src/lib.rs')
-                elif damage == 'traversal':
-                    manifest['files']['../escape'] = manifest['files'].pop(name)
-                elif damage == 'future':
-                    manifest['files'][name]['mtime_ns'] = 2 ** 63 - 1
-                else:
-                    manifest['checkout'] = str(self.base / 'different-checkout')
-                (broken / 'manifest.json').write_text(json.dumps(manifest))
-                report = artifacts.cache_restore(self.root, broken)
-                self.assertFalse(report['restored'], report)
-                self.assertFalse((self.root / 'target/debug/cache_app').exists())
-
-    def test_document_addition_reuses_unaffected_library(self):
-        self.sources['doc/index.md'] = 'existing documentation'
-        self.checkout()
-        self.seed()
-        self.checkout()
-        (self.root / 'doc/added.md').write_text('new documentation')
-        restored = artifacts.cache_restore(self.root, self.cache)
-        self.assertTrue(restored['restored'], restored)
-        self.assertEqual(restored['input_path_changes']['added']['paths'], ['doc/added.md'])
-        units, value = self.cargo()
-        support = [u for u in units if u['target']['name'] == 'cache_support']
-        self.assertTrue(support)
-        self.assertTrue(all(u['fresh'] for u in support), support)
-        self.assertTrue(any(not u['fresh'] and 'custom-build' in u['target']['kind'] for u in units))
-        self.assertEqual(value, 'alpha:outside:one:one')
-
-    def test_added_ambiguous_module_cannot_reuse_old_successful_binary(self):
-        self.sources['support/src/lib.rs'] = 'mod piece; pub fn value() -> &\'static str { piece::value() }'
-        self.sources['support/src/piece.rs'] = 'pub fn value() -> &\'static str { "alpha" }'
-        self.checkout()
-        self.seed()
-        self.checkout()
-        added = self.root / 'support/src/piece/mod.rs'
-        added.parent.mkdir()
-        added.write_text('pub fn value() -> &\'static str { "bravo" }')
-        os.utime(added, ns=(1, 1))
-        restored = artifacts.cache_restore(self.root, self.cache)
-        self.assertTrue(restored['restored'], restored)
-        # Rust must report the now-ambiguous module, not return a stale success.
-        self.cargo(success=False)
-
-    def test_outside_package_include_is_not_ignored(self):
-        self.sources['assets/value.txt'] = 'alpha'
-        self.sources['support/src/lib.rs'] = 'pub fn value() -> &\'static str { include_str!("../../assets/value.txt") }'
-        self.checkout()
-        self.seed()
-        self.checkout()
-        (self.root / 'assets/added.txt').write_text('new sibling')
-        restored = artifacts.cache_restore(self.root, self.cache)
-        self.assertTrue(restored['restored'], restored)
-        units, value = self.cargo()
-        support = [u for u in units if u['target']['name'] == 'cache_support']
-        self.assertTrue(support)
-        self.assertTrue(any(not u['fresh'] for u in support), support)
-        self.assertEqual(value, 'alpha:outside:one:one')
-
-    def test_directory_observer_rebuilds_on_add_remove_and_rename(self):
-        self.sources['assets/one.txt'] = 'one'
-        self.sources['app/build.rs'] = '''fn main() {
-            let count = std::fs::read_dir("../assets").unwrap().count();
-            let value = match count { 1 => "one", 2 => "two", _ => "zero" };
-            let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
-            std::fs::write(out.join("generated.rs"), format!("const GENERATED: &str = {:?};", value)).unwrap();
-            println!("cargo:rerun-if-changed=../assets");
-        }'''
-        self.checkout()
-        self.seed()
-        for change, expected in [('add', 'two'), ('remove', 'zero'), ('rename', 'one')]:
-            with self.subTest(change=change):
-                self.checkout()
-                path = self.root / 'assets/one.txt'
-                if change == 'add':
-                    (self.root / 'assets/two.txt').write_text('two')
-                elif change == 'remove':
-                    path.unlink()
-                else:
-                    path.rename(path.with_name('renamed.txt'))
-                restored = artifacts.cache_restore(self.root, self.cache)
-                self.assertTrue(restored['restored'], restored)
-                units, value = self.cargo()
-                self.assertEqual(value, f'alpha:outside:{expected}:one')
-                self.assertTrue(any(not u['fresh'] and 'custom-build' in u['target']['kind'] for u in units))
-
-    def test_budget_and_source_changes_do_not_publish_partial_units(self):
-        state = artifacts.cache_begin(self.root)
-        self.cargo(state)
-        before = artifacts._cache_inputs(self.root)
-        with patch.object(artifacts, 'digest', side_effect=AssertionError('measurement must not hash files')):
-            measurement = artifacts.cache_stage(state, self.cache, measure_only=True)
-        self.assertTrue(measurement['eligible'], measurement)
-        self.assertFalse(measurement['save'])
-        self.assertGreater(measurement['file_count'], 0)
-        self.assertGreater(measurement['target_raw_bytes'], measurement['raw_bytes'])
-        self.assertGreater(measurement['unique_bytes'], 0)
-        self.assertTrue(measurement['bytes_by_category'])
-        self.assertFalse(self.cache.exists())
-        self.assertEqual(before, artifacts._cache_inputs(self.root))
-        report = artifacts.cache_stage(state, self.cache, maximum=1)
-        self.assertFalse(report['save'], report)
-        self.assertGreater(report['raw_bytes'], 1)
-        self.assertFalse((self.cache / 'manifest.json').exists())
-        (self.root / 'app/input.txt').write_text('changed during build\n')
-        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
-            artifacts.cache_finish(state)
-        report = artifacts.cache_stage(state, self.cache)
-        self.assertFalse(report['save'], report)
-        self.assertFalse((self.cache / 'manifest.json').exists())
-
-
 class UnhashedLibraryCache(unittest.TestCase):
     """Model Cargo's path-library layout, including delayed fingerprints."""
 
@@ -6005,38 +3878,251 @@ class UnhashedLibraryCache(unittest.TestCase):
             artifacts.cache_record(state, message)
 
 
-class MixedLibraryWorkspaceCache(WorkspaceCache):
-    """Run the existing real cold/restore/change/corruption cases with cdylib+lib."""
-
+class CanonicalWorkspaceOutputs(unittest.TestCase):
     def setUp(self):
-        super().setUp()
-        self.sources['support/Cargo.toml'] += '\n[lib]\ncrate-type=["cdylib", "lib"]\n[features]\nalternate=[]\n'
-        self.checkout()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name).resolve()
+        self.root = self.base / 'checkout'
+        self.root.mkdir()
+        self.manifest = artifacts.ProviderArtifact.MANIFEST
+        self.project = self.root / Path(self.manifest).parent
+        (self.project / 'src').mkdir(parents=True)
+        (self.project / 'Cargo.toml').write_text(
+            '[workspace]\n[package]\nname="canonical_cache_fixture"\nversion="0.1.0"\nedition="2021"\n')
+        (self.project / 'src/lib.rs').write_text('pub fn value() -> u8 { 7 }\n')
+        fingerprint = 'debug/.fingerprint/fixture-' + 'a' * 16
+        self.payload = ['debug/deps/libfixture-' + 'a' * 16 + '.rlib', fingerprint + '/lib-fixture']
+        for name in self.payload:
+            path = self.root / 'target' / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('original native unit')
+        self.fingerprint = fingerprint
 
-    def test_dependency_only_mixed_library_is_fresh_after_restore(self):
-        self.sources['Cargo.toml'] = self.sources['Cargo.toml'].replace(
-            'members=["support", "app"]', 'members=["app"]\nexclude=["support"]')
-        self.checkout()
-        state = self.seed()
-        self.assertTrue(state['unhashed_libraries'])
-        self.checkout()
-        self.assertTrue(artifacts.cache_restore(self.root, self.cache)['restored'])
-        units, value = self.cargo()
-        self.assertTrue(all(unit['fresh'] for unit in units), units)
-        self.assertEqual(value, 'alpha:outside:one:one')
+    def state(self):
+        state = artifacts.cache_begin(self.root, selection='libraries')
+        state['files'], state['directories'] = self.payload, [self.fingerprint]
+        return state
 
-    def test_repeated_mixed_library_variants_restore_the_final_features(self):
-        self.seed()
-        state = artifacts.cache_begin(self.root)
-        self.cargo(state, extra_args=['--features', 'cache_support/alternate'])
-        self.cargo(state)
-        self.assertTrue(artifacts.cache_stage(state, self.cache)['save'])
-        self.checkout()
-        self.assertTrue(artifacts.cache_restore(self.root, self.cache)['restored'])
-        units, value = self.cargo()
-        local = [unit for unit in units if Path(unit['manifest_path']).is_relative_to(self.root)]
-        self.assertTrue(all(unit['fresh'] for unit in local), local)
-        self.assertEqual(value, 'alpha:outside:one:one')
+    def register(self, state, metadata=None):
+        metadata = metadata or dict(workspace_root=str(self.project), target_directory=str(self.project / 'target'))
+        with patch.object(artifacts.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                [], 0, stdout=json.dumps(metadata))) as execute:
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        return execute
+
+    def output(self):
+        path = self.project / 'target/wasm32-unknown-unknown/release/module.wasm'
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'owned compiler output')
+
+    def test_real_standalone_cargo_outputs_do_not_become_native_source_inputs(self):
+        self.assertNotIn('CARGO_TARGET_DIR', os.environ)
+        environment = {key: value for key, value in os.environ.items() if key != 'RUSTC_WRAPPER'}
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.project,
+                       check=True, env=environment, capture_output=True)
+        state = self.state()
+        artifacts.cache_register_canonical_targets(state, [self.manifest])
+        subprocess.run(['cargo', 'build', '--locked', '--offline', '--lib'], cwd=self.project,
+                       check=True, env=environment, capture_output=True)
+        changed = set(artifacts._cache_inputs(self.root)) - set(state['inputs'])
+        self.assertTrue(changed)
+        prefix = (Path(self.manifest).parent / 'target').as_posix() + '/'
+        self.assertTrue(all(name.startswith(prefix) for name in changed))
+        artifacts.cache_finish(state)
+        self.assertTrue(state['complete'])
+        cache = self.base / 'cache'
+        report = artifacts.cache_stage(state, cache)
+        self.assertTrue(report['save'], report)
+        saved = json.loads((cache / 'manifest.json').read_text())
+        self.assertNotIn('generated_cargo_targets', saved)
+        self.assertEqual(saved['inputs'], state['inputs'])
+        # A reader still validates the complete clean checkout; no output
+        # allowlist is supplied by the long-lived archive.
+        shutil.rmtree(self.project / 'target')
+        shutil.rmtree(self.root / 'target')
+        self.assertTrue(artifacts.cache_restore(self.root, cache)['restored'])
+
+    def test_existing_inputs_are_never_removed_by_output_registration(self):
+        self.output()
+        state = self.state()
+        with self.assertRaisesRegex(ValueError, 'captured source input'):
+            self.register(state)
+        self.assertNotIn('generated_cargo_targets', state)
+        self.assertEqual(artifacts._cache_inputs(self.root), state['inputs'])
+
+    def test_outputs_created_by_the_native_phase_cannot_be_registered_later(self):
+        state = self.state()
+        self.output()
+        with self.assertRaisesRegex(ValueError, 'existed before registration'):
+            self.register(state)
+        self.assertNotIn('generated_cargo_targets', state)
+        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
+            artifacts.cache_finish(state)
+
+    def test_metadata_cannot_create_new_inputs_and_then_declare_them_outputs(self):
+        state = self.state()
+        def metadata(*args, **keywords):
+            self.output()
+            return subprocess.CompletedProcess([], 0, stdout=json.dumps(dict(
+                workspace_root=str(self.project), target_directory=str(self.project / 'target'))))
+        with patch.object(artifacts.subprocess, 'run', side_effect=metadata), \
+             self.assertRaisesRegex(ValueError, 'existed before registration'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        self.assertNotIn('generated_cargo_targets', state)
+        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
+            artifacts.cache_finish(state)
+
+    def test_real_source_mutation_and_unknown_nested_output_still_fail_closed(self):
+        for name in ('src/lib.rs', 'other/target/output', '.ignored-input'):
+            with self.subTest(name=name):
+                state = self.state()
+                self.register(state)
+                path = self.project / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                existed = path.exists()
+                original = path.read_bytes() if existed else None
+                path.write_text('changed actual input')
+                with self.assertRaisesRegex(ValueError, 'source inputs changed during the build'):
+                    artifacts.cache_finish(state)
+                self.assertFalse(state['complete'])
+                if existed:
+                    path.write_bytes(original)
+                else:
+                    path.unlink()
+
+    def test_metadata_must_prove_the_exact_default_owned_target(self):
+        state = self.state()
+        for metadata in (dict(workspace_root=str(self.root), target_directory=str(self.project / 'target')),
+                         dict(workspace_root=str(self.project), target_directory=str(self.base / 'outside')),
+                         dict(workspace_root=str(self.project), target_directory=str(self.project / 'src'))):
+            with self.subTest(metadata=metadata), self.assertRaisesRegex(ValueError, 'unsupported output layout'):
+                self.register(state, metadata)
+            self.assertNotIn('generated_cargo_targets', state)
+        with patch.dict(os.environ, CARGO_TARGET_DIR=str(self.project / 'target')), \
+             self.assertRaisesRegex(ValueError, 'original default target'):
+            self.register(state)
+        with patch.object(artifacts.subprocess, 'run', side_effect=subprocess.TimeoutExpired('cargo', 30)), \
+             self.assertRaisesRegex(ValueError, 'cannot verify'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        self.assertNotIn('generated_cargo_targets', state)
+
+    def test_reader_of_state_rejects_forged_and_swapped_output_roots(self):
+        state = self.state()
+        self.register(state)
+        artifacts.cache_finish(state)
+        for records in ({'other/Cargo.toml': 'other/target'}, {self.manifest: 'src'},
+                        {self.manifest: []}):
+            with self.subTest(records=records):
+                forged = dict(state, generated_cargo_targets=records)
+                self.assertFalse(artifacts.cache_stage(forged, self.base / 'cache')['save'])
+        outside = self.base / 'outside'
+        outside.mkdir()
+        (self.project / 'target').symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            artifacts.cache_finish(state)
+        # Re-establish the genuinely completed capture to exercise the stage
+        # parser independently of its incomplete-state rejection.
+        state['complete'] = True
+        for measure in (True, False):
+            report = artifacts.cache_stage(state, self.base / 'cache', measure_only=measure)
+            self.assertFalse(report['save'])
+            self.assertIn('symlink', report['reason'])
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_registration_and_stage_recheck_symlinks_before_metadata_and_after_copy(self):
+        state = self.state()
+        outside = self.base / 'outside'
+        outside.mkdir()
+        output = self.project / 'target'
+        output.symlink_to(outside, target_is_directory=True)
+        with patch.object(artifacts.subprocess, 'run') as execute, \
+             self.assertRaisesRegex(ValueError, 'symlink'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        execute.assert_not_called()
+        output.unlink()
+        self.register(state)
+        artifacts.cache_finish(state)
+        original = artifacts._cache_copy
+        def swap(*args):
+            original(*args)
+            output.symlink_to(outside, target_is_directory=True)
+        with patch.object(artifacts, '_cache_copy', side_effect=swap):
+            report = artifacts.cache_stage(state, self.base / 'cache')
+        self.assertFalse(report['save'])
+        self.assertIn('symlink', report['reason'])
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_optional_cache_metadata_failure_keeps_both_original_material_builds(self):
+        config = self.root / 'suites.json'
+        config.write_text('{}')
+        state_path = self.base / 'state.json'
+        with patch.object(artifacts, 'ROOT', self.root), patch.object(artifacts, 'CONFIG', config), \
+             patch.object(artifacts, 'build_variants', return_value=[]), \
+             patch.object(artifacts, 'output', return_value='host: fixture'), \
+             patch.object(artifacts, 'preview_provider_required', return_value=True), \
+             patch.object(artifacts.BuiltinTestArtifact, 'required', return_value=True), \
+             patch.object(artifacts, 'cache_register_canonical_targets', side_effect=ValueError('unavailable')), \
+             patch.object(artifacts.provider_artifact, 'build', return_value={}) as provider, \
+             patch.object(artifacts.BuiltinTestArtifact, 'build', return_value={}) as builtin:
+            bundle = self.base / 'bundle'
+            artifacts.build(bundle, 'ordinary', state_path)
+        provider.assert_called_once()
+        builtin.assert_called_once()
+        self.assertEqual(json.loads((bundle / 'manifest.json').read_text())['builtin_test_resources'], {})
+        state = json.loads(state_path.read_text())
+        self.assertFalse(state['complete'])
+        self.assertEqual(state['error'], 'unavailable')
+
+    def test_real_build_registers_only_selected_material_roles_before_their_builds(self):
+        catalog = {self.manifest, *(f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+                                   for crate in artifacts.BuiltinTestArtifact.MODULES.values())}
+        for scope in ('ordinary', 'formal'):
+            with self.subTest(scope=scope):
+                for manifest in catalog:
+                    path = self.root / manifest
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if not path.exists():
+                        path.write_text('[workspace]\n')
+                    if (path.parent / 'target').exists():
+                        shutil.rmtree(path.parent / 'target')
+                config = self.root / 'suites.json'
+                config.write_text(json.dumps(dict(suites={}, legacy_ignored_filters={},
+                    environment_formal_batches={}, shell_tests={})))
+                events = []
+                def metadata(command, **keywords):
+                    path = Path(command[-1])
+                    self.assertEqual(command[1:6], ['metadata', '--locked', '--offline', '--no-deps', '--format-version=1'])
+                    self.assertEqual(keywords['timeout'], 30)
+                    events.append('metadata')
+                    return subprocess.CompletedProcess(command, 0, stdout=json.dumps(dict(
+                        workspace_root=str(path.parent), target_directory=str(path.parent / 'target'))))
+                def material(kind):
+                    def build(*args):
+                        events.append(kind)
+                        manifests = {self.manifest} if kind == 'provider' else catalog - {self.manifest}
+                        for manifest in manifests:
+                            output = self.root / Path(manifest).parent / 'target/module.wasm'
+                            output.parent.mkdir(parents=True)
+                            output.write_bytes(b'original material compiler output')
+                        return {}
+                    return build
+                with patch.object(artifacts, 'ROOT', self.root), patch.object(artifacts, 'CONFIG', config), \
+                     patch.object(artifacts, 'build_variants', return_value=[]), \
+                     patch.object(artifacts, 'output', return_value='host: fixture'), \
+                     patch.object(artifacts, 'preview_provider_required', return_value=True), \
+                     patch.object(artifacts.BuiltinTestArtifact, 'required', return_value=True), \
+                     patch.object(artifacts.provider_artifact, 'build', side_effect=material('provider')), \
+                     patch.object(artifacts.BuiltinTestArtifact, 'build', side_effect=material('builtin')), \
+                     patch.object(artifacts.subprocess, 'run', side_effect=metadata):
+                    state_path = self.base / (scope + '.json')
+                    artifacts.build(self.base / scope, scope, state_path)
+                state = json.loads(state_path.read_text())
+                self.assertTrue(state['complete'], state.get('error'))
+                selected = catalog - ({self.manifest} if scope == 'formal' else set())
+                self.assertEqual(set(state['generated_cargo_targets']), selected)
+                self.assertEqual(events, ['metadata'] * len(selected) +
+                                 (['provider', 'builtin'] if scope == 'ordinary' else ['builtin']))
 
 
 class WorkspaceInputPaths(unittest.TestCase):
@@ -6861,6 +4947,49 @@ compile_error!("full scale target must not be compiled by the required tuple");
                         artifacts.execute(bundle, 'ordinary', root / 'bad-results.jsonl', plan=selected)
                     execute_test.assert_not_called()
 
+    def test_ordinary_build_strips_staged_elf_and_keeps_original_target_intact(self):
+        if sys.platform != 'linux' or shutil.which('strip') is None:
+            return
+        source = '''
+#[cfg(feature="default")] compile_error!("default feature was incorrectly enabled");
+#[cfg(all(test,feature="test_tier_required"))] mod required {
+    #[test] fn round_trip() { assert_eq!(1 + 1, 2); }
+    #[test] fn newly_added() { assert_eq!(2 + 2, 4); }
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, sha = self.prepare_target_workspace(root, source, source)
+            target = FastTargetInventory().target
+            selected = InlineExecutionSelection().selection() | {
+                'architecture': dict(source=sha, tested=sha),
+                'ordinary_fast_targets': [target()],
+            }
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=2), \
+                 patch.dict(os.environ, SOURCE_SHA=sha):
+                bundle = root / 'bundle'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                manifest = json.loads((bundle / 'manifest.json').read_text())
+                entry = next(iter(manifest['binaries'].values()))
+                staged = bundle / entry['path']
+                original = Path(entry['original_executable'])
+                self.assertEqual(entry['sha256'], artifacts.digest(staged))
+                self.assertEqual(entry['bytes'], staged.stat().st_size)
+                self.assertLess(staged.stat().st_size, original.stat().st_size)
+                self.assertNotEqual(artifacts.digest(staged), artifacts.digest(original))
+                readelf = shutil.which('readelf')
+                if readelf is not None:
+                    original_sections = subprocess.check_output([readelf, '-SW', str(original)], text=True)
+                    staged_sections = subprocess.check_output([readelf, '-SW', str(staged)], text=True)
+                    self.assertIn('.symtab', original_sections)
+                    self.assertNotIn('.symtab', staged_sections)
+                results = root / 'results.jsonl'
+                artifacts.execute(bundle, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 1)
+                self.assertTrue(records[0]['passed'] and records[0]['expected_count'] == 2)
+
     def test_real_inline_harnesses_overlap_without_dropping_new_cases(self):
         def source(name, other):
             return '''
@@ -7521,7 +5650,7 @@ mod family {
             v2_plan | {'ordinary_clippy_group': 'oasis7_required'},
             v2_plan | {'ordinary_wasm_group': 'oasis7_required'},
             v2_plan | {'groups': ['baseline', 'oasis7_required']},
-            v2_plan | {'ordinary_controls_in_rust_baseline_version': 2},
+            v2_plan | {'ordinary_controls_in_rust_baseline_version': 99},
             v2_plan | {'ordinary_controls_in_rust_baseline_version': True},
             {k: v for k, v in v2_plan.items() if k != 'ordinary_controls_in_rust_baseline_version'},
         ):
@@ -7562,6 +5691,48 @@ mod family {
         self.assertIn('CARGO:check -p oasis7_simulator --lib --target wasm32-unknown-unknown --locked', baseline_out)
         self.assertNotIn('CLIPPY_EXECUTED', ordinary_out)
         self.assertNotIn('CARGO:check', ordinary_out)
+
+    def test_parallel_ordinary_bundle_consumer_uses_bounded_pool_and_honors_local_check_serial(self):
+        selected = CompleteArtifactPartitions().selection()
+        selected.pop('ordinary_artifact_partition_version', None)
+        selected.pop('ordinary_partitions', None)
+        manifest = dict(
+            execution_plan=selected,
+            binaries={
+                'short-test': dict(path='bin/short', cwd='crates/oasis7', package='oasis7', target='short',
+                                   target_kind=['test'], variant='required', ordinary=True,
+                                   tests=['a', 'b', 'c'], ignored_tests=[]),
+                'heavy-test': dict(path='bin/heavy', cwd='crates/oasis7_runtime', package='oasis7_runtime',
+                                   target='incremental_full_scales', target_kind=['test'],
+                                   variant='required-risk-0', ordinary=True, tests=['x'], ignored_tests=[]),
+            },
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary)
+            results = bundle / 'results.jsonl'
+            with patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                 patch.object(artifacts, 'execute_inline_jobs') as pool, \
+                 patch.dict(os.environ, {}, clear=False):
+                os.environ.pop('OASIS7_LOCAL_CHECK', None)
+                artifacts.execute(bundle, 'ordinary', results, plan=selected, parallel_ordinary=True)
+                pool.assert_called_once()
+                self.assertTrue(pool.call_args.kwargs['artifact_partition'])
+                # Heavy calibrated cost (incremental_full_scales) starts before higher-case-count short target
+                self.assertEqual([job['name'] for job in pool.call_args.args[0]], ['heavy-test', 'short-test'])
+            with patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                 patch.object(artifacts, 'execute_inline_jobs') as pool, \
+                 patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')) as serial, \
+                 patch.dict(os.environ, OASIS7_LOCAL_CHECK='1'):
+                artifacts.execute(bundle, 'ordinary', results, plan=selected, parallel_ordinary=True)
+                pool.assert_not_called()
+                self.assertEqual(serial.call_count, 2)
+        for bad_args in (['build', '--bundle', 'b', '--parallel-ordinary'],
+                         ['run', '--bundle', 'b', '--shard', 'storage-recovery', '--parallel-ordinary']):
+            proc = subprocess.run([sys.executable, str(HERE / 'ci-test-artifacts.py'), *bad_args],
+                                  text=True, capture_output=True)
+            self.assertNotEqual(proc.returncode, 0)
 
 
 if __name__ == '__main__':

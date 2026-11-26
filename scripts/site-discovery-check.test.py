@@ -136,9 +136,9 @@ with tempfile.TemporaryDirectory() as tmp:
  p.write_text(source)
  # A structurally complete runtime fixture is not a claim about real material.
  for prefix in ['', 'en/']:
-  p=root/prefix/'observations/energy-example/index.html';s=p.read_text().replace('data-provenance="illustrative"','data-provenance="runtime_capture" data-source-build="fixture-build" data-runtime-profile="fixture" data-source-scenario="fixture-energy" data-source-window="fixture-window" data-source-url="https://github.com/eng-cc/oasis7/blob/b216610f117d044c20ff9aad2d73485c7c9f3174/README.md"')
+  p=root/prefix/'observations/energy-example/index.html';s=p.read_text().replace('data-provenance="illustrative"','data-provenance="runtime_capture" data-source-build="fixture-build" data-runtime-profile="fixture" data-source-scenario="fixture-energy" data-source-window="fixture-window" data-source-url="https://github.com/nil-studio/oasis7/blob/b216610f117d044c20ff9aad2d73485c7c9f3174/README.md"')
   s=s.replace('data-content-provenance-label>'+('illustrative example' if prefix else '说明性示例'),'data-content-provenance-label>'+('runtime capture' if prefix else '真实运行记录'))
-  s=s.replace('</article>','<a href="https://github.com/eng-cc/oasis7/blob/b216610f117d044c20ff9aad2d73485c7c9f3174/README.md">Fixture source</a></article>',1);p.write_text(s)
+  s=s.replace('</article>','<a href="https://github.com/nil-studio/oasis7/blob/b216610f117d044c20ff9aad2d73485c7c9f3174/README.md">Fixture source</a></article>',1);p.write_text(s)
  assert not module.check(root),module.check(root)
  p=root/'observations/energy-example/index.html';s=p.read_text();p.write_text(s.replace('data-runtime-profile="fixture"','data-runtime-profile="unknown"'));assert any('incomplete runtime provenance' in e for e in module.check(root))
 print('site-discovery-check.test: OK (paired families, zero/one/multiple, runtime fields and withdrawals)')

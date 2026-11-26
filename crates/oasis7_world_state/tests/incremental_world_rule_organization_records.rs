@@ -460,16 +460,24 @@ fn original_owner_fields_and_dynamic_identities_have_literal_cold_records() {
                 (OrganizationRootKeyV1::Case(CASE), false),
                 (OrganizationRootKeyV1::Estate(ESTATE), true),
             ] {
+                let sample_limit =
+                    if class == MemoryClass::Recovery && !cfg!(feature = "test_tier_full") {
+                        1
+                    } else {
+                        usize::MAX
+                    };
                 let proof =
                     open_qualified_organization_record_v1(owner, &roots, &family, &mut read)
                         .unwrap()
                         .unwrap();
                 // These52 byte-level oracles are independently encoded original
                 // fields/content; only the new relative root addressing changes.
-                for (object, part, codec, payload) in golden().into_iter().chain(marker_frames()) {
-                    if matches!(object, Object::Estate(_)) != estate {
-                        continue;
-                    }
+                for (object, part, codec, payload) in golden()
+                    .into_iter()
+                    .chain(marker_frames())
+                    .filter(|(object, _, _, _)| matches!(object, Object::Estate(_)) == estate)
+                    .take(sample_limit)
+                {
                     // Independent literal queries have their own unchanged
                     // physical allowance; bootstrap above is one whole scope.
                     let oracle_state = store.state_session(physical(), class).unwrap();
@@ -510,7 +518,7 @@ fn original_owner_fields_and_dynamic_identities_have_literal_cold_records() {
                         take_state_error: || state.take_read_error().map(state_error),
                         cancelled: || false,
                     };
-                    for scope in grant().scopes {
+                    for scope in grant().scopes.into_iter().take(sample_limit) {
                         assert_eq!(
                             read_qualified_organization_set_v1(
                                 OrganizationSetRequestV1 {
@@ -527,7 +535,10 @@ fn original_owner_fields_and_dynamic_identities_have_literal_cold_records() {
                             OrganizationSetReadV1::Present
                         );
                     }
-                    for (ordinal, expected) in [(0, ""), (1, "repeat"), (2, "repeat")] {
+                    for (ordinal, expected) in [(0, ""), (1, "repeat"), (2, "repeat")]
+                        .into_iter()
+                        .take(sample_limit)
+                    {
                         let _scratch = memory.reserve(256, class).unwrap();
                         let mut bytes = Vec::with_capacity(256);
                         assert_eq!(

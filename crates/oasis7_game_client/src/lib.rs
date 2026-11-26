@@ -623,7 +623,7 @@ pub use formal_bft_read_v3::{
 };
 pub use formal_bft_read_v4::{
     FormalBftHeaderReadClientConfigV4, FormalBftHeaderReadClientV4, FormalBftHeaderReadVerifierV4,
-    VerifiedFormalBftHeaderReadPageV4,
+    FormalBftOriginalSuccessorCutPinV1, VerifiedFormalBftHeaderReadPageV4,
 };
 pub mod formal_read;
 pub use formal_bft_read_v2::{

@@ -196,16 +196,6 @@ ssh_run() {
   fi
 }
 
-slurp_status_json() {
-  local url=$1
-  local path=$2
-  if [[ -n "$url" ]]; then
-    curl -fsSL "$url" -o "$path"
-  else
-    require_file "$path"
-  fi
-}
-
 runtime_sha_for_local_path() {
   local path=$1
   if [[ -z "$path" ]]; then

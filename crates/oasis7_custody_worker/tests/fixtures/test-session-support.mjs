@@ -747,7 +747,8 @@ test('direct authenticated client admission keeps Host charge when native source
     }
   });
 });
-
+},
+publicClient(){
 test('public scoped client claims credentials and heartbeats without borrowing purpose budgets',{timeout:300000},async()=>{
   await withActiveSession(async(runtime,basis)=>{
     const initial=publicClientCounters(runtime,basis.session_id);

@@ -1,5 +1,8 @@
 //! Loopback-only diagnostic consumer. Never grants or changes Node admission.
-use oasis7_node::NodeRuntime;
+use oasis7_node::{
+    BftNodeObservedIdentityPinsV1, NodeBftObservationV1, NodeRuntime,
+    validate_bft_node_observation_v1,
+};
 use serde::Serialize;
 use std::{
     io::{Read, Write},
@@ -16,6 +19,7 @@ pub(super) struct Listener {
     socket: TcpListener,
     incarnation: String,
     authority: String,
+    expected: Option<BftNodeObservedIdentityPinsV1>,
 }
 
 #[derive(Serialize)]
@@ -32,7 +36,10 @@ struct Response {
 }
 
 impl Listener {
-    pub(super) fn bind(address: SocketAddr) -> Result<Self, String> {
+    pub(super) fn bind(
+        address: SocketAddr,
+        expected: BftNodeObservedIdentityPinsV1,
+    ) -> Result<Self, String> {
         if !address.ip().is_loopback() || address.port() == 0 {
             return Err("header Node status requires an explicit loopback port".into());
         }
@@ -46,6 +53,7 @@ impl Listener {
             socket,
             incarnation: hex::encode(random),
             authority: address.to_string(),
+            expected: Some(expected),
         })
     }
 
@@ -60,9 +68,12 @@ impl Listener {
         }
         let status = runtime.bft_v3_status();
         let running = status.as_ref().is_some_and(|s| s.running);
+        let worker_blocked = status.as_ref().is_some_and(|s| s.blocked_reason.is_some());
+        let (observation, invalid_source) =
+            checked_observation(status.and_then(|s| s.observation), self.expected.as_ref());
         let blocker = if !running {
             Some("runtime_not_running")
-        } else if status.as_ref().is_some_and(|s| s.blocked_reason.is_some()) {
+        } else if worker_blocked || invalid_source {
             Some("runtime_blocked")
         } else {
             None
@@ -78,7 +89,7 @@ impl Listener {
             qualification: "unknown",
             protected_services_readiness: "unknown",
             can_propose: false,
-            observation: status.and_then(|s| s.observation),
+            observation,
         };
         let Ok(body) = serde_json::to_vec(&response) else {
             return;
@@ -107,6 +118,22 @@ impl Listener {
                 Ok(n) => sent += n,
             }
         }
+    }
+}
+
+// This validates a historical observation against independently prepared
+// startup pins only. It cannot grant membership, signing or proposal rights.
+fn checked_observation(
+    observation: Option<NodeBftObservationV1>,
+    expected: Option<&BftNodeObservedIdentityPinsV1>,
+) -> (Option<NodeBftObservationV1>, bool) {
+    match (observation, expected) {
+        (Some(observation), Some(expected))
+            if validate_bft_node_observation_v1(&observation, expected).is_err() =>
+        {
+            (None, true)
+        }
+        (observation, _) => (observation, false),
     }
 }
 
@@ -192,6 +219,7 @@ pub(crate) fn collect_for_test(runtime: &NodeRuntime) -> serde_json::Value {
         socket,
         incarnation: "a".repeat(64),
         authority: address.to_string(),
+        expected: None,
     };
     let scripts = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
     let code = r#"
@@ -235,6 +263,59 @@ print(json.dumps({'profile':profile,'markdown':m.adapter.markdown(profile)}))
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pins() -> BftNodeObservedIdentityPinsV1 {
+        BftNodeObservedIdentityPinsV1 {
+            world_id: "world".into(),
+            chain_id: "chain".into(),
+            operator_instance_id: "worker-1".into(),
+            binding_digest: hex::encode([1_u8; 32]),
+        }
+    }
+
+    fn observation() -> NodeBftObservationV1 {
+        NodeBftObservationV1 {
+            observed_at_unix_ms: 1000,
+            world_id: "world".into(),
+            chain_id: "chain".into(),
+            operator_instance_id: "worker-1".into(),
+            authority_epoch: 1,
+            height: 11,
+            round: 1,
+            active_set_hash: hex::encode([2_u8; 32]),
+            pending_set_hash: None,
+            binding_digest: hex::encode([1_u8; 32]),
+            checkpoint_revision: 1,
+            observed_lease_generation: 1,
+            window_start_height: 10,
+            committed_window_heights: 1,
+            pending_driver_apply: false,
+            last_applied_height: Some(10),
+            last_applied_header_id: Some(hex::encode([3_u8; 32])),
+        }
+    }
+
+    #[test]
+    fn exact_qualified_h_identity_fails_closed_and_recovers() {
+        let expected = pins();
+        let (valid, invalid) = checked_observation(Some(observation()), Some(&expected));
+        assert!(!invalid);
+        assert_eq!(valid.unwrap().height, 11);
+        let mut wrong = observation();
+        wrong.operator_instance_id = "restarted-worker".into();
+        let (rejected, invalid) = checked_observation(Some(wrong), Some(&expected));
+        assert!(invalid);
+        assert!(rejected.is_none());
+        let mut wrong = observation();
+        wrong.last_applied_height = Some(12);
+        let (rejected, invalid) = checked_observation(Some(wrong), Some(&expected));
+        assert!(invalid);
+        assert!(rejected.is_none());
+        let (recovered, invalid) = checked_observation(Some(observation()), Some(&expected));
+        assert!(!invalid);
+        assert!(recovered.is_some());
+    }
+
     #[test]
     fn live_listener_serves_bounded_unavailable_observation_and_stops() {
         let socket = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -244,6 +325,7 @@ mod tests {
             socket,
             incarnation: "a".repeat(64),
             authority: address.to_string(),
+            expected: None,
         };
         let runtime = NodeRuntime::new(
             oasis7_node::NodeConfig::new("diagnostic", "world", oasis7_node::NodeRole::Sequencer)
@@ -295,6 +377,7 @@ mod tests {
             socket,
             incarnation: "a".repeat(64),
             authority: address.to_string(),
+            expected: None,
         };
         let runtime = NodeRuntime::new(
             oasis7_node::NodeConfig::new("diagnostic", "world", oasis7_node::NodeRole::Sequencer)
@@ -334,8 +417,8 @@ mod tests {
 
     #[test]
     fn status_endpoint_rejects_non_loopback_and_ambiguous_requests() {
-        assert!(Listener::bind("0.0.0.0:8901".parse().unwrap()).is_err());
-        assert!(Listener::bind("127.0.0.1:0".parse().unwrap()).is_err());
+        assert!(Listener::bind("0.0.0.0:8901".parse().unwrap(), pins()).is_err());
+        assert!(Listener::bind("127.0.0.1:0".parse().unwrap(), pins()).is_err());
         assert!(request_bytes_valid(
             b"GET /v1/bft/status HTTP/1.1\r\nHost: 127.0.0.1:8901\r\n\r\n",
             "127.0.0.1:8901"
