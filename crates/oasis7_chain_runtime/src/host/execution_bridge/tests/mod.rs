@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -35,6 +36,7 @@ use oasis7_wasm_executor::FixedSandbox;
 use sha2::{Digest, Sha256};
 
 mod determinism;
+#[cfg(feature = "test_tier_full")]
 mod driver;
 mod driver_authoritative_recovery;
 #[cfg(all(unix, feature = "wasmtime"))]
@@ -43,13 +45,17 @@ pub(super) mod driver_bft;
 mod driver_bft_node_runtime;
 #[cfg(all(unix, feature = "wasmtime"))]
 mod driver_bft_v2;
+#[cfg(feature = "test_tier_full")]
 mod driver_checkpoint;
 mod driver_checkpoint_profile;
+#[cfg(feature = "test_tier_full")]
 mod driver_checkpoint_transaction;
+#[cfg(feature = "test_tier_full")]
 mod driver_compacted_checkpoint_recovery;
 mod driver_observability;
 mod driver_service_cold_recovery;
 mod node_retained_commit_restart;
+#[cfg(feature = "test_tier_full")]
 mod driver_storage_profile;
 mod retained_commit_time;
 // The fixture helpers live behind `test_tier_required` in the external
@@ -58,7 +64,9 @@ mod retained_commit_time;
 #[cfg(feature = "test_tier_required")]
 mod provider_bootstrap;
 mod qa_conformance;
+#[cfg(feature = "test_tier_full")]
 mod replay;
+#[cfg(feature = "test_tier_full")]
 mod retention;
 #[path = "qa_conformance/scenario_resource.rs"]
 mod scenario_resource;

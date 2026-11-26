@@ -1,4 +1,5 @@
 //! Tests for the runtime module.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 
 use ed25519_dalek::{Signer, SigningKey};
 
@@ -61,29 +62,42 @@ pub(super) fn test_wasm_executor_config() -> oasis7_wasm_executor::WasmExecutorC
     config
 }
 
+#[cfg(feature = "test_tier_full")]
 mod agent_activity;
 mod agent_claim_epoch_preparation;
 mod agent_claims;
 mod agent_claims_auto_funding;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_commit_interleavings;
 mod agent_cognition_live_command;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_live_mvcc;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_live_persistence;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_live_scheduler;
 mod agent_cognition_mvcc;
 mod agent_cognition_recovery;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_retention_gc;
 mod agent_cognition_retention_s14;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_runtime_feedback;
 mod agent_cognition_runtime_hardening;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_runtime_hardening_followup;
 mod agent_cognition_runtime_hardening_legacy_wake;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_runtime_p1;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_scheduler_backpressure;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_scheduler_fairness;
+#[cfg(feature = "test_tier_full")]
 mod agent_cognition_wake_conditions;
 #[cfg(feature = "test_tier_full")]
 mod agent_default_modules;
+#[cfg(feature = "test_tier_full")]
 mod agent_intent_v2;
 mod alliance_war_publication_transaction_regressions;
 mod apply_domain_event_guards;
@@ -93,25 +107,34 @@ mod body;
 mod builtin_wasm_identity;
 mod builtin_wasm_materializer;
 mod capability_authorization_raw_publication_transaction_regressions;
+#[cfg(feature = "test_tier_full")]
 mod capability_authorization_transaction_regressions;
 mod capability_command_raw_publication_transaction_regressions;
 mod capability_effect_receipt_raw_publication_transaction_regressions;
 mod capability_grant_v2;
 mod capability_grant_v2_catalog;
 mod capability_grant_v2_fixture;
+#[cfg(feature = "test_tier_full")]
 mod capability_grant_v2_lifecycle;
 mod capability_grant_v2_recovery_regressions;
+#[cfg(feature = "test_tier_full")]
 mod capability_grant_v2_regressions;
 mod capability_grant_v2_selector_authz_regressions;
+#[cfg(feature = "test_tier_full")]
 mod cognition_economy;
+#[cfg(feature = "test_tier_full")]
 mod cognition_economy_binding_regressions;
 mod core_policy_publication_transaction_regressions;
+#[cfg(feature = "test_tier_full")]
 mod data_access_control;
+#[cfg(feature = "test_tier_full")]
 mod direct_module_output_transaction;
 mod domain_event_publication_classification_gate;
+#[cfg(feature = "test_tier_full")]
 mod economic_contract_publication_transaction_regressions;
 mod economy;
 mod economy_bootstrap;
+#[cfg(feature = "test_tier_full")]
 mod economy_factory_authority;
 mod economy_factory_lifecycle;
 mod economy_module_call_uses_outer_transaction;
@@ -120,11 +143,13 @@ mod economy_module_requests;
 mod economy_priority_logistics;
 mod effects;
 mod execution_transaction_kernel;
+#[cfg(feature = "test_tier_full")]
 mod execution_transaction_regressions;
 mod gameplay;
 mod gameplay_bootstrap;
 mod gameplay_protocol;
 mod governance;
+#[cfg(feature = "test_tier_full")]
 mod governance_approval_queue_transaction_regressions;
 mod governance_emergency_brake_transaction_regressions;
 mod governance_emergency_veto_transaction_regressions;
@@ -133,23 +158,29 @@ mod governance_identity_penalty_application_transaction_regressions;
 mod governance_identity_penalty_resolution_transaction_regressions;
 mod governance_identity_penalty_transaction_regressions;
 mod governance_meta_publication_transaction_regressions;
+#[cfg(feature = "test_tier_full")]
 mod governance_proposal_transaction_regressions;
 mod governance_validator_admission;
 mod governance_vote_quote;
 mod industry_history_publication_transaction_regressions;
 mod industry_material_normalization_regressions;
+#[cfg(feature = "test_tier_full")]
 mod industry_publication_transaction_regressions;
 mod logistics_transfer_quote;
 mod main_token;
 mod main_token_economy_audit;
+#[cfg(feature = "test_tier_full")]
 mod major_world_event_projection;
 mod market_quote_decision_preview;
 mod module_action_loop;
+#[cfg(feature = "test_tier_full")]
 mod module_command_provenance;
 mod module_event_routing_transaction_regressions;
+#[cfg(feature = "test_tier_full")]
 mod module_lifecycle_transaction_regressions;
 mod module_routing_transaction_regressions;
 mod module_runtime_metering;
+#[cfg(feature = "test_tier_full")]
 mod module_tick_routing_transaction_regressions;
 mod module_visual_wasm_recovery;
 mod modules;
@@ -160,11 +191,13 @@ mod power_bootstrap;
 mod power_bootstrap_release_manifest_full;
 mod provider_capability_fixture;
 mod reward_asset;
+#[cfg(feature = "test_tier_full")]
 mod reward_asset_settlement_action;
 mod rules;
 mod state_serialization;
 mod storage_cold_index;
 mod storage_footprint_fixture;
+#[cfg(feature = "test_tier_full")]
 mod world_state_projection;
 // Pre-submit DeclareWar projection and non-mutation contract.
 mod agent_delegation;
@@ -173,4 +206,5 @@ mod war_declaration_quote;
 mod participant_policy;
 mod world_state_extraction;
 
+#[cfg(feature = "test_tier_full")]
 mod cognition_material_source;

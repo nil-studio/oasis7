@@ -1,3 +1,5 @@
+#![cfg(feature = "test_tier_full")]
+
 use super::*;
 use crate::{Action, WorldState};
 use oasis7_agent_api::game::{DecimalU64, GAME_GOAL_PUBLISH_DOMAIN};

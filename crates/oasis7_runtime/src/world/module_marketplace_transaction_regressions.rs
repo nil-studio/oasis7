@@ -1,3 +1,5 @@
+#![cfg(feature = "test_tier_full")]
+
 use super::super::{Action, ActionEnvelope, DomainEvent};
 use super::World;
 use oasis7_agent_api::world_action::ResourceKind;

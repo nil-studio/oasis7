@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 
 pub(super) const PUBLICATION_TEST_OBSERVED_AT_MS: i64 = 1_700_000_100_000;
