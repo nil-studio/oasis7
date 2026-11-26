@@ -419,3 +419,188 @@ fn fault_cases(point: bool, option: bool) {
         ));
     }
 }
+
+#[test]
+fn current_crisis_reads_real_physical_overlay_after_scalar_update() {
+    // This is a real physical page-store consumer of the Current opener.
+    // It does not mint a GEN/Host/Accepted capability or execute ResolveCrisis.
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+    let store = IncrementalPageStore::create(
+        &directory.0.join("current-crisis"),
+        memory.clone(),
+        PageCompression::Raw,
+    )
+    .unwrap();
+    let original = source();
+    let before = build(&store, &memory, &produce(&store, &memory, &original));
+    let parent = ExecutionParent {
+        roots: roots(&before),
+        commit: [84; 32],
+        authority: AuthorityBinding {
+            token: [85; 32],
+            epoch: 7,
+        },
+    };
+    let live = parent.fence().unwrap();
+    let state = store
+        .state_session(physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let values = store.value_session(physical());
+    let mut io = logical();
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let family = {
+        let mut read = fixed!(&before, &state, &values, &memory, &mut io, &mut keys);
+        qualify_diplomacy_family_v1(
+            &parent.roots,
+            &mut read,
+            &mut scan(),
+            &mut scan(),
+            &mut 8192,
+            4096,
+        )
+        .unwrap()
+    };
+
+    let mut tx = ExecutionTransaction::begin(
+        parent.clone(),
+        [86; 32],
+        &state,
+        &memory,
+        TransactionLimits {
+            max_reads: 160,
+            max_writes: 96,
+            max_facts: 4,
+            max_pending_node_bytes: 4 << 20,
+        },
+    )
+    .unwrap();
+    let mut io = logical();
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut scan_work = scan();
+    let mut cells = 8192;
+    let guard = tx.guard();
+    let current = {
+        let mut read = fixed!(&before, &state, &values, &memory, &mut io, &mut keys);
+        open_current_diplomacy_crisis_record_v1(
+            KEY,
+            &family,
+            &parent.roots,
+            &mut tx,
+            &mut read,
+            &mut scan_work,
+            &mut cells,
+            4096,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap()
+    };
+    assert_ne!(KEY, original.crises[KEY].crisis_id);
+
+    let mut backend = store.value_session(physical());
+    let mut write_io = logical();
+    let mut write_keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut write = MemberRecordWriteContext {
+        sink: &mut backend,
+        memory: &memory,
+        io: &mut write_io,
+        key_work: &mut write_keys,
+        limits: limits(),
+        cancelled: || false,
+    };
+    let guard = tx.guard();
+    let changed = {
+        let mut overlay = WorldFieldOverlayContextV1 {
+            transaction: &mut tx,
+            values: ValueReadContext {
+                source: &values,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut io,
+            },
+            key_work: &mut keys,
+            semantic_bytes: 1024,
+            record_bytes: 8192,
+            take_state_error: || state.take_read_error().map(state_error),
+            cancelled: || false,
+        };
+        change_qualified_diplomacy_scalar_v1(
+            DiplomacyScalarChangeV1 {
+                field: DiplomacyFieldV1::Crises,
+                id: KEY,
+                column: DiplomacyScalarV1::Crisis(CrisisScalarV1::Strategy),
+                qualification: &current,
+                expected: None,
+                after: Some(DiplomacyScalarValueV1::Text("patched-current")),
+                max_current_payload_bytes: 8192,
+                max_pending_node_bytes: 4 << 20,
+            },
+            &mut overlay,
+            &mut write,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap()
+    };
+    assert_ne!(changed.root(), current.root());
+
+    let guard = tx.guard();
+    let reopened = {
+        let mut read = fixed!(&before, &state, &values, &memory, &mut io, &mut keys);
+        open_current_diplomacy_crisis_record_v1(
+            KEY,
+            &family,
+            &parent.roots,
+            &mut tx,
+            &mut read,
+            &mut scan_work,
+            &mut cells,
+            4096,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap()
+    };
+    assert_eq!(reopened.root(), changed.root());
+
+    let mut actual = Vec::new();
+    {
+        let mut point = fixed!(
+            reopened.root(),
+            &state,
+            &values,
+            &memory,
+            &mut io,
+            &mut keys
+        );
+        assert_eq!(
+            read_qualified_diplomacy_scalar_v1(
+                KEY,
+                DiplomacyFieldV1::Crises,
+                DiplomacyScalarV1::Crisis(CrisisScalarV1::Strategy),
+                &reopened,
+                &mut point,
+                4096,
+                &mut actual,
+            )
+            .unwrap(),
+            Some(DiplomacyValueV1::Text {
+                utf8_bytes: "patched-current".len() as u64
+            })
+        );
+    }
+    assert_eq!(actual, b"patched-current");
+    assert!(cells < 8192);
+    let guard = tx.guard();
+    tx.seal(&guard, &live, 1).unwrap();
+}

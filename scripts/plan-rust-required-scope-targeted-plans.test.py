@@ -647,6 +647,61 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         candidate_attempt = selector.select(historical_cfg, historical_base, new_policy, profile='pr-fast')
         self.assertNotIn('ordinary_universal_sharding_version', candidate_attempt)
 
+    def test_runtime_full_wasm_plans_withhold_dockerless_v2_and_keep_v1_host_shards(self):
+        runtime_policy_plan = dict(
+            scope='targeted',
+            groups=['oasis7_required'],
+            execution_profile='pr-fast',
+            test_policy_changed=True,
+            oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_runtime', 'oasis7_viewer_runtime'],
+        )
+        selector.complete_ordinary_partitions(self.config, runtime_policy_plan)
+        self.assertNotIn('ordinary_universal_sharding_version', runtime_policy_plan)
+        self.assertEqual(runtime_policy_plan['ordinary_artifact_partition_version'], 1)
+        self.assertEqual(runtime_policy_plan['ordinary_artifact_delivery_version'], 1)
+        self.assertEqual(
+            runtime_policy_plan['ordinary_partitions'],
+            ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'],
+        )
+
+        non_runtime_policy_plan = dict(
+            scope='targeted',
+            groups=['oasis7_required'],
+            execution_profile='pr-fast',
+            test_policy_changed=True,
+            oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
+        )
+        selector.complete_ordinary_partitions(self.config, non_runtime_policy_plan)
+        self.assertEqual(non_runtime_policy_plan['ordinary_universal_sharding_version'], 1)
+        self.assertEqual(non_runtime_policy_plan['ordinary_artifact_partition_version'], 2)
+        self.assertEqual(non_runtime_policy_plan['ordinary_artifact_delivery_version'], 2)
+
+        runtime_lib_risk_plan = dict(
+            scope='targeted',
+            groups=['oasis7_required'],
+            execution_profile='pr-fast',
+            test_policy_changed=False,
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_runtime'],
+            ordinary_risk_targets=[dict(
+                package='oasis7_runtime', target_kind='lib', target_name='oasis7_runtime',
+                default_features=True, features=['test_tier_full'], cases=['wasm_case'],
+            )],
+        )
+        selector.complete_ordinary_partitions(self.config, runtime_lib_risk_plan)
+        self.assertNotIn('ordinary_universal_sharding_version', runtime_lib_risk_plan)
+        self.assertNotIn('ordinary_artifact_partition_version', runtime_lib_risk_plan)
+
+        runtime_test_risk_plan = dict(
+            runtime_lib_risk_plan,
+            ordinary_risk_targets=[dict(
+                package='oasis7_runtime', target_kind='test', target_name='incremental_full_scales',
+                default_features=True, features=['test_tier_full'], cases=['scale_case'],
+            )],
+        )
+        selector.complete_ordinary_partitions(self.config, runtime_test_risk_plan)
+        self.assertEqual(runtime_test_risk_plan['ordinary_artifact_partition_version'], 2)
+        self.assertEqual(runtime_test_risk_plan['ordinary_artifact_delivery_version'], 2)
+
 
 if __name__ == '__main__':
     unittest.main()
