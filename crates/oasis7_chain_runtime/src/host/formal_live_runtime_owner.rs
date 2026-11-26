@@ -841,10 +841,10 @@ fn run_owner_with_fixed_trust(
             original_owner,
         )?,
     ));
-    let restored = FormalLiveRuntime::open_from_validated_with_original_pending_owner_adapter(
+    let restored = FormalLiveRuntime::open_from_validated_with_original_pending_adapter_and_directory(
         validated,
-        std::sync::Arc::clone(&original_pending),
-        original_pending_directory,
+        Some(std::sync::Arc::clone(&original_pending)),
+        Some(original_pending_directory),
     );
     let active = restored
         .as_ref()

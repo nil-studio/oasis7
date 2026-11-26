@@ -2,18 +2,6 @@
 use super::*;
 
 impl FormalLiveRuntime {
-    pub(crate) fn open_from_validated_with_original_pending_owner_adapter(
-        validated: ValidatedFormalLiveConfigV1,
-        original_pending: Arc<Mutex<super::super::formal_live_original_pending_producer::OriginalPendingProducerV1>>,
-        original_pending_directory: PathBuf,
-    ) -> Result<Self, String> {
-        Self::open_from_validated_with_original_pending_adapter_and_directory(
-            validated,
-            Some(original_pending),
-            Some(original_pending_directory),
-        )
-    }
-
     pub(crate) fn freeze_original_pending(
         &mut self,
         timeout: Duration,
