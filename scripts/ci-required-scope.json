@@ -1231,6 +1231,16 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    ".github/actions/cache-sdk/LICENSE.cache.md": ["workflow_governance"],
+    ".github/actions/cache-sdk/build-receipt.json": ["workflow_governance"],
+    ".github/actions/cache-sdk/build.cjs": ["workflow_governance"],
+    ".github/actions/cache-sdk/entry.mjs": ["workflow_governance"],
+    ".github/actions/cache-sdk/package-lock.json": ["workflow_governance"],
+    ".github/actions/cache-sdk/package.json": ["workflow_governance"],
+    ".github/actions/cache-sdk/provenance.json": ["workflow_governance"],
+    ".github/actions/cache-sdk/sdk-patch.json": ["workflow_governance"],
+    ".github/actions/cache-sdk/sdk.test.cjs": ["workflow_governance"],
+    "scripts/ci-cache-sdk.test.py": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
@@ -1394,6 +1404,7 @@
     "scripts/plan-rust-required-scope-selection-part1.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-cache-sdk.test.py",
     "scripts/ci-hosted-login-package.test.py",
     "scripts/plan-rust-required-scope.test.py",
     "scripts/plan-rust-required-scope-worker-local.test.py",
@@ -1463,6 +1474,7 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-cache-sdk.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-cache-sdk.test.py"]},
     "scripts/ci-hosted-login-package.py": {
       "group": "packaging_contracts",
       "tests": ["scripts/ci-hosted-login-package.test.py"]

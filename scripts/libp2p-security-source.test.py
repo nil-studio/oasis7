@@ -29,7 +29,7 @@ class NetworkSourceContract(unittest.TestCase):
         self.assertEqual(list(ROOT.glob("vendor-*")), [])
         self.assertEqual(
             sorted(p.name for p in (ROOT / "vendor").iterdir() if p.is_dir()),
-            ["if-watch-3.2.2", "libp2p-quic-0.15.0", "libp2p-swarm-0.49.0"],
+            ["actions-cache-explicit-context", "if-watch-3.2.2", "libp2p-quic-0.15.0", "libp2p-swarm-0.49.0"],
         )
         timers = [p for p in lock["package"] if p["name"] == "futures-timer"]
         self.assertTrue(all(tuple(map(int, p["version"].split("."))) >= (3, 0, 4) for p in timers))
