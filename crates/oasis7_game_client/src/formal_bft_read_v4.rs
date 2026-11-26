@@ -10,7 +10,8 @@ use oasis7_client_api::{
     },
 };
 use oasis7_formal_protocol::bft::{
-    BftProfileTargetV2, FormalBftCertifiedHeaderPrefixV3, FormalBftExecutionCommitmentV1,
+    BftProfileTargetV2, BftSuccessorWindowSourceV1, FormalBftCertifiedHeaderPrefixV3,
+    FormalBftExecutionCommitmentV1,
     VerifiedBftHandoffTargetV2, VerifiedBftHeaderCertificateV3, VerifiedFormalBftHeaderPrefixV3,
     verify_formal_bft_handoff_v2,
 };
@@ -222,6 +223,93 @@ impl<T> VerifiedFormalBftHeaderReadPageV4<T> {
     pub fn view(&self) -> &T {
         &self.response.view
     }
+}
+
+/// An externally selected successor cut identity. This is an untrusted pin,
+/// not a signer lease, FullReadOnly grant, archive closure, or install receipt.
+/// The caller must separately qualify the original H and complete cut/archive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormalBftOriginalSuccessorCutPinV1 {
+    pub source_origin_digest: String,
+    pub height: u64,
+    pub header_id: String,
+    pub execution_commitment_digest: String,
+    pub semantic_state_root: String,
+    pub post_manifest_hash: String,
+}
+
+impl FormalBftOriginalSuccessorCutPinV1 {
+    fn validate(&self) -> Result<(), String> {
+        let valid_digest = |digest: &str| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        };
+        if self.height == 0
+            || ![
+                &self.source_origin_digest,
+                &self.header_id,
+                &self.execution_commitment_digest,
+                &self.semantic_state_root,
+                &self.post_manifest_hash,
+            ]
+            .into_iter()
+            .all(|digest| valid_digest(digest))
+        {
+            return Err("original successor cut pin is invalid".into());
+        }
+        Ok(())
+    }
+}
+
+/// A verified read4 page already passed the original signed request, certified
+/// H-to-tip prefix, exact QC/commitment, and projection proof verification.
+/// This additional comparison binds it to an externally qualified successor
+/// source and independently fixed cut, without promoting any reader authority.
+impl<T> VerifiedFormalBftHeaderReadPageV4<T> {
+    pub fn verify_original_successor_cut_candidate(
+        &self,
+        original: &BftSuccessorWindowSourceV1,
+        selected: &FormalBftOriginalSuccessorCutPinV1,
+    ) -> Result<(), String> {
+        check_untrusted_original_successor_cut(&self.request, &self.response.head, original, selected)
+    }
+}
+
+// Private structural check; only the VerifiedFormalBftHeaderReadPageV4 method
+// exposes this to callers, after the full read4 proof has been checked.
+fn check_untrusted_original_successor_cut(
+    request: &FormalBftHeaderReadRequestV4,
+    head: &oasis7_client_api::world_service::FormalBftHeaderReadHeadV4,
+    original: &BftSuccessorWindowSourceV1,
+    selected: &FormalBftOriginalSuccessorCutPinV1,
+) -> Result<(), String> {
+    original.validate()?;
+    request.validate().map_err(|error| error.to_string())?;
+    head.validate().map_err(|error| error.to_string())?;
+    selected.validate()?;
+    if selected.source_origin_digest != original.origin_digest()?
+        || request.world.world_id != original.scope.world_id
+        || request.world.genesis_digest != original.scope.genesis_hash
+        || request.handoff_anchor.position != original.handoff_position
+        || request.handoff_anchor.record_id != original.handoff_record_id
+        || request.target_config_digest != original.target_digest
+        || request.activation_digest != original.activation_digest
+    {
+        return Err("read4 original qualified H/source mismatch".into());
+    }
+    if request.exact_target.height != selected.height
+        || request.exact_target.header_id != selected.header_id
+        || head.height != selected.height
+        || head.header_id != selected.header_id
+        || head.execution_commitment_hash != selected.execution_commitment_digest
+        || head.state_root != selected.semantic_state_root
+        || head.post_manifest_hash != selected.post_manifest_hash
+    {
+        return Err("read4 certified head differs from selected successor cut".into());
+    }
+    Ok(())
 }
 
 /// Authenticated transport and semantic verifier for the independent contract-4 route.
