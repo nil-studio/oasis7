@@ -47,13 +47,13 @@ pub trait NodeBftCommittedReadCredentialsV3: Send + Sync {
     fn sign_request(&self, canonical_payload: &[u8]) -> Result<String, String>;
 }
 
+#[allow(dead_code)] // Request contract only. Live Noise registration is a subsequent slice.
+#[path = "admission_input_request_v2.rs"]
+mod admission_input_request_v2;
 #[path = "client.rs"]
 mod client;
 #[path = "package.rs"]
 mod package;
-#[allow(dead_code)] // Request contract only. Live Noise registration is a subsequent slice.
-#[path = "admission_input_request_v2.rs"]
-mod admission_input_request_v2;
 #[path = "server.rs"]
 mod server;
 #[path = "wire.rs"]
