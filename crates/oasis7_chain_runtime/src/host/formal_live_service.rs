@@ -25,6 +25,7 @@ use oasis7_client_api::world_service::{
     SubmitIntentRequest, WORLD_SERVICE_CONTRACT_VERSION, WorldIdentity,
 };
 use oasis7_distfs::controlled_authority::{
+    LocalRequestIdentity,
     formal::{VerifiedFormalReadAnchorV1, business_index::BusinessIndexNodeReader},
     replicated_protocol::ClosedRecord,
 };
@@ -399,6 +400,9 @@ pub(crate) struct FormalLiveService {
     state: FormalLiveState,
     admission_gate: Arc<Mutex<()>>,
     full_sync_read_gate: Option<Arc<full_sync_read_gate::FullSyncV3ReadGate>>,
+    // Opt-in exact original owner queue hook; default runtime stays unchanged.
+    // The owner must join this with the SAME admission gate for Frozen.
+    original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
 }
 impl FormalLiveService {
     #[expect(
@@ -428,7 +432,19 @@ impl FormalLiveService {
             state,
             admission_gate,
             full_sync_read_gate: None,
+            original_pending: None,
         }
+    }
+
+    /// Exact original P/R pending adapter. No persistence/grant/cutover is
+    /// implied by enabling the optional recorder; the owner coordinates its
+    /// actual Frozen transition separately under the same admission gate.
+    pub(crate) fn with_original_pending_producer(
+        mut self,
+        producer: Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>,
+    ) -> Self {
+        self.original_pending = Some(producer);
+        self
     }
 
     pub(crate) fn with_full_sync_read_gate(
@@ -886,7 +902,7 @@ impl FormalLiveService {
             }
         };
         let digest = authority::request_digest(SUBMIT_PATH, &request);
-        match self.submit(request) {
+        match self.submit(request, body) {
             Ok(response) => {
                 signed_reply_with_digest(200, SUBMIT_PATH, digest, &response, &self.signer)
             }
@@ -899,6 +915,7 @@ impl FormalLiveService {
     fn submit(
         &self,
         request: SubmitIntentRequest<WorldServicePayloadV1>,
+        original_signed_request: &[u8],
     ) -> Result<IntentResponse<serde_json::Value>, (u16, &'static str, String)> {
         let _admission = self.admission_gate.lock().map_err(|_| {
             (
@@ -965,6 +982,27 @@ impl FormalLiveService {
             u64::from_be_bytes(digest.as_bytes()[..8].try_into().expect("hash width")).max(1);
         let action = oasis7_world_service::correlation::encode_consensus_intent(&request)
             .map_err(|error| (400, "invalid_payload", error))?;
+        // A signed payload that has already been accepted into the Node
+        // private proposal must remain in the original owner handoff. Take
+        // capacity/identity reservations before queueing, while the shared
+        // admission gate excludes a concurrent exact-owner freeze.
+        let tracked_identity = if let Some(tracker) = &self.original_pending {
+            let key = &actual_correlation.key;
+            let identity = LocalRequestIdentity {
+                verified_subject: key.verified_subject.clone(),
+                operation_domain: key.operation_domain.clone(),
+                nonce_scope: key.nonce_scope.clone(),
+                request_id: key.request_id_or_nonce.clone(),
+            };
+            tracker
+                .lock()
+                .map_err(|_| (503, "runtime_unavailable", "original pending tracker poisoned".into()))?
+                .preflight_accepted_enqueue(&identity, original_signed_request)
+                .map_err(|error| (503, "pending_unavailable", error))?;
+            Some(identity)
+        } else {
+            None
+        };
         let runtime = self.runtime.lock().map_err(|_| {
             (
                 503,
@@ -981,6 +1019,24 @@ impl FormalLiveService {
                     format!("Node action queue rejected submit: {error:?}"),
                 )
             })?;
+        if let Some(identity) = tracked_identity {
+            let captured = self
+                .original_pending
+                .as_ref()
+                .expect("tracked identity requires original pending producer")
+                .lock()
+                .map_err(|_| "original pending owner lock poisoned".to_string())
+                .and_then(|mut tracker| {
+                    tracker.note_accepted_enqueue(identity, original_signed_request.to_vec())
+                });
+            if let Err(error) = captured {
+                // Node may already contain the original action; never turn
+                // unknown capture into an ordinary success or accept new work.
+                self.state.stopping.store(true, Ordering::Release);
+                self.state.ready.store(false, Ordering::Release);
+                return Err((503, "pending_outcome_unknown", error));
+            }
+        }
         Ok(IntentResponse {
             terminal_recovery_authority: None,
             formal_profile: Some(FormalReadProfileV1::controlled()),

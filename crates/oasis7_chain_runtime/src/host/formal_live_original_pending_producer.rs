@@ -122,6 +122,34 @@ impl OriginalPendingProducerV1 {
         })
     }
 
+    /// Bound the exact original before touching the real Node queue, preventing
+    /// a successful enqueue from exceeding the handoff capacity. The real
+    /// post-accept step below must still write the exact same bytes.
+    pub(super) fn preflight_accepted_enqueue(
+        &self,
+        identity: &LocalRequestIdentity,
+        original_signed_bytes: &[u8],
+    ) -> Result<(), String> {
+        if self.phase != PendingPhase::Accepting {
+            return Err("original pending owner not accepting".into());
+        }
+        if let Some(existing) = self.requests.iter().find(|r| &r.identity == identity) {
+            return if existing.signed_request == original_signed_bytes {
+                Ok(())
+            } else {
+                Err("same original request identity has different signed bytes".into())
+            };
+        }
+        let mut candidate = self.requests.clone();
+        candidate.push(RecoveryPendingRequestV1 {
+            identity: identity.clone(),
+            signed_request: original_signed_bytes.to_vec(),
+        });
+        RecoveryPendingHandoffV1::from_requests(candidate)
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
     /// Called *only* after the established authenticated Node queue accepted
     /// the original request. The caller supplies exact wire bytes, not a decoded
     /// representation; this method itself grants no admission.

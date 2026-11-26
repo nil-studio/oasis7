@@ -414,6 +414,87 @@ fn valid_submit(owner: &SigningKey) -> SubmitIntentRequest<WorldServicePayloadV1
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
+    use super::super::formal_live_original_pending_producer::{
+        OriginalPendingOwnerV1, OriginalPendingProducerV1,
+    };
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::atomic::AtomicU64;
+    static N: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "o7-submit-pending-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let owner_id = OriginalPendingOwnerV1 {
+        authority_id: "authenticated-owner".into(),
+        operation_id: "original".into(),
+        request_digest: "original-digest".into(),
+        config_digest: "verified-config".into(),
+        incarnation: "original-incarnation".into(),
+    };
+    let tracker = Arc::new(Mutex::new(
+        OriginalPendingProducerV1::open(&path, owner_id).unwrap(),
+    ));
+    let (base_world, trust, anchor) = fixture_trust();
+    let (world, owner) = world_with_owner();
+    let node = live_node(&anchor.head().record().world.world_id);
+    let published = Arc::new(PublishedReadState {
+        current: Mutex::new(Some(PublishedReadCut {
+            world: world.clone(),
+            anchor: anchor.clone(),
+        })),
+        ..PublishedReadState::default()
+    });
+    let resolver = Arc::new(CurrentOnlyResolver::new(base_world, anchor.clone()));
+    let (service, _, _) = live_service(
+        world,
+        anchor,
+        trust,
+        resolver,
+        Arc::clone(&node),
+        published,
+    );
+    let service = service.with_original_pending_producer(Arc::clone(&tracker));
+    let request = valid_submit(&owner);
+    let bytes = serde_json::to_vec(&request).unwrap();
+    let received = service.handle("POST", SUBMIT_PATH, &bytes);
+    assert_eq!(received.status, 200);
+    assert_eq!(
+        node.lock().unwrap().snapshot().consensus.pending_consensus_actions
+            .submit_buffer_action_count,
+        1,
+    );
+    let prepared = tracker.lock().unwrap().begin_freeze(&path).unwrap();
+    assert_eq!(prepared.count, 1);
+    // No actual Node Frozen has occurred yet: the record is only prepared,
+    // and the independent cold reader MUST continue to reject it.
+    assert!(super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
+        &path,
+        &OriginalPendingOwnerV1 {
+            authority_id: "authenticated-owner".into(),
+            operation_id: "original".into(),
+            request_digest: "original-digest".into(),
+            config_digest: "verified-config".into(),
+            incarnation: "original-incarnation".into(),
+        },
+        &prepared.root,
+        1,
+    ).is_err());
+    let declined = service.handle("POST", SUBMIT_PATH, &bytes);
+    assert_eq!(declined.status, 503);
+    assert_eq!(
+        node.lock().unwrap().snapshot().consensus.pending_consensus_actions
+            .submit_buffer_action_count,
+        1,
+    );
+    std::fs::remove_dir_all(&path).unwrap();
+}
+
 #[test]
 fn signed_submit_queues_real_node_action_without_mutating_world_and_lookup_fails_closed() {
     let (base_world, trust, anchor) = fixture_trust();
