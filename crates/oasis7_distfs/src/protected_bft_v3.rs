@@ -4,6 +4,7 @@
 mod admission_input_stream;
 mod admission_input_transfer_plan;
 mod backend;
+mod backend_conformance;
 mod binding;
 mod bootstrap_rotation;
 mod client;
@@ -33,6 +34,7 @@ pub use successor_source::{
     successor_source_from_binding_v3, validate_successor_source_for_binding_v3,
 };
 
+pub use backend_conformance::exercise_disposable_backend_lease_handoff_v3;
 pub use backend::{
     BFT_SIGNER_BACKEND_NAMESPACE_V3, BftFreshCoverageSnapshotV1, BftSignerAcquireOutcomeV3,
     BftSignerBackendSnapshotV3, BftSignerBackendV3,
