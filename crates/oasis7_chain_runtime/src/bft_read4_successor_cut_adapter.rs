@@ -5,12 +5,8 @@
 //! read4 prefix, projection, current FullReadOnly grant, and the complete archive
 //! before publication. This module does not install a world, sign, serve HTTP,
 //! allocate a transfer budget, or change the live Node/Chain paths.
-use oasis7_client_api::world_service::{
-    FormalBftHeaderReadHeadV4, FormalBftHeaderReadRequestV4,
-};
-use oasis7_distfs::protected_bft_v3::{
-    BftSuccessorWindowCutV1, BftSuccessorWindowSourceV1,
-};
+use oasis7_client_api::world_service::{FormalBftHeaderReadHeadV4, FormalBftHeaderReadRequestV4};
+use oasis7_distfs::protected_bft_v3::{BftSuccessorWindowCutV1, BftSuccessorWindowSourceV1};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BftRead4SuccessorCutCandidateV1 {
@@ -164,10 +160,8 @@ mod tests {
         cut: &BftSuccessorWindowCutV1,
         head: &FormalBftHeaderReadHeadV4,
     ) -> bool {
-        BftRead4SuccessorCutCandidateV1::bind_untrusted_exact_cut(
-            original, request, cut, head,
-        )
-        .is_ok()
+        BftRead4SuccessorCutCandidateV1::bind_untrusted_exact_cut(original, request, cut, head)
+            .is_ok()
     }
 
     #[test]
@@ -176,10 +170,9 @@ mod tests {
         let request = request(&src);
         let cut = cut();
         let head = head(&cut);
-        let candidate = BftRead4SuccessorCutCandidateV1::bind_untrusted_exact_cut(
-            &src, &request, &cut, &head,
-        )
-        .unwrap();
+        let candidate =
+            BftRead4SuccessorCutCandidateV1::bind_untrusted_exact_cut(&src, &request, &cut, &head)
+                .unwrap();
         assert_eq!(candidate.source_origin_digest, src.origin_digest().unwrap());
         assert_eq!(candidate.cut, cut);
     }
