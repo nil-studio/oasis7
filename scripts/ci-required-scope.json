@@ -1366,6 +1366,7 @@
     "scripts/ci-workflow-core-part1.test.py": ["workflow_governance"],
     "scripts/ci-workflow-core-part2.test.py": ["workflow_governance"],
     "scripts/ci-workflow-core-part3.test.py": ["workflow_governance"],
+    "scripts/ci-workflow-core-part4.test.py": ["workflow_governance"],
     "scripts/ci-workflow-delivery-and-capacity.test.py": ["workflow_governance"],
     "scripts/ci-workflow-guards-and-timeouts.test.py": ["workflow_governance"],
     "scripts/ci-workflow.test.py": ["workflow_governance"],
@@ -1414,6 +1415,7 @@
     "scripts/ci-workflow-core-part1.test.py",
     "scripts/ci-workflow-core-part2.test.py",
     "scripts/ci-workflow-core-part3.test.py",
+    "scripts/ci-workflow-core-part4.test.py",
     "scripts/ci-workflow-delivery-and-capacity.test.py",
     "scripts/ci-workflow-guards-and-timeouts.test.py",
     "scripts/ci-workflow.test.py",
@@ -1895,6 +1897,12 @@
         "scripts/ci-workflow-core-part3.test.py"
       ]
     },
+    "scripts/ci-workflow-core-part4.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow-core-part4.test.py"
+      ]
+    },
     "scripts/ci-workflow-delivery-and-capacity.test.py": {
       "group": "workflow_governance",
       "tests": [
@@ -1950,6 +1958,7 @@
         "scripts/ci-workflow-core-part1.test.py",
         "scripts/ci-workflow-core-part2.test.py",
         "scripts/ci-workflow-core-part3.test.py",
+        "scripts/ci-workflow-core-part4.test.py",
         "scripts/ci-workflow-delivery-and-capacity.test.py",
         "scripts/ci-workflow-guards-and-timeouts.test.py",
         "scripts/ci-workflow.test.py",
