@@ -66,10 +66,16 @@ fn actual_mtls_listener_rejects_unlisted_leaf_and_mismatched_grant_before_dispat
     let authority = ca();
     let (server_cert, server_key) =
         leaf(&authority, "localhost", ExtendedKeyUsagePurpose::ServerAuth);
-    let (allowed_cert, allowed_key) =
-        leaf(&authority, "provider-a", ExtendedKeyUsagePurpose::ClientAuth);
-    let (other_cert, other_key) =
-        leaf(&authority, "provider-b", ExtendedKeyUsagePurpose::ClientAuth);
+    let (allowed_cert, allowed_key) = leaf(
+        &authority,
+        "provider-a",
+        ExtendedKeyUsagePurpose::ClientAuth,
+    );
+    let (other_cert, other_key) = leaf(
+        &authority,
+        "provider-b",
+        ExtendedKeyUsagePurpose::ClientAuth,
+    );
     let request = query();
     let grant = IssuerEvidenceGrantV3 {
         client_certificate_sha256: certificate_pin(allowed_cert.der().as_ref()),

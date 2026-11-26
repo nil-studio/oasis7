@@ -197,7 +197,8 @@ struct DeadlineSocket {
 
 impl Read for DeadlineSocket {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        self.socket.set_read_timeout(Some(remaining(self.deadline)?))?;
+        self.socket
+            .set_read_timeout(Some(remaining(self.deadline)?))?;
         self.socket.read(buffer)
     }
 }
@@ -258,7 +259,9 @@ fn read_query(stream: &mut impl Read) -> Result<FullSyncReadEvidenceQueryV3, Str
         let (name, value) = line.split_once(':').ok_or("invalid issuer header field")?;
         if name.is_empty()
             || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-            || !value.bytes().all(|b| b.is_ascii_graphic() || b == b' ' || b == b'\t')
+            || !value
+                .bytes()
+                .all(|b| b.is_ascii_graphic() || b == b' ' || b == b'\t')
         {
             return Err("invalid issuer header field".into());
         }
