@@ -21,6 +21,10 @@ impl PaidRequestStateV1 {
     ) -> bool {
         self.value.uses_budget(memory)
     }
+    #[cfg(test)]
+    pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
+        self.value.reserved_bytes()
+    }
 }
 fn add(a: usize, b: usize) -> Result<usize, FormalError> {
     a.checked_add(b)
@@ -315,3 +319,6 @@ pub(super) fn read_request_bounded_v1(
     work.consume_steps(1, cancelled)?;
     Ok(Some(state))
 }
+#[cfg(all(test, unix))]
+#[path = "endpoint_store_bounded_request_tests.rs"]
+mod tests;

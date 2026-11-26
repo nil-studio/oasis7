@@ -20,6 +20,21 @@ impl PaidFormalRequestQueryV1 {
     }
 }
 impl FileFormalEndpoint {
+    /// The private typed data loader is also directly exercised by the real
+    /// five-state Store fixture; every error poisons the original endpoint.
+    pub(super) fn load_bounded(
+        &mut self,
+        request: &str,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<store::PaidRequestStateV1>, FormalError> {
+        let result = self.store.read_request_bounded(request, memory, work, cancelled);
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
     /// A real local endpoint consumer for the same caller-owned Ordinary pool,
     /// continuing archive meter and cancellation. Unlike legacy query(), this
     /// never creates a work allowance, and retains typed decode memory fees.
@@ -33,10 +48,7 @@ impl FileFormalEndpoint {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<PaidFormalRequestQueryV1, FormalError> {
         let _guard = self.guard()?;
-        let result = self.store.read_request_bounded(request, memory, work, cancelled);
-        if result.is_err() {
-            self.poisoned = true;
-        }
-        result.map(|state| PaidFormalRequestQueryV1 { state })
+        self.load_bounded(request, memory, work, cancelled)
+            .map(|state| PaidFormalRequestQueryV1 { state })
     }
 }
