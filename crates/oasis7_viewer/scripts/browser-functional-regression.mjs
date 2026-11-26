@@ -26,6 +26,7 @@ import {
 } from "./browser_functional_regression_fixture_server.mjs";
 export { createFixtureServer };
 import {
+  STATE_READER,
   createBrowserDriver,
   resolveBrowserBinary,
   waitForObservation,

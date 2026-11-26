@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { delimiter, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -175,7 +175,7 @@ export async function waitForObservation(readObservation, label, timeoutMs) {
   throw new Error(`condition not reached: ${label}\n${JSON.stringify(last?.state ?? null).slice(0, 1200)}`);
 }
 
-const STATE_READER = "window.__AW_TEST__?.getState?.() || {}";
+export const STATE_READER = "window.__AW_TEST__?.getState?.() || {}";
 
 // Compare serialized state in Node so request IDs and other observed data
 // remain closure values, never browser program text.
