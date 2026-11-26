@@ -9,14 +9,14 @@ use serde_json::Value;
 use crate::agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQueryResult,
 };
-use crate::cognition_response_identity::{
-    CognitionResponseDigestDisposition, classify_cognition_response_digest,
-    cognition_response_digest,
-};
 use crate::simulator_archive::archive::WorldEvent;
 use oasis7_agent_api::{
     CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION,
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, FeedbackEnvelopeV1,
+};
+use oasis7_agent_harness::{
+    CognitionResponseDigestDisposition, classify_cognition_response_digest,
+    cognition_response_digest,
 };
 use oasis7_simulator::{Action, AgentQuery, Observation, WorldTime};
 type ContinuousAgentResponseContextV1 =

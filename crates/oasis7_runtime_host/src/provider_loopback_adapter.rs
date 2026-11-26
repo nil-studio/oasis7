@@ -1,11 +1,10 @@
 //! Compatible native Host decision-provider contract; no shipping cutover.
+use std::fmt;
 use std::sync::Arc;
-use std::{error::Error, fmt};
 
 use oasis7_agent_api::ProviderModuleCommand;
 use oasis7_agent_harness::{
     CognitionResponseDigestDisposition, classify_cognition_response_digest,
-    cognition_response_digest,
 };
 use oasis7_simulator::{Action, AgentQuery};
 use oasis7_wasm_abi::{
@@ -18,6 +17,7 @@ use crate::decision_provider::ProviderCapabilityContext;
 pub use crate::decision_provider::{DecisionProvider, DecisionProviderError};
 use crate::provider_json_admission::ProviderResponseContextLease;
 use crate::provider_loopback_http::{
+    CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION,
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
     ContinuousAgentTurnContextV1, DecisionRequest, DecisionResponse, FeedbackEnvelope,
     FeedbackEnvelopeV1, ProviderDecision, ProviderFeedbackAck, ProviderLoopbackHttpClient,

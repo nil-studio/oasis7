@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::decision_provider::MemoryWriteIntent;
 use oasis7_agent_api::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
-use oasis7_simulator::{Action, ActionId, AgentQuery, WorldTime};
+use oasis7_simulator::{Action, ActionId, WorldTime};
 use oasis7_simulator::{Observation, RejectReason, WorldEventKind};
 type ContinuousAgentResponseContextV1 =
-    oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>;
+    oasis7_agent_api::ContinuousAgentResponseContextV1<Action, oasis7_simulator::AgentQuery>;
 
 // ============================================================================
 // Agent Interface (observe → decide → act)
