@@ -21,16 +21,36 @@ LEGACY_V3_CONSOLIDATED_GROUPS = LEGACY_V2_CONSOLIDATED_GROUPS | frozenset({
     'cargo_tooling_contracts',
     'windows_rollout',
 })
+LEGACY_V4_CONSOLIDATED_GROUPS = LEGACY_V3_CONSOLIDATED_GROUPS | frozenset({
+    'operational_contracts',
+})
+DIRECT_CUSTODY_JOBS = (
+    'custody-native-contracts',
+    'custody-native',
+    'custody-wasm-production',
+    'custody-node',
+)
 
 
 def _consolidation_overrides(config, plan):
-    if not isinstance(plan, dict) or 'contract_job_consolidation_version' not in plan:
+    if not isinstance(plan, dict):
+        return None
+    offline = plan.get('command_center_offline_version')
+    if 'command_center_offline_version' in plan:
+        config_offline = config.get('command_center_offline_version')
+        if type(offline) is not int or offline != 1:
+            raise ValueError('unsupported command center offline version')
+        if (type(config_offline) is not int or config_offline != 1
+                or config.get('group_jobs', {}).get('command_center') != 'baseline'
+                or plan.get('contract_job_consolidation_version') != 5):
+            raise ValueError('untrusted command center offline capability')
+    if 'contract_job_consolidation_version' not in plan:
         return None
     version = plan['contract_job_consolidation_version']
     config_version = config.get('contract_job_consolidation_version')
-    if type(version) is not int or version not in (1, 2, 3, 4):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5):
         raise ValueError('unsupported contract job consolidation version')
-    if type(config_version) is not int or config_version not in (1, 2, 3, 4) or version > config_version:
+    if type(config_version) is not int or config_version not in (1, 2, 3, 4, 5) or version > config_version:
         raise ValueError('untrusted contract job consolidation capability')
     overrides = config.get('group_jobs')
     if not isinstance(overrides, dict) or not overrides:
@@ -40,30 +60,54 @@ def _consolidation_overrides(config, plan):
         if (group not in config['groups'] or not isinstance(job, str)
                 or job not in default_jobs or job == group.replace('_', '-')):
             raise ValueError('invalid consolidated group job mapping')
-    if version == 1 and config_version in (2, 3, 4):
-        return {group: job for group, job in overrides.items() if group in LEGACY_V1_CONSOLIDATED_GROUPS}
-    if version == 2 and config_version in (3, 4):
-        return {group: job for group, job in overrides.items() if group in LEGACY_V2_CONSOLIDATED_GROUPS}
-    if version == 3 and config_version == 4:
-        return {group: job for group, job in overrides.items() if group in LEGACY_V3_CONSOLIDATED_GROUPS}
-    return dict(overrides)
+    if version < config_version:
+        allowed = {
+            1: LEGACY_V1_CONSOLIDATED_GROUPS,
+            2: LEGACY_V2_CONSOLIDATED_GROUPS,
+            3: LEGACY_V3_CONSOLIDATED_GROUPS,
+            4: LEGACY_V4_CONSOLIDATED_GROUPS,
+        }[version]
+        result = {group: job for group, job in overrides.items() if group in allowed}
+        if config_version == 5:
+            # v1..v4 routed compile_metrics (v1..v4) and packaging_contracts (v3..v4)
+            # to standalone doc-checker-contracts before v5 folded them into baseline.
+            if 'compile_metrics' in result:
+                result['compile_metrics'] = 'doc-checker-contracts'
+            if version in (3, 4) and 'packaging_contracts' in result:
+                result['packaging_contracts'] = 'doc-checker-contracts'
+        return result
+    result = dict(overrides)
+    if offline != 1:
+        result.pop('command_center', None)
+    return result
 
 
-def _direct_workspace_support_gate(config, plan):
+def _direct_workspace_support_gate_version(config, plan):
     if not isinstance(plan, dict) or 'workspace_support_direct_gate_version' not in plan:
-        return False
+        return 0
     version = plan['workspace_support_direct_gate_version']
-    if type(version) is not int or version != 1:
+    config_version = config.get('workspace_support_direct_gate_version')
+    if type(version) is not int or version not in (1, 2):
         raise ValueError('unsupported direct workspace support gate version')
-    if config.get('workspace_support_direct_gate_version') != 1:
+    if type(config_version) is not int or config_version not in (1, 2) or version > config_version:
         raise ValueError('untrusted direct workspace support gate capability')
     if ('workspace_support' not in plan.get('groups', ())
             or plan.get('scope') == 'explicit-full'
-            or plan.get('custody_execution_version') == 1
-            or plan.get('workspace_support_partition_version') != 1
-            or plan.get('workspace_support_partitions') != ['other']):
+            or plan.get('workspace_support_partition_version') != 1):
         raise ValueError('invalid direct workspace support gate plan')
-    return True
+    if version == 1:
+        if (plan.get('custody_execution_version') == 1
+                or plan.get('workspace_support_partitions') != ['other']):
+            raise ValueError('invalid direct workspace support gate plan')
+        return 1
+    if plan.get('custody_execution_version') == 1:
+        partitions = plan.get('workspace_support_partitions')
+        if not isinstance(partitions, list) or 'custody' not in partitions:
+            raise ValueError('invalid direct workspace support gate plan')
+        return 2
+    if plan.get('workspace_support_partitions') != ['other']:
+        raise ValueError('invalid direct workspace support gate plan')
+    return 2
 
 
 def configured_group_jobs(config, plan=None):
@@ -71,8 +115,12 @@ def configured_group_jobs(config, plan=None):
     overrides = _consolidation_overrides(config, plan)
     if overrides:
         jobs.update(overrides)
-    if _direct_workspace_support_gate(config, plan):
-        jobs['workspace_support'] = 'workspace-support-other'
+    direct = _direct_workspace_support_gate_version(config, plan)
+    if direct:
+        jobs['workspace_support'] = (
+            'custody-node' if (direct == 2 and plan.get('custody_execution_version') == 1)
+            else 'workspace-support-other'
+        )
     return jobs
 
 
@@ -82,7 +130,7 @@ def retired_group_jobs(config, plan=None):
     if overrides:
         active = set(configured_group_jobs(config, plan).values())
         retired.update({group.replace('_', '-') for group in overrides} - active)
-    if _direct_workspace_support_gate(config, plan):
+    if _direct_workspace_support_gate_version(config, plan):
         retired.add('workspace-support')
     return retired
 
@@ -107,12 +155,29 @@ def validate(plan, needs, group_jobs, *, retired_jobs=()):
         if job not in needs or needs.get(job, {}).get('result') != 'skipped':
             raise ValueError(f'{job}: retired consolidated job must be present and skipped')
     expected_jobs = {'select', *group_jobs.values(), *retired}
-    if ('workspace_support' in group_jobs and 'workspace-support-other' in needs
-            and 'workspace-support-other' not in expected_jobs):
-        expected_jobs.add('workspace-support-other')
-        if needs['workspace-support-other'].get('result') not in {'skipped', 'success'}:
-            raise ValueError('workspace-support-other: unexpected result '
-                             f"{needs['workspace-support-other'].get('result')!r}")
+    if 'workspace_support' in group_jobs:
+        direct_v2_custody = (
+            isinstance(plan, dict)
+            and plan.get('workspace_support_direct_gate_version') == 2
+            and plan.get('custody_execution_version') == 1
+        )
+        if 'workspace-support-other' in needs and 'workspace-support-other' not in expected_jobs:
+            expected_jobs.add('workspace-support-other')
+            if direct_v2_custody:
+                need_other = 'other' in plan.get('workspace_support_partitions', ())
+                allowed_other = {'success'} if need_other else {'skipped'}
+            else:
+                allowed_other = {'skipped', 'success'}
+            if needs['workspace-support-other'].get('result') not in allowed_other:
+                raise ValueError('workspace-support-other: unexpected result '
+                                 f"{needs['workspace-support-other'].get('result')!r}")
+        for custody_job in DIRECT_CUSTODY_JOBS:
+            if custody_job in needs and custody_job not in expected_jobs:
+                expected_jobs.add(custody_job)
+                allowed_custody = {'success'} if direct_v2_custody else {'skipped', 'success'}
+                if needs[custody_job].get('result') not in allowed_custody:
+                    raise ValueError(f'{custody_job}: unexpected result '
+                                     f"{needs[custody_job].get('result')!r}")
     for job, entry in needs.items():
         if job not in expected_jobs:
             if not isinstance(entry, dict) or entry.get('result') != 'success':

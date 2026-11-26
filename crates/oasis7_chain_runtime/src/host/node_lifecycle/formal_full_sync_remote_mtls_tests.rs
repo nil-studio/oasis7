@@ -182,11 +182,8 @@ fn configured_evidence_mtls_requires_server_pin_hostname_and_client_certificate(
         // The relay closes the first successful exchange. The second request
         // uses the same configured client and must authenticate on reconnect.
         let attempts = if success { 2 } else { 1 };
-        // A successful authorization uses a separate read-only bootstrap
-        // nonce and the final caller nonce on the same configured client.
-        let connections = if success { attempts * 2 } else { 1 };
         let worker = std::thread::spawn(move || {
-            for _ in 0..connections {
+            for _ in 0..attempts {
                 let until = Instant::now() + Duration::from_secs(5);
                 let mut socket = loop {
                     match listener.accept() {

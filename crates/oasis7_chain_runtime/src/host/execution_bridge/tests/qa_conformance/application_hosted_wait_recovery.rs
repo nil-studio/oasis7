@@ -66,7 +66,7 @@ fn retained_original(bytes: &[u8]) -> SubmitIntentRequest<WorldServicePayloadV1>
     let checkpoint: serde_json::Value = serde_json::from_slice(bytes).unwrap();
     let resume = &checkpoint["hosted_resume"];
     assert!(resume.is_object(), "real durable hosted Resume missing");
-    let request: oasis7::simulator::ContinuousAgentRequestContextV1 =
+    let request: oasis7_agent_api::ContinuousAgentRequestContextV1 =
         serde_json::from_value(resume["context"]["request_context"].clone()).unwrap();
     request.validate_production_lane().unwrap();
     assert!(

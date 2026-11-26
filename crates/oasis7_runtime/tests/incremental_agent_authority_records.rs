@@ -152,7 +152,12 @@ fn original_agent_authority_records_cold_recover_all_three_families() {
     use AgentAuthorityColumnV1 as C;
     use AgentAuthorityRecordKindV1 as K;
     use IntentFieldV1 as I;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let dir = Directory::new();
         let path = dir.0.join("pages");
         let roots = {

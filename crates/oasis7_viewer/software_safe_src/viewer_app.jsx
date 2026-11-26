@@ -1,3 +1,59 @@
+import {
+  claimField,
+  compactValue,
+  claimMoney,
+  claimQuoteRows,
+  claimQuoteMetricClass,
+  claimTarget,
+  claimStatusText,
+  claimOwnedDetail,
+  releaseClaimActionState,
+  expansionBranchCards,
+} from "./viewer_claim_formatters.js";
+import {
+  starterOcAction,
+  touchStarterOcOnboardingState,
+  markStarterOcClaimPending,
+  scheduleStarterOcBackgroundConfirmation,
+  clearStarterOcClaimPending,
+  completeStarterOcOnboarding,
+  __markStarterOcOnboardingCompleteForTest,
+  starterOcClaimPendingForCurrentAgent,
+  starterOcOnboardingCompletedForCurrentAgent,
+  starterOcCreditVisibleForCurrentAgent,
+  rawStarterOcActionAvailable,
+  starterOcSubmittedFeedback,
+  starterOcFeedbackNeedsLocalAdvance,
+  shouldShowStarterOcRequiredGate,
+  visibleGameplayActionsForPanels,
+  gameplayProgressionAction,
+  firstAgentChatAction,
+} from "./viewer_starter_oc_controller.js";
+export { __markStarterOcOnboardingCompleteForTest };
+import {
+  gameplayStatusBadgeClass,
+  gameplayStageToneClass,
+  gameplayStageLabel,
+  goalExecutionBadgeClass,
+  gameplayActionKey,
+  gameplayActionBlockedReasonId,
+  gameplayActionFeedbackMatches,
+  clearGameplayActionPending,
+  markGameplayActionPending,
+  gameplayActionFeedbackInFlight,
+  gameplayActionPendingFor,
+  isPendingFirstAgentClaimSync,
+  gameplayActionControlBoundaryReason,
+  gameplayActionDisabledReason,
+  gameplayActionButtonLabel,
+  gameplayActionBusyLabel,
+  gameplayActionDisplayLabel,
+  gameplayActionButtonClass,
+  gameplayActionButtonBusyAttrs,
+  gameplayActionButtonDisabled,
+  gameplayActionTestId,
+  gameplayActionDetail,
+} from "./viewer_gameplay_action_helpers.js";
 import { targetSyncProgressLines } from "./viewer_target_sync_progress.js";
 import { LiveControlStatus } from "./viewer_live_control_status.jsx";
 import { Badge, EmptyState } from "./viewer_ui_primitives.jsx";
@@ -107,139 +163,6 @@ function DiagnosticDetails(props) {
       </div>
     </details>
   );
-}
-function claimField(value, ...names) {
-  if (!value || typeof value !== "object") return null;
-  for (const name of names) {
-    if (value[name] !== undefined && value[name] !== null) {
-      return value[name];
-    }
-  }
-  return null;
-}
-function compactValue(value) {
-  if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "-";
-  if (typeof value === "boolean") return value ? "true" : "false";
-  return String(value);
-}
-function claimMoney(value) {
-  const amount = claimField(value, "amount", "tokens", "balance", "value");
-  const symbol = claimField(value, "symbol", "denom", "currency");
-  if (amount !== null) {
-    return symbol ? `${amount} ${symbol}` : compactValue(amount);
-  }
-  return compactValue(value);
-}
-function claimQuoteRows(quote) {
-  if (!quote || typeof quote !== "object") return [];
-  return [
-    ["Slot", claimField(quote, "slot_index", "slot", "slot_id", "slotId", "claim_slot")],
-    ["Reputation tier", claimField(quote, "reputation_tier", "reputationTier", "tier")],
-    ["Owned / cap", [
-      claimField(quote, "owned_claim_count", "owned", "owned_count", "ownedCount"),
-      claimField(quote, "cap", "claim_cap", "claimCap"),
-    ].filter((part) => part !== null && part !== undefined).join(" / ")],
-    ["Total upfront", claimMoney(claimField(quote, "total_upfront_amount", "total_upfront", "totalUpfront", "upfront_total", "upfrontTotal"))],
-    ["Activation fee", claimMoney(claimField(quote, "activation_fee_amount", "activation_fee", "activationFee"))],
-    ["Bond", claimMoney(claimField(quote, "claim_bond_amount", "bond", "locked_bond", "lockedBond"))],
-    ["Upkeep / epoch", claimMoney(claimField(quote, "upkeep_per_epoch", "upkeepPerEpoch", "upkeep"))],
-    ["Eligible balance", claimMoney(claimField(quote, "eligible_claim_balance", "eligible_balance", "eligibleBalance"))],
-    ["Liquid balance", claimMoney(claimField(quote, "transferable_liquid_balance", "liquid_balance", "liquidBalance"))],
-    ["Restricted starter", claimMoney(claimField(quote, "restricted_starter_claim_balance", "restricted_starter_balance", "restrictedStarterBalance"))],
-    ["Auto starter", claimMoney(claimField(quote, "auto_restricted_starter_claim_amount", "auto_starter_amount", "autoStarterAmount"))],
-    ["Cooldown", claimField(quote, "release_cooldown_epochs", "cooldown_epochs", "cooldownEpochs", "cooldown")],
-    ["Grace", claimField(quote, "grace_epochs", "graceEpochs", "grace")],
-    ["Idle warning", claimField(quote, "idle_warning_epochs", "idleWarningEpochs")],
-    ["Forced reclaim", claimField(quote, "forced_idle_reclaim_epochs", "forcedIdleReclaimEpochs")],
-    ["Penalty bps", claimField(quote, "forced_reclaim_penalty_bps", "forcedReclaimPenaltyBps")],
-    ["Reclaim terms", claimField(quote, "reclaim_terms", "reclaimTerms", "reclaim")],
-  ].filter(([, value]) => value !== null && value !== undefined && value !== "");
-}
-const PRIMARY_CLAIM_QUOTE_LABELS = new Set(["Total upfront", "Eligible balance", "Owned / cap"]);
-function claimQuoteMetricClass(label) {
-  return [
-    "metric",
-    PRIMARY_CLAIM_QUOTE_LABELS.has(label) ? "metric--claim-primary" : null,
-    label === "Total upfront" ? "metric--claim-total" : null,
-  ].filter(Boolean).join(" ");
-}
-function claimTarget(claim) {
-  return claimField(claim, "target_agent_id", "targetAgentId", "agent_id", "agentId", "target") || "agent";
-}
-function claimStatusText(claim) {
-  const status = claimField(claim, "status", "claim_status", "claimStatus") || "active";
-  const paidThrough = claimField(claim, "upkeep_paid_through_epoch", "upkeepPaidThroughEpoch");
-  const grace = claimField(claim, "grace_remaining_epochs", "graceRemainingEpochs", "grace_remaining", "graceRemaining");
-  const releaseReadyIn = claimField(claim, "release_ready_in_epochs", "releaseReadyInEpochs");
-  const releaseReadyAt = claimField(claim, "release_ready_at_epoch", "releaseReadyAtEpoch");
-  const idleWarningIn = claimField(claim, "idle_warning_in_epochs", "idleWarningInEpochs");
-  const reclaim = claimField(claim, "forced_reclaim_in_epochs", "forcedReclaimInEpochs", "forced_reclaim_epoch", "forcedReclaimEpoch", "forced_reclaim_at", "forcedReclaimAt");
-  return [
-    `status=${status}`,
-    paidThrough !== null ? `upkeep paid through epoch ${paidThrough}` : null,
-    releaseReadyIn !== null ? `release ready in ${releaseReadyIn}` : null,
-    releaseReadyAt !== null ? `release ready at epoch ${releaseReadyAt}` : null,
-    grace !== null ? `grace remaining ${grace}` : null,
-    idleWarningIn !== null ? `idle warning in ${idleWarningIn}` : null,
-    reclaim !== null ? `forced reclaim in ${reclaim}` : null,
-  ].filter(Boolean).join(" · ");
-}
-function claimOwnedDetail(claim) {
-  const restrictedBond = claimField(claim, "claim_bond_locked_restricted_amount", "lockedBondRestricted");
-  const liquidBond = claimField(claim, "claim_bond_locked_liquid_amount", "lockedBondLiquid");
-  const restrictedSpent = claimField(claim, "upfront_restricted_spent_amount", "upfrontRestrictedSpent");
-  const liquidSpent = claimField(claim, "upfront_liquid_spent_amount", "upfrontLiquidSpent");
-  return [
-    claimField(claim, "idle_warning", "idleWarning"),
-    claimField(claim, "locked_bond_split", "lockedBondSplit"),
-    restrictedBond !== null || liquidBond !== null
-      ? `bond restricted=${compactValue(restrictedBond)} liquid=${compactValue(liquidBond)}`
-      : null,
-    restrictedSpent !== null || liquidSpent !== null
-      ? `upfront restricted=${compactValue(restrictedSpent)} liquid=${compactValue(liquidSpent)}`
-      : null,
-  ].filter(Boolean).join(" · ");
-}
-function releaseClaimActionState(actions) {
-  let published = false;
-  let disabledReason = null;
-  const available = (actions || []).some((action) => {
-    const raw = `${action.actionId || ""} ${action.label || ""} ${action.protocolAction || ""}`.toLowerCase();
-    const isRelease = raw.includes("release_agent_claim") || raw.includes("release claim") || raw.includes("release_agent");
-    if (!isRelease) {
-      return false;
-    }
-    published = true;
-    disabledReason = action.disabledReason || disabledReason;
-    return !action.disabledReason;
-  });
-  return { available, published, disabledReason };
-}
-function expansionBranchCards(gameplay, locale) {
-  const goal = String(gameplay?.goalKind || "").toLowerCase();
-  if (goal !== "choosefirstexpansiontradeoff" && goal !== "choosemidlooppath") {
-    return [];
-  }
-  const actions = gameplay?.availableActions || [];
-  const recommendations = Array.isArray(gameplay?.branchRecommendations)
-    ? gameplay.branchRecommendations
-    : [];
-  if (recommendations.length === 0) {
-    return gameplay?.branchHint ? [{ legacy: true }] : [];
-  }
-  return recommendations.map((recommendation) => {
-    const action = actions.find((candidate) => candidate.actionId === recommendation.actionId) || null;
-    const futureBeats = Array.isArray(recommendation.futureBeats) ? recommendation.futureBeats.map((beat) => String(beat || "").trim()) : [];
-    const complete = [recommendation.routeLabel, recommendation.immediateGain, recommendation.riskOrLockin, recommendation.nextSessionHook]
-      .every((value) => Boolean(String(value || "").trim())) && futureBeats.length === 2 && futureBeats.every(Boolean) && new Set(futureBeats).size === 2;
-    return {
-      ...recommendation,
-      action,
-      complete,
-      futureBeats,
-    };
-  });
 }
 function ClaimAgentChoiceCard(props) {
   const locale = () => props.locale ?? uiLocale();
@@ -849,475 +772,6 @@ function ViewerEntryMenu() {
       </div>
     </details>
   );
-}
-
-function gameplayStatusBadgeClass(status) {
-  return status === "blocked"
-    ? "badge badge--warn"
-    : status === "branch_ready"
-      ? "badge badge--good"
-      : "badge badge--accent";
-}
-
-function gameplayStageToneClass(status) {
-  return status === "blocked"
-    ? "hero-focus-card__value hero-focus-card__value--warn"
-    : status === "branch_ready"
-      ? "hero-focus-card__value hero-focus-card__value--good"
-      : "hero-focus-card__value hero-focus-card__value--accent";
-}
-
-function gameplayStageLabel(status, locale) {
-  if (status === "blocked") {
-    return tr(locale, "当前受阻", "Blocked Now");
-  }
-  if (status === "branch_ready") {
-    return tr(locale, "可以推进", "Ready to Act");
-  }
-  if (status === "active") {
-    return tr(locale, "正在推进", "In Motion");
-  }
-  if (status === "completed") {
-    return tr(locale, "阶段完成", "Stage Complete");
-  }
-  return status || tr(locale, "等待同步", "Waiting for Sync");
-}
-
-function goalExecutionBadgeClass(state) {
-  return state === "blocked" || state === "rejected"
-    ? "badge badge--warn"
-    : state === "completed"
-      ? "badge badge--good"
-      : "badge badge--accent";
-}
-
-const PENDING_GAMEPLAY_FEEDBACK_STAGES = new Set(["accepted", "submitted", "queued", "ack", "registering", "signing", "sent", "received", "pending", "committed", "unknown"]);
-const GAMEPLAY_ACTION_BUSY_STAGES = new Set(["queued", "registering", "signing", "sent", "received", "pending", "unknown"]);
-const GAMEPLAY_ACTION_PENDING_MIN_MS = 900;
-let gameplayActionPendingClearTimer = null;
-
-function gameplayActionKey(action) {
-  if (!action) {
-    return "";
-  }
-  const actionId = normalizedId(action.actionId || action.action_id || action.protocolAction || action.protocol_action || action.executeKind);
-  const targetAgentId = normalizedId(action.targetAgentId || action.target_agent_id || action.actorAgentId || action.actor_agent_id);
-  return `${actionId}::${targetAgentId}`;
-}
-
-function gameplayActionBlockedReasonId(action) {
-  const key = gameplayActionKey(action).replace(/[^a-zA-Z0-9_-]+/g, "-");
-  return `gameplay-action-${key || "unknown"}-blocked-reason`;
-}
-
-function gameplayActionFeedbackMatches(action, feedback = core.snapshotSemanticFeedback(core.state.lastGameplayActionFeedback)) {
-  if (!action || !feedback || feedback.kind !== "gameplay_action") {
-    return false;
-  }
-  const actionId = normalizedId(action.actionId || action.action_id || action.protocolAction || action.protocol_action || action.executeKind);
-  const feedbackAction = normalizedId(feedback.action);
-  if (!actionId || !feedbackAction || !feedbackAction.includes(actionId)) {
-    return false;
-  }
-  const targetAgentId = normalizedId(action.targetAgentId || action.target_agent_id || action.actorAgentId || action.actor_agent_id);
-  const feedbackAgentId = normalizedId(feedback.agentId || feedback.targetAgentId);
-  return !targetAgentId || !feedbackAgentId || targetAgentId === feedbackAgentId;
-}
-
-function clearGameplayActionPending(action = null) {
-  if (gameplayActionPendingClearTimer != null) {
-    window.clearTimeout(gameplayActionPendingClearTimer);
-    gameplayActionPendingClearTimer = null;
-  }
-  if (action && core.state.gameplayActionPending.actionKey !== gameplayActionKey(action)) {
-    return;
-  }
-  core.state.gameplayActionPending.actionKey = null;
-  core.state.gameplayActionPending.label = null;
-  core.state.gameplayActionPending.startedAtUnixMs = null;
-  core.requestRender();
-}
-
-function markGameplayActionPending(action, label) {
-  const key = gameplayActionKey(action);
-  if (!key) {
-    return;
-  }
-  if (gameplayActionPendingClearTimer != null) {
-    window.clearTimeout(gameplayActionPendingClearTimer);
-  }
-  core.state.gameplayActionPending.actionKey = key;
-  core.state.gameplayActionPending.label = label || normalizedId(action.label || action.actionId || action.executeKind);
-  core.state.gameplayActionPending.startedAtUnixMs = Date.now();
-  gameplayActionPendingClearTimer = window.setTimeout(() => {
-    gameplayActionPendingClearTimer = null;
-    if (!gameplayActionFeedbackMatches(action) || !GAMEPLAY_ACTION_BUSY_STAGES.has(normalizedId(core.state.lastGameplayActionFeedback?.stage).toLowerCase())) {
-      clearGameplayActionPending(action);
-    }
-  }, GAMEPLAY_ACTION_PENDING_MIN_MS);
-  core.requestRender();
-}
-
-function gameplayActionFeedbackInFlight(action) {
-  const feedback = core.snapshotSemanticFeedback(core.state.lastGameplayActionFeedback);
-  return gameplayActionFeedbackMatches(action, feedback)
-    && GAMEPLAY_ACTION_BUSY_STAGES.has(normalizedId(feedback.stage).toLowerCase());
-}
-
-function gameplayActionPendingFor(action) {
-  const key = gameplayActionKey(action);
-  return Boolean(key && core.state.gameplayActionPending.actionKey === key) || gameplayActionFeedbackInFlight(action);
-}
-
-function isPendingFirstAgentClaimSync(action, gameplay) {
-  if (action?.actionId !== "claim_first_agent") {
-    return false;
-  }
-  if (gameplay?.blockerKind !== "runtime_snapshot_empty_entities") {
-    return false;
-  }
-  const feedback = gameplay?.recentFeedback || core.snapshotSemanticFeedback(core.state.lastGameplayActionFeedback);
-  const feedbackAction = String(feedback?.action || "").trim();
-  const feedbackStage = String(feedback?.stage || "").trim().toLowerCase();
-  return feedbackAction.includes("claim_first_agent") && PENDING_GAMEPLAY_FEEDBACK_STAGES.has(feedbackStage);
-}
-
-function gameplayActionControlBoundaryReason(action, locale) {
-  const actionId = normalizedId(action?.actionId || action?.action_id);
-  const protocolAction = normalizedId(action?.protocolAction || action?.protocol_action);
-  const targetAgentId = normalizedId(action?.targetAgentId || action?.target_agent_id);
-  if (!targetAgentId || actionId === "claim_first_agent") {
-    return null;
-  }
-  if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play" || protocolAction === "live_control.pause") {
-    return null;
-  }
-  const boundAgentId = normalizedId(core.state.auth.boundAgentId);
-  if (!boundAgentId) {
-    return tr(
-      locale,
-      "当前账号尚未绑定 Agent；这个动作来自共享世界快照，不能作为当前账号动作执行。",
-      "The current account has no bound Agent; this action came from the shared world snapshot and cannot be executed as the current account.",
-    );
-  }
-  if (targetAgentId !== boundAgentId) {
-    return tr(
-      locale,
-      `这个动作目标是 ${targetAgentId}，但当前账号绑定的是 ${boundAgentId}。`,
-      `This action targets ${targetAgentId}, but the current account is bound to ${boundAgentId}.`,
-    );
-  }
-  return null;
-}
-
-function gameplayActionDisabledReason(action, gameplay, locale) {
-  if (action?.disabledReason) {
-    return action.disabledReason;
-  }
-  if (isPendingFirstAgentClaimSync(action, gameplay)) {
-    return tr(
-      locale,
-      "认领已提交，正在等待链上 committed 快照同步。",
-      "Claim submitted; waiting for the committed chain snapshot to sync.",
-    );
-  }
-  const controlBoundaryReason = gameplayActionControlBoundaryReason(action, locale);
-  if (controlBoundaryReason) {
-    return controlBoundaryReason;
-  }
-  return null;
-}
-
-function gameplayActionButtonLabel(action, locale) {
-  if (action.actionId === "claim_first_agent") {
-    return tr(locale, "认领第一个 Agent", "Claim First Agent");
-  }
-  if (action.actionId === "claim_starter_oc") {
-    return tr(locale, "领取初始 OC", "Claim Starter OC");
-  }
-  if (action.executeKind === "claim_agent") {
-    return tr(locale, "认领 Agent", "Claim Agent");
-  }
-  if (action.executeKind === "request_snapshot") {
-    return tr(locale, "刷新快照", "Refresh Snapshot");
-  }
-  if (action.executeKind === "step") {
-    return tr(locale, "推进一步", "Advance One Step");
-  }
-  if (action.executeKind === "play") {
-    return tr(locale, "恢复实时推进", "Resume Live Play");
-  }
-  if (action.executeKind === "pause") {
-    return tr(locale, "暂停实时推进", "Pause Live Play");
-  }
-  if (action.executeKind === "agent_chat") {
-    return tr(locale, "切到聊天面板", "Use Chat Panel");
-  }
-  return tr(locale, "提交玩法动作", "Submit Gameplay Action");
-}
-
-function gameplayActionBusyLabel(action, locale) {
-  const stage = core.state.lastGameplayActionFeedback?.stage;
-  if (gameplayActionFeedbackMatches(action) && stage === "unknown") return tr(locale, "结果待确认，请刷新", "Result unknown; refresh");
-  if (gameplayActionFeedbackMatches(action) && ["received", "pending"].includes(stage)) return tr(locale, "等待权威结果...", "Waiting for result...");
-  if (action?.executeKind === "request_snapshot") {
-    return tr(locale, "刷新中...", "Refreshing...");
-  }
-  if (action?.executeKind === "step") {
-    return tr(locale, "推进中...", "Advancing...");
-  }
-  if (action?.executeKind === "play") {
-    return tr(locale, "恢复中...", "Resuming...");
-  }
-  if (action?.executeKind === "pause") {
-    return tr(locale, "暂停中...", "Pausing...");
-  }
-  if (action?.actionId === "claim_starter_oc") {
-    return tr(locale, "确认中...", "Confirming...");
-  }
-  if (action?.actionId === "claim_first_agent" || action?.executeKind === "claim_agent") {
-    return tr(locale, "提交中...", "Submitting...");
-  }
-  return tr(locale, "处理中...", "Working...");
-}
-
-function gameplayActionDisplayLabel(action, locale, fallback = null) {
-  if (gameplayActionPendingFor(action)) {
-    return gameplayActionBusyLabel(action, locale);
-  }
-  return fallback ?? gameplayActionButtonLabel(action, locale);
-}
-
-function gameplayActionButtonClass(action) {
-  return gameplayActionPendingFor(action) ? "is-loading" : "";
-}
-
-function gameplayActionButtonBusyAttrs(action) {
-  return gameplayActionPendingFor(action) ? "true" : "false";
-}
-
-function gameplayActionButtonDisabled(action, gameplay, locale) {
-  return Boolean(gameplayActionDisabledReason(action, gameplay, locale) || gameplayActionPendingFor(action));
-}
-
-function gameplayActionTestId(action, role = "available") {
-  if (role === "recommended") {
-    return "viewer-playthrough-action-recommended";
-  }
-  if (action?.executeKind === "request_snapshot") {
-    return "viewer-available-action-request-snapshot";
-  }
-  if (action?.executeKind === "step") {
-    return "viewer-available-action-step";
-  }
-  if (action?.executeKind === "play") {
-    return "viewer-available-action-play";
-  }
-  if (action?.executeKind === "pause") {
-    return "viewer-available-action-pause";
-  }
-  const raw = action?.actionId || action?.protocolAction || action?.executeKind || "unknown";
-  const safe = String(raw).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
-  return `viewer-playthrough-action-${safe}`;
-}
-
-function gameplayActionDetail(action, gameplay, locale) {
-  if (action?.actionId === "claim_first_agent") {
-    return action?.disabledReason
-      || tr(locale, "新用户空世界入口：提交后会创建并绑定第一个 starter Agent。", "New-user empty-world entry: submitting creates the first starter Agent.");
-  }
-  if (action?.actionId === "claim_starter_oc") {
-    return action?.disabledReason
-      || tr(locale, "领取一次性初始 OC，解锁第一次 LLM/Agent chat。", "Claim one-time starter OC to unlock the first LLM/Agent chat.");
-  }
-  return action?.playerDetail
-    || action?.disabledReason
-    || gameplay?.economicSurface?.repairAction
-    || gameplay?.narrativeNextStep
-    || tr(locale, "可以直接从正式网页入口执行。", "Playable directly from the formal Web entry.");
-}
-
-function starterOcAction(gameplay) {
-  if (starterOcOnboardingCompletedForCurrentAgent()) {
-    return null;
-  }
-  const pendingTargetAgentId = normalizedId(starterOcOnboardingState.targetAgentId);
-  if (starterOcOnboardingState.pending && pendingTargetAgentId) {
-    return null;
-  }
-  const existing = (gameplay?.availableActions || []).find((action) => action.actionId === "claim_starter_oc" && !action.disabledReason);
-  if (existing) {
-    return existing;
-  }
-  return null;
-}
-
-const starterOcOnboardingState = {
-  pending: false,
-  targetAgentId: null,
-  completedTargetAgentId: null,
-};
-const [starterOcOnboardingRevision, setStarterOcOnboardingRevision] = createSignal(0);
-let starterOcBackgroundConfirmTimer = null;
-
-function touchStarterOcOnboardingState() {
-  setStarterOcOnboardingRevision((value) => value + 1);
-}
-
-function markStarterOcClaimPending(action) {
-  if (action?.actionId !== "claim_starter_oc") {
-    return;
-  }
-  starterOcOnboardingState.pending = true;
-  starterOcOnboardingState.targetAgentId = normalizedId(action.targetAgentId || action.target_agent_id);
-  starterOcOnboardingState.completedTargetAgentId = null;
-  touchStarterOcOnboardingState();
-}
-
-function scheduleStarterOcBackgroundConfirmation() {
-  if (starterOcBackgroundConfirmTimer != null) {
-    window.clearTimeout(starterOcBackgroundConfirmTimer);
-  }
-  starterOcBackgroundConfirmTimer = window.setTimeout(() => {
-    const refreshAction = (core.buildGameplaySummary(uiLocale()).availableActions || [])
-      .find((action) => action.executeKind === "request_snapshot");
-    if (refreshAction) {
-      core.sendGameplayAction(refreshAction);
-    }
-    starterOcBackgroundConfirmTimer = null;
-  }, 450);
-}
-
-function clearStarterOcClaimPending() {
-  starterOcOnboardingState.pending = false;
-  starterOcOnboardingState.targetAgentId = null;
-  touchStarterOcOnboardingState();
-}
-
-function completeStarterOcOnboarding() {
-  starterOcOnboardingState.completedTargetAgentId = normalizedId(
-    starterOcOnboardingState.targetAgentId || core.state.auth.boundAgentId,
-  );
-  clearStarterOcClaimPending();
-  touchStarterOcOnboardingState();
-}
-
-export function __markStarterOcOnboardingCompleteForTest(agentId = core.state.auth.boundAgentId) {
-  starterOcOnboardingState.pending = false;
-  starterOcOnboardingState.targetAgentId = null;
-  starterOcOnboardingState.completedTargetAgentId = normalizedId(agentId);
-  touchStarterOcOnboardingState();
-}
-
-function starterOcClaimPendingForCurrentAgent() {
-  starterOcOnboardingRevision();
-  if (!starterOcOnboardingState.pending) {
-    return false;
-  }
-  const targetAgentId = normalizedId(starterOcOnboardingState.targetAgentId);
-  return Boolean(targetAgentId && targetAgentId === normalizedId(core.state.auth.boundAgentId));
-}
-
-function starterOcOnboardingCompletedForCurrentAgent() {
-  starterOcOnboardingRevision();
-  const completedTargetAgentId = normalizedId(starterOcOnboardingState.completedTargetAgentId);
-  return Boolean(
-    completedTargetAgentId
-      && completedTargetAgentId === normalizedId(core.state.auth.boundAgentId),
-  );
-}
-
-function starterOcCreditVisibleForCurrentAgent() {
-  const agentId = normalizedId(core.state.auth.boundAgentId);
-  if (!agentId) {
-    return false;
-  }
-  const snapshot = core.state.snapshot || {};
-  const model = snapshot.model || {};
-  const runtimeState = model.state || snapshot.state || model;
-  const starterOcClaim = runtimeState.starter_oc_claims?.[agentId]
-    || runtimeState.starterOcClaims?.[agentId]
-    || model.starter_oc_claims?.[agentId]
-    || model.starterOcClaims?.[agentId]
-    || snapshot.starter_oc_claims?.[agentId]
-    || snapshot.starterOcClaims?.[agentId]
-    || null;
-  if (starterOcClaim) {
-    return true;
-  }
-  const balance = runtimeState.main_token_balances?.[agentId]
-    || runtimeState.mainTokenBalances?.[agentId]
-    || model.main_token_balances?.[agentId]
-    || model.mainTokenBalances?.[agentId]
-    || snapshot.main_token_balances?.[agentId]
-    || snapshot.mainTokenBalances?.[agentId]
-    || null;
-  const liquidBalance = Number(claimField(balance, "liquid_balance", "liquidBalance", "liquid", "balance") || 0);
-  return Number.isFinite(liquidBalance) && liquidBalance > 0;
-}
-
-function rawStarterOcActionAvailable() {
-  return (core.state.snapshot?.player_gameplay?.available_actions || [])
-    .some((action) => action?.action_id === "claim_starter_oc");
-}
-
-function starterOcSubmittedFeedback() {
-  if (starterOcOnboardingCompletedForCurrentAgent() || starterOcCreditVisibleForCurrentAgent()) {
-    return null;
-  }
-  const feedback = core.state.lastGameplayActionFeedback;
-  if (
-    feedback?.kind === "gameplay_action"
-    && String(feedback?.action || "").includes("claim_starter_oc")
-    && (feedback?.accepted || feedback?.stage === "ack" || feedback?.stage === "sent")
-  ) {
-    return feedback;
-  }
-  const runtimeFeedback = core.state.snapshot?.player_gameplay?.recent_feedback;
-  if (
-    String(runtimeFeedback?.action || "").includes("claim_starter_oc")
-    && ["accepted", "queued", "sent"].includes(String(runtimeFeedback?.stage || ""))
-  ) {
-    return runtimeFeedback;
-  }
-  return null;
-}
-
-function starterOcFeedbackNeedsLocalAdvance(feedback = starterOcSubmittedFeedback()) {
-  if (!feedback) {
-    return false;
-  }
-  const stage = String(feedback.stage || "").toLowerCase();
-  if (stage === "submitted") {
-    return false;
-  }
-  const effect = String(feedback.effect || "").toLowerCase();
-  return ["accepted", "ack", "queued", "sent"].includes(stage)
-    || effect.includes("queued gameplay action")
-    || effect.includes("advance");
-}
-
-function shouldShowStarterOcRequiredGate(gameplay = core.buildGameplaySummary(uiLocale())) {
-  return Boolean(starterOcAction(gameplay) || starterOcSubmittedFeedback() || starterOcClaimPendingForCurrentAgent());
-}
-
-function visibleGameplayActionsForPanels(gameplay) {
-  const actions = Array.isArray(gameplay?.availableActions) ? gameplay.availableActions : [];
-  if (!shouldShowStarterOcRequiredGate(gameplay)) {
-    return actions;
-  }
-  return actions.filter((action) => action.actionId !== "claim_starter_oc");
-}
-
-function gameplayProgressionAction(gameplay) {
-  return (gameplay?.availableActions || []).find((action) => action.executeKind === "step")
-    || (gameplay?.availableActions || []).find((action) => action.executeKind === "request_snapshot")
-    || null;
-}
-
-function firstAgentChatAction(gameplay) {
-  return (gameplay?.availableActions || []).find((action) => action.executeKind === "agent_chat" && !gameplayActionDisabledReason(action, gameplay, uiLocale()))
-    || null;
 }
 
 function StarterOcGuide(props) {

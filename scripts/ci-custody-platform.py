@@ -32,7 +32,10 @@ SCHEMA = 'oasis7.custody-platform/v1'
 ZLIB_CHUNK_BYTES = 4 * 1024 * 1024
 MAX_RAW_BINARY_BYTES = 2 * 1024 * 1024 * 1024
 # Complete serial Node file durations from run 45283513119, jobs
-# 138082922714/138082922769/138082922743 (with test-session-paid split 6/8).
+# 138082922714/138082922769/138082922743 (with test-session-paid split 6/8 and
+# test-session split 4/3; test-session-public-client matches policy_sha's
+# size-based fallback weight=1.0 during single-PR rollout while landing
+# 9.01m / 9.66m / 9.59m empirical 3-shard balance on run 45631783784 timings).
 # Weights only determine shard placement; every discovered file still executes
 # serially and without local contention exactly once.
 FILE_SECONDS = {
@@ -69,6 +72,7 @@ FILE_SECONDS = {
     'test-session-alarm.test.mjs': 0.100,
     'test-session-paid-role.integration.test.mjs': 147.700,
     'test-session-paid.integration.test.mjs': 110.800,
+    'test-session-public-client.integration.test.mjs': 1.000,
     'test-session-results.integration.test.mjs': 120.400,
     'test-session-tools.integration.test.mjs': 122.800,
     'test-session.integration.test.mjs': 199.300,
@@ -222,16 +226,52 @@ def partition(rows, shards=None):
     return [sorted(batch) for batch in batches]
 
 
-def identity(root, plan, run_id):
+def git_inventory(root, ref):
+    if not isinstance(ref, str) or not re.fullmatch(r'[0-9a-f]{40}', ref):
+        raise ValueError('invalid custody git reference')
+    toolchain_raw = subprocess.check_output(['git', 'show', f'{ref}:rust-toolchain.toml'], cwd=root)
+    toolchain = tomllib.loads(toolchain_raw.decode('utf-8'))['toolchain']['channel']
+    prefix = str(WORKER / 'tests').replace('\\', '/')
+    tree = subprocess.check_output(['git', 'ls-tree', '-z', ref, '--', f'{prefix}/'], cwd=root)
+    rows = []
+    for entry in tree.split(b'\0'):
+        if not entry:
+            continue
+        meta, raw_name = entry.split(b'\t', 1)
+        mode, kind, oid = meta.decode('ascii').split()
+        rel = raw_name.decode('utf-8')
+        name = Path(rel).name
+        if not rel.startswith(prefix + '/') or '/' in rel[len(prefix) + 1:] or not name.endswith('.test.mjs'):
+            continue
+        if kind != 'blob' or mode not in ('100644', '100755'):
+            raise ValueError(f'unsafe custody git entry: {rel}')
+        data = subprocess.check_output(['git', 'cat-file', 'blob', oid], cwd=root)
+        rows.append(dict(path=name, size=len(data), sha256=hashlib.sha256(data).hexdigest()))
+    rows.sort(key=lambda item: item['path'])
+    if not rows:
+        raise ValueError('empty custody test inventory')
+    return dict(schema=SCHEMA, tested_sha=ref, rust_toolchain=toolchain, tests=rows)
+
+
+def identity(root, plan, run_id, *, context_data=None):
     if not enabled(plan) or not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
         raise ValueError('custody execution requires a selected run')
     context = {key: plan.get(key) for key in ('source_sha', 'tested_sha', 'policy_sha')}
     if any(not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{40}', value)
            for value in context.values()):
         raise ValueError('invalid custody source identity')
-    toolchain = tomllib.loads((root / 'rust-toolchain.toml').read_text())['toolchain']['channel']
+    if context_data is not None:
+        if (not isinstance(context_data, dict) or context_data.get('schema') != SCHEMA
+                or context_data.get('tested_sha') != context['tested_sha']
+                or not isinstance(context_data.get('rust_toolchain'), str) or not context_data['rust_toolchain']
+                or not isinstance(context_data.get('tests'), list) or not context_data['tests']):
+            raise ValueError('invalid custody context inventory')
+        toolchain, tests = context_data['rust_toolchain'], context_data['tests']
+    else:
+        toolchain = tomllib.loads((root / 'rust-toolchain.toml').read_text())['toolchain']['channel']
+        tests = inventory(root)
     return dict(**context, run_id=str(run_id), platform=platform.system(), machine=platform.machine(),
-                rust_toolchain=toolchain, worker_build='0.7.5', tests=inventory(root))
+                rust_toolchain=toolchain, worker_build='0.7.5', tests=tests)
 
 
 def positive_attempt(value):
@@ -567,12 +607,13 @@ def execute(root, plan, shard, results, run_id, attempt, capture_workerd=False):
         consumer_attempt=attempt, files=receipts), sort_keys=True) + '\n')
 
 
-def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False):
-    context = identity(root, plan, run_id)
+def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False, *, context_data=None):
+    context = identity(root, plan, run_id, context_data=context_data)
     positive_attempt(attempt)
     shards = plan_shards(plan)
-    batches = partition(context['tests'], shards)
+    expected_files = [row['path'] for row in context['tests']]
     seen = set()
+    executed = set()
     for path in paths:
         receipt = load(path)
         shard = receipt.get('shard')
@@ -582,7 +623,12 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False):
                 or type(producer) is not int or not 1 <= producer <= attempt):
             raise ValueError('custody result identity mismatch')
         rows = receipt.get('files')
-        if not isinstance(rows, list) or [row.get('file') for row in rows] != batches[shard]:
+        if not isinstance(rows, list) or not rows:
+            raise ValueError('missing or duplicate custody test files')
+        files = [row.get('file') for row in rows]
+        if (any(not isinstance(name, str) or not name for name in files)
+                or files != sorted(set(files))
+                or executed & set(files)):
             raise ValueError('missing or duplicate custody test files')
         for row in rows:
             capture = path.parent / 'workerd-fault'
@@ -599,8 +645,11 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False):
                     or process.get('cleanup_result') != 'clean' or process.get('log_complete') is not True):
                 raise ValueError('custody process did not complete cleanly')
         seen.add(shard)
+        executed.update(files)
     if seen != set(shards):
         raise ValueError('missing custody shard results')
+    if sorted(executed) != expected_files:
+        raise ValueError('missing or duplicate custody test files')
 
 
 def validate_jobs(plan, needs):
@@ -627,9 +676,12 @@ def validate_jobs(plan, needs):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('stage', 'policy-tests', 'pack', 'restore', 'run', 'validate'))
+    parser.add_argument('action', choices=('stage', 'policy-tests', 'pack', 'restore', 'run', 'validate', 'export-inventory'))
     parser.add_argument('--repo-root', type=Path, default=Path.cwd())
-    parser.add_argument('--plan', type=Path, required=True)
+    parser.add_argument('--plan', type=Path)
+    parser.add_argument('--ref')
+    parser.add_argument('--output', type=Path)
+    parser.add_argument('--context-file', type=Path)
     parser.add_argument('--run-id', default=os.environ.get('GITHUB_RUN_ID', ''))
     parser.add_argument('--attempt', type=int, default=int(os.environ.get('GITHUB_RUN_ATTEMPT', '0')))
     parser.add_argument('--component', choices=(*COMPONENTS, 'wasm-contracts'))
@@ -642,10 +694,23 @@ def main():
     parser.add_argument('--capture-workerd-faults', action='store_true',
                         help='Observe the original client-abuse Node process tree with standard GDB')
     args = parser.parse_args()
-    root, plan = args.repo_root.resolve(), load(args.plan)
-    actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
-    if actual != plan.get('tested_sha'):
-        raise ValueError('custody checkout is not the selected tested commit')
+    root = args.repo_root.resolve()
+    if args.action == 'export-inventory':
+        if not args.ref or args.output is None:
+            parser.error('export-inventory needs --ref and --output')
+        payload = git_inventory(root, args.ref)
+        args.output.write_text(json.dumps(payload, sort_keys=True) + '\n', encoding='utf-8')
+        return
+    if args.plan is None:
+        parser.error(f'{args.action} needs --plan')
+    plan = load(args.plan)
+    if args.action == 'validate' and args.context_file is not None:
+        context_data = load(args.context_file)
+    else:
+        context_data = None
+        actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+        if actual != plan.get('tested_sha'):
+            raise ValueError('custody checkout is not the selected tested commit')
     if args.action in ('stage', 'policy-tests'):
         expected_digest = os.environ.get('CUSTODY_SELECTION_SHA256', '')
         if not re.fullmatch(r'[0-9a-f]{64}', expected_digest) or digest(args.plan) != expected_digest:
@@ -680,7 +745,7 @@ def main():
             if args.results is None:
                 parser.error('split validation needs --results')
             validate_results(root, plan, list(args.results.glob('*/result.json')), args.run_id, args.attempt,
-                             args.capture_workerd_faults)
+                             args.capture_workerd_faults, context_data=context_data)
 
 
 if __name__ == '__main__':

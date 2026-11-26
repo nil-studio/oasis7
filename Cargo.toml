@@ -80,8 +80,8 @@ serde = { version = "1", features = ["derive"] }
 serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 serde_json = "1"
 sha2 = "0.11"
-wasm-encoder = "0.261"
-wasmparser = "0.256"
+wasm-encoder = "0.258"
+wasmparser = "0.258"
 
 [profile.packaging]
 # Keep native distribution artifacts small without applying native-oriented
@@ -125,7 +125,7 @@ opt-level = 3
 
 # Exercise the real envelope KDF at its full memory/iteration cost. Optimize the
 # implementation instead of reducing parameters or replacing vault operations.
-[profile.dev.package."argon2@0.5.3"]
+[profile.dev.package."argon2@0.6.0"]
 opt-level = 3
 
 # Formal CAS reads authenticate every request and protected response. Preserve

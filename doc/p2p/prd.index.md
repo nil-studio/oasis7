@@ -44,6 +44,7 @@
 - `doc/testing/evidence/legacy-shared-devnet-provenance-2026-07-26.md`：已退役 `shared_devnet` rehearsal 的历史 rollback/provenance 入口；不等于 formal `public_testnet` / `mainnet` readiness。
 - `doc/testing/evidence/README.md`：QA evidence landing page，负责 public-testnet readiness evidence / claims-boundary / mixed-topology / legacy shared-network 证据的当前入口与归档边界。
 - `doc/p2p/token/README.md`：Token 专题簇 landing page，按创世冻结、分配机制、授权、目标态与 quota bridge 分流；再按需进入理想交易设计或 quota bridge runbook。
+- [`doc/p2p/consensus/bft-minimal-signer-tcb.design.md`](consensus/bft-minimal-signer-tcb.design.md)：BFT 受保护签名器 `< 4 KiB` 最小可信基（Minimal TCB）与私有保留存储/流量账/轮次时钟解耦的中期目标设计；不替代现行 `wire=3`（`#5518`）交付合同。
 
 ## 默认阅读面边界
 - 本页首屏只负责分流，不再要求读者从第一行开始顺扫完整长表。

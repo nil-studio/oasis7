@@ -42,11 +42,13 @@ connection alone does not grant task authority or establish that a worker starte
 Missing trusted executor/session bindings fail closed. Legacy simulator consumers
 retain their existing behavior independently of this native library.
 
-Real-model play through the trusted launcher BYOK entry remains an explicitly
-authorized TODO. Scripted HTTP tests do not establish UI startup, paid-provider
-acceptance, full legacy capability parity, or complete goal accomplishment.
+Real-model play through the trusted launcher BYOK entry requires explicit user
+authorization and is not exercised by ordinary CI. Scripted HTTP tests do not
+establish UI startup, paid-provider acceptance, full legacy capability parity,
+or complete goal accomplishment.
 
 The deterministic fake-host/provider tests and real HTTP conformance fixture
-exercise protocol behavior. They do not replace authorized real-model play,
-full legacy capability migration, performance comparison or deployment evidence
-tracked by [#4726](https://github.com/eng-cc/oasis7/issues/4726).
+exercise protocol behavior. Initial shared-client harness routing landed under
+[#4726](https://github.com/nil-studio/oasis7/issues/4726); scripted tests still
+do not replace authorized real-model play, full legacy capability migration,
+performance comparison, or deployment evidence.

@@ -101,6 +101,7 @@ fn owner_coverage_digest_binds_the_complete_root_set_identity() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn installed_targets_and_world_balances_require_metadata_and_typed_members() {
     let complete = verify(&fixture(true), never_cancel).unwrap();
@@ -153,6 +154,7 @@ fn installed_targets_and_world_balances_require_metadata_and_typed_members() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_instance_owner_requires_eight_metadata_and_same_identity_siblings() {
     let fixture = fixture(true);
@@ -192,6 +194,7 @@ fn module_instance_owner_requires_eight_metadata_and_same_identity_siblings() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn text_and_byte_owners_require_registered_metadata_and_exact_member_profiles() {
     let fixture = fixture(true);

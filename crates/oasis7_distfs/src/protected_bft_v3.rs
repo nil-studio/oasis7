@@ -1,7 +1,10 @@
 //! Qualified-H protected header signer. State and wire domains are independent
 //! from V1/V2 and carry public protocol material only. Backends must provide
 //! independently provisioned fencing and anti-rollback guarantees.
+mod admission_input_stream;
+mod admission_input_transfer_plan;
 mod backend;
+mod backend_conformance;
 mod binding;
 mod bootstrap_rotation;
 mod client;
@@ -14,10 +17,12 @@ mod luna_key;
 #[cfg(feature = "protected-bft-luna-key")]
 pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
+mod private_retention_alternatives;
 mod private_retention_input;
 mod rotation;
 mod service;
 mod state;
+mod successor_archive_chain;
 mod successor_archive_store;
 mod successor_manifest;
 mod successor_source;
@@ -34,6 +39,7 @@ pub use backend::{
     BFT_SIGNER_BACKEND_NAMESPACE_V3, BftFreshCoverageSnapshotV1, BftSignerAcquireOutcomeV3,
     BftSignerBackendSnapshotV3, BftSignerBackendV3,
 };
+pub use backend_conformance::exercise_disposable_backend_lease_handoff_v3;
 pub use binding::{
     BftSignerBindingV3, BftSignerErrorV3, BftSignerKeyIdentityV3, BftSignerTrustV3,
     BftSigningKeyHandleV3,
@@ -73,6 +79,15 @@ pub use successor_manifest::{
     BFT_SUCCESSOR_WINDOW_METADATA_MAX_BYTES_V1, BftSuccessorWindowArchiveEntryV1,
     BftSuccessorWindowArchiveKindV1, BftSuccessorWindowArchiveManifestV1,
     BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowCutV1, BftSuccessorWindowPublicIndexV1,
+};
+
+pub use private_retention_alternatives::BftOriginalAlternativesInventoryV1;
+
+pub use admission_input_stream::BftAdmissionInputV2StreamStage;
+pub use admission_input_transfer_plan::{
+    BFT_ADMISSION_INPUT_V2_FRAME_BYTES, BFT_ADMISSION_INPUT_V2_PART_BYTES,
+    BFT_ADMISSION_INPUT_V2_PARTS_PER_MESSAGE, BftAdmissionInputMessageV2, BftAdmissionInputPartV2,
+    BftAdmissionInputTransferPlanV2,
 };
 
 pub use private_retention_input::{

@@ -341,6 +341,7 @@ pub(super) fn build_swarm(
     )
 }
 
+#[cfg(test)]
 pub(super) fn build_swarm_with_receiver(
     keypair: &Keypair,
     enable_rendezvous: bool,
@@ -348,6 +349,32 @@ pub(super) fn build_swarm_with_receiver(
     request_response_timeout: std::time::Duration,
     wire_byte_counters: SharedLibp2pWireByteCounters,
     peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
+    connection_budget: Option<ConnectionBudget>,
+) -> Swarm<Behaviour> {
+    build_swarm_with_receiver_and_clock(
+        keypair,
+        enable_rendezvous,
+        enable_autonat,
+        request_response_timeout,
+        wire_byte_counters,
+        peer_record_receiver,
+        super::peer_record_time::DiscoveryClock::default(),
+        connection_budget,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Swarm construction binds transport counters, receiver floor, and shared discovery clock"
+)]
+pub(super) fn build_swarm_with_receiver_and_clock(
+    keypair: &Keypair,
+    enable_rendezvous: bool,
+    enable_autonat: bool,
+    request_response_timeout: std::time::Duration,
+    wire_byte_counters: SharedLibp2pWireByteCounters,
+    peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
+    discovery_clock: super::peer_record_time::DiscoveryClock,
     connection_budget: Option<ConnectionBudget>,
 ) -> Swarm<Behaviour> {
     let swarm_config = libp2p::swarm::Config::with_tokio_executor()
@@ -379,9 +406,10 @@ pub(super) fn build_swarm_with_receiver(
         ..MemoryStoreConfig::default()
     };
     let peer_record_admission_budget = PeerRecordAdmissionBudget::shared();
-    let store = PeerRecordStore::with_admission_budget_and_receiver(
+    let store = PeerRecordStore::with_clock_admission_budget_and_receiver(
         peer_id,
         store_config,
+        discovery_clock,
         std::sync::Arc::clone(&peer_record_admission_budget),
         std::sync::Arc::clone(&peer_record_receiver),
     );

@@ -3,7 +3,7 @@
 use crate::runtime::AgentContinuation as RuntimeAgentContinuation;
 use crate::simulator::cognition_policy::{
     ContinuationAuthorityContextV1, ContinuationCurrentContextV1, ContinuationHandle,
-    ContinuationInvalidationReason, ContinuationProposalV1, RuntimeContinuationStatusV1,
+    ContinuationInvalidationReason, ContinuationProposalV1,
 };
 use crate::simulator::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
@@ -391,21 +391,6 @@ impl AsyncAgentRunner {
         Ok(handle)
     }
 
-    /// Compatibility fence: target admission must include the actual current
-    /// observation, not just historical digest strings.
-    pub fn submit_continuation_proposal_with_context(
-        &mut self,
-        agent_id: &str,
-        proposal: ContinuationProposalV1,
-        context: &ContinuationAuthorityContextV1,
-    ) -> Result<ContinuationHandle, AsyncAgentRunnerError> {
-        let _ = (agent_id, proposal, context);
-        Err(AsyncAgentRunnerError::Cognition(
-            "current cognition observation is required for target continuation admission"
-                .to_string(),
-        ))
-    }
-
     #[cfg(not(target_arch = "wasm32"))]
     pub fn submit_continuation_proposal_with_current_context(
         &mut self,
@@ -478,17 +463,6 @@ impl AsyncAgentRunner {
             .invalidate(handle, reason)
             .map(|_| ())
             .map_err(|error| AsyncAgentRunnerError::Cognition(error.to_string()))
-    }
-
-    pub fn apply_runtime_continuation_status(
-        &mut self,
-        _agent_id: &str,
-        runtime: RuntimeContinuationStatusV1,
-    ) -> Result<ContinuationHandle, AsyncAgentRunnerError> {
-        let _ = runtime;
-        Err(AsyncAgentRunnerError::Cognition(
-            "legacy Runtime continuation status lacks an authoritative projection".to_string(),
-        ))
     }
 
     /// Apply a complete Runtime-owned continuation projection.  Runtime, not
@@ -688,19 +662,6 @@ impl AsyncAgentRunner {
             runtime,
             authority_context,
         )
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn apply_runtime_continuation_projection_with_context(
-        &mut self,
-        agent_id: &str,
-        runtime: RuntimeAgentContinuation,
-        authority_context: &ContinuationAuthorityContextV1,
-    ) -> Result<ContinuationHandle, AsyncAgentRunnerError> {
-        let _ = (agent_id, runtime, authority_context);
-        Err(AsyncAgentRunnerError::Cognition(
-            "current cognition observation is required for Runtime projection".to_string(),
-        ))
     }
 
     #[cfg(not(target_arch = "wasm32"))]

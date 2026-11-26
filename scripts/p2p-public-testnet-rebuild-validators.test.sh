@@ -1213,13 +1213,13 @@ if "$ROOT_DIR/scripts/p2p-public-testnet-rebuild-validators.sh" \
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-clean-genesis" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-clean-genesis.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-clean-genesis.out" 2>&1; then
   echo "expected rebuild to fail when status is still clean genesis/self_only" >&2
   exit 1
 fi
 
 grep -q "sequencer readiness failed checks after restart" \
-  /tmp/oasis7-rebuild-validators-clean-genesis.out
+  "$TMP_DIR/oasis7-rebuild-validators-clean-genesis.out"
 
 python3 - "$TEST_SSH_LOG" <<'PY'
 import pathlib
@@ -1288,7 +1288,7 @@ if "$ROOT_DIR/scripts/p2p-public-testnet-rebuild-validators.sh" \
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-fail" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-fail.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-fail.out" 2>&1; then
   echo "expected rebuild to fail when sequencer readiness stays not_ready" >&2
   exit 1
 fi
@@ -1342,7 +1342,7 @@ if TEST_SYSTEMD_RESTART_LOOP_HOST=root@sequencer \
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-delayed-cleanup" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-delayed-cleanup.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-delayed-cleanup.out" 2>&1; then
   :
 fi
 
@@ -1444,7 +1444,7 @@ if TEST_SYSTEMD_RESTART_LOOP_HOST=root@sequencer \
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-stack-owner-services" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-stack-owner-services.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-stack-owner-services.out" 2>&1; then
   :
 fi
 
@@ -1485,12 +1485,12 @@ if TEST_SPAWN_LATE_CLEANUP_PROCESS_HOST=root@sequencer "$ROOT_DIR/scripts/p2p-pu
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-late-cleanup" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-late-cleanup.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-late-cleanup.out" 2>&1; then
   echo "expected rebuild cleanup to fail when stable quiet window is not observed" >&2
   exit 1
 fi
 grep -q "cleanup failed: stable quiet window was not observed before deadline" \
-  /tmp/oasis7-rebuild-validators-late-cleanup.out
+  "$TMP_DIR/oasis7-rebuild-validators-late-cleanup.out"
 pkill -f "$TEST_REMOTE_ROOT/root@sequencer/opt/oasis7/p2p-testnet/bin/start-node.sh" || true
 
 : >"$TEST_SSH_LOG"
@@ -1509,12 +1509,12 @@ if TEST_FAIL_SYSTEMCTL_MASK_HOST=root@sequencer "$ROOT_DIR/scripts/p2p-public-te
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-mask-fail" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-mask-fail.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-mask-fail.out" 2>&1; then
   echo "expected rebuild cleanup to fail when systemctl runtime mask fails" >&2
   exit 1
 fi
 grep -q "cleanup failed: systemctl runtime mask failed for oasis7-triad-sequencer.service: runtime mask denied" \
-  /tmp/oasis7-rebuild-validators-mask-fail.out
+  "$TMP_DIR/oasis7-rebuild-validators-mask-fail.out"
 
 : >"$TEST_SSH_LOG"
 if TEST_FAIL_START_HOST=root@sequencer "$ROOT_DIR/scripts/p2p-public-testnet-rebuild-validators.sh" \
@@ -1532,7 +1532,7 @@ if TEST_FAIL_START_HOST=root@sequencer "$ROOT_DIR/scripts/p2p-public-testnet-reb
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-start-fail" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-start-fail.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-start-fail.out" 2>&1; then
   echo "expected rebuild to fail when sequencer systemctl start fails" >&2
   exit 1
 fi
@@ -1583,13 +1583,13 @@ if TEST_FAIL_CLEANUP_AFTER_START_HOST=root@sequencer "$ROOT_DIR/scripts/p2p-publ
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-cleanup-fail" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-cleanup-fail.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-cleanup-fail.out" 2>&1; then
   echo "expected rebuild to fail when post-start cleanup command fails" >&2
   exit 1
 fi
 
 grep -q "sequencer readiness failed checks after restart and cleanup failed" \
-  /tmp/oasis7-rebuild-validators-cleanup-fail.out
+  "$TMP_DIR/oasis7-rebuild-validators-cleanup-fail.out"
 
 cat >"$TMP_DIR/status/storage-not-ready.json" <<'JSON'
 {
@@ -1632,7 +1632,7 @@ if TEST_STORAGE_STATUS_OVERRIDE="$TMP_DIR/status/storage-not-ready.json" "$ROOT_
   --stack-root /opt/oasis7/p2p-testnet \
   --out-dir "$TMP_DIR/out-storage-fail" \
   --poll-attempts 1 \
-  --poll-sleep-seconds 0 >/tmp/oasis7-rebuild-validators-storage-fail.out 2>&1; then
+  --poll-sleep-seconds 0 >"$TMP_DIR/oasis7-rebuild-validators-storage-fail.out" 2>&1; then
   echo "expected rebuild to fail when storage readiness stays not_ready" >&2
   exit 1
 fi

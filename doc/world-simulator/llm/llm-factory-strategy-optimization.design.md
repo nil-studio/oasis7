@@ -104,7 +104,7 @@ harvest_radiation、BuyPower 或等待发电的预览按原字段解释状态变
 
 静态定位以 `cde57786e711b03a9c9fa2a5174aba357e8350d5` 为源基线，不是执行或验收证据：
 
-- `prompt_assembly.rs` 存在恢复文本和当前重复限制；初版建议与当前 Data/mine/transfer 文案并不逐字等同。本次不替 owner 重定映射、N 或模板下限。
+- `llm_prompt_assembly.rs`（原基线 `prompt_assembly.rs`）存在恢复文本和当前重复限制；初版建议与当前 Data/mine/transfer 文案并不逐字等同。本次不替 owner 重定映射、N 或模板下限。
 - `oasis7_llm_agent_demo_cli.rs::observe_action_result` 在判断 success 前登记 `first_action_tick`，包括失败的首次结果；`BTreeMap<String,u64>` 对未发生动作的缺 key 与 PRD 可空值表述仍需兼容验证。计数不自动等于有分母的百分比。
 - `tests_followups_actions.rs::llm_agent_mock_sequence_recovers_and_completes_factory_recipe_chain` 实际为成功建厂、人工补 Data/电力、精炼、排产，不能证明原 [TODO-3](llm-factory-strategy-optimization.prd.md#lfo-mock-source) 的硬件不足失败→精炼→建厂成功→排产四步及其 data 增长义务。原验收保留 planned，不用测试名代签。
 - `openai_payload.rs` 有 Required 与 SDK typed-turn 转换，`behavior_loop.rs` 消费 `completion.turns`；错误枚举仍有 ParseBody 不能单凭名称判定 raw-body fallback 存在或不存在。SDK 失败路径需独立核验。
@@ -118,7 +118,7 @@ harvest_radiation、BuyPower 或等待发电的预览按原字段解释状态变
 <a id="ver-lfo-recovery"></a>
 ### 计划验证：失败恢复与反循环
 
-`planned`，`test_tier_required`；`prompt_assembly.rs` 的恢复文本及 `tests_followups_actions.rs` 的 force_replan 三个现有 fixture；新增或补齐原 TODO-3 四步失败起点、FactoryBuilt/RecipeScheduled、data 增长断言，另核同签名 harvest 超阈值后切换。 由 agent_engineer / gameplay_designer 在同一固定候选、明确 builtin lane 与离线/人工环境记录真实源位置和输出。不冻结 N；现有人工 seed 成功序列不代签原失败恢复，也不证明在线模型收敛。
+`planned`，`test_tier_required`；`crates/oasis7_agent_harness/src/llm_prompt_assembly.rs` 的恢复文本及 `tests_followups_actions.rs` 的 force_replan 三个现有 fixture；新增或补齐原 TODO-3 四步失败起点、FactoryBuilt/RecipeScheduled、data 增长断言，另核同签名 harvest 超阈值后切换。 由 agent_engineer / gameplay_designer 在同一固定候选、明确 builtin lane 与离线/人工环境记录真实源位置和输出。不冻结 N；现有人工 seed 成功序列不代签原失败恢复，也不证明在线模型收敛。
 
 <a id="ver-lfo-metrics"></a>
 ### 计划验证：动作触发、成败与首达可分辨

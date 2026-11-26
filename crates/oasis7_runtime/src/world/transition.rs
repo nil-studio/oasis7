@@ -443,8 +443,9 @@ impl TransitionReject {
 
 /// Restricted root installation context used exclusively during Stage 3 (`apply_infallible`).
 ///
-/// Only [`PreparedStagedCommit::install_confirmed`] can construct this context after
-/// verifying the captured [`WorldPreparedBaseHead`] and [`DurableCommitConfirmation::Confirmed`].
+/// Delayed or externally confirmed commits use [`PreparedStagedCommit::install_confirmed`]
+/// with a captured base head. The ordinary synchronous event boundary may also
+/// construct this context within its uninterrupted exclusive World borrow.
 pub struct RootInstallContext<'a> {
     world: &'a mut World,
 }
@@ -526,6 +527,40 @@ pub trait StagedTransition {
     ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject>;
 }
 
+/// Extension for original ordinary synchronous event publication. Both the
+/// durable StagedTransition implementation and this path use the same sparse
+/// preparation. Never use this for a delayed, external, or IWS commit.
+pub(crate) trait SynchronousEventTransition: StagedTransition {
+    fn prepare_event(
+        &self,
+        world: &World,
+        ctx: &TransitionContext,
+    ) -> Result<(WorldEventId, TickConsensusRecord, Self::Delta), TransitionReject>;
+}
+
+/// Prepare and install an ordinary event in one exclusive, uninterrupted World
+/// borrow. No prepared commit escapes this call, so there is no stale-head
+/// window and no reason to serialize/hash unrelated state or artifact bytes.
+/// Only this ordinary publication's original preflight and failure gate apply;
+/// externally accepted transactions must use the full base-head contract.
+pub(crate) fn publish_synchronous_event<T: SynchronousEventTransition>(
+    world: &mut World,
+    transition: &T,
+    ctx: &TransitionContext,
+) -> Result<WorldEventId, WorldError> {
+    let (event_id, consensus_record, delta) = transition
+        .prepare_event(world, ctx)
+        .map_err(TransitionReject::into_world_error)?;
+    if world.take_fail_next_append_after_publication_prepare_for_test() {
+        return Err(WorldError::ResourceBalanceInvalid {
+            reason: "injected append_event failure after publication preparation".to_string(),
+        });
+    }
+    world.install_prepared_tick_consensus_record(consensus_record)?;
+    delta.apply_infallible(&mut RootInstallContext::new(world));
+    Ok(event_id)
+}
+
 /// Savepoint for nested domain/fee staging within a single [`StagedRootTransaction`].
 #[derive(Debug, Clone)]
 pub struct StagedSubtransactionSavepoint {
@@ -564,6 +599,10 @@ impl<'a, D: SubsystemDelta> StagedRootTransaction<'a, D> {
 
     pub fn staged_count(&self) -> usize {
         self.deltas.len()
+    }
+
+    pub fn deltas(&self) -> &[D] {
+        &self.deltas
     }
 
     /// Stage a nested domain or fee delta without committing it independently.

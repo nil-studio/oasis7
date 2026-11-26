@@ -105,18 +105,16 @@ if HOME="$generic_home" OASIS7_PYTHON_BIN="$TMPDIR/broken-bin/python" \
   exit 1
 fi
 
-# The Codex bundled runtime uses a Unix bin/python3 layout.  Isolate HOME and
-# PATH so this contract exercises the bundled candidate rather than a host
-# installation or the generic future-python shim above.
-bundled_home="$TMPDIR/bundled-home"
-bundled_python_dir="$bundled_home/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin"
-mkdir -p "$bundled_python_dir"
-write_forwarding_wrapper "$bundled_python_dir/python3" "$REAL_PYTHON"
-bundled_selected="$(HOME="$bundled_home" OASIS7_PYTHON_BIN= PATH="$TMPDIR/broken-bin" \
-  "$ROOT_DIR/scripts/find-python-with-module.sh" ast)"
-if [[ "$bundled_selected" != "$bundled_python_dir/python3" ]]; then
-  echo "find-python-with-module.test: did not select Unix bundled runtime: $bundled_selected" >&2
+# Discovery must not probe a tool-specific interpreter outside PATH.
+legacy_home="$TMPDIR/legacy-home"
+legacy_python_dir="$legacy_home/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin"
+mkdir -p "$legacy_python_dir"
+write_forwarding_wrapper "$legacy_python_dir/python3" "$REAL_PYTHON"
+if HOME="$legacy_home" OASIS7_PYTHON_BIN= PATH="$TMPDIR/broken-bin" \
+  "$ROOT_DIR/scripts/find-python-with-module.sh" ast >"$TMPDIR/legacy.out" 2>&1; then
+  echo "find-python-with-module.test: selected an interpreter outside PATH" >&2
   exit 1
 fi
+grep -Fq OASIS7_PYTHON_BIN "$TMPDIR/legacy.out"
 
 echo "find-python-with-module.test: OK"

@@ -376,7 +376,10 @@ pub(super) fn report(fixture: &Fixture, root: &std::path::Path, models: usize) {
         exact_callback
             && decision["cognition"]["response"]["request_digest"] == request["request_digest"]
             && decision["cognition"]["response"]["base_decision_response"]["decision"]
-                == serde_json::to_value(oasis7::simulator::ProviderDecision::WaitTicks { ticks: 2 })
+                == serde_json::to_value(oasis7_agent_api::ProviderDecision::<
+                        oasis7_simulator::Action,
+                        oasis7_simulator::AgentQuery,
+                    >::WaitTicks { ticks: 2 })
                     .unwrap()
             && decision["cognition"]["cognition_lease"]["request_digest"]
                 == request["request_digest"]

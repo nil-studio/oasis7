@@ -1,5 +1,5 @@
 // Exactly three product calibration cases, not20/30 or formal A/B/P6.
-import {loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
+import {browserExecutablePath,loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -22,6 +22,7 @@ if(!assets||Object.keys(assets).length!==18||(Array.isArray(input.files)&&input.
 const out=resolve(process.env.VIEWER_STARTUP_OUTPUT);mkdirSync(dirname(out),{recursive:true});mkdirSync(out);
 const atlas=execFileSync('git',['show',source+':doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'],{cwd:repo});const atlasPath=join(out,'source-agent.png');writeFileSync(atlasPath,atlas);
 const scripts=Object.fromEntries(['viewer-product-startup-calibration.mjs','viewer-startup-distribution-policy.mjs','viewer-owned-fixture-server.mjs','viewer-owned-startup-context.mjs','viewer-owned-startup-lifecycle.mjs','viewer-product-startup-endpoints.mjs','viewer-startup-atlas-oracle.py','world-view-density-fixture.mjs','viewer-static-files.mjs','viewer-bounded-wire-audit.mjs','viewer-owned-cdp-input.mjs','viewer-owned-cdp-session.mjs','world-view-frame-capability.mjs'].map(n=>[n,sha(readFileSync(join(here,n)))]));
+scripts['scripts/playwright-module-loader.mjs']=sha(readFileSync(new URL('../../../scripts/playwright-module-loader.mjs',import.meta.url)));
 const summary={source,runnerHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),assets,scripts,atlasSha256:sha(atlas),cases:[],hardware:{platform:process.platform,arch:process.arch,os:os.release(),cpu:os.cpus()[0]?.model,totalMemory:os.totalmem(),refreshRate:'unknown'},controlledTransport:true,realServiceAuthority:false,
  limitations:['M3/local loopback observer fixture, not authenticated player/A-B/50k/P6.','Delivery remains actual visual distribution no-store; warm does not promise HTTP or compiled-WASM cache reuse.','Atlas image is a captured observable upper endpoint; screenshot passivity/physical presentation unproven.','Observed upper endpoints only; observer/RPC/PNG/Python costs included, never subtracted.'],status:'running'};
 try{summary.hardware.power=execFileSync('pmset',['-g','batt'],{encoding:'utf8'}).trim();}catch{summary.hardware.power='unknown';}
@@ -36,7 +37,7 @@ await withObservationCleanup(async()=>{
   const profiles=Array.from({length:distribution?20:2},()=>createStartupProfile());summary.profiles=profiles.map(p=>p.path);summary.url=server.url;writeFileSync(join(out,'pre-registration.json'),JSON.stringify({source,runnerHead:summary.runnerHead,scripts,assets,hardware:summary.hardware,cacheIsolation:summary.cacheIsolation,...summary.preRegistration},null,2));
   for(const planned of casePlan){const {name,cohort}=planned,profile=profiles[planned.profile];
     const row={name,cohort,profile:profile.path,atlas:{},native:{},network:[],status:'running'};summary.cases.push(row);server.beginCase(name);
-    const context=await launchOwnedStartupContext(chromium,process.env.OASIS7_PLAYWRIGHT_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',profile);
+    const context=await launchOwnedStartupContext(chromium,browserExecutablePath(),profile);
     await withObservationCleanup(async()=>{
       try{
       row.ownedIdentity=await identifyOwnedStartupContext(context,row);

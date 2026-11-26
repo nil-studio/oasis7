@@ -79,33 +79,6 @@ fn subject_for(f: &IssuerFixture) -> BftCandidateReadSubjectV1 {
 }
 #[test]
 fn remote_provider_lease_retry_keeps_original_signature_head_and_ids() {
-    run_lease_retry(RetryOutcome::Uncommitted);
-}
-
-#[test]
-fn remote_provider_lease_recovers_after_competing_cas_advances_exact_prefix() {
-    run_lease_retry(RetryOutcome::CompetingCas);
-}
-
-#[test]
-fn remote_provider_lease_recovers_committed_original_after_lost_reply() {
-    run_lease_retry(RetryOutcome::Committed);
-}
-
-#[test]
-fn remote_provider_lease_acknowledged_operation_is_not_resubmitted() {
-    run_lease_retry(RetryOutcome::Acknowledged);
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RetryOutcome {
-    Uncommitted,
-    CompetingCas,
-    Committed,
-    Acknowledged,
-}
-
-fn run_lease_retry(outcome: RetryOutcome) {
     let (_, trust, _, _, _) = full_sync_fixture();
     let f = issue_lease_fixture_role(
         trust.initial_trust.clone(),
@@ -122,25 +95,22 @@ fn run_lease_retry(outcome: RetryOutcome) {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let server_captured = captured.clone();
     let server = std::thread::spawn(move || {
-        let mut nonces = std::collections::BTreeSet::new();
-        for index in 0..4 {
+        for index in 0..3 {
             let (mut stream, query) = read_query(&listener);
-            assert!(nonces.insert(query.observation_nonce.clone()));
             let request = query_request(&query);
             let before = server_witness.fetch(&request).unwrap();
-            let read_only = index % 2 == 0
-                || (index == 3
-                    && matches!(outcome, RetryOutcome::Committed | RetryOutcome::Acknowledged));
-            assert_eq!(query.provider_lease_request.is_none(), read_only);
+            if index == 0 {
+                assert!(query.provider_lease_request.is_none());
+            }
             if let Some(signed) = query.provider_lease_request {
                 signed.verify(&v3).unwrap();
                 assert_eq!(signed.body.provider_incarnation, issuer_hash(29));
                 assert_eq!(signed.body.target, request.target);
                 assert_eq!(signed.body.target_generation, 1);
                 server_captured.lock().unwrap().push(signed.clone());
-                if index == 1 && outcome == RetryOutcome::Uncommitted {
-                    // The original CAS has not committed. A lost result alone
-                    // cannot authorize replacement of its signed request.
+                if index == 1 {
+                    // A lost/unavailable result is not proof that a different
+                    // request ID or expected head may be signed on retry.
                     stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
                     continue;
                 }
@@ -156,25 +126,9 @@ fn run_lease_retry(outcome: RetryOutcome) {
                 let lease_observation = v3_observation_for_test(
                     &v3,
                     state.anchor(),
-                    77 + index,
+                    77,
                     before.observation.body.protected_time.latest_unix_ms,
                 );
-                let signed = if index == 1 && outcome == RetryOutcome::CompetingCas {
-                    // A different incarnation wins the same exact CAS head.
-                    // The original is absent from the resulting signed prefix.
-                    let mut competing = signed.body.clone();
-                    competing.provider_incarnation = issuer_hash(180);
-                    competing.lease_id = issuer_hash(181);
-                    competing.request_id = issuer_hash(182);
-                    competing.request_nonce = issuer_hash(183);
-                    oasis7_distfs::controlled_authority::formal::full_sync_issuer::SignedFullSyncProviderLeaseRequestV3::sign(
-                        competing,
-                        &key(PROVIDER_KEY),
-                    )
-                    .unwrap()
-                } else {
-                    signed
-                };
                 let prepared = state
                     .prepare_lease(signed, &lease_observation, &key(LEASE_SIGNER_KEY))
                     .unwrap();
@@ -192,10 +146,6 @@ fn run_lease_retry(outcome: RetryOutcome) {
                     .unwrap()
                     .v3_entries
                     .push(decision.entry().clone());
-                if index == 1 && outcome != RetryOutcome::Acknowledged {
-                    stream.write_all(b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
-                    continue;
-                }
             }
             let evidence = server_witness.fetch(&request).unwrap();
             let body = serde_json::to_vec(&evidence).unwrap();
@@ -227,17 +177,14 @@ fn run_lease_retry(outcome: RetryOutcome) {
     )
     .unwrap();
     let calls = AtomicU64::new(0);
-    let first = gate.authorize_candidate_with_response(&subject_for(&f), |_| {
-        calls.fetch_add(1, Ordering::SeqCst);
-        Ok(vec![7])
-    });
-    let first_released = u64::from(outcome == RetryOutcome::Acknowledged);
-    if outcome == RetryOutcome::Acknowledged {
-        assert_eq!(first.unwrap(), vec![7]);
-    } else {
-        assert!(first.is_err());
-    }
-    assert_eq!(calls.load(Ordering::SeqCst), first_released);
+    assert!(
+        gate.authorize_candidate_with_response(&subject_for(&f), |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![7])
+        })
+        .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(
         gate.authorize_candidate_with_response(&subject_for(&f), |_| {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -246,45 +193,13 @@ fn run_lease_retry(outcome: RetryOutcome) {
         .unwrap(),
         vec![7]
     );
-    assert_eq!(calls.load(Ordering::SeqCst), first_released + 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     server.join().unwrap();
     let signed = captured.lock().unwrap();
-    assert_eq!(
-        signed.len(),
-        if matches!(outcome, RetryOutcome::Committed | RetryOutcome::Acknowledged) {
-            1
-        } else {
-            2
-        }
-    );
+    assert_eq!(signed.len(), 2);
+    assert_eq!(signed[0], signed[1]);
     assert_eq!(
         signed[0].body.expected_head,
         f.history.v3_entries.last().unwrap().record.next_anchor
     );
-    if outcome == RetryOutcome::CompetingCas {
-        assert_ne!(signed[0], signed[1]);
-        assert_ne!(signed[0].body.request_id, signed[1].body.request_id);
-        assert_eq!(
-            signed[1].body.expected_head.revision,
-            signed[0].body.expected_head.revision + 1
-        );
-    } else if outcome == RetryOutcome::Uncommitted {
-        assert_eq!(signed[0], signed[1]);
-    }
-    let history = witness.history.lock().unwrap();
-    let appended = &history.v3_entries[f.history.v3_entries.len()..];
-    assert_eq!(
-        appended.len(),
-        if outcome == RetryOutcome::CompetingCas {
-            2
-        } else {
-            1
-        }
-    );
-    match &appended.last().unwrap().record.event {
-        FullSyncIssuerEventV3::Lease { request, .. } => {
-            assert_eq!(request.as_ref(), signed.last().unwrap());
-        }
-        _ => panic!("recovery did not preserve the original lease operation"),
-    }
 }

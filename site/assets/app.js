@@ -117,70 +117,6 @@
     }, 1800);
   };
 
-  const bindCounters = () => {
-    const counters = Array.from(document.querySelectorAll("[data-counter-target]"));
-    if (!counters.length) {
-      return;
-    }
-
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    const renderFinal = (node) => {
-      const target = Number(node.getAttribute("data-counter-target") || "0");
-      node.textContent = String(Math.max(0, Math.round(target)));
-    };
-
-    if (prefersReducedMotion) {
-      counters.forEach(renderFinal);
-      return;
-    }
-
-    const animate = (node) => {
-      const target = Number(node.getAttribute("data-counter-target") || "0");
-      const safeTarget = Math.max(0, Math.round(target));
-      const startedAt = performance.now();
-      const duration = Math.min(1400, 520 + safeTarget * 20);
-
-      const tick = (now) => {
-        const progress = Math.min(1, (now - startedAt) / duration);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        node.textContent = String(Math.round(safeTarget * eased));
-        if (progress < 1) {
-          window.requestAnimationFrame(tick);
-        }
-      };
-
-      window.requestAnimationFrame(tick);
-    };
-
-    const observer = new IntersectionObserver(
-      (entries, obs) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) {
-            return;
-          }
-          animate(entry.target);
-          obs.unobserve(entry.target);
-        });
-      },
-      {
-        threshold: 0.4,
-      },
-    );
-
-    counters.forEach((node) => observer.observe(node));
-
-    window.setTimeout(() => {
-      counters.forEach((node) => {
-        if (node.textContent === "0") {
-          const target = Number(node.getAttribute("data-counter-target") || "0");
-          node.textContent = String(Math.max(0, Math.round(target)));
-        }
-      });
-      observer.disconnect();
-    }, 2200);
-  };
-
   const bindActiveNav = () => {
     const nav = document.querySelector("[data-section-nav]");
     if (!nav) {
@@ -243,85 +179,6 @@
     );
 
     sections.forEach((section) => observer.observe(section));
-  };
-
-  const bindTimelineFilters = () => {
-    const controls = document.querySelector("[data-timeline-controls]");
-    const timeline = document.querySelector("[data-timeline-group]");
-    if (!controls || !timeline) {
-      return;
-    }
-
-    const buttons = Array.from(controls.querySelectorAll("[data-timeline-filter]"));
-    const items = Array.from(timeline.querySelectorAll("[data-timeline-state]"));
-    if (!buttons.length || !items.length) {
-      return;
-    }
-
-    const applyFilter = (filter) => {
-      items.forEach((item) => {
-        const state = item.getAttribute("data-timeline-state") || "";
-        const visible = filter === "all" || state === filter;
-        item.setAttribute("data-hidden", visible ? "false" : "true");
-      });
-
-      buttons.forEach((button) => {
-        const isActive = button.getAttribute("data-timeline-filter") === filter;
-        button.classList.toggle("is-active", isActive);
-        button.setAttribute("aria-pressed", isActive ? "true" : "false");
-      });
-    };
-
-    buttons.forEach((button) => {
-      button.addEventListener("click", () => {
-        const filter = button.getAttribute("data-timeline-filter") || "all";
-        applyFilter(filter);
-      });
-    });
-
-    applyFilter("all");
-  };
-
-  const bindStoryPathHighlight = () => {
-    const steps = Array.from(document.querySelectorAll("[data-story-step]"));
-    if (!steps.length) {
-      return;
-    }
-
-    const setActiveStep = (active) => {
-      steps.forEach((step) => {
-        step.classList.toggle("is-active", step === active);
-      });
-    };
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      if (steps[0]) {
-        setActiveStep(steps[0]);
-      }
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((first, second) => second.intersectionRatio - first.intersectionRatio);
-        if (!visible.length) {
-          return;
-        }
-        setActiveStep(visible[0].target);
-      },
-      {
-        threshold: [0.35, 0.5, 0.7],
-        rootMargin: "-10% 0px -18% 0px",
-      },
-    );
-
-    steps.forEach((step) => observer.observe(step));
-
-    if (steps[0]) {
-      setActiveStep(steps[0]);
-    }
   };
 
   const escapeHtml = (value) =>
@@ -869,17 +726,6 @@
     });
   };
 
-  document.querySelectorAll(".proof-figure img").forEach((img) => {
-    img.addEventListener("error", () => {
-      const figure = img.closest("figure");
-      if (!figure || figure.querySelector(".media-error")) return;
-      const note = document.createElement("p");
-      note.className = "media-error";
-      note.textContent = document.documentElement.lang.startsWith("zh") ? "参考图不可用；文字与来源仍可阅读。" : "Reference image unavailable; text and source remain readable.";
-      figure.append(note);
-    });
-  });
-
   maybeRedirectByLanguageOnFirstVisit();
   bindLanguageChoicePersistence();
   bindReleaseDownloadSurface();
@@ -1043,10 +889,7 @@
   }
 
   bindSectionReveal();
-  bindCounters();
   bindActiveNav();
-  bindTimelineFilters();
-  bindStoryPathHighlight();
   bindStoryReader();
   // Evidence is tied to one recorded release, never inferred from a newer tag or its assets.
   document.querySelectorAll("[data-package-validation-copy]").forEach((node) => {

@@ -69,9 +69,12 @@ pub(super) fn build_from(
     before: &Rows,
     rows: &Rows,
 ) -> StateRootV1 {
-    let source = store
+    let mut source = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        source = source.with_read_memo(256, 1 << 20).unwrap();
+    }
     let work = memory
         .reserve(
             (rows.len() + before.len()) * (512 << 10) + (128 << 10),
