@@ -692,6 +692,16 @@ class Workflow(unittest.TestCase):
         self.assertEqual(m.MODEL_BUNDLE_VERSIONS,('2.27.2','2.27.3'))
         for version in m.MODEL_BUNDLE_VERSIONS:self.assertIn(version,job);self.assertIn(m.BUNDLES[version]['sha256'],job)
         self.assertIn(' + 1080 ',job);self.assertIn('64 * 1024**2',job)
+        self.assertRegex(job, r'(?m)^      image: ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[a-f0-9]{64}$')
+        self.assertIn('options: --user 1001:1001 --init --read-only', job)
+        self.assertIn('packages: read', job)
+        self.assertLess(job.index('TMPDIR=%s'), job.index('Configure mold for Linux host linking'))
+        installation = job.split('if [ "$MODEL_PROBE" != trait-scope-plan ]; then',1)[1].split('          fi',1)[0]
+        self.assertEqual(job.count('rustup toolchain install'), 2)
+        self.assertEqual(installation.count('rustup toolchain install'), 2)
+        self.assertIn('mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"', installation)
+        self.assertIn('install "$RUST_TOOLCHAIN" --profile minimal --no-self-update --component rustfmt --component clippy', installation)
+        self.assertIn('install 1.98.1 --profile minimal --no-self-update', installation)
         for test in ('codeql-rust-model-diagnostic.test.py','codeql-rust-refactored-source.test.py'):
             self.assertIn('run python3 ./scripts/security/'+test,(root/'scripts/ci-tests.sh').read_text())
 
