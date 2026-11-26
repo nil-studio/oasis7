@@ -460,23 +460,23 @@ class PlannerTests(unittest.TestCase):
                         self.run_plan(full=full)
 
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
-        path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
-        for value in ('body { color: red; }', 'body { color: blue; }'):
+        for path in ('crates/oasis7_viewer/viewer_base.css', 'crates/oasis7_viewer/viewer_terminal_shell.css'):
+            for value in ('body { color: red; }', 'body { color: blue; }'):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, value); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['javascript-repo'])
+                self.assertIn(path, result['reasons']['javascript-repo'])
+                self.assertEqual(result['fallback_reasons'], [])
+            for source, destination in ((path, 'moved.js'), ('moved.js', path)):
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / source).rename(self.root / destination); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['javascript-repo'])
+                self.assertEqual(result['completeness']['diff_paths'], sorted([source, destination]))
             self.base = self.git('rev-parse', 'HEAD')
-            self.write(path, value); self.commit()
-            result = self.run_plan()
-            self.assertEqual(result['selected_units'], ['javascript-repo'])
-            self.assertIn(path, result['reasons']['javascript-repo'])
-            self.assertEqual(result['fallback_reasons'], [])
-        for source, destination in ((path, 'moved.js'), ('moved.js', path)):
-            self.base = self.git('rev-parse', 'HEAD')
-            (self.root / source).rename(self.root / destination); self.commit()
-            result = self.run_plan()
-            self.assertEqual(result['selected_units'], ['javascript-repo'])
-            self.assertEqual(result['completeness']['diff_paths'], sorted([source, destination]))
-        self.base = self.git('rev-parse', 'HEAD')
-        (self.root / path).unlink(); self.commit()
-        self.assertEqual(self.run_plan()['selected_units'], ['javascript-repo'])
+            (self.root / path).unlink(); self.commit()
+            self.assertEqual(self.run_plan()['selected_units'], ['javascript-repo'])
 
     def test_viewer_stylesheet_unknown_rename_endpoint_fails_closed(self):
         known = 'crates/oasis7_viewer/viewer_terminal_shell.css'
