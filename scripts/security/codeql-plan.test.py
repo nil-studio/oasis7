@@ -430,8 +430,9 @@ class PlannerTests(unittest.TestCase):
                     self.write(path, value)
                 self.commit()
                 result = self.run_plan()
-                self.assertEqual(result['candidate_units'], ['python-repo', 'javascript-repo'])
-                self.assertEqual(result['selected_units'], ['python-repo', 'javascript-repo'])
+                expected = ['python-repo'] if path.endswith('/build-receipt.json') else ['python-repo', 'javascript-repo']
+                self.assertEqual(result['candidate_units'], expected)
+                self.assertEqual(result['selected_units'], expected)
                 self.assertEqual(result['fallback_reasons'], [])
                 self.assertEqual(self.run_plan(batch_modes='{}')['selected_units'], [])
 
