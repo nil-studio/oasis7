@@ -15,7 +15,7 @@ use super::super::{
     M4_PRODUCT_IRON_INGOT_MODULE_ID, M4_PRODUCT_LOGISTICS_DRONE_MODULE_ID,
     M4_PRODUCT_MODULE_RACK_MODULE_ID, M4_PRODUCT_MOTOR_MODULE_ID, M4_PRODUCT_SENSOR_PACK_MODULE_ID,
     MaterialLedgerId, ProductValidationReceiptV1, RejectReason, WorldError, WorldEvent,
-    WorldEventBody, WorldTime,
+    WorldEventBody,
 };
 use super::World;
 use oasis7_agent_api::world_action::ResourceKind;
@@ -371,7 +371,7 @@ impl World {
     }
 
     #[cfg(test)]
-    fn prepare_due_economy_event_bodies_at(&self, now: WorldTime) -> Vec<WorldEventBody> {
+    fn prepare_due_economy_event_bodies_at(&self, now: super::super::WorldTime) -> Vec<WorldEventBody> {
         let mut due_builds: Vec<_> = self
             .state
             .pending_factory_builds
@@ -433,7 +433,7 @@ impl World {
     #[cfg(test)]
     pub(crate) fn prepared_due_economy_event_bodies_for_test(
         &self,
-        now: WorldTime,
+        now: super::super::WorldTime,
     ) -> Vec<WorldEventBody> {
         self.prepare_due_economy_event_bodies_at(now)
     }
