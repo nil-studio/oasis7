@@ -25,7 +25,8 @@ use crate::world::transition::{
 
 /// The original authorization publication's sparse staged projection. No
 /// canonical authorization, journal, or queue write occurs in preparation.
-struct CapabilityAuthorizationBatchDelta {
+#[derive(Clone)]
+pub(crate) struct CapabilityAuthorizationBatchDelta {
     capability_grants_v2: BTreeMap<String, JsonValue>,
     capability_revocation_state: CapabilityRevocationState,
     capability_invocation_contexts: BTreeMap<String, CapabilityInvocationContext>,
@@ -69,8 +70,8 @@ impl SubsystemDelta for CapabilityAuthorizationBatchDelta {
     }
 }
 
-struct StagedCapabilityAuthorizationBatch<'a> {
-    events: &'a [CapabilityAuthorizationEvent],
+pub(crate) struct StagedCapabilityAuthorizationBatch<'a> {
+    pub(crate) events: &'a [CapabilityAuthorizationEvent],
 }
 
 impl StagedTransition for StagedCapabilityAuthorizationBatch<'_> {
@@ -105,6 +106,70 @@ impl SynchronousEventTransition for StagedCapabilityAuthorizationBatch<'_> {
         let (delta, consensus_record) =
             world.prepare_capability_authorization_event_batch(self.events)?;
         Ok((delta.last_event_id(), consensus_record, delta))
+    }
+}
+
+#[allow(dead_code)] // adapter: #6142
+pub(crate) struct StagedCapabilityGrantV2 {
+    pub(crate) grant: oasis7_wasm_abi::CapabilityGrantV2,
+}
+impl StagedTransition for StagedCapabilityGrantV2 {
+    type Delta = Option<CapabilityAuthorizationBatchDelta>;
+    fn prepare(&self, view: &BorrowedWorldView<'_>, _ctx: &TransitionContext) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
+        let (world, grant) = (view.world(), &self.grant);
+        let deny = |s: String| super::capability_authorization::deny(s);
+        world.verify_capability_authorization_root()?;
+        grant.validate().map_err(|e| deny(format!("grant validation: {e}")))?;
+        if !grant.body_hash_matches().map_err(|e| deny(format!("grant body hash: {e}")))?
+            || grant.expected_grant_id().map_err(|e| deny(format!("grant id hash: {e}")))? != grant.grant_id
+        {
+            return Err(super::capability_authorization::deny("grant canonical body hash or id mismatch").into());
+        }
+        if grant.expires_at_tick.is_none() || grant.status != "verified" || grant.issued_at_tick > world.state.time {
+            return Err(super::capability_authorization::deny("grant is not finalized, verified, and live").into());
+        }
+        world.verify_issuer(grant)?;
+        world.verify_live_revocation(grant)?;
+        world.verify_parent_chain(grant)?;
+        if let oasis7_wasm_abi::CapabilitySubject::System { system_id, .. } = &grant.subject {
+            let manifest = world.active_module_manifest(&grant.scope.module_id).map_err(|e| deny(format!("system subject module is not live: {e:?}")))?;
+            if grant.scope.module_id.strip_prefix("module.").map(|s| format!("system-{s}")).as_deref() != Some(system_id.as_str()) || manifest.version != grant.scope.module_version {
+                return Err(super::capability_authorization::deny("system subject is not bound to a live module system").into());
+            }
+        }
+        let encoded = serde_json::to_value(grant).map_err(WorldError::from)?;
+        if let Some(existing) = world.capability_grants_v2.get(&grant.grant_id) {
+            if existing != &encoded { return Err(super::capability_authorization::deny("immutable grant body changed").into()); }
+            return Ok(PreparedStagedCommit::new(view.base_head().clone(), None, None));
+        }
+        let (delta, consensus) = world.prepare_capability_authorization_event_batch(&[CapabilityAuthorizationEvent::GrantRegistered { grant: grant.clone() }])?;
+        Ok(PreparedStagedCommit::new(view.base_head().clone(), Some(consensus), Some(delta)))
+    }
+}
+
+#[allow(dead_code)] // adapter: #6142
+pub(crate) struct StagedCapabilityRevokeV2 {
+    pub(crate) grant_id: String,
+    pub(crate) record: super::super::capability_authorization::CapabilityAuthorityRecord,
+    pub(crate) proof: super::super::capability_authorization::CapabilityAuthorityFinalityProof,
+}
+impl StagedTransition for StagedCapabilityRevokeV2 {
+    type Delta = CapabilityAuthorizationBatchDelta;
+    fn prepare(&self, view: &BorrowedWorldView<'_>, _ctx: &TransitionContext) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
+        let world = view.world();
+        if self.grant_id.trim().is_empty() {
+            return Err(super::capability_authorization::deny("capability revocation grant id is required").into());
+        }
+        let mut record = self.record.clone();
+        record.revoked_grant_ids.insert(self.grant_id.clone());
+        world.verify_capability_authorization_root()?;
+        super::capability_authorization::validate_authority_record(&record)?;
+        world.verify_capability_authority_finality_proof(&record, &self.proof)?;
+        if world.chain_resource_manifest.world_id != "unbound" && world.chain_resource_manifest.world_id != record.world_id {
+            return Err(super::capability_authorization::deny("authority record world does not match live world").into());
+        }
+        let (delta, consensus) = world.prepare_capability_authorization_event_batch(&[CapabilityAuthorizationEvent::AuthorityInstalledWithProof { record, proof: self.proof.clone() }])?;
+        Ok(PreparedStagedCommit::new(view.base_head().clone(), Some(consensus), delta))
     }
 }
 
