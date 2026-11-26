@@ -9,9 +9,7 @@ use crate::{
     Action, DomainEvent, GovernanceEvent, GovernanceIdentityStatus, Manifest, ProposalDecision,
     ProposalStatus, World, WorldEventBody,
 };
-use oasis7_agent_api::world_action::{
-    OrganizationContinuityCommandV1, Position, WorldRuleCommandV1,
-};
+use oasis7_agent_api::world_action::{OrganizationContinuityCommandV1, WorldRuleCommandV1};
 use oasis7_world_state::commitment_envelope::WorldCommitmentEnvelope;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -160,7 +158,7 @@ fn staged_identity_penalty_and_emergency_brake_sidecars_update_v2_sidecar_root()
     let mut world = World::new();
     world.submit_action(Action::RegisterAgent {
         agent_id: "penalized-agent".into(),
-        pos: Position { x: 0, y: 0 },
+        pos: crate::tests::pos(0, 0),
     });
     world.step().expect("register agent");
     world
@@ -219,7 +217,7 @@ fn staged_identity_penalty_and_emergency_brake_sidecars_update_v2_sidecar_root()
 fn staged_organization_continuity_write_links_v2_commitment_envelope() {
     let mut world = World::new();
     for agent_id in ["owner", "primary", "recipient"] {
-        world.submit_action(Action::RegisterAgent { agent_id: agent_id.into(), pos: Position { x: 1, y: 1 } });
+        world.submit_action(Action::RegisterAgent { agent_id: agent_id.into(), pos: crate::tests::pos(1, 1) });
     }
     world.step().expect("register organization agents");
     let charter = crate::world_rules::OrganizationContinuityCharterV1 {
