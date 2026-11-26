@@ -513,7 +513,7 @@ class PlannerTests(unittest.TestCase):
                         self.run_plan(full=full)
 
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
-        for path in ('crates/oasis7_viewer/viewer_base.css', 'crates/oasis7_viewer/viewer_base_tokens.css', 'crates/oasis7_viewer/viewer_base_layout.css', 'crates/oasis7_viewer/viewer_terminal_shell.css'):
+        for path in ('crates/oasis7_viewer/viewer_base.css', 'crates/oasis7_viewer/viewer_base_tokens.css', 'crates/oasis7_viewer/viewer_base_layout.css', 'crates/oasis7_viewer/viewer_base_components.css', 'crates/oasis7_viewer/viewer_terminal_shell.css'):
             for value in ('body { color: red; }', 'body { color: blue; }'):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, value); self.commit()
