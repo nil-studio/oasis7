@@ -183,6 +183,50 @@ mod tests {
     use crate::world::transition::DurableCommitConfirmation;
 
     #[test]
+    fn industrial_staged_history_publication_preserves_exact_cold_replay() {
+        let mut staged = World::new();
+        let before = staged.snapshot();
+        let before_journal = staged.journal().clone();
+        let body = WorldEventBody::Domain(DomainEvent::LocationAnchorUpdated {
+            anchor: LocationAnchorV1 {
+                location_id: "industrial-cold-replay-anchor".into(),
+                active: true,
+                authority_revision: 1,
+                effective_at: 0,
+            },
+        });
+        let transition = StagedIndustrialPublication::from_body(&body)
+            .expect("original production industrial history classification");
+        let prepared = {
+            let view = BorrowedWorldView::new(&staged).unwrap();
+            transition
+                .prepare(&view, &TransitionContext::new(view.time(), None))
+                .unwrap()
+        };
+        // Stage 1 must never change World memory, cursor or original journal.
+        assert_eq!(staged.snapshot(), before);
+        assert_eq!(staged.journal(), &before_journal);
+        prepared
+            .install_confirmed(&mut staged, DurableCommitConfirmation::Confirmed)
+            .expect("original confirmed staged publication");
+
+        // The already-shipping append_event path must agree exactly with
+        // the original prepared delta: there is no extra event, increment or
+        // post-confirmation side effect when the same record is installed.
+        let mut ordinary = World::new();
+        ordinary.append_event(body, None).unwrap();
+        assert_eq!(staged.snapshot(), ordinary.snapshot());
+        assert_eq!(staged.journal(), ordinary.journal());
+
+        // Replay starts at the independently retained prior snapshot, not a
+        // clone of the new T state. This is an ordinary journal consumer, NOT
+        // an accepted IWS GEN/Frozen/Hot or separate-process Cold receipt.
+        let recovered = World::from_snapshot(before, staged.journal().clone())
+            .expect("original nonempty industrial event cold replay");
+        assert_eq!(recovered.snapshot(), staged.snapshot());
+    }
+
+    #[test]
     fn industrial_delayed_prepare_still_rejects_unknown_and_stale_head() {
         let mut world = World::new();
         let body = WorldEventBody::Domain(DomainEvent::LocationAnchorUpdated {
