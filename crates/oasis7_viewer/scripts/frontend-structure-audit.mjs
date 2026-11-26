@@ -21,12 +21,6 @@ const PRODUCTION_SOURCE_LINE_LIMIT = 1200;
 const TEST_SOURCE_LINE_LIMIT = 1600;
 
 const knownLineDebt = new Map(Object.entries({
-  "crates/oasis7_viewer/software_safe_src/legacy_core.js": {
-    maxLines: 4445,
-    owner: "viewer_engineer",
-    reason: "task_ab6268a777e246d59cb45fb07c179f5c (#5387) adds the bounded test-only connection-generation probe and store-proxy prompt feedback publish point required by the browser timing matrix; prompt protocol rendering and test-api facade stay outside legacy_core",
-    nextTrigger: "next legacy_core behavior change must extract the remaining prompt-control test-api/connection observation facade",
-  },
   "crates/oasis7_viewer/software_safe_src/viewer_app.jsx": {
     maxLines: 3978,
     owner: "viewer_engineer",
