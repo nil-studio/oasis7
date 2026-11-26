@@ -7405,6 +7405,49 @@ compile_error!("full scale target must not be compiled by the required tuple");
                         artifacts.execute(bundle, 'ordinary', root / 'bad-results.jsonl', plan=selected)
                     execute_test.assert_not_called()
 
+    def test_ordinary_build_strips_staged_elf_and_keeps_original_target_intact(self):
+        if sys.platform != 'linux' or shutil.which('strip') is None:
+            return
+        source = '''
+#[cfg(feature="default")] compile_error!("default feature was incorrectly enabled");
+#[cfg(all(test,feature="test_tier_required"))] mod required {
+    #[test] fn round_trip() { assert_eq!(1 + 1, 2); }
+    #[test] fn newly_added() { assert_eq!(2 + 2, 4); }
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, sha = self.prepare_target_workspace(root, source, source)
+            target = FastTargetInventory().target
+            selected = InlineExecutionSelection().selection() | {
+                'architecture': dict(source=sha, tested=sha),
+                'ordinary_fast_targets': [target()],
+            }
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=2), \
+                 patch.dict(os.environ, SOURCE_SHA=sha):
+                bundle = root / 'bundle'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                manifest = json.loads((bundle / 'manifest.json').read_text())
+                entry = next(iter(manifest['binaries'].values()))
+                staged = bundle / entry['path']
+                original = Path(entry['original_executable'])
+                self.assertEqual(entry['sha256'], artifacts.digest(staged))
+                self.assertEqual(entry['bytes'], staged.stat().st_size)
+                self.assertLess(staged.stat().st_size, original.stat().st_size)
+                self.assertNotEqual(artifacts.digest(staged), artifacts.digest(original))
+                readelf = shutil.which('readelf')
+                if readelf is not None:
+                    original_sections = subprocess.check_output([readelf, '-SW', str(original)], text=True)
+                    staged_sections = subprocess.check_output([readelf, '-SW', str(staged)], text=True)
+                    self.assertIn('.symtab', original_sections)
+                    self.assertNotIn('.symtab', staged_sections)
+                results = root / 'results.jsonl'
+                artifacts.execute(bundle, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 1)
+                self.assertTrue(records[0]['passed'] and records[0]['expected_count'] == 2)
+
     def test_real_inline_harnesses_overlap_without_dropping_new_cases(self):
         def source(name, other):
             return '''
