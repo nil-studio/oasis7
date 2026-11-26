@@ -1,11 +1,7 @@
 //! Viewer application, sessions, recovery orchestration and network transports.
 pub(crate) mod geometry {
     pub use oasis7_agent_api::world_action::GeoPos;
-    pub use oasis7_agent_api::world_geometry::{
-        DEFAULT_CLOUD_DEPTH_CM, DEFAULT_CLOUD_DEPTH_KM, DEFAULT_CLOUD_HEIGHT_CM,
-        DEFAULT_CLOUD_HEIGHT_KM, DEFAULT_CLOUD_WIDTH_CM, DEFAULT_CLOUD_WIDTH_KM, SPACE_UNIT_CM,
-        space_distance_cm, space_distance_m,
-    };
+    pub use oasis7_agent_api::world_geometry::space_distance_cm;
 }
 pub(crate) use oasis7::simulator;
 #[cfg(not(target_arch = "wasm32"))]
@@ -36,13 +32,16 @@ mod native_geometry_owner_tests {
             std::any::TypeId::of::<super::geometry::GeoPos>(),
             std::any::TypeId::of::<oasis7_agent_api::world_action::GeoPos>()
         );
-        assert_eq!(
-            super::geometry::SPACE_UNIT_CM,
-            oasis7_agent_api::world_geometry::SPACE_UNIT_CM
-        );
-        assert_eq!(
-            super::geometry::DEFAULT_CLOUD_WIDTH_CM,
-            oasis7_agent_api::world_geometry::DEFAULT_CLOUD_WIDTH_CM
-        );
+        let origin = super::geometry::GeoPos {
+            x_cm: 0,
+            y_cm: 0,
+            z_cm: 0,
+        };
+        let nearby = super::geometry::GeoPos {
+            x_cm: 300,
+            y_cm: 400,
+            z_cm: 0,
+        };
+        assert_eq!(super::geometry::space_distance_cm(origin, nearby), 500);
     }
 }
