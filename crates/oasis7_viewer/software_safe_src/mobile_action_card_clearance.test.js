@@ -1,8 +1,9 @@
+import { readExpandedCssSync } from "./test_support/read_expanded_css.js";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("mobile gameplay action card clearance", () => {
-  const readCombinedStyles = () => readFileSync("viewer_base.css", "utf8");
+  const readCombinedStyles = () => readExpandedCssSync("viewer_base.css");
 
   it("keeps targeted action cards below the sticky mobile jump rail", () => {
     const viewerHtml = readCombinedStyles();
