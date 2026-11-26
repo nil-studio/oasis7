@@ -9,6 +9,7 @@ viewer.js viewer.js
 dist/software_safe.js software_safe.js
 viewer_base.css viewer_base.css
 viewer_base_tokens.css viewer_base_tokens.css
+viewer_base_layout.css viewer_base_layout.css
 viewer_terminal_shell.css viewer_terminal_shell.css
 viewer_first_agent_claim_evidence.html viewer_first_agent_claim_evidence.html
 dist/software_safe_first_agent_claim_evidence.html software_safe_first_agent_claim_evidence.html
@@ -25,6 +26,7 @@ viewer.js
 software_safe.js
 viewer_base.css
 viewer_base_tokens.css
+viewer_base_layout.css
 viewer_terminal_shell.css
 viewer_first_agent_claim_evidence.html
 software_safe_first_agent_claim_evidence.html
@@ -57,6 +59,7 @@ scope = [
     "crates/oasis7_viewer/viewer.js",
     "crates/oasis7_viewer/viewer_base.css",
     "crates/oasis7_viewer/viewer_base_tokens.css",
+    "crates/oasis7_viewer/viewer_base_layout.css",
     "crates/oasis7_viewer/viewer_terminal_shell.css",
     "crates/oasis7_viewer/viewer_first_agent_claim_evidence.html",
     "crates/oasis7_viewer/package.json",
