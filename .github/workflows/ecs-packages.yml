@@ -156,22 +156,39 @@ jobs:
             toolchains+=("$OASIS7_WASM_TOOLCHAIN")
           fi
           python3 scripts/ci-rust-cache-toolchains.py "${toolchains[@]}"
-      - name: Install dependency cache admission
+      - name: Install host dependency cache admission
         id: dependency-cache-tools
-        if: hashFiles('scripts/ci-rust-cache-admission.py') != ''
+        if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-admission.py') != ''
         continue-on-error: true
         run: python3 scripts/ci-rust-cache-admission.py install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'
+        if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'
         env:
           PATH: ${{ steps.dependency-cache-tools.outputs.path }}
-          OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ github.job == 'native-trusted' && 'ecs-image' || 'ecs' }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: ecs
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
         with:
-          shared-key: ${{ env.ECS_NATIVE_DEPENDENCY_NAMESPACE || 'oasis7-ecs-native-linux-ecs-v2' }}
+          shared-key: oasis7-ecs-native-linux-ecs-v2
+          save-if: false
+          cache-on-failure: false
+      - name: Install trusted image dependency cache admission
+        id: image-dependency-cache-tools
+        if: github.job == 'native-trusted'
+        continue-on-error: true
+        run: /usr/bin/python3 scripts/ci-rust-cache-admission.py install-release
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: github.job == 'native-trusted' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'
+        env:
+          NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.image-dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: ecs-image
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          shared-key: ${{ env.ECS_NATIVE_DEPENDENCY_NAMESPACE }}
           cache-provider: github
-          save-if: ${{ job.status == 'success' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          save-if: ${{ job.status == 'success' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Identify ECS workspace cache
         id: ecs-cache-identity
