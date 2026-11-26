@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
@@ -552,3 +553,396 @@ print(json.dumps({{
             )
         )
         return args
+
+    def _write_human_direct_ssh_fixture(
+        self,
+        *,
+        transaction_id: str = "human-direct-ssh-tx-3481",
+        impact_path: Path | None = None,
+        state: str = "quiet",
+        stale: bool = False,
+        expired: bool = False,
+        replayed: bool = False,
+        mismatched: str | None = None,
+        full_status: bool = False,
+    ) -> dict[str, Path | str]:
+        """Build a completely local human_direct_ssh fixture.
+
+        The direct-SSH protocol is deliberately exercised through fake
+        executables. A test which accidentally reaches a real ssh, sshpass,
+        curl, or systemctl binary therefore fails closed instead of touching
+        a developer or testnet host.
+        """
+        fixture = Path(tempfile.mkdtemp(prefix="human-direct-ssh-", dir=str(self.root)))
+        bin_dir = fixture / "bin"
+        bin_dir.mkdir(parents=True)
+        known_hosts = fixture / "known_hosts"
+        known_hosts.write_text(
+            "39.104.204.172 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILBk7BgiUTvJZD/LSJLRHUw4eGFFe3eyUs3eG2ZU0xxj\n"
+            "39.104.205.67 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILU4G7oGjBJ+tzaZh4nQJjGkPKM1gXQZYT3GWJLMDhZC\n",
+            encoding="utf-8",
+        )
+        known_hosts.chmod(0o600)
+        fake_python = bin_dir / "python3"
+        fake_python.write_text(
+            f"""#!{sys.executable}
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+if args and Path(args[0]).resolve() == Path({str(EXECUTOR)!r}).resolve():
+    launcher = Path({str(self.executor_launcher)!r})
+    os.execv({sys.executable!r}, [{sys.executable!r}, str(launcher), *args[1:]])
+os.execv({sys.executable!r}, [{sys.executable!r}, *args])
+""",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        nonce_ledger = self.root.parent / f"oasis7-human-direct-nonce-{len(self.external_fixture_paths)}.jsonl"
+        nonce_ledger.write_text("", encoding="utf-8")
+        nonce_ledger.chmod(0o600)
+        self.external_fixture_paths.append(nonce_ledger)
+        authority = fixture / "stop-authority.json"
+        nonce = "human-direct-ssh-nonce-3481"
+        issued_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+        issued_at_text = issued_at.isoformat().replace("+00:00", "Z")
+        expires_at_text = (issued_at + dt.timedelta(minutes=15)).isoformat().replace("+00:00", "Z")
+        authority_payload = {
+            "schema_version": "oasis7.human_stop_authority.v1",
+            "task_uid": "task_0aa7659e0fd74e1a8e4bb27d7dc2416a",
+            "transaction_id": transaction_id,
+            "nonce": nonce,
+            "authorized": True,
+            "stopped_at": issued_at_text,
+            "actor": "human-operator-fixture",
+            "source": "live_github_task_readback",
+            "authenticated": True,
+            "live_readback": True,
+            "repository": "eng-cc/oasis7",
+            "issue_number": 3481,
+            "action": "validator_pair_rebuild_stop",
+            "targets": ["storage-205", "sequencer-204"],
+        }
+        authority.write_text(json.dumps(authority_payload, sort_keys=True) + "\n", encoding="utf-8")
+        request = {
+            "schema_version": "oasis7.human_direct_ssh_request.v1",
+            "mode": "human_direct_ssh",
+            "task_uid": authority_payload["task_uid"],
+            "transaction_id": transaction_id,
+            "request_digest": "",
+            "nonce": nonce,
+            "issued_at": issued_at_text,
+            "expires_at": expires_at_text,
+            "stop_authority_path": str(authority),
+            "stop_authority_sha256": sha256(authority),
+            "inventory_path": str(ROOT / "scripts" / "public-testnet-validator-pair-inventory.v1.json"),
+            "inventory_sha256": sha256(ROOT / "scripts" / "public-testnet-validator-pair-inventory.v1.json"),
+            "nonce_ledger_path": str(nonce_ledger),
+            "known_hosts_path": str(known_hosts),
+            "observer_mutation": False,
+            "quiescence_id": transaction_id,
+            "impact_record_path": str(impact_path) if impact_path is not None else None,
+            "impact_record_sha256": sha256(impact_path) if impact_path is not None else None,
+            "hosts": {
+                "sequencer": {
+                    "role": "sequencer",
+                    "host": "root@39.104.204.172",
+                    "root": "/opt/oasis7/p2p-testnet",
+                    "service": "oasis7-triad-sequencer.service",
+                    "host_key_fingerprint": "SHA256:7NkC2GehDCcN+IWPbaxh+0JuIVGCEtKpdK69S6fHZPU",
+                },
+                "storage": {
+                    "role": "storage",
+                    "host": "root@39.104.205.67",
+                    "root": "/opt/oasis7/p2p-testnet",
+                    "service": "oasis7-triad-storage.service",
+                    "host_key_fingerprint": "SHA256:1SVgiaT5JLCw8PsPpVfLE9UyWNf82IJDZsiE7LAa1gI",
+                },
+            },
+            "readback": {
+                "process_command": "ps -eo pid=,args=",
+                "listener_command": "ss -ltn",
+                "service_readback_command": "/opt/oasis7/p2p-testnet/current/bin/service-readback --read-only",
+                "quiet_window_seconds": 2,
+            },
+        }
+        if stale:
+            request["issued_at"] = "2000-01-01T00:00:00Z"
+            request["expires_at"] = "2000-01-01T00:01:00Z"
+        if expired:
+            request["expires_at"] = "2000-01-01T00:01:00Z"
+        if replayed:
+            request["nonce"] = "human-direct-ssh-replayed-nonce"
+            request["replay_of_transaction_id"] = "human-direct-ssh-tx-3479"
+        if mismatched == "transaction":
+            request["transaction_id"] = "human-direct-ssh-tx-other"
+        elif mismatched == "request":
+            request["request_digest"] = "f" * 64
+        elif mismatched == "fingerprint":
+            request["hosts"]["sequencer"]["host_key_fingerprint"] = "SHA256:not-the-pinned-key"
+        elif mismatched == "role":
+            request["hosts"]["sequencer"]["role"] = "root"
+        elif mismatched == "root":
+            request["hosts"]["sequencer"]["root"] = "/tmp/caller-owned-root"
+        elif mismatched == "service":
+            request["hosts"]["sequencer"]["service"] = "caller-owned.service"
+        elif mismatched == "command":
+            request["readback"]["process_command"] = "echo caller-owned-command"
+        elif mismatched == "observer":
+            request["observer_mutation"] = True
+        if full_status:
+            request["full_status_url"] = "http://sequencer.example/v1/chain/status"
+            request["full_status_http_status"] = 204
+        body_value = {
+            "schema_version": "oasis7.validator_pair_rebuild_live_authority.v1",
+            "authorized": True,
+            "task_uid": authority_payload["task_uid"],
+            "action": "validator_pair_rebuild",
+            "transaction_id": authority_payload["transaction_id"],
+            "nonce": authority_payload["nonce"],
+            "inventory_sha256": request["inventory_sha256"],
+            "head_oid": FROZEN_HEAD_OID,
+            "issued_at": issued_at_text,
+            "expires_at": expires_at_text,
+        }
+        body = json.dumps(body_value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        request["github_live"] = {
+            "provider": "github",
+            "repository": "eng-cc/oasis7",
+            "issue_number": 3481,
+            "comment_id": 5452142815,
+            "actor": "human-operator-fixture",
+            "body_sha256": hashlib.sha256(body.encode()).hexdigest(),
+            "task_uid": request["task_uid"],
+            "action": "validator_pair_rebuild",
+            "transaction_id": request["transaction_id"],
+            "nonce": request["nonce"],
+            "inventory_sha256": request["inventory_sha256"],
+            "head_oid": body_value["head_oid"],
+            "issued_at": request["issued_at"],
+            "expires_at": request["expires_at"],
+        }
+        if not request["request_digest"]:
+            request["request_digest"] = hashlib.sha256(
+                json.dumps(
+                    {key: value for key, value in request.items() if key != "request_digest"},
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+        request_path = fixture / "request.json"
+        request_path.write_text(json.dumps(request, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        out_dir = fixture / "out"
+        out_dir.mkdir()
+        ssh_args_log = fixture / "ssh-argv.jsonl"
+        ssh_command_log = fixture / "ssh-command.log"
+        ssh_seam_log = fixture / "ssh-seam.jsonl"
+        sshpass_log = fixture / "sshpass-argv.jsonl"
+        systemctl_log = fixture / "systemctl.log"
+        service_log = fixture / "service-readback.log"
+        receipt_path = out_dir / "receipt.json"
+        fake_ssh = bin_dir / "ssh"
+        fake_ssh.write_text(
+            """#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+secret = os.environ.get("HUMAN_DIRECT_SSH_SECRET", "")
+argv_log = Path(os.environ["HUMAN_DIRECT_SSH_ARGV_LOG"])
+command_log = Path(os.environ["HUMAN_DIRECT_SSH_COMMAND_LOG"])
+seam_log = Path(os.environ["HUMAN_DIRECT_SSH_SEAM_LOG"])
+with argv_log.open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps(args, sort_keys=True) + "\\n")
+command = args[-1] if args else ""
+with command_log.open("a", encoding="utf-8") as handle:
+    handle.write(command + "\\n")
+with seam_log.open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps({
+        "environment_binding_present": bool(secret),
+        "temporary_fd_present": bool(os.environ.get("HUMAN_DIRECT_SSH_SECRET_FD")),
+    }) + "\\n")
+if secret and any(secret in value for value in args):
+    print("fixture rejected secret in ssh argv", file=sys.stderr)
+    raise SystemExit(97)
+state = os.environ.get("HUMAN_DIRECT_SSH_FAKE_STATE", "quiet")
+count = len(command_log.read_text(encoding="utf-8").splitlines())
+service_active = state == "active"
+process_active = state in ("active", "active-process") or (
+    state == "canonical-process-flapping" and count >= 8
+)
+listener_active = state in ("active", "active-listener") or (
+    state == "canonical-listener-flapping" and count >= 9
+)
+if "ps -eo" in command or "pgrep" in command:
+    print("1234 oasis7_chain_runtime --active" if process_active else (f"quiet-observation-{count}" if state == "flapping" else ""))
+elif "ss -ltn" in command or "lsof" in command:
+    print("LISTEN 0 128 0.0.0.0:6631" if listener_active else "")
+else:
+    print(json.dumps({
+        "schema_version": "oasis7.human_direct_ssh_readback.v1",
+        "active": service_active,
+        "running": service_active,
+        "listeners": ["6631"] if service_active else [],
+        "service_state": "active" if service_active else "stopped",
+        "independently_observed": True,
+    }, sort_keys=True))
+""",
+            encoding="utf-8",
+        )
+        fake_ssh.chmod(0o755)
+        fake_sshpass = bin_dir / "sshpass"
+        fake_sshpass.write_text(
+            """#!/usr/bin/env python3
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+
+with Path(os.environ["HUMAN_DIRECT_SSH_SSHPASS_LOG"]).open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps({"argv": sys.argv[1:], "secret_env": bool(os.environ.get("SSHPASS"))}) + "\\n")
+if len(sys.argv) < 2 or sys.argv[1] != "-e":
+    raise SystemExit(96)
+os.execv(shutil.which("ssh") or "ssh", sys.argv[2:])
+""",
+            encoding="utf-8",
+        )
+        fake_sshpass.chmod(0o755)
+        fake_systemctl = bin_dir / "systemctl"
+        fake_systemctl.write_text(
+            """#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+with Path(os.environ["HUMAN_DIRECT_SSH_SYSTEMCTL_LOG"]).open("a", encoding="utf-8") as handle:
+    handle.write(" ".join(sys.argv[1:]) + "\\n")
+raise SystemExit(97)
+""",
+            encoding="utf-8",
+        )
+        fake_systemctl.chmod(0o755)
+        fake_service = bin_dir / "service-readback"
+        fake_service.write_text(
+            """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+
+Path(os.environ["HUMAN_DIRECT_SSH_SERVICE_LOG"]).open("a", encoding="utf-8").close()
+print(json.dumps({"read_only": True, "state": os.environ.get("HUMAN_DIRECT_SSH_FAKE_STATE", "quiet")}))
+""",
+            encoding="utf-8",
+        )
+        fake_service.chmod(0o755)
+        fake_curl = bin_dir / "curl"
+        fake_curl.write_text(
+            """#!/usr/bin/env python3
+import sys
+print("curl is forbidden in human_direct_ssh fixture", file=sys.stderr)
+raise SystemExit(98)
+""",
+            encoding="utf-8",
+        )
+        fake_curl.chmod(0o755)
+        github_response = fixture / "github-live-comment.json"
+        github_response.write_text(
+            json.dumps(
+                {
+                    "id": 5452142815,
+                    "user": {"login": "human-operator-fixture"},
+                    "body": body,
+                    "created_at": issued_at_text,
+                    "updated_at": issued_at_text,
+                    "deleted": False,
+                    "revoked": False,
+                    "author_association": "MEMBER",
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        github_calls = fixture / "github-api-argv.jsonl"
+        fake_gh = bin_dir / "gh"
+        fake_gh.write_text(
+            """#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+with Path(os.environ["HUMAN_DIRECT_SSH_GITHUB_LOG"]).open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps(sys.argv[1:], sort_keys=True) + "\\n")
+if os.environ.get("HUMAN_DIRECT_SSH_GITHUB_UNAVAILABLE") == "1":
+    print("fake GitHub API unavailable", file=sys.stderr)
+    raise SystemExit(73)
+print(Path(os.environ["HUMAN_DIRECT_SSH_GITHUB_RESPONSE"]).read_text(encoding="utf-8"), end="")
+""",
+            encoding="utf-8",
+        )
+        fake_gh.chmod(0o755)
+        return {
+            "fixture": fixture,
+            "bin": bin_dir,
+            "known_hosts": known_hosts,
+            "nonce_ledger": nonce_ledger,
+            "request": request_path,
+            "out": out_dir,
+            "ssh_args": ssh_args_log,
+            "ssh_commands": ssh_command_log,
+            "ssh_seam": ssh_seam_log,
+            "sshpass": sshpass_log,
+            "systemctl": systemctl_log,
+            "service": service_log,
+            "github_response": github_response,
+            "github_calls": github_calls,
+            "receipt": receipt_path,
+            "secret": "human-direct-ssh-fixture-secret-3481",
+            "state": state,
+        }
+
+    def _human_direct_ssh_env(self, fixture: dict[str, Path | str]) -> dict[str, str]:
+        env = os.environ.copy()
+        env["PATH"] = f"{fixture['bin']}:{env.get('PATH', '')}"
+        env["HUMAN_DIRECT_SSH_ARGV_LOG"] = str(fixture["ssh_args"])
+        env["HUMAN_DIRECT_SSH_COMMAND_LOG"] = str(fixture["ssh_commands"])
+        env["HUMAN_DIRECT_SSH_SEAM_LOG"] = str(fixture["ssh_seam"])
+        env["HUMAN_DIRECT_SSH_SSHPASS_LOG"] = str(fixture["sshpass"])
+        env["HUMAN_DIRECT_SSH_SYSTEMCTL_LOG"] = str(fixture["systemctl"])
+        env["HUMAN_DIRECT_SSH_SERVICE_LOG"] = str(fixture["service"])
+        env["HUMAN_DIRECT_SSH_FAKE_STATE"] = str(fixture["state"])
+        env["HUMAN_DIRECT_SSH_SECRET"] = str(fixture["secret"])
+        env["OASIS7_VALIDATOR_PAIR_NONCE_LEDGER"] = str(fixture["nonce_ledger"])
+        env["HUMAN_DIRECT_SSH_GITHUB_RESPONSE"] = str(fixture["github_response"])
+        env["HUMAN_DIRECT_SSH_GITHUB_LOG"] = str(fixture["github_calls"])
+        env["OASIS7_TEST_EXECUTOR_KNOWN_HOSTS_PATH"] = str(fixture["known_hosts"])
+        return env
+
+    def _human_direct_ssh_args(self, fixture: dict[str, Path | str], *extra: str) -> list[str]:
+        return [
+            str(WRAPPER),
+            "human_direct_ssh",
+            "--request",
+            str(fixture["request"]),
+            "--known-hosts",
+            str(fixture["known_hosts"]),
+            "--out-dir",
+            str(fixture["out"]),
+            "--credential-env",
+            "HUMAN_DIRECT_SSH_SECRET",
+            *extra,
+        ]
+
+    def _run_human_direct_ssh(self, fixture: dict[str, Path | str], *extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            self._human_direct_ssh_args(fixture, *extra),
+            text=True,
+            capture_output=True,
+            env=self._human_direct_ssh_env(fixture),
+        )
