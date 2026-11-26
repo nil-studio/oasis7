@@ -1,5 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
-
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
 use oasis7_formal_protocol::{
     incremental_state::{StateNamespaceV1, StateRootV1},
@@ -13,7 +11,7 @@ use oasis7_world_state::{
 
 use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::*;
 #[test]

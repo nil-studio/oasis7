@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::*;
 use oasis7_formal_protocol::{incremental_state::*, incremental_value::*};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
@@ -7,7 +6,7 @@ use oasis7_world_state::{
     incremental_json_records::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 #[test]
 fn neutral_json_profile_keeps_owner_namespace_schema_and_root_scopes_distinct() {

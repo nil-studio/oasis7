@@ -496,3 +496,23 @@ fn fresh_supply_records_same_transaction_and_root_only_cold_successors() {
         );
     }
 }
+
+// Consolidated sibling incremental integration suites (4-shard LPT balanced).
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_inventory_read.rs"]
+mod incremental_inventory_read;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_id_sets.rs"]
+mod incremental_world_id_sets;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_rule_authorizations.rs"]
+mod incremental_world_rule_authorizations;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_rule_supply_creation.rs"]
+mod incremental_world_rule_supply_creation;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_rule_supply_failures.rs"]
+mod incremental_world_rule_supply_failures;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_rule_supply_genesis.rs"]
+mod incremental_world_rule_supply_genesis;

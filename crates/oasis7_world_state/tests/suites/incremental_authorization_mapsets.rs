@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
 use oasis7_formal_protocol::{
     incremental_execution::ExecutionWriteV1,
@@ -13,10 +12,10 @@ use oasis7_world_state::{
     incremental_field_read::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
-#[path = "support/incremental_authorization_overlay.rs"]
+#[path = "../support/incremental_authorization_overlay.rs"]
 mod overlay;
 #[test]
 fn authorization_mapset_identity_and_empty_groups_survive_cold_roots() {
