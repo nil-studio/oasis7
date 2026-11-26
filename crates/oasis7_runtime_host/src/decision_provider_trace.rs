@@ -3,13 +3,13 @@ use std::io::{self, Write};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::agent::{
-    AgentDecisionExplanationV1, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
-    LlmPromptSectionTrace, LlmStepTrace,
-};
 use super::{
     AgentDecision, AgentDecisionTrace, ContinuousAgentResponseContextV1, DecisionProviderError,
     DecisionRequest, DecisionResponse, Observation, ProviderTraceEnvelope,
+};
+use crate::agent::{
+    AgentDecisionExplanationV1, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
+    LlmPromptSectionTrace, LlmStepTrace,
 };
 
 const MAX_PROVIDER_TRANSCRIPT_ENTRIES: usize = 64;
@@ -533,9 +533,7 @@ impl DecisionResponseExplanation for DecisionResponse {
     }
 }
 
-fn public_decision_explanation(
-    response: &DecisionResponse,
-) -> AgentDecisionExplanationV1 {
+fn public_decision_explanation(response: &DecisionResponse) -> AgentDecisionExplanationV1 {
     let unavailable = || AgentDecisionExplanationV1 {
         status: "unavailable".into(),
         provenance: "agent_explanation_unverified".into(),

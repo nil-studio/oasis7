@@ -11,9 +11,9 @@ use crate::decision_provider::DecisionResponse;
 #[cfg(test)]
 use oasis7_simulator::{Action, AgentQuery};
 
-use oasis7_agent_api::{ContinuousAgentRequestContextV1, FeedbackEnvelopeV1};
 #[cfg(test)]
 use oasis7_agent_api::MemoryWriteIntentV1;
+use oasis7_agent_api::{ContinuousAgentRequestContextV1, FeedbackEnvelopeV1};
 #[cfg(test)]
 type ContinuousAgentResponseContextV1 =
     oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>;

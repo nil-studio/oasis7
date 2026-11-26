@@ -14,8 +14,8 @@ use oasis7_wasm_abi::{
 };
 use serde_json::Value;
 
-pub use crate::decision_provider::{DecisionProvider, DecisionProviderError};
 use crate::decision_provider::ProviderCapabilityContext;
+pub use crate::decision_provider::{DecisionProvider, DecisionProviderError};
 use crate::provider_json_admission::ProviderResponseContextLease;
 use crate::provider_loopback_http::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,

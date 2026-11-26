@@ -1,8 +1,8 @@
-use oasis7_agent_api::ContinuousAgentTurnContextV1;
 use super::{
     DecisionRequest, Observation, ObservationEnvelope, ProviderBackedAgentBehavior,
     provider_observation_from_runtime_observation_with_goal,
 };
+use oasis7_agent_api::ContinuousAgentTurnContextV1;
 
 use super::DecisionProvider;
 
