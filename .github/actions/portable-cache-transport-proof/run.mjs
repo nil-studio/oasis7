@@ -79,13 +79,17 @@ async function archive(row,stage,explicit) {
     return {component:row.component,key:row.key,root:row.root,member:row.member,version:row.version,file:filename,archive_sha256:sha(bytes)};
   } finally {fs.rmSync(temporary,{recursive:true,force:true});}
 }
+function roleRows(role,rows) {
+  const names=role==='host'?components:role==='worker'?components.slice(0,1):components.slice(1);
+  return rows.filter(row=>names.includes(row.component));
+}
 function incoming(directory,role,rows) {
   if(!fs.lstatSync(directory).isDirectory())throw Error('proof input is not a regular directory');
-  const names=fs.readdirSync(directory).sort(),expected=['manifest.json',...components.map(c=>c+'.tzst')].sort();
+  const names=fs.readdirSync(directory).sort(),expected=['manifest.json',...rows.map(row=>row.component+'.tzst')].sort();
   if(JSON.stringify(names)!==JSON.stringify(expected))throw Error('proof archive inventory differs');
   const manifest=JSON.parse(bounded(path.join(directory,'manifest.json')));
   const keys=['controller','image','role','rows','run','schema','source'].sort();
-  if(JSON.stringify(Object.keys(manifest).sort())!==JSON.stringify(keys)||!Array.isArray(manifest.rows)||manifest.rows.length!==4) {
+  if(JSON.stringify(Object.keys(manifest).sort())!==JSON.stringify(keys)||!Array.isArray(manifest.rows)||manifest.rows.length!==rows.length) {
     throw Error('proof manifest schema mismatch');
   }
   const identity={schema:1,source:CODE,controller:process.env.CONTROLLER_SHA,run:process.env.GITHUB_RUN_ID,role,image:IMAGES[role]||'host'};
@@ -111,20 +115,21 @@ async function main() {
   const rows=layouts(),root=process.env.GITHUB_WORKSPACE;
   if(phase==='read') {
     for(const writer of ['browser','worker']) {
-      const directory=path.join(root,'portable-proof-input-'+writer);incoming(directory,writer,rows);
-      for(const row of rows){await extract(row,path.join(directory,row.component+'.tzst'),writer,false);removeOwn(row,writer);}
+      const directory=path.join(root,'portable-proof-input-'+writer),selected=roleRows(writer,rows);
+      incoming(directory,writer,selected);
+      for(const row of selected){await extract(row,path.join(directory,row.component+'.tzst'),writer,false);removeOwn(row,writer);}
     }
   } else {
     const stage=path.join(root,'portable-proof-stage');fs.mkdirSync(stage);
     if(phase==='image')incoming(path.join(root,'portable-proof-input-host'),'host',rows);
     const records=[];
-    for(const row of rows) {
+    for(const row of roleRows(role,rows)) {
       if(phase==='image'){await extract(row,path.join(root,'portable-proof-input-host',row.component+'.tzst'),'host',true);removeOwn(row,'host');}
       put(row,role);records.push(await archive(row,stage,phase==='image'));removeOwn(row,role);
       await extract(row,path.join(stage,row.component+'.tzst'),role,phase==='image');removeOwn(row,role);
     }
     fs.writeFileSync(path.join(stage,'manifest.json'),JSON.stringify({schema:1,source:CODE,controller:process.env.CONTROLLER_SHA,run:process.env.GITHUB_RUN_ID,role,image:IMAGES[role]||'host',rows:records}),{flag:'wx',mode:0o600});
   }
-  console.log(JSON.stringify({probe_only:true,phase,role,source:CODE,controller:process.env.CONTROLLER_SHA,image:IMAGES[role]||'host',components:rows.map(r=>({component:r.component,key:r.key,raw_paths:[r.root],version:r.version})),physical_host_default_reader:phase==='read',main_admission_verified:false,cache_api:false,shared_cache_write:false,cargo_compile:false}));
+  console.log(JSON.stringify({probe_only:true,phase,role,source:CODE,controller:process.env.CONTROLLER_SHA,image:IMAGES[role]||'host',components:(phase==='read'?rows:roleRows(role,rows)).map(r=>({component:r.component,key:r.key,raw_paths:[r.root],version:r.version})),physical_host_default_reader:phase==='read',main_admission_verified:false,cache_api:false,shared_cache_write:false,cargo_compile:false}));
 }
 try {await main();} catch(error) {core.setFailed(error.stack||error.message);}
