@@ -3,16 +3,16 @@ pub(crate) mod geometry {
     pub use oasis7_agent_api::world_action::GeoPos;
     pub use oasis7_agent_api::world_geometry::space_distance_cm;
 }
-pub(crate) use oasis7::simulator;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7::runtime_host;
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) use oasis7_world_service as world_service;
+pub(crate) use oasis7::simulator;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime as runtime;
 #[cfg(test)]
 pub(crate) use oasis7_runtime::agent_state as models;
 pub use oasis7_simulator::GeoPos;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_world_service as world_service;
 #[cfg(not(target_arch = "wasm32"))]
 mod game_read_api;
 #[cfg(not(target_arch = "wasm32"))]
