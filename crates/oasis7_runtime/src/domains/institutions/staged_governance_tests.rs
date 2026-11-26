@@ -12,7 +12,7 @@ use crate::{
 use oasis7_agent_api::world_action::{
     OrganizationContinuityCommandV1, Position, WorldRuleCommandV1,
 };
-use oasis7_world_state::WorldCommitmentEnvelope;
+use oasis7_world_state::commitment_envelope::WorldCommitmentEnvelope;
 use std::collections::{BTreeMap, BTreeSet};
 
 fn local_guardians() -> Vec<String> {
