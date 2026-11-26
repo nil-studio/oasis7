@@ -1327,6 +1327,7 @@
     "scripts/ci-formal-plan.py": ["workflow_governance"],
     "scripts/ci-formal-process.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-build-bundles.test.py": ["workflow_governance"],
+    "scripts/ci-formal-process-workspace-cache.test.py": ["workflow_governance"],
     "scripts/ci-full-result.py": ["workflow_governance"],
     "scripts/ci-full-result.test.py": ["workflow_governance"],
     "scripts/ci-local-check-plan.py": ["workflow_governance"],
@@ -1377,6 +1378,7 @@
     "scripts/ci-python-control-contracts.test.py",
     "scripts/ci-formal-process.test.py",
     "scripts/ci-formal-process-build-bundles.test.py",
+    "scripts/ci-formal-process-workspace-cache.test.py",
     "scripts/ci-storage-acceptance.test.py",
     "scripts/ci-storage-network.test.py",
     "scripts/ci-required-result.test.py",
@@ -1646,6 +1648,7 @@
       "tests": [
         "scripts/ci-formal-process.test.py",
         "scripts/ci-formal-process-build-bundles.test.py",
+        "scripts/ci-formal-process-workspace-cache.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/plan-rust-required-scope.test.py"
       ]
@@ -1660,6 +1663,12 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-formal-process-build-bundles.test.py"
+      ]
+    },
+    "scripts/ci-formal-process-workspace-cache.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process-workspace-cache.test.py"
       ]
     },
     "scripts/ci-full-result.py": {
@@ -1796,6 +1805,7 @@
         "scripts/ci-ecs-cache.test.py",
         "scripts/ci-formal-process.test.py",
         "scripts/ci-formal-process-build-bundles.test.py",
+        "scripts/ci-formal-process-workspace-cache.test.py",
         "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/ci-workspace-cache.test.py",
