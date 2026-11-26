@@ -73,14 +73,19 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46, O7-REQ-0bb14512-622e-48
 最小签名器的持久快照严格限制在固定尺寸上限（canonical CBOR 编码 `<= 4096` 字节），仅包含以下不可裁剪的安全字段：
 
 1. **不可变身份绑定**：`schema_version`、`binding_digest`（承诺 `world_id`、`chain_id`、`activation_digest`、协议版本与验证者公钥）及不可擦除的 `private_store_instance_digest`。
-2. **排他实例 Fencing**：单调递增的 `lease_generation: u64` 与当前活跃 `lease_token_digest`；新实例抢占递增代次后，旧代次的任何签名或状态推进请求立即拒绝。
-3. **Tendermint Algorithm 1 安全水位与锁**：
-   - 当前 `authority_epoch`、`active_validator_set_hash`、`height`、`round`；
-   - 当前 `(height, round)` 已占用的阶段槽位（`propose` / `prevote` / `precommit`，含 `nil` 票决定摘要及缓存的 64 字节原签名，支持网络丢包后的同槽原字节幂等重发）；
-   - `locked_round` / `locked_value_digest` 与 `valid_round` / `valid_value_digest`：跨 round 改投非锁定值时，调用方必须提供对应高度与 `valid_round` 的轻量法定权重 `prevote` 签名摘要证明（仅验活跃集合公钥与 `floor(2W/3)+1` 权重，无需上传历史高度日志），签名器核验 `locked_round <= valid_round` 后才原子更新锁并签发 `precommit`。
-4. **单向外部状态锚点**：`committed_header_id`（上一已认证高度头摘要）、`retention_sequence: u64`、`retention_head_digest` 与 `successor_minimum_sequence: u64`。锚点只允许沿合法前驱单向递增，杜绝本地删库重建后复用旧签名器身份。
+2. **排他实例 Fencing**：单调递增的 `lease_generation: u64` 与当前活跃 `lease_token_digest`。常规 `PrepareAcquire -> Acquire` 不得抢占仍活跃的未释放租约（返回冲突）；仅在干净释放或显式受控会话/运维 fencing 后递增代次，新代次生效后旧代次的任何签名或状态推进请求立即拒绝。
+3. **Tendermint Algorithm 1 安全水位、排程与锁**：
+   - 当前 `authority_epoch`、`active_validator_set_hash`、`schedule_digest`（承诺 `starting_priority` 及 `h -> h+2` 跨 `h+1` 传递的 `pending_transition`，确保外置历史 QC 后仍严格执行确定性 proposer 校验与 `h+2` 集合转换）、本机 `membership_install_watermark`、`height`、`round`；
+   - 当前 `(height, round)` 已占用的阶段槽位（`propose` / `prevote` / `precommit`，含 `nil` 票决定、有界待签/已签原始头 preimage 及 64 字节原签名缓存，支持网络丢包后的同槽原字节幂等重发）；
+   - `locked_round` / `locked_value_digest` 与 `valid_round` / `valid_value_digest`（严格遵循 [`des-p2p-bft-round-lock-v1`](../design.md#des-p2p-bft-round-lock-v1)）：
+     - **`propose` 校验**：若 `valid_value_digest.is_some()` 或提案头携带 `valid_round`，须核对提案值与对应高度 `valid_round` 的法定权重（`floor(2W/3)+1`）`prevote` 证明一致；
+     - **跨轮 `prevote` 解锁条件**：当存在旧锁且拟投异值时，调用方必须附上 `locked_round <= valid_round < round` 的法定权重 `prevote` 签名证明；通过后仅允许签发 **`prevote(round, Block(v))`**（不直接改锁或签发 `precommit`）；
+     - **每次非 `nil` `precommit` 的当轮 Polka 与无条件锁推进**：**每一次** `precommit(round, Block(v))`（包含首次上锁 `locked_value_digest == None` 以及在更高 `round` 对同一已锁定值 `v` 重新 `precommit`）均必须核验**当前轮 `round` 本身**针对 `(height, round, Block(v))` 的法定权重 `prevote` 证明，并在同一事务中无条件更新 `locked_round = Some(round), locked_value_digest = Some(v)` 与 `valid_round = Some(round), valid_value_digest = Some(v)`。
+4. **单向外部保留与时间/续期防回滚水位**：
+   - 保留锚点：`committed_header_id`、`retention_sequence: u64`、`retention_head_digest` 与 `successor_minimum_sequence: u64`（沿合法前驱单向递增，杜绝本地删库重建后复用旧签名器身份）；
+   - 续期与撤销水位（承接 [`des-p2p-bft-checkpoint-renewal-v1`](../design.md#des-p2p-bft-checkpoint-renewal-v1)，总计 `< 128` 字节）：`utc_lower_floor_unix_ms`、`clock_epoch` / `time_generation`、`trust_update_sequence` 及发行方撤销状态最低水位，每次签发提案或投票前在受保护签名器内重验有效窗口与撤销门槛，防止本地盘回滚重放过期策略或已撤销授权。
 
-由于完整状态小于 `4 KiB`，生产环境可直接采用以下任一轻量高可靠形态落地，无需特种大存储硬件：
+上述全部固定尺寸字段合计远小于 `4 KiB`，生产环境可直接采用以下任一轻量高可靠形态落地，无需特种大存储硬件：
 - **轻量多副本共识签名簇（Horcrux 模式）**：3 或 5 个独立微实例通过 Raft 同步 `< 4 KiB` 水位并配合门限签名或 KMS；
 - **KMS/HSM + 单行强一致键值/关系表（Web3Signer / Aptos 模式）**：不可导出私钥留在 `LunaBftSigningKeyV3` / Cloud KMS / Vault Transit，`< 4 KiB` 状态作为单行记录存于独立托管 PostgreSQL `SERIALIZABLE` 表或 etcd 键值项中。
 
@@ -92,7 +97,7 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46, O7-REQ-0bb14512-622e-48
 1. **先本地耐久 Pin，后锚定摘要签名**：Node 在请求提案签名或切换保留窗口前，先在本地受控私有归档目录与专用 CAS 中完成原始动作、依赖闭包（上限 64 MiB）及保留映射表的 `fsync` 落盘，计算包含前驱哈希链的 `retention_head_digest` 与单调 `retention_sequence`，仅将该 32 字节摘要随签名意图提交给受保护签名器。
 2. **防删库重建不变量保留**：签名器在 `BftMinimalSafetyState` 中持久记录 `private_store_instance_digest` 与最新 `retention_head_digest`。若验证者本地私有归档盘丢失、回滚或被清空重建，Node 重启后本地归档头将落后于签名器记录的 `retention_head_digest`（或实例身份不匹配）；启动对账必须在开放投票或服务前触发 `fail-closed` 停签，直至从合法授权备份完整恢复精确原件并核验全部 BLAKE3 摘要通过。
 3. **响应流量预算独立持久化**：候选与归档读取的累计响应消耗（`reserved_response_bytes`，4 GiB 上限及不退款预留规则）属于数据面防滥用与容量控制，移回 Node 归档读取网关的持久配额账本维护。配额耗尽阻塞新读取与新提案准入，但不再耦合进共识私钥的每一次投票 CAS 事务。
-4. **历史签名日志外置**：已完成高度的 `completed_journals` 与 64 高度认证头前缀保存在 Node 本地 WAL 镜像与归档库供审计和对外证明服务使用；签名器在验证当前高度合法 QC 后推进 `height` 与 `committed_header_id`，不再在受保护状态内保留过去 64 个高度的全量日志副本。
+4. **历史签名日志外置与排程锚点延续**：已完成高度的 `completed_journals` 与 64 高度认证头前缀保存在 Node 本地 WAL 镜像与归档库供审计和对外证明服务使用；签名器在对照当前 `schedule_digest` 验证本高度合法 QC 后，确定性导出下一高度 `schedule_digest`（保留 `h -> h+2` 待激活集合转换并核验 `h+2` 安装回执水位）并推进 `height` 与 `committed_header_id`，不再在受保护状态内保留过去 64 个高度的全量日志副本。
 
 <a id="des-bft-clock-liveness-separation"></a>
 ### 4.3 `des-bft-clock-liveness-separation`：共识超时活性与可信时间水位分离
@@ -100,31 +105,31 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46, O7-REQ-0bb14512-622e-48
 依据 Tendermint Algorithm 1，共识安全性（不在同一高度产生两个有效提交证书）完全由法定权重交集、轮次单调水位与锁定规则保证，不依赖节点间或硬件时钟同步；时钟仅决定何时触发超时进入下一 `round`（活性）：
 
 1. **移除空闲路径远程时钟轮询**：`propose`、`prevote`、`precommit` 超时计时器改由 Node 进程本地单调时钟（OS monotonic `Instant`）按既有权重门槛规则（观察到同阶段任意值 `>= q` 权重后启动，时长随 `round` 退避）驱动，彻底移除每 5–100 ms 调用远程 `protected_time_ms` 更新持久时间 floor 的热路径 I/O。
-2. **本地时钟异常不影响安全性**：即便验证者本机时钟快进或停滞，最坏情况仅导致该节点提前投出合法 `nil` 票或超时慢于对等节点，签名器的单调 `(height, round, phase)` 槽与 `locked_round` 规则仍严格阻止任何冲突双签或非法解锁。
-3. **低频边界保留外部可信时间**：离线检查点续期（[`des-p2p-bft-checkpoint-renewal-v1`](../design.md#des-p2p-bft-checkpoint-renewal-v1)）、治理根策略有效期与读取租约到期判定继续消费独立认证的时间观测或事务存储服务端单调时间戳，不以本机未认证 wall-clock 替代。
+2. **本地时钟异常不影响安全性**：即便验证者本机时钟快进或停滞，最坏情况仅导致该节点提前投出合法 `nil` 票或超时慢于对等节点，签名器的单调 `(height, round, phase)` 槽与当轮/跨轮 Polka 锁定规则仍严格阻止任何冲突双签或非法解锁。
+3. **低频治理与续期边界严格保留策略锚定的可信 UTC**：离线检查点续期（[`des-p2p-bft-checkpoint-renewal-v1`](../design.md#des-p2p-bft-checkpoint-renewal-v1)）、治理根策略有效期与撤销状态校验继续严格消费策略固定公钥签名的 `BftCheckpointTimeObservationV1`（`bounded-utc-observation-v1` 与 `protected-elapsed-upper-bound-v1`）及签名器内持久化的 `utc_lower_floor_unix_ms` / 撤销水位；严禁将本机未认证 wall-clock、普通 NTP 回复或未签名数据库服务端单调时钟强转充当 UTC 授权依据。
 
 ## 5. 关键运行流程
 
-1. **冷启动与租约对账**：Node 读取本地私有归档与 CAS，先校验世界身份、H/前驱链与材料完整性；随后连接最小受保护签名器执行 `PrepareAcquire -> Acquire` 递增 `lease_generation`。Node 比对本地 WAL/归档水位与签名器返回的 `(height, round, retention_sequence, retention_head_digest)`：若签名器水位更高且本地存在未广播原签名则补发续办，若本地缺失签名器已锚定的保留原件或提交历史则立即 `fail-closed` 阻断启动。
-2. **提案/投票签名热路径**：Node 本地完成父状态重执行与私有候选持久化 Pin → 组装固定尺寸请求（含目标 `(height, round, phase)`、区块头/值摘要、可选跨轮解锁 `prevote` 权重证明、单调 `retention_head_digest`）→ 签名器在单一 `< 4 KiB` 原子事务中核对 `lease_generation`、水位/锁转移与锚点单调性 → 调用不可导出密钥生成签名并写入当轮幂等缓存 → 返回 64 字节签名。
-3. **崩溃与丢包重试**：若签名已提交而网络响应丢失，Node 重连并取得新租约后重提同一 `(height, round, phase, value_digest)` 请求，签名器命中当轮幂等缓存直接返回原签名；若尝试提交异字节候选则被明确拒签。
+1. **冷启动与租约对账**：Node 读取本地私有归档与 CAS，先校验世界身份、H/前驱链与材料完整性；随后连接最小受保护签名器执行 `PrepareAcquire -> Acquire`（仅在无活跃租约或已完成受控 fencing 后递增 `lease_generation`）。Node 比对本地 WAL/归档水位与签名器返回的 `(height, round, schedule_digest, retention_sequence, retention_head_digest)`：若签名器水位更高且存在未广播原签名则补发续办，若本地缺失签名器已锚定的保留原件或提交历史则立即 `fail-closed` 阻断启动。
+2. **提案/投票签名热路径**：Node 本地完成父状态重执行与私有候选持久化 Pin → 组装固定尺寸请求（含目标 `(height, round, phase)`、有界待签头 preimage、必要的 `valid_round` 或当轮 `round` 法定权重 `prevote` 证明、单调 `retention_head_digest`）→ 签名器在 `< 4 KiB` 原子事务中核对 `lease_generation`、`utc_lower_floor_unix_ms`/撤销门禁、`schedule_digest`、Algorithm 1 锁转移与保留锚点单调性 → 调用不可导出密钥对完整域分隔 preimage 签名并写入当轮幂等缓存 → 返回 64 字节签名。
+3. **崩溃与丢包重试**：若签名已提交而网络响应丢失，Node 重连并取得新租约后重提同一 `(height, round, phase)` 及相同原始 preimage 请求，签名器命中当轮幂等缓存直接返回原签名；若尝试提交异字节候选则被明确拒签。
 
 ## 6. 接口与数据合同
 
 | 接口/条款 | producer → consumer | identity/version | ordering/idempotency | success/error | compatibility |
 | --- | --- | --- | --- | --- | --- |
-| 最小安全后端契约（拟名 `BftMinimalSignerBackendV1`） | `RemoteBftSignerService` → KMS/轻量事务存储 | 独立命名空间 `oasis7.bft.protected-signer.minimal.v1`，canonical CBOR `<= 4 KiB` | `lease_generation` 严格单调；`(height, round, phase)` 同摘要幂等返回原签名，异摘要拒绝 | 事务提交并读回确认后才释放签名；存储或密钥不可达返回明确错误并停签 | 与 `v3` 命名空间完全隔离，禁止原地覆盖或自动降级 |
+| 最小安全后端契约（拟名 `BftMinimalSignerBackendV1`） | `RemoteBftSignerService` → KMS/轻量事务存储 | 独立命名空间 `oasis7.bft.protected-signer.minimal.v1`，canonical CBOR `<= 4 KiB` | `lease_generation` 严格单调且不抢占活跃租约；`(height, round, phase)` 同 preimage 幂等返回原签名，异字节拒绝 | 事务提交并精确读回确认后才释放签名；存储、可信 UTC 水位或密钥不可证返回明确错误并停签 | 与 `v3` 命名空间完全隔离，禁止原地覆盖或自动降级 |
 | 保留摘要锚定接口 | `Node` 归档层 → 最小签名服务 | 绑定 `private_store_instance_digest` 与单调 `retention_sequence` | `retention_sequence` 只增不减；同序列须同 `retention_head_digest` | 锚点倒退或分叉立即拒签并标记实例需人工核查 | 外层候选包 wire 与归档哈希域保持不变 |
 
 ## 7. 状态、事务与持久化
 
-- **单一 `< 4 KiB` 原子提交点**：`lease_generation`、`(height, round, phase)` 槽、Algorithm 1 锁字段、当轮原签名缓存与 `retention_head_digest` 必须在同一次后端 CAS 中原子更新。
-- **两步操作顺序**：当不可导出密钥托管面与 `< 4 KiB` 状态存储面分离时，先在状态存储面原子写入 `ReservedIntent(height, round, phase, preimage_digest)`，再调用 KMS/HSM 签名，最后写回原签名；中断重启后若发现未完成 `ReservedIntent`，只允许对同一 `preimage_digest` 重新获取确定性 Ed25519 签名完成闭环，绝不允许取消或改签其他值。
+- **单一 `< 4 KiB` 原子提交点**：`lease_generation`、`schedule_digest`、`(height, round, phase)` 槽、Algorithm 1 锁更新、当轮原签名缓存、`retention_head_digest` 及 `utc_lower_floor_unix_ms`/撤销水位必须在同一次后端 CAS 中原子更新。
+- **两步操作顺序**：当不可导出密钥托管面（对完整域分隔字节执行 PureEdDSA `sign_preimage(&[u8])`）与 `< 4 KiB` 状态存储面分离时，第一步 CAS 必须先在 `< 4 KiB` 记录内原子提交更新后的 Algorithm 1 锁、`retention_sequence`/`retention_head_digest` 以及有界（`< 512 B`）待签原始 preimage 与 `preimage_digest`（`ReservedIntent`），第二步再调用 KMS/HSM 对该精确 preimage 签名并写回缓存；中断重启后若发现未完成 `ReservedIntent`，只允许对该已持久化的精确 preimage 重新获取确定性 Ed25519 签名完成闭环，绝不允许取消、退锁或改签其他值。
 
 ## 8. 部署、安全与运行约束
 
 - 验证者节点进程仍不得持有共识裸私钥文件，生产 CLI 不提供内存或验证者同盘普通文件作为签名状态后端的回退开关。
-- 最小状态存储仍须位于与验证者本地业务盘独立的故障域（如独立托管事务库或 3 节点轻量 Raft cosigner 组），以防验证者整机虚拟机快照回滚导致双签。
+- 最小状态存储仍须位于与验证者本地业务盘独立的故障域（如独立托管事务库或 3 节点轻量 Raft cosigner 组），以防验证者整机虚拟机快照回滚导致双签或回退 `utc_lower_floor_unix_ms` / 撤销水位。
 
 ## 9. 质量与容量
 
@@ -135,7 +140,7 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46, O7-REQ-0bb14512-622e-48
 
 演进遵循仓库 `[Slice: Dark] -> [Slice: Adapter] -> [Slice: Cutover]` 规范分批实施，不在现行 `wire=3` 活跃路径原地大改：
 
-1. **`[Slice: Dark]`**：在 `oasis7_consensus` / `oasis7_distfs` 新增独立的 `< 4 KiB` 最小安全状态结构、跨轮轻量解锁证明校验与一致性契约测试套件，零现网入口改动。
+1. **`[Slice: Dark]`**：在 `oasis7_consensus` / `oasis7_distfs` 新增独立的 `< 4 KiB` 最小安全状态结构、当轮/跨轮轻量 Polka 证明校验、`schedule_digest` 跨高度推进与一致性契约测试套件，零现网入口改动。
 2. **`[Slice: Adapter]`**：实现基于“不可导出 KMS/HSM 句柄 + `< 4 KiB` 强一致存储（或 Raft cosigner）”的适配器，以及 Node 本地私有归档先 Pin 后传摘要的桥接层，支持与旧 `v3` 配置并存验证。
 3. **`[Slice: Cutover]`**：在显式新配置版本下将验证者启动入口切至最小签名器路径；已启用新命名空间的验证者禁止回退至旧 `v3` 命名空间，代码回滚若遇更高受保护水位须按 `fail-closed` 保持停签。
 
@@ -145,13 +150,13 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46, O7-REQ-0bb14512-622e-48
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: req-dcs-004](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004) | [des-bft-minimal-safety-tcb](#des-bft-minimal-safety-tcb) | `< 4 KiB` 状态完整覆盖同槽幂等重发、异字节双签拒绝、跨轮 `lockedRound <= validRound` 解锁证明及旧 `lease_generation` fencing（承接 [p2p-target-bft](../prd.md#p2p-target-bft)） | Planned 单元与契约回归（承接 [S4 手册](../../testing/manual/testing-manual-s4-distributed-and-governance-drills.manual.md) 与 [testing-manual.md](../../../testing-manual.md) S9A）：核对最大合法状态编码 `<= 4096` 字节、签名前后中断恢复、伪造 `validRound` 拒签、双实例并发抢租旧实例被拒 | 新切片 PR 的测试命令、退出码、状态编码字节上限断言与真实后端冷重开证据 | 当前仅为目标设计，尚未编写实现或执行测试 |
+| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: req-dcs-004](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004) | [des-bft-minimal-safety-tcb](#des-bft-minimal-safety-tcb) | `< 4 KiB` 状态完整覆盖同槽幂等重发、异字节双签拒绝、`valid_round < round` 仅放行 `prevote`、每次非 `nil` `precommit` 强制核验当轮 Polka 并推进 `locked_round`、`schedule_digest` 跨 `h -> h+2` 集合转换锚定及活跃租约保护（承接 [p2p-target-bft](../prd.md#p2p-target-bft)） | Planned 单元与契约回归（承接 [S4 手册](../../testing/manual/testing-manual-s4-distributed-and-governance-drills.manual.md) 与 [testing-manual.md](../../../testing-manual.md) S9A）：核对最大合法状态编码 `<= 4096` 字节、旧轮 Polka 直接请求 `precommit` 被拒、同锁定值重签 `precommit` 必须推进 `locked_round`、`h+2` 未完成安装拒签、签名前后中断恢复及活跃租约不可被抢占 | 新切片 PR 的测试命令、退出码、状态编码字节上限断言与真实后端冷重开证据 | 当前仅为目标设计，尚未编写实现或执行测试 |
 | Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39；[product_requirement: req-dcs-001](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-001) | [des-bft-storage-accounting-decoupling](#des-bft-storage-accounting-decoupling) | 签名器零私有载荷接收；伪造或未锚定归档不可绕过签名器提交证明（承接 [p2p-full-sync-capacity-checkpoint](../prd.md#p2p-full-sync-capacity-checkpoint)） | Planned 集成负例（承接 [S4 手册](../../testing/manual/testing-manual-s4-distributed-and-governance-drills.manual.md)）：构造异源或篡改摘要的私有归档目录尝试请求签名，验证签名器按 `private_store_instance_digest` / `retention_head_digest` 拒绝 | 请求拒绝记录与零冲突签名证据 | 当前未实现；不替代跨节点全量同步验证 |
 | Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4；[product_requirement: req-dcs-002](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002) | [des-bft-storage-accounting-decoupling](#des-bft-storage-accounting-decoupling) | 本地私有归档删库重建、截断或摘要落后于签名器 `retention_head_digest` 时启动 `fail-closed` 停签（承接 [p2p-full-sync-capacity-checkpoint](../prd.md#p2p-full-sync-capacity-checkpoint)） | Planned 恢复负例（承接 [S4 手册](../../testing/manual/testing-manual-s4-distributed-and-governance-drills.manual.md)）：提交非空私有候选后删除/回滚 Node 本地归档目录再重启，验证因签名器锚点领先而拒绝投票，补齐精确原件后恢复续跑 | 归档篡改/回滚前后的启动阻断日志、签名器锚点快照与恢复后精确读回结果 | 当前未实现；不替代跨节点状态同步全量容量演练 |
-| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: ac-dcs-004](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-004) | [des-bft-clock-liveness-separation](#des-bft-clock-liveness-separation) | 本地时钟快进/慢走不破坏共识安全性（零双签、不非法清锁），空闲等待零远程时钟写事务，离线 checkpoint 到期仍严格阻断（承接 [轮次与锁定](../design.md#des-p2p-bft-round-lock-v1)、[checkpoint 更新](../design.md#des-p2p-bft-checkpoint-renewal-v1)） | Planned 状态机对抗测试与 I/O 计数断言（承接 [testing-manual.md](../../../testing-manual.md) S9A）：注入极端本地时钟偏移验证无冲突签名，统计空闲窗口签名后端写事务数为 `0`，并验证过期 checkpoint 仍拒绝自动接续 | 状态机对抗用例输出、后端事务计数断言与 checkpoint 到期拒绝记录 | 当前未实现；不承诺极端网络分区期间的出块活性时延 |
+| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: ac-dcs-004](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-004) | [des-bft-clock-liveness-separation](#des-bft-clock-liveness-separation) | 本地时钟快进/慢走不破坏共识安全性（零双签、不非法清锁），空闲等待零远程时钟写事务，离线 checkpoint 续期与撤销仍严格校验签名 `BftCheckpointTimeObservationV1` 与受保护 `utc_lower_floor_unix_ms`（承接 [轮次与锁定](../design.md#des-p2p-bft-round-lock-v1)、[checkpoint 更新](../design.md#des-p2p-bft-checkpoint-renewal-v1)） | Planned 状态机对抗测试与 I/O 计数断言（承接 [testing-manual.md](../../../testing-manual.md) S9A）：注入极端本地时钟偏移验证无冲突签名，统计空闲窗口签名后端写事务数为 `0`，并验证未签名服务端时间戳、回放旧观测或过期 checkpoint 均被签名器拒绝 | 状态机对抗用例输出、后端事务计数断言与 checkpoint/UTC 负例拒绝记录 | 当前未实现；不承诺极端网络分区期间的出块活性时延 |
 
 ## 12. 决策、长期风险与未决问题
 
-- **核心架构取舍**：以“Node 本地耐久归档 + 签名器 `< 4 KiB` 摘要锚定”替代“将数十 MiB 业务保留状态塞入签名器原子 CAS”。这消除了对不存在的“全能大存储硬件 HSM”的依赖，同时通过不可回退的 `retention_head_digest` 锚点完整保留了防本地删库伪造的安全边界。
-- **跨轮解锁验证开销**：由于签名器不再缓存完整历史高度状态，跨 round 解锁改投请求须附带本高度 `valid_round` 的聚合/去重 `prevote` 签名证明（256 成员上限内编码仍远小于数十 KiB，验签后无需落盘整包票据，仅持久化更新后的 `< 4 KiB` 水位）。
+- **核心架构取舍**：以“Node 本地耐久归档 + 签名器 `< 4 KiB` 摘要锚定（含 `schedule_digest`、`retention_head_digest` 与续期/撤销 floor）”替代“将数十 MiB 业务保留状态塞入签名器原子 CAS”。这消除了对不存在的“全能大存储硬件 HSM”的依赖，同时完整保留了防双签、防 `h+2` 集合转换遗忘、防续期回滚与防本地删库伪造的安全边界。
+- **当轮/跨轮 Polka 验证开销**：由于签名器不再缓存完整历史高度日志，跨轮 `prevote` 解锁与每次非 `nil` `precommit` 请求须附带对应 `(height, valid_round)` 或 `(height, round)` 的去重 `prevote` 签名证明（256 成员上限内编码仍远小于数十 KiB，验签通过后无需落盘整包票据，仅原子更新 `< 4 KiB` 水位与锁字段）。
 - **与 `#5518` 的衔接边界**：在后续专门立项实施本演进设计前，`#5518` 仍按现行 `BftSignerBackendV3` 接口推进交付；不得以本中期目标文档尚未实施为由阻塞当前任务，也不得以本文档合入宣称 `#5518` 已完成。
