@@ -820,7 +820,7 @@ impl World {
         )
     }
 
-    fn production_priority_for_factory_job(
+    pub(super) fn production_priority_for_factory_job(
         &self,
         job: &super::super::FactoryBuildJobState,
     ) -> ProductionQueuePriority {
@@ -837,7 +837,7 @@ impl World {
         )
     }
 
-    fn production_priority_for_recipe_job(
+    pub(super) fn production_priority_for_recipe_job(
         &self,
         job: &super::super::RecipeJobState,
     ) -> ProductionQueuePriority {

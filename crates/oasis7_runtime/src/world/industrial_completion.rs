@@ -63,7 +63,7 @@ impl World {
             BorrowedWorldView, DurableCommitConfirmation, TransitionContext, TransitionReject,
         };
         let commit = {
-            let view = BorrowedWorldView::new(self).map_err(TransitionReject::into_world_error)?;
+            let view = BorrowedWorldView::new(self)?;
             let ctx = TransitionContext::new(self.state.time, caused_by);
             transition.prepare(&view, &ctx).map_err(TransitionReject::into_world_error)?
         };
