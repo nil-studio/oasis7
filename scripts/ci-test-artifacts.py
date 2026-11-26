@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import errno
 import gzip
 import hashlib
 import io
@@ -1232,6 +1233,19 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def _digest_pairs(items):
+    entries = list(items)
+    if not entries:
+        return {}
+    workers = (1 if os.environ.get('OASIS7_LOCAL_CHECK') == '1' or len(entries) <= 8
+               else min(4, max(1, os.cpu_count() or 1), len(entries)))
+    if workers <= 1:
+        return {key: digest(path) for key, path in entries}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {key: pool.submit(digest, path) for key, path in entries}
+        return {key: future.result() for key, future in futures.items()}
+
+
 def inventory(path, ignored=False, env=None):
     command = [str(path), '--list', '--format', 'terse']
     if ignored:
@@ -1937,6 +1951,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
+        if scope == 'ordinary':
+            _warm_ordinary_targeted_cache(cache_state, env, variants)
         try:
             if not cache_state.get('error'):
                 cache_finish(cache_state)
@@ -1947,6 +1963,70 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
             cache_state_path.write_text(json.dumps(cache_state, sort_keys=True) + '\n')
         except OSError as error:
             print('formal_workspace_cache=' + json.dumps(dict(save=False, reason=str(error))), flush=True)
+
+
+def _warm_ordinary_targeted_cache(cache_state, env, variants):
+    """Warm narrow targeted feature units alongside full 28-package builds on trusted main."""
+    if (cache_state is None or cache_state.get('error')
+            or cache_state.get('selection') != 'libraries'
+            or os.environ.get('GITHUB_ACTIONS') != 'true'
+            or os.environ.get('GITHUB_REF') != 'refs/heads/main'
+            or os.environ.get('GITHUB_JOB') != 'oasis7-test-build-trusted'):
+        return
+    chain_manifest = ROOT / 'crates/oasis7_chain_runtime/Cargo.toml'
+    if not chain_manifest.is_file():
+        return
+    try:
+        parsed = tomllib.loads(chain_manifest.read_text())
+    except (OSError, ValueError):
+        return
+    if 'test_tier_required' not in parsed.get('features', {}):
+        return
+    if any(variant == 'required' and args == [
+            'test', '-p', 'oasis7_chain_runtime', '--tests',
+            '--features', 'oasis7_chain_runtime/test_tier_required', '--no-run']
+           for variant, args, _ in variants):
+        return
+    lightest_test = ROOT / 'crates/oasis7_chain_runtime/tests/incremental_cognition_history_original.rs'
+    selector = (['--test', 'incremental_cognition_history_original']
+                if lightest_test.is_file() else ['--tests'])
+    command = ['cargo', 'test', '-p', 'oasis7_chain_runtime', *selector,
+               '--features', 'oasis7_chain_runtime/test_tier_required',
+               '--no-run', '--locked', '--message-format=json-render-diagnostics']
+    started = time.monotonic()
+    local_units = local_fresh = dependency_units = dependency_fresh = 0
+    print('+ ' + ' '.join(command), flush=True)
+    try:
+        with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
+            for line in process.stdout:
+                try:
+                    artifact = json.loads(line)
+                except ValueError:
+                    continue
+                if artifact.get('reason') == 'compiler-message':
+                    print(artifact['message'].get('rendered', ''), end='', flush=True)
+                if not cache_state.get('error'):
+                    try:
+                        cache_record(cache_state, artifact, ordinary_baseline=True)
+                    except (OSError, ValueError, KeyError, TypeError) as error:
+                        cache_state['error'] = str(error)
+                if artifact.get('reason') == 'compiler-artifact':
+                    if Path(artifact['manifest_path']).is_relative_to(ROOT):
+                        local_units += 1
+                        local_fresh += bool(artifact['fresh'])
+                    else:
+                        dependency_units += 1
+                        dependency_fresh += bool(artifact['fresh'])
+            if process.wait() != 0:
+                cache_state['error'] = 'ordinary targeted cache warmup failed'
+    except (OSError, subprocess.SubprocessError) as error:
+        cache_state['error'] = str(error)
+    print('ordinary_cache_warmup=' + json.dumps(dict(
+        elapsed_seconds=round(time.monotonic() - started, 3),
+        local_units=local_units, local_fresh=local_fresh, local_rebuilt=local_units - local_fresh,
+        dependency_units=dependency_units, dependency_fresh=dependency_fresh,
+        dependency_rebuilt=dependency_units - dependency_fresh,
+        error=cache_state.get('error'))), flush=True)
 
 
 def complete_bundle_scope(manifest):
@@ -2744,7 +2824,10 @@ def _cache_inputs(root, generated_targets=()):
     # Include ignored/untracked build inputs too. Never traverse Git internals
     # or the separately managed Cargo target (which may be a prepared symlink).
     files, _ = _cache_walk(root, excluded=('.git', 'target'), excluded_paths=generated_targets)
-    return {name: _cache_file(root / name, info) for name, info in files.items()}
+    digests = _digest_pairs((name, root / name) for name in files)
+    return {name: dict(bytes=info.st_size, mode=stat.S_IMODE(info.st_mode),
+                       mtime_ns=info.st_mtime_ns, sha256=digests[name])
+            for name, info in files.items()}
 
 
 def cache_begin(root, selection='all'):
@@ -3050,7 +3133,7 @@ def _cache_sizes(files):
                 bytes_by_category=dict(sorted(categories.items())))
 
 
-def _cache_copy(source, destination, files, directories):
+def _cache_copy(source, destination, files, directories, *, consume_source=False):
     """Copy complete units, preserving internal hard links and exact timestamps."""
     written, inodes = [], {}
     try:
@@ -3066,7 +3149,15 @@ def _cache_copy(source, destination, files, directories):
             if inode in inodes:
                 os.link(inodes[inode], copied)
             else:
-                shutil.copy2(original, copied)
+                if consume_source:
+                    try:
+                        os.replace(original, copied)
+                    except OSError as error:
+                        if error.errno != errno.EXDEV:
+                            raise
+                        shutil.copy2(original, copied)
+                else:
+                    shutil.copy2(original, copied)
                 inodes[inode] = copied
             copied.chmod(metadata['mode'])
             os.utime(copied, ns=(metadata['mtime_ns'], metadata['mtime_ns']))
@@ -3132,7 +3223,11 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
         if not report['eligible']:
             report['reason'] = 'workspace selection exceeds budget or is empty'
             return report
-        files = {name: _cache_file(_cache_path(target, name), all_files[name]) for name in sorted(selected)}
+        selected_names = sorted(selected)
+        staged_digests = _digest_pairs((name, _cache_path(target, name)) for name in selected_names)
+        files = {name: dict(bytes=all_files[name].st_size, mode=stat.S_IMODE(all_files[name].st_mode),
+                            mtime_ns=all_files[name].st_mtime_ns, sha256=staged_digests[name])
+                 for name in selected_names}
         if max(item['mtime_ns'] for item in [*files.values(), *directories.values(), *state['inputs'].values()]) >= time.time_ns():
             raise ValueError('future cache timestamp')
         if cache.exists():
@@ -3216,7 +3311,7 @@ def _cache_input_refresh(root, inputs, current, owners, report):
     return refresh, directories
 
 
-def cache_restore(root, cache, maximum=8 * 1024 ** 3):
+def cache_restore(root, cache, maximum=8 * 1024 ** 3, *, consume_source=False):
     started = time.monotonic()
     report = dict(restored=False)
     written = False
@@ -3248,11 +3343,16 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
             root, inputs, current, manifest.get('input_owners'), report)
         if not 0 < sum(item['bytes'] for item in files.values()) <= maximum:
             raise ValueError('cache payload exceeds budget or is empty')
+        source_paths = {}
         for name, metadata in files.items():
             path = _cache_path(cache / 'target', name)
             info = path.stat()
-            if (info.st_size != metadata['bytes'] or stat.S_IMODE(info.st_mode) != metadata['mode']
-                    or digest(path) != metadata['sha256']):
+            if info.st_size != metadata['bytes'] or stat.S_IMODE(info.st_mode) != metadata['mode']:
+                raise ValueError('cache payload checksum, size or mode mismatch: ' + name)
+            source_paths[name] = path
+        payload_digests = _digest_pairs(source_paths.items())
+        for name, metadata in files.items():
+            if payload_digests[name] != metadata['sha256']:
                 raise ValueError('cache payload checksum, size or mode mismatch: ' + name)
             destination = _cache_path(target, name)
             if destination.exists() and (not destination.is_file() or digest(destination) != metadata['sha256']):
@@ -3266,7 +3366,7 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
                 existing, _ = _cache_walk(destination)
                 if any((Path(name) / child).as_posix() not in files for child in existing):
                     raise ValueError('cache overlaps an incomplete existing Cargo unit')
-        _cache_copy(cache / 'target', target, files, directories)
+        _cache_copy(cache / 'target', target, files, directories, consume_source=consume_source)
         written = True
         changed = matched = refreshed = 0
         # Validation rejects future metadata; this stamp is strictly newer than

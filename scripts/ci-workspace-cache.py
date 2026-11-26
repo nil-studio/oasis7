@@ -361,7 +361,7 @@ def restore_cache(args, report):
         raise ValueError('workspace cache archive is missing or contains extra files')
     with tempfile.TemporaryDirectory(prefix='workspace-restore-', dir=cache.parent) as directory:
         report.update(archive.unpack_archive(cache / ARCHIVE_NAME, Path(directory), maximum))
-        report.update(units.cache_restore(ROOT, Path(directory), maximum))
+        report.update(units.cache_restore(ROOT, Path(directory), maximum, consume_source=True))
 
 
 def observe_save(scope, key, report):
