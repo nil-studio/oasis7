@@ -256,7 +256,6 @@ mod tests {
             consume_ledger: MaterialLedgerId::agent(builder.clone()), output_ledger: MaterialLedgerId::agent(builder.clone()),
             bottleneck_tags: Vec::new(), logistics_route_ids: Vec::new(), logistics_path_ids: Vec::new(), ready_at: world.state().time,
         };
-        let before = world.snapshot();
         let view = BorrowedWorldView::new(&world).unwrap();
         assert!(matches!(StagedIndustrialCompletion { job: &job }.prepare(&view, &TransitionContext::new(view.time(), None)), Err(TransitionReject::World(_))));
 
@@ -265,6 +264,7 @@ mod tests {
             world_binding: "b".into(), domain: "d".into(), schema: "s".into(), id: "i".into(), revision: 1, digest: "h".into(),
         });
         world.state.pending_recipe_jobs.insert(200, job.clone());
+        let before = world.snapshot();
         let blocked = StagedIndustrialCompletion { job: &job };
         let prep = |w: &World| {
             let v = BorrowedWorldView::new(w).unwrap();
