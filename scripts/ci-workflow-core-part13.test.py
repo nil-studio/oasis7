@@ -441,7 +441,12 @@ class WorkflowCorePart13(unittest.TestCase):
         for name in ('full-regression', 'candidate-full-regression'):
             job = JOBS[name]
             self.assertIn('timeout-minutes: 210', job)
-            self.assertIn('./scripts/ci-tests.sh full-extended', job)
+            entrypoint = './scripts/ci-tests.sh full-extended'
+            if name == 'full-regression' and 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in job:
+                self.assertIn("['./scripts/ci-tests.sh', 'full-extended']",
+                              (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
+                entrypoint = 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"'
+            self.assertIn(entrypoint, job)
             self.assertNotIn('cache-native', job)
             self.assertNotIn('dependency-cache-tools', job)
             cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
@@ -449,7 +454,7 @@ class WorkflowCorePart13(unittest.TestCase):
             self.assertIn('save-if: false', cache)
             self.assertNotIn('GH_TOKEN:', cache)
             full = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
-                        if './scripts/ci-tests.sh full-extended' in step)
+                        if entrypoint in step)
             self.assertNotIn('if:', full)
             self.assertNotIn('continue-on-error:', full)
 
@@ -598,7 +603,11 @@ class WorkflowCorePart13(unittest.TestCase):
         self.assertIn('fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\')', JOBS['fleet-health'])
         self.assertIn('--host-smoke', JOBS['fleet-health'])
         self.assertEqual(WORKFLOW.count('testnet-packages-macos-arm64-contract.test.sh'), 2)
-        self.assertIn('./scripts/ci-tests.sh full', JOBS['full-regression'])
+        if 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in JOBS['full-regression']:
+            self.assertIn("['./scripts/ci-tests.sh', 'full-extended']",
+                          (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
+        else:
+            self.assertIn('./scripts/ci-tests.sh full', JOBS['full-regression'])
         self.assertIn('package-newapi-bridge-service.sh', JOBS['newapi-bridge-package'])
         report = JOBS['viewer-performance-report']
         self.assertIn('rustup default', report)

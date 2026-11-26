@@ -1567,7 +1567,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node'}:
             self.assertIn('cache: npm',JOBS[name])
             self.assertIn('cache-dependency-path: crates/oasis7_viewer/package-lock.json',JOBS[name])
-            self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
+            if name == 'full-regression' and 'scripts/ci-trusted-full-regression.py npm' in JOBS[name]:
+                self.assertIn("['npm', 'ci', '--prefix', 'crates/oasis7_viewer']",
+                              (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
+            else:
+                self.assertIn('npm ci --prefix crates/oasis7_viewer', JOBS[name])
         for name,job in JOBS.items():
             if 'Swatinem/rust-cache@' in job and name in {g.replace('_', '-') for g in CONFIG['groups']}:
                 if name in ('viewer-js-required', 'viewer-performance-report'):

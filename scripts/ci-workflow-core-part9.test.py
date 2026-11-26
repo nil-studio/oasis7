@@ -211,6 +211,31 @@ class WorkflowCorePart9(unittest.TestCase):
                        if 'uses: Swatinem/rust-cache@' in step]
             self.assertEqual(len(matches), 1)
             caches.append(matches[0])
+        image = re.search(r'(?m)^          image=ghcr[.]io/nil-studio/oasis7/ci-rust-full-regression@sha256:([0-9a-f]{64})$', writer)
+        if image:
+            launcher = (ROOT / 'scripts/ci-trusted-full-regression.py').read_text()
+            self.assertIn(image[1], launcher)
+            self.assertIn("['./scripts/ci-tests.sh', 'full-extended']", launcher)
+            self.assertIn("['npm', 'ci', '--prefix', 'crates/oasis7_viewer']", launcher)
+            self.assertIn("['./scripts/ci-rust-governance-report.sh', '--out-dir', 'output/rust-governance']", launcher)
+            self.assertIn('save-if: false', caches[0])
+            self.assertIn('shared-key: ci-rust-full-regression-' + image[1] + '-native-v1', caches[0])
+            self.assertNotIn('name: Install system deps', writer)
+            self.assertIn('name: Install system deps', candidate)
+            writer = writer.replace(caches[0], caches[0].replace(
+                'ci-rust-full-regression-' + image[1] + '-native-v1', 'ci-shared-native-trusted-v4'), 1)
+            caches[0] = caches[0].replace('ci-rust-full-regression-' + image[1] + '-native-v1', 'ci-shared-native-trusted-v4')
+            writer = re.sub(r'      - name: Pull the fixed trusted full regression image\n.*?(?=      - name: Install viewer web dependencies in the fixed image)',
+                            '', writer, flags=re.S)
+            writer = writer.replace('Install viewer web dependencies in the fixed image', 'Install viewer web dependencies')
+            writer = writer.replace('python3 scripts/ci-trusted-full-regression.py npm "$GITHUB_SHA"',
+                                    'npm ci --prefix crates/oasis7_viewer')
+            for label in ('Install system deps', 'Install product-document Markdown parser'):
+                candidate = re.sub(r'      - name: ' + label + r'\n.*?(?=      - name:)', '', candidate, flags=re.S)
+            writer = writer.replace('python3 scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"',
+                                    'CI_VERBOSE=1 ./scripts/ci-tests.sh full-extended')
+            writer = writer.replace('python3 scripts/ci-trusted-full-regression.py governance "$GITHUB_SHA"',
+                                    './scripts/ci-rust-governance-report.sh --out-dir output/rust-governance')
         # Action input order is immaterial; compare every setting before
         # comparing the remaining compiler setup, tests and diagnostics.
         self.assertEqual(sorted(caches[0].splitlines()), sorted(caches[1].splitlines()))
@@ -437,11 +462,19 @@ class WorkflowCorePart9(unittest.TestCase):
         self.assertLess(net.index(compiler_step), net.index('Execute selected group'))
         self.assertLess(net.index('llvm-ar --version'), net.index('Execute selected group'))
         writer = JOBS['full-regression']
-        self.assertIn('            clang \\', writer)
-        self.assertIn('            llvm \\', writer)
         self.assertIn('rustup target add wasm32-unknown-unknown', writer)
-        for tool in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
-            self.assertLess(writer.index(tool), writer.index('Run full test tier'))
+        if 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in writer:
+            launcher = (ROOT / 'scripts/ci-trusted-full-regression.py').read_text()
+            dockerfile = (ROOT / 'docker/ci-base/Dockerfile').read_text()
+            self.assertIn('FROM rust-custody-wasm AS rust-full-regression\n', dockerfile)
+            self.assertIn('apt-get install -y --no-install-recommends clang llvm', dockerfile)
+            for tool in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
+                self.assertLess(launcher.index(tool), launcher.index("['./scripts/ci-tests.sh', 'full-extended']"))
+        else:
+            self.assertIn('            clang \\', writer)
+            self.assertIn('            llvm \\', writer)
+            for tool in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
+                self.assertLess(writer.index(tool), writer.index('Run full test tier'))
 
 
 if __name__ == '__main__':
