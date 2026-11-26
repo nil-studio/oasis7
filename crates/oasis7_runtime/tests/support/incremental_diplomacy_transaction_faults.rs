@@ -451,17 +451,18 @@ fn current_crisis_reads_real_physical_overlay_after_scalar_update() {
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 1 << 20,
     };
-    let mut read = fixed!(&before, &state, &values, &memory, &mut io, &mut keys);
-    let family = qualify_diplomacy_family_v1(
-        &parent.roots,
-        &mut read,
-        &mut scan(),
-        &mut scan(),
-        &mut 8192,
-        4096,
-    )
-    .unwrap();
-    drop(read);
+    let family = {
+        let mut read = fixed!(&before, &state, &values, &memory, &mut io, &mut keys);
+        qualify_diplomacy_family_v1(
+            &parent.roots,
+            &mut read,
+            &mut scan(),
+            &mut scan(),
+            &mut 8192,
+            4096,
+        )
+        .unwrap()
+    };
 
     let mut tx = ExecutionTransaction::begin(
         parent.clone(),
