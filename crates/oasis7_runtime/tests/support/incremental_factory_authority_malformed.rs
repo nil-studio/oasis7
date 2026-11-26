@@ -306,9 +306,12 @@ pub(super) fn raw(
     memory: &MemoryBudget,
     roots: &RootSetV1,
 ) -> Result<ReservedValue<FactoryAuthorityFamilyQualificationV1>, ValueTreeError> {
-    let state = store
+    let mut state = store
         .state_session(physical_scope(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(physical_scope());
     qualify_factory_authority_family_v1(
         roots,
@@ -494,9 +497,12 @@ fn generic_valid_bad_factory_children_fail_raw_and_typed_but_tail_truncation_pas
         let reference = outer_reference(&store, &memory, bad);
         let candidate = changed_roots(&store, &memory, &roots, &outer, reference.value_root);
         let raw_result = raw(&store, &memory, &candidate);
-        let state = store
+        let mut state = store
             .state_session(physical_scope(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let mut tx = ExecutionTransaction::begin(
             parent.clone(),
             [0x82; 32],
@@ -755,9 +761,12 @@ fn generic_valid_power_option_relation_failures_and_valid_removal() {
         );
         let candidate = changed_roots(&store, &memory, &roots, &outer, reference.value_root);
         let raw_result = raw(&store, &memory, &candidate);
-        let state = store
+        let mut state = store
             .state_session(physical_scope(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let mut tx = ExecutionTransaction::begin(
             parent.clone(),
             [0x82; 32],

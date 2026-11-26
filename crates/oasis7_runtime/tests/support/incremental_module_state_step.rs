@@ -154,6 +154,8 @@ struct OriginalOracle {
     prefix: Vec<u8>,
     suffix: Vec<u8>,
     palette: [Vec<u8>; 256],
+    cached_high: Option<u8>,
+    cached_block: Vec<u8>,
     payload_bytes: usize,
     payload_len: usize,
     position: usize,
@@ -183,13 +185,19 @@ impl OriginalOracle {
         let palette: [Vec<u8>; 256] = std::array::from_fn(|byte| {
             oasis7_wasm_abi::encode_canonical_cbor(&(byte as u8)).unwrap()
         });
-        let payload_bytes = (0..payload_len)
-            .map(|index| palette[state_byte(index) as usize].len())
-            .sum();
+        // `state_byte` permutes 0..=255 on every aligned 256-byte block (`gcd(37, 256) == 1`).
+        let block_cbor_bytes: usize = palette.iter().map(Vec::len).sum();
+        let tail_start = payload_len & !255;
+        let payload_bytes = (payload_len / 256) * block_cbor_bytes
+            + (tail_start..payload_len)
+                .map(|idx| palette[state_byte(idx) as usize].len())
+                .sum::<usize>();
         Self {
             prefix,
             suffix: encoded[index + marker.len()..].to_vec(),
             palette,
+            cached_high: None,
+            cached_block: Vec::with_capacity(block_cbor_bytes),
             payload_bytes,
             payload_len,
             position: 0,
@@ -211,7 +219,38 @@ impl OriginalOracle {
 }
 impl Write for OriginalOracle {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        for actual in bytes {
+        let mut cursor = 0;
+        while cursor < bytes.len() {
+            if self.position >= self.prefix.len()
+                && self.scalar_position == 0
+                && (self.state_position & 255) == 0
+                && self.state_position + 256 <= self.payload_len
+            {
+                let high = (self.state_position >> 16) as u8;
+                if self.cached_high != Some(high) {
+                    self.cached_block.clear();
+                    for low in 0..256usize {
+                        let b = (low as u8).wrapping_mul(37) ^ high.wrapping_add(19);
+                        self.cached_block
+                            .extend_from_slice(&self.palette[b as usize]);
+                    }
+                    self.cached_high = Some(high);
+                }
+                let blen = self.cached_block.len();
+                if cursor + blen <= bytes.len() {
+                    assert_eq!(
+                        &bytes[cursor..cursor + blen],
+                        self.cached_block.as_slice(),
+                        "event original block offset {}",
+                        self.position
+                    );
+                    cursor += blen;
+                    self.position += blen;
+                    self.state_position += 256;
+                    continue;
+                }
+            }
+            let actual = bytes[cursor];
             let expected = if self.position < self.prefix.len() {
                 self.prefix[self.position]
             } else if self.state_position < self.payload_len {
@@ -226,8 +265,9 @@ impl Write for OriginalOracle {
             } else {
                 self.suffix[self.position - self.prefix.len() - self.payload_bytes]
             };
-            assert_eq!(*actual, expected, "event original offset {}", self.position);
+            assert_eq!(actual, expected, "event original offset {}", self.position);
             self.position += 1;
+            cursor += 1;
         }
         self.hash.update(bytes);
         Ok(bytes.len())
@@ -243,8 +283,23 @@ struct StateOracle {
 }
 impl Write for StateOracle {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        for (offset, byte) in bytes.iter().enumerate() {
-            assert_eq!(*byte, state_byte(self.position + offset));
+        let mut cursor = 0;
+        while cursor < bytes.len() {
+            let pos = self.position + cursor;
+            if (pos & 255) == 0 && cursor + 256 <= bytes.len() {
+                let xor = ((pos >> 16) as u8).wrapping_add(19);
+                let expected: [u8; 256] =
+                    std::array::from_fn(|low| (low as u8).wrapping_mul(37) ^ xor);
+                let repeat = ((bytes.len() - cursor) / 256).min(256 - ((pos >> 8) & 255));
+                for step in 0..repeat {
+                    let start = cursor + step * 256;
+                    assert_eq!(&bytes[start..start + 256], &expected);
+                }
+                cursor += repeat * 256;
+            } else {
+                assert_eq!(bytes[cursor], state_byte(pos));
+                cursor += 1;
+            }
         }
         self.position += bytes.len();
         Ok(bytes.len())
@@ -295,7 +350,16 @@ pub(super) fn exercise_module_state(state_bytes: usize) {
             };
             let input_charge = memory.reserve(state_bytes, MemoryClass::Ordinary).unwrap();
             let mut payload = Vec::with_capacity(state_bytes);
-            payload.extend((0..state_bytes).map(state_byte));
+            while payload.len() + 256 <= state_bytes {
+                let xor = ((payload.len() >> 16) as u8).wrapping_add(19);
+                let row: [u8; 256] = std::array::from_fn(|low| (low as u8).wrapping_mul(37) ^ xor);
+                let repeat =
+                    ((state_bytes - payload.len()) / 256).min(256 - ((payload.len() >> 8) & 255));
+                for _ in 0..repeat {
+                    payload.extend_from_slice(&row);
+                }
+            }
+            payload.extend((payload.len()..state_bytes).map(state_byte));
             let event = module_event(1, 12, payload);
             let oracle = OriginalOracle::new(&event, state_bytes);
             let qualified = ModuleStateRecoveryContextV1 {

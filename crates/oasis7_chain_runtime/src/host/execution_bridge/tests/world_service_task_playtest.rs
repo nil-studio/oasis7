@@ -1,4 +1,5 @@
 //! Explicit prepared-world live service for independent formal-Skill gameplay.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_world_service::{
     client::{RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort},
@@ -1095,6 +1096,7 @@ pub(super) fn retry_private<T>(
 fn private_task_resource_permit() -> Arc<super::super::scenario_resource::ScenarioResourcePermit> {
     super::super::scenario_resource::ScenarioResourcePermit::acquire()
 }
+#[cfg(feature = "test_tier_full")]
 #[path = "world_service_task_native_runner_conformance.rs"]
 mod native_runner_conformance;
 

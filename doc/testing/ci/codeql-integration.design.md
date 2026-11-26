@@ -205,6 +205,7 @@ python3 -I scripts/security/codeql-plan.py \
 | workflow 或 local action metadata | Actions；涉及扫描/多语言工具链配置则选相关语言并集 |
 | `.github/workflows/codeql.yml`、安全策略、planner、扫描配置 | 四语言及静态安全契约测试 |
 | 被 Rust `include_str!`、`include_bytes!`、build script 等使用的前端/数据文件 | 文件所属语言单元与消费者单元；识别不清选保守并集 |
+| 纯 Rust crate（具备 `crates/<crate>/Cargo.toml`、不含 `package.json`/`wrangler.toml` 且无 JS/TS/Python 源码引用该文件名）下标准测试夹具目录（`fixtures/`、`testdata/`、`tests/fixtures/`、`src/**/{fixtures,test_data,test_fixtures,serialization_fixtures}/`）内的静态测试数据（`.json`、`.cbor`、`.zst`） | 登记 `rust-repo`（保留原有嵌入、build 消费者并集及批次门禁）；混合语言/Worker crate、被 JS/TS/Python 跨语言引用的共享夹具、`artifacts/`/`scenarios/` 等非测试夹具目录、其他后缀与符号链接继续规划失败（fail-closed） |
 | 未登记源文件、无法识别的新 manifest/配置依赖 | 规划失败，先补明确归属规则；任意 build.rs/动态 include 的可能消费不能豁免未知路径 |
 | 根路径 `deny.toml` | cargo-deny 安全策略由 CI shell/Actions 消费，登记 `actions-repo`；不按 TOML 后缀扩大注册，不因登记启用 Rust 批次。原有嵌入、动态 include 与 build 消费者并集仍保留，重命名两端及符号链接继续按原规则核验 |
 | 根路径 `.dockerignore` 与 `docker/wasm-builder/Dockerfile` | canonical WASM 构建的 Actions 调用链、Python context 合同和 Rust producer recipe/嵌入合同共同消费，登记 `actions-repo`、`python-repo`、`rust-repo`。仅匹配这两个精确路径，保留旧/新嵌入与可能 build 消费者并集及批次限制；相邻未知输入和符号链接继续拒绝。登记不代表 CodeQL 分析 Dockerfile 语义或证明提取覆盖 |

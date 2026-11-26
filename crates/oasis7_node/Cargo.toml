@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [features]
 default = ["libp2p"]
-libp2p = ["dep:futures", "dep:libp2p", "oasis7_net/libp2p"]
+libp2p = ["dep:libp2p", "oasis7_net/libp2p"]
 test-hooks = []
 
 [dependencies]
@@ -21,7 +21,6 @@ oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 blake3 = "1"
 ed25519-dalek = "3"
-futures = { version = "0.3", optional = true }
 hex = "0.4"
 getrandom = "0.4"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "2cb3c04346fdcb0ecf6717728664602378edac13", optional = true, default-features = false, features = ["cbor", "gossipsub", "macros", "noise", "request-response", "tcp", "tokio", "yamux"] }

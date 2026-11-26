@@ -15,9 +15,12 @@ pub fn reject_malformed_outer(
         .iter()
         .find(|root| field.destination == FieldDestination::State(root.namespace))
         .unwrap();
-    let state = store
+    let mut state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(64, 256 << 10).unwrap();
+    }
     let old = root.get(metadata.as_bytes(), &state).unwrap().unwrap();
     // One continuous finite writer scope covers every independent mutation.
     let mut writer = store.value_session(physical());
@@ -134,9 +137,12 @@ pub fn qualify_ordinary(
         reads_remaining: 3_000_000,
         ..physical()
     };
-    let state = store
+    let mut state = store
         .state_session(bounded_physical.clone(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(bounded_physical);
     let mut io = fixture::logical();
     io.nodes_remaining = 200_000;

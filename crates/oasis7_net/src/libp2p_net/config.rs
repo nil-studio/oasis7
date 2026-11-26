@@ -27,6 +27,11 @@ pub struct Libp2pNetworkConfig {
     pub peer_record_publication_directory: Option<PathBuf>,
     /// Controls inbound peer-record replay protection independently of publishing.
     pub peer_record_receiver: PeerRecordReceiverConfig,
+    /// Opts discovery record acceptance and local record signing into fail-closed
+    /// mode until an independently verified UTC lower bound is installed.
+    pub require_independent_discovery_clock_floor: bool,
+    /// Optional independently verified UTC lower bound installed during startup.
+    pub verified_discovery_clock_floor_ms: Option<i64>,
     pub p2p_resource_budget: P2pResourceBudget,
     /// One explicit durable V2 publisher transition applied during startup.
     pub peer_record_publication_transition: Option<PeerRecordPublicationTransition>,
@@ -61,6 +66,17 @@ impl Libp2pNetworkConfig {
         Ok(self)
     }
 
+    pub fn requiring_independent_discovery_clock_floor(mut self) -> Self {
+        self.require_independent_discovery_clock_floor = true;
+        self
+    }
+
+    pub fn with_verified_discovery_clock_floor_ms(mut self, floor_ms: i64) -> Self {
+        self.require_independent_discovery_clock_floor = true;
+        self.verified_discovery_clock_floor_ms = Some(floor_ms);
+        self
+    }
+
     pub(super) fn rendezvous_enabled(&self) -> bool {
         self.enable_rendezvous
             || self
@@ -77,6 +93,8 @@ impl Default for Libp2pNetworkConfig {
             peer_record: None,
             peer_record_publication_directory: None,
             peer_record_receiver: PeerRecordReceiverConfig::default(),
+            require_independent_discovery_clock_floor: false,
+            verified_discovery_clock_floor_ms: None,
             p2p_resource_budget: P2pResourceBudget::default(),
             peer_record_publication_transition: None,
             enable_rendezvous: false,

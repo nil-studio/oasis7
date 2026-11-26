@@ -44,9 +44,12 @@ pub fn exercise(store: &IncrementalPageStore, memory: &MemoryBudget, parent: &Pr
         read_bytes_remaining: 8 * (256 << 20),
         ..physical()
     };
-    let state = store
+    let mut state = store
         .state_session(scope.clone(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(scope);
     let mut writer = store.value_session(physical());
     let mut read_io = ValueIoBudget {
@@ -345,9 +348,12 @@ pub fn same_transaction(
         read_bytes_remaining: 8 * (256 << 20),
         ..physical()
     };
-    let state = store
+    let mut state = store
         .state_session(scope.clone(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(scope);
     let mut writer = store.value_session(physical());
     let mut tx = ExecutionTransaction::begin(

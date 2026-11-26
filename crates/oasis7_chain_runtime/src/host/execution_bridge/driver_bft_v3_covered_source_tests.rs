@@ -478,6 +478,17 @@ fn activation_case(received: bool) {
         )
     }
     .unwrap();
+    let alternative_pin = if received {
+        let alternative = super::node_multivalue_tests::package(&h, 42);
+        let (alternative_source, alternative_pin, _, _) = recovered_ledger
+            .archive_first_original_received(&archive, &binding, &attestor, &marker, &alternative)
+            .unwrap();
+        assert_eq!(alternative_source, source);
+        assert_ne!(alternative_pin.reference.key, pin.reference.key);
+        Some(alternative_pin)
+    } else {
+        None
+    };
     let original_source = recovered_ledger
         .archive_first_original_source(&archive, &binding, &attestor, &marker, &source)
         .unwrap();
@@ -702,6 +713,57 @@ fn activation_case(received: bool) {
     }
     write("node.json", &serde_json::to_vec(&cold_config).unwrap());
     run("--verify-first-private-source-archive").unwrap();
+    if let Some(alternative) = alternative_pin {
+        let mut batch = reserve_options.clone();
+        batch.as_object_mut().unwrap().remove("reserve_input");
+        batch["verify_inputs"] = serde_json::json!([
+            reserve_options["reserve_input"].clone(),
+            {"source": source, "candidate": alternative},
+        ]);
+        write("source.json", &serde_json::to_vec(&batch).unwrap());
+        run("--verify-first-private-source-archive").unwrap();
+        assert_eq!(snapshot.lock().unwrap().state.revision, 1);
+
+        let mut duplicate = batch.clone();
+        duplicate["verify_inputs"][1] = duplicate["verify_inputs"][0].clone();
+        write("source.json", &serde_json::to_vec(&duplicate).unwrap());
+        assert!(
+            run("--verify-first-private-source-archive")
+                .unwrap_err()
+                .contains("alternatives differ")
+        );
+
+        let mut wrong_source = batch.clone();
+        wrong_source["verify_inputs"][1]["source"]["binding_digest"] =
+            serde_json::json!("ff".repeat(32));
+        write("source.json", &serde_json::to_vec(&wrong_source).unwrap());
+        assert!(
+            run("--verify-first-private-source-archive")
+                .unwrap_err()
+                .contains("alternatives differ")
+        );
+
+        let mut ambiguous = batch.clone();
+        ambiguous["reserve_input"] = reserve_options["reserve_input"].clone();
+        write("source.json", &serde_json::to_vec(&ambiguous).unwrap());
+        assert!(
+            run("--verify-first-private-source-archive")
+                .unwrap_err()
+                .contains("ambiguous")
+        );
+
+        write("source.json", &serde_json::to_vec(&batch).unwrap());
+        let path = archive_store
+            .blobs_dir()
+            .join(format!("{}.blob", alternative.reference.object.digest));
+        let exact = fs::read(&path).unwrap();
+        fs::write(&path, b"damaged original alternative").unwrap();
+        assert!(run("--verify-first-private-source-archive").is_err());
+        fs::write(&path, exact).unwrap();
+        run("--verify-first-private-source-archive").unwrap();
+        assert_eq!(snapshot.lock().unwrap().state.revision, 1);
+        write("source.json", &serde_json::to_vec(&reserve_options).unwrap());
+    }
     let mut unreachable = cold_config.clone();
     for field in [
         "handoff_material_path",

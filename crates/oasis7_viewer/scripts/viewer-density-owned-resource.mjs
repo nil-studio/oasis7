@@ -1,5 +1,5 @@
 // One bounded real-Viewer resource sample, not a 30-minute or P6 acceptance run.
-import {loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
+import {browserExecutablePath,loadPlaywright} from '../../../scripts/playwright-module-loader.mjs';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -27,13 +27,14 @@ const started=performance.now(),summary={builtSource:manifest.source,runnerHead:
 summary.limits.push('owned renderer process roles are not a proven one-page-to-one-native-renderer-PID mapping');
 summary.host={platform:process.platform,arch:process.arch,node:process.version,osRelease:release(),totalMemoryBytes:totalmem(),cpuModel:cpus()[0]?.model??null};
 for(const name of ['viewer-density-owned-resource.mjs','viewer-density-resource-observation.mjs','viewer-density-resource-stamp.mjs','viewer-owned-resource-os.mjs','viewer-owned-resource-policy.mjs','viewer-owned-startup-context.mjs','viewer-owned-startup-lifecycle.mjs','viewer-owned-fixture-server.mjs','viewer-product-startup-endpoints.mjs','viewer-startup-atlas-oracle.py','world-view-density-fixture.mjs','viewer-owned-cdp-memory.mjs','world-view-frame-capability.mjs','viewer-bounded-wire-audit.mjs','viewer-static-files.mjs','viewer-owned-cdp-input.mjs','viewer-owned-cdp-session.mjs'])summary.scripts[name]=sha(readFileSync(join(here,name)));
+summary.scripts['scripts/playwright-module-loader.mjs']=sha(readFileSync(new URL('../../../scripts/playwright-module-loader.mjs',import.meta.url)));
 const timer=setTimeout(()=>{summary.error='120s whole-case deadline; cleanup unproven';summary.elapsedMs=performance.now()-started;try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}catch(error){console.error(error);}process.exit(1);},120000);
 let server,context;
 await withObservationCleanup(async()=>{
  try{
   server=await startOwnedViewerFixtureServer({artifactRoot:root,source:manifest.source,out,expectedAssets:assets});server.beginCase('real-viewer-rss');
   const lease=createStartupProfile();summary.profile=lease.path;
-  context=await launchOwnedStartupContext(chromium,process.env.OASIS7_PLAYWRIGHT_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',lease);
+  context=await launchOwnedStartupContext(chromium,browserExecutablePath(),lease);
   summary.browserVersion=context.browser().version();
   summary.nativeIdentity=await identifyOwnedStartupContext(context,summary);
   assert(context.pages().length===1,'fresh owned Viewer page count invalid');const page=context.pages()[0];

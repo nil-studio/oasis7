@@ -1,6 +1,6 @@
 use oasis7_wasm_abi::{AgentCommandResponse, CapabilityCatalogSnapshot};
 
-use crate::capability_invocation_context::CapabilityInvocationContext;
+use oasis7_agent_api::CapabilityInvocationContext;
 
 use super::DecisionProviderError;
 

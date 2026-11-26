@@ -937,7 +937,6 @@ body {
   border-color: rgba(208, 168, 91, 0.2);
 }
 
-.agent-activity__status,
 .agent-activity__state,
 .agent-intent__state {
   color: var(--text);

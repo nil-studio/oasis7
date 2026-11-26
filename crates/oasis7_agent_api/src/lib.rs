@@ -45,9 +45,7 @@ pub mod world_context;
 pub mod world_quote;
 
 pub mod intent_summary;
-pub mod world_entity;
-pub mod world_geometry;
-pub mod world_resource;
+pub use oasis7_domain_types::{world_entity, world_geometry, world_resource};
 pub mod world_scenario;
 
 pub mod module_source;

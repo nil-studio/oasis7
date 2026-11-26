@@ -11,4 +11,6 @@ pub mod execution_config;
 include!("host.rs");
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod bft_successor_rotation_adapter;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history_store;

@@ -482,61 +482,6 @@ def canonical_provider_status_urls(manifest: dict[str, Any]) -> tuple[str, str]:
     return providers["sequencer"], providers["storage"]
 
 
-def load_checkpoint_closure_receipt(path: Path) -> dict[str, Any]:
-    if path.is_symlink() or not path.is_file():
-        die(f"checkpoint closure receipt must be a regular file: {path}")
-    try:
-        receipt = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        die(f"checkpoint closure receipt is not valid JSON: {path}: {error}")
-    if not isinstance(receipt, dict):
-        die("checkpoint closure receipt must be a JSON object")
-    if receipt.get("schema_version") != "oasis7.observer_checkpoint_closure_receipt.v1":
-        die("checkpoint closure receipt has invalid schema_version")
-    checkpoint_id = receipt.get("checkpoint_id")
-    manifest_hash = receipt.get("manifest_hash")
-    height = receipt.get("height")
-    if not isinstance(checkpoint_id, str) or not checkpoint_id.strip():
-        die("checkpoint closure receipt has invalid checkpoint_id")
-    if not isinstance(manifest_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", manifest_hash):
-        die("checkpoint closure receipt has invalid manifest_hash")
-    if isinstance(height, bool) or not isinstance(height, int) or height <= 0:
-        die("checkpoint closure receipt has invalid height")
-    if receipt.get("clean_state") is not True:
-        die("checkpoint closure receipt clean_state must be true")
-    providers = receipt.get("providers")
-    if not isinstance(providers, list) or not providers:
-        die("checkpoint closure receipt providers must be a non-empty array")
-    complete_provider = False
-    seen_provider_ids: set[str] = set()
-    for provider in providers:
-        if not isinstance(provider, dict):
-            die("checkpoint closure receipt provider entries must be objects")
-        provider_id = provider.get("provider_id")
-        if not isinstance(provider_id, str) or not provider_id.strip() or provider_id in seen_provider_ids:
-            die("checkpoint closure receipt provider_id values must be unique and non-empty")
-        seen_provider_ids.add(provider_id)
-        missing_hashes = provider.get("missing_hashes")
-        if not isinstance(missing_hashes, list) or not all(
-            isinstance(value, str) for value in missing_hashes
-        ):
-            die("checkpoint closure receipt missing_hashes must be a string array")
-        if (
-            provider.get("authorized") is True
-            and provider.get("connected") is True
-            and provider.get("complete") is True
-            and provider.get("hash_size_binding_verified") is True
-            and not missing_hashes
-        ):
-            complete_provider = True
-    if not complete_provider:
-        die(
-            "checkpoint closure receipt requires at least one authorized connected complete "
-            "provider with hash_size_binding_verified=true and missing_hashes=[]"
-        )
-    return receipt
-
-
 def load_probe_result(manifest: Path, package_dir: Path, probe_out: Path) -> dict[str, Any]:
     """Validate a receipt produced by the repository-owned clean-room probe."""
     if probe_out.is_symlink() or not probe_out.is_file():

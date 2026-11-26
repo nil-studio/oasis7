@@ -153,13 +153,32 @@ if mode == 'failed':
                         if isinstance(node, ast.Assign)
                         and any(isinstance(target, ast.Name) and target.id == 'CONTROL'
                                 for target in node.targets))
-        for dependency in ('scripts/cargo-dev.sh',
-                           'scripts/find-python-with-module.sh', 'rust-toolchain.toml',
-                           '.cargo/config.toml'):
-            with self.subTest(dependency=dependency):
-                self.assertTrue(any(fnmatch.fnmatchcase(dependency, pattern)
-                                    for pattern in [*patterns, *controls]),
-                                f'planner must package when only {dependency} changes')
+        if config.get('command_center_offline_version') == 1:
+            self.assertEqual(config.get('group_jobs', {}).get('command_center'), 'baseline')
+            self.assertIn('fromJSON(needs.select.outputs.plan).command_center_offline_version != 1', caller)
+            self.assertIn('tools/oasis7-command-center/**', patterns)
+            for control_dep in ('rust-toolchain.toml', '.cargo/config.toml'):
+                with self.subTest(control_dep=control_dep):
+                    self.assertTrue(any(fnmatch.fnmatchcase(control_dep, pattern)
+                                        for pattern in controls))
+            for shared_dep, expected_group in (
+                ('scripts/cargo-dev.sh', 'cargo_tooling_contracts'),
+                ('scripts/find-python-with-module.sh', 'doc_checker_contracts'),
+            ):
+                group_patterns = [pattern for rule in config['rules']
+                                  if expected_group in rule.get('groups', [])
+                                  for pattern in rule['match']]
+                with self.subTest(shared_dep=shared_dep):
+                    self.assertTrue(any(fnmatch.fnmatchcase(shared_dep, pattern)
+                                        for pattern in group_patterns))
+        else:
+            for dependency in ('scripts/cargo-dev.sh',
+                               'scripts/find-python-with-module.sh', 'rust-toolchain.toml',
+                               '.cargo/config.toml'):
+                with self.subTest(dependency=dependency):
+                    self.assertTrue(any(fnmatch.fnmatchcase(dependency, pattern)
+                                        for pattern in [*patterns, *controls]),
+                                    f'planner must package when only {dependency} changes')
 
     def test_main_window_can_invoke_every_registered_app_command(self):
         host = SCRIPT.parent.parent / 'src-tauri'

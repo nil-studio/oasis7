@@ -206,6 +206,7 @@ where
     )
 }
 
+#[cfg_attr(not(feature = "test_tier_full"), allow(dead_code))]
 #[derive(Debug)]
 struct BidMutatorMetrics {
     nodes: u64,
@@ -214,6 +215,7 @@ struct BidMutatorMetrics {
     state_reads: usize,
 }
 
+#[cfg(feature = "test_tier_full")]
 fn measure_middle_bid_delete(bid_count: u64) -> BidMutatorMetrics {
     measure_grouped_middle_bid_delete(bid_count, false)
 }
@@ -542,6 +544,7 @@ fn four_bid_membership_two_child_delete_matches_vec_and_node_oracles() {
     assert_eq!(result.state_reads, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn marketplace_bid_index_middle_delete_has_bounded_growth_with_vec_length() {
     let small = measure_middle_bid_delete(9);
@@ -564,6 +567,7 @@ fn marketplace_bid_index_middle_delete_has_bounded_growth_with_vec_length() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn marketplace_bid_index_rotations_match_independent_vec_and_node_oracles() {
     let memory = MemoryBudget::new(256 << 20, 16 << 20).unwrap();

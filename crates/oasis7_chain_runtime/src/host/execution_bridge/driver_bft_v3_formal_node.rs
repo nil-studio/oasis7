@@ -318,6 +318,7 @@ impl FormalBftHeaderNodeDriverV3 {
     /// Test-only detached World from the original qualified-parent execution.
     /// It does not retain a candidate, append a QC or install a canonical head.
     #[cfg(test)]
+    #[cfg_attr(not(feature = "test_tier_full"), allow(dead_code))]
     pub(crate) fn preview_candidate_world_for_test(
         &mut self,
         context: NodeBftBuildContextV3,
