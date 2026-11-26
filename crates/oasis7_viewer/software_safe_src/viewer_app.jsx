@@ -1,4 +1,36 @@
 import {
+  claimField,
+  compactValue,
+  claimMoney,
+  claimQuoteRows,
+  claimQuoteMetricClass,
+  claimTarget,
+  claimStatusText,
+  claimOwnedDetail,
+  releaseClaimActionState,
+  expansionBranchCards,
+} from "./viewer_claim_formatters.js";
+import {
+  starterOcAction,
+  touchStarterOcOnboardingState,
+  markStarterOcClaimPending,
+  scheduleStarterOcBackgroundConfirmation,
+  clearStarterOcClaimPending,
+  completeStarterOcOnboarding,
+  __markStarterOcOnboardingCompleteForTest,
+  starterOcClaimPendingForCurrentAgent,
+  starterOcOnboardingCompletedForCurrentAgent,
+  starterOcCreditVisibleForCurrentAgent,
+  rawStarterOcActionAvailable,
+  starterOcSubmittedFeedback,
+  starterOcFeedbackNeedsLocalAdvance,
+  shouldShowStarterOcRequiredGate,
+  visibleGameplayActionsForPanels,
+  gameplayProgressionAction,
+  firstAgentChatAction,
+} from "./viewer_starter_oc_controller.js";
+export { __markStarterOcOnboardingCompleteForTest };
+import {
   gameplayStatusBadgeClass,
   gameplayStageToneClass,
   gameplayStageLabel,
@@ -131,139 +163,6 @@ function DiagnosticDetails(props) {
       </div>
     </details>
   );
-}
-function claimField(value, ...names) {
-  if (!value || typeof value !== "object") return null;
-  for (const name of names) {
-    if (value[name] !== undefined && value[name] !== null) {
-      return value[name];
-    }
-  }
-  return null;
-}
-function compactValue(value) {
-  if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "-";
-  if (typeof value === "boolean") return value ? "true" : "false";
-  return String(value);
-}
-function claimMoney(value) {
-  const amount = claimField(value, "amount", "tokens", "balance", "value");
-  const symbol = claimField(value, "symbol", "denom", "currency");
-  if (amount !== null) {
-    return symbol ? `${amount} ${symbol}` : compactValue(amount);
-  }
-  return compactValue(value);
-}
-function claimQuoteRows(quote) {
-  if (!quote || typeof quote !== "object") return [];
-  return [
-    ["Slot", claimField(quote, "slot_index", "slot", "slot_id", "slotId", "claim_slot")],
-    ["Reputation tier", claimField(quote, "reputation_tier", "reputationTier", "tier")],
-    ["Owned / cap", [
-      claimField(quote, "owned_claim_count", "owned", "owned_count", "ownedCount"),
-      claimField(quote, "cap", "claim_cap", "claimCap"),
-    ].filter((part) => part !== null && part !== undefined).join(" / ")],
-    ["Total upfront", claimMoney(claimField(quote, "total_upfront_amount", "total_upfront", "totalUpfront", "upfront_total", "upfrontTotal"))],
-    ["Activation fee", claimMoney(claimField(quote, "activation_fee_amount", "activation_fee", "activationFee"))],
-    ["Bond", claimMoney(claimField(quote, "claim_bond_amount", "bond", "locked_bond", "lockedBond"))],
-    ["Upkeep / epoch", claimMoney(claimField(quote, "upkeep_per_epoch", "upkeepPerEpoch", "upkeep"))],
-    ["Eligible balance", claimMoney(claimField(quote, "eligible_claim_balance", "eligible_balance", "eligibleBalance"))],
-    ["Liquid balance", claimMoney(claimField(quote, "transferable_liquid_balance", "liquid_balance", "liquidBalance"))],
-    ["Restricted starter", claimMoney(claimField(quote, "restricted_starter_claim_balance", "restricted_starter_balance", "restrictedStarterBalance"))],
-    ["Auto starter", claimMoney(claimField(quote, "auto_restricted_starter_claim_amount", "auto_starter_amount", "autoStarterAmount"))],
-    ["Cooldown", claimField(quote, "release_cooldown_epochs", "cooldown_epochs", "cooldownEpochs", "cooldown")],
-    ["Grace", claimField(quote, "grace_epochs", "graceEpochs", "grace")],
-    ["Idle warning", claimField(quote, "idle_warning_epochs", "idleWarningEpochs")],
-    ["Forced reclaim", claimField(quote, "forced_idle_reclaim_epochs", "forcedIdleReclaimEpochs")],
-    ["Penalty bps", claimField(quote, "forced_reclaim_penalty_bps", "forcedReclaimPenaltyBps")],
-    ["Reclaim terms", claimField(quote, "reclaim_terms", "reclaimTerms", "reclaim")],
-  ].filter(([, value]) => value !== null && value !== undefined && value !== "");
-}
-const PRIMARY_CLAIM_QUOTE_LABELS = new Set(["Total upfront", "Eligible balance", "Owned / cap"]);
-function claimQuoteMetricClass(label) {
-  return [
-    "metric",
-    PRIMARY_CLAIM_QUOTE_LABELS.has(label) ? "metric--claim-primary" : null,
-    label === "Total upfront" ? "metric--claim-total" : null,
-  ].filter(Boolean).join(" ");
-}
-function claimTarget(claim) {
-  return claimField(claim, "target_agent_id", "targetAgentId", "agent_id", "agentId", "target") || "agent";
-}
-function claimStatusText(claim) {
-  const status = claimField(claim, "status", "claim_status", "claimStatus") || "active";
-  const paidThrough = claimField(claim, "upkeep_paid_through_epoch", "upkeepPaidThroughEpoch");
-  const grace = claimField(claim, "grace_remaining_epochs", "graceRemainingEpochs", "grace_remaining", "graceRemaining");
-  const releaseReadyIn = claimField(claim, "release_ready_in_epochs", "releaseReadyInEpochs");
-  const releaseReadyAt = claimField(claim, "release_ready_at_epoch", "releaseReadyAtEpoch");
-  const idleWarningIn = claimField(claim, "idle_warning_in_epochs", "idleWarningInEpochs");
-  const reclaim = claimField(claim, "forced_reclaim_in_epochs", "forcedReclaimInEpochs", "forced_reclaim_epoch", "forcedReclaimEpoch", "forced_reclaim_at", "forcedReclaimAt");
-  return [
-    `status=${status}`,
-    paidThrough !== null ? `upkeep paid through epoch ${paidThrough}` : null,
-    releaseReadyIn !== null ? `release ready in ${releaseReadyIn}` : null,
-    releaseReadyAt !== null ? `release ready at epoch ${releaseReadyAt}` : null,
-    grace !== null ? `grace remaining ${grace}` : null,
-    idleWarningIn !== null ? `idle warning in ${idleWarningIn}` : null,
-    reclaim !== null ? `forced reclaim in ${reclaim}` : null,
-  ].filter(Boolean).join(" · ");
-}
-function claimOwnedDetail(claim) {
-  const restrictedBond = claimField(claim, "claim_bond_locked_restricted_amount", "lockedBondRestricted");
-  const liquidBond = claimField(claim, "claim_bond_locked_liquid_amount", "lockedBondLiquid");
-  const restrictedSpent = claimField(claim, "upfront_restricted_spent_amount", "upfrontRestrictedSpent");
-  const liquidSpent = claimField(claim, "upfront_liquid_spent_amount", "upfrontLiquidSpent");
-  return [
-    claimField(claim, "idle_warning", "idleWarning"),
-    claimField(claim, "locked_bond_split", "lockedBondSplit"),
-    restrictedBond !== null || liquidBond !== null
-      ? `bond restricted=${compactValue(restrictedBond)} liquid=${compactValue(liquidBond)}`
-      : null,
-    restrictedSpent !== null || liquidSpent !== null
-      ? `upfront restricted=${compactValue(restrictedSpent)} liquid=${compactValue(liquidSpent)}`
-      : null,
-  ].filter(Boolean).join(" · ");
-}
-function releaseClaimActionState(actions) {
-  let published = false;
-  let disabledReason = null;
-  const available = (actions || []).some((action) => {
-    const raw = `${action.actionId || ""} ${action.label || ""} ${action.protocolAction || ""}`.toLowerCase();
-    const isRelease = raw.includes("release_agent_claim") || raw.includes("release claim") || raw.includes("release_agent");
-    if (!isRelease) {
-      return false;
-    }
-    published = true;
-    disabledReason = action.disabledReason || disabledReason;
-    return !action.disabledReason;
-  });
-  return { available, published, disabledReason };
-}
-function expansionBranchCards(gameplay, locale) {
-  const goal = String(gameplay?.goalKind || "").toLowerCase();
-  if (goal !== "choosefirstexpansiontradeoff" && goal !== "choosemidlooppath") {
-    return [];
-  }
-  const actions = gameplay?.availableActions || [];
-  const recommendations = Array.isArray(gameplay?.branchRecommendations)
-    ? gameplay.branchRecommendations
-    : [];
-  if (recommendations.length === 0) {
-    return gameplay?.branchHint ? [{ legacy: true }] : [];
-  }
-  return recommendations.map((recommendation) => {
-    const action = actions.find((candidate) => candidate.actionId === recommendation.actionId) || null;
-    const futureBeats = Array.isArray(recommendation.futureBeats) ? recommendation.futureBeats.map((beat) => String(beat || "").trim()) : [];
-    const complete = [recommendation.routeLabel, recommendation.immediateGain, recommendation.riskOrLockin, recommendation.nextSessionHook]
-      .every((value) => Boolean(String(value || "").trim())) && futureBeats.length === 2 && futureBeats.every(Boolean) && new Set(futureBeats).size === 2;
-    return {
-      ...recommendation,
-      action,
-      complete,
-      futureBeats,
-    };
-  });
 }
 function ClaimAgentChoiceCard(props) {
   const locale = () => props.locale ?? uiLocale();
@@ -873,189 +772,6 @@ function ViewerEntryMenu() {
       </div>
     </details>
   );
-}
-
-function starterOcAction(gameplay) {
-  if (starterOcOnboardingCompletedForCurrentAgent()) {
-    return null;
-  }
-  const pendingTargetAgentId = normalizedId(starterOcOnboardingState.targetAgentId);
-  if (starterOcOnboardingState.pending && pendingTargetAgentId) {
-    return null;
-  }
-  const existing = (gameplay?.availableActions || []).find((action) => action.actionId === "claim_starter_oc" && !action.disabledReason);
-  if (existing) {
-    return existing;
-  }
-  return null;
-}
-
-const starterOcOnboardingState = {
-  pending: false,
-  targetAgentId: null,
-  completedTargetAgentId: null,
-};
-const [starterOcOnboardingRevision, setStarterOcOnboardingRevision] = createSignal(0);
-let starterOcBackgroundConfirmTimer = null;
-
-function touchStarterOcOnboardingState() {
-  setStarterOcOnboardingRevision((value) => value + 1);
-}
-
-function markStarterOcClaimPending(action) {
-  if (action?.actionId !== "claim_starter_oc") {
-    return;
-  }
-  starterOcOnboardingState.pending = true;
-  starterOcOnboardingState.targetAgentId = normalizedId(action.targetAgentId || action.target_agent_id);
-  starterOcOnboardingState.completedTargetAgentId = null;
-  touchStarterOcOnboardingState();
-}
-
-function scheduleStarterOcBackgroundConfirmation() {
-  if (starterOcBackgroundConfirmTimer != null) {
-    window.clearTimeout(starterOcBackgroundConfirmTimer);
-  }
-  starterOcBackgroundConfirmTimer = window.setTimeout(() => {
-    const refreshAction = (core.buildGameplaySummary(uiLocale()).availableActions || [])
-      .find((action) => action.executeKind === "request_snapshot");
-    if (refreshAction) {
-      core.sendGameplayAction(refreshAction);
-    }
-    starterOcBackgroundConfirmTimer = null;
-  }, 450);
-}
-
-function clearStarterOcClaimPending() {
-  starterOcOnboardingState.pending = false;
-  starterOcOnboardingState.targetAgentId = null;
-  touchStarterOcOnboardingState();
-}
-
-function completeStarterOcOnboarding() {
-  starterOcOnboardingState.completedTargetAgentId = normalizedId(
-    starterOcOnboardingState.targetAgentId || core.state.auth.boundAgentId,
-  );
-  clearStarterOcClaimPending();
-  touchStarterOcOnboardingState();
-}
-
-export function __markStarterOcOnboardingCompleteForTest(agentId = core.state.auth.boundAgentId) {
-  starterOcOnboardingState.pending = false;
-  starterOcOnboardingState.targetAgentId = null;
-  starterOcOnboardingState.completedTargetAgentId = normalizedId(agentId);
-  touchStarterOcOnboardingState();
-}
-
-function starterOcClaimPendingForCurrentAgent() {
-  starterOcOnboardingRevision();
-  if (!starterOcOnboardingState.pending) {
-    return false;
-  }
-  const targetAgentId = normalizedId(starterOcOnboardingState.targetAgentId);
-  return Boolean(targetAgentId && targetAgentId === normalizedId(core.state.auth.boundAgentId));
-}
-
-function starterOcOnboardingCompletedForCurrentAgent() {
-  starterOcOnboardingRevision();
-  const completedTargetAgentId = normalizedId(starterOcOnboardingState.completedTargetAgentId);
-  return Boolean(
-    completedTargetAgentId
-      && completedTargetAgentId === normalizedId(core.state.auth.boundAgentId),
-  );
-}
-
-function starterOcCreditVisibleForCurrentAgent() {
-  const agentId = normalizedId(core.state.auth.boundAgentId);
-  if (!agentId) {
-    return false;
-  }
-  const snapshot = core.state.snapshot || {};
-  const model = snapshot.model || {};
-  const runtimeState = model.state || snapshot.state || model;
-  const starterOcClaim = runtimeState.starter_oc_claims?.[agentId]
-    || runtimeState.starterOcClaims?.[agentId]
-    || model.starter_oc_claims?.[agentId]
-    || model.starterOcClaims?.[agentId]
-    || snapshot.starter_oc_claims?.[agentId]
-    || snapshot.starterOcClaims?.[agentId]
-    || null;
-  if (starterOcClaim) {
-    return true;
-  }
-  const balance = runtimeState.main_token_balances?.[agentId]
-    || runtimeState.mainTokenBalances?.[agentId]
-    || model.main_token_balances?.[agentId]
-    || model.mainTokenBalances?.[agentId]
-    || snapshot.main_token_balances?.[agentId]
-    || snapshot.mainTokenBalances?.[agentId]
-    || null;
-  const liquidBalance = Number(claimField(balance, "liquid_balance", "liquidBalance", "liquid", "balance") || 0);
-  return Number.isFinite(liquidBalance) && liquidBalance > 0;
-}
-
-function rawStarterOcActionAvailable() {
-  return (core.state.snapshot?.player_gameplay?.available_actions || [])
-    .some((action) => action?.action_id === "claim_starter_oc");
-}
-
-function starterOcSubmittedFeedback() {
-  if (starterOcOnboardingCompletedForCurrentAgent() || starterOcCreditVisibleForCurrentAgent()) {
-    return null;
-  }
-  const feedback = core.state.lastGameplayActionFeedback;
-  if (
-    feedback?.kind === "gameplay_action"
-    && String(feedback?.action || "").includes("claim_starter_oc")
-    && (feedback?.accepted || feedback?.stage === "ack" || feedback?.stage === "sent")
-  ) {
-    return feedback;
-  }
-  const runtimeFeedback = core.state.snapshot?.player_gameplay?.recent_feedback;
-  if (
-    String(runtimeFeedback?.action || "").includes("claim_starter_oc")
-    && ["accepted", "queued", "sent"].includes(String(runtimeFeedback?.stage || ""))
-  ) {
-    return runtimeFeedback;
-  }
-  return null;
-}
-
-function starterOcFeedbackNeedsLocalAdvance(feedback = starterOcSubmittedFeedback()) {
-  if (!feedback) {
-    return false;
-  }
-  const stage = String(feedback.stage || "").toLowerCase();
-  if (stage === "submitted") {
-    return false;
-  }
-  const effect = String(feedback.effect || "").toLowerCase();
-  return ["accepted", "ack", "queued", "sent"].includes(stage)
-    || effect.includes("queued gameplay action")
-    || effect.includes("advance");
-}
-
-function shouldShowStarterOcRequiredGate(gameplay = core.buildGameplaySummary(uiLocale())) {
-  return Boolean(starterOcAction(gameplay) || starterOcSubmittedFeedback() || starterOcClaimPendingForCurrentAgent());
-}
-
-function visibleGameplayActionsForPanels(gameplay) {
-  const actions = Array.isArray(gameplay?.availableActions) ? gameplay.availableActions : [];
-  if (!shouldShowStarterOcRequiredGate(gameplay)) {
-    return actions;
-  }
-  return actions.filter((action) => action.actionId !== "claim_starter_oc");
-}
-
-function gameplayProgressionAction(gameplay) {
-  return (gameplay?.availableActions || []).find((action) => action.executeKind === "step")
-    || (gameplay?.availableActions || []).find((action) => action.executeKind === "request_snapshot")
-    || null;
-}
-
-function firstAgentChatAction(gameplay) {
-  return (gameplay?.availableActions || []).find((action) => action.executeKind === "agent_chat" && !gameplayActionDisabledReason(action, gameplay, uiLocale()))
-    || null;
 }
 
 function StarterOcGuide(props) {
