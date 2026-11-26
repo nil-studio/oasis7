@@ -10,10 +10,10 @@ use crate::world::transition::{
     TransitionContext, TransitionReject,
 };
 use crate::{
-    Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, DomainEvent, GeoPos,
-    ModuleRuntimeChargeEvent, ResourceDelta, World, WorldError, WorldEventBody,
+    Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, DomainEvent, ModuleRuntimeChargeEvent,
+    ResourceDelta, World, WorldError, WorldEventBody,
 };
-use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_agent_api::world_action::{GeoPos, ResourceKind};
 use oasis7_domain_types::rule_settlement::RuleActionDisposition;
 
 fn costs() -> (ResourceDelta, ResourceDelta) {
