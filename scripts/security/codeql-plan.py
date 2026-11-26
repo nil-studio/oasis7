@@ -25,6 +25,15 @@ WASM_CANDIDATE_INPUTS = {
 }
 
 
+# Exact fixed SDK build/patch inputs read by the JavaScript builder and the
+# Python distribution verifier. This is neither an exclusion nor a batch grant.
+CACHE_SDK_METADATA_INPUTS = {
+    '.github/actions/cache-sdk/build-receipt.json',
+    '.github/actions/cache-sdk/provenance.json',
+    '.github/actions/cache-sdk/sdk-patch.json',
+}
+
+
 # Exact policy fixtures consumed by Rust validation and actual workerd tests.
 # Neighboring JSON inputs remain unregistered and fail closed.
 WORKERS_POLICY_INPUTS = {
@@ -301,6 +310,9 @@ def plan(args):
             # JSON registration; possible Rust consumers are still added below.
             add('actions-repo', path)
             add('python-repo', path)
+        elif path in CACHE_SDK_METADATA_INPUTS:
+            add('python-repo', path)
+            add('javascript-repo', path)
         elif path == 'deny.toml':
             # Exact cargo-deny policy consumed by CI shell/Actions, not Rust source.
             # Preserve possible embedded/build consumers below and batch limits.
