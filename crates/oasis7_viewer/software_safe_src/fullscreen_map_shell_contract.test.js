@@ -454,7 +454,7 @@ describe("fullscreen map shell contract", () => {
   it("keeps Hosted prompt rollback reachable in the true phone-width Command drawer", async () => {
     const [{ terminalShellCss }, mainSource] = await Promise.all([
       readViewerHtml(),
-      readFile("software_safe_src/viewer_app.jsx", "utf8"),
+      readFile("software_safe_src/viewer_interaction_advanced_panels.jsx", "utf8"),
     ]);
     expect(mainSource).toMatch(/class="command-surface__prompt-panel"/);
     expect(mainSource).toMatch(/class="toolbar command-surface__rollback-actions"/);
