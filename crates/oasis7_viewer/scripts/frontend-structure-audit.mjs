@@ -33,12 +33,6 @@ const knownLineDebt = new Map(Object.entries({
     reason: "task_f3ba918435b24b8eadef002fed2b966a verifies failure disposition precedence and the registered visual fixture in the existing shared Viewer harness",
     nextTrigger: "the next factory failure or industrial gameplay UI test must move this behavior into a narrower adjacent test file with shared harness helpers",
   },
-  "crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx": {
-    maxLines: 1680,
-    owner: "viewer_engineer",
-    reason: "Pixel World host keeps runtime bridge composition and visual overlay surfaces; test-only snapshot fixture data now lives in pixel_world_visual_fixture_data.js",
-    nextTrigger: "next Pixel World UI/runtime host behavior change should extract a named widget or service boundary",
-  },
 }));
 
 function repoRelative(path) {

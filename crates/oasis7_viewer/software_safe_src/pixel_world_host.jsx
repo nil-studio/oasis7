@@ -24,17 +24,9 @@ import { pixelWorldHotspotGlyphSize, pixelWorldHotspotStyle } from "./pixel_worl
 import { PixelWorldRendererTargets } from './pixel_world_renderer_targets.jsx';
 import { focusViewerPanel } from "./viewer_navigation.jsx";
 import { PixelWorldHostDiagnostics } from "./pixel_world_host_diagnostics.jsx";
+import { createPixelWorldHostRuntimeController } from "./pixel_world_host_runtime.js";
 export { pixelWorldSelectedBlockerVisualFixture };
 function tr(locale, zh, en) { return core.isLocaleZh(locale) ? zh : en; }
-async function waitForRuntimeCanvasAttachment(canvas) {
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    if (canvas?.isConnected && document.getElementById(PIXEL_WORLD_RUNTIME_CANVAS_ID) === canvas) {
-      return true;
-    }
-    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-  }
-  return false;
-}
 function pixelWorldAgentIdentity(agent, fallbackId = "", isLocaleZh = false) {
   return pixelWorldReadableAgentLabel(agent, fallbackId, isLocaleZh) || "Agent";
 }
@@ -961,7 +953,7 @@ export function PixelWorldHost(props) {
         return;
       }
       setRetainedSurface(previous => untrack(renderState)?.commercial_surface || previous);
-      rendererAttemptGeneration += 1;
+      runtimeController.bumpGeneration();
       adapter().unmount();
       setHoverSelection(null);
       setRendererFatal(fatal);
@@ -981,220 +973,19 @@ export function PixelWorldHost(props) {
       }
     },
   }));
-  let mountedCanvas = null;
-  let removeContextListener = () => {};
-  let scopeReadPending = null;
-  let hostActive = true;
-  function attachContextListener(canvas) {
-    removeContextListener();
-    const lost = (event) => {
-      event.preventDefault();
-      // Stop the old session and its hit regions before exposing recovery.
-      adapter().simulateFatal({ code: "pixel_world_context_lost", message: "World graphics context lost. Reload the page to rebuild graphics." });
-    };
-    let start = null;
-    const stopFollow = spatial.pauseFollow;
-    const down = event => { start = {id:event.pointerId,x:event.clientX,y:event.clientY}; };
-    const move = event => {
-      if (start && start.id === event.pointerId && Math.hypot(event.clientX-start.x,event.clientY-start.y)>4) {
-        start=null; stopFollow();
-      }
-    };
-    const up = () => { start=null; };
-    const events = [["webglcontextlost",lost],["pointerdown",down],["pointermove",move],["pointerup",up],["pointercancel",up],["wheel",stopFollow]];
-    for (const [type,listener] of events) canvas.addEventListener(type,listener);
-    removeContextListener = () => { for (const [type,listener] of events) canvas.removeEventListener(type,listener); };
-  }
-  let rendererAttemptGeneration = 0;
-  let rendererUpdatePending = false;
-  const rendererAttemptIsCurrent = (canvas, generation) => generation === rendererAttemptGeneration && mountedCanvas === canvas;
-  let rendererUpdateFrame = null;
-  function scheduleRendererUpdate() {
-    if (rendererUpdateFrame !== null) return;
-    const generation = rendererAttemptGeneration;
-    rendererUpdateFrame = requestAnimationFrame(() => {
-      rendererUpdateFrame = null;
-      if (!hostActive || generation !== rendererAttemptGeneration || scopeGuard.check().blocked) return;
-      setWorldRevision(revision => revision + 1);
-      if (rendererStatus() === "ready") applyRendererUpdate();
-      else rendererUpdatePending = true;
-    });
-  }
-  function applyRendererUpdate() {
-    if (rendererStatus() === "unavailable") {
-      return;
-    }
-    const generation = rendererAttemptGeneration;
-    const presentedScope = spatial.scope();
-    const presentedView = worldViewState().view;
-    const input = renderInput();
-    const result = adapter().update(input);
-    if (generation !== rendererAttemptGeneration) return;
-    if (result?.fatal) {
-      setRendererFatal(result.fatal);
-    }
-    if (result?.renderState) setRetainedSurface(null);
-    setRustRenderState(result?.renderState || null);
-    spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
-    setRendererStatus(result?.status || "ready");
-    setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
-    core.updatePixelWorldRuntimeMeta({
-      runtimeStatus: result?.status || "ready",
-      runtimeSource: result?.runtimeSource || adapter().runtimeSource(),
-      runtimeModuleUrl: result?.runtimeModuleUrl || adapter().runtimeModuleUrl(),
-      camera: cameraState(),
-      fatal: result?.fatal || rendererFatal(),
-    });
-  }
-  async function setReadyMode(canvas = mountedCanvas, generation = rendererAttemptGeneration) {
-    if (scopeGuard.check().blocked) return;
-    if (!rendererAttemptIsCurrent(canvas, generation)) {
-      return;
-    }
-    if (!canvas) {
-      const fatal = {
-        code: "pixel_world_renderer_mount_missing_canvas",
-        message: "pixel world canvas is not mounted yet",
-      };
-      setRendererFatal(fatal);
-      setRendererStatus("unavailable");
-      setRuntimeSource("detached");
-      setRustRenderState(null); spatial.present(null, null);
-      core.updatePixelWorldRuntimeMeta({
-        runtimeStatus: "unavailable",
-        runtimeSource: "detached",
-        runtimeModuleUrl: null,
-        camera: null,
-        fatal,
-      });
-      return;
-    }
-    setRendererFatal(null);
-    setRendererStatus("booting");
-    setRuntimeSource("loading");
-    const attached = await waitForRuntimeCanvasAttachment(canvas);
-    if (!rendererAttemptIsCurrent(canvas, generation)) {
-      return;
-    }
-    if (!attached) {
-      const fatal = {
-        code: "pixel_world_renderer_canvas_detached",
-        message: "pixel world runtime canvas never became queryable in document",
-      };
-      setRendererFatal(fatal);
-      setRendererStatus("unavailable");
-      setRuntimeSource("detached");
-      setRustRenderState(null); spatial.present(null, null);
-      core.updatePixelWorldRuntimeMeta({
-        runtimeStatus: "unavailable",
-        runtimeSource: "detached",
-        runtimeModuleUrl: null,
-        camera: cameraState(),
-        fatal,
-      });
-      return;
-    }
-    const surfaceFatal = probePixelWorldWebgl2Surface(canvas);
-    if (surfaceFatal) {
-      adapter().simulateFatal(surfaceFatal);
-      return;
-    }
-    const presentedScope = spatial.scope();
-    const presentedView = worldViewState().view;
-    const input = renderInput();
-    const result = await adapter().mount(canvas, input);
-    if (!rendererAttemptIsCurrent(canvas, generation)) {
-      return;
-    }
-    if (result?.fatal) {
-      setRendererFatal(result.fatal);
-    }
-    if (result?.renderState) setRetainedSurface(null);
-    setRustRenderState(result?.renderState || null);
-    spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
-    setRendererStatus(result?.status || "ready");
-    setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
-    core.updatePixelWorldRuntimeMeta({
-      runtimeStatus: result?.status || "ready",
-      runtimeSource: result?.runtimeSource || adapter().runtimeSource(),
-      runtimeModuleUrl: result?.runtimeModuleUrl || adapter().runtimeModuleUrl(),
-      camera: cameraState(),
-      fatal: result?.fatal || null,
-    });
-    if (rendererUpdatePending) {
-      rendererUpdatePending = false;
-      applyRendererUpdate();
-    }
-  }
-  const rendererNeedsReload = () => rendererFatal()?.code === "pixel_world_context_lost";
+  const runtimeController = createPixelWorldHostRuntimeController({
+    adapter, spatial, scopeGuard, worldViewState, renderInput, rendererRoute,
+    visualFixtureName, focusController, rendererStatus, setRendererStatus,
+    rendererFatal, setRendererFatal, runtimeSource, setRuntimeSource,
+    cameraState, setCameraState, setRetainedSurface, setRustRenderState,
+    setWorldRevision, setCoreRevision, hoverSelection, hoveredHotspot,
+  });
+  const { rendererNeedsReload, requestReadyMode } = runtimeController;
   const rendererReloadLabel = () => tr(locale(), "重新加载页面恢复图形", "Reload page to restore graphics");
-  function requestReadyMode() {
-    // This WASM module owns a boot-once Bevy App. Reusing its bridge cannot
-    // recreate GPU resources destroyed by an actual WebGL context loss.
-    if (rendererNeedsReload()) { window.location.reload(); return; }
-    if (scopeGuard.check().blocked) { scopeReadPending = null; core.requestRender(); return; }
-    const canvas = mountedCanvas?.isConnected ? mountedCanvas : null;
-    mountedCanvas = canvas;
-    if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
-    rendererUpdateFrame = null;
-    const generation = ++rendererAttemptGeneration;
-    setRendererFatal(null);
-    setRendererStatus("booting");
-    setRuntimeSource("loading");
-    if (canvas) {
-      void setReadyMode(canvas, generation);
-    }
-  }
   function simulateFatal() {
     adapter().simulateFatal("simulated embedded renderer fatal");
   }
-  onMount(() => {
-    applyPixelWorldRendererRoute(rendererRoute, core.updatePixelWorldRuntimeMeta);
-    function handleKeyDown(event) {
-      focusController.handleKeyDown(event);
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
-    const unsubscribeRenderHook = core.subscribeRenderHook?.((invalidation) => {
-      const scope = scopeGuard.check();
-      if (scope.scope !== spatial.scope()) {
-        if (scope.changed) { setRendererStatus("unavailable"); setRustRenderState(null); spatial.present(null, null); }
-        spatial.resetScope();
-      }
-      if (scope.changed) {
-        // Selection is display state. Feedback projection is scope-masked without
-        // deleting pending operation identity or replaying the operation.
-        core.state.selectedKind = null;
-        core.state.selectedId = null;
-        core.state.selectedObject = null;
-        adapter().simulateFatal({code:"pixel_world_scope_changed",message:"Display authorization changed. Waiting for a new authorized snapshot."});
-        setRetainedSurface(null);
-        setCameraState(null);
-      }
-      setCoreRevision((revision) => revision + 1);
-      if (scope.blocked) {
-        if (core.state.viewerProtocol?.capabilities?.includes("world_view") && scopeReadPending !== scope.scope) {
-          scopeReadPending = scope.scope;
-          const expected = scope.scope;
-          void core.requestScopeSnapshot().then(snapshot => {
-            if (!hostActive || !scopeGuard.authorize(expected, scope.generation)) return;
-            scopeReadPending = null;
-            core.acceptScopeSnapshot(snapshot);
-            requestReadyMode();
-          }).catch(() => { /* Keep the view locked; retry is explicit. */ });
-        }
-        return;
-      }
-      spatial.refresh(core.state.snapshot);
-      // An absent hint remains conservatively dirty, including mutable state.
-      if (invalidation?.pixelWorldChanged === false) return;
-      scheduleRendererUpdate();
-    });
-    onCleanup(unsubscribeRenderHook);
-    if (pixelWorldTestApiEnabled()) {
-      onCleanup(installPixelWorldHotspotPointerProbe({ fixtureName: visualFixtureName, getCanvas: () => mountedCanvas, getRendererStatus: rendererStatus, getHotspotHitTargets: () => adapter().hotspotTestHitTargets(), getLocationHitTargets: () => adapter().locationTestHitTargets(), getHoverSelection: hoverSelection, getHoveredHotspot: hoveredHotspot }));
-    }
-  });
+  onMount(() => runtimeController.mountRuntimeLifecycle(onCleanup));
   createEffect(() => {
     document.body.classList.toggle("pixel-world-focus-active", focusMode());
     document.body.classList.toggle("pixel-world-focus-maximized", focusMode() && maximized());
@@ -1202,23 +993,11 @@ export function PixelWorldHost(props) {
   onCleanup(() => {
     document.body.classList.remove("pixel-world-focus-active");
     document.body.classList.remove("pixel-world-focus-maximized");
-    hostActive = false;
-    if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
-    rendererUpdateFrame = null;
-    rendererAttemptGeneration += 1;
-    removeContextListener();
-    adapter().unmount();
-    core.updatePixelWorldRuntimeMeta({
-      runtimeStatus: "detached",
-      runtimeSource: "detached",
-      runtimeModuleUrl: null,
-      camera: null,
-      fatal: null,
-    });
+    runtimeController.dispose();
   });
   createEffect(() => {
     worldViewState(); navigation(); spatial.selection();
-    untrack(() => { if (mountedCanvas && rendererStatus() === "ready") scheduleRendererUpdate(); });
+    untrack(() => runtimeController.scheduleIfMountedReady());
   });
   return (
     <div
@@ -1324,17 +1103,7 @@ export function PixelWorldHost(props) {
           onHover={(selection) => adapter().simulateHover(selection)}
           hoveredHotspot={hoveredHotspot}
           onFatal={(message) => adapter().simulateFatal(message)}
-          onCanvasMount={(canvas) => {
-            if (mountedCanvas === canvas) return;
-            mountedCanvas = canvas;
-            attachContextListener(canvas);
-            if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
-    rendererUpdateFrame = null;
-    const generation = ++rendererAttemptGeneration;
-            if (untrack(rendererStatus) !== "ready") {
-              void setReadyMode(canvas, generation);
-            }
-          }}
+          onCanvasMount={runtimeController.onCanvasMount}
         />
       </Show>
       <Show when={!renderState()}>
