@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::viewer::protocol::{
     RollbackApprovalSignature, RollbackAuthorityRole, RollbackAuthorizationEnvelope, RollbackIntent,
@@ -221,6 +222,7 @@ fn runtime_authoritative_batch_finality_is_monotonic_and_final_only_gates_settle
     assert_eq!(stored.finality_state, AuthoritativeFinalityState::Final);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_batch_data_root_mismatch_blocks_confirmation() {
     let mut server =
@@ -247,6 +249,7 @@ fn runtime_authoritative_batch_data_root_mismatch_blocks_confirmation() {
     assert!(!wire.ranking_ready);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_challenge_submit_opens_challenge_and_blocks_finality_progress() {
     let mut server =
@@ -280,6 +283,7 @@ fn runtime_authoritative_challenge_submit_opens_challenge_and_blocks_finality_pr
     assert_ne!(stored.finality_state, AuthoritativeFinalityState::Final);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_challenge_resolve_no_fraud_unblocks_finality_without_slash() {
     let mut server =
@@ -327,6 +331,7 @@ fn runtime_authoritative_challenge_resolve_no_fraud_unblocks_finality_without_sl
     }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_challenge_resolve_fraud_slashes_and_blocks_finality() {
     let mut server =
@@ -383,6 +388,7 @@ fn runtime_authoritative_challenge_resolve_fraud_slashes_and_blocks_finality() {
     assert_ne!(stored.finality_state, AuthoritativeFinalityState::Final);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_challenge_duplicate_resolve_is_rejected() {
     let mut server =
@@ -421,6 +427,7 @@ fn runtime_authoritative_challenge_duplicate_resolve_is_rejected() {
     assert_eq!(err.code, "challenge_already_resolved");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_rollback_prunes_fork_batches() {
     let mut server =
@@ -471,6 +478,7 @@ fn runtime_authoritative_recovery_rollback_prunes_fork_batches() {
     assert_eq!(server.authoritative_batches[0].batch_id, first.batch_id);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_receipt_is_immutable_after_later_progress() {
     let recovery_dir = std::env::temp_dir().join(format!(
@@ -545,6 +553,7 @@ fn runtime_authoritative_recovery_receipt_is_immutable_after_later_progress() {
     let _ = std::fs::remove_dir_all(recovery_dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_rollback_rejects_missing_approval_before_mutation() {
     let mut server =
@@ -594,6 +603,7 @@ fn runtime_authoritative_recovery_rollback_rejects_missing_approval_before_mutat
     assert_eq!(server.authoritative_batches[1].batch_id, second.batch_id);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_rollback_rejects_tampered_envelope_before_mutation() {
     let mut server =
@@ -637,6 +647,7 @@ fn runtime_authoritative_recovery_rollback_rejects_tampered_envelope_before_muta
     assert_eq!(server.reorg_epoch, reorg_epoch_before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_rejects_tampered_signed_replay_target_fields() {
     let mut server =
@@ -685,6 +696,7 @@ fn runtime_authoritative_recovery_rejects_tampered_signed_replay_target_fields()
     assert_eq!(server.reorg_epoch, epoch_before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_classifies_journal_mismatch_separately_from_authorization() {
     let mut server =
@@ -733,6 +745,7 @@ fn runtime_authoritative_recovery_classifies_journal_mismatch_separately_from_au
     assert_eq!(server.reorg_epoch, reorg_epoch_before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_requires_v2_negotiated_signed_rollback_capability() {
     let mut server =
@@ -777,6 +790,7 @@ fn runtime_authoritative_recovery_requires_v2_negotiated_signed_rollback_capabil
     assert_eq!(server.reorg_epoch, epoch_before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_prepare_faults_are_atomic_and_classified() {
     use crate::viewer::runtime_live::recovery::RuntimeRecoveryFaultInjection;
@@ -860,6 +874,7 @@ fn runtime_authoritative_recovery_prepare_faults_are_atomic_and_classified() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_does_not_swap_or_ack_before_persistence_commit() {
     let recovery_dir = std::env::temp_dir().join(format!(
@@ -921,6 +936,7 @@ fn runtime_authoritative_recovery_does_not_swap_or_ack_before_persistence_commit
     let _ = std::fs::remove_dir_all(recovery_dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_recovery_reconnect_detects_reorg_epoch_mismatch() {
     let mut server =
@@ -991,6 +1007,7 @@ fn runtime_authoritative_recovery_reconnect_detects_reorg_epoch_mismatch() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_authoritative_reconnect_reads_binding_epoch_and_cannot_restore_revoked_binding() {
     let mut server =

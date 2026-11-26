@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::geometry::GeoPos;
 use crate::models::AgentState;
@@ -86,6 +87,7 @@ fn runtime_state_to_simulator_model_does_not_synthesize_missing_activity() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_state_to_simulator_model_preserves_formal_release_seed_fragment_location() {
     let (world, _) = super::super::support::bootstrap_formal_release_runtime_world()
@@ -106,6 +108,7 @@ fn runtime_state_to_simulator_model_preserves_formal_release_seed_fragment_locat
     assert_eq!(agent.location_id, location.id);
     assert!(location.fragment_budget.is_some());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_state_to_simulator_model_recomputes_seeded_location_after_agent_moves() {
     let mut world = crate::runtime::World::default();
@@ -143,6 +146,7 @@ fn runtime_state_to_simulator_model_recomputes_seeded_location_after_agent_moves
     assert_eq!(agent.location_id, "frag-to");
     assert_eq!(agent.pos, to_pos);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_state_to_simulator_model_projects_runtime_factory_for_canonical_schedule_quote() {
     let mut world = crate::runtime::World::default();
@@ -215,6 +219,7 @@ fn runtime_state_to_simulator_model_projects_runtime_factory_for_canonical_sched
         )
         .expect("projected runtime factory supports the canonical quote");
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_agent_registered_uses_runtime_location_id() {
     let event = RuntimeDomainEvent::AgentRegistered {
@@ -237,6 +242,7 @@ fn map_runtime_domain_event_agent_registered_uses_runtime_location_id() {
         other => panic!("unexpected mapped event: {other:?}"),
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_agent_moved_sets_distance_and_cost() {
     let config = WorldConfig::default();
@@ -259,6 +265,7 @@ fn map_runtime_domain_event_agent_moved_sets_distance_and_cost() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_uses_generated_seed_location_ids() {
     let mut seed_model = WorldModel::default();
@@ -313,6 +320,7 @@ fn map_runtime_domain_event_uses_generated_seed_location_ids() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_action_accepted_emits_structured_runtime_event() {
     let event = RuntimeDomainEvent::ActionAccepted {
@@ -339,6 +347,7 @@ fn map_runtime_domain_event_action_accepted_emits_structured_runtime_event() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_action_accepted_empty_or_whitespace_notes_use_plain_feedback() {
     for notes in [vec![], vec![" \t\n ".to_string()]] {
@@ -367,6 +376,7 @@ fn map_runtime_domain_event_action_accepted_empty_or_whitespace_notes_use_plain_
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_factory_built_emits_structured_runtime_event() {
     let event = RuntimeDomainEvent::FactoryBuilt {
@@ -400,6 +410,7 @@ fn map_runtime_domain_event_factory_built_emits_structured_runtime_event() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_recipe_started_and_completed_emit_structured_runtime_events() {
     let started = RuntimeDomainEvent::RecipeStarted {
@@ -459,6 +470,7 @@ fn map_runtime_domain_event_recipe_started_and_completed_emit_structured_runtime
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_factory_blocked_and_resumed_emit_structured_runtime_events() {
     let blocked = RuntimeDomainEvent::FactoryProductionBlocked {
@@ -506,6 +518,7 @@ fn map_runtime_domain_event_factory_blocked_and_resumed_emit_structured_runtime_
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_domain_event_governance_finalize_keeps_compat_fallbacks() {
     let event = RuntimeDomainEvent::GovernanceProposalFinalized {
@@ -529,6 +542,7 @@ fn map_runtime_domain_event_governance_finalize_keeps_compat_fallbacks() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_reject_reason_maps_agent_not_found() {
     let reason = RuntimeRejectReason::AgentNotFound {
@@ -543,6 +557,7 @@ fn runtime_reject_reason_maps_agent_not_found() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_reject_reason_unmapped_falls_back_to_rule_denied() {
     let reason = RuntimeRejectReason::InsufficientMaterial {
@@ -560,6 +575,7 @@ fn runtime_reject_reason_unmapped_falls_back_to_rule_denied() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_event_fallback_includes_internal_runtime_payload() {
     let event = RuntimeWorldEvent {
@@ -575,6 +591,7 @@ fn map_runtime_event_fallback_includes_internal_runtime_payload() {
     assert_eq!(mapped.time, 42);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn map_runtime_event_unmapped_domain_event_keeps_internal_payload_with_domain_label() {
     let event = RuntimeWorldEvent {
@@ -598,6 +615,7 @@ fn map_runtime_event_unmapped_domain_event_keeps_internal_payload_with_domain_la
     assert_eq!(mapped.runtime_event, Some(event));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn fallback_non_empty_trims_values_and_labels_empty_summaries() {
     assert_eq!(
@@ -607,6 +625,7 @@ fn fallback_non_empty_trims_values_and_labels_empty_summaries() {
     assert_eq!(fallback_non_empty("  ", "unknown_action"), "unknown_action");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn runtime_live_snapshot_includes_runtime_snapshot_payload() {
     let mut server =
@@ -620,6 +639,7 @@ fn runtime_live_snapshot_includes_runtime_snapshot_payload() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn safe_alternative_public_event_keeps_identity_without_signed_original() {
     let event = crate::runtime::WorldEvent {
@@ -647,6 +667,7 @@ fn safe_alternative_public_event_keeps_identity_without_signed_original() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn public_runtime_mapping_never_attaches_unclassified_synthetic_payload() {
     for _audience in ["anonymous", "different-owner"] {
@@ -672,6 +693,7 @@ fn public_runtime_mapping_never_attaches_unclassified_synthetic_payload() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn public_event_wire_omits_mapped_freeform_diagnostics() {
     for kind in [
@@ -705,3 +727,7 @@ fn public_event_wire_omits_mapped_freeform_diagnostics() {
         );
     }
 }
+
+const _: () = {
+    let _ = std::mem::size_of::<(super::RuntimeRejectReason, super::SimulatorRejectReason)>();
+};

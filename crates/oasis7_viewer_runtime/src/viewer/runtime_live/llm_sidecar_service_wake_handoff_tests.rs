@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::world_service::{
     client::{WorldServiceAgentSignerConfig, WorldServiceClientConfig},
@@ -343,6 +344,7 @@ fn service_handoff_selects_exact_request_and_reuses_signed_checkpoint() {
     std::fs::remove_file(path).expect("remove fixture checkpoint");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_accepts_verified_same_lineage_tick_advance() {
     let cognition = service_cognition();
@@ -419,6 +421,7 @@ fn assert_handoff_fenced_after_binding_mutation(
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_fences_changed_lineage_and_binding_regression() {
     assert_handoff_fenced_after_binding_mutation("branch-change", |binding| {
@@ -435,6 +438,7 @@ fn service_handoff_fences_changed_lineage_and_binding_regression() {
     });
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_rejects_checkpoint_ahead_of_verified_projection() {
     let cognition = service_cognition();
@@ -490,6 +494,7 @@ fn service_handoff_rejects_checkpoint_ahead_of_verified_projection() {
     std::fs::remove_file(path).expect("remove fixture checkpoint");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_recovers_mirror_only_wake_from_exact_signed_checkpoint() {
     let cognition = service_cognition();
@@ -539,6 +544,7 @@ fn service_handoff_recovers_mirror_only_wake_from_exact_signed_checkpoint() {
     std::fs::remove_file(path).expect("remove fixture checkpoint");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_restart_preserves_only_exact_checkpointed_wake_then_cleans_up() {
     let cognition = service_cognition();
@@ -642,6 +648,7 @@ fn service_handoff_restart_preserves_only_exact_checkpointed_wake_then_cleans_up
     std::fs::remove_file(path).expect("remove fixture checkpoint");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_restart_fences_missing_or_mismatched_checkpoint() {
     let cognition = service_cognition();
@@ -697,6 +704,7 @@ fn service_handoff_restart_fences_missing_or_mismatched_checkpoint() {
     std::fs::remove_file(mismatch_path).expect("remove mismatched-checkpoint fixture");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_fences_mirror_only_wake_without_signed_checkpoint() {
     let cognition = service_cognition();
@@ -718,6 +726,7 @@ fn service_handoff_fences_mirror_only_wake_without_signed_checkpoint() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_cleanup_removes_wake_and_checkpoint_atomically() {
     let cognition = service_cognition();
@@ -788,6 +797,7 @@ fn service_handoff_cleanup_removes_wake_and_checkpoint_atomically() {
     std::fs::remove_file(blocker).expect("remove fixture blocker");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_does_not_consume_an_unrelated_same_agent_wake() {
     let cognition = service_cognition();
@@ -814,6 +824,7 @@ fn service_handoff_does_not_consume_an_unrelated_same_agent_wake() {
     assert!(!path.exists(), "no checkpoint is written for another turn");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_does_not_consume_request_wake_from_other_runtime_binding() {
     let cognition = service_cognition();
@@ -840,6 +851,7 @@ fn service_handoff_does_not_consume_request_wake_from_other_runtime_binding() {
     assert!(!path.exists(), "no checkpoint is written for another world");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn service_handoff_fences_multiple_exact_wakes_without_selecting_one() {
     let cognition = service_cognition();

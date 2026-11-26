@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 
 #[path = "llm_sidecar_scheduler_cooldown_tests.rs"]
@@ -6,14 +7,17 @@ mod scheduler_cooldown_tests;
 #[path = "llm_sidecar_canonical_checkpoint_tests.rs"]
 mod canonical_checkpoint_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "llm_sidecar_lineage_recovery_tests.rs"]
 mod lineage_recovery_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[path = "llm_sidecar_lineage_queued_tests.rs"]
 mod queued_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 pub(super) use queued_tests::queued_wait_cognition;
 
 #[test]

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::{
     geometry::GeoPos,
@@ -196,6 +197,7 @@ fn explicit_event_position_stays_historical_and_never_follows_current_entity() {
     assert!(conflict.events().is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn explicit_factory_retirement_evidence_is_local_and_changes_the_cut() {
     let mut snapshot = fixture();
@@ -228,6 +230,7 @@ fn explicit_factory_retirement_evidence_is_local_and_changes_the_cut() {
             .is_empty()
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_event_anchors_require_typed_absolute_payload_and_visible_visual_identity() {
     let mut snapshot = fixture();
@@ -284,6 +287,7 @@ fn module_event_anchors_require_typed_absolute_payload_and_visible_visual_identi
             .any(|o| o.value.get("event_id").is_some())
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn factories_require_explicit_fixed_geometry_and_routes_require_visible_endpoints() {
     let mut source = fixture();
@@ -325,6 +329,7 @@ fn factories_require_explicit_fixed_geometry_and_routes_require_visible_endpoint
             .is_empty()
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn viewport_route_intersection_includes_both_endpoints_and_authorized_pins() {
     let source = fixture();
@@ -342,6 +347,7 @@ fn viewport_route_intersection_includes_both_endpoints_and_authorized_pins() {
     assert_eq!(ids, vec!["l", "a", "f"]);
     assert!(!result.to_string().contains("hidden"));
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn joint_paging_never_duplicates_or_mixes_entity_and_relation_budgets() {
     let source = fixture();
@@ -366,6 +372,7 @@ fn joint_paging_never_duplicates_or_mixes_entity_and_relation_budgets() {
     }
     assert_eq!(objects.len(), 4);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn stable_source_reuses_index_without_snapshot_and_permission_change_resets() {
     let source = fixture();
@@ -402,6 +409,7 @@ fn stable_source_reuses_index_without_snapshot_and_permission_change_resets() {
     assert_eq!(denied["unavailable_reasons"][0], "cursor_reset_required");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn stable_bound_pagination_stays_current_but_advanced_source_freezes_old_cut() {
     use crate::viewer::world_view_authority::spatial_state_digest;
@@ -452,6 +460,7 @@ fn stable_bound_pagination_stays_current_but_advanced_source_freezes_old_cut() {
         "last_known"
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn pinned_target_is_on_first_page_even_when_lexically_last_and_outside_viewport() {
     let mut source = fixture();
@@ -477,6 +486,7 @@ fn pinned_target_is_on_first_page_even_when_lexically_last_and_outside_viewport(
     );
     assert_eq!(view["completeness"], "partial");
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn site_ledger_resolves_distinct_location_identity_and_inactive_site_does_not_project() {
     let mut source = fixture();
@@ -514,6 +524,7 @@ fn site_ledger_resolves_distinct_location_identity_and_inactive_site_does_not_pr
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn local_terrain_proof_rejects_modified_and_remote_fragments() {
     let mut snapshot = fixture();

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_agent_api::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
@@ -25,71 +26,112 @@ fn canonical_decision_trace_types_preserve_original_viewer_identity() {
         TypeId::of::<oasis7_simulator::AgentDecisionTrace>()
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/agent_memory_correction_control.rs"]
 mod agent_memory_correction_control;
+#[cfg(feature = "test_tier_full")]
 mod auth_actions;
+#[cfg(feature = "test_tier_full")]
 mod auth_actions_collect_data;
+#[cfg(feature = "test_tier_full")]
 mod auth_actions_feedback;
+#[cfg(feature = "test_tier_full")]
 mod auth_actions_fragment_replenishment;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/auth_actions_provider_context.rs"]
 mod auth_actions_provider_context;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/auth_actions_provider_continuation_restart.rs"]
 mod auth_actions_provider_continuation_restart;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/auth_actions_provider_stale.rs"]
 mod auth_actions_provider_stale;
 mod authoritative;
+#[cfg(feature = "test_tier_full")]
 mod background_play;
 mod chain_sync;
 #[path = "tests/mock_http.rs"]
 mod mock_http;
+#[cfg(feature = "test_tier_full")]
 mod paused_start;
 #[path = "tests/periodic_connection_lifecycle.rs"]
 mod periodic_connection_lifecycle;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/provider_continuation_drains.rs"]
 mod provider_continuation_drains;
 pub(super) use chain_sync::TestChainStatusServer;
+#[cfg(feature = "test_tier_full")]
 mod chain_sync_feedback;
+#[cfg(feature = "test_tier_full")]
 mod claim_choice;
+#[cfg(feature = "test_tier_full")]
 mod claim_runway;
+#[cfg(feature = "test_tier_full")]
 mod director_capability;
+#[cfg(feature = "test_tier_full")]
 mod fine_grain_translation;
+#[cfg(feature = "test_tier_full")]
 mod governance_vote_quote;
+#[cfg(feature = "test_tier_full")]
 mod governance_vote_quote_debug;
 mod industrial_progression;
 mod module_visual_runtime;
 pub(super) use industrial_progression::setup_industrial_gameplay_with_completed_jobs;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/canonical_goal_snapshot_privacy.rs"]
 mod canonical_goal_snapshot_privacy;
+#[cfg(feature = "test_tier_full")]
 mod industrial_progression_grind;
+#[cfg(feature = "test_tier_full")]
 mod industrial_progression_preview;
+#[cfg(feature = "test_tier_full")]
 mod industrial_progression_readiness;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/power_projection.rs"]
 mod power_projection;
+#[cfg(feature = "test_tier_full")]
 mod power_sale_quote;
+#[cfg(feature = "test_tier_full")]
 mod prompt_control;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/prompt_control_enhanced.rs"]
 mod prompt_control_enhanced;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/prompt_control_terminal.rs"]
 mod prompt_control_terminal;
+#[cfg(feature = "test_tier_full")]
 mod provider_settings;
 #[path = "tests/runtime_live_core.rs"]
 mod runtime_live_core;
+#[cfg(feature = "test_tier_full")]
 mod runtime_live_server_config;
+#[cfg(feature = "test_tier_full")]
 mod schedule_recipe_quote;
+#[cfg(feature = "test_tier_full")]
 mod smelter_affordability_debug;
+#[cfg(feature = "test_tier_full")]
 mod snapshot_fallback;
+#[cfg(feature = "test_tier_full")]
 mod snapshot_first_chat_unlock_preview;
+#[cfg(feature = "test_tier_full")]
 mod snapshot_generated_world;
+#[cfg(feature = "test_tier_full")]
 mod snapshot_micro_depot;
 mod snapshot_progress;
+#[cfg(feature = "test_tier_full")]
 mod snapshot_progress_empty_world;
 mod snapshot_provider_probe;
+#[cfg(feature = "test_tier_full")]
 mod snapshot_reprioritize;
+#[cfg(feature = "test_tier_full")]
 mod social_quote;
+#[cfg(feature = "test_tier_full")]
 mod social_quote_capability;
 #[path = "tests_support.rs"]
 mod tests_support;
+#[cfg(feature = "test_tier_full")]
 mod transfer_material_quote;
+#[cfg(feature = "test_tier_full")]
 mod wait_resolution_quote;
 use tests_support::*;
 
@@ -442,9 +484,24 @@ fn register_runtime_session_with_options(
     assert!(!emit_snapshot_after_ack);
     ack
 }
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/recipe_substitution_read.rs"]
 mod recipe_substitution_read;
 
+#[cfg(feature = "test_tier_full")]
 mod gameplay_result_lookup;
+#[cfg(feature = "test_tier_full")]
 #[path = "tests/live_control_state.rs"]
 mod live_control_state;
+
+const _: () = {
+    let _ = (
+        std::mem::size_of::<(super::WorldInitConfig, &super::Path)>(),
+        chain_link::load_chain_execution_world,
+        periodic_service_io::Executor::outstanding_for_test,
+        ViewerRuntimeLiveServer::bind_player_session_agent,
+        ViewerRuntimeLiveServer::test_serve_shared_stream_with_connection,
+        ViewerRuntimeLiveServer::current_owner_authority,
+        crate::viewer::auth::sign_agency_control_auth_proof_for_test,
+    );
+};
