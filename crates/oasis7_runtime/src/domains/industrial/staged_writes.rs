@@ -346,10 +346,10 @@ mod tests {
     fn staged_root_transaction_rolls_back_nested_industrial_write_on_fault() {
         let (builder, site_id) = ("builder-nested-1".to_string(), "site-nested-1".to_string());
         let (mut world, spec) = setup_factory_world(&builder, &site_id, "factory-nested-1", 2);
-        enum TxDelta { Construction(FactoryConstructionDelta), Logistics(LogisticsDueTransitsDelta) }
+        enum TxDelta { Construction(Box<FactoryConstructionDelta>), Logistics(LogisticsDueTransitsDelta) }
         impl SubsystemDelta for TxDelta {
             fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
-                match self { Self::Construction(d) => d.apply_infallible(ctx), Self::Logistics(d) => d.apply_infallible(ctx) }
+                match self { Self::Construction(d) => (*d).apply_infallible(ctx), Self::Logistics(d) => d.apply_infallible(ctx) }
             }
         }
         let mut root_tx = StagedRootTransaction::<TxDelta>::begin(&world, TransitionContext::default()).unwrap();
@@ -357,7 +357,7 @@ mod tests {
         let (_, consensus, publication) = StagedIndustrialPublication::from_body(&body).unwrap()
             .prepare_event(root_tx.view().world(), root_tx.context()).unwrap();
         root_tx.set_consensus_record(consensus);
-        root_tx.stage_delta(TxDelta::Construction(FactoryConstructionDelta { publication }));
+        root_tx.stage_delta(TxDelta::Construction(Box::new(FactoryConstructionDelta { publication })));
 
         let nested_res = root_tx.stage_nested(|tx| {
             let prepared = tx.view().world().prepare_due_material_transits_at(tx.view().time());
