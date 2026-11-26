@@ -1374,7 +1374,8 @@
     "scripts/plan-rust-required-scope-native-contracts.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-targeted-plans.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-private-and-expanded-native.test.py": ["workflow_governance"],
-    "scripts/plan-rust-required-scope-retired-and-viewer.test.py": ["workflow_governance"]
+    "scripts/plan-rust-required-scope-retired-and-viewer.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-custody-and-additive.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
     "scripts/ci-hosted-login-package.test.py",
@@ -1384,6 +1385,7 @@
     "scripts/plan-rust-required-scope-targeted-plans.test.py",
     "scripts/plan-rust-required-scope-private-and-expanded-native.test.py",
     "scripts/plan-rust-required-scope-retired-and-viewer.test.py",
+    "scripts/plan-rust-required-scope-custody-and-additive.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
     "scripts/ci-python-control-contracts.test.py",
@@ -1924,7 +1926,8 @@
         "scripts/plan-rust-required-scope-native-contracts.test.py",
         "scripts/plan-rust-required-scope-targeted-plans.test.py",
         "scripts/plan-rust-required-scope-private-and-expanded-native.test.py",
-        "scripts/plan-rust-required-scope-retired-and-viewer.test.py"
+        "scripts/plan-rust-required-scope-retired-and-viewer.test.py",
+        "scripts/plan-rust-required-scope-custody-and-additive.test.py"
       ]
     },
     "scripts/plan-rust-required-scope.test.py": {
@@ -1952,6 +1955,10 @@
     "scripts/plan-rust-required-scope-retired-and-viewer.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/plan-rust-required-scope-retired-and-viewer.test.py"]
+    },
+    "scripts/plan-rust-required-scope-custody-and-additive.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-custody-and-additive.test.py"]
     },
     "scripts/ci-governance-preview.py": {
       "group": "workflow_governance",
