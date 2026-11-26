@@ -528,6 +528,53 @@ class Selection(unittest.TestCase):
                 self.assertIn('net', plan['groups'])
                 self.assertEqual(plan['scope'], 'targeted')
 
+    def test_portable_cache_sdk_inputs_require_exact_trusted_ownership(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        old = copy.deepcopy(config)
+        old['rules'] = [rule for rule in old['rules'] if rule.get('reason') != 'portable_cache_sdk_inputs']
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in ('vendor/actions-cache-explicit-context/index.mjs',
+                         'vendor/actions-cache-explicit-context/licenses.txt'):
+                for value in ('first SDK input', 'modified SDK input', None):
+                    base = self.git('rev-parse', 'HEAD')
+                    if value is None:
+                        Path(path).unlink()
+                    else:
+                        self.write(path, value)
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+                    self.assertIn('portable_cache_sdk_inputs: ' + path, plan['reasons'])
+                    # The tested tree already contains the new declaration;
+                    # an old immutable authority must still refuse its inputs.
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(old, base, head)
+
+    def test_portable_cache_sdk_unknown_neighbors_and_rename_endpoints_stay_closed(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in ('vendor/actions-cache-explicit-context/extra.mjs',
+                         'vendor/actions-cache-explicit-context/nested/index.mjs',
+                         'vendor/actions-cache-explicit-context/extra.txt',
+                         'vendor/actions-cache-other/index.mjs'):
+                base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'unknown input')
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(config, base, self.commit())
+            known = 'vendor/actions-cache-explicit-context/licenses.txt'
+            original = 'vendor/actions-cache-explicit-context/index.mjs'
+            unknown = 'vendor/actions-cache-explicit-context/unknown.mjs'
+            self.write(original, 'unique rename fixture'); base = self.commit()
+            self.git('mv', original, known)
+            plan = selector.select(config, base, self.commit())
+            self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+            for source, destination in ((known, unknown), (unknown, known)):
+                base = self.git('rev-parse', 'HEAD')
+                self.git('mv', source, destination)
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(config, base, self.commit())
+
     def test_quic_patch_inputs_select_network_consumers_without_self_authority(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         old = copy.deepcopy(config)
