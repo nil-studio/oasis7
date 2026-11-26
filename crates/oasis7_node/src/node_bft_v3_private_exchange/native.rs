@@ -51,14 +51,13 @@ pub trait NodeBftCommittedReadCredentialsV3: Send + Sync {
 mod client;
 #[path = "package.rs"]
 mod package;
-
+#[allow(dead_code)] // Request contract only. Live Noise registration is a subsequent slice.
+#[path = "admission_input_request_v2.rs"]
+mod admission_input_request_v2;
 #[path = "server.rs"]
 mod server;
 #[path = "wire.rs"]
 mod wire;
-#[allow(dead_code)] // Request contract only. Live Noise registration is a subsequent slice.
-#[path = "admission_input_request_v2.rs"]
-mod admission_input_request_v2;
 pub use admission_input_request_v2::{
     AdmissionBatchAuthorizationV2, AdmissionBatchOperationV2, AdmissionBatchReadV2,
     AdmissionBatchRequestV2, AdmissionInputBoundContextV2, VerifiedAdmissionBatchSubjectV2,

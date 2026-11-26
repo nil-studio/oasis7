@@ -110,9 +110,7 @@ pub use first_reservation::{
     BftFirstReservedOriginalV1, BftPrivateRetentionLedgerV1, BftPrivateRetentionMapV1,
 };
 
-
 pub use private_retention_input_authorization::{
-    BftPrivateRetentionAdmissionReadGrantBodyV1,
-    BftPrivateRetentionAdmissionReadGrantV1,
+    BftPrivateRetentionAdmissionReadGrantBodyV1, BftPrivateRetentionAdmissionReadGrantV1,
     BftPrivateRetentionAdmissionReadPurposeV1,
 };

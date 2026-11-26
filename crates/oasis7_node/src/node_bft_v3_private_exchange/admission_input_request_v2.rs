@@ -102,10 +102,7 @@ impl AdmissionBatchReadV2 {
         Ok(())
     }
 
-    fn bind_grant(
-        &self,
-        grant: &BftPrivateRetentionAdmissionReadGrantV1,
-    ) -> Result<(), String> {
+    fn bind_grant(&self, grant: &BftPrivateRetentionAdmissionReadGrantV1) -> Result<(), String> {
         self.validate()?;
         grant
             .body
@@ -217,8 +214,7 @@ impl AdmissionBatchRequestV2 {
         self.read.bind_grant(&self.authorization.grant)?;
         hash(&self.authorization.subject_public_key)?;
         signature_shape(&self.authorization.signature_hex)?;
-        if self.authorization.subject_public_key
-            != self.authorization.grant.body.subject_public_key
+        if self.authorization.subject_public_key != self.authorization.grant.body.subject_public_key
         {
             return Err("original admission subject differs from dedicated grant".into());
         }
@@ -297,10 +293,9 @@ mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use oasis7_distfs::protected_bft_v3::{
-        BftPrivateRetentionAdmissionReadGrantBodyV1,
-        BftPrivateRetentionAdmissionReadPurposeV1, BftPrivateRetentionKeyV1,
-        BftPrivateRetentionSourceV1, BftSignerErrorV3, BftSigningKeyHandleV3,
-        BftSuccessorWindowArchiveRefV1,
+        BftPrivateRetentionAdmissionReadGrantBodyV1, BftPrivateRetentionAdmissionReadPurposeV1,
+        BftPrivateRetentionKeyV1, BftPrivateRetentionSourceV1, BftSignerErrorV3,
+        BftSigningKeyHandleV3, BftSuccessorWindowArchiveRefV1,
     };
 
     struct TestIssuer(SigningKey);
@@ -315,7 +310,11 @@ mod tests {
 
     fn fixture(
         operation: AdmissionBatchOperationV2,
-    ) -> (AdmissionBatchRequestV2, AdmissionInputBoundContextV2, SigningKey) {
+    ) -> (
+        AdmissionBatchRequestV2,
+        AdmissionInputBoundContextV2,
+        SigningKey,
+    ) {
         let subject = SigningKey::from_bytes(&[32; 32]);
         let issuer = TestIssuer(SigningKey::from_bytes(&[71; 32]));
         let input = InputRef {
@@ -412,11 +411,17 @@ mod tests {
             },
         ] {
             let (request, context, _) = fixture(operation);
-            assert_eq!(AdmissionBatchRequestV2::decode(&request.encode().unwrap()).unwrap(), request);
+            assert_eq!(
+                AdmissionBatchRequestV2::decode(&request.encode().unwrap()).unwrap(),
+                request
+            );
             let proof = request.verify_bound_subject(&context).unwrap();
             assert_eq!(proof.read(), &request.read);
             assert_eq!(proof.grant(), &request.authorization.grant);
-            assert_eq!(proof.subject_public_key(), request.authorization.subject_public_key);
+            assert_eq!(
+                proof.subject_public_key(),
+                request.authorization.subject_public_key
+            );
             if matches!(operation, AdmissionBatchOperationV2::Manifest) {
                 assert!(!proof.authorizes_part(0));
             } else {
@@ -457,7 +462,10 @@ mod tests {
         changed.read.nonce = "ab".repeat(32);
         assert!(changed.verify_bound_subject(&context).is_err());
         let mut changed = request.clone();
-        std::mem::swap(&mut changed.read.requester_peer_id, &mut changed.read.serving_peer_id);
+        std::mem::swap(
+            &mut changed.read.requester_peer_id,
+            &mut changed.read.serving_peer_id,
+        );
         assert!(changed.verify_bound_subject(&context).is_err());
         let mut changed = request.clone();
         changed.authorization.subject_public_key =
