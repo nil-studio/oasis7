@@ -69,6 +69,7 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
                 or any(not isinstance(package, str) or not package for package in inputs)
                 or len(inputs) != len(set(inputs))):
             raise ValueError('ordinary fast target owners do not cover every direct architecture input')
+        policy_config = None
         if version == 1:
             if (selected.get('fast_execution_version') != 1
                     or selected.get('ordinary_execution') != 'inline'):
@@ -108,12 +109,17 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
             if version == 4:
                 wasm_packages = selected.get('oasis7_required_wasm_packages')
                 policy_wasm = policy_config.get('oasis7_required_wasm_packages')
-                if (not isinstance(wasm_packages, list)
+                trusted_wasm = (
+                    set(policy_wasm).intersection(artifacts.PORTABLE_REQUIRED_PACKAGES)
+                    if isinstance(policy_wasm, list)
+                    and all(isinstance(pkg, str) and pkg for pkg in policy_wasm)
+                    else None
+                )
+                if (trusted_wasm is None
+                        or not isinstance(wasm_packages, list)
                         or any(not isinstance(pkg, str) or not pkg for pkg in wasm_packages)
                         or wasm_packages != sorted(set(wasm_packages))
-                        or not isinstance(policy_wasm, list)
-                        or any(not isinstance(pkg, str) or not pkg for pkg in policy_wasm)
-                        or not set(wasm_packages) <= set(policy_wasm).intersection(artifacts.PORTABLE_REQUIRED_PACKAGES)):
+                        or not set(wasm_packages) <= trusted_wasm):
                     raise ValueError('ordinary-targets v4 requires trusted portable WASM package coverage')
         if not set(inputs) <= covered_owners:
             raise ValueError('ordinary fast target owners do not cover every direct architecture input')
@@ -121,8 +127,8 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
         allowed_extra = (
             {'consensus', 'distfs', 'net', 'node'}
             if version in (1, 2)
-            else {'consensus', 'distfs', 'net', 'node', 'workspace_support', 'viewer_js_required',
-                  'launcher_web', 'pixel_world_bridge', 'fleet_health'}
+            else {'consensus', 'distfs', 'net', 'node', 'viewer_js_required',
+                  'pixel_world_bridge', 'fleet_health'}
         )
         if version == 4 and not selected['oasis7_required_wasm_packages'] and extra_groups <= {'consensus', 'distfs', 'net', 'node'}:
             raise ValueError('ordinary-targets v4 requires portable WASM or extended consumer groups')
@@ -130,18 +136,15 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
         if (not isinstance(consumers, dict) or set(consumers) != extra_groups
                 or not extra_groups <= allowed_extra):
             raise ValueError('extra native groups require exact reverse-consumer evidence')
-        if extra_groups:
+        if version == 4 or extra_groups:
             affected = selected.get('affected_packages')
             policy = selected.get('policy_sha')
             if (not isinstance(affected, list) or not affected
                     or any(not isinstance(name, str) or not name for name in affected)
                     or len(affected) != len(set(affected))
+                    or not set(inputs) <= set(affected)
                     or not isinstance(policy, str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', policy)):
                 raise ValueError('invalid reverse-consumer package or policy identity')
-            # Read fixed BASE data, never the candidate's mutable scope file.
-            group_map = json.loads(run(root, ['git', 'show', policy + ':scripts/ci-required-scope.json']))['package_groups']
-            if not isinstance(group_map, dict):
-                raise ValueError('invalid trusted reverse-consumer group mapping')
             workspace_ids = {package['name']: package['id'] for package in members}
             if len(workspace_ids) != len(members) or not set(inputs) <= workspace_ids.keys():
                 raise ValueError('direct inputs have no unique actual workspace identity')
@@ -158,15 +161,32 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
                         pending.append(consumer)
             actual_consumers = {name for name, identity in workspace_ids.items()
                                 if identity in closure and name not in inputs}
-            for group, names in consumers.items():
-                if (not isinstance(names, list) or not names
-                        or any(not isinstance(name, str) or not name for name in names)
-                        or len(names) != len(set(names))
-                        or not set(names) <= (set(affected) - set(inputs))
-                        or (clean and not set(names) <= actual_consumers)
-                        or any(not isinstance(group_map.get(name), list)
-                               or group not in group_map[name] for name in names)):
-                    raise ValueError('unproved native reverse-consumer group: ' + group)
+            if version == 4:
+                if set(wasm_packages) != set(affected).intersection(trusted_wasm):
+                    raise ValueError('ordinary-targets v4 requires affected portable WASM alignment')
+                if clean:
+                    expected_wasm = {
+                        name for name in trusted_wasm
+                        if name in workspace_ids and workspace_ids[name] in closure
+                    }
+                    if set(wasm_packages) != expected_wasm:
+                        raise ValueError('ordinary-targets v4 requires exact affected portable WASM package coverage')
+            if extra_groups:
+                # Read fixed BASE data, never the candidate's mutable scope file.
+                if policy_config is None:
+                    policy_config = json.loads(run(root, ['git', 'show', policy + ':scripts/ci-required-scope.json']))
+                group_map = policy_config['package_groups']
+                if not isinstance(group_map, dict):
+                    raise ValueError('invalid trusted reverse-consumer group mapping')
+                for group, names in consumers.items():
+                    if (not isinstance(names, list) or not names
+                            or any(not isinstance(name, str) or not name for name in names)
+                            or len(names) != len(set(names))
+                            or not set(names) <= (set(affected) - set(inputs))
+                            or (clean and not set(names) <= actual_consumers)
+                            or any(not isinstance(group_map.get(name), list)
+                                   or group not in group_map[name] for name in names)):
+                        raise ValueError('unproved native reverse-consumer group: ' + group)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError) as error:
         raise InspectionError('invalid ordinary-targets execution plan: ' + str(error)) from error
     # A dirty dependency graph cannot prove the committed consumer relationship;

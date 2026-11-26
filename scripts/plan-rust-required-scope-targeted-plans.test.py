@@ -702,16 +702,16 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         self.assertEqual(runtime_test_risk_plan['ordinary_artifact_partition_version'], 2)
         self.assertEqual(runtime_test_risk_plan['ordinary_artifact_delivery_version'], 2)
 
-    def test_architecture_artifact_build_policy_v3_covers_portable_wasm_and_extended_consumers(self):
+    def test_architecture_artifact_build_policy_v4_covers_portable_wasm_and_extended_consumers(self):
         self.write('crates/oasis7_viewer_runtime/Cargo.toml',
                    '[package]\nname="oasis7_viewer_runtime"\nversion="0.1.0"\n'
                    '[dependencies]\noasis7_chain_runtime={path="../oasis7_chain_runtime"}\n'
                    '[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
         self.write('crates/oasis7_viewer_runtime/src/lib.rs', '')
-        self.write('crates/oasis7_browser_game_client/Cargo.toml',
-                   '[package]\nname="oasis7_browser_game_client"\nversion="0.1.0"\n'
+        self.write('crates/oasis7_viewer/Cargo.toml',
+                   '[package]\nname="oasis7_viewer"\nversion="0.1.0"\n'
                    '[dependencies]\noasis7_viewer_runtime={path="../oasis7_viewer_runtime"}\n')
-        self.write('crates/oasis7_browser_game_client/src/lib.rs', '')
+        self.write('crates/oasis7_viewer/src/lib.rs', '')
         self.base = self.commit()
         self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
         head = self.commit()
@@ -723,7 +723,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         self.assertEqual(selected['architecture']['build_policy'], 'ordinary-targets')
         self.assertEqual(
             selected['architecture']['consumer_groups']['viewer_js_required'],
-            ['oasis7_browser_game_client'],
+            ['oasis7_viewer'],
         )
 
 
