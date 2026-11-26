@@ -1334,6 +1334,7 @@
     "scripts/ci-formal-process-ordinary-delivery.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-parallel-native.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-outputs-and-backpressure.test.py": ["workflow_governance"],
+    "scripts/ci-formal-process-process-part1.test.py": ["workflow_governance"],
     "scripts/ci-full-result.py": ["workflow_governance"],
     "scripts/ci-full-result.test.py": ["workflow_governance"],
     "scripts/ci-local-check-plan.py": ["workflow_governance"],
@@ -1369,6 +1370,7 @@
     "scripts/ci-workflow-core-part3.test.py": ["workflow_governance"],
     "scripts/ci-workflow-core-part4.test.py": ["workflow_governance"],
     "scripts/ci-workflow-core-part5.test.py": ["workflow_governance"],
+    "scripts/ci-workflow-core-part6.test.py": ["workflow_governance"],
     "scripts/ci-workflow-delivery-and-capacity.test.py": ["workflow_governance"],
     "scripts/ci-workflow-guards-and-timeouts.test.py": ["workflow_governance"],
     "scripts/ci-workflow.test.py": ["workflow_governance"],
@@ -1410,6 +1412,7 @@
     "scripts/ci-formal-process-ordinary-delivery.test.py",
     "scripts/ci-formal-process-parallel-native.test.py",
     "scripts/ci-formal-process-outputs-and-backpressure.test.py",
+    "scripts/ci-formal-process-process-part1.test.py",
     "scripts/ci-storage-acceptance.test.py",
     "scripts/ci-storage-network.test.py",
     "scripts/ci-required-result.test.py",
@@ -1424,6 +1427,7 @@
     "scripts/ci-workflow-core-part3.test.py",
     "scripts/ci-workflow-core-part4.test.py",
     "scripts/ci-workflow-core-part5.test.py",
+    "scripts/ci-workflow-core-part6.test.py",
     "scripts/ci-workflow-delivery-and-capacity.test.py",
     "scripts/ci-workflow-guards-and-timeouts.test.py",
     "scripts/ci-workflow.test.py",
@@ -1691,6 +1695,7 @@
         "scripts/ci-formal-process-ordinary-delivery.test.py",
         "scripts/ci-formal-process-parallel-native.test.py",
         "scripts/ci-formal-process-outputs-and-backpressure.test.py",
+        "scripts/ci-formal-process-process-part1.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/plan-rust-required-scope.test.py"
       ]
@@ -1741,6 +1746,12 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-formal-process-outputs-and-backpressure.test.py"
+      ]
+    },
+    "scripts/ci-formal-process-process-part1.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process-process-part1.test.py"
       ]
     },
     "scripts/ci-full-result.py": {
@@ -1883,6 +1894,7 @@
         "scripts/ci-formal-process-ordinary-delivery.test.py",
         "scripts/ci-formal-process-parallel-native.test.py",
         "scripts/ci-formal-process-outputs-and-backpressure.test.py",
+        "scripts/ci-formal-process-process-part1.test.py",
         "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/ci-workspace-cache.test.py",
@@ -1923,6 +1935,12 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-workflow-core-part5.test.py"
+      ]
+    },
+    "scripts/ci-workflow-core-part6.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow-core-part6.test.py"
       ]
     },
     "scripts/ci-workflow-delivery-and-capacity.test.py": {
@@ -1982,6 +2000,7 @@
         "scripts/ci-workflow-core-part3.test.py",
         "scripts/ci-workflow-core-part4.test.py",
         "scripts/ci-workflow-core-part5.test.py",
+        "scripts/ci-workflow-core-part6.test.py",
         "scripts/ci-workflow-delivery-and-capacity.test.py",
         "scripts/ci-workflow-guards-and-timeouts.test.py",
         "scripts/ci-workflow.test.py",

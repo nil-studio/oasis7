@@ -9,6 +9,8 @@ import {
 const viewerRoot = resolve(new URL("..", import.meta.url).pathname);
 const repoRoot = resolve(viewerRoot, "..", "..");
 const sourceDir = resolve(viewerRoot, "software_safe_src");
+const viewerScriptsDir = resolve(viewerRoot, "scripts");
+const siteAssetsDir = resolve(repoRoot, "site", "assets");
 const canonicalHtmlPath = resolve(viewerRoot, "viewer.html");
 const canonicalClaimEvidencePath = resolve(viewerRoot, "viewer_first_agent_claim_evidence.html");
 const viewerDistDir = resolve(viewerRoot, "dist");
@@ -18,7 +20,7 @@ const canonicalBundlePath = resolve(viewerRoot, "viewer.js");
 const canonicalBundleBanner = "// Generated canonical Viewer bundle; source truth lives in ./software_safe_src/.\n";
 
 const PRODUCTION_SOURCE_LINE_LIMIT = 1200;
-const TEST_SOURCE_LINE_LIMIT = 1600;
+const TEST_SOURCE_LINE_LIMIT = 1200;
 
 const knownLineDebt = new Map();
 
@@ -33,20 +35,29 @@ function countLines(text) {
   return text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length;
 }
 
-async function listSourceFiles(dirPath) {
+async function listMatchingFiles(dirPath, pattern, { recursive = false } = {}) {
+  if (!await fileExists(dirPath)) {
+    return [];
+  }
   const entries = await readdir(dirPath, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     const entryPath = join(dirPath, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await listSourceFiles(entryPath));
+      if (recursive) {
+        files.push(...await listMatchingFiles(entryPath, pattern, { recursive }));
+      }
       continue;
     }
-    if (entry.isFile() && /\.(js|jsx|html)$/.test(entry.name)) {
+    if (entry.isFile() && pattern.test(entry.name)) {
       files.push(entryPath);
     }
   }
   return files;
+}
+
+async function listSourceFiles(dirPath) {
+  return listMatchingFiles(dirPath, /\.(js|jsx|html)$/, { recursive: true });
 }
 
 function validateDebtRecord(filePath, lineCount, limit, failures) {
@@ -72,11 +83,17 @@ function validateDebtRecord(filePath, lineCount, limit, failures) {
 async function validateLineThresholds() {
   const failures = [];
   const debtFindings = [];
-  const files = [canonicalHtmlPath, ...await listSourceFiles(sourceDir)];
+  const files = [
+    canonicalHtmlPath,
+    ...await listSourceFiles(sourceDir),
+    ...await listMatchingFiles(viewerRoot, /\.css$/),
+    ...await listMatchingFiles(viewerScriptsDir, /\.mjs$/),
+    ...await listMatchingFiles(siteAssetsDir, /\.(css|js)$/),
+  ];
   for (const filePath of files) {
     const source = await readFile(filePath, "utf8");
     const relPath = repoRelative(filePath);
-    const limit = /\.test\.(js|jsx|html)$/.test(basename(filePath))
+    const limit = /\.test\.(js|jsx|mjs|html)$/.test(basename(filePath))
       ? TEST_SOURCE_LINE_LIMIT
       : PRODUCTION_SOURCE_LINE_LIMIT;
     const finding = validateDebtRecord(filePath, countLines(source), limit, failures);
