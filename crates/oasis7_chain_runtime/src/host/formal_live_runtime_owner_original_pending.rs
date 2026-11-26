@@ -1,5 +1,15 @@
 use super::*;
 
+fn exact_original_owner(instance: &FormalRuntimeInstanceV1) -> super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+    super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+        authority_id: instance.authority_id.clone(),
+        operation_id: instance.operation_id.clone(),
+        request_digest: instance.request_digest.clone(),
+        config_digest: instance.config_digest.clone(),
+        incarnation: instance.incarnation.clone(),
+    }
+}
+
 pub(in super::super) fn owner_root(config_path: &Path) -> Result<PathBuf, String> {
     let validated = super::FormalLiveConfigV1::load(config_path)?;
     Ok(validated.config.writer_directory.join("runtime-owner"))
@@ -16,6 +26,15 @@ pub(in super::super) fn operation_root(root: &Path, operation_id: &str) -> Resul
     }
     let digest = super::super::super::node_lifecycle::local_io::digest(&operation_id)?;
     Ok(root.join("operations").join(digest))
+}
+
+pub(in super::super) fn prepare_operation_root(root: &Path, operation_id: &str) -> Result<PathBuf, String> {
+    super::super::super::node_lifecycle::local_io::private_dir(root)?;
+    let operations = root.join("operations");
+    super::super::super::node_lifecycle::local_io::private_dir(&operations)?;
+    let operation = operation_root(root, operation_id)?;
+    super::super::super::node_lifecycle::local_io::private_dir(&operation)?;
+    Ok(operation)
 }
 
 pub(in super::super) fn paths(
@@ -64,14 +83,7 @@ pub(crate) fn freeze_original_pending(
     let pin = reply
         .original_pending_pin
         .ok_or("original pending owner freeze reply omitted its prepared pin")?;
-    let expected_owner =
-        super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
-            authority_id: instance.authority_id.clone(),
-            operation_id: instance.operation_id.clone(),
-            request_digest: instance.request_digest.clone(),
-            config_digest: instance.config_digest.clone(),
-            incarnation: instance.incarnation.clone(),
-        };
+    let expected_owner = exact_original_owner(instance);
     pin.validate(&expected_owner)?;
     Ok(pin)
 }
@@ -92,14 +104,7 @@ pub(crate) fn read_original_pending_pin_candidate(
         return Err("original pending pin candidate requires a freeze attempt".into());
     }
     let directory = operation_root(&root, &instance.operation_id)?.join("original-pending");
-    let expected_owner =
-        super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
-            authority_id: instance.authority_id.clone(),
-            operation_id: instance.operation_id.clone(),
-            request_digest: instance.request_digest.clone(),
-            config_digest: instance.config_digest.clone(),
-            incarnation: instance.incarnation.clone(),
-        };
+    let expected_owner = exact_original_owner(instance);
     super::super::super::formal_live_original_pending_producer::read_prepared_pin_candidate(
         &directory,
         &expected_owner,
@@ -124,14 +129,7 @@ pub(crate) fn cold_read_original_pending_for_owner(
         return Err("original pending cold read requires a non-serving exact owner".into());
     }
     let directory = operation_root(&root, &instance.operation_id)?.join("original-pending");
-    let expected_owner =
-        super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
-            authority_id: instance.authority_id.clone(),
-            operation_id: instance.operation_id.clone(),
-            request_digest: instance.request_digest.clone(),
-            config_digest: instance.config_digest.clone(),
-            incarnation: instance.incarnation.clone(),
-        };
+    let expected_owner = exact_original_owner(instance);
     super::super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
         &directory,
         &expected_owner,
