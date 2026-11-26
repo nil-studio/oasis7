@@ -316,8 +316,8 @@ def portable_cache_container_layout(job, kind):
                  '      options: --user 1001:1001 --init' +
                  (' --tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec' if kind == 'worker' else '') +
                  '\n      volumes:\n        - ${{ github.workspace }}:/home/runner/work/oasis7/oasis7\n'
-                 '        - ${{ runner.temp }}:/home/runner/work/_temp\n' +
-                 ('        - ${{ runner.temp }}:/home/runner/.cache/oasis7/worker-build\n' if kind == 'worker' else '') +
+                 '        - /home/runner/work/_temp:/home/runner/work/_temp\n' +
+                 ('        - /home/runner/work/_temp:/home/runner/.cache/oasis7/worker-build\n' if kind == 'worker' else '') +
                  '    defaults:\n      run:\n        shell: bash\n        working-directory: /home/runner/work/oasis7/oasis7\n' +
                  ('    env:\n      HOME: /home/runner/work/_temp/portable-worker-home\n'
                   '      CARGO_HOME: /home/runner/work/_temp/portable-worker-home/.cargo\n' if kind == 'worker' else ''))

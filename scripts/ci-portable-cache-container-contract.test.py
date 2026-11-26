@@ -33,7 +33,7 @@ jobs:
       options: --user 1001:1001 --init
       volumes:
         - ${{ github.workspace }}:/home/runner/work/oasis7/oasis7
-        - ${{ runner.temp }}:/home/runner/work/_temp
+        - /home/runner/work/_temp:/home/runner/work/_temp
     defaults:
       run:
         shell: bash
@@ -167,8 +167,8 @@ jobs:
       options: --user 1001:1001 --init --tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec
       volumes:
         - ${{ github.workspace }}:/home/runner/work/oasis7/oasis7
-        - ${{ runner.temp }}:/home/runner/work/_temp
-        - ${{ runner.temp }}:/home/runner/.cache/oasis7/worker-build
+        - /home/runner/work/_temp:/home/runner/work/_temp
+        - /home/runner/work/_temp:/home/runner/.cache/oasis7/worker-build
     defaults:
       run:
         shell: bash
@@ -253,7 +253,8 @@ class PortableContainerContract(unittest.TestCase):
             mode = 'browser' if kind == 'browser-archive-cache' else 'worker'
             checks = [('options: --user 1001:1001 --init', 'options: --user 0:0 --init'),
                       ('${{ github.workspace }}:/home/runner/work/oasis7/oasis7', '/:/home/runner/work/oasis7/oasis7'),
-                      ('${{ runner.temp }}:/home/runner/work/_temp', '${{ runner.temp }}:/home/runner'),
+                      ('/home/runner/work/_temp:/home/runner/work/_temp', '/home/runner/work/_temp:/home/runner'),
+                      ('/home/runner/work/_temp:/home/runner/work/_temp', '${{ runner.temp }}:/home/runner/work/_temp'),
                       ('password: ${{ github.token }}', 'password: untrusted'),
                       ('refs/heads/main', 'refs/heads/other'),
                       ('steps.' + ('browser-admission-noto' if mode == 'browser' else 'worker-tool-admission') + '.outputs.upload_bound_bytes', 'untrusted.bound'),
