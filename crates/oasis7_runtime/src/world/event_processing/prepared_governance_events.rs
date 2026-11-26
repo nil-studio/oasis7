@@ -18,6 +18,7 @@ pub(crate) struct PreparedGovernanceApprovalPublication {
 }
 
 impl PreparedGovernanceApprovalPublication {
+    // legacy: superseded by StagedGovernanceApproval (#6141)
     #[allow(dead_code)]
     fn install(self, world: &mut World) -> Result<(), WorldError> {
         let PreparedGovernanceApprovalPublication {
