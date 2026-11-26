@@ -319,7 +319,7 @@ pub(super) mod tests {
     }
 
     /// Shared signed fixture for the distinct original response codec tests.
-    pub(super) fn fixture_with_original(
+    pub(in super::super) fn fixture_with_original(
         operation: AdmissionBatchOperationV2,
         original_bytes: u64,
         original_digest: String,
