@@ -334,7 +334,10 @@ impl ProviderLoopbackHttpClient {
         let req_file = rq.into_file().ctx("req transfer")?;
         let rb = self.captured_req(Method::POST, CTX_PATH)?;
         store.mark_dispatched(&att).ctx("dispatch marker")?;
-        http_chk(!store.cancelled(), "cancelled before send")?;
+        http_chk(
+            !store.cancelled(),
+            "provider material capture cancelled after dispatch marker and before HTTP send",
+        )?;
 
         let mut resp = rb
             .header(CONTENT_TYPE, JSON_CT)
