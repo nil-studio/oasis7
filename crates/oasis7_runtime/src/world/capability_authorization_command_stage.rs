@@ -954,6 +954,20 @@ impl PreparedTrustedCommand {
         }
     }
 
+    pub(super) fn install(mut self, world: &mut World) -> Result<(), WorldError> {
+        let base_head = self.base_head.clone();
+        let consensus_record = self.consensus_record.take();
+        super::transition::PreparedStagedCommit::new(
+            base_head,
+            consensus_record,
+            TrustedCommandDelta(self),
+        )
+        .install_confirmed(
+            world,
+            super::transition::DurableCommitConfirmation::Confirmed,
+        )
+        .map_err(super::transition::TransitionReject::into_world_error)
+    }
 }
 
 pub(crate) struct TrustedCommandDelta(pub(crate) PreparedTrustedCommand);
