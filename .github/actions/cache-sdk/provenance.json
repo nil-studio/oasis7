@@ -1,0 +1,58 @@
+{
+  "upstream_action": {
+    "repository": "actions/cache",
+    "sha": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "parsed_lock_snapshot_sha256": "58169857e6b2c4ab9f4f0eb411c9a617a51ed9bf8e422d2e423260261b6354a7"
+  },
+  "sdk": {
+    "name": "@actions/cache",
+    "version": "6.1.0",
+    "gitHead": null,
+    "dist": {
+      "shasum": "3ff53efad1b0e01d61daecfe0a2b4a7ac5487456",
+      "tarball": "https://registry.npmjs.org/@actions/cache/-/cache-6.1.0.tgz",
+      "fileCount": 67,
+      "integrity": "sha512-LVqybSbzhBp2uAETOQ3HnVjXA4AcjavgMH+LCr+cjgO+PZfciv/1QAgoW+esXBaAhvDid+vXeV70GGJpAh4V5Q==",
+      "signatures": [
+        {
+          "sig": "MEUCIQC+Q6pW9Wf3H4rjsk00RjtXQ6ZkoWvKNTWtdf0gd2VnywIgZB/fHhAPTtWccDnLStrXUrJ0Rb0do/ARlZiCH25ZSw8=",
+          "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+        }
+      ],
+      "attestations": {
+        "url": "https://registry.npmjs.org/-/npm/v1/attestations/@actions%2fcache@6.1.0",
+        "provenance": {
+          "predicateType": "https://slsa.dev/provenance/v1"
+        }
+      },
+      "unpackedSize": 336535
+    }
+  },
+  "dependencies": "Every selected lock entry is copied byte-for-data from the fixed official action lock, no floating resolution.",
+  "patched_files": {
+    "lib/internal/cacheUtils.js": {
+      "before_sha256": "ba1b2de90f5abc0475065f0eb3017db727dd548b53cd6e4053fd70bf223ab75a",
+      "after_sha256": "37c0acdea91092a792d4afeb60cf358c346e78c0da2cc2c9274d090a92de01b6"
+    },
+    "lib/internal/tar.js": {
+      "before_sha256": "7fdb340eb93cedfb97e27c1a9599969cbbe3512ba63baf940da0a6ed5c92e029",
+      "after_sha256": "82b7a32197096cd410d5d571372ee8274319bb27681657a208147b58c1ad920d"
+    },
+    "lib/cache.js": {
+      "before_sha256": "258ab7dcfe2424ab849ebe42cba42f7d5ee586bc077c894cd5e45803c5b2ba11",
+      "after_sha256": "0f8570c994058e760571d2afd9e848bcac519681846d6e3c435161df9e3c8478"
+    },
+    "lib/options.d.ts": {
+      "before_sha256": "9320136800b5b9ff53ba4e1546bd6984822eb7e6b1d0777425be4d9ced37e712",
+      "after_sha256": "0d14db9545e542473482a4f68680426749c35177441c2887be2c47cacc57eafe"
+    },
+    "lib/internal/cacheUtils.d.ts": {
+      "before_sha256": "22e9b66778e079a01ac90642f4309ac007d7a55a433844c0a4ad3433d3ecdbaf",
+      "after_sha256": "fe3862f85590d253bba7e81883a15bf509ec4f79363ab1e8d8fd6c620b20d92e"
+    },
+    "lib/internal/tar.d.ts": {
+      "before_sha256": "2918bbdc65f3efc57d09bfbf51037d09ca1a3892633a0e19b93b35e3f5e7d038",
+      "after_sha256": "40a7da93ec885ea9642fa3cd94e4030a1990ff0e4adbb7970dc9b53ca31176c9"
+    }
+  }
+}

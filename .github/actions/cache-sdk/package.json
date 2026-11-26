@@ -1,0 +1,17 @@
+{
+  "name": "oasis7-fixed-cache-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Verified third-party cache SDK with optional explicit archive context",
+  "scripts": {
+    "build": "node build.cjs",
+    "test": "node --test sdk.test.cjs"
+  },
+  "dependencies": {
+    "@actions/cache": "6.1.0",
+    "@actions/core": "3.0.1"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "0.38.4"
+  }
+}

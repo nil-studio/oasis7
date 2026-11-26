@@ -1,0 +1,126 @@
+{
+  "sdk": "6.1.0",
+  "files": {
+    "lib/internal/cacheUtils.js": {
+      "before_sha256": "ba1b2de90f5abc0475065f0eb3017db727dd548b53cd6e4053fd70bf223ab75a",
+      "after_sha256": "37c0acdea91092a792d4afeb60cf358c346e78c0da2cc2c9274d090a92de01b6",
+      "replacements": [
+        {
+          "before": "export function resolvePaths(patterns) {",
+          "after": "export function resolvePaths(patterns, archiveWorkingDirectory) {"
+        },
+        {
+          "before": "const workspace = (_d = process.env['GITHUB_WORKSPACE']) !== null && _d !== void 0 ? _d : process.cwd();",
+          "after": "const workspace = archiveWorkingDirectory ?? ((_d = process.env['GITHUB_WORKSPACE']) !== null && _d !== void 0 ? _d : process.cwd());"
+        }
+      ]
+    },
+    "lib/internal/tar.js": {
+      "before_sha256": "7fdb340eb93cedfb97e27c1a9599969cbbe3512ba63baf940da0a6ed5c92e029",
+      "after_sha256": "82b7a32197096cd410d5d571372ee8274319bb27681657a208147b58c1ad920d",
+      "replacements": [
+        {
+          "before": "function* (tarPath, compressionMethod, type, archivePath = '') {",
+          "after": "function* (tarPath, compressionMethod, type, archivePath = '', archiveWorkingDirectory) {"
+        },
+        {
+          "before": "function* (compressionMethod, type, archivePath = '') {",
+          "after": "function* (compressionMethod, type, archivePath = '', archiveWorkingDirectory) {"
+        },
+        {
+          "before": "yield getTarArgs(tarPath, compressionMethod, type, archivePath);",
+          "after": "yield getTarArgs(tarPath, compressionMethod, type, archivePath, archiveWorkingDirectory);"
+        },
+        {
+          "before": "function getWorkingDirectory() {",
+          "after": "function getWorkingDirectory(archiveWorkingDirectory) {"
+        },
+        {
+          "before": "return (_a = process.env['GITHUB_WORKSPACE']) !== null && _a !== void 0 ? _a : process.cwd();",
+          "after": "return archiveWorkingDirectory ?? ((_a = process.env['GITHUB_WORKSPACE']) !== null && _a !== void 0 ? _a : process.cwd());"
+        },
+        {
+          "before": "export function extractTar(archivePath, compressionMethod) {",
+          "after": "export function extractTar(archivePath, compressionMethod, archiveWorkingDirectory) {"
+        },
+        {
+          "before": "yield getCommands(compressionMethod, 'extract', archivePath);",
+          "after": "yield getCommands(compressionMethod, 'extract', archivePath, archiveWorkingDirectory);"
+        },
+        {
+          "before": "export function createTar(archiveFolder, sourceDirectories, compressionMethod) {",
+          "after": "export function createTar(archiveFolder, sourceDirectories, compressionMethod, archiveWorkingDirectory) {"
+        },
+        {
+          "before": "yield getCommands(compressionMethod, 'create');",
+          "after": "yield getCommands(compressionMethod, 'create', undefined, archiveWorkingDirectory);"
+        },
+        {
+          "before": "const workingDirectory = getWorkingDirectory();",
+          "after": "const workingDirectory = getWorkingDirectory(archiveWorkingDirectory);",
+          "count": 2
+        }
+      ]
+    },
+    "lib/cache.js": {
+      "before_sha256": "258ab7dcfe2424ab849ebe42cba42f7d5ee586bc077c894cd5e45803c5b2ba11",
+      "after_sha256": "0f8570c994058e760571d2afd9e848bcac519681846d6e3c435161df9e3c8478",
+      "replacements": [
+        {
+          "before": "/**\n * Restores cache from keys\n *\n * @param paths a list of file paths to restore from the cache\n * @param primaryKey an explicit key for restoring the cache. Lookup is done with prefix matching.\n * @param restoreKeys an optional ordered list of keys to use for restoring the cache if no cache hit occurred for primaryKey\n * @param downloadOptions cache download options\n * @param enableCrossOsArchive an optional boolean enabled to restore on windows any cache created on any platform\n * @returns string returns the key for the cache hit, otherwise returns undefined\n */\nexport function restoreCache(paths_1, primaryKey_1, restoreKeys_1, options_1) {\n    return __awaiter(this, arguments, void 0, function* (paths, primaryKey, restoreKeys, options, enableCrossOsArchive = false) {\n        const cacheServiceVersion = getCacheServiceVersion();\n        core.debug(`Cache service version: ${cacheServiceVersion}`);\n        checkPaths(paths);\n        switch (cacheServiceVersion) {\n            case 'v2':\n                return yield restoreCacheV2(paths, primaryKey, restoreKeys, options, enableCrossOsArchive);\n            case 'v1':\n            default:\n                return yield restoreCacheV1(paths, primaryKey, restoreKeys, options, enableCrossOsArchive);\n        }\n    });\n}\n/**\n",
+          "after": "/**\n * Restores cache from keys\n *\n * @param paths a list of file paths to restore from the cache\n * @param primaryKey an explicit key for restoring the cache. Lookup is done with prefix matching.\n * @param restoreKeys an optional ordered list of keys to use for restoring the cache if no cache hit occurred for primaryKey\n * @param downloadOptions cache download options\n * @param enableCrossOsArchive an optional boolean enabled to restore on windows any cache created on any platform\n * @returns string returns the key for the cache hit, otherwise returns undefined\n */\nfunction checkArchiveOptions(options, version) {\n    if (options?.archiveWorkingDirectory === undefined && options?.beforeExtract === undefined) return;\n    if (version !== 'v2') throw new ValidationError('Explicit archive context requires cache service v2');\n    if (typeof options.archiveWorkingDirectory !== 'string' || !/^\\/[A-Za-z0-9_./-]+$/.test(options.archiveWorkingDirectory) || path.normalize(options.archiveWorkingDirectory) !== options.archiveWorkingDirectory)\n        throw new ValidationError('Explicit archive directory must be an absolute directory');\n    if (options.beforeExtract !== undefined && typeof options.beforeExtract !== 'function')\n        throw new ValidationError('beforeExtract must be a function');\n}\nexport function restoreCache(paths_1, primaryKey_1, restoreKeys_1, options_1) {\n    return __awaiter(this, arguments, void 0, function* (paths, primaryKey, restoreKeys, options, enableCrossOsArchive = false) {\n        const cacheServiceVersion = getCacheServiceVersion();\n        core.debug(`Cache service version: ${cacheServiceVersion}`);\n        checkPaths(paths);\n        checkArchiveOptions(options, cacheServiceVersion);\n        switch (cacheServiceVersion) {\n            case 'v2':\n                return yield restoreCacheV2(paths, primaryKey, restoreKeys, options, enableCrossOsArchive);\n            case 'v1':\n            default:\n                return yield restoreCacheV1(paths, primaryKey, restoreKeys, options, enableCrossOsArchive);\n        }\n    });\n}\n/**\n"
+        },
+        {
+          "before": "            if (options === null || options === void 0 ? void 0 : options.lookupOnly) {\n                core.info('Lookup only - skipping download');\n                return response.matchedKey;\n            }\n            archivePath = path.join(yield utils.createTempDirectory(), utils.getCacheFileName(compressionMethod));\n            core.debug(`Archive path: ${archivePath}`);\n            core.debug(`Starting download of archive to: ${archivePath}`);\n            yield cacheHttpClient.downloadCache(response.signedDownloadUrl, archivePath, options);\n            const archiveFileSize = utils.getArchiveFileSizeInBytes(archivePath);\n            core.info(`Cache Size: ~${Math.round(archiveFileSize / (1024 * 1024))} MB (${archiveFileSize} B)`);\n            if (core.isDebug()) {\n                yield listTar(archivePath, compressionMethod);\n            }\n            yield extractTar(archivePath, compressionMethod);\n            core.info('Cache restored successfully');\n            return response.matchedKey;\n        }\n        catch (error) {\n            const typedError = error;\n            if (typedError.name === ValidationError.name) {\n                throw error;\n            }\n            else {\n                // Supress all non-validation cache related errors because caching should be optional\n",
+          "after": "            if (options === null || options === void 0 ? void 0 : options.lookupOnly) {\n                core.info('Lookup only - skipping download');\n                return response.matchedKey;\n            }\n            archivePath = path.join(yield utils.createTempDirectory(), utils.getCacheFileName(compressionMethod));\n            core.debug(`Archive path: ${archivePath}`);\n            core.debug(`Starting download of archive to: ${archivePath}`);\n            yield cacheHttpClient.downloadCache(response.signedDownloadUrl, archivePath, options);\n            const archiveFileSize = utils.getArchiveFileSizeInBytes(archivePath);\n            core.info(`Cache Size: ~${Math.round(archiveFileSize / (1024 * 1024))} MB (${archiveFileSize} B)`);\n            if (options?.beforeExtract) {\n                try { yield options.beforeExtract(archivePath, compressionMethod, response.matchedKey); }\n                catch { throw new ValidationError('Explicit archive validation rejected downloaded cache'); }\n            }\n            if (core.isDebug()) {\n                yield listTar(archivePath, compressionMethod);\n            }\n            yield extractTar(archivePath, compressionMethod, options?.archiveWorkingDirectory);\n            core.info('Cache restored successfully');\n            return response.matchedKey;\n        }\n        catch (error) {\n            const typedError = error;\n            if (typedError.name === ValidationError.name) {\n                throw error;\n            }\n            else {\n                // Supress all non-validation cache related errors because caching should be optional\n"
+        },
+        {
+          "before": " * @param key an explicit key for restoring the cache\n * @param enableCrossOsArchive an optional boolean enabled to save cache on windows which could be restored on any platform\n * @param options cache upload options\n * @returns number returns cacheId if the cache was saved successfully and throws an error if save fails\n */\nexport function saveCache(paths_1, key_1, options_1) {\n    return __awaiter(this, arguments, void 0, function* (paths, key, options, enableCrossOsArchive = false) {\n        const cacheServiceVersion = getCacheServiceVersion();\n        core.debug(`Cache service version: ${cacheServiceVersion}`);\n        checkPaths(paths);\n        checkKey(key);\n        switch (cacheServiceVersion) {\n            case 'v2':\n                return yield saveCacheV2(paths, key, options, enableCrossOsArchive);\n            case 'v1':\n            default:\n                return yield saveCacheV1(paths, key, options, enableCrossOsArchive);\n        }\n    });\n}\n",
+          "after": " * @param key an explicit key for restoring the cache\n * @param enableCrossOsArchive an optional boolean enabled to save cache on windows which could be restored on any platform\n * @param options cache upload options\n * @returns number returns cacheId if the cache was saved successfully and throws an error if save fails\n */\nexport function saveCache(paths_1, key_1, options_1) {\n    return __awaiter(this, arguments, void 0, function* (paths, key, options, enableCrossOsArchive = false) {\n        const cacheServiceVersion = getCacheServiceVersion();\n        core.debug(`Cache service version: ${cacheServiceVersion}`);\n        checkPaths(paths);\n        checkArchiveOptions(options, cacheServiceVersion);\n        checkKey(key);\n        switch (cacheServiceVersion) {\n            case 'v2':\n                return yield saveCacheV2(paths, key, options, enableCrossOsArchive);\n            case 'v1':\n            default:\n                return yield saveCacheV1(paths, key, options, enableCrossOsArchive);\n        }\n    });\n}\n"
+        },
+        {
+          "before": "function saveCacheV2(paths_1, key_1, options_1) {\n    return __awaiter(this, arguments, void 0, function* (paths, key, options, enableCrossOsArchive = false) {\n        var _a;\n        // Override UploadOptions to force the use of Azure\n        // ...options goes first because we want to override the default values\n        // set in UploadOptions with these specific figures\n        options = Object.assign(Object.assign({}, options), { uploadChunkSize: 64 * 1024 * 1024, uploadConcurrency: 8, useAzureSdk: true });\n        const compressionMethod = yield utils.getCompressionMethod();\n        const twirpClient = cacheTwirpClient.internalCacheTwirpClient();\n        let cacheId = -1;\n        const cachePaths = yield utils.resolvePaths(paths);\n        core.debug('Cache Paths:');\n        core.debug(`${JSON.stringify(cachePaths)}`);\n        if (cachePaths.length === 0) {\n            throw new Error(`Path Validation Error: Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved.`);\n        }\n        const archiveFolder = yield utils.createTempDirectory();\n        const archivePath = path.join(archiveFolder, utils.getCacheFileName(compressionMethod));\n        core.debug(`Archive Path: ${archivePath}`);\n        try {\n            yield createTar(archiveFolder, cachePaths, compressionMethod);\n            if (core.isDebug()) {\n                yield listTar(archivePath, compressionMethod);\n            }\n            const archiveFileSize = utils.getArchiveFileSizeInBytes(archivePath);\n            core.debug(`File Size: ${archiveFileSize}`);\n            // Set the archive size in the options, will be used to display the upload progress\n            options.archiveSizeBytes = archiveFileSize;\n            core.debug('Reserving Cache');\n            const version = utils.getCacheVersion(paths, compressionMethod, enableCrossOsArchive);\n            const request = {\n",
+          "after": "function saveCacheV2(paths_1, key_1, options_1) {\n    return __awaiter(this, arguments, void 0, function* (paths, key, options, enableCrossOsArchive = false) {\n        var _a;\n        // Override UploadOptions to force the use of Azure\n        // ...options goes first because we want to override the default values\n        // set in UploadOptions with these specific figures\n        options = Object.assign(Object.assign({}, options), { uploadChunkSize: 64 * 1024 * 1024, uploadConcurrency: 8, useAzureSdk: true });\n        const compressionMethod = yield utils.getCompressionMethod();\n        const twirpClient = cacheTwirpClient.internalCacheTwirpClient();\n        let cacheId = -1;\n        const cachePaths = yield utils.resolvePaths(paths, options?.archiveWorkingDirectory);\n        core.debug('Cache Paths:');\n        core.debug(`${JSON.stringify(cachePaths)}`);\n        if (cachePaths.length === 0) {\n            throw new Error(`Path Validation Error: Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved.`);\n        }\n        const archiveFolder = yield utils.createTempDirectory();\n        const archivePath = path.join(archiveFolder, utils.getCacheFileName(compressionMethod));\n        core.debug(`Archive Path: ${archivePath}`);\n        try {\n            yield createTar(archiveFolder, cachePaths, compressionMethod, options?.archiveWorkingDirectory);\n            if (core.isDebug()) {\n                yield listTar(archivePath, compressionMethod);\n            }\n            const archiveFileSize = utils.getArchiveFileSizeInBytes(archivePath);\n            core.debug(`File Size: ${archiveFileSize}`);\n            // Set the archive size in the options, will be used to display the upload progress\n            options.archiveSizeBytes = archiveFileSize;\n            core.debug('Reserving Cache');\n            const version = utils.getCacheVersion(paths, compressionMethod, enableCrossOsArchive);\n            const request = {\n"
+        }
+      ]
+    },
+    "lib/options.d.ts": {
+      "before_sha256": "9320136800b5b9ff53ba4e1546bd6984822eb7e6b1d0777425be4d9ced37e712",
+      "after_sha256": "0d14db9545e542473482a4f68680426749c35177441c2887be2c47cacc57eafe",
+      "replacements": [
+        {
+          "before": "export interface UploadOptions {",
+          "after": "export interface UploadOptions {\n    archiveWorkingDirectory?: string;"
+        },
+        {
+          "before": "export interface DownloadOptions {",
+          "after": "export interface DownloadOptions {\n    archiveWorkingDirectory?: string;\n    beforeExtract?: (archivePath: string, compressionMethod: string, matchedKey: string) => Promise<void>;"
+        }
+      ]
+    },
+    "lib/internal/cacheUtils.d.ts": {
+      "before_sha256": "22e9b66778e079a01ac90642f4309ac007d7a55a433844c0a4ad3433d3ecdbaf",
+      "after_sha256": "fe3862f85590d253bba7e81883a15bf509ec4f79363ab1e8d8fd6c620b20d92e",
+      "replacements": [
+        {
+          "before": "resolvePaths(patterns: string[])",
+          "after": "resolvePaths(patterns: string[], archiveWorkingDirectory?: string)"
+        }
+      ]
+    },
+    "lib/internal/tar.d.ts": {
+      "before_sha256": "2918bbdc65f3efc57d09bfbf51037d09ca1a3892633a0e19b93b35e3f5e7d038",
+      "after_sha256": "40a7da93ec885ea9642fa3cd94e4030a1990ff0e4adbb7970dc9b53ca31176c9",
+      "replacements": [
+        {
+          "before": "extractTar(archivePath: string, compressionMethod: CompressionMethod)",
+          "after": "extractTar(archivePath: string, compressionMethod: CompressionMethod, archiveWorkingDirectory?: string)"
+        },
+        {
+          "before": "createTar(archiveFolder: string, sourceDirectories: string[], compressionMethod: CompressionMethod)",
+          "after": "createTar(archiveFolder: string, sourceDirectories: string[], compressionMethod: CompressionMethod, archiveWorkingDirectory?: string)"
+        }
+      ]
+    }
+  }
+}

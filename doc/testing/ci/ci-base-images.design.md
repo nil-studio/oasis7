@@ -42,6 +42,11 @@ Viewer 必需检查和历史性能报告共用 `rust-viewer`。可信选择作�
 
 Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；同一 textual key 不保证宿主与容器可互用。runtime 共用层预装 zstd，全部镜像 smoke test 验证 tar/zstd 往返；消费者使用可信 writer 的归档路径并保持原工具身份校验，正式日志仍须验证 exact hit。
 
+归档运输库前置固定 `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` 所用 SDK 6.1.0 和 npm integrity 锁。可审源补丁仅增加 V2 的显式 archiveWorkingDirectory 与下载后、首次 tar 解析前的 beforeExtract 回调；默认不传选项时保持上游行为，V1 显式选用则拒绝，回调失败传播 ValidationError。原 raw paths、压缩方法、版本 salt 与 getCacheVersion 不变，不通过修改 GITHUB_* 环境伪造工作根。
+
+第三方 SDK 生成库和许可证置于 `vendor/actions-cache-explicit-context/`，自有构建入口、源补丁及 provenance 保留在 `.github/actions/cache-sdk/`。npm 元数据没有 toolkit Git commit，provenance 如实记录为空；不能以 npm 字段缺失冒称源码证明。清洁复现入口是在该目录执行 `npm ci --ignore-scripts --no-audit --no-fund && npm run build`，回执绑定输入与生成文件摘要，真实 SDK tar 四向及本地 V2 HTTP 回归只证明运输行为，不代表共享缓存上传。本前置默认没有动作入口和生产调用；有限 contract、提取前有界检查以及原两个 mixed producer 的 container 切换在后续消费批次交付，原权限、准入、6/12 分钟和 20 GB 预算保持。
+
+
 镜像 digest 加入依赖系统库或工具链的 native 缓存身份，防止跨环境恢复不兼容产物。镜像拉取或依赖探测失败时保持 job 失败，按已有流程退回上一已验证 digest 或回退迁移提交。禁止以自动 apt 回退掩盖镜像缺件，让安装步骤重新进入常规路径。
 
 ## 迁移与验收验证

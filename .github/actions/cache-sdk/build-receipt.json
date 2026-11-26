@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "inputs": {
+    "entry.mjs": "ba0a6691b9c401b6716d068fe0cc8e6194dd29afa50b35e76630611458db401f",
+    "build.cjs": "51210831227d4f9855a61f50e53c6271cc5f5efb192ea29fd12cbc7e2d9b8b7a",
+    "package.json": "0bf8fa9a05eeb5ce59f7dd714918aba4199e7c4fae7f9db01a57e3a4ebb132d9",
+    "package-lock.json": "f7ac79bf4eb22b9ef36a4822939b7d614e511883313dbf6d99b14cdcd9ce2b27",
+    "provenance.json": "c51d27e08f87a83d109912004d07fb4331b097d74580e33a9d6ab279cd4023d0",
+    "sdk-patch.json": "7029910c743036f16d55f9ce08ca16927f2f4e54f834fd81cfe8dbd9ce96b1dc"
+  },
+  "outputs": {
+    "index.mjs": "5f7ef0d8d917fdccc9f936ad56e8d7ec3901613de51cb3c6d1f8efc91107d3eb",
+    "licenses.txt": "d2c379243e6423b7b152cda752bd889fe068de8cd6b6a745e436e1191c65cf4c"
+  }
+}
