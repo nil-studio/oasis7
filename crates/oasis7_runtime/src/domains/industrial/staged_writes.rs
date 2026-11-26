@@ -16,7 +16,6 @@ use oasis7_wasm_abi::FactoryModuleSpec;
 
 /// Staged factory construction transition wrapping `World::build_factory_to_event`
 /// and optional module-backed admission validation.
-#[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
 pub(in crate::world) struct StagedFactoryConstruction<'a> {
     pub action_id: ActionId,
     pub builder_agent_id: &'a String,
@@ -26,7 +25,6 @@ pub(in crate::world) struct StagedFactoryConstruction<'a> {
     pub module_id: Option<&'a str>,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
 pub(in crate::world) struct FactoryConstructionDelta {
     publication: IndustrialPublicationDelta,
 }
@@ -76,12 +74,10 @@ impl StagedTransition for StagedFactoryConstruction<'_> {
 }
 
 /// Staged production completion control for a due [`RecipeJobState`].
-#[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
 pub(in crate::world) struct StagedIndustrialCompletion<'a> {
     pub job: &'a RecipeJobState,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
 pub(in crate::world) enum IndustrialCompletionDelta {
     NoOp,
     Publish(Box<IndustrialPublicationDelta>),
@@ -129,12 +125,10 @@ impl StagedTransition for StagedIndustrialCompletion<'_> {
 }
 
 /// Staged due material transit completions and SLA metrics update.
-#[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
 pub(in crate::world) struct StagedDueMaterialTransits {
     pub now: Option<WorldTime>,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
 pub(in crate::world) struct LogisticsDueTransitsDelta {
     publication: IndustrialBatchPublicationDelta,
     sla_metrics: Option<LogisticsSlaMetricsDelta>,

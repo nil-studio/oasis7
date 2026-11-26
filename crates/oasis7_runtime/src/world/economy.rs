@@ -438,15 +438,7 @@ impl World {
     }
 
     pub(super) fn process_due_economy_jobs(&mut self) -> Result<Vec<WorldEvent>, WorldError> {
-        let bodies = self.prepare_due_economy_event_bodies_at(self.state.time);
-        let mut emitted = Vec::with_capacity(bodies.len());
-        for body in bodies {
-            self.append_event(body, None)?;
-            if let Some(event) = self.journal.events.last() {
-                emitted.push(event.clone());
-            }
-        }
-        Ok(emitted)
+        self.process_due_industrial_completions()
     }
 
     pub(super) fn process_due_economy_jobs_with_modules(
@@ -502,10 +494,11 @@ impl World {
         });
 
         for job in due_recipes {
-            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
-                if let Some(body) = body {
-                    self.append_event(*body, None)?;
-                    if let Some(event) = self.journal.events.last() { emitted.push(event.clone()); }
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(_) =
+                self.industrial_completion_guard(&job)
+            {
+                if let Some(event) = self.install_staged_industrial_completion(&job)? {
+                    emitted.push(event);
                 }
                 continue;
             }
@@ -684,12 +677,8 @@ impl World {
             if validation_rejected {
                 continue;
             }
-            self.append_event(
-                Self::recipe_completion_body(job),
-                None,
-            )?;
-            if let Some(event) = self.journal.events.last() {
-                emitted.push(event.clone());
+            if let Some(event) = self.install_staged_industrial_completion(&job)? {
+                emitted.push(event);
             }
         }
         Ok(emitted)
