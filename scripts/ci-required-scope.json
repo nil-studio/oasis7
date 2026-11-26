@@ -1332,6 +1332,7 @@
     "scripts/ci-formal-process-real-components.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-ordinary-delivery.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-parallel-native.test.py": ["workflow_governance"],
+    "scripts/ci-formal-process-outputs-and-backpressure.test.py": ["workflow_governance"],
     "scripts/ci-full-result.py": ["workflow_governance"],
     "scripts/ci-full-result.test.py": ["workflow_governance"],
     "scripts/ci-local-check-plan.py": ["workflow_governance"],
@@ -1401,6 +1402,7 @@
     "scripts/ci-formal-process-real-components.test.py",
     "scripts/ci-formal-process-ordinary-delivery.test.py",
     "scripts/ci-formal-process-parallel-native.test.py",
+    "scripts/ci-formal-process-outputs-and-backpressure.test.py",
     "scripts/ci-storage-acceptance.test.py",
     "scripts/ci-storage-network.test.py",
     "scripts/ci-required-result.test.py",
@@ -1679,6 +1681,7 @@
         "scripts/ci-formal-process-real-components.test.py",
         "scripts/ci-formal-process-ordinary-delivery.test.py",
         "scripts/ci-formal-process-parallel-native.test.py",
+        "scripts/ci-formal-process-outputs-and-backpressure.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/plan-rust-required-scope.test.py"
       ]
@@ -1723,6 +1726,12 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-formal-process-parallel-native.test.py"
+      ]
+    },
+    "scripts/ci-formal-process-outputs-and-backpressure.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process-outputs-and-backpressure.test.py"
       ]
     },
     "scripts/ci-full-result.py": {
@@ -1864,6 +1873,7 @@
         "scripts/ci-formal-process-real-components.test.py",
         "scripts/ci-formal-process-ordinary-delivery.test.py",
         "scripts/ci-formal-process-parallel-native.test.py",
+        "scripts/ci-formal-process-outputs-and-backpressure.test.py",
         "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/ci-workspace-cache.test.py",
