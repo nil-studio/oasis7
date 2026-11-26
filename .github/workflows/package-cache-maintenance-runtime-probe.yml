@@ -1,0 +1,117 @@
+name: Package cache maintenance runtime comparison
+on:
+  pull_request:
+    branches: [codex/package-cache-maintenance-probe-base]
+    types: [opened]
+    paths: [.github/workflows/package-cache-maintenance-runtime-probe.yml]
+permissions:
+  actions: read
+  contents: read
+  packages: read
+cache-mode: none
+
+jobs:
+  compare:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/package-cache-maintenance-probe' &&
+      github.base_ref == 'codex/package-cache-maintenance-probe-base'
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE: 5d7d857c74803a7d7a8e0c86b8f234c31d7bb685
+      IMAGE: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 5d7d857c74803a7d7a8e0c86b8f234c31d7bb685
+          persist-credentials: false
+      - name: Verify exact candidate source and prepare the shared comparison
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test "$(id -u):$(id -g)" = 1001:1001
+          mkdir -m 700 "$RUNNER_TEMP/package-cache-comparison"
+          cat >"$RUNNER_TEMP/package-cache-comparison/compare.py" <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          import importlib
+
+          sys.path.insert(0, str(pathlib.Path.cwd() / 'scripts'))
+          maintenance = importlib.import_module('ci-cache-maintenance')
+          assert sys.version_info[:2] == (3, 12)
+          assert (os.getuid(), os.getgid()) == (1001, 1001)
+
+          def encoded(value):
+              return json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+
+          snapshot_path = pathlib.Path(__file__).with_name('snapshot.json')
+          if sys.argv[1:] == ['capture']:
+              class ReadOnlyApi(maintenance.GitHubApi):
+                  def request(self, method, path):
+                      if method != 'GET':
+                          raise AssertionError('diagnostic is GET-only')
+                      return super().request(method, path)
+
+              api = ReadOnlyApi('nil-studio/oasis7', os.environ['CACHE_READ_TOKEN'])
+              entries = api.list_caches()
+              runs = api.list_active_runs()
+              stamp = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+              snapshot = {'caches': entries, 'active_runs': runs, 'cutoff': stamp.isoformat()}
+              snapshot_path.write_bytes(encoded(snapshot))
+              print(f'Frozen validated inventory: {len(entries)} caches and {len(runs)} active runs')
+          elif sys.argv[1:] == ['plan']:
+              assert not os.environ.get('CACHE_READ_TOKEN')
+              raw = snapshot_path.read_bytes()
+              snapshot = json.loads(raw)
+              plan = maintenance.plan_recovery(
+                  snapshot['caches'], snapshot['cutoff'], active_runs=snapshot['active_runs'],
+                  repository_limit_bytes=20_000_000_000)
+              print(json.dumps({
+                  'inventory_sha256': hashlib.sha256(raw).hexdigest(),
+                  'plan_sha256': hashlib.sha256(encoded(plan)).hexdigest(),
+                  'planned_delete_ids': [entry['id'] for entry in plan['delete']],
+                  'live_delete_count': 0,
+              }, sort_keys=True))
+          else:
+              raise AssertionError('unexpected diagnostic mode')
+          PY
+      - name: Capture a single GET-only inventory
+        shell: bash
+        env:
+          CACHE_READ_TOKEN: ${{ github.token }}
+        run: |
+          umask 077
+          python3 "$RUNNER_TEMP/package-cache-comparison/compare.py" capture
+      - name: Pull fixed runtime under read-only package credentials
+        shell: bash
+        env:
+          PACKAGE_READ_TOKEN: ${{ github.token }}
+        run: |
+          docker_config="$(mktemp -d "$RUNNER_TEMP/maintenance-docker.XXXXXX")"
+          trap 'rm -rf -- "$docker_config"' EXIT
+          export DOCKER_CONFIG="$docker_config"
+          printf '%s\n' "$PACKAGE_READ_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull "$IMAGE"
+      - name: Compare recovery plan and original FakeApi tests
+        shell: bash
+        run: |
+          fixture="$RUNNER_TEMP/package-cache-comparison"
+          python3 "$fixture/compare.py" plan >"$fixture/host.json"
+          python3 scripts/ci-cache-maintenance.test.py
+          image_args=(--rm --pull never --init --user 1001:1001 --network none --read-only
+                      --tmpfs "/tmp:rw,nosuid,nodev" --env PYTHONDONTWRITEBYTECODE=1
+                      --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace,readonly"
+                      --mount "type=bind,src=$fixture,dst=/fixture,readonly"
+                      --workdir /workspace "$IMAGE")
+          docker run "${image_args[@]}" python3 /fixture/compare.py plan >"$fixture/image.json"
+          docker run "${image_args[@]}" python3 scripts/ci-cache-maintenance.test.py
+          cmp "$fixture/host.json" "$fixture/image.json"
+          cat "$fixture/image.json"
