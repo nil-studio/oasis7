@@ -30,30 +30,6 @@ fn error(code: &'static str, message: impl Into<String>) -> CognitionError {
     CognitionError::new(code, message)
 }
 
-impl From<NormalizedMemoryWriteIntentV1> for MemoryWriteIntentV1 {
-    fn from(value: NormalizedMemoryWriteIntentV1) -> Self {
-        Self {
-            schema_version: value.schema_version,
-            scope: value.scope,
-            summary: value.summary,
-            tags: value.tags,
-            compatibility_reason: value.compatibility_reason,
-        }
-    }
-}
-
-impl From<MemoryWriteIntentV1> for oasis7_agent_api::MemoryWriteIntentV1 {
-    fn from(value: MemoryWriteIntentV1) -> Self {
-        Self {
-            schema_version: value.schema_version,
-            scope: value.scope,
-            summary: value.summary,
-            tags: value.tags,
-            compatibility_reason: value.compatibility_reason,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemoryWriteStore {
     /// Monotonic store revision used to bind a retrieved snapshot to the

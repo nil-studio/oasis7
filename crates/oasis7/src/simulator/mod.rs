@@ -67,6 +67,22 @@ mod canonical_contract_owner_tests {
             DEFAULT_LLM_SYSTEM_PROMPT,
             oasis7_agent_harness::llm_defaults::DEFAULT_LLM_SYSTEM_PROMPT
         );
+        assert_eq!(
+            std::any::TypeId::of::<ContinuousAgentRequestContextV1>(),
+            std::any::TypeId::of::<oasis7_agent_api::ContinuousAgentRequestContextV1>()
+        );
+        assert_eq!(
+            std::any::TypeId::of::<ContinuousAgentResponseContextV1>(),
+            std::any::TypeId::of::<oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>>()
+        );
+        assert_eq!(
+            std::any::TypeId::of::<FeedbackEnvelopeV1>(),
+            std::any::TypeId::of::<oasis7_agent_api::FeedbackEnvelopeV1>()
+        );
+        assert_eq!(
+            std::any::TypeId::of::<MemoryWriteIntentV1>(),
+            std::any::TypeId::of::<oasis7_agent_api::MemoryWriteIntentV1>()
+        );
     }
 }
 
