@@ -1179,7 +1179,7 @@ async function main() {
     assert(build.status === 0, "Viewer bundle build failed; see bundle-build.log", { status: build.status, signal: build.signal });
   }
   assert(statSafe(bundlePath), `missing ${bundlePath}; build:viewer:bundle did not produce the test bundle`);
-  summary.sourceDigests = Object.fromEntries([bundlePath, resolve(viewerRoot, "viewer.html"), resolve(viewerRoot, "viewer_terminal_shell.css"), fileURLToPath(import.meta.url)].map((path) => [relative(repoRoot, path), createHash("sha256").update(readFileSync(path)).digest("hex")]));
+  summary.sourceDigests = Object.fromEntries([bundlePath, resolve(viewerRoot, "viewer.html"), resolve(viewerRoot, "viewer_base.css"), resolve(viewerRoot, "viewer_terminal_shell.css"), fileURLToPath(import.meta.url)].map((path) => [relative(repoRoot, path), createHash("sha256").update(readFileSync(path)).digest("hex")]));
   assert(spawnSync(browserBin, ["--version"], { stdio: "ignore" }).status === 0, `missing browser automation command: ${browserBin}`);
   const server = createServer(serveFile);
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
