@@ -1,9 +1,7 @@
 //! Bounded *binary* OriginalAdmissionInput V2 response frames (Dark codec).
 //! These are neither grants nor material-release decisions. The caller must
 //! separately check fresh issuer/view, revocation, Noise peers and all budgets.
-use super::admission_input_request_v2::{
-    AdmissionBatchOperationV2, AdmissionBatchRequestV2,
-};
+use super::admission_input_request_v2::{AdmissionBatchOperationV2, AdmissionBatchRequestV2};
 use super::wire::{CHUNK, decode_frame, encode_frame};
 use oasis7_distfs::protected_bft_v3::{
     BftAdmissionInputV2StreamStage, BftPrivateRetentionAdmissionInputRefV1,
@@ -56,10 +54,7 @@ impl<'de> Deserialize<'de> for OriginalAdmissionPartBytesV2 {
                 }
                 Ok(OriginalAdmissionPartBytesV2(raw.to_vec()))
             }
-            fn visit_borrowed_bytes<E: de::Error>(
-                self,
-                raw: &'de [u8],
-            ) -> Result<Self::Value, E> {
+            fn visit_borrowed_bytes<E: de::Error>(self, raw: &'de [u8]) -> Result<Self::Value, E> {
                 self.visit_bytes(raw)
             }
         }
@@ -137,7 +132,9 @@ impl OriginalAdmissionBatchResponseV2 {
         }
         for (part, range) in self.parts.iter().zip(ranges.iter()) {
             if part.index != range.index || part.bytes.as_slice().len() != range.length as usize {
-                return Err("original admission response has noncontiguous or wrong-size part".into());
+                return Err(
+                    "original admission response has noncontiguous or wrong-size part".into(),
+                );
             }
         }
         Ok(())
@@ -148,7 +145,10 @@ impl OriginalAdmissionBatchResponseV2 {
         encode_frame(self)
     }
 
-    pub(super) fn decode_for(bytes: &[u8], request: &AdmissionBatchRequestV2) -> Result<Self, String> {
+    pub(super) fn decode_for(
+        bytes: &[u8],
+        request: &AdmissionBatchRequestV2,
+    ) -> Result<Self, String> {
         let response: Self = decode_frame(bytes)?;
         response.validate_for(request)?;
         Ok(response)

@@ -1,7 +1,7 @@
-use super::*;
 use super::super::admission_input_request_v2::{
     AdmissionBatchOperationV2, tests::fixture_with_original,
 };
+use super::*;
 use ed25519_dalek::Signer;
 
 fn fixture(
@@ -9,8 +9,7 @@ fn fixture(
     original: &[u8],
 ) -> (AdmissionBatchRequestV2, ed25519_dalek::SigningKey) {
     let digest = blake3::hash(original).to_hex().to_string();
-    let (request, _, signer) =
-        fixture_with_original(operation, original.len() as u64, digest);
+    let (request, _, signer) = fixture_with_original(operation, original.len() as u64, digest);
     (request, signer)
 }
 
@@ -23,14 +22,22 @@ fn signed_operation(
     updated.read.operation = operation;
     updated.authorization.signature_hex = hex::encode(
         signer
-            .sign(&updated.read.signing_bytes(&updated.authorization.grant).unwrap())
+            .sign(
+                &updated
+                    .read
+                    .signing_bytes(&updated.authorization.grant)
+                    .unwrap(),
+            )
             .to_bytes(),
     );
     updated.validate().unwrap();
     updated
 }
 
-fn response(request: &AdmissionBatchRequestV2, original: &[u8]) -> OriginalAdmissionBatchResponseV2 {
+fn response(
+    request: &AdmissionBatchRequestV2,
+    original: &[u8],
+) -> OriginalAdmissionBatchResponseV2 {
     let ranges = request.read.ranges().unwrap();
     let offset = match request.read.operation {
         AdmissionBatchOperationV2::Manifest => 0,
@@ -89,8 +96,8 @@ fn original_manifest_and_two_batch_frames_roundtrip_into_exact_staging() {
     let bytes2 = response(&next, &original).encode_for(&next).unwrap();
     assert!(bytes1.len() < 64 * 1024);
     assert!(bytes2.len() < 64 * 1024);
-    let mut stage = BftAdmissionInputV2StreamStage::new(&manifest.read.reference, Vec::new())
-        .unwrap();
+    let mut stage =
+        BftAdmissionInputV2StreamStage::new(&manifest.read.reference, Vec::new()).unwrap();
     OriginalAdmissionBatchResponseV2::decode_and_stage(&bytes1, &first, &mut stage).unwrap();
     assert_eq!(stage.next_index(), 1);
     OriginalAdmissionBatchResponseV2::decode_and_stage(&bytes2, &next, &mut stage).unwrap();
@@ -120,19 +127,18 @@ fn malformed_original_binary_response_never_appends_to_staging() {
             3 => broken.offset_bytes = u64::from(CHUNK),
             4 => broken.parts.swap(0, 1),
             5 => broken.parts[1].index = 0,
-            6 => broken.parts[2].bytes =
-                OriginalAdmissionPartBytesV2::new(vec![4; CHUNK as usize - 1]).unwrap(),
+            6 => {
+                broken.parts[2].bytes =
+                    OriginalAdmissionPartBytesV2::new(vec![4; CHUNK as usize - 1]).unwrap()
+            }
             7 => {
                 broken.parts.pop();
             }
             _ => unreachable!(),
         }
         let encoded = super::super::wire::encode(&broken).unwrap();
-        let mut stage = BftAdmissionInputV2StreamStage::new(
-            &manifest.read.reference,
-            Vec::new(),
-        )
-        .unwrap();
+        let mut stage =
+            BftAdmissionInputV2StreamStage::new(&manifest.read.reference, Vec::new()).unwrap();
         assert!(
             OriginalAdmissionBatchResponseV2::decode_and_stage(&encoded, &first, &mut stage)
                 .is_err(),
@@ -145,10 +151,13 @@ fn malformed_original_binary_response_never_appends_to_staging() {
     bad.parts.iter_mut().for_each(|part| {
         part.bytes = OriginalAdmissionPartBytesV2::new(vec![7]).unwrap();
     });
-    assert!(OriginalAdmissionBatchResponseV2::decode_for(
-        &super::super::wire::encode(&bad).unwrap(),
-        &first
-    ).is_err());
+    assert!(
+        OriginalAdmissionBatchResponseV2::decode_for(
+            &super::super::wire::encode(&bad).unwrap(),
+            &first
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -160,16 +169,17 @@ fn part_visitor_enforces_binary_nonempty_16k_and_canonical_frame() {
         super::super::wire::decode_frame::<OriginalAdmissionPartBytesV2>(&encoded).unwrap(),
         raw
     );
-    assert!(super::super::wire::decode_frame::<OriginalAdmissionPartBytesV2>(
-        &super::super::wire::encode(&vec![1u8, 2, 3]).unwrap()
-    ).is_err());
+    assert!(
+        super::super::wire::decode_frame::<OriginalAdmissionPartBytesV2>(
+            &super::super::wire::encode(&vec![1u8, 2, 3]).unwrap()
+        )
+        .is_err()
+    );
     assert!(OriginalAdmissionPartBytesV2::new(vec![]).is_err());
     assert!(OriginalAdmissionPartBytesV2::new(vec![1; CHUNK as usize + 1]).is_err());
     let mut oversize = vec![0x59, 0x40, 0x01];
     oversize.extend(vec![7; CHUNK as usize + 1]);
-    assert!(super::super::wire::decode_frame::<OriginalAdmissionPartBytesV2>(
-        &oversize
-    ).is_err());
+    assert!(super::super::wire::decode_frame::<OriginalAdmissionPartBytesV2>(&oversize).is_err());
     let original = vec![0xa5; 4 * CHUNK as usize + 7];
     let (manifest, signer) = fixture(AdmissionBatchOperationV2::Manifest, &original);
     let first = signed_operation(
@@ -184,17 +194,17 @@ fn part_visitor_enforces_binary_nonempty_16k_and_canonical_frame() {
     let mut malformed = vec![0xa0];
     malformed.extend_from_slice(&bytes);
     assert!(OriginalAdmissionBatchResponseV2::decode_for(&malformed, &first).is_err());
-    assert!(OriginalAdmissionBatchResponseV2::decode_for(
-        &vec![0xff; 64 * 1024 + 1],
-        &first,
-    ).is_err());
+    assert!(
+        OriginalAdmissionBatchResponseV2::decode_for(&vec![0xff; 64 * 1024 + 1], &first,).is_err()
+    );
 }
 
 #[test]
 fn real_outer_network_response_charge_can_exceed_inner_64k_limit() {
     use libp2p::request_response::Codec;
     use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
-    let protocol = libp2p::StreamProtocol::new(super::super::admission_input_request_v2::PROTOCOL_V2);
+    let protocol =
+        libp2p::StreamProtocol::new(super::super::admission_input_request_v2::PROTOCOL_V2);
     let original = vec![0xff; 4 * CHUNK as usize + 7];
     let (manifest, signer) = fixture(AdmissionBatchOperationV2::Manifest, &original);
     let first = signed_operation(
@@ -207,10 +217,8 @@ fn real_outer_network_response_charge_can_exceed_inner_64k_limit() {
     );
     let frame = response(&first, &original).encode_for(&first).unwrap();
     assert!(frame.len() <= 64 * 1024);
-    let mut codec = libp2p::request_response::cbor::codec::Codec::<
-        NetworkRequest,
-        NetworkResponse,
-    >::default();
+    let mut codec =
+        libp2p::request_response::cbor::codec::Codec::<NetworkRequest, NetworkResponse>::default();
     let mut writer = futures::io::Cursor::new(Vec::new());
     futures::executor::block_on(codec.write_response(
         &protocol,
@@ -224,7 +232,6 @@ fn real_outer_network_response_charge_can_exceed_inner_64k_limit() {
     assert!(outer.len() > frame.len());
     assert!(outer.len() > 64 * 1024);
     let mut reader = futures::io::Cursor::new(outer.clone());
-    let decoded = futures::executor::block_on(codec.read_response(&protocol, &mut reader))
-        .unwrap();
+    let decoded = futures::executor::block_on(codec.read_response(&protocol, &mut reader)).unwrap();
     assert_eq!(decoded.payload, frame);
 }
