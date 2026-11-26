@@ -169,8 +169,8 @@ pub use scalar_point::{
     DiplomacyScalarChangeV1, DiplomacyScalarValueV1, change_qualified_diplomacy_scalar_v1,
 };
 
-#[path = "incremental_diplomacy_current.rs"]
-mod current;
 #[path = "incremental_diplomacy_crisis_current.rs"]
 mod crisis_current;
+#[path = "incremental_diplomacy_current.rs"]
+mod current;
 pub use crisis_current::open_current_diplomacy_crisis_record_v1;
