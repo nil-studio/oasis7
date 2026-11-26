@@ -15,8 +15,8 @@ else
   CONFIG_PATH="$DEFAULT_LETAI_CONFIG_PATH"
 fi
 BIND_ADDR="127.0.0.1:5841"
-PROXY_URL="http://127.0.0.1:7897"
-SOCKS_PROXY_URL="socks5://127.0.0.1:7897"
+PROXY_URL="${OASIS7_LOCAL_TEST_PROXY_URL:-}"
+SOCKS_PROXY_URL="${OASIS7_LOCAL_TEST_SOCKS_PROXY_URL:-}"
 USE_DEFAULT_PROXY="1"
 CHAT_PROBE_BACKEND="${OASIS7_LETAI_CHAT_PROBE_BACKEND:-rust-bridge}"
 SKIP_BRIDGE_SMOKE="0"
@@ -106,8 +106,8 @@ Advanced/debug/compatibility options:
                               $HOME/Documents/keys/letai.txt, then token-local fallback)
   --model <id>                LetAI model override (default: gpt-5.4 via helper)
   --bind <host:port>          Local provider bind address (default: 127.0.0.1:5841)
-  --proxy <url>               HTTP/HTTPS proxy to export if unset (default: http://127.0.0.1:7897)
-  --socks-proxy <url>         all_proxy value to export if unset (default: socks5://127.0.0.1:7897)
+  --proxy <url>               HTTP/HTTPS proxy to export if unset (or $OASIS7_LOCAL_TEST_PROXY_URL; unset by default)
+  --socks-proxy <url>         all_proxy value to export if unset (or $OASIS7_LOCAL_TEST_SOCKS_PROXY_URL; unset by default)
   --no-default-proxy          Do not set proxy environment defaults
   --auto-topup-usd <amount>   Auto top up on insufficient quota (default: 0.1)
   --no-ensure-token-config    Use --config directly; do not generate token config from platform key
@@ -658,9 +658,15 @@ if [[ "$PROVIDER_SMOKE_MODE" == "degraded" || "$PROVIDER_SMOKE_MODE" == "skip" ]
 fi
 
 if [[ "$USE_DEFAULT_PROXY" == "1" ]]; then
-  export https_proxy="${https_proxy:-$PROXY_URL}"
-  export http_proxy="${http_proxy:-$PROXY_URL}"
-  export all_proxy="${all_proxy:-$SOCKS_PROXY_URL}"
+  if [[ -n "$PROXY_URL" && -z "${https_proxy:-${HTTPS_PROXY:-}}" ]]; then
+    export https_proxy="$PROXY_URL"
+  fi
+  if [[ -n "$PROXY_URL" && -z "${http_proxy:-${HTTP_PROXY:-}}" ]]; then
+    export http_proxy="$PROXY_URL"
+  fi
+  if [[ -n "$SOCKS_PROXY_URL" && -z "${all_proxy:-${ALL_PROXY:-}}" ]]; then
+    export all_proxy="$SOCKS_PROXY_URL"
+  fi
 fi
 LOOPBACK_NO_PROXY="127.0.0.1,localhost,::1"
 if [[ -n "${no_proxy:-}" ]]; then

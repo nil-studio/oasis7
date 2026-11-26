@@ -102,8 +102,8 @@ Trace refs: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6；既有产品结果由 
   - AC-3: 与 `site/doc` 和 GitHub Pages 相关设计文档口径一致。
   - AC-4: 发布前完成链接有效性与基础质量检查。
   - AC-5: 首页与文档入口页（`site/index.html`、`site/en/index.html`、`site/doc/cn/index.html`、`site/doc/en/index.html`）对“是否可玩”状态的表达必须一致且与真实状态相符。
-  - AC-6: `doc/site/github-pages/**` 仍可读历史专题的首行标题必须统一使用 `oasis7` 品牌；旧 `oasis7*` 标题仅允许保留在正文历史上下文与证据原文中。
-  - AC-7: `doc/site/github-pages/**` 活跃专题中的当前 `cargo check -p` 命令、viewer crate 路径与 wasm 包名必须写为 `oasis7_viewer` / `crates/oasis7*`；旧品牌 viewer 包名与源码路径仅允许保留在历史证据或外部原文引用中。
+  - AC-6: `doc/site/github-pages/**` 仍可读历史专题的首行标题必须统一使用 `oasis7` 品牌；旧品牌标题仅允许保留在正文历史上下文与证据原文中。
+  - AC-7: `doc/site/github-pages/**` 活跃专题中的当前 `cargo check -p` 命令、viewer 源码路径与 wasm bridge 包名必须写为当前仓库包名与路径（`crates/oasis7_viewer`、`pixel_world_bridge` / `crates/oasis7*`）；旧品牌 viewer 包名与源码路径仅允许保留在历史证据或外部原文引用中。
   - AC-8: `site/index.html` 与 `site/en/index.html` 的首屏和首个正文段必须明确交代游戏类型、玩家扮演的角色、核心差异点，以及“当前仍是技术预览”的边界，且中英结构保持同构。
   - AC-9: 首页必须明确说明 `viewer` / `viewer.html` 是唯一公开 Web 验证入口；`software_safe` 仅作为兼容 alias 保留；`--no-llm` 仅允许出现在诊断/排障语境，不得继续作为首页 primary path 展示。
   - AC-10: 首页必须以访客能理解的语言拆开“当前公开可做的事”“builder/developer 验证路径”“未来模块平台方向”，并明确当前未开放 creator-facing module/platform。
@@ -236,7 +236,7 @@ Trace refs: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6；既有产品结果由 
 | DEC-SITE-003 | 站点口径与 readme 联动维护 | 独立维护站点文案 | 可降低对外口径漂移。 |
 | DEC-SITE-004 | 对外“可玩状态”按真实产品状态保守表达（未可玩即明确预览） | 继续使用高承诺营销口径 | 可避免误导用户并降低信任风险。 |
 | DEC-SITE-005 | 站点先补“说明准备态”占位，再等待正式公告入口 | 直接在公开站点暗示正式发布已临近 | 站点公开承诺必须保持晚于内部正式沟通动作。 |
-| DEC-SITE-006 | 公开站点、GitHub Pages canonical 与 release 资产名统一为 `oasis7` | 保留旧 `oasis7` 外显名称仅改仓库 slug | 外部访问者最先接触的是站点与下载名，品牌必须先在这一层完全一致。 |
+| DEC-SITE-006 | 公开站点、GitHub Pages canonical 与 release 资产名统一为 `oasis7` | 保留旧品牌外显名称仅改仓库 slug | 外部访问者最先接触的是站点与下载名，品牌必须先在这一层完全一致。 |
 | DEC-SITE-007 | 首页优先讲清“游戏是什么、玩家像什么、现在能做什么”，技术验证与下载说明下沉到后续版块 | 继续让首屏以技术预览、命令链路和工程状态为主 | 对陌生访客来说，先理解产品语义，再判断是否深入技术细节，才是更低摩擦的公开入口。 |
 | DEC-SITE-008 | 首页公开入口按“访客理解 -> builder 验证 -> 未来方向”三层分流，并显式把 `viewer` 设为默认 formal Web 入口，旧 `software_safe` 只保留为兼容 alias | 继续把访问面 taxonomy、开发命令和未来平台目标混写在同一层 | 可同时降低误导风险、减少陌生访客理解负担，并保持 runtime 真值可审计。 |
 | DEC-SITE-009 | Pages 发布前新增 homepage claim/parity gate 与基础无脚本/a11y 约束 | 继续只依赖链接/手册/下载静态检查 | 首页承担最高风险的对外承诺，需要单独门禁而不是把口径漂移留给人工发现。 |

@@ -893,10 +893,115 @@ else: record([name, *a])
         repo_root = Path(__file__).resolve().parents[1]
         rows = C.inventory(repo_root)
         discovered = {row['path'] for row in rows}
+        self.assertIn('test-session-public-client.integration.test.mjs', discovered)
         self.assertEqual(set(C.FILE_SECONDS), discovered)
-        batches = C.partition(rows, [0, 1, 2])
-        totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
-        self.assertLessEqual(max(totals) - min(totals), 15.0, f'expected balanced 3-shard weights, got {totals}')
+        for shards in ([0, 1, 2], [0, 1, 2, 3]):
+            batches = C.partition(rows, shards)
+            totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
+            self.assertLessEqual(max(totals) - min(totals), 15.0,
+                                 f'expected balanced {len(shards)}-shard weights, got {totals}')
+
+    def test_export_inventory_and_zero_checkout_context_validation(self):
+        script = Path(__file__).with_name('ci-custody-platform.py')
+        subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=self.root, check=True)
+        subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=self.root, check=True)
+        subprocess.run(['git', 'config', 'user.email', 'test@example.invalid'], cwd=self.root, check=True)
+        subprocess.run(['git', 'add', 'rust-toolchain.toml', 'crates/oasis7_custody_worker/tests'], cwd=self.root, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'custody fixture'], cwd=self.root, check=True)
+        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=self.root, text=True).strip()
+        plan = dict(self.plan, tested_sha=head)
+        plan_path = Path(self.temporary.name) / 'plan.json'
+        plan_path.write_text(json.dumps(plan), encoding='utf-8')
+        context_path = Path(self.temporary.name) / 'custody-inventory.json'
+        subprocess.run([
+            sys.executable, str(script), 'export-inventory',
+            '--repo-root', str(self.root), '--ref', head,
+            '--output', str(context_path),
+        ], check=True)
+        exported = json.loads(context_path.read_text(encoding='utf-8'))
+        self.assertEqual(exported['tested_sha'], head)
+        self.assertEqual(exported['tests'], C.inventory(self.root))
+
+        results_root = Path(self.temporary.name) / 'direct-results'
+        for shard in C.SHARDS:
+            C.execute(self.root, plan, shard, results_root / f'shard-{shard}', '71', 2)
+        needs = {
+            'select': {'result': 'success'},
+            'workspace-support-legacy': {'result': 'skipped'},
+            'workspace-support-other': {'result': 'skipped'},
+            'custody-native-contracts': {'result': 'success'},
+            'custody-native': {'result': 'success'},
+            'custody-wasm-production': {'result': 'success'},
+            'custody-wasm-approval': {'result': 'success'},
+            'custody-node': {'result': 'success'},
+        }
+        empty_dir = Path(self.temporary.name) / 'no-checkout'
+        empty_dir.mkdir()
+        subprocess.run([
+            sys.executable, str(script), 'validate',
+            '--repo-root', str(empty_dir), '--plan', str(plan_path),
+            '--context-file', str(context_path), '--needs', json.dumps(needs),
+            '--results', str(results_root), '--run-id', '71', '--attempt', '2',
+        ], check=True)
+        bad_context = Path(self.temporary.name) / 'bad-inventory.json'
+        bad_context.write_text(json.dumps(exported | {'tested_sha': '0' * 40}), encoding='utf-8')
+        bad = subprocess.run([
+            sys.executable, str(script), 'validate',
+            '--repo-root', str(empty_dir), '--plan', str(plan_path),
+            '--context-file', str(bad_context), '--needs', json.dumps(needs),
+            '--results', str(results_root), '--run-id', '71', '--attempt', '2',
+        ], capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_validate_results_accepts_rebalanced_weights_and_rejects_incomplete_or_duplicate_files(self):
+        rebalanced = {'0.test.mjs': 900.0, '1.test.mjs': 800.0, '2.test.mjs': 700.0, '3.test.mjs': 1.0}
+        receipts = []
+        with mock.patch.dict(C.FILE_SECONDS, rebalanced, clear=False):
+            for shard in C.SHARDS:
+                output = Path(self.temporary.name) / f'rebalanced-{shard}'
+                C.execute(self.root, self.plan, shard, output, '71', 2)
+                receipts.append(output / 'result.json')
+        # Baseline validator with unmodified FILE_SECONDS accepts rebalanced non-empty disjoint shards.
+        C.validate_results(self.root, self.plan, receipts, '71', 2)
+        baseline = [C.load(path) for path in receipts]
+
+        def write_variant(mutator):
+            variant_paths = []
+            payloads = json.loads(json.dumps(baseline))
+            mutator(payloads)
+            for idx, payload in enumerate(payloads):
+                target = Path(self.temporary.name) / f'variant-{idx}.json'
+                target.write_text(json.dumps(payload), encoding='utf-8')
+                variant_paths.append(target)
+            return variant_paths
+
+        # Empty shard rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            C.validate_results(self.root, self.plan, write_variant(
+                lambda p: (p[1]['files'].extend(p[0]['files']), p[1]['files'].sort(key=lambda r: r['file']), p[0]['files'].clear())
+            ), '71', 2)
+        # Unsorted files within a shard rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            C.validate_results(self.root, self.plan, write_variant(
+                lambda p: p[0]['files'].reverse() if len(p[0]['files']) >= 2 else p[0]['files'].append(p[0]['files'][0])
+            ), '71', 2)
+        # Cross-shard duplicate file rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            C.validate_results(self.root, self.plan, write_variant(
+                lambda p: (p[1]['files'].append(p[0]['files'][0]), p[1]['files'].sort(key=lambda r: r['file']))
+            ), '71', 2)
+        # Missing file rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            C.validate_results(self.root, self.plan, write_variant(
+                lambda p: next(s for s in p if len(s['files']) >= 2)['files'].pop()
+            ), '71', 2)
+        # Extra file not in inventory rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            def inject_extra(p):
+                extra = dict(p[0]['files'][0], file='zzz-extra.test.mjs')
+                extra['process'] = dict(extra['process'], test_name='zzz-extra.test.mjs')
+                p[0]['files'].append(extra)
+            C.validate_results(self.root, self.plan, write_variant(inject_extra), '71', 2)
 
 
 if __name__ == '__main__':

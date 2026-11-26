@@ -90,6 +90,8 @@ Rust 公共模型的有界诊断承接 [CQ-R03](codeql-integration.design.md#cq-
 
 单独定位已记录的 Cargo check 失败时，使用默认关闭的手动 `CodeQL Rust Cargo Check` 入口：固定原业务提交、原分析 Cargo 1.99 的 release/commit/host 身份，以及从旧调用摘要核对的 compile-time-deps、features/targets 和 locked 参数。整个 job 从真实启动计最多 15 分钟，唯一 check 最多 10 分钟；复用外置 helper 闭包、源身份检查与有界进程收集，保留独立 stdout/stderr、退出码、进程组清理结果和摘要清单，artifact 上限 16 MiB。Rust >=1.97 的原解析方式使用现有锁的私有副本与 `CARGO_RESOLVER_LOCKFILE_PATH`，源与副本变动均须记录。使用新 runner 的私有 target，明确不复现原多 manifest 的共享 target 历史；成功、不同失败或未完成不能追认旧错误原因。禁止 CodeQL 提取、查询、解码、SARIF/数据库上传；一次运行即停，具体错误形成修复依据后再决定验证，不盲重跑。
 
+该作业使用固定摘要的 Ubuntu 分析镜像，普通 UID 在独立空目录安装原 Rust 1.99 工具链。原生准备在原时间窗口内依次核对相同软件包和 pkg-config 模块，记录 `preinstalled-image` 来源。APT 来源与传输继续由独立的宿主 Native Diagnostic 度量。
+
 针对已确认的原生库发现失败，可在同一总预算内为一次修复验证安装 GTK 3、WebKitGTK 4.1 与 D-Bus 开发依赖：原生准备（安装及版本探针）共用最多 180 秒且早于总截止 90 秒的截止，使用发行版包源，不改变 Cargo features、targets 或锁约束；记录包版本与原失败所需 pkg-config 模块版本。准备失败则不启动 check，保留独立安装 stdout/stderr 与终态；发现通过仅说明该 runner 的前置就绪，不代替真实 check 或 CodeQL 覆盖。特权包管理命令使用自身超时；普通 helper 的进程组清理观测不代签 root apt 子树已空。
 
 容量入口的 prepare 阶段复用单 check 已验证的原生依赖准备，在冻结源码、独立锁及资源记录通过之后、metadata 与官方提取之前安装相同发行版包并检查相同 pkg-config 模块。四条命令共用最多 180 秒且早于容量总截止 120 秒的准备截止，仍计入该固定配置的整个容量评估预算与原 256 MiB artifact 上限；不另执行 Cargo check。准备非零、超时或证据失败即阻止 metadata 和分析，已有安装/模块输出及 prepare 终态由原失败采证路径封存。安装实际版本保留，普通 helper 清理不代签 root 子树已空；此环境准备不改变 features、targets、业务 pin、官方 bundle、查询集或覆盖要求。
@@ -304,6 +306,8 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 ##### 固定源码的同配置性能观察
 
 沿用本节 Trace ID，`codeql-rust-capacity.yml` 的独立 `observe` job 为 #4989 提供封闭观测入口：仅可信 main 手动 `execute=true` 且选择本节显式观测 mode 才执行。原默认 mode 仍为 capacity，execute 仍默认 false；原 capacity job 排除两种观测 mode，保留四种原工作负载。观测拒绝 `compare_qualifier_patch=true`。业务源码固定为 `2bcc4edafdc615f395c9138a0b39ede366726d34`；工具来自本次真实 `GITHUB_SHA`，并要求与 `GITHUB_WORKFLOW_SHA` 及该 workflow 的 main 身份一致。先从工具 checkout 冻结既有完整 helper 闭包及 production helper 到 `RUNNER_TEMP`，逐文件绑定 Git blob 和 SHA-256；随后在同一 workspace 根切换到固定业务源码。工具不得进入采集根，不覆写 `GITHUB_SHA`，不接受任意 ref、bundle、命令或资源输入。
+
+固定源码观测镜像批次使用发布版 `ci-codeql-rust` 固定摘要，保留 4 threads、14570 MiB 的 Action 请求、原时钟、查询、固定业务源码及证据范围。原生准备收据记录 `preinstalled-image`、固定镜像摘要和实际容器 CPU、内存上限。宿主 runner/APT 历史批次沿用原证据。两种环境的系统库、路径和实际资源可能不同，比较结果须以各自批次为准。APT 传输诊断继续保留宿主。
 
 新增 `rust-default-fixed-source-observation` mode 只复用本节 production 的 prepare/run 查询核心，固定原 2.27.4/v7、默认 37 条和原 diagnostics，不加入研究七项见证。官方 init 显式请求 4 threads、14570 MiB；prepare、恢复和实际 Action 准入校验导出资源与固定值一致，记录 runner 资源，差异保留失败。CLI、Python supervisor、JavaScript preload 分别识别该 mode，同时绑定业务 SHA、工具 SHA、布局快照与原预算；生产仍要求本次 `GITHUB_SHA == source_sha`，候选研究仍要求其原固定源码，模式、预算或准备收据不能互换。
 

@@ -487,6 +487,7 @@ fn a_partial_marked_record_family_fails_closed() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn false_world_rules_parent_qualifies_empty_nested_maps() {
     let fixture = super::fixture_with_issue(true, Some(FixtureIssue::FalseWorldRulesParent));
@@ -499,6 +500,7 @@ fn false_world_rules_parent_qualifies_empty_nested_maps() {
     assert!(report.cognition_registry_missing());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn true_world_rules_parent_qualifies_empty_nested_maps() {
     let fixture = super::fixture_with_issue(true, Some(FixtureIssue::EmptyPresentWorldRulesParent));
@@ -508,6 +510,7 @@ fn true_world_rules_parent_qualifies_empty_nested_maps() {
     assert!(report.unsupported_fields().contains(&"world_rules"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn false_world_rules_parent_rejects_nested_records() {
     let fixture =
@@ -518,6 +521,7 @@ fn false_world_rules_parent_rejects_nested_records() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn partial_world_rule_and_diplomacy_families_fail_closed() {
     for issue in [

@@ -112,6 +112,17 @@ class Workspace(unittest.TestCase):
                  patch.dict(os.environ, {'OASIS7_WASM_TOOLCHAIN': 'nightly-2025-12-11'}, clear=True):
                 original = cache.identity('ordinary')
                 self.assertTrue(cache.current_key('ordinary', original['key']))
+                image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=image):
+                    image_key = cache.identity('ordinary')['prefix']
+                    self.assertNotEqual(image_key, original['prefix'])
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=image[:-1] + 'b'):
+                    self.assertNotEqual(cache.identity('ordinary')['prefix'], image_key)
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE='rust-build:latest'):
+                    with self.assertRaisesRegex(ValueError, 'fixed Rust image'):
+                        cache.identity('ordinary')
+                self.assertEqual(cache.identity('ordinary')['prefix'], original['prefix'])
+
                 self.assertNotEqual(cache.identity('formal')['prefix'], original['prefix'])
                 source[0] = 'c' * 40
                 (root / 'src/lib.rs').write_text('modified source')
@@ -146,17 +157,45 @@ class Workspace(unittest.TestCase):
                                      'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER'):
                         with self.subTest(scope=scope, variable=variable), patch.dict(os.environ, {variable: 'changed'}):
                             self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
+                    ordinary_stable = (
+                        ('Cargo.lock',
+                         'scripts/ci-test-artifacts.py',
+                         'scripts/ci-formal-process-suites.json',
+                         'crates/leaf/Cargo.toml')
+                        if getattr(cache, 'ORDINARY_STABLE_IDENTITY', False)
+                        else ()
+                    )
                     for name in (*inputs, *operational):
                         path = root / name
                         before = path.read_text()
                         path.write_text(before + ' changed')
+                        expected_unchanged = name in operational or (scope == 'ordinary' and name in ordinary_stable)
                         with self.subTest(scope=scope, path=name):
-                            self.assertEqual(cache.identity(scope)['prefix'] == baseline, name in operational)
+                            self.assertEqual(cache.identity(scope)['prefix'] == baseline, expected_unchanged)
                         path.write_text(before)
+                    if getattr(cache, 'ORDINARY_STABLE_IDENTITY', False):
+                        with patch.object(cache.units, 'CACHE_SCHEMA', cache.units.CACHE_SCHEMA + 1):
+                            self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
                     with patch.dict(os.environ, CI_CACHE_REPOSITORY_BUDGET_BYTES='20000000000'):
                         self.assertEqual(cache.identity(scope)['prefix'], baseline)
                     with patch.object(cache.units, 'build_variants', return_value=[('different', ['build'], [])]):
                         self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
+                if getattr(cache, 'ORDINARY_STABLE_IDENTITY', False):
+                    # Adding a new workspace member manifest path still rotates ordinary prefix.
+                    extra_manifest = root / 'crates/extra/Cargo.toml'
+                    extra_manifest.parent.mkdir(parents=True, exist_ok=True)
+                    extra_manifest.write_text('extra')
+
+                    def output_with_extra(command, **kwargs):
+                        if command[:2] == ['cargo', 'metadata']:
+                            return json.dumps({'packages': [
+                                {'manifest_path': str(root / 'crates/leaf/Cargo.toml')},
+                                {'manifest_path': str(extra_manifest)},
+                            ]})
+                        return output(command, **kwargs)
+
+                    with patch.object(cache.subprocess, 'check_output', side_effect=output_with_extra):
+                        self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'])
                 with patch.object(cache.platform, 'machine', return_value='different-architecture'):
                     self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'])
                 (root / 'Cargo.toml').unlink()
@@ -830,6 +869,34 @@ class RealCargoCompact(unittest.TestCase):
                             expected = not ((changed and unit['target']['name'] == 'compact_leaf')
                                             or (scope == 'ordinary' and 'bin' in unit['target']['kind']))
                             self.assertEqual(unit['fresh'], expected, unit)
+
+                    if scope == 'ordinary':
+                        # Dropping the internal dependency edge updates both leaf/Cargo.toml and Cargo.lock;
+                        # ordinary prefix stays compatible and cache_restore refreshes mtimes so Cargo
+                        # keeps compact_base fresh while rebuilding compact_leaf cleanly.
+                        shutil.rmtree(root / 'target')
+                        for name in (*sources, 'Cargo.lock'):
+                            os.utime(root / name, None)
+                        leaf_manifest = root / 'leaf/Cargo.toml'
+                        leaf_source = root / 'leaf/src/lib.rs'
+                        lock_file = root / 'Cargo.lock'
+                        leaf_manifest.write_text('[package]\nname="compact_leaf"\nversion="0.1.0"\nedition="2021"\n')
+                        leaf_source.write_text('pub fn value() -> u32 { 42 }\n')
+                        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, env=env,
+                                       check=True, capture_output=True)
+                        for modified, rel in ((leaf_manifest, 'leaf/Cargo.toml'),
+                                              (leaf_source, 'leaf/src/lib.rs'),
+                                              (lock_file, 'Cargo.lock')):
+                            old_ns = state['inputs'][rel]['mtime_ns']
+                            os.utime(modified, ns=(old_ns, old_ns))
+                        restored = {}
+                        cache.restore_cache(args, restored)
+                        self.assertTrue(restored['restored'], restored)
+                        self.assertEqual(restored['changed_inputs'], 3)
+                        lock_units, value = build()
+                        self.assertEqual(value, '42')
+                        self.assertTrue(all(u['fresh'] for u in lock_units if u['target']['name'] == 'compact_base'))
+                        self.assertTrue(all(not u['fresh'] for u in lock_units if u['target']['name'] == 'compact_leaf'))
 
 
     def test_bounded_subset_rebuilds_omitted_units_and_changed_retained_source(self):

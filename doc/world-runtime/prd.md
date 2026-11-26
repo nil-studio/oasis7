@@ -454,7 +454,7 @@ Site registration、location anchor、Agent location assignment、ownership/acce
 
 ### Consumer compatibility: gameplay lifecycle protocol boundary
 
-- Gameplay 生命周期沿用 `validated Action -> DomainEvent -> WorldState` 的 runtime 权威链；动作校验与路由以 `crates/oasis7_runtime/src/world/event_processing.rs` 为准，事件与持久状态以 `crates/oasis7_runtime/src/events.rs` 及 state apply 路径为准。
+- Gameplay 生命周期沿用 `validated Action -> DomainEvent -> WorldState` 的 runtime 权威链；动作校验与路由以 `crates/oasis7_runtime/src/world/event_processing.rs` 为准，事件与持久状态以 `crates/oasis7_world_state/src/events.rs` 及 state apply 路径为准。
 - 周期性治理、危机、战争与元进度推进由 `crates/oasis7_runtime/src/world/gameplay_loop.rs` 在 tick 中确定性执行；存在激活的 Gameplay tick module 时先校验并应用其 directive，只有没有激活 Gameplay tick module 时才整体使用 native fallback，激活模块后不会因某类 directive 缺失而逐项回退。具体动作名单、阈值、评分和玩家可读后果不在本 runtime 入口复制。
 - 内建 Gameplay 模块的注册、`ModuleRole::Gameplay` 绑定与 readiness 由 `crates/oasis7_runtime/src/world/bootstrap_gameplay.rs` 和当前回归测试承接。模块存在或 readiness 通过不替代 gameplay 专业域的可玩性与后果可读性验收。
 - Gameplay manifest 必须使用 `ModuleRole::Gameplay` 并携带合法 contract：mode 非空、去空白后唯一，`min_players >= 1`，设置 `max_players` 时必须满足 `max_players >= min_players`；非 Gameplay manifest 不得携带该 contract。register、activate、deactivate、upgrade 都必须对变更后的 active set 预检，同一 `(mode, GameplayModuleKind)` 最多只能有一个 active module；mode 判等统一按[派生 mode key 合同](#gameplay-mode-identity-contract)，不能只在输入校验时 trim。
@@ -607,7 +607,7 @@ Site registration、location anchor、Agent location assignment、ownership/acce
   - AC-8: WASM deterministic pipeline 专题必须明确 Docker builder image、canonicalizer version、single canonical publish hash、identity/release evidence、source compile 外移或 gated 与 runtime binary-only 消费边界，并具备独立任务与验证映射。
   - AC-9: 生产 runtime / node 入口必须有可验证的 release policy 绑定证据，证明 fallback / 本地签名 / runtime source compile 默认关闭；若仅测试调用 `enable_production_release_policy()`，不得视为收口。
   - AC-10: 发布候选的 wasm determinism evidence 必须显式区分“当前稳定 gate”和“最终跨宿主 gate”；当 GitHub-hosted runner 缺 Docker daemon 时，必须补外部 Docker-capable macOS evidence，不能把 `linux-x86_64` 单宿主结果等同于跨宿主 closure。
-  - AC-11: `doc/world-runtime/**` 仍可读专题标题统一使用 `oasis7 Runtime` 品牌；旧 `oasis7 Runtime` 仅允许保留在正文历史上下文、实现兼容说明与证据原文中。
+  - AC-11: `doc/world-runtime/**` 仍可读专题标题统一使用 `oasis7 Runtime` 品牌；旧品牌名仅允许保留在正文历史上下文、实现兼容说明与证据原文中。
   - AC-12: `scripts/build-wasm-module.sh`、`scripts/sync-m1-builtin-wasm-artifacts.sh`、`scripts/ci-m1-wasm-summary.sh`、`tools/wasm_build_suite` 与 `docker/wasm-builder/Dockerfile` 必须只读取或写入 `OASIS7_WASM_*`；错误提示、usage、容器注入 env 与 build receipt 元数据采集不得再接受任何旧品牌前缀作为有效运行入口。
   - AC-13: `runtime/builtin_wasm_materializer`、`runtime/m{1,4,5}_builtin_wasm_artifact`、`runtime/world/release_manifest` 及对应测试必须只读取 `OASIS7_BUILTIN_WASM_DISTFS_ROOT`、`OASIS7_BUILTIN_WASM_FETCHER`、`OASIS7_BUILTIN_WASM_FETCH_URLS`、`OASIS7_BUILTIN_WASM_COMPILER`、`OASIS7_BUILTIN_WASM_FETCH_TIMEOUT_MS`；builtin wasm 取件、抓取、编译 fallback 与 release manifest 生产策略故障签名必须证明旧品牌前缀已失效。
   - AC-14: `runtime/module_source_compiler` 与 `runtime/simulator` 对应回归必须只读取 `OASIS7_MODULE_SOURCE_COMPILER`、`OASIS7_MODULE_SOURCE_MAX_FILES`、`OASIS7_MODULE_SOURCE_MAX_FILE_BYTES`、`OASIS7_MODULE_SOURCE_MAX_TOTAL_BYTES`、`OASIS7_MODULE_SOURCE_COMPILE_TIMEOUT_MS`；source compile 成功、旧 alias 已移除与 sandbox env 隔离断言必须覆盖当前前缀。

@@ -224,6 +224,30 @@ def prepare_native(source, out, end, env, *, maximum_seconds=180, observation=No
         raise RuntimeError('native source candidate exceeded its preparation deadline')
 
 
+def verify_preinstalled_native(source, out, end, env, image, *, maximum_seconds=180):
+    """Record installed extraction dependencies without changing the analysis image."""
+    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[0-9a-f]{64}', image):
+        raise ValueError('native extraction image must be fixed by digest')
+    if type(maximum_seconds) is not int or maximum_seconds not in (180, 360):
+        raise ValueError('unsupported native preparation budget')
+    started = time.monotonic()
+    preparation_end = min(end - 90, started + maximum_seconds)
+    budget = dict(maximum_seconds=maximum_seconds, started_monotonic=started,
+                  parent_deadline_monotonic=end, parent_reserve_seconds=90,
+                  preparation_deadline_monotonic=preparation_end,
+                  source_profile='preinstalled-image', image=image, allocations=[])
+    runtime.save(out / 'native-budget.json', budget, out)
+    for name, command in (
+            ('native-packages', ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n', *NATIVE_PACKAGES]),
+            ('native-modules', ['pkg-config', '--print-errors', '--modversion', *NATIVE_MODULES])):
+        remaining = min(10, preparation_end - time.monotonic())
+        if remaining < 1:
+            raise RuntimeError('insufficient native observation budget')
+        budget['allocations'].append(dict(phase=name, timeout_seconds=remaining, privileged_timeout_seconds=None))
+        runtime.save(out / 'native-budget.json', budget, out)
+        runtime.run(command, source, out / (name + '.stdout'), preparation_end, remaining, out, env, file_limit=None)
+
+
 def check_argv(source, work):
     return ['check', '--quiet', '--workspace', '--message-format=json',
             '--ignore-rust-version', '--manifest-path', str(source / MANIFEST),
@@ -290,6 +314,7 @@ def main():
     for name in ('source', 'work', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--deadline', type=float, required=True)
+    parser.add_argument('--preinstalled-native-image')
     args = parser.parse_args()
     source, work, out = (p.absolute() for p in (args.source, args.work, args.output))
     if any(p.resolve() != p for p in (source, work, out)):
@@ -309,6 +334,9 @@ def main():
                 'security_upload': False, 'database_upload': False}
     env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
     env['RUSTUP_TOOLCHAIN'] = '1.99.0'
+    if args.preinstalled_native_image is not None:
+        terminal.update(native_source_profile='preinstalled-image',
+                        native_cleanup_scope='Read-only package and module probes in the diagnostic image')
     before = None
     snapshot = None
     try:
@@ -334,7 +362,10 @@ def main():
         if hashlib.sha256(json.dumps(canonical).encode()).hexdigest() != ORIGINAL_ARGV_SHA:
             raise RuntimeError('recorded invocation reconstruction differs')
         terminal['native_prerequisites'] = 'INCOMPLETE'
-        prepare_native(source, out, end, env)
+        if args.preinstalled_native_image is None:
+            prepare_native(source, out, end, env)
+        else:
+            verify_preinstalled_native(source, out, end, env, args.preinstalled_native_image)
         terminal['native_prerequisites'] = 'PASS'
         single_check(source, work, out, end, env, observation=terminal)
         terminal['status'] = check_status(terminal['process'])

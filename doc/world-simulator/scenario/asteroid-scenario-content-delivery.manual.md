@@ -59,7 +59,7 @@ PY
 
 | 检查对象 | 静态输入与操作 | 实际生成/验收时追加的材料与判据 |
 | --- | --- | --- |
-| 世界尺寸与生成默认值 | 读 [world_geometry.rs](../../../crates/oasis7_agent_api/src/world_geometry.rs)与[WorldConfig 默认值](../../../crates/oasis7_simulator/src/world_model_config.rs)，确认实际调用者使用何配置 | 保存完整有效 config 及程序版本；索引 chunks 与已生成 chunks 分别计数。 |
+| 世界尺寸与生成默认值 | 读 [world_geometry.rs](../../../crates/oasis7_domain_types/src/world_geometry.rs)与[WorldConfig 默认值](../../../crates/oasis7_simulator/src/world_model_config.rs)，确认实际调用者使用何配置 | 保存完整有效 config 及程序版本；索引 chunks 与已生成 chunks 分别计数。 |
 | seed 与普通地点 | 读 `WorldScenarioSpec::into_init_config`；确认 override 在生成地点前完成，普通地点使用同一有效 seed | 比较 region ID、位置及普通 profile；显式 `WorldInitConfig.locations` 按原合同保留坐标，不误称重新按 seed 生成。 |
 | fragment 输入 | 读 seed/offset、spacing override 与 bootstrap sanitization | 记录有效 fragment 根、完整配置及实际调用顺序；不能以 spec `config` 代替未显式默认值。 |
 | 实际生成范围 | 追 `build_world_model` 的 seed positions → bootstrap → Agent positions | 逐项列出实际生成 chunk 及来源，核每个显式 bootstrap 被处理；bootstrap 列表不能当总数量。 |

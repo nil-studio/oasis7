@@ -312,7 +312,12 @@ pub(super) fn assert_complete_original_rows(
 
 #[test]
 fn literal_original_keys_profiles_and_payloads_cover_every_agent_column() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("oracle");
         let roots = {

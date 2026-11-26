@@ -171,11 +171,6 @@ def fragment_exists(text: str, fragment: str) -> bool:
     return fragment.strip().lower() in _fragment_ids_cached(text)
 
 
-def fragment_ids(text: str) -> set[str]:
-    """Build the target's navigable fragment set once per product document."""
-    return set(_fragment_ids_cached(text))
-
-
 class _TargetResolver:
     def __init__(self, root: Path) -> None:
         self.root = root

@@ -17,7 +17,8 @@ mkdir -p "$viewer_root/dist/browser-game-client"
 printf 'export const protocol = true;\n' > "$viewer_root/dist/browser-game-client/oasis7_browser_game_client.js"
 printf '\0asm\n' > "$viewer_root/dist/browser-game-client/oasis7_browser_game_client_bg.wasm"
 
-printf '<!doctype html><link rel="stylesheet" href="./viewer_terminal_shell.css"><script type="module" src="./viewer.js"></script>\n' > "$viewer_root/viewer.html"
+printf '<!doctype html><link rel="stylesheet" href="./viewer_base.css"><link rel="stylesheet" href="./viewer_terminal_shell.css"><script type="module" src="./viewer.js"></script>\n' > "$viewer_root/viewer.html"
+printf ':root { color-scheme: dark; }\n' > "$viewer_root/viewer_base.css"
 printf '.shell { grid-template-columns: minmax(0, 1fr); }\n' > "$viewer_root/viewer_terminal_shell.css"
 printf 'console.log("canonical bundle");\n' > "$viewer_root/viewer.js"
 cp "$ROOT_DIR/crates/oasis7_viewer/viewer_first_agent_claim_evidence.html" \
@@ -51,6 +52,7 @@ expect_cmp "$viewer_root/dist/software_safe.js" "$dist_dir/software_safe.js"
 expect_cmp "$viewer_root/viewer.html" "$dist_dir/index.html"
 expect_cmp "$viewer_root/viewer.html" "$dist_dir/viewer.html"
 expect_cmp "$viewer_root/dist/software_safe.html" "$dist_dir/software_safe.html"
+expect_cmp "$viewer_root/viewer_base.css" "$dist_dir/viewer_base.css"
 expect_cmp "$viewer_root/viewer_terminal_shell.css" "$dist_dir/viewer_terminal_shell.css"
 expect_cmp "$viewer_root/viewer_first_agent_claim_evidence.html" "$dist_dir/viewer_first_agent_claim_evidence.html"
 expect_cmp "$viewer_root/dist/software_safe_first_agent_claim_evidence.html" "$dist_dir/software_safe_first_agent_claim_evidence.html"
@@ -332,23 +334,32 @@ payload = manifest["pixel_world_bridge_bindgen_bg.wasm"]
 assert payload == {"available": False, "reason": "source_missing"}, payload
 PY
 
-if ! viewer_web_dist_contract_pairs | grep -Fxq "viewer_terminal_shell.css viewer_terminal_shell.css"; then
-  echo "viewer dist contract must include viewer_terminal_shell.css" >&2
-  failures=1
-fi
-if ! viewer_web_dist_required_files | grep -Fxq "viewer_terminal_shell.css"; then
-  echo "viewer dist required files must include viewer_terminal_shell.css" >&2
-  failures=1
-fi
+for css_file in viewer_base.css viewer_terminal_shell.css; do
+  if ! viewer_web_dist_contract_pairs | grep -Fxq "${css_file} ${css_file}"; then
+    echo "viewer dist contract must include ${css_file}" >&2
+    failures=1
+  fi
+  if ! viewer_web_dist_required_files | grep -Fxq "${css_file}"; then
+    echo "viewer dist required files must include ${css_file}" >&2
+    failures=1
+  fi
+done
 
 fingerprint_repo="$TMPDIR/fingerprint-repo"
 mkdir -p "$fingerprint_repo/crates/oasis7_viewer"
+printf ':root { color-scheme: dark; }\n' > "$fingerprint_repo/crates/oasis7_viewer/viewer_base.css"
 printf '.shell { grid-template-columns: minmax(0, 1fr); }\n' > "$fingerprint_repo/crates/oasis7_viewer/viewer_terminal_shell.css"
 before_fingerprint="$(viewer_web_dist_source_metadata_json "$fingerprint_repo" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sourceFingerprint"])')"
 printf '\n.shell { overflow-wrap: anywhere; }\n' >> "$fingerprint_repo/crates/oasis7_viewer/viewer_terminal_shell.css"
 after_fingerprint="$(viewer_web_dist_source_metadata_json "$fingerprint_repo" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sourceFingerprint"])')"
 if [[ "$before_fingerprint" == "$after_fingerprint" ]]; then
   echo "viewer dist freshness fingerprint must include viewer_terminal_shell.css" >&2
+  failures=1
+fi
+printf '\nbody { margin: 0; }\n' >> "$fingerprint_repo/crates/oasis7_viewer/viewer_base.css"
+after_base_fingerprint="$(viewer_web_dist_source_metadata_json "$fingerprint_repo" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sourceFingerprint"])')"
+if [[ "$after_fingerprint" == "$after_base_fingerprint" ]]; then
+  echo "viewer dist freshness fingerprint must include viewer_base.css" >&2
   failures=1
 fi
 

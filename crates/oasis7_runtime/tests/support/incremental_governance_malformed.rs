@@ -224,9 +224,12 @@ fn raw(
     memory: &MemoryBudget,
     roots: &RootSetV1,
 ) -> Result<ReservedValue<GovernanceFamilyQualificationV1>, ValueTreeError> {
-    let state = store
+    let mut state = store
         .state_session(physical_scope(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(physical_scope());
     qualify_governance_family_v1(
         roots,
@@ -494,9 +497,12 @@ fn malformed_raw_and_changed_closures_are_rejected() {
             matches!(raw_result, Err(ValueTreeError::Invalid(_))),
             "raw scenario={case}: {raw_result:?}"
         );
-        let state = store
+        let mut state = store
             .state_session(physical_scope(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let mut tx = ExecutionTransaction::begin(
             parent.clone(),
             [0x93; 32],

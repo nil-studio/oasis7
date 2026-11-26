@@ -359,6 +359,7 @@ fn private_task_production_prepared_world_live_service() {
         Duration::ZERO,
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn private_task_production_signed_quote_first_product_and_restart() {
     let _scenario_permit = super::private_task_resource_permit();

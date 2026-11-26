@@ -194,7 +194,7 @@ impl ViewerRuntimeLiveServer {
                 continue;
             }
             if !batch.has_valid_commit_roots() {
-                crate::observability::emit_stderr_or_event(
+                oasis7_observability::emit_stderr_or_event(
                     tracing::Level::WARN,
                     format!(
                         "viewer runtime live: authoritative batch remains pending due missing/invalid roots batch_id={} state_root={} data_root={}",
@@ -209,7 +209,7 @@ impl ViewerRuntimeLiveServer {
             }
             let expected_data_root = compute_batch_data_root(batch.events.as_slice())?;
             if expected_data_root != batch.data_root {
-                crate::observability::emit_stderr_or_event(
+                oasis7_observability::emit_stderr_or_event(
                     tracing::Level::WARN,
                     format!(
                         "viewer runtime live: authoritative batch remains pending due data_root mismatch batch_id={} expected={} actual={}",
