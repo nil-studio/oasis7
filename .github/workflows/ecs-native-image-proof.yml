@@ -31,11 +31,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: c6c35737a43d1e7cf4dc2e310e31ca64e2b13f45
+          ref: 66244d941921564d4a0bb00311eedcbca37bdd31
           persist-credentials: false
       - name: Verify exact source and immutable toolchain
         run: |
-          test "$(git rev-parse HEAD)" = c6c35737a43d1e7cf4dc2e310e31ca64e2b13f45
+          test "$(git rev-parse HEAD)" = 66244d941921564d4a0bb00311eedcbca37bdd31
           test -z "$(git status --porcelain)"
           test "$(id -u):$(id -g)" = 1001:1001
           test ! -w /var/run/docker.sock
@@ -81,5 +81,10 @@ jobs:
           assert json.loads(mismatch)['reason'] == 'ECS cache miss or incompatible action matched key'
           print('digest changed the actual workspace key and incompatible restore was refused')
           PY
+          GITHUB_OUTPUT="$RUNNER_TEMP/release-preload.txt" \
+            /usr/bin/python3 scripts/ci-rust-cache-admission.py install-release
+          grep -Fx 'guard_ready=true' "$RUNNER_TEMP/release-preload.txt"
+          grep -E '^python=/usr/bin/python3([.]12)?$' "$RUNNER_TEMP/release-preload.txt"
+          grep -Fx "node_options=--require \"$GITHUB_WORKSPACE/scripts/ci-rust-cache-admission.cjs\"" "$RUNNER_TEMP/release-preload.txt"
           python3 scripts/ci-ecs-cache.test.py
           python3 scripts/ci-rust-cache-admission.test.py
