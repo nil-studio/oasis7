@@ -9,7 +9,7 @@
 1. **计划覆盖范围与逐片边界：** 当前及近期拟执行的代码任务按[预计 PR 边界](source-of-truth.md#planned-pr-scope)核对目标分支（通常为当前 `main`）及固定输入，盘点实际需修改的 Crate、架构环、消费者和非锁行数，给出该范围的预计 PR 数量 `N` 与有序切片。逐片说明 `Slice-Type`、`Allowed-Crates`、预计行数/文件数、交付物与对应验收、前置及顺序、`Active-Path-Impact` / `Non-Goals`；后续未细化范围保留目标、前置和解除动作。
    - 符合单片硬边界且拆分没有实际收益时预计 1 PR；30 个代码文件仍是建议，必要原子联动可说明原因后完整交付。需修改的消费者跨越单片 Crate/环上限时，预排符合硬边界的分批适配或切流；按第 2 节选用必要阶段及单片例外。
    - 多个可独立交付结果按实际收益复核是否拆为原生子任务，不设固定 PR 数量拆单阈值。已拆定范围写入原 Issue 的 [PR 实施 checklist](source-of-truth.md#planned-pr-checklist)，创建 PR 后补链接，实际合入且本片验收满足后才勾选。存量任务接手或开启下一批前，按[前置事实与剩余承接](source-of-truth.md#decomposition-evidence-and-remainder)补齐当前及近期计划，保留有效认领、已交付结果和远期义务。
-2. **当前切片的契约 Draft：** 适用前置锁边界的切片，仅针对当前动工的 `k/N` 创建空提交（`git commit --allow-empty`）和 Draft，在编码前锁定该片的 `Slice-Type`、`Allowed-Crates`，并用 `Planned-Slice: k/N` 关联计划。基于最新 `main` 准备切片；依赖稳定未合入前置时按[堆叠开发规则](source-of-truth.md#parallel-task-development)注明固定提交和实际目标分支。复用预建空壳分支时，先 fetch 并更新到本轮声明的目标基线。普通 PR 创建时机仍按开发规范第 4.2 节执行。
+2. **当前切片的契约 Draft：** 适用前置锁边界的切片（包括第 2 节要求串行交付的跨层或预计非锁改动 `>300` 行的完整功能/切流任务；阶段复用及单片例外仍按该节），仅针对当前动工的 `k/N` 创建空提交（`git commit --allow-empty`）和 Draft，在编码前锁定该片的 `Slice-Type`、`Allowed-Crates`，并用 `Planned-Slice: k/N` 关联计划。基于最新 `main` 准备切片；依赖稳定未合入前置时按[堆叠开发规则](source-of-truth.md#parallel-task-development)注明固定提交和实际目标分支。复用预建空壳分支时，先 fetch 并更新到本轮声明的目标基线。普通 PR 创建时机仍按开发规范第 4.2 节执行。
    - 真实依赖或规模使原计划不再成立时，暂停受影响扩展，先说明原因、更新剩余计划及验收承接。计划更新不自动改变当前 Draft 已锁定的白名单或授权；达到第 4 节条件时执行熔断，其他独立就绪工作可继续。
    - `Planned-Slice` 供人工核对，不由现有边界脚本校验；它不构成新状态或门禁。保留已交付批次当时的计划与证据，新计划注明覆盖范围。
 3. **零改动契约态免检：** 当分支处于 `0` 文件改动的纯契约占位态时，`PR Boundary Gate` 仅核验 `Slice-Type` 与 `Allowed-Crates` 元数据完整性即短路放行，重型编译 CI 自动跳过。
