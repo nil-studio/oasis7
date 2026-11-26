@@ -18,6 +18,7 @@ pub(crate) struct PreparedGovernanceApprovalPublication {
 }
 
 impl PreparedGovernanceApprovalPublication {
+    #[allow(dead_code)]
     fn install(self, world: &mut World) -> Result<(), WorldError> {
         let PreparedGovernanceApprovalPublication {
             proposal_id,
