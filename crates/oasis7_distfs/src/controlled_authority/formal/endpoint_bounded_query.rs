@@ -29,7 +29,9 @@ impl FileFormalEndpoint {
         work: &FormalArchiveReadWorkV1,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Option<store::PaidRequestStateV1>, FormalError> {
-        let result = self.store.read_request_bounded(request, memory, work, cancelled);
+        let result = self
+            .store
+            .read_request_bounded(request, memory, work, cancelled);
         if result.is_err() {
             self.poisoned = true;
         }

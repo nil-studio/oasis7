@@ -759,4 +759,3 @@ impl Store {
         bounded_request::read_request_bounded_v1(self, request, memory, work, cancelled)
     }
 }
-
