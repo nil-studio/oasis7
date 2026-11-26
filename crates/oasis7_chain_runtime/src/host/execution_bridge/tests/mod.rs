@@ -38,31 +38,39 @@ use sha2::{Digest, Sha256};
 mod determinism;
 #[cfg(feature = "test_tier_full")]
 mod driver;
+#[cfg(feature = "test_tier_full")]
 mod driver_authoritative_recovery;
 #[cfg(all(unix, feature = "wasmtime"))]
 pub(super) mod driver_bft;
 #[cfg(all(unix, feature = "wasmtime"))]
+#[cfg(feature = "test_tier_full")]
 mod driver_bft_node_runtime;
 #[cfg(all(unix, feature = "wasmtime"))]
+#[cfg(feature = "test_tier_full")]
 mod driver_bft_v2;
 #[cfg(feature = "test_tier_full")]
 mod driver_checkpoint;
+#[cfg(feature = "test_tier_full")]
 mod driver_checkpoint_profile;
 #[cfg(feature = "test_tier_full")]
 mod driver_checkpoint_transaction;
 #[cfg(feature = "test_tier_full")]
 mod driver_compacted_checkpoint_recovery;
 mod driver_observability;
+#[cfg(feature = "test_tier_full")]
 mod driver_service_cold_recovery;
+#[cfg(feature = "test_tier_full")]
 mod node_retained_commit_restart;
 #[cfg(feature = "test_tier_full")]
 mod driver_storage_profile;
+#[cfg(feature = "test_tier_full")]
 mod retained_commit_time;
 // The fixture helpers live behind `test_tier_required` in the external
 // `oasis7` library. Keep this binary-test module on the same feature boundary;
 // `cfg(test)` on the binary does not propagate to its library dependency.
 #[cfg(feature = "test_tier_required")]
 mod provider_bootstrap;
+#[cfg(feature = "test_tier_full")]
 mod qa_conformance;
 #[cfg(feature = "test_tier_full")]
 mod replay;
@@ -800,6 +808,21 @@ fn persist_test_external_effect(
         .expect("persist test external effect")
 }
 
+#[cfg(feature = "test_tier_full")]
 mod controlled_history;
 
+#[cfg(feature = "test_tier_full")]
 mod driver_qualified_publication_recovery;
+
+const _: () = {
+    let _ = (
+        crate::status_admission::start_test_server,
+        super::driver::derive_local_execution_bootstrap,
+        super::checkpoint::task_evidence::reset_protected_height_validation_count,
+        super::checkpoint::task_evidence::protected_height_validation_count,
+        super::driver_checkpoint_install::reset_checkpoint_install_transaction_load_count_for_test,
+        super::driver_checkpoint_install::checkpoint_install_transaction_load_count_for_test,
+        super::driver_checkpoint_install::set_checkpoint_install_fault_for_test,
+        super::external_effect::build_execution_replay_plan,
+    );
+};

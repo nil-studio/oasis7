@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_world_service::{
     authority::{self, sign_read_request, verify_service_response},
@@ -658,6 +659,7 @@ fn strict_json_rejects_unknown_fields_and_formal_reads_reject_private_scopes() {
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn loopback_status_uses_the_running_node_and_server_shutdown_is_bounded() {
     let (world, trust, anchor) = fixture_trust();
@@ -703,6 +705,7 @@ fn loopback_status_uses_the_running_node_and_server_shutdown_is_bounded() {
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn http_parser_enforces_an_absolute_partial_request_deadline() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -716,6 +719,7 @@ fn http_parser_enforces_an_absolute_partial_request_deadline() {
     drop(client);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_http_fragmented_body_on_nonblocking_accepted_stream_reaches_grant_rejection() {
     use oasis7_client_api::world_service_full_sync::{
@@ -813,6 +817,7 @@ fn formal_http_fragmented_body_on_nonblocking_accepted_stream_reaches_grant_reje
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signature_drift() {
     use oasis7_world_service::wire::FormalAuthenticatedLookupV1;
@@ -876,11 +881,13 @@ fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signatu
 #[path = "formal_live_read_error_tests.rs"]
 mod read_error_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
     poisoned_state_signed_http_recovery(false);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn poisoned_admission_gate_blocks_signed_http_status_until_explicit_repair() {
     poisoned_state_signed_http_recovery(true);

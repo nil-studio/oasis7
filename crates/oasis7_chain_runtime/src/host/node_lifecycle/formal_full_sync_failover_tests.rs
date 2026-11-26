@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole;
 use oasis7_runtime::{BlobStore, LocalCasStore};
@@ -162,6 +163,7 @@ fn formal_full_sync_rejects_bad_provider_material_then_replays_fixed_c0_for_alte
     good_runtime.lock().unwrap().stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_full_sync_alternate_service_signature_must_match_its_own_pin() {
     let (world, trust, anchor, material, proof) = full_sync_fixture();
@@ -196,6 +198,7 @@ fn formal_full_sync_alternate_service_signature_must_match_its_own_pin() {
     node_runtime.lock().unwrap().stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_full_sync_compatibility_probe_replays_local_history_when_all_endpoints_are_unavailable() {
     let (world, trust, anchor, material, proof) = full_sync_fixture();
@@ -304,6 +307,7 @@ fn formal_full_sync_compatibility_probe_replays_local_history_when_all_endpoints
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_full_sync_local_cas_corruption_poisons_without_provider_failover() {
     let (world, trust, anchor, material, proof) = full_sync_fixture();
@@ -379,6 +383,7 @@ fn formal_full_sync_local_cas_corruption_poisons_without_provider_failover() {
     alternate_runtime.lock().unwrap().stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_full_sync_alternates_are_bounded_and_legacy_config_bytes_stay_unchanged() {
     let (_, trust, _, _, _) = full_sync_fixture();
@@ -418,6 +423,7 @@ fn formal_full_sync_alternates_are_bounded_and_legacy_config_bytes_stay_unchange
     assert!(too_many.validate().is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_full_sync_pins_the_first_verified_target_cut_across_providers() {
     let (world, trust, anchor, material, proof) = full_sync_fixture();
@@ -513,6 +519,7 @@ fn formal_full_sync_pins_the_first_verified_target_cut_across_providers() {
     newer_runtime.lock().unwrap().stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_full_sync_rejects_over_budget_material_without_publishing_then_recovers() {
     let (world, trust, anchor, material, proof) = full_sync_fixture();
@@ -579,6 +586,7 @@ fn formal_full_sync_rejects_over_budget_material_without_publishing_then_recover
     runtime.lock().unwrap().stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_full_sync_pins_only_objects_the_successful_candidate_persisted() {
     let (world, trust, anchor, material, proof) = full_sync_fixture();
@@ -627,6 +635,7 @@ fn formal_full_sync_pins_only_objects_the_successful_candidate_persisted() {
     runtime.lock().unwrap().stop().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_full_sync_shared_budget_accumulates_prior_charges_without_publishing() {
     let (world, trust, anchor, material, proof) = full_sync_fixture();
