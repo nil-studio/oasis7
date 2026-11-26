@@ -293,3 +293,20 @@ fn scalar_receiver_cost_excludes_unchanged_site_text_across_value_chunks() {
         ),
     ]);
 }
+
+// Consolidated sibling integration suites (4-shard LPT balanced).
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_authenticated_nonces.rs"]
+mod incremental_authenticated_nonces;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_factory_records.rs"]
+mod incremental_factory_records;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_inventory_change.rs"]
+mod incremental_inventory_change;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_logistics_records.rs"]
+mod incremental_logistics_records;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_material_records.rs"]
+mod incremental_material_records;

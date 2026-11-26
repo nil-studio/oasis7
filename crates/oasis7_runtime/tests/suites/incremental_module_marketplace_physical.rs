@@ -41,7 +41,7 @@ use oasis7_world_state::{
 use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 
 use fixture::{Directory, logical, physical};
@@ -858,5 +858,5 @@ fn marketplace_owner_closure_and_bid_update_survive_raw_zstd_cold_reopen() {
     }
 }
 
-#[path = "support/incremental_module_marketplace_bid_membership_physical.rs"]
+#[path = "../support/incremental_module_marketplace_bid_membership_physical.rs"]
 mod bid_membership_physical_tests;

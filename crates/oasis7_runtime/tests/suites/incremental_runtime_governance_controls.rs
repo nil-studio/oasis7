@@ -9,7 +9,7 @@ use oasis7_runtime::{
     incremental_runtime_controls::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
 use std::{io::Cursor, sync::atomic::AtomicBool};

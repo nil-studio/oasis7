@@ -1,5 +1,6 @@
 #![cfg(any(feature = "test_tier_required", feature = "test_tier_full"))]
 
+#[path = "../common/mod.rs"]
 mod common;
 
 use oasis7_agent_api::world_action::GeoPos;

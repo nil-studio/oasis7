@@ -12,7 +12,7 @@ use oasis7_runtime::{
 };
 use std::{collections::BTreeMap, io};
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, pair_token, physical, text_token};
 fn quota() -> PageIoBudget {
@@ -597,5 +597,5 @@ fn full_factory_and_build_source_oracle_survives_cold_roots() {
     }
 }
 
-#[path = "support/incremental_factory_overlay.rs"]
+#[path = "../support/incremental_factory_overlay.rs"]
 mod overlay;

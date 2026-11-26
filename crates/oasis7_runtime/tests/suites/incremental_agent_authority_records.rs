@@ -9,7 +9,7 @@ use oasis7_runtime::{
     incremental_field_read::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, physical};
 fn physical_scope() -> PageIoBudget {
@@ -298,29 +298,29 @@ fn original_agent_authority_records_cold_recover_all_three_families() {
     }
 }
 
-#[path = "support/incremental_agent_authority_overlay.rs"]
+#[path = "../support/incremental_agent_authority_overlay.rs"]
 mod overlay;
 
-#[path = "support/incremental_agent_authority_points.rs"]
+#[path = "../support/incremental_agent_authority_points.rs"]
 mod points;
 
-#[path = "support/incremental_agent_authority_pages.rs"]
+#[path = "../support/incremental_agent_authority_pages.rs"]
 mod pages;
 
-#[path = "support/incremental_agent_authority_scaling.rs"]
+#[path = "../support/incremental_agent_authority_scaling.rs"]
 mod scaling;
 
-#[path = "support/incremental_agent_authority_malformed.rs"]
+#[path = "../support/incremental_agent_authority_malformed.rs"]
 mod malformed;
 
-#[path = "support/incremental_agent_authority_carriers.rs"]
+#[path = "../support/incremental_agent_authority_carriers.rs"]
 mod carriers;
 
-#[path = "support/incremental_agent_authority_missing.rs"]
+#[path = "../support/incremental_agent_authority_missing.rs"]
 mod missing;
 
-#[path = "support/incremental_agent_authority_put.rs"]
+#[path = "../support/incremental_agent_authority_put.rs"]
 mod put;
 
-#[path = "support/incremental_agent_authority_oracle.rs"]
+#[path = "../support/incremental_agent_authority_oracle.rs"]
 mod oracle;

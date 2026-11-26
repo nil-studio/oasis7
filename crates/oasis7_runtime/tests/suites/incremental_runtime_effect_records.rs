@@ -1,5 +1,5 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
-#[path = "support/incremental_runtime_effect_fixture.rs"]
+#[path = "../support/incremental_runtime_effect_fixture.rs"]
 mod incremental_runtime_effect_fixture;
 use incremental_runtime_effect_fixture::{limits, physical};
 use oasis7_distfs::incremental_page_store::*;
@@ -14,16 +14,16 @@ use oasis7_runtime::{
 };
 use std::collections::{BTreeMap, VecDeque};
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
-#[path = "support/incremental_runtime_effect_faults.rs"]
+#[path = "../support/incremental_runtime_effect_faults.rs"]
 mod faults;
-#[path = "support/incremental_runtime_effect_malformed.rs"]
+#[path = "../support/incremental_runtime_effect_malformed.rs"]
 mod malformed;
-#[path = "support/incremental_runtime_effect_pages.rs"]
+#[path = "../support/incremental_runtime_effect_pages.rs"]
 mod pages;
-#[path = "support/incremental_runtime_effect_scaling.rs"]
+#[path = "../support/incremental_runtime_effect_scaling.rs"]
 mod scaling;
 // Complete GEN forest: same bounded setup profile as the adjacent 72-leaf
 // capability fixture, keeping its physical byte/write and all logical quotas.

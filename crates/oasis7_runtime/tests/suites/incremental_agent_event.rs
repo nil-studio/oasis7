@@ -1,6 +1,6 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
 
-#[path = "support/incremental_agent_event.rs"]
+#[path = "../support/incremental_agent_event.rs"]
 mod support;
 use oasis7_agent_api::world_action::GeoPos;
 use oasis7_distfs::incremental_page_store::{
@@ -155,10 +155,10 @@ fn actual_agent_events_reopen_originals_and_continue_from_authenticated_pages() 
     }
 }
 
-#[path = "support/incremental_agent_event_original.rs"]
+#[path = "../support/incremental_agent_event_original.rs"]
 mod originals;
 
-#[path = "support/incremental_module_state_step.rs"]
+#[path = "../support/incremental_module_state_step.rs"]
 mod module_state_step;
 
 #[test]

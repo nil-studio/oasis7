@@ -1,6 +1,6 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
 #![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
-#[path = "support/incremental_cognition_fixture.rs"]
+#[path = "../support/incremental_cognition_fixture.rs"]
 mod incremental_cognition_fixture;
 use incremental_cognition_fixture::{physical, source, state_error};
 use oasis7_distfs::incremental_page_store::*;
@@ -12,28 +12,28 @@ use oasis7_runtime::{
     incremental_cognition_read::*, incremental_field_member::*,
     incremental_field_read::WorldFieldReadContextV1,
 };
-#[path = "support/incremental_cognition_controls.rs"]
+#[path = "../support/incremental_cognition_controls.rs"]
 mod cognition_controls;
-#[path = "support/incremental_cognition_groups.rs"]
+#[path = "../support/incremental_cognition_groups.rs"]
 mod cognition_groups;
-#[path = "support/incremental_cognition_json_lifecycle.rs"]
+#[path = "../support/incremental_cognition_json_lifecycle.rs"]
 mod cognition_json_lifecycle;
-#[path = "support/incremental_cognition_missing_child.rs"]
+#[path = "../support/incremental_cognition_missing_child.rs"]
 mod cognition_missing_child;
-#[path = "support/incremental_cognition_namespace.rs"]
+#[path = "../support/incremental_cognition_namespace.rs"]
 mod cognition_namespace;
 #[cfg(feature = "test_tier_full")]
-#[path = "support/incremental_cognition_pages.rs"]
+#[path = "../support/incremental_cognition_pages.rs"]
 mod cognition_pages;
 #[cfg(feature = "test_tier_full")]
-#[path = "support/incremental_cognition_scaling.rs"]
+#[path = "../support/incremental_cognition_scaling.rs"]
 mod cognition_scaling;
-#[path = "support/incremental_cognition_source_faults.rs"]
+#[path = "../support/incremental_cognition_source_faults.rs"]
 mod cognition_source_faults;
-#[path = "support/incremental_cognition_family_faults.rs"]
+#[path = "../support/incremental_cognition_family_faults.rs"]
 mod family_faults;
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 
 #[test]
