@@ -62,13 +62,11 @@ impl LogisticsSlaMetrics {
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::world) struct LogisticsSlaMetricsDelta {
     next_metrics: LogisticsSlaMetrics,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "pending #6140 PR 6/6 industrial write cutover"))]
 impl LogisticsSlaMetricsDelta {
     pub(in crate::world) fn new(next_metrics: LogisticsSlaMetrics) -> Self {
         Self { next_metrics }
