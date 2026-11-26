@@ -3,8 +3,9 @@ use std::io::{self, Write};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::super::{
-    LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics, LlmPromptSectionTrace, LlmStepTrace,
+use crate::agent::{
+    AgentDecisionExplanationV1, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
+    LlmPromptSectionTrace, LlmStepTrace,
 };
 use super::{
     AgentDecision, AgentDecisionTrace, ContinuousAgentResponseContextV1, DecisionProviderError,
@@ -523,19 +524,19 @@ pub(super) fn response_to_trace(
 /// Raw transcript, prompt, tool trace and other upstream fields are excluded.
 pub trait DecisionResponseExplanation {
     /// Public metadata only; callers must keep Runtime effect truth separate.
-    fn public_agency_explanation(&self) -> super::super::AgentDecisionExplanationV1;
+    fn public_agency_explanation(&self) -> AgentDecisionExplanationV1;
 }
 
 impl DecisionResponseExplanation for DecisionResponse {
-    fn public_agency_explanation(&self) -> super::super::AgentDecisionExplanationV1 {
+    fn public_agency_explanation(&self) -> AgentDecisionExplanationV1 {
         public_decision_explanation(self)
     }
 }
 
 fn public_decision_explanation(
     response: &DecisionResponse,
-) -> super::super::AgentDecisionExplanationV1 {
-    let unavailable = || super::super::AgentDecisionExplanationV1 {
+) -> AgentDecisionExplanationV1 {
+    let unavailable = || AgentDecisionExplanationV1 {
         status: "unavailable".into(),
         provenance: "agent_explanation_unverified".into(),
         reason: None,
@@ -605,7 +606,7 @@ fn public_decision_explanation(
     if reason.is_none() {
         return unavailable();
     }
-    super::super::AgentDecisionExplanationV1 {
+    AgentDecisionExplanationV1 {
         status: "available".into(),
         provenance: "agent_explanation_unverified".into(),
         reason,

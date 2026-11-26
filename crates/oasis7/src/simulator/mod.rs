@@ -10,16 +10,16 @@
 //! - `runner`: AgentRunner, quota, rate limiting, metrics
 //! - `power`: Power system (M4 social system)
 
-mod agent;
-pub(crate) mod agent_api_compat;
+pub(crate) use oasis7_runtime_host::agent;
+pub(crate) use oasis7_runtime_host::agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
 mod async_agent_pilot;
 #[cfg(not(target_arch = "wasm32"))]
 mod async_agent_runner;
-mod cognition_policy;
+pub(crate) use oasis7_runtime_host::cognition_policy;
 mod cognition_response_identity;
 mod continuous_agent_harness;
-mod decision_provider;
+pub(crate) use oasis7_runtime_host::decision_provider;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod llm_agent;
@@ -30,11 +30,11 @@ pub(crate) mod persist;
 #[path = "persist_host_facade.rs"]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod provider_json_admission;
+pub use oasis7_runtime_host::provider_json_admission;
 #[cfg(not(target_arch = "wasm32"))]
-mod provider_loopback_adapter;
+pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
-mod provider_loopback_http;
+pub(crate) use oasis7_runtime_host::provider_loopback_http;
 mod provider_material_capture;
 mod runner;
 #[cfg(not(target_arch = "wasm32"))]

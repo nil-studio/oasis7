@@ -6,19 +6,21 @@ use std::time::Instant;
 use oasis7_wasm_abi::ModuleCommandCatalogEntry;
 use serde_json::Value;
 
-use super::cognition_response_identity::{
+use crate::agent::{
+    ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQueryResult,
+};
+use crate::cognition_response_identity::{
     CognitionResponseDigestDisposition, classify_cognition_response_digest,
     cognition_response_digest,
 };
-use super::continuous_agent_harness::{
+use crate::simulator_archive::archive::WorldEvent;
+use oasis7_agent_api::{
     CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION,
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ContinuousAgentTurnContextV1, FeedbackEnvelopeV1,
+    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, FeedbackEnvelopeV1,
 };
-use super::{
-    Action, ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery,
-    AgentQueryResult, Observation, WorldEvent, WorldTime,
-};
+use oasis7_simulator::{Action, AgentQuery, Observation, WorldTime};
+type ContinuousAgentResponseContextV1 =
+    oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>;
 
 pub use oasis7_agent_api::{
     ActionCatalogEntry, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION,
@@ -152,7 +154,7 @@ pub trait DecisionProvider {
     #[cfg(not(target_arch = "wasm32"))]
     fn take_provider_original_material_refs(
         &mut self,
-    ) -> Option<super::ProviderOriginalMaterialRefsV1> {
+    ) -> Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1> {
         None
     }
 
@@ -161,7 +163,7 @@ pub trait DecisionProvider {
     #[cfg(not(target_arch = "wasm32"))]
     fn take_provider_response_context_lease(
         &mut self,
-    ) -> Option<super::provider_json_admission::ProviderResponseContextLease> {
+    ) -> Option<crate::provider_json_admission::ProviderResponseContextLease> {
         None
     }
 
@@ -355,10 +357,11 @@ pub struct ProviderBackedAgentBehavior<P: DecisionProvider> {
     require_continuous_request_context: bool,
     pending_response_context: Option<ContinuousAgentResponseContextV1>,
     #[cfg(not(target_arch = "wasm32"))]
-    pending_provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
+    pending_provider_original_material_refs:
+        Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1>,
     #[cfg(not(target_arch = "wasm32"))]
     pending_provider_response_context_lease:
-        Option<super::provider_json_admission::ProviderResponseContextLease>,
+        Option<crate::provider_json_admission::ProviderResponseContextLease>,
     pending_memory_write_intents: Vec<MemoryWriteIntent>,
 }
 
@@ -920,14 +923,14 @@ impl<P: DecisionProvider> AgentBehavior for ProviderBackedAgentBehavior<P> {
     #[cfg(not(target_arch = "wasm32"))]
     fn take_provider_original_material_refs(
         &mut self,
-    ) -> Option<super::ProviderOriginalMaterialRefsV1> {
+    ) -> Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1> {
         self.pending_provider_original_material_refs.take()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn take_provider_response_context_lease(
         &mut self,
-    ) -> Option<super::provider_json_admission::ProviderResponseContextLease> {
+    ) -> Option<crate::provider_json_admission::ProviderResponseContextLease> {
         self.pending_provider_response_context_lease.take()
     }
 

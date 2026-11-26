@@ -1,14 +1,14 @@
 //! Agent interface: AgentBehavior trait, AgentDecision, ActionResult.
 
-use super::archive::WorldEvent;
+use crate::simulator_archive::archive::WorldEvent;
 use serde::{Deserialize, Serialize};
 
-use super::continuous_agent_harness::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1,
-};
-use super::decision_provider::MemoryWriteIntent;
-use oasis7_simulator::{Action, ActionId, WorldTime};
+use crate::decision_provider::MemoryWriteIntent;
+use oasis7_agent_api::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
+use oasis7_simulator::{Action, ActionId, AgentQuery, WorldTime};
 use oasis7_simulator::{Observation, RejectReason, WorldEventKind};
+type ContinuousAgentResponseContextV1 =
+    oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>;
 
 // ============================================================================
 // Agent Interface (observe → decide → act)
@@ -100,7 +100,7 @@ pub trait AgentBehavior {
     #[cfg(not(target_arch = "wasm32"))]
     fn take_provider_original_material_refs(
         &mut self,
-    ) -> Option<super::ProviderOriginalMaterialRefsV1> {
+    ) -> Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1> {
         None
     }
 
@@ -109,7 +109,7 @@ pub trait AgentBehavior {
     #[cfg(not(target_arch = "wasm32"))]
     fn take_provider_response_context_lease(
         &mut self,
-    ) -> Option<super::provider_json_admission::ProviderResponseContextLease> {
+    ) -> Option<crate::provider_json_admission::ProviderResponseContextLease> {
         None
     }
 

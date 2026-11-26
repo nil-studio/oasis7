@@ -5,8 +5,14 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{error::Error, fmt, path::Path, time::Duration};
 
-use oasis7_agent_api::{ProviderAgentChatRequest, ProviderAgentChatResponse};
-use oasis7_client_api::{ProviderHealth, ProviderInfo};
+pub use oasis7_agent_api::{
+    ProviderAgentChatRequest, ProviderAgentChatResponse, provider_agent_chat_log_key,
+};
+pub use oasis7_client_api::{
+    ProviderCompatibilityReport, ProviderCompatibilityStatus, ProviderHealth, ProviderInfo,
+    evaluate_provider_compatibility, provider_phase1_required_actions,
+    provider_phase1_required_capabilities,
+};
 use oasis7_proto::memory_budget::MemoryClass;
 use oasis7_simulator::{Action, AgentQuery};
 use reqwest::blocking::{Body, Client, RequestBuilder};
@@ -20,6 +26,7 @@ pub use oasis7_agent_api::{
     DecisionRequest, DecisionRequestContractError, FeedbackEnvelopeV1,
 };
 pub use oasis7_client_api::provider::{
+    PROVIDER_PHASE1_ACTION_SET_ALIAS,
     PROVIDER_TRANSPORT_LOOPBACK_HTTP as LOOPBACK_HTTP_PROVIDER_TRANSPORT,
     PROVIDER_TRANSPORT_REMOTE_HTTPS as REMOTE_HTTPS_PROVIDER_TRANSPORT,
 };
