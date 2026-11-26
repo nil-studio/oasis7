@@ -1,4 +1,3 @@
-use super::super::ResourceDelta;
 use super::super::WorldError;
 use super::super::main_token::main_token_account_id_from_node_public_key;
 use super::super::reward_asset::{
@@ -1080,18 +1079,16 @@ impl World {
         Ok(())
     }
 
-    pub(super) fn apply_resource_delta(&mut self, delta: &ResourceDelta) -> Result<(), WorldError> {
-        // This is the original live consumer: retain the once-only install
-        // site, but share the exact checked arithmetic with root-staged fees.
-        let scope = crate::domains::monetary::StagedRuleFeeSettlement {
-            general: delta,
-            with_distance: delta,
-            disposition: oasis7_domain_types::rule_settlement::RuleActionDisposition::Accepted,
-        };
-        let planned = scope.plan_checked(&self.state.resources)?;
-        for (kind, next) in planned {
-            self.state.resources.insert(kind, next);
-        }
+    pub(super) fn apply_rule_fee_settlement(
+        &mut self,
+        settlement: &crate::domains::monetary::StagedRuleFeeSettlement<'_>,
+    ) -> Result<(), WorldError> {
+        use super::transition::{RootInstallContext, SubsystemDelta};
+
+        // Single authoritative RuleFee install site through RootInstallContext;
+        // Stage 1 checks deficits and overflow before any canonical mutation.
+        let delta = settlement.prepare_delta(&self.state.resources)?;
+        delta.apply_infallible(&mut RootInstallContext::new(self));
         Ok(())
     }
 
