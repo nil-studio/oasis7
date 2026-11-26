@@ -36,7 +36,7 @@ use oasis7_distfs::controlled_authority::{
 use oasis7_node::{NodeConfig, NodeNetworkPolicy, NodeRole, NodeRuntime};
 use std::{
     collections::{HashMap, VecDeque},
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -45,6 +45,8 @@ use std::{
 mod open_timing;
 #[path = "formal_live_runtime_quiesce.rs"]
 mod quiesce;
+#[path = "formal_live_runtime_original_pending_owner.rs"]
+mod original_pending_owner;
 use open_timing::OpenTiming;
 
 pub(crate) const BUSINESS_NODE_CACHE_BYTES: usize = 64 * 1024 * 1024;
@@ -60,8 +62,9 @@ pub(super) mod observation;
 pub(crate) use owner::observe_operation_owner;
 #[cfg(unix)]
 pub(crate) use owner::{
-    DurableSetControlRequestV1, control_durable_set_transition,
-    control_prepare_durable_set_transition,
+    DurableSetControlRequestV1, cold_read_original_pending_for_owner,
+    control_durable_set_transition, control_prepare_durable_set_transition,
+    freeze_original_pending, read_original_pending_pin_candidate,
 };
 #[cfg(unix)]
 pub(crate) use owner::{FormalRuntimeInstanceV1, FormalRuntimeOwnerSnapshotV1};
@@ -84,6 +87,7 @@ pub(crate) struct FormalLiveRuntime {
     state: FormalLiveState,
     admission_gate: Arc<Mutex<()>>,
     original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
+    original_pending_directory: Option<PathBuf>,
     durable_set_arm:
         Arc<super::execution_bridge::formal_durable_set_arm::FormalDurableSetArmControlV1>,
     server: Option<FormalHttpServer>,
@@ -251,6 +255,21 @@ impl FormalLiveRuntime {
         validated: ValidatedFormalLiveConfigV1,
         original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
     ) -> Result<Self, String> {
+        Self::open_from_validated_with_original_pending_adapter_and_directory(
+            validated,
+            original_pending,
+            None,
+        )
+    }
+
+    fn open_from_validated_with_original_pending_adapter_and_directory(
+        validated: ValidatedFormalLiveConfigV1,
+        original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
+        original_pending_directory: Option<PathBuf>,
+    ) -> Result<Self, String> {
+        if original_pending.is_some() != original_pending_directory.is_some() {
+            return Err("original pending producer/directory must be installed together".into());
+        }
         let identity_lease = acquire_runtime_identity(&validated)?;
         let timing = OpenTiming::new();
         let _open = timing.stage("open_total");
@@ -270,6 +289,7 @@ impl FormalLiveRuntime {
             &timing,
             identity_lease,
             original_pending,
+            original_pending_directory,
         )
     }
 
@@ -281,6 +301,7 @@ impl FormalLiveRuntime {
         timing: &OpenTiming,
         identity_lease: Arc<super::node_keypair_config::RuntimeIdentityLease>,
         original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
+        original_pending_directory: Option<PathBuf>,
     ) -> Result<Self, String> {
         validate_loaded_execution_policy(&validated)?;
         // Seed only content-addressed bytes from the exact configured initial
@@ -540,6 +561,7 @@ impl FormalLiveRuntime {
             state: FormalLiveState::default(),
             admission_gate,
             original_pending,
+            original_pending_directory,
             durable_set_arm,
             server: None,
             stop_worker: None,
