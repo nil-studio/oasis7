@@ -71,10 +71,6 @@ impl LogisticsSlaMetricsDelta {
     pub(in crate::world) fn new(next_metrics: LogisticsSlaMetrics) -> Self {
         Self { next_metrics }
     }
-
-    pub(in crate::world) fn next_metrics(&self) -> &LogisticsSlaMetrics {
-        &self.next_metrics
-    }
 }
 
 impl super::transition::SubsystemDelta for LogisticsSlaMetricsDelta {
