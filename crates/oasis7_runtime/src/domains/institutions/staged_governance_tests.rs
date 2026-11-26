@@ -133,7 +133,8 @@ fn staged_governance_proposal_lifecycle_links_v2_sidecar_digest_and_fences_failu
         Some(ProposalStatus::Rejected { .. })
     ));
 
-    let snapshot = world.governance_effective_finality_epoch_snapshot(9);
+    let mut snapshot = world.governance_effective_finality_epoch_snapshot(9);
+    world.normalize_governance_finality_epoch_snapshot(&mut snapshot).expect("normalize snapshot");
     let snapshot_set = WorldEventBody::Governance(GovernanceEvent::FinalityEpochSnapshotSet {
         snapshot: snapshot.clone(),
         previous: None,
@@ -211,6 +212,9 @@ fn staged_identity_penalty_and_emergency_brake_sidecars_update_v2_sidecar_root()
 #[test]
 fn staged_organization_continuity_write_links_v2_commitment_envelope() {
     let mut world = World::new();
+    world.chain_resource_manifest.world_id = "world-1".into();
+    world.chain_resource_manifest.chain_id = "chain-1".into();
+    world.chain_resource_manifest.genesis_ref = Some("genesis-1".into());
     for agent_id in ["owner", "primary", "recipient"] {
         world.submit_action(Action::RegisterAgent { agent_id: agent_id.into(), pos: crate::tests::pos(1, 1) });
     }
