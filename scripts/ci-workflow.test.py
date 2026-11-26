@@ -1989,9 +1989,31 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         ecs_text = (ROOT / '.github/workflows/ecs-packages.yml').read_text()
         ecs_jobs = workflow_jobs(ecs_text)
         cache_workflow, shared_writer = self.shared_cache_workflow()
-        lanes = ((shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
-                 (ecs_jobs['native'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'),
-                 (ecs_jobs['native-trusted'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
+        dual_ecs = 'OASIS7_DEPENDENCY_CACHE_FAMILY: ecs-image\n' in ecs_jobs['native-trusted']
+        lanes = [
+            (shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
+            (ecs_jobs['native'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'),
+        ]
+        if not dual_ecs:
+            lanes.append((ecs_jobs['native-trusted'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
+        else:
+            steps = re.findall(r'^      - .*?(?=^      - |\Z)', ecs_jobs['native-trusted'], re.M | re.S)
+            install, = [step for step in steps if 'id: image-dependency-cache-tools\n' in step]
+            _, image = [step for step in steps if 'uses: Swatinem/rust-cache@' in step]
+            self.assertIn("if: github.job == 'native-trusted'\n", install)
+            self.assertIn('continue-on-error: true', install)
+            self.assertIn('run: /usr/bin/python3 scripts/ci-rust-cache-admission.py install-release\n', install)
+            self.assertNotIn('GITHUB_PATH', install)
+            self.assertIn('uses: Swatinem/rust-cache@' + revision[1] + ' # v2', image)
+            self.assertLess(steps.index(install), steps.index(image))
+            self.assertIn('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}', image)
+            self.assertIn('GH_TOKEN: ${{ github.token }}', image)
+            self.assertIn('cache-on-failure: false', image)
+            self.assertNotIn('lookup-only:', image)
+            for step in steps:
+                if step != image:
+                    self.assertNotIn('steps.image-dependency-cache-tools.outputs.node_options', step)
+                    self.assertNotIn('steps.image-dependency-cache-tools.outputs.python', step)
         for job, family, budget in lanes:
             with self.subTest(family=family, trusted='cache-mode: write' in job):
                 steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
@@ -2015,6 +2037,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 for outcome in ('success', 'failure', 'skipped', 'cancelled'):
                     for has_toolchains in (False, True):
                         predicate = condition.replace('steps.dependency-cache-tools.outcome', repr(outcome))
+                        if dual_ecs and family == 'ecs':
+                            predicate = predicate.replace('github.job', repr('native'))
                         predicate = predicate.replace("hashFiles('scripts/ci-rust-cache-toolchains.py')",
                                                       repr('hash' if has_toolchains else ''))
                         allowed = eval(predicate.replace('&&', ' and '), {'__builtins__': {}}, {})
@@ -2022,7 +2046,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 for step in steps:
                     if step != cache:
                         self.assertNotIn('steps.dependency-cache-tools.outputs.path', step)
-                        self.assertNotIn('OASIS7_DEPENDENCY_CACHE_', step)
+                        if not (dual_ecs and family == 'ecs' and 'OASIS7_DEPENDENCY_CACHE_FAMILY: ecs-image\n' in step):
+                            self.assertNotIn('OASIS7_DEPENDENCY_CACHE_', step)
                 self.assertNotIn('steps.dependency-cache-tools.outputs.path', job.split('    steps:', 1)[0])
         self.assertIn('permissions:\n      contents: read\n      actions: read', shared_writer)
         # Native uses one optional installer. The migrated Web lane also has
@@ -2043,9 +2068,14 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         _, shared_writer = self.shared_cache_workflow()
         for name, job in (('shared-native-cache', shared_writer),
                           ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
-            cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
-                         if 'uses: Swatinem/rust-cache@' in step)
-            save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', cache)
+            caches = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                      if 'uses: Swatinem/rust-cache@' in step]
+            if name in ('native', 'native-trusted') and len(caches) == 2:
+                host, image = caches
+                self.assertIn('save-if: false\n', host)
+                caches = [image]
+            self.assertEqual(len(caches), 1, name)
+            save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', caches[0])
             self.assertIsNotNone(save, name)
             with self.subTest(job=name):
                 self.assertNotRegex(save.group(1), r'(?i)\b(?:always|cancelled|failure|success)\s*\(')
@@ -2055,24 +2085,38 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         _, shared_writer = self.shared_cache_workflow()
         for name, job in (('shared-native-cache', shared_writer),
                           ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
-            cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
-                         if 'uses: Swatinem/rust-cache@' in step)
+            caches = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                      if 'uses: Swatinem/rust-cache@' in step]
+            image = name in ('native', 'native-trusted') and len(caches) == 2
+            if image:
+                host, cache = caches
+                self.assertIn("if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'\n", host)
+                self.assertIn('save-if: false\n', host)
+                self.assertIn("if: github.job == 'native-trusted' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'\n", cache)
+                self.assertIn('NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}', cache)
+                self.assertIn('OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.image-dependency-cache-tools.outputs.python }}', cache)
+                self.assertIn('cache-provider: github\n', cache)
+            else:
+                self.assertEqual(len(caches), 1, name)
+                cache, = caches
             save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', cache)
             self.assertIsNotNone(save, name)
             expression = save.group(1)
             for status in ('success', 'failure', 'cancelled'):
                 for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge'):
                     for matching_source in (False, True):
-                        values = {'job.status': status, 'github.ref': ref, 'github.job': name,
-                                  'github.workflow_sha': 'a' if matching_source else 'b', 'github.sha': 'a'}
-                        predicate = expression
-                        for token, value in values.items():
-                            predicate = predicate.replace(token, repr(value))
-                        predicate = predicate.replace('&&', ' and ').replace('||', ' or ')
-                        with self.subTest(job=name, status=status, ref=ref, matching=matching_source):
-                            actual = eval(predicate, {'__builtins__': {}}, {})
-                            self.assertEqual(actual, status == 'success' and ref == 'refs/heads/main'
-                                             and matching_source and name != 'native')
+                        for guard in ('true', 'false', '') if image else ('true',):
+                            values = {'job.status': status, 'github.ref': ref, 'github.job': name,
+                                      'github.workflow_sha': 'a' if matching_source else 'b', 'github.sha': 'a',
+                                      'steps.image-dependency-cache-tools.outputs.guard_ready': guard}
+                            predicate = expression
+                            for token, value in values.items():
+                                predicate = predicate.replace(token, repr(value))
+                            predicate = predicate.replace('&&', ' and ').replace('||', ' or ')
+                            with self.subTest(job=name, status=status, ref=ref, matching=matching_source, guard=guard):
+                                actual = eval(predicate, {'__builtins__': {}}, {})
+                                self.assertEqual(actual, status == 'success' and ref == 'refs/heads/main'
+                                                 and matching_source and name != 'native' and guard == 'true')
 
     def test_shared_cache_is_populated_completely_before_successful_save(self):
         _, writer = self.shared_cache_workflow()
