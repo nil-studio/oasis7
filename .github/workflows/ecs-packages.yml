@@ -178,7 +178,7 @@ jobs:
         continue-on-error: true
         run: /usr/bin/python3 scripts/ci-rust-cache-admission.py install-release
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: github.job == 'native-trusted' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'
+        if: github.job == 'native-trusted' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'
         env:
           NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}
           OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.image-dependency-cache-tools.outputs.python }}
