@@ -129,6 +129,23 @@ class ArchiveTests(unittest.TestCase):
                                 cwd=HERE.parent, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_checked_archive_terminator_matches_actual_sdk_extraction(self):
+        first = self.archive([('cache/x', tarfile.REGTYPE, b'fixed')], {'mtime': '1.5'})
+        raw = subprocess.run(['zstd', '-d', '-q', '-c', str(first)], check=True, stdout=subprocess.PIPE).stdout
+        extra = io.BytesIO()
+        with tarfile.open(fileobj=extra, mode='w') as writer:
+            item = tarfile.TarInfo('escape'); item.size = 1
+            writer.addfile(item, io.BytesIO(b'x'))
+        first.write_bytes(subprocess.run(['zstd', '-q', '-c'], input=raw + extra.getvalue(), check=True, stdout=subprocess.PIPE).stdout)
+        self.assertEqual(inspector.inspect_archive(first, 'zstd-without-long', self.layout | {'member': 'cache'})['files'], 1)
+        vendor = (HERE.parent / 'vendor/actions-cache-explicit-context/index.mjs').as_uri()
+        code = "import(process.argv[1]).then(m=>m.tar.extractTar(process.argv[2],'zstd-without-long',process.argv[3]))"
+        outcome = subprocess.run(['node', '-e', code, vendor, str(first), str(self.base)],
+                                 env={'PATH': os.environ['PATH'], 'HOME': str(self.base)}, capture_output=True, text=True, timeout=15)
+        self.assertEqual(outcome.returncode, 0, outcome.stdout + outcome.stderr)
+        self.assertEqual((self.base / 'cache/x').read_bytes(), b'fixed')
+        self.assertFalse((self.base / 'escape').exists())
+
     def test_supervised_unknown_contract_is_fatal_and_reaped(self):
         result = subprocess.run([sys.executable, str(HERE / 'ci-portable-cache-archive.py'),
                                  '--supervise', '--contract', 'unknown', '--component', 'x'],
