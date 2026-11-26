@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::super::checkpoint::{
     execution_bridge_record_path, load_execution_bridge_record, persist_execution_bridge_record,
 };
@@ -289,6 +290,7 @@ fn assert_tampered_authoritative_effect_identity_rejected(
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_runtime_execution_driver_rejects_tampered_authoritative_v3_effect_identity_fields() {
     for (field, mutate) in [
@@ -395,6 +397,7 @@ fn node_runtime_execution_driver_rejects_equal_height_replay_when_authoritative_
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_runtime_execution_driver_restart_recovers_latest_head_after_retention() {
     let dir = temp_dir("execution-driver-restart-recovery");
@@ -581,6 +584,7 @@ fn node_runtime_execution_driver_restart_fails_closed_when_authoritative_cas_is_
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_runtime_execution_driver_startup_restores_lower_authoritative_head_when_state_head_lacks_exact_record()
  {
@@ -661,6 +665,7 @@ fn node_runtime_execution_driver_startup_restores_lower_authoritative_head_when_
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_runtime_execution_driver_startup_uses_higher_durable_record_when_latest_pointer_is_stale() {
     let dir = temp_dir("execution-driver-startup-stale-latest-pointer");
@@ -741,6 +746,7 @@ fn node_runtime_execution_driver_startup_uses_higher_durable_record_when_latest_
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_runtime_execution_driver_startup_rejects_lower_v3_record_missing_journal_ref() {
     let dir = temp_dir("execution-driver-startup-malformed-lower-v3-record");
@@ -808,6 +814,7 @@ fn node_runtime_execution_driver_startup_rejects_lower_v3_record_missing_journal
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_runtime_execution_driver_reconciles_stale_state_from_exact_record() {
     let dir = temp_dir("execution-driver-stale-state-reconcile");
@@ -900,6 +907,7 @@ fn node_runtime_execution_driver_reconciles_stale_state_from_exact_record() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_runtime_execution_driver_restart_reconciles_newer_published_record_when_state_is_stale() {
     let dir = temp_dir("execution-driver-restart-newer-published-record");
@@ -980,6 +988,7 @@ fn node_runtime_execution_driver_restart_reconciles_newer_published_record_when_
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_runtime_execution_driver_recovers_malformed_v2_record_from_state_root_and_local_journal() {
     let dir = temp_dir("execution-driver-malformed-v2-recovery");

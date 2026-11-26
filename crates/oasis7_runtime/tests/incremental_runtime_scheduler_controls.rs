@@ -286,6 +286,7 @@ mod pages;
 #[path = "support/incremental_runtime_scheduler_faults.rs"]
 mod faults;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_runtime_scheduler_scaling.rs"]
 mod scaling;
 

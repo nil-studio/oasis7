@@ -354,6 +354,7 @@ mod pages;
 #[path = "support/incremental_reward_budget_malformed.rs"]
 mod malformed;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_reward_budget_scaling.rs"]
 mod scaling;
 

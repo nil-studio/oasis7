@@ -524,6 +524,7 @@ fn original_effect_collections_and_json_nodes_have_independent_literal_wire() {
             }
         }
         typed_snapshot_reads(&store, &memory, &roots, &family);
+        #[cfg(feature = "test_tier_full")]
         pages::roundtrip(&store, &memory, &roots);
         membership_sequence(&store, &memory, &roots, &family, pending.front().unwrap());
     }
@@ -1142,6 +1143,7 @@ fn typed_snapshot_reads(
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn unchanged_params_across_value_chunks_do_not_enter_sender_or_receiver() {
     scaling::exercise_unchanged_params(&[
