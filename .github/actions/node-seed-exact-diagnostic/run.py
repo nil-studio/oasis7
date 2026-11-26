@@ -9,10 +9,10 @@ import subprocess
 import time
 
 SOURCE = '9d572001f2bcd92ff8d03a619d268e920137d812'
-HEAD = 'codex/engineering-node-seed-two-case-diagnostic'
+HEAD = 'codex/engineering-node-seed-two-case-diagnostic-corrected'
 BASE = 'codex/engineering-portable-cache-container-cutover'
-FROM = 'Lock two exact Node seed diagnostic cases'
-TO = 'Observe two exact Node seed cases without changing their assertions'
+FROM = 'Lock corrected two exact Node seed diagnostic cases'
+TO = 'Observe corrected two exact Node seed cases with original assertions'
 CASES = tuple('tests::network_gap_sync_provider_routing_tests::runtime_network_replication_gap_sync_blocks_without_generic_fallback_after_provider_route_' + suffix for suffix in ('not_found', 'unavailable'))
 ROOT = Path(os.environ['GITHUB_WORKSPACE']).resolve()
 OUT = ROOT / 'node-seed-diagnostic-output'
@@ -63,16 +63,29 @@ def child_environment():
             and not k.startswith(('GITHUB_', 'ACTIONS_', 'INPUT_'))}
 
 
-def group_members(pgid):
+def group_inventory(pgid):
     members = []
     for item in Path('/proc').iterdir():
         if item.name.isdigit():
             try:
                 if item.stat().st_uid == os.getuid() and os.getpgid(int(item.name)) == pgid:
-                    members.append(int(item.name))
+                    try:
+                        fields = (item / 'stat').read_text().rsplit(')', 1)[1].split()
+                        state, identity = fields[0], fields[19]
+                        if fields[2] != str(pgid) or not identity.isdigit():
+                            state, identity = '?', None
+                    except (PermissionError, IndexError):
+                        state, identity = '?', None
+                    members.append({'pid': int(item.name), 'state': state, 'starttime': identity})
             except (FileNotFoundError, ProcessLookupError, PermissionError):
                 pass
-    return sorted(members)
+    return sorted(members, key=lambda row: row['pid'])
+
+
+def group_members(pgid):
+    # Match ci_process_runner.owned_processes: terminated zombies cannot be
+    # signalled or execute code. Unknown and every live state remain blockers.
+    return [row['pid'] for row in group_inventory(pgid) if row['state'] != 'Z']
 
 
 def run(argv, label, seconds):
@@ -112,7 +125,8 @@ def run(argv, label, seconds):
                 time.sleep(.05)
                 remaining = group_members(process.pid)
         observation.update(exit_code=process.returncode, seconds=round(time.monotonic() - started, 3),
-                           remaining_process_group=remaining)
+                           remaining_process_group=remaining,
+                           process_group_after_cleanup=group_inventory(process.pid))
     (OUT / (label + '.json')).write_text(json.dumps(observation, indent=2) + '\n')
     return observation
 

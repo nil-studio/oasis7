@@ -32,10 +32,10 @@ jobs:
       github.repository == 'nil-studio/oasis7' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == true &&
-      github.head_ref == 'codex/engineering-node-seed-two-case-diagnostic' &&
+      github.head_ref == 'codex/engineering-node-seed-two-case-diagnostic-corrected' &&
       github.base_ref == 'codex/engineering-portable-cache-container-cutover' &&
-      github.event.changes.title.from == 'Lock two exact Node seed diagnostic cases' &&
-      github.event.pull_request.title == 'Observe two exact Node seed cases without changing their assertions'
+      github.event.changes.title.from == 'Lock corrected two exact Node seed diagnostic cases' &&
+      github.event.pull_request.title == 'Observe corrected two exact Node seed cases with original assertions'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     container:
