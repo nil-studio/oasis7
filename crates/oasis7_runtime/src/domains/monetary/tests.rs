@@ -1,14 +1,18 @@
 use std::collections::BTreeMap;
 
 use super::{
-    CognitionEconomyOutput, MonetaryDomainDelta, StagedCognitionEconomyOp, StagedRuleFeeSettlement,
-    plan_resource_delta,
+    CognitionEconomyOutput, MonetaryDomainDelta, StagedBootstrapCatalogDefaults,
+    StagedCognitionEconomyOp, StagedRuleFeeSettlement, plan_resource_delta,
 };
+use crate::world::event_processing::publication::staged_monetary::StagedMonetaryPublication;
 use crate::world::transition::{
     BorrowedWorldView, DurableCommitConfirmation, StagedRootTransaction, StagedTransition,
     TransitionContext, TransitionReject,
 };
-use crate::{CognitionLeaseQuoteV1, CognitionLeaseRequestV1, ResourceDelta, World, WorldError};
+use crate::{
+    Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, DomainEvent, ModuleRuntimeChargeEvent,
+    ResourceDelta, World, WorldError, WorldEventBody,
+};
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_domain_types::rule_settlement::RuleActionDisposition;
 
@@ -381,3 +385,92 @@ fn staged_root_transaction_composes_rule_fee_and_cognition_lease_with_nested_sav
     assert_eq!(econ.available_balance("second", "units"), 9);
     assert_eq!(econ.available_balance("spec", "units"), 0);
 }
+
+fn register_test_agent(world: &mut World, agent_id: &str) {
+    world.submit_action(Action::RegisterAgent {
+        agent_id: agent_id.to_string(),
+        pos: oasis7_agent_api::world_geometry::GeoPos::new(0.0, 0.0, 0.0),
+    });
+    world.step().unwrap();
+}
+
+#[test]
+fn staged_monetary_publication_matches_live_transfer_and_rolls_back_without_double_debit() {
+    let mut live = World::new();
+    register_test_agent(&mut live, "alice");
+    register_test_agent(&mut live, "bob");
+    live.set_agent_resource_balance("alice", ResourceKind::Electricity, 20).unwrap();
+    let mut staged = live.clone();
+
+    let transfer = WorldEventBody::Domain(DomainEvent::ResourceTransferred {
+        from_agent_id: "alice".into(),
+        to_agent_id: "bob".into(),
+        kind: ResourceKind::Electricity,
+        amount: 7,
+    });
+    let (before, before_journal) = (staged.snapshot(), staged.journal().clone());
+    staged.fail_next_append_after_publication_prepare_for_test();
+    assert!(staged.append_event(transfer.clone(), None).is_err());
+    assert_eq!((staged.snapshot(), staged.journal()), (before, &before_journal));
+
+    let transition = StagedMonetaryPublication::from_body(&transfer).unwrap();
+    let prepared = {
+        let view = BorrowedWorldView::new(&staged).unwrap();
+        transition.prepare(&view, &TransitionContext::new(view.time(), None)).unwrap()
+    };
+    assert!(matches!(
+        prepared.install_confirmed(&mut staged, DurableCommitConfirmation::StatusUnknown { reason: "lost ack".into() }),
+        Err(TransitionReject::StatusUnknownFenced { .. })
+    ));
+    assert_eq!(staged.agent_resource_balance("alice", ResourceKind::Electricity).unwrap(), 20);
+    assert_eq!(staged.agent_resource_balance("bob", ResourceKind::Electricity).unwrap(), 0);
+
+    live.append_event(transfer.clone(), None).unwrap();
+    staged.append_staged_monetary_event(transition, None).unwrap();
+    assert_eq!(staged.snapshot(), live.snapshot());
+    assert_eq!(staged.agent_resource_balance("alice", ResourceKind::Electricity).unwrap(), 13);
+    assert_eq!(staged.agent_resource_balance("bob", ResourceKind::Electricity).unwrap(), 7);
+}
+
+#[test]
+fn staged_root_composes_module_runtime_charge_and_bootstrap_catalog_with_rollback() {
+    let mut world = World::new();
+    register_test_agent(&mut world, "payer");
+    world.set_agent_resource_balance("payer", ResourceKind::Electricity, 50).unwrap();
+    world.set_agent_resource_balance("payer", ResourceKind::Data, 30).unwrap();
+
+    let charge_body = WorldEventBody::ModuleRuntimeCharged(ModuleRuntimeChargeEvent {
+        module_id: "m.test".into(), trace_id: "trace-1".into(), payer_agent_id: "payer".into(),
+        compute_fee_kind: ResourceKind::Data, compute_fee_amount: 4,
+        electricity_fee_kind: ResourceKind::Electricity, electricity_fee_amount: 6,
+        input_bytes: 16, output_bytes: 32, effect_count: 0, emit_count: 1,
+    });
+    let pub_transition = StagedMonetaryPublication::from_body(&charge_body).unwrap();
+
+    let stale_prepared = {
+        let mut root = StagedRootTransaction::<MonetaryDomainDelta>::begin(&world, TransitionContext::new(world.state().time, None)).unwrap();
+        StagedBootstrapCatalogDefaults.stage_in_root(&mut root).unwrap();
+        pub_transition.stage_in_root(&mut root).unwrap();
+        root.finish_prepare()
+    };
+    world.set_agent_resource_balance("payer", ResourceKind::Data, 29).unwrap();
+    assert!(matches!(stale_prepared.install_confirmed(&mut world, DurableCommitConfirmation::Confirmed), Err(TransitionReject::BaseHeadStale)));
+    assert_eq!(world.agent_resource_balance("payer", ResourceKind::Electricity).unwrap(), 50);
+    assert_eq!(world.agent_resource_balance("payer", ResourceKind::Data).unwrap(), 29);
+    assert!(world.material_profile("iron_ore").is_none());
+
+    let prepared = {
+        let mut root = StagedRootTransaction::<MonetaryDomainDelta>::begin(&world, TransitionContext::new(world.state().time, None)).unwrap();
+        StagedBootstrapCatalogDefaults.stage_in_root(&mut root).unwrap();
+        pub_transition.stage_in_root(&mut root).unwrap();
+        assert_eq!(root.staged_count(), 2);
+        root.finish_prepare()
+    };
+    prepared.install_confirmed(&mut world, DurableCommitConfirmation::Confirmed).unwrap();
+    assert_eq!(world.agent_resource_balance("payer", ResourceKind::Electricity).unwrap(), 44);
+    assert_eq!(world.agent_resource_balance("payer", ResourceKind::Data).unwrap(), 25);
+    assert!(world.material_profile("iron_ore").is_some());
+    assert!(world.product_profile("iron_ingot").is_some());
+    assert!(world.recipe_profile("recipe.smelter.iron_ingot").is_some());
+}
+

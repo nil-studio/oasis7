@@ -16,6 +16,8 @@ pub(in crate::world) mod staged_industrial;
 mod staged_institutions;
 #[path = "../../domains/institutions/staged_governance.rs"]
 mod staged_institutions_governance;
+#[path = "../../domains/monetary/staged_publication.rs"]
+pub(crate) mod staged_monetary;
 use staged_industrial::StagedIndustrialPublication;
 use staged_institutions::StagedInstitutionsPublication;
 use staged_institutions_governance::StagedInstitutionsGovernanceTransition;
