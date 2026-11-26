@@ -219,9 +219,7 @@ impl OriginalPendingProducerV1 {
         }
         self.requests.retain(|original| {
             !self.action_bindings.get(&original.identity).is_some_and(|node_bytes| {
-                exact_frozen_actions
-                    .iter()
-                    .any(|actual| node_bytes.as_slice() == *actual)
+                exact_frozen_actions.contains(&node_bytes.as_slice())
             })
         });
         self.action_bindings.retain(|identity, _| {
