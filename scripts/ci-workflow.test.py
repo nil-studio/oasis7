@@ -311,6 +311,9 @@ def portable_cache_container_layout(job, kind):
     """Validate the finite container ABI before reusing the original save guards."""
     image = {'browser': 'ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9',
              'worker': 'ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3'}[kind]
+    published_worker = 'ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb'
+    if kind == 'worker' and ('      image: ghcr.io/nil-studio/oasis7/' + published_worker + '\n') in job:
+        image = published_worker
     container = ('    container:\n      image: ghcr.io/nil-studio/oasis7/' + image +
                  '\n      credentials:\n        username: ${{ github.actor }}\n        password: ${{ github.token }}\n'
                  '      options: --user 1001:1001 --init' +
