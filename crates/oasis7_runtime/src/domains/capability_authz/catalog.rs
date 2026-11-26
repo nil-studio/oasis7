@@ -210,9 +210,7 @@ impl World {
     ) -> Result<CapabilityInvocationContext, WorldError> {
         let (_, invocation) =
             self.capability_context_for_agent(agent_id, presenter, response_nonce)?;
-        let mut staged = self.clone();
-        staged.install_capability_invocation_context(invocation.clone())?;
-        *self = staged;
+        self.install_capability_invocation_context(invocation.clone())?;
         Ok(invocation)
     }
 

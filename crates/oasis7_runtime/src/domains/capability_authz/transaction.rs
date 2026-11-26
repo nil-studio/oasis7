@@ -5,14 +5,13 @@ use std::cell::RefCell;
 
 use crate::capability_authorization::{CapabilityAuthorizationAuditReceipt, CapabilityInvocationContext};
 use crate::world::capability_authorization_command_stage::TrustedCommandDelta;
-use crate::world::transition::{BorrowedWorldView, PreparedStagedCommit, StagedTransition, TransitionContext, TransitionReject};
-use crate::{CapabilityAuthorizationEvent, WorldError, WorldEventBody};
+use crate::world::transition::{BorrowedWorldView, DurableCommitConfirmation, PreparedStagedCommit, StagedTransition, TransitionContext, TransitionReject};
+use crate::WorldError;
 use super::World;
 use super::capability_authorization::{deny, validate_invocation_context};
 use super::super::capability_authorization_events::capability_invocation_context_key;
 use oasis7_wasm_abi::{AgentCommandResponse, CapabilityCatalogSnapshot, CapabilityGrantV2, ModuleSandbox};
 
-#[allow(dead_code)] // adapter: #6142
 pub(crate) struct StagedTrustedModuleCommandWithContext<'a> {
     pub(crate) grant: CapabilityGrantV2,
     pub(crate) catalog: CapabilityCatalogSnapshot,
@@ -22,7 +21,6 @@ pub(crate) struct StagedTrustedModuleCommandWithContext<'a> {
     pub(crate) receipt: RefCell<Option<CapabilityAuthorizationAuditReceipt>>,
 }
 
-#[allow(dead_code)] // adapter: #6142
 impl<'a> StagedTrustedModuleCommandWithContext<'a> {
     pub(crate) fn new(grant: CapabilityGrantV2, catalog: CapabilityCatalogSnapshot, response: AgentCommandResponse, context: CapabilityInvocationContext, sandbox: &'a mut dyn ModuleSandbox) -> Self {
         Self { grant, catalog, response, context, sandbox: RefCell::new(sandbox), receipt: RefCell::new(None) }
@@ -63,35 +61,21 @@ impl World {
         catalog: CapabilityCatalogSnapshot,
         response: AgentCommandResponse,
         context: CapabilityInvocationContext,
-        executor: &mut E,
+        _executor: &mut E,
         sandbox: &mut dyn ModuleSandbox,
     ) -> Result<CapabilityAuthorizationAuditReceipt, WorldError> {
-        self.verify_capability_authorization_root()?;
-        validate_invocation_context(&context)?;
-        let key = capability_invocation_context_key(&context)?;
-        if let Some(existing) = self.capability_invocation_contexts.get(&key)
-            && existing != &context
-        {
-            return Err(deny("invocation context is immutable"));
+        let staged = StagedTrustedModuleCommandWithContext::new(
+            grant, catalog, response, context, sandbox,
+        );
+        let commit = staged
+            .prepare(&BorrowedWorldView::new(self)?, &TransitionContext::default())
+            .map_err(TransitionReject::into_world_error)?;
+        if self.take_fail_next_append_after_publication_prepare_for_test() {
+            return Err(deny("injected append_event failure after publication preparation"));
         }
-        let mut staged = self.clone();
-        let already_installed = staged.capability_invocation_contexts.contains_key(&key);
-        staged
-            .capability_invocation_contexts
-            .entry(key.clone())
-            .or_insert_with(|| context.clone());
-        staged.refresh_capability_authorization_root()?;
-        let receipt =
-            staged.execute_trusted_module_command(grant, catalog, response, executor, sandbox)?;
-        if !already_installed {
-            staged.append_event(
-                WorldEventBody::CapabilityAuthorization(
-                    CapabilityAuthorizationEvent::InvocationContextInstalled { key, context },
-                ),
-                None,
-            )?;
-        }
-        *self = staged;
-        Ok(receipt)
+        commit
+            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
+            .map_err(TransitionReject::into_world_error)?;
+        Ok(staged.take_receipt().expect("staged trusted command receipt"))
     }
 }

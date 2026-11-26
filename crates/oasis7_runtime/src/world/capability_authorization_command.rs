@@ -44,14 +44,25 @@ impl World {
         let (receipt, prepared) = self.prepare_trusted_module_command_with_staged_context(
             grant, catalog, response, sandbox, None,
         )?;
-        if let Some(prepared) = prepared {
+        if let Some(mut prepared) = prepared {
             if self.take_fail_next_append_after_publication_prepare_for_test() {
                 return Err(WorldError::ResourceBalanceInvalid {
                     reason: "injected append_event failure after publication preparation"
                         .to_string(),
                 });
             }
-            prepared.install(self)?;
+            let base_head = prepared.base_head.clone();
+            let consensus_record = prepared.consensus_record.take();
+            super::transition::PreparedStagedCommit::new(
+                base_head,
+                consensus_record,
+                super::capability_authorization_command_stage::TrustedCommandDelta(prepared),
+            )
+            .install_confirmed_unchecked_head(
+                self,
+                super::transition::DurableCommitConfirmation::Confirmed,
+            )
+            .map_err(super::transition::TransitionReject::into_world_error)?;
         }
         Ok(receipt)
     }
