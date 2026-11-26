@@ -21,12 +21,6 @@ const PRODUCTION_SOURCE_LINE_LIMIT = 1200;
 const TEST_SOURCE_LINE_LIMIT = 1600;
 
 const knownLineDebt = new Map(Object.entries({
-  "crates/oasis7_viewer/viewer.html": {
-    maxLines: 2842,
-    owner: "viewer_engineer",
-    reason: "task_4b9393c487e244e4bf5f2811eb5ef95c adds one bounded Next Step hierarchy treatment while preserving the canonical and compat HTML contract; extracting unrelated shell styles would broaden the visual-polish task",
-    nextTrigger: "the next Viewer inline-style or document-shell behavior change must extract a coherent style/token boundary or record a narrower owner-tagged exemption",
-  },
   "crates/oasis7_viewer/software_safe_src/legacy_core.js": {
     maxLines: 4445,
     owner: "viewer_engineer",
