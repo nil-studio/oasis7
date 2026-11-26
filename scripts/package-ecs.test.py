@@ -5,6 +5,7 @@ import argparse
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -971,7 +972,19 @@ class PackageTests(unittest.TestCase):
         self.assertIn("--web output/web", text)
         self.assertNotIn("build-game-launcher-bundle", text)
         self.assertNotIn("crates/oasis7_client_launcher", text)
-        self.assertIn("save-if: ${{ job.status == 'success' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}", text)
+        host_cache = text.split("      - name: Install host dependency cache admission", 1)[1].split("      - name: Install trusted image dependency cache admission", 1)[0]
+        self.assertIn("if: github.job == 'native' &&", host_cache)
+        self.assertIn("shared-key: oasis7-ecs-native-linux-ecs-v2", host_cache)
+        self.assertIn("save-if: false", host_cache)
+        image_cache = text.split("      - name: Install trusted image dependency cache admission", 1)[1].split("      - name: Identify ECS workspace cache", 1)[0]
+        self.assertIn("run: /usr/bin/python3 scripts/ci-rust-cache-admission.py install-release", image_cache)
+        self.assertIn("NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}", image_cache)
+        self.assertIn("OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.image-dependency-cache-tools.outputs.python }}", image_cache)
+        self.assertIn("save-if: ${{ job.status == 'success' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}", image_cache)
+        trusted = text.split("  native-trusted:\n", 1)[1].split("  cache-maintenance:\n", 1)[0]
+        digest = re.search(r'ci-rust-build@sha256:([0-9a-f]{64})', trusted).group(1)
+        self.assertIn("RUST_ECS_NATIVE_IMAGE: *ecs-native-trusted-image", trusted)
+        self.assertIn(f"ECS_NATIVE_DEPENDENCY_NAMESPACE: oasis7-ecs-native-image-{digest}", trusted)
         self.assertIn("!cancelled() && needs.web.result == 'success'", text)
         self.assertIn("needs.native.result == 'success' && needs.native-trusted.result == 'skipped'", text)
         self.assertIn("needs.native.result == 'skipped' && needs.native-trusted.result == 'success'", text)

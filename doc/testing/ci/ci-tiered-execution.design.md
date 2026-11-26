@@ -867,6 +867,8 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7; [cache capacity require
 
 The fixed Linux native `ecs` profile uses a separate `ecs-workspace-v2` family. Reuse the complete Cargo unit/fingerprint and source content/mtime checks in `ci-test-artifacts.py`, without its Formal package list. Identity covers toolchain, target, profile, features, flags, Cargo configuration and manifest/lock/helper inputs. Immutable source keys have a separate compatible restore prefix.
 
+The trusted `native-trusted` writer pins its Rust build image. The workspace compatibility identity includes the image digest through its Rust environment, and dependency cache entries use a separately registered digest namespace with the existing trusted upload admission. The host candidate keeps its own dependency namespace and has no write authority. Both producer modes still provide the original same-run native stage and separate ECS cold-entry probe.
+
 Only the current main workflow native writer saves after native success; consumers are read-only and saving does not depend on Web success. The v2 archive has its own restore prefix; a v1 directory is never interpreted as a v2 payload.
 
 The staging logical-byte limit is 6 GiB. A single conservative upload bound is limited to 1 GiB, the two-generation resident target is 2 GiB, and the temporary third-generation write ceiling is 3 GiB.
