@@ -1,5 +1,5 @@
 #[cfg(test)]
-#[path = "../../oasis7/src/world_service/formal_read_fixtures.rs"]
+#[path = "host/formal_read_fixtures.rs"]
 mod formal_read_fixtures;
 
 use std::collections::BTreeMap;
