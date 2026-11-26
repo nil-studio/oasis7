@@ -570,7 +570,6 @@ fn current_crisis_foreign_parent_pool_aborts() {
     ));
 }
 
-
 #[test]
 fn current_crisis_missing_parent_merkle_page_preserves_source_error_and_aborts() {
     use oasis7_formal_protocol::incremental_execution::ExecutionError;
@@ -587,7 +586,8 @@ fn current_crisis_missing_parent_merkle_page_preserves_source_error_and_aborts()
         ExecutionTransaction::begin(parent, [96; 32], &f.pages, &f.memory, limits()).unwrap();
     // An actual parent Merkle page disappears after qualification; the caller
     // must see its original source error rather than an absent Crisis record.
-    f.pages.remove(blake3::Hash::from_hex(&root).unwrap().as_bytes());
+    f.pages
+        .remove(blake3::Hash::from_hex(&root).unwrap().as_bytes());
     let guard = tx.guard();
     let live = tx.parent_fence();
     let mut io = io();
