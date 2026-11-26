@@ -248,6 +248,18 @@ class PortableContainerContract(unittest.TestCase):
         authority.browser_archive_cache_writer(jobs['browser-archive-cache'])
         authority.worker_tool_cache_writer(jobs['worker-build-cache'])
 
+    def test_worker_accepts_only_two_published_image_pins(self):
+        old = 'ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3'
+        new = 'ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb'
+        job = self.jobs()['worker-build-cache']
+        for pin in (old, new):
+            with self.subTest(pin=pin):
+                authority.worker_tool_cache_writer(job.replace(old, pin))
+        for pin in (new.replace('068f', '168f', 1), new.replace('ci-rust-build@', 'ci-runtime@'),
+                    new.replace('ci-rust-build@', 'foreign/ci-rust-build@')):
+            with self.subTest(rejected=pin), self.assertRaises(AssertionError):
+                authority.worker_tool_cache_writer(job.replace(old, pin))
+
     def test_image_mount_uid_role_and_scope_mutations_fail_closed(self):
         for kind, job in self.jobs().items():
             mode = 'browser' if kind == 'browser-archive-cache' else 'worker'

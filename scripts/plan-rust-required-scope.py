@@ -4373,6 +4373,20 @@ def _ordinary_packages_support_universal_v2(config, packages):
     return sum(1 for row in harnesses if row['package'] in packages) >= 4
 
 
+def _ordinary_runtime_full_requires_host_docker(plan):
+    if (plan.get('test_policy_changed') is True
+            and isinstance(plan.get('oasis7_required_packages'), list)
+            and 'oasis7_runtime' in plan['oasis7_required_packages']):
+        return True
+    risk_targets = plan.get('ordinary_risk_targets')
+    return isinstance(risk_targets, list) and any(
+        isinstance(target, dict)
+        and target.get('package') == 'oasis7_runtime'
+        and target.get('target_kind') == 'lib'
+        for target in risk_targets
+    )
+
+
 SCALE_EXPRESSION_MACROS = frozenset(('format', 'vec', 'assert', 'assert_eq', 'assert_ne', 'matches', 'panic'))
 
 
@@ -4529,6 +4543,7 @@ def complete_ordinary_partitions(config, plan):
         and all(package in plan['oasis7_required_packages'] for package in (
             'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
     )
+    runtime_full_requires_docker = _ordinary_runtime_full_requires_host_docker(plan)
     universal_v2 = (
         config.get('ordinary_universal_sharding_version') == ORDINARY_UNIVERSAL_SHARDING_VERSION
         and config.get('ordinary_artifact_delivery_version') == 2
@@ -4536,6 +4551,7 @@ def complete_ordinary_partitions(config, plan):
         and plan['scope'] == 'targeted'
         and plan.get('execution_profile') in ('pr-fast', 'main-fast')
         and type(plan.get('test_policy_changed')) is bool
+        and not runtime_full_requires_docker
         and 'ordinary_fast_targets' not in plan
         and 'ordinary_full_fast_targets' not in plan
         and isinstance(plan.get('oasis7_required_packages'), list)
@@ -4547,6 +4563,7 @@ def complete_ordinary_partitions(config, plan):
             and 'oasis7_required' in plan['groups']
             and plan.get('ordinary_execution') != 'inline'):
         if (config.get('ordinary_artifact_partition_version') == 2
+                and not runtime_full_requires_docker
                 and ((
                     (plan['scope'] == 'targeted' or (
                         plan['scope'] == 'full' and config.get('ordinary_artifact_delivery_version') == 2))
