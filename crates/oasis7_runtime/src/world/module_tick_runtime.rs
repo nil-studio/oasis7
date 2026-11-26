@@ -346,13 +346,12 @@ impl World {
             if let Some(wake) = next_tick {
                 staged.schedule_tick(instance_id.clone(), wake);
             }
-            staged.append_event(
-                WorldEventBody::Domain(DomainEvent::ModuleTickScheduleUpdated {
+            staged.append_event(WorldEventBody::Domain(
+                DomainEvent::ModuleTickScheduleUpdated {
                     instance_id,
                     next_tick,
-                }),
-                None,
-            )?;
+                },
+            ))?;
         }
         staged.record_tick_routing_metrics(
             schedule_len,
