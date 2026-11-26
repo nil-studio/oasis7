@@ -272,6 +272,14 @@ impl<T> VerifiedFormalBftHeaderReadPageV4<T> {
         original: &BftSuccessorWindowSourceV1,
         selected: &FormalBftOriginalSuccessorCutPinV1,
     ) -> Result<(), String> {
+        let qualified = self.proof.handoff();
+        check_original_source_against_qualified_h(
+            original,
+            &qualified.target().scope,
+            qualified.handoff_position(),
+            &qualified.handoff_head().record_id,
+            qualified.raw_snapshot_root(),
+        )?;
         check_untrusted_original_successor_cut(
             &self.request,
             &self.response.head,
@@ -283,6 +291,27 @@ impl<T> VerifiedFormalBftHeaderReadPageV4<T> {
 
 // Private structural check; only the VerifiedFormalBftHeaderReadPageV4 method
 // exposes this to callers, after the full read4 proof has been checked.
+// Qualified H is independent of the caller's source/pin. Comparing those
+// two untrusted objects only to each other would allow a foreign chain_id
+// with a recomputed origin digest to masquerade as the same original source.
+fn check_original_source_against_qualified_h(
+    original: &BftSuccessorWindowSourceV1,
+    scope: &oasis7_proto::distributed_bft::v2::BftScopeV2,
+    handoff_position: u64,
+    handoff_record_id: &str,
+    handoff_snapshot_root: &str,
+) -> Result<(), String> {
+    original.validate()?;
+    if &original.scope != scope
+        || original.handoff_position != handoff_position
+        || original.handoff_record_id != handoff_record_id
+        || original.handoff_snapshot_root != handoff_snapshot_root
+    {
+        return Err("original successor source differs from verified H".into());
+    }
+    Ok(())
+}
+
 // The original source/H and selected cut are checked before any signed HTTP
 // request is sent. The same check is repeated on the returned verified page.
 // This is structural trust pinning, not a replacement for read4 certificates.
@@ -413,6 +442,18 @@ impl FormalBftHeaderReadClientV4 {
         original: &BftSuccessorWindowSourceV1,
         selected: &FormalBftOriginalSuccessorCutPinV1,
     ) -> Result<VerifiedFormalBftHeaderReadPageV4<T>, WorldServiceClientError> {
+        // The independently qualified H wins over both caller-controlled
+        // source and cut pin; a matching pair from a foreign chain is denied
+        // even when its origin digest was recomputed consistently.
+        let qualified = &self.verifier.handoff;
+        check_original_source_against_qualified_h(
+            original,
+            &qualified.target().scope,
+            qualified.handoff_position(),
+            &qualified.handoff_head().record_id,
+            qualified.raw_snapshot_root(),
+        )
+        .map_err(WorldServiceClientError::Assurance)?;
         // This fixed nonce is used *only* to validate the local immutable
         // request shape. It is never signed or transmitted. read() obtains
         // a fresh OS nonce for the one actual signed read4 request.
@@ -519,6 +560,50 @@ mod tests {
         let mut wrong_source = original.clone();
         wrong_source.scope.world_id = "foreign".into();
         assert!(check_untrusted_original_source_pin(&request, &wrong_source, &selected).is_err());
+
+        assert!(
+            check_original_source_against_qualified_h(
+                &original,
+                &original.scope,
+                original.handoff_position,
+                &original.handoff_record_id,
+                &original.handoff_snapshot_root,
+            )
+            .is_ok()
+        );
+        // The old pairwise checks would accept a foreign chain if the caller
+        // also recalculated the origin pin. The independently verified H must
+        // block that pair *before* network access or publication of a view.
+        let mut foreign_chain = original.clone();
+        foreign_chain.scope.chain_id = "foreign-chain".into();
+        let mut matching_foreign_pin = selected.clone();
+        matching_foreign_pin.source_origin_digest = foreign_chain.origin_digest().unwrap();
+        assert!(
+            check_untrusted_original_source_pin(&request, &foreign_chain, &matching_foreign_pin)
+                .is_ok()
+        );
+        assert!(
+            check_original_source_against_qualified_h(
+                &foreign_chain,
+                &original.scope,
+                original.handoff_position,
+                &original.handoff_record_id,
+                &original.handoff_snapshot_root,
+            )
+            .is_err()
+        );
+        foreign_chain = original.clone();
+        foreign_chain.handoff_snapshot_root = hash(29);
+        assert!(
+            check_original_source_against_qualified_h(
+                &foreign_chain,
+                &original.scope,
+                original.handoff_position,
+                &original.handoff_record_id,
+                &original.handoff_snapshot_root,
+            )
+            .is_err()
+        );
 
         let check = |request: &FormalBftHeaderReadRequestV4,
                      head: &oasis7_client_api::world_service::FormalBftHeaderReadHeadV4,
