@@ -7,14 +7,14 @@ use crate::runtime::MajorWorldEventVisibilityPermission;
 #[cfg(test)]
 use crate::runtime::MaterialLedgerId;
 #[cfg(test)]
-use crate::simulator::RuntimePerfHealth;
-use crate::simulator::RuntimePerfSnapshot;
-use crate::simulator::unsupported_runtime_perf_snapshot;
-#[cfg(test)]
 use crate::viewer::gameplay_actions::{
     STARTER_INDUSTRIAL_ELECTRICITY, formal_release_default_seed_model,
 };
-use oasis7_simulator::{ChunkRuntimeConfig, WorldModel};
+#[cfg(test)]
+use oasis7_simulator::RuntimePerfHealth;
+use oasis7_simulator::{
+    ChunkRuntimeConfig, RuntimePerfSnapshot, WorldModel, unsupported_runtime_perf_snapshot,
+};
 
 use super::*;
 
