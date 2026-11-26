@@ -1,9 +1,9 @@
 use super::*;
-use oasis7_simulator::AgentDecision;
 use oasis7_agent_api::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
     ProviderExecutionMode,
 };
+use oasis7_simulator::AgentDecision;
 use oasis7_simulator::ResourceOwner;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{TcpListener, TcpStream};
