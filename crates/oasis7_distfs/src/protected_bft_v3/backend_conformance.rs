@@ -4,9 +4,7 @@
 //! power-loss durability, or anti-rollback protection. An environment owner
 //! must separately qualify those properties on the actual protected device.
 //! Never call this mutating diagnostic with a production namespace or lease.
-use super::backend::{
-    BftSignerAcquireOutcomeV3, BftSignerBackendSnapshotV3, BftSignerBackendV3,
-};
+use super::backend::{BftSignerAcquireOutcomeV3, BftSignerBackendSnapshotV3, BftSignerBackendV3};
 use super::binding::{BftSignerErrorV3, invalid};
 
 fn canonical_digest(value: &str) -> bool {
@@ -27,7 +25,9 @@ fn check_snapshot(
         || (!snapshot.lease_token_digest.is_empty()
             && !canonical_digest(&snapshot.lease_token_digest))
     {
-        return Err(invalid("protected backend test snapshot identity or bounds"));
+        return Err(invalid(
+            "protected backend test snapshot identity or bounds",
+        ));
     }
     Ok(())
 }
@@ -39,7 +39,9 @@ fn expect_acquired(
     binding: &str,
 ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
     let BftSignerAcquireOutcomeV3::Acquired(next) = outcome else {
-        return Err(invalid("protected backend test namespace was not exclusively acquired"));
+        return Err(invalid(
+            "protected backend test namespace was not exclusively acquired",
+        ));
     };
     check_snapshot(&next, binding)?;
     if next.lease_generation <= predecessor.lease_generation
@@ -47,7 +49,9 @@ fn expect_acquired(
         || next.protected_time_floor_ms < predecessor.protected_time_floor_ms
         || next.state != predecessor.state
     {
-        return Err(invalid("protected backend lease acquire changed original state or floor"));
+        return Err(invalid(
+            "protected backend lease acquire changed original state or floor",
+        ));
     }
     Ok(next)
 }
@@ -63,7 +67,9 @@ fn expect_released(
         || next.protected_time_floor_ms < predecessor.protected_time_floor_ms
         || next.state != predecessor.state
     {
-        return Err(invalid("protected backend lease release changed original state or floor"));
+        return Err(invalid(
+            "protected backend lease release changed original state or floor",
+        ));
     }
     Ok(())
 }
@@ -91,7 +97,9 @@ pub fn exercise_disposable_backend_lease_handoff_v3(
         || !canonical_digest(second_token_digest)
         || first_token_digest == second_token_digest
     {
-        return Err(invalid("protected backend test requires distinct canonical identities"));
+        return Err(invalid(
+            "protected backend test requires distinct canonical identities",
+        ));
     }
 
     let before = first.load_provisioned(binding_digest)?;
@@ -101,11 +109,7 @@ pub fn exercise_disposable_backend_lease_handoff_v3(
     }
 
     let first_lease = expect_acquired(
-        first.acquire_lease(
-            binding_digest,
-            before.lease_generation,
-            first_token_digest,
-        )?,
+        first.acquire_lease(binding_digest, before.lease_generation, first_token_digest)?,
         &before,
         first_token_digest,
         binding_digest,
@@ -114,8 +118,7 @@ pub fn exercise_disposable_backend_lease_handoff_v3(
         return Err(invalid("protected backend first lease readback differs"));
     }
 
-    let sampled_time =
-        first.protected_time_ms(first_lease.lease_generation, first_token_digest)?;
+    let sampled_time = first.protected_time_ms(first_lease.lease_generation, first_token_digest)?;
     let timed = first.read_for_lease(first_lease.lease_generation, first_token_digest)?;
     if sampled_time < first_lease.protected_time_floor_ms
         || timed.protected_time_floor_ms < sampled_time
@@ -123,7 +126,9 @@ pub fn exercise_disposable_backend_lease_handoff_v3(
         || timed.lease_generation != first_lease.lease_generation
         || timed.lease_token_digest != first_token_digest
     {
-        return Err(invalid("protected backend time floor did not survive exact readback"));
+        return Err(invalid(
+            "protected backend time floor did not survive exact readback",
+        ));
     }
 
     let released = first.release_lease(first_lease.lease_generation, first_token_digest)?;
@@ -132,15 +137,13 @@ pub fn exercise_disposable_backend_lease_handoff_v3(
     let mut second = reopen()?;
     let cold = second.load_provisioned(binding_digest)?;
     if cold != released {
-        return Err(invalid("protected backend cold reopening changed exact original state"));
+        return Err(invalid(
+            "protected backend cold reopening changed exact original state",
+        ));
     }
 
     let second_lease = expect_acquired(
-        second.acquire_lease(
-            binding_digest,
-            cold.lease_generation,
-            second_token_digest,
-        )?,
+        second.acquire_lease(binding_digest, cold.lease_generation, second_token_digest)?,
         &cold,
         second_token_digest,
         binding_digest,
@@ -167,24 +170,25 @@ pub fn exercise_disposable_backend_lease_handoff_v3(
     {
         return Err(invalid("protected backend stale owner remains authorized"));
     }
-    if second.read_for_lease(second_lease.lease_generation, second_token_digest)?
-        != second_lease
-    {
-        return Err(invalid("protected backend new owner lost exact lease readback"));
+    if second.read_for_lease(second_lease.lease_generation, second_token_digest)? != second_lease {
+        return Err(invalid(
+            "protected backend new owner lost exact lease readback",
+        ));
     }
-    let final_release =
-        second.release_lease(second_lease.lease_generation, second_token_digest)?;
+    let final_release = second.release_lease(second_lease.lease_generation, second_token_digest)?;
     expect_released(&final_release, &second_lease, binding_digest)?;
     if second.load_provisioned(binding_digest)? != final_release {
-        return Err(invalid("protected backend final release is not independently readable"));
+        return Err(invalid(
+            "protected backend final release is not independently readable",
+        ));
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::state::BftSignerStateV3;
+    use super::*;
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone)]
@@ -196,7 +200,11 @@ mod tests {
 
     impl SoftwareOnlyFixture {
         fn load(&self) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
-            Ok(self.shared.lock().map_err(|_| invalid("fixture lock"))?.clone())
+            Ok(self
+                .shared
+                .lock()
+                .map_err(|_| invalid("fixture lock"))?
+                .clone())
         }
     }
 
@@ -222,8 +230,7 @@ mod tests {
             if state.state.binding_digest != binding_digest {
                 return Err(invalid("wrong namespace"));
             }
-            if state.lease_generation != expected_generation
-                || !state.lease_token_digest.is_empty()
+            if state.lease_generation != expected_generation || !state.lease_token_digest.is_empty()
             {
                 return Ok(BftSignerAcquireOutcomeV3::Conflict(state.clone()));
             }
@@ -255,8 +262,7 @@ mod tests {
         ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
             let state = self.load()?;
             if !self.permit_stale_read
-                && (state.lease_generation != generation
-                    || state.lease_token_digest != token)
+                && (state.lease_generation != generation || state.lease_token_digest != token)
             {
                 return Err(invalid("stale owner"));
             }
@@ -301,7 +307,8 @@ mod tests {
             "history":[], "journal":null, "completed_journals":[],
             "pending_driver_apply":null, "applied_installs":[],
             "state_digest":"22".repeat(32)
-        })).unwrap();
+        }))
+        .unwrap();
         SoftwareOnlyFixture {
             shared: Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
                 state,
@@ -334,13 +341,16 @@ mod tests {
         let mut first = fixture();
         first.permit_stale_read = true;
         let factory = first.clone();
-        assert!(exercise_disposable_backend_lease_handoff_v3(
-            &mut first,
-            move || Ok(Box::new(factory)),
-            &"11".repeat(32),
-            &"33".repeat(32),
-            &"44".repeat(32),
-        ).is_err());
+        assert!(
+            exercise_disposable_backend_lease_handoff_v3(
+                &mut first,
+                move || Ok(Box::new(factory)),
+                &"11".repeat(32),
+                &"33".repeat(32),
+                &"44".repeat(32),
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -348,34 +358,43 @@ mod tests {
         let mut first = fixture();
         first.permit_stale_cas = true;
         let factory = first.clone();
-        assert!(exercise_disposable_backend_lease_handoff_v3(
-            &mut first,
-            move || Ok(Box::new(factory)),
-            &"11".repeat(32),
-            &"33".repeat(32),
-            &"44".repeat(32),
-        ).is_err());
+        assert!(
+            exercise_disposable_backend_lease_handoff_v3(
+                &mut first,
+                move || Ok(Box::new(factory)),
+                &"11".repeat(32),
+                &"33".repeat(32),
+                &"44".repeat(32),
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn contract_refuses_reopened_state_rollback_and_invalid_tokens() {
         let mut first = fixture();
         let rolled_back = fixture();
-        assert!(exercise_disposable_backend_lease_handoff_v3(
-            &mut first,
-            move || Ok(Box::new(rolled_back)),
-            &"11".repeat(32),
-            &"33".repeat(32),
-            &"44".repeat(32),
-        ).is_err());
+        assert!(
+            exercise_disposable_backend_lease_handoff_v3(
+                &mut first,
+                move || Ok(Box::new(rolled_back)),
+                &"11".repeat(32),
+                &"33".repeat(32),
+                &"44".repeat(32),
+            )
+            .is_err()
+        );
         let mut fresh = fixture();
-        assert!(exercise_disposable_backend_lease_handoff_v3(
-            &mut fresh,
-            || Err(invalid("should not open")),
-            &"11".repeat(32),
-            &"33".repeat(32),
-            &"33".repeat(32),
-        ).is_err());
+        assert!(
+            exercise_disposable_backend_lease_handoff_v3(
+                &mut fresh,
+                || Err(invalid("should not open")),
+                &"11".repeat(32),
+                &"33".repeat(32),
+                &"33".repeat(32),
+            )
+            .is_err()
+        );
         assert_eq!(fresh.load().unwrap().lease_generation, 1);
     }
 }
