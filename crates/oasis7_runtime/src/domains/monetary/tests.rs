@@ -10,8 +10,8 @@ use crate::world::transition::{
     TransitionContext, TransitionReject,
 };
 use crate::{
-    Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, DomainEvent, ModuleRuntimeChargeEvent,
-    ResourceDelta, World, WorldError, WorldEventBody,
+    Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, DomainEvent, GeoPos,
+    ModuleRuntimeChargeEvent, ResourceDelta, World, WorldError, WorldEventBody,
 };
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_domain_types::rule_settlement::RuleActionDisposition;
@@ -389,7 +389,7 @@ fn staged_root_transaction_composes_rule_fee_and_cognition_lease_with_nested_sav
 fn register_test_agent(world: &mut World, agent_id: &str) {
     world.submit_action(Action::RegisterAgent {
         agent_id: agent_id.to_string(),
-        pos: oasis7_agent_api::world_geometry::GeoPos::new(0.0, 0.0, 0.0),
+        pos: GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
 }

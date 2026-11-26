@@ -33,7 +33,7 @@ struct PreparedEventPublication {
 }
 
 impl World {
-    pub(in crate::world) fn append_event(
+    pub(crate) fn append_event(
         &mut self,
         body: WorldEventBody,
         caused_by: Option<CausedBy>,

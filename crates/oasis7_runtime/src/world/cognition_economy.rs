@@ -417,6 +417,7 @@ impl CognitionEconomyStateV1 {
     /// Reserve against one exact Runtime provisioning binding. The binding is
     /// supplied by `World`, which derives it from the current capability
     /// identity and runtime world/reorg tuple.
+    #[cfg_attr(not(test), expect(dead_code, reason = "legacy wrapper removed in #6143 PR 4/4"))]
     pub(crate) fn reserve_for_binding(
         &mut self,
         request: CognitionLeaseRequestV1,

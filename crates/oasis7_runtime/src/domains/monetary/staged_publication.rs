@@ -26,6 +26,7 @@ use crate::{
     WorldEvent, WorldEventBody, WorldEventId,
 };
 
+#[cfg_attr(not(test), expect(dead_code, reason = "cutover in #6143 PR 4/4"))]
 pub(crate) enum StagedMonetaryPublication<'a> {
     EconomyData(&'a DomainEvent),
     PowerRedemption(&'a DomainEvent),
@@ -42,6 +43,7 @@ pub(crate) enum StagedMonetaryPublication<'a> {
 }
 
 impl<'a> StagedMonetaryPublication<'a> {
+    #[cfg_attr(not(test), expect(dead_code, reason = "cutover in #6143 PR 4/4"))]
     pub(crate) fn from_body(body: &'a WorldEventBody) -> Option<Self> {
         match body {
             WorldEventBody::ModuleRuntimeCharged(charge) => Some(Self::ModuleRuntimeCharged(charge)),
@@ -147,7 +149,7 @@ impl SynchronousEventTransition for StagedMonetaryPublication<'_> {
 
 impl World {
     #[cfg_attr(not(test), expect(dead_code, reason = "cutover in #6143 PR 4/4"))]
-    pub(in crate::world) fn append_staged_monetary_event(&mut self, transition: StagedMonetaryPublication<'_>, caused_by: Option<CausedBy>) -> Result<WorldEventId, WorldError> {
+    pub(crate) fn append_staged_monetary_event(&mut self, transition: StagedMonetaryPublication<'_>, caused_by: Option<CausedBy>) -> Result<WorldEventId, WorldError> {
         publish_synchronous_event(self, &transition, &TransitionContext::new(self.state.time, caused_by))
     }
 }
