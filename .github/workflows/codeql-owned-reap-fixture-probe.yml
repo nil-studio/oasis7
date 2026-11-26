@@ -1,0 +1,70 @@
+name: CodeQL owned-group reap fixture proof
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/reap-fixture-proof-base]
+    paths: [.github/workflows/codeql-owned-reap-fixture-probe.yml]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+jobs:
+  controlled-linux:
+    if: github.repository == 'nil-studio/oasis7' && github.base_ref == 'codex/reap-fixture-proof-base' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/reap-fixture-proof'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3899be1110d7a2d1a4972c5f0001b2c0d9fb721f
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Run old red and new green on real Linux child exits without TERM delivery
+        run: |
+          test "$(git rev-parse HEAD)" = 3899be1110d7a2d1a4972c5f0001b2c0d9fb721f
+          test "$(git rev-parse HEAD^)" = "$(git show -s --format=%P 3899be1110d7a2d1a4972c5f0001b2c0d9fb721f)"
+          test -z "$(git status --porcelain)"
+          python3 -I - <<'PY'
+          import io, os, pathlib, signal, subprocess, sys, types, unittest
+          from unittest.mock import patch
+          test_name = 'test_owned_group_reap_preserves_leader_status_after_poll_race'
+          file = 'scripts/security/codeql-rust-model-diagnostic.test.py'
+          current = pathlib.Path(file).resolve()
+          sys.path.insert(0, str(current.parent))
+          old = subprocess.check_output(['git', 'show', 'HEAD^:'+file])
+          real_kill = os.killpg
+          attempted = []
+          def no_term(group, sig):
+              if sig == signal.SIGTERM:
+                  attempted.append(group)
+                  return
+              return real_kill(group, sig)
+          for source, want_old in ((old, True), (current.read_bytes(), False)):
+              case = types.ModuleType('frozen_fixture')
+              case.__file__ = str(current)
+              exec(compile(source, str(current), 'exec'), case.__dict__)
+              stream = io.StringIO()
+              first = len(attempted)
+              with patch.object(os, 'killpg', side_effect=no_term):
+                  result = unittest.TextTestRunner(stream=stream, verbosity=2).run(
+                      unittest.TestSuite([case.Runtime(test_name)]))
+              print(stream.getvalue())
+              assert len(attempted) - first == 2
+              if want_old:
+                  assert not result.errors
+                  assert any("mode='exit'" in str(subcase) and
+                             ('9 != 23' in trace or '0 != 1' in trace)
+                             for subcase, trace in result.failures)
+              else:
+                  assert result.wasSuccessful()
+          PY
+          python3 scripts/security/codeql-rust-model-diagnostic.test.py
