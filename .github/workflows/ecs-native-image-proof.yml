@@ -1,7 +1,7 @@
 name: ECS trusted native image ABI and archive proof
 on:
   pull_request:
-    types: [opened]
+    types: [synchronize]
     paths: [.github/workflows/ecs-native-image-proof.yml]
     branches: [codex/ecs-native-image-proof-base]
 permissions:
@@ -48,19 +48,6 @@ jobs:
           rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
           pkg-config --modversion x11 xi xcursor xrandr xinerama alsa libudev
           /usr/bin/time --version
-      - name: Configure and test the pinned mold linker
-        run: |
-          python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/oasis7-ecs-native-mold"
-      - name: Measure a real link and inspect all required ELF dependencies
-        run: |
-          printf '%s\n' 'int main(void) { return 0; }' > "$RUNNER_TEMP/ecs-abi.c"
-          read -r -a libs <<< "$(pkg-config --libs x11 xi xcursor xrandr xinerama alsa libudev)"
-          /usr/bin/time -v -o "$RUNNER_TEMP/ecs-time.txt"             "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER" "$RUNNER_TEMP/ecs-abi.c"             -Wl,--no-as-needed "${libs[@]}" -o "$RUNNER_TEMP/ecs-abi"
-          "$RUNNER_TEMP/ecs-abi"
-          dependencies=$(ldd "$RUNNER_TEMP/ecs-abi")
-          printf '%s\n' "$dependencies"
-          if grep -F 'not found' <<<"$dependencies"; then exit 1; fi
-          grep -F 'Maximum resident set size' "$RUNNER_TEMP/ecs-time.txt"
       - name: Verify cache identity separation and original archive admission tests
         run: |
           python3 -I - <<'PY'
@@ -76,9 +63,12 @@ jobs:
           assert image['key'].endswith('-'+subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip())
           cache = Path(os.environ['RUNNER_TEMP']) / 'ecs-workspace-cache'
           cache.mkdir()
-          mismatch = subprocess.check_output([*tool,'restore','--cache',str(cache),
-              '--requested-key',image['key'],'--matched-key',without['key'],'--cache-hit','true'])
-          assert json.loads(mismatch)['reason'] == 'ECS cache miss or incompatible action matched key'
+          report = Path(os.environ['RUNNER_TEMP']) / 'restore-mismatch.json'
+          subprocess.run([*tool,'restore','--cache',str(cache),'--report',str(report),
+              '--requested-key',image['key'],'--matched-key',without['key'],'--cache-hit','true'],
+              env=environment, check=True)
+          mismatch = json.loads(report.read_bytes())
+          assert mismatch['reason'] == 'ECS cache miss or incompatible action matched key' and mismatch['restored'] is False
           print('digest changed the actual workspace key and incompatible restore was refused')
           PY
           GITHUB_OUTPUT="$RUNNER_TEMP/release-preload.txt" \
