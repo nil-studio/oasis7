@@ -53,6 +53,8 @@ FAMILIES = {
     'formal-debug': ('ci-formal-debug-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-debug-build-trusted'),
     'formal-endpoint': ('ci-formal-endpoint-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-endpoint-build-trusted'),
     'ecs': ('oasis7-ecs-native-linux-ecs-v2', '.github/workflows/ecs-packages.yml', 'native-trusted'),
+    'ecs-image': ('oasis7-ecs-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
+                  '.github/workflows/ecs-packages.yml', 'native-trusted'),
     'release-web': ('release-packages-web-wasm-trusted-v3', '.github/workflows/rust-cache.yml', 'web-wasm-cache'),
     'release-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'release-windows': ('release-packages-package-native-Windows-native-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
@@ -178,7 +180,12 @@ def trusted_writer(environment, api):
         if (environment.get('ORDINARY_BUILD_IMAGE') != expected_image
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('ordinary dependency upload requires its exact image and GitHub provider')
-    if component_image or ordinary_image or family in ('shared-native', 'rust-image-native') or package_source:
+    if family == 'ecs-image':
+        expected_image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.removeprefix('oasis7-ecs-native-image-')
+        if (environment.get('RUST_ECS_NATIVE_IMAGE') != expected_image
+                or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
+            raise AdmissionError('ECS dependency upload requires its exact image and GitHub provider')
+    if component_image or ordinary_image or family in ('shared-native', 'rust-image-native', 'ecs-image') or package_source:
         try:
             # The plan must still describe the actual checkout after the build.
             git_environment = {key: value for key, value in environment.items()
