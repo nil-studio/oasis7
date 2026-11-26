@@ -343,11 +343,18 @@ def portable_cache_container_layout(job, kind):
     guard = ('      - name: Verify canonical portable cache container\n'
              '        run: python3 scripts/ci-portable-cache-job.py ' + kind + '\n')
     assert job.count(guard) == 1
+    checkouts = re.findall(r'^      - uses: actions/checkout@[^\n]+\n', job, re.M)
+    assert len(checkouts) == 1 and job.index(checkouts[0]) < job.index(guard)
+    first_tool = 'run: python3 scripts/ci-' + ('worker-build' if kind == 'worker' else 'browser-deps') + '.py '
+    assert job.index(guard) < job.index(first_tool), 'portable preflight must precede tool I/O'
+    if kind == 'worker':
+        assert job.index(guard) < job.index('      - name: Configure original pinned mold without writing its auxiliary cache\n')
     job = job.replace(container, '').replace(guard, '')
     if kind == 'worker':
         mold = ('      - name: Configure original pinned mold without writing its auxiliary cache\n'
                 '        run: python3 .github/actions/setup-linux-mold/setup.py --install-dir /opt/oasis7-mold/3.0.0-v1\n')
         assert job.count(mold) == 1 and 'uses: ./.github/actions/setup-linux-mold' not in job
+        assert job.index(mold) < job.index(first_tool), 'pinned mold must precede Worker preparation'
         commands, flag, count = ('metadata', 'check', 'ensure', 'admit-save'), '--root /home/runner/.cache/oasis7/worker-build/0.7.5', 4
         components = [('worker-build', 'worker-tool-admission', '${{ steps.worker-meta.outputs.root }}',
                        'worker-build-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-0.7.5-${{ steps.worker-meta.outputs.definition_sha }}')]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Frozen real two-job proposal plus hostile mutations for trusted BASE migration."""
 import importlib.util
+import re
 from pathlib import Path
 import unittest
 
@@ -265,6 +266,20 @@ class PortableContainerContract(unittest.TestCase):
                         authority.browser_archive_cache_writer(changed)
                     else:
                         authority.worker_tool_cache_writer(changed)
+
+    def test_preflight_and_mold_cannot_move_after_tool_io(self):
+        for kind, job in self.jobs().items():
+            checker = authority.browser_archive_cache_writer if kind == 'browser-archive-cache' else authority.worker_tool_cache_writer
+            steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+            names = ['Verify canonical portable cache container']
+            if kind == 'worker-build-cache':
+                names.append('Configure original pinned mold without writing its auxiliary cache')
+            for name in names:
+                step = next(step for step in steps if '- name: ' + name + '\n' in step)
+                remaining = job.replace(step, '', 1)
+                for changed in (remaining + step, step + remaining):
+                    with self.subTest(kind=kind, name=name), self.assertRaises(AssertionError):
+                        checker(changed)
 
     def test_original_prepare_admission_and_exact_key_negatives_are_preserved(self):
         for kind, job in self.jobs().items():
