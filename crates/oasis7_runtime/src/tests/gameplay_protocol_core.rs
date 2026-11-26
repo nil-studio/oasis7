@@ -266,6 +266,7 @@ fn gameplay_action_accepted_event_survives_save_and_load() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn gameplay_protocol_actions_drive_persisted_state() {
     let mut world = World::new();
@@ -372,6 +373,7 @@ fn gameplay_protocol_actions_drive_persisted_state() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn threat_heatmap_tracks_active_war_and_crisis_risk() {
     let mut world = World::new();
@@ -461,6 +463,7 @@ fn threat_heatmap_tracks_active_war_and_crisis_risk() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn declare_war_rejects_initiator_outside_aggressor_alliance() {
     let mut world = World::new();
@@ -508,6 +511,7 @@ fn declare_war_rejects_initiator_outside_aggressor_alliance() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_vote_recast_replaces_previous_tally() {
     let mut world = World::new();
@@ -541,6 +545,7 @@ fn governance_vote_recast_replaces_previous_tally() {
     assert_eq!(governance.votes_by_agent.len(), 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_vote_rejects_weight_above_cap() {
     let mut world = World::new();
@@ -579,6 +584,7 @@ fn governance_vote_rejects_weight_above_cap() {
     assert!(governance.tallies.is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_proposal_finalizes_and_rejects_late_votes() {
     let mut world = World::new();
@@ -651,6 +657,7 @@ fn governance_proposal_finalizes_and_rejects_late_votes() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_vote_enforces_identity_snapshot_cap() {
     let mut world = World::new();
@@ -705,6 +712,7 @@ fn governance_vote_enforces_identity_snapshot_cap() {
     assert_eq!(governance.total_weight, u64::from(snapshot_cap));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_vote_rejects_voter_not_in_snapshot() {
     let mut world = World::new();
@@ -727,6 +735,7 @@ fn governance_vote_rejects_voter_not_in_snapshot() {
     assert_latest_rule_denied_contains(&world, "not in governance snapshot");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_identity_penalty_and_appeal_drive_vote_rights() {
     let mut world = World::new();
@@ -780,6 +789,7 @@ fn governance_identity_penalty_and_appeal_drive_vote_rights() {
     assert_eq!(governance.total_weight, 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn crisis_cycle_spawns_and_times_out_if_unresolved() {
     let mut world = World::new();
@@ -838,6 +848,7 @@ fn crisis_cycle_spawns_and_times_out_if_unresolved() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn war_auto_concludes_after_duration() {
     let mut world = World::new();
@@ -911,6 +922,7 @@ fn war_auto_concludes_after_duration() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn alliance_join_leave_dissolve_lifecycle_updates_state() {
     let mut world = World::new();
@@ -966,6 +978,7 @@ fn alliance_join_leave_dissolve_lifecycle_updates_state() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn war_declaration_requires_mobilization_resources_and_conclusion_applies_outcomes() {
     let mut world = World::new();
@@ -1105,6 +1118,7 @@ fn war_declaration_requires_mobilization_resources_and_conclusion_applies_outcom
     assert_eq!(total_data_delta, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn meta_progress_unlocks_track_tiers() {
     let mut world = World::new();
