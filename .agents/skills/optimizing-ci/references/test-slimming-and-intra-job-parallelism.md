@@ -62,6 +62,9 @@
 3. **物理挂钟窗口串行硬红线（`#6712`、`#7057`）**：
    - 当测试强依赖真实短挂钟新鲜度/租约窗口（如 `custody-node` 中本地 `World` + `workerd` + `native` 共享 **5 秒授权窗口**）时，**严禁在 4 核 VM 内跨文件并发执行**（实测双并发 CPU 争用会导致 `source_age_ms = 5070 > 5000ms` 假阴性）；
    - 正确手段：保持分片内单文件串行零争用，将超长单文件（如 `258s` 的 `test-session-paid`、`286s` 的 `test-session.integration.test.mjs`）按既有 suite 注册入口无损拆分为两个独立 `.test.mjs` 文件（同步更新 `rejection-diagnostic.test.mjs` 静态守护列表），再交由既有分片做 LPT 权重均衡（`#7057` 已将 `validate_results()` 解耦为集合划分校验，后续可直接单 PR 刷新 `FILE_SECONDS`）。
+4. **超大 Rust `--lib` 单元目标分片内双子批与重任务优先满核调度**：
+   - 在 4 核 Runner 上，`ci-test-artifacts.py` 对多分片多作业场景采用 `workers = 2, RUST_TEST_THREADS = 2`；若单个超大 `--lib` 二进制（如 `oasis7_chain_runtime` 的 `runtime-tests` 含 `355–711` 个用例）作为单条 `batch` 作业与数秒即完的轻量集成目标同片运行，轻量目标跑完后剩余数分钟仅剩单 worker 占用 2 核（50% CPU 闲置）；
+   - 在 `ordinary_universal_sharding_version=1` 下将该分片归属的 `runtime-tests` 用例按奇偶索引无交切分为两条 `batch` 作业（保持全分片 `(binary, case)` 双射覆盖不变），并对 `v2` 分片按 `(exclusive, -max(cost_ms, runtime_slice_ms), -count, name)` 将独占单例置后、重批次优先调度，使两个 2 线程 worker 全程并行跑满 4 核。
 
 ---
 

@@ -9,6 +9,8 @@ import {
 const viewerRoot = resolve(new URL("..", import.meta.url).pathname);
 const repoRoot = resolve(viewerRoot, "..", "..");
 const sourceDir = resolve(viewerRoot, "software_safe_src");
+const viewerScriptsDir = resolve(viewerRoot, "scripts");
+const siteAssetsDir = resolve(repoRoot, "site", "assets");
 const canonicalHtmlPath = resolve(viewerRoot, "viewer.html");
 const canonicalClaimEvidencePath = resolve(viewerRoot, "viewer_first_agent_claim_evidence.html");
 const viewerDistDir = resolve(viewerRoot, "dist");
@@ -18,22 +20,9 @@ const canonicalBundlePath = resolve(viewerRoot, "viewer.js");
 const canonicalBundleBanner = "// Generated canonical Viewer bundle; source truth lives in ./software_safe_src/.\n";
 
 const PRODUCTION_SOURCE_LINE_LIMIT = 1200;
-const TEST_SOURCE_LINE_LIMIT = 1600;
+const TEST_SOURCE_LINE_LIMIT = 1200;
 
-const knownLineDebt = new Map(Object.entries({
-  "crates/oasis7_viewer/software_safe_src/viewer_app.jsx": {
-    maxLines: 3978,
-    owner: "viewer_engineer",
-    reason: "security frontend extraction moves the shared application to viewer_app.jsx and removes visual fixture data and installers from the release entry",
-    nextTrigger: "the next shared application UI change must extract an adjacent surface; the fixture assembly is already separate",
-  },
-  "crates/oasis7_viewer/software_safe_src/main.test.jsx": {
-    maxLines: 3446,
-    owner: "viewer_engineer",
-    reason: "task_f3ba918435b24b8eadef002fed2b966a verifies failure disposition precedence and the registered visual fixture in the existing shared Viewer harness",
-    nextTrigger: "the next factory failure or industrial gameplay UI test must move this behavior into a narrower adjacent test file with shared harness helpers",
-  },
-}));
+const knownLineDebt = new Map();
 
 function repoRelative(path) {
   return relative(repoRoot, path).replaceAll("\\", "/");
@@ -46,20 +35,29 @@ function countLines(text) {
   return text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length;
 }
 
-async function listSourceFiles(dirPath) {
+async function listMatchingFiles(dirPath, pattern, { recursive = false } = {}) {
+  if (!await fileExists(dirPath)) {
+    return [];
+  }
   const entries = await readdir(dirPath, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     const entryPath = join(dirPath, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await listSourceFiles(entryPath));
+      if (recursive) {
+        files.push(...await listMatchingFiles(entryPath, pattern, { recursive }));
+      }
       continue;
     }
-    if (entry.isFile() && /\.(js|jsx|html)$/.test(entry.name)) {
+    if (entry.isFile() && pattern.test(entry.name)) {
       files.push(entryPath);
     }
   }
   return files;
+}
+
+async function listSourceFiles(dirPath) {
+  return listMatchingFiles(dirPath, /\.(js|jsx|html)$/, { recursive: true });
 }
 
 function validateDebtRecord(filePath, lineCount, limit, failures) {
@@ -85,11 +83,17 @@ function validateDebtRecord(filePath, lineCount, limit, failures) {
 async function validateLineThresholds() {
   const failures = [];
   const debtFindings = [];
-  const files = [canonicalHtmlPath, ...await listSourceFiles(sourceDir)];
+  const files = [
+    canonicalHtmlPath,
+    ...await listSourceFiles(sourceDir),
+    ...await listMatchingFiles(viewerRoot, /\.css$/),
+    ...await listMatchingFiles(viewerScriptsDir, /\.mjs$/),
+    ...await listMatchingFiles(siteAssetsDir, /\.(css|js)$/),
+  ];
   for (const filePath of files) {
     const source = await readFile(filePath, "utf8");
     const relPath = repoRelative(filePath);
-    const limit = /\.test\.(js|jsx|html)$/.test(basename(filePath))
+    const limit = /\.test\.(js|jsx|mjs|html)$/.test(basename(filePath))
       ? TEST_SOURCE_LINE_LIMIT
       : PRODUCTION_SOURCE_LINE_LIMIT;
     const finding = validateDebtRecord(filePath, countLines(source), limit, failures);

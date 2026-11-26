@@ -1,9 +1,9 @@
 use super::*;
-use crate::simulator::AgentDecision;
 use oasis7_agent_api::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
     ProviderExecutionMode,
 };
+use oasis7_simulator::AgentDecision;
 use oasis7_simulator::ResourceOwner;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -11,6 +11,20 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[test]
+fn canonical_decision_trace_types_preserve_original_viewer_identity() {
+    use std::any::TypeId;
+
+    assert_eq!(
+        TypeId::of::<AgentDecision>(),
+        TypeId::of::<oasis7::simulator::AgentDecision>()
+    );
+    assert_eq!(
+        TypeId::of::<AgentDecisionTrace>(),
+        TypeId::of::<oasis7::simulator::AgentDecisionTrace>()
+    );
+}
 #[path = "tests/agent_memory_correction_control.rs"]
 mod agent_memory_correction_control;
 mod auth_actions;

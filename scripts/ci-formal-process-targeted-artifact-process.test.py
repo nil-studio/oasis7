@@ -425,16 +425,20 @@ pub fn mark(name: &str) {
                                        for owner in owners]
                             for future in futures:
                                 future.result()
-                        self.assertFalse((records / 'case').exists())
+                        if selected.get('formal_deferred_ordinary_cases'):
+                            self.assertFalse((records / 'case').exists())
                         self.assertTrue(all((records / name).is_file() for name in
                             ('case_suffix', 'prefix_case', 'exclusive_first', 'exclusive_second', 'child-called',
                              *(f'full_scale_{index}' for index in range(5)))))
-                        risk = [entry for entry in manifest['binaries'].values()
-                                if entry.get('variant', '').startswith('required-risk-')]
-                        self.assertEqual(len(risk), 1)
-                        self.assertEqual(risk[0]['requested_features'], ['test_tier_full'])
-                        self.assertEqual(len(risk[0]['tests']), 5)
-                        self.assertNotIn('test_tier_full', manifest['binaries']['runtime-tests']['features'])
+                        if selected.get('test_policy_changed') is True:
+                            self.assertTrue((records / 'newly_added_full_case').is_file())
+                        else:
+                            risk = [entry for entry in manifest['binaries'].values()
+                                    if entry.get('variant', '').startswith('required-risk-')]
+                            self.assertEqual(len(risk), 1)
+                            self.assertEqual(risk[0]['requested_features'], ['test_tier_full'])
+                            self.assertEqual(len(risk[0]['tests']), 5)
+                            self.assertNotIn('test_tier_full', manifest['binaries']['runtime-tests']['features'])
                         self.assertTrue((records / 'risk_required').is_file())
                         if selected['execution_profile'] == 'pr-fast':
                             self.assert_failed_owners({owner: root / owner for owner in owners}, selected, manifest)
@@ -488,10 +492,13 @@ pub fn mark(name: &str) {
                         ('runtime-tests', 'fault') in targeted_artifact_coverage(manifest,
                          artifacts.ordinary_artifact_entries(manifest, selected, owner)))
                     def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
-                        if mode == 'count' and name == 'runtime-tests':
+                        is_fault_batch = name.startswith('runtime-tests') and not any(
+                            command[index:index + 2] == ['--skip', 'fault']
+                            for index in range(len(command) - 1))
+                        if mode == 'count' and is_fault_batch:
                             command = command + ['--skip', 'fault']
                         stop, waiter = threading.Event(), None
-                        if mode == 'cancel' and name == 'runtime-tests':
+                        if mode == 'cancel' and is_fault_batch:
                             def cancel_after_start():
                                 deadline = time.monotonic() + 5
                                 while not (records / 'fault-started').exists() and time.monotonic() < deadline:
@@ -501,7 +508,7 @@ pub fn mark(name: &str) {
                             waiter.start()
                         try:
                             return run(command, cwd, env, suite, name, results, expected_count=expected_count,
-                                       timeout_seconds=0.3 if mode == 'timeout' else 6,
+                                       timeout_seconds=0.3 if mode == 'timeout' and is_fault_batch else 6,
                                        cancellation_event=stop)
                         finally:
                             if waiter:
@@ -511,7 +518,7 @@ pub fn mark(name: &str) {
                             artifacts.execute(bundles[owner] if isinstance(bundles, dict) else bundles,
                                               'ordinary', receipts, plan=selected, ordinary_partition=owner)
                 failed = next(record for record in map(json.loads, receipts.read_text().splitlines())
-                              if record['test_name'] == 'runtime-tests')
+                              if record['test_name'].startswith('runtime-tests') and not record['passed'])
                 self.assertFalse(failed['passed'])
                 if mode == 'panic':
                     self.assertNotEqual(failed['exit_code'], 0)
@@ -621,6 +628,146 @@ pub fn mark(name: &str) {
         self.assertEqual({name for name, _, _ in calls[:2]}, {'omega-large-lib', 'zeta-medium-lib'})
         self.assertTrue(all(threads == '2' for _, _, threads in calls))
         self.assertEqual(len(records), len(calls))
+
+    def test_universal_sharding_subbatches_runtime_tests_across_both_workers_and_covers_policy_changes(self):
+        universal_selected = self.selected | dict(
+            ordinary_artifact_delivery_version=2,
+            ordinary_universal_sharding_version=1,
+            ordinary_harness_costs=targeted_artifact_costs([
+                dict(package='oasis7_chain_runtime', target_kind='test', target_name='process',
+                     variant='required', mode='batch', selector='', elapsed_ms=500)]),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.context(root):
+                entries = artifacts.ordinary_artifact_entries(
+                    self.manifest | {'execution_plan': universal_selected},
+                    universal_selected,
+                    'native-0',
+                )
+                subbatches = [entry for entry in entries if entry.get('batch') and entry['binary'] == 'runtime-tests']
+                self.assertEqual(len(subbatches), 2)
+                self.assertEqual([entry['batch_label'] for entry in subbatches],
+                                 ['runtime-tests[0/2]', 'runtime-tests[1/2]'])
+
+                entered = threading.Barrier(2)
+                lock = threading.Lock()
+                calls, active = [], [0, 0]
+
+                def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                    with lock:
+                        active[0] += 1
+                        active[1] = max(active)
+                        calls.append((name, expected_count, env.get('RUST_TEST_THREADS')))
+                    try:
+                        if len(calls) <= 2:
+                            entered.wait(timeout=2)
+                        return fake_receipt(suite, name, results, expected_count)
+                    finally:
+                        with lock:
+                            active[0] -= 1
+
+                consumer_copy = root / 'consumer'
+                shutil.copytree(self.consumer, consumer_copy)
+                updated_manifest = copy.deepcopy(self.manifest)
+                updated_manifest['execution_plan'] = universal_selected
+                (consumer_copy / 'manifest.json').write_text(json.dumps(updated_manifest))
+                layout, _ = artifacts.ordinary_delivery_layout(updated_manifest, universal_selected)
+                raw = (consumer_copy / 'manifest.json').read_bytes()
+                (consumer_copy / artifacts.ORDINARY_DELIVERY_RECEIPTS[0]).write_text(
+                    json.dumps(artifacts.delivery_receipt(raw, 'common', layout['common'])))
+                (consumer_copy / artifacts.ORDINARY_DELIVERY_RECEIPTS[1]).write_text(
+                    json.dumps(artifacts.delivery_receipt(raw, 'native-0', layout['native-0'])))
+                receipts = root / 'results.jsonl'
+                with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                        patch('ci_process_runner.run', side_effect=invoke):
+                    artifacts.execute(consumer_copy, 'ordinary', receipts, plan=universal_selected,
+                                      ordinary_partition='native-0')
+                self.assertEqual(active[1], 2)
+                self.assertEqual([name for name, _, _ in calls[:2]],
+                                 ['runtime-tests[0/2]', 'runtime-tests[1/2]'])
+                self.assertEqual([threads for _, _, threads in calls[:2]], ['2', '2'])
+
+        # Also verify end-to-end build/pack/unpack/execute delivery roundtrip for test_policy_changed=True on v2.
+        policy_v2 = self.selected | dict(
+            test_policy_changed=True,
+            ordinary_artifact_partition_version=2,
+            ordinary_artifact_delivery_version=2,
+            ordinary_universal_sharding_version=1,
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_viewer_codec'],
+            oasis7_required_wasm_packages=['oasis7_viewer_codec'],
+            risk_test_inventory_version=1,
+            ordinary_risk_targets=[dict(
+                package='oasis7_viewer_codec', target_kind='test', target_name='full_scales',
+                default_features=True, features=['test_tier_full'],
+                cases=[f'full_scale_{index}' for index in range(5)])],
+        )
+        self.assert_delivery_roundtrip(policy_v2)
+
+    def test_universal_sharding_distributes_non_chain_runtime_multi_harness_and_fallback_sliced_packages(self):
+        costs = targeted_artifact_costs([
+            dict(package='oasis7_runtime', target_kind='test', target_name=f'suite_{index}',
+                 variant='required', mode='batch', selector='', elapsed_ms=(index + 1) * 10000)
+            for index in range(5)
+        ])
+        selected = fast_execution_selection(packages=('oasis7_runtime',)) | dict(
+            ordinary_artifact_partition_version=2,
+            ordinary_artifact_delivery_version=2,
+            ordinary_universal_sharding_version=1,
+            ordinary_partitions=['controls', 'native-0', 'native-1', 'native-2', 'native-3'],
+            ordinary_harness_costs=costs,
+        )
+        binaries = {
+            f'suite-{index}': dict(
+                package='oasis7_runtime', target=f'suite_{index}', target_kind=['test'],
+                variant='required', ordinary=True, test=True,
+                tests=[f'case_{index}_{sub}' for sub in range(3)], ignored_tests=[],
+                path=f'bin/suite-{index}', sha256='a' * 64, bytes=100, libraries=[], cwd='.',
+            )
+            for index in range(5)
+        }
+        manifest = dict(
+            scope='ordinary', execution_plan=selected, selection={'suite': 'ordinary'},
+            ordinary_partition=None, binaries=binaries, libraries={},
+            included_binaries=sorted(binaries),
+        )
+        layout, _ = artifacts.ordinary_delivery_layout(manifest, selected)
+        self.assertEqual(layout['common'], [])
+        owners = ['native-0', 'native-1', 'native-2', 'native-3']
+        self.assertTrue(all(layout[owner] for owner in owners))
+        all_cases = [case for owner in owners
+                     for case in targeted_artifact_coverage(
+                         manifest, artifacts.ordinary_artifact_entries(manifest, selected, owner))]
+        self.assertEqual(len(all_cases), 15)
+        self.assertEqual(len(set(all_cases)), 15)
+
+        # Fallback case-slicing when active binary count < shard count (e.g. 2 binaries across 4 shards).
+        compact_binaries = {
+            'runtime-lib': dict(
+                package='oasis7_runtime', target='oasis7_runtime', target_kind=['lib'],
+                variant='required', ordinary=True, test=True,
+                tests=[f'unit_{index}' for index in range(10)], ignored_tests=[],
+                path='bin/runtime-lib', sha256='b' * 64, bytes=200, libraries=[], cwd='.',
+            ),
+            'suite-0': binaries['suite-0'],
+        }
+        fallback_manifest = dict(
+            manifest, binaries=compact_binaries, included_binaries=sorted(compact_binaries))
+        fallback_layout, _ = artifacts.ordinary_delivery_layout(fallback_manifest, selected)
+        self.assertEqual(fallback_layout['common'], ['runtime-lib'])
+        fallback_cases = [case for owner in owners
+                          for case in targeted_artifact_coverage(
+                              fallback_manifest,
+                              artifacts.ordinary_artifact_entries(fallback_manifest, selected, owner))]
+        self.assertEqual(len(fallback_cases), 13)
+        self.assertEqual(len(set(fallback_cases)), 13)
+
+        # Reject single-harness packages (<4 costed harnesses) and invalid version values.
+        with self.assertRaisesRegex(ValueError, 'universal sharding'):
+            artifacts.ordinary_partitions(selected | {'oasis7_required_packages': ['oasis7_cas']})
+        for bad in (0, 2, True, False, '1', None):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'universal sharding'):
+                artifacts.ordinary_partitions(selected | {'ordinary_universal_sharding_version': bad})
 
 
 if __name__ == '__main__':

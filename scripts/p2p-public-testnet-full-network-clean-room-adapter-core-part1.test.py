@@ -17,7 +17,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTER_PATH = ROOT / "scripts" / "p2p-public-testnet-full-network-clean-room-adapter.py"
-ADAPTER_TEST_PATH = ROOT / "scripts" / "p2p-public-testnet-full-network-clean-room-adapter.test.py"
+STORAGE_ADAPTER_RED_TEST_PATH = (
+    ROOT / "scripts" / "p2p-public-testnet-full-network-clean-room-adapter-storage-adapter-red.test.py"
+)
 TEST_BASE_PATH = ROOT / "scripts" / "p2p-public-testnet-clean-room-adapter-test-base.py"
 
 
@@ -47,10 +49,10 @@ _STORAGE_FIRST_ADAPTER_RED_TESTS: type[unittest.TestCase] | None = None
 def _storage_first_adapter_red_tests() -> type[unittest.TestCase]:
     global _STORAGE_FIRST_ADAPTER_RED_TESTS
     if _STORAGE_FIRST_ADAPTER_RED_TESTS is None:
-        module_name = "p2p_public_testnet_clean_room_adapter_base_tests"
-        spec = importlib.util.spec_from_file_location(module_name, ADAPTER_TEST_PATH)
+        module_name = "p2p_public_testnet_clean_room_adapter_storage_adapter_red_tests"
+        spec = importlib.util.spec_from_file_location(module_name, STORAGE_ADAPTER_RED_TEST_PATH)
         if spec is None or spec.loader is None:
-            raise AssertionError(f"cannot load module: {ADAPTER_TEST_PATH}")
+            raise AssertionError(f"cannot load module: {STORAGE_ADAPTER_RED_TEST_PATH}")
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
         spec.loader.exec_module(module)

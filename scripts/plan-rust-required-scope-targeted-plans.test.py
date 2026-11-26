@@ -190,6 +190,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
                 self.assertEqual(current['scope'], 'targeted')
                 self.assertEqual(current['ordinary_artifact_partition_version'], 2)
                 self.assertEqual(current['ordinary_dynamic_partition_version'], 1)
+                self.assertEqual(current['ordinary_universal_sharding_version'], 1)
                 self.assertEqual(current['ordinary_controls_in_rust_baseline_version'], 1)
                 self.assertEqual(current['ordinary_clippy_group'], 'rust_baseline')
                 self.assertEqual(current['ordinary_wasm_group'], 'rust_baseline')
@@ -208,7 +209,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
                 comparable_current = {
                     key: value for key, value in current.items()
                     if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
-                                   'ordinary_dynamic_partition_version',
+                                   'ordinary_dynamic_partition_version', 'ordinary_universal_sharding_version',
                                    'ordinary_controls_in_rust_baseline_version',
                                    'ordinary_clippy_group', 'ordinary_wasm_group',
                                    'ordinary_harness_costs', 'ordinary_artifact_delivery_version')
@@ -242,7 +243,8 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         current_config = self.config | {'ordinary_artifact_delivery_version': 2}
         old_config = self.config | {'ordinary_artifact_delivery_version': 1}
         physical = {'ordinary_artifact_partition_version', 'ordinary_partitions',
-                    'ordinary_artifact_delivery_version', 'ordinary_harness_costs'}
+                    'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
+                    'ordinary_universal_sharding_version'}
         for profile in ('pr-fast', 'main-fast'):
             with self.subTest(profile=profile):
                 current = selector.select(current_config, self.base, head, profile=profile)
@@ -251,6 +253,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
                 self.assertIs(current['test_policy_changed'], False)
                 self.assertEqual(current['ordinary_artifact_partition_version'], 2)
                 self.assertEqual(current['ordinary_artifact_delivery_version'], 2)
+                self.assertNotIn('ordinary_universal_sharding_version', current)
                 self.assertEqual(current['ordinary_partitions'],
                                  ['native-0', 'native-1', 'native-2', 'native-3'])
                 self.assertEqual((legacy['ordinary_artifact_partition_version'],
@@ -326,6 +329,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
             legacy = selector.select(old, self.base, head, profile=execution)
             self.assertEqual(current.pop('ordinary_harness_costs'), profile)
             self.assertEqual(current.pop('ordinary_dynamic_partition_version'), 1)
+            self.assertEqual(current.pop('ordinary_universal_sharding_version'), 1)
             self.assertEqual(current['ordinary_partitions'], ['native-0', 'native-1'])
             self.assertEqual(legacy['ordinary_partitions'],
                              ['native-0', 'native-1', 'native-2', 'native-3'])
@@ -368,15 +372,25 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n'
                    '#[cfg(feature="test_tier_full")] #[test] fn added_full_case() {}\n')
         head = self.commit()
+        legacy_cfg = {k: v for k, v in self.config.items() if k != 'ordinary_universal_sharding_version'}
+        legacy_changed = selector.select(legacy_cfg, self.base, head, profile='pr-fast')
+        self.assertIs(legacy_changed['test_policy_changed'], True)
+        self.assertNotEqual(legacy_changed.get('ordinary_artifact_partition_version'), 2)
+        self.assertNotEqual(legacy_changed.get('ordinary_artifact_delivery_version'), 2)
         changed = selector.select(self.config, self.base, head, profile='pr-fast')
         self.assertIs(changed['test_policy_changed'], True)
-        self.assertNotEqual(changed.get('ordinary_artifact_partition_version'), 2)
-        self.assertNotEqual(changed.get('ordinary_artifact_delivery_version'), 2)
+        self.assertEqual(changed['ordinary_universal_sharding_version'], 1)
+        self.assertEqual(changed['ordinary_artifact_partition_version'], 2)
+        self.assertEqual(changed['ordinary_artifact_delivery_version'], 2)
+        self.assertEqual(changed['ordinary_partitions'], ['native-0', 'native-1', 'native-2', 'native-3'])
+        self.assertNotIn('ordinary_dynamic_partition_version', changed)
+        self.assertNotIn('build_policy', changed['architecture'])
         for profile in ('periodic-full', 'candidate-full'):
             with self.subTest(profile=profile):
                 complete = selector.full_plan(self.config, profile, head)
                 self.assertEqual(complete['ordinary_artifact_partition_version'], 1)
                 self.assertEqual(complete['ordinary_artifact_delivery_version'], 1)
+                self.assertNotIn('ordinary_universal_sharding_version', complete)
                 self.assertEqual(complete['ordinary_partitions'],
                                  ['runtime', 'component-libs', 'integrations-0', 'integrations-1'])
 
@@ -393,22 +407,30 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         head = self.commit()
         physical = {'ordinary_artifact_partition_version', 'ordinary_partitions',
                     'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
+                    'ordinary_universal_sharding_version',
                     'ordinary_controls_in_rust_baseline_version',
                     'ordinary_clippy_group', 'ordinary_wasm_group'}
         legacy_config = {key: value for key, value in self.config.items() if key not in physical}
+        v1_policy_config = {key: value for key, value in self.config.items()
+                            if key != 'ordinary_universal_sharding_version'}
         for profile in ('pr-fast', 'main-fast'):
             with self.subTest(profile=profile):
                 selected = selector.select(self.config, self.base, head, profile=profile)
+                v1_selected = selector.select(v1_policy_config, self.base, head, profile=profile)
                 legacy = selector.select(legacy_config, self.base, head, profile=profile)
                 self.assertEqual(selected['scope'], 'targeted')
                 self.assertIs(selected['test_policy_changed'], True)
                 self.assertEqual(selected['oasis7_required_packages'],
                                  ['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'])
-                self.assertEqual(selected['ordinary_artifact_partition_version'], 1)
-                self.assertEqual(selected['ordinary_artifact_delivery_version'], 1)
+                self.assertEqual(selected['ordinary_universal_sharding_version'], 1)
+                self.assertEqual(selected['ordinary_artifact_partition_version'], 2)
+                self.assertEqual(selected['ordinary_artifact_delivery_version'], 2)
                 self.assertEqual(selected['ordinary_partitions'],
+                                 ['native-0', 'native-1', 'native-2', 'native-3'])
+                self.assertEqual(v1_selected['ordinary_artifact_partition_version'], 1)
+                self.assertEqual(v1_selected['ordinary_artifact_delivery_version'], 1)
+                self.assertEqual(v1_selected['ordinary_partitions'],
                                  ['runtime', 'component-libs', 'integrations-0', 'integrations-1'])
-                self.assertNotIn('ordinary_harness_costs', selected)
                 self.assertNotIn('ordinary_partitions', legacy)
                 self.assertEqual({key: value for key, value in selected.items() if key not in physical}, legacy)
                 output = Path('github-output-' + profile)
@@ -426,6 +448,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         original = dict(scope='targeted', groups=['oasis7_required'], execution_profile='pr-fast',
                         test_policy_changed=True,
                         oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'])
+        legacy_cfg = {k: v for k, v in self.config.items() if k != 'ordinary_universal_sharding_version'}
         changes = [
             ('oasis7_required_packages', [package for package in original['oasis7_required_packages']
                                          if package != missing])
@@ -441,16 +464,22 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         for key, value in changes:
             with self.subTest(key=key, value=value):
                 selected = original | {key: value}
-                selector.complete_ordinary_partitions(self.config, selected)
+                selector.complete_ordinary_partitions(legacy_cfg, selected)
                 self.assertNotIn('ordinary_artifact_partition_version', selected)
                 self.assertNotIn('ordinary_artifact_delivery_version', selected)
         for version in (1, 2):
             selected = copy.deepcopy(original)
-            selector.complete_ordinary_partitions(self.config | {'ordinary_artifact_partition_version': version}, selected)
+            selector.complete_ordinary_partitions(legacy_cfg | {'ordinary_artifact_partition_version': version}, selected)
             self.assertEqual(selected['ordinary_artifact_partition_version'], 1)
             self.assertEqual(selected['ordinary_artifact_delivery_version'], 1)
+        selected_v2 = copy.deepcopy(original)
+        selector.complete_ordinary_partitions(self.config, selected_v2)
+        self.assertEqual(selected_v2['ordinary_universal_sharding_version'], 1)
+        self.assertEqual(selected_v2['ordinary_artifact_partition_version'], 2)
+        self.assertEqual(selected_v2['ordinary_artifact_delivery_version'], 2)
         old = {key: value for key, value in self.config.items() if key not in (
-            'ordinary_artifact_partition_version', 'ordinary_artifact_delivery_version', 'ordinary_harness_costs')}
+            'ordinary_artifact_partition_version', 'ordinary_artifact_delivery_version',
+            'ordinary_harness_costs', 'ordinary_universal_sharding_version')}
         selected = copy.deepcopy(original)
         selector.complete_ordinary_partitions(old, selected)
         self.assertEqual(selected, original)
@@ -458,6 +487,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
     def test_only_eligible_noninline_chain_runtime_with_explicit_unchanged_policy_is_partitioned(self):
         original = dict(scope='targeted', groups=['oasis7_required'], execution_profile='pr-fast',
                         test_policy_changed=False, oasis7_required_packages=['oasis7_chain_runtime'])
+        legacy_cfg = {k: v for k, v in self.config.items() if k != 'ordinary_universal_sharding_version'}
         for key, value in [
             ('ordinary_execution', 'inline'), ('oasis7_required_packages', ['oasis7_runtime']),
             ('groups', ['baseline']), ('execution_profile', 'candidate-full'),
@@ -465,11 +495,33 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         ]:
             with self.subTest(key=key, value=value):
                 selected = original | {key: value}
-                selector.complete_ordinary_partitions(self.config, selected)
+                selector.complete_ordinary_partitions(legacy_cfg, selected)
                 self.assertNotIn('ordinary_artifact_partition_version', selected)
+        # Under universal sharding, multi-harness packages (>=4 costed harnesses) and boolean test_policy_changed
+        # enroll into v2, while single-harness non-chain_runtime packages and non-boolean policy values remain excluded.
+        for packages, expected_partitions in (
+                (['oasis7_runtime'], ['controls', 'native-0', 'native-1', 'native-2', 'native-3']),
+                (['oasis7_world_state'], ['controls', 'native-0', 'native-1', 'native-2', 'native-3']),
+                (['oasis7_game_client'], ['controls', 'native-0', 'native-1']),
+        ):
+            selected = original | {'oasis7_required_packages': packages}
+            selector.complete_ordinary_partitions(self.config, selected)
+            self.assertEqual(selected['ordinary_universal_sharding_version'], 1)
+            self.assertEqual(selected['ordinary_artifact_partition_version'], 2)
+            self.assertEqual(selected['ordinary_partitions'], expected_partitions)
+        single_leaf = original | {'oasis7_required_packages': ['oasis7_cas']}
+        selector.complete_ordinary_partitions(self.config, single_leaf)
+        self.assertNotIn('ordinary_artifact_partition_version', single_leaf)
+        for bad_policy in (None, 0, 1, '', [], {}, 'false'):
+            invalid_policy = original | {'test_policy_changed': bad_policy}
+            selector.complete_ordinary_partitions(self.config, invalid_policy)
+            self.assertNotIn('ordinary_artifact_partition_version', invalid_policy)
         for version in (None, False, True, 0, 3, '2'):
             with self.subTest(version=version), self.assertRaisesRegex(ValueError, 'ordinary artifact'):
                 selector.validate_config(self.config | {'ordinary_artifact_partition_version': version})
+        for invalid in (None, False, True, 0, 2, '1', 1.0):
+            with self.subTest(universal=invalid), self.assertRaisesRegex(ValueError, 'ordinary universal sharding'):
+                selector.validate_config(self.config | {'ordinary_universal_sharding_version': invalid})
         selector.validate_config(self.config | {'ordinary_artifact_partition_version': 1})
         selector.validate_config(self.config)
 
@@ -486,10 +538,12 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         for profile in ('pr-fast', 'main-fast'):
             current = selector.select(self.config, self.base, head, profile=profile)
             self.assertEqual(current.pop('ordinary_artifact_delivery_version'), 2)
+            self.assertEqual(current.pop('ordinary_universal_sharding_version'), 1)
             for legacy_config in (old, self.config | {'ordinary_artifact_delivery_version': 1}):
                 legacy = selector.select(legacy_config, self.base, head, profile=profile)
                 self.assertEqual(legacy['ordinary_artifact_partition_version'], 2)
                 self.assertNotIn('ordinary_artifact_delivery_version', legacy)
+                self.assertNotIn('ordinary_universal_sharding_version', legacy)
                 self.assertEqual(current, legacy)
         # A candidate with delivery=2 cannot enroll the old BASE in either the
         # new full/fast partition or the new transport, even on a policy fallback.
@@ -567,6 +621,31 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         cfg_plan = selector.select(self.config, self.base, cfg_head, profile='pr-fast')
         self.assertEqual(cfg_plan['scope'], 'targeted')
         self.assertNotIn('build_policy', cfg_plan['architecture'])
+
+    def test_universal_sharding_withheld_for_historical_tested_source_and_candidate_self_enrol(self):
+        historical_cfg = {k: v for k, v in self.config.items() if k != 'ordinary_universal_sharding_version'}
+        self.write('scripts/ci-required-scope.json', json.dumps(historical_cfg))
+        historical_base = self.commit()
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n'
+                   '#[cfg(feature="test_tier_full")] #[test] fn added_full_case() {}\n')
+        historical_tested = self.commit()
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        new_policy = self.commit()
+        mixed = selector.select(
+            self.config,
+            historical_base,
+            historical_tested,
+            historical_tested,
+            profile='pr-fast',
+            policy_ref=new_policy,
+        )
+        self.assertIs(mixed['test_policy_changed'], True)
+        self.assertNotIn('ordinary_universal_sharding_version', mixed)
+        self.assertNotIn('ordinary_artifact_partition_version', mixed)
+
+        # Candidate cannot self-enrol when BASE policy lacks ordinary_universal_sharding_version.
+        candidate_attempt = selector.select(historical_cfg, historical_base, new_policy, profile='pr-fast')
+        self.assertNotIn('ordinary_universal_sharding_version', candidate_attempt)
 
 
 if __name__ == '__main__':

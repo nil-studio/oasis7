@@ -1,8 +1,9 @@
+import { readExpandedCssSync } from "../software_safe_src/test_support/read_expanded_css.js";
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-const css = readFileSync(new URL('../viewer_terminal_shell.css', import.meta.url), 'utf8');
+const css = readExpandedCssSync(new URL('../viewer_terminal_shell.css', import.meta.url));
 const host = readFileSync(new URL('../software_safe_src/pixel_world_host.jsx', import.meta.url), 'utf8');
 
 test('retained recovery receipt stays in flow instead of covering the reload button', () => {
