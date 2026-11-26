@@ -284,7 +284,8 @@ impl World {
                 journal_events.drain(0..overflow);
                 journal_events_evicted = journal_events_evicted.saturating_add(overflow as u64);
             }
-            match &state_delta {
+            let (_, working_delta) = transition.prepare_state_delta(self, &working_state).map_err(TransitionReject::into_world_error)?;
+            match working_delta {
                 PreparedEventStateDelta::Industry(p) => p.install(&mut working_state),
                 PreparedEventStateDelta::IndustryHistory(p) => p.install(&mut working_state),
                 _ => {}
