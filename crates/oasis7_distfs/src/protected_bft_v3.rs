@@ -19,6 +19,7 @@ pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
 mod private_retention_alternatives;
 mod private_retention_input;
+mod private_retention_input_authorization;
 mod rotation;
 mod service;
 mod state;
@@ -107,4 +108,9 @@ pub use fresh_coverage::{
 pub use first_reservation::{
     BftAuthorizedOriginalReserveInputV1, BftFirstReservationPriceV1, BftFirstReserveSnapshotV1,
     BftFirstReservedOriginalV1, BftPrivateRetentionLedgerV1, BftPrivateRetentionMapV1,
+};
+
+pub use private_retention_input_authorization::{
+    BftPrivateRetentionAdmissionReadGrantBodyV1, BftPrivateRetentionAdmissionReadGrantV1,
+    BftPrivateRetentionAdmissionReadPurposeV1,
 };

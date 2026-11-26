@@ -12,7 +12,6 @@ oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }
-oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false }
 oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 hex = "0.4"
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
@@ -23,9 +22,6 @@ sha2 = "0.11"
 
 [features]
 default = ["wasmtime"]
-wasmtime = ["oasis7/wasmtime"]
-test_tier_required = ["oasis7/test_tier_required"]
-test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
-
-[dev-dependencies]
-oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false, features = ["test_tier_required"] }
+wasmtime = ["oasis7_runtime/wasmtime", "oasis7_world_service/wasmtime"]
+test_tier_required = ["oasis7_simulator/test_tier_required", "oasis7_runtime/test_tier_required", "oasis7_world_service/test_tier_required"]
+test_tier_full = ["test_tier_required", "oasis7_simulator/test_tier_full", "oasis7_runtime/test_tier_full", "oasis7_world_service/test_tier_full"]

@@ -1,4 +1,5 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget, PageStoreError,
 };
@@ -297,6 +298,7 @@ impl<M: MerkleNodeReader> MerkleNodeReader for MissingChild<'_, M> {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn supply_page_failures_never_return_a_completed_family() {
     let original = Directory::new();

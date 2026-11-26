@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::fixture::{Directory, logical};
 use super::incremental_runtime_effect_fixture::{limits, physical};
 use oasis7_distfs::incremental_page_store::*;

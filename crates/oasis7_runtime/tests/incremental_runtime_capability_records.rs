@@ -460,6 +460,7 @@ mod schema;
 #[path = "support/incremental_runtime_capability_pages.rs"]
 mod pages;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_runtime_capability_scaling.rs"]
 mod scaling;
 

@@ -19,8 +19,9 @@ configure or weaken the separate BYOK consumer.
 
 The implementation of `LlmCompletionModelProvider<C>` lives in
 `legacy_model_adapter` in this crate, next to the existing legacy
-`LlmCompletionClient` and its transport errors. The previous umbrella path
-`oasis7::simulator::LlmCompletionModelProvider` is a type-identical reexport.
+`LlmCompletionClient` and its transport errors. Direct consumers should import
+`oasis7_model_provider::LlmCompletionModelProvider` rather than relying on the
+deprecated `oasis7` umbrella crate.
 The adapter forwards exactly one budget-limited call, keeps request digest,
 ordered Decision/ModuleCall payloads, usage, and provider ID, and preserves the
 prior retryability classification. It never constructs Runtime World state or

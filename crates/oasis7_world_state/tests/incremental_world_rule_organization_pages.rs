@@ -1,4 +1,5 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use oasis7_agent_api::world_action::{
     OrganizationEstateRightV1 as Right, OrganizationEstateScopeV1 as Scope,
 };
@@ -170,6 +171,7 @@ fn produce_all(store: &IncrementalPageStore, memory: &MemoryBudget, source: &Wor
     rows
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn organization_typed_pages_transfer_and_cold_reopen_preserve_nested_records() {
     let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
@@ -369,6 +371,7 @@ impl<M: MerkleNodeReader> MerkleNodeReader for MissingChild<'_, M> {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn organization_page_failures_never_return_a_completed_family() {
     let original = Directory::new();

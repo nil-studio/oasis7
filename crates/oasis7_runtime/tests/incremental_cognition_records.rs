@@ -1,4 +1,5 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 #[path = "support/incremental_cognition_fixture.rs"]
 mod incremental_cognition_fixture;
 use incremental_cognition_fixture::{physical, source, state_error};
@@ -21,8 +22,10 @@ mod cognition_json_lifecycle;
 mod cognition_missing_child;
 #[path = "support/incremental_cognition_namespace.rs"]
 mod cognition_namespace;
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_cognition_pages.rs"]
 mod cognition_pages;
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_cognition_scaling.rs"]
 mod cognition_scaling;
 #[path = "support/incremental_cognition_source_faults.rs"]
@@ -37,14 +40,17 @@ mod fixture;
 fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old_pool() {
     run_cognition(false, false, false);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cognition_optional_economy_and_delegation_keep_original_state_and_side_routing() {
     run_cognition(true, false, false);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cognition_optional_group_lifecycle_is_closed_in_the_shared_transaction() {
     run_cognition(false, true, false);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn genuine_nonempty_gen_delegation_grants_reject_then_current_delete_allows_empty() {
     run_cognition(true, true, false);
@@ -1089,6 +1095,7 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
         }
         if !all_optional {
             family_faults::reject_malformed_outer(&store, &cold, &root_set);
+            #[cfg(feature = "test_tier_full")]
             cognition_pages::transfer_and_reopen(
                 &path,
                 &directory.0.join("cognition-copy"),
@@ -1111,6 +1118,7 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cognition_fixed_delta_receiver_skips_unchanged_json_across_value_chunks() {
     let small = cognition_scaling::run(64);

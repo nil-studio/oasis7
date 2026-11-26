@@ -9,22 +9,6 @@ use super::*;
 #[test]
 fn native_viewer_trace_metrics_preserve_original_wire_type_identity() {
     use std::any::TypeId;
-    assert_eq!(
-        TypeId::of::<oasis7_simulator::AgentDecisionTrace>(),
-        TypeId::of::<oasis7::simulator::AgentDecisionTrace>(),
-    );
-    assert_eq!(
-        TypeId::of::<oasis7_simulator::RunnerMetrics>(),
-        TypeId::of::<oasis7::simulator::RunnerMetrics>(),
-    );
-    assert_eq!(
-        TypeId::of::<oasis7_runtime_host::simulator_archive::persist::WorldSnapshot>(),
-        TypeId::of::<oasis7::simulator::WorldSnapshot>(),
-    );
-    assert_eq!(
-        TypeId::of::<oasis7_runtime_host::simulator_archive::archive::WorldEvent>(),
-        TypeId::of::<oasis7::simulator::WorldEvent>(),
-    );
     type NativeWire = oasis7_proto::viewer::ViewerResponse<
         oasis7_runtime_host::simulator_archive::persist::WorldSnapshot,
         oasis7_runtime_host::simulator_archive::archive::WorldEvent,
@@ -314,7 +298,7 @@ fn terminal_agent_chat_waits_past_ack_for_reply_or_error() {
     assert!(!terminal_agent_chat(&ack));
 
     let spoke = ViewerResponse::Event {
-        event: oasis7::simulator::WorldEvent {
+        event: oasis7_runtime_host::simulator_archive::archive::WorldEvent {
             id: 1,
             time: 8,
             kind: oasis7_simulator::WorldEventKind::AgentSpoke {

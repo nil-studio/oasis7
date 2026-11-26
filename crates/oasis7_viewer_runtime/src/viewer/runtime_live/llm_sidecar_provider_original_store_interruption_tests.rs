@@ -2,9 +2,7 @@ use super::{FixtureProviderAuthority, capture_root, read_http_request, test_prov
 use crate::viewer::ProviderOriginalMaterialOwnerV1;
 use oasis7::simulator::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1,
-    ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore, ProviderPendingAttemptPhaseV1,
-    ProviderPendingRootsCursorV1, ProviderPendingRootsPageV1, ProviderSpoolReservation,
+    ProviderOriginalMaterialStore, ProviderSpoolReservation,
 };
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget,
@@ -12,6 +10,11 @@ use oasis7_distfs::incremental_page_store::{
 };
 use oasis7_formal_protocol::incremental_value::ValueIoBudget;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime_host::provider_material_capture::{
+    ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1,
+    ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1, ProviderPendingRootsCursorV1,
+    ProviderPendingRootsPageV1,
+};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;

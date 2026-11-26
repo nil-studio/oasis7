@@ -314,5 +314,6 @@ fn actual_borrowed_agent_genesis_cold_root_structure_preserves_original_cells() 
 #[path = "support/incremental_agent_subtree_pages.rs"]
 mod pages;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_agent_subtree_scaling.rs"]
 mod scaling;

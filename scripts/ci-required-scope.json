@@ -1231,6 +1231,7 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    "scripts/ci-trusted-full-regression.py": ["workflow_governance"],
     ".github/actions/cache-sdk/LICENSE.cache.md": ["workflow_governance"],
     ".github/actions/cache-sdk/build-receipt.json": ["workflow_governance"],
     ".github/actions/cache-sdk/build.cjs": ["workflow_governance"],
@@ -1513,6 +1514,7 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-trusted-full-regression.py": {"group": "workflow_governance", "tests": ["scripts/ci-workflow.test.py"]},
     "scripts/ci-portable-cache-container-contract.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-container-contract.test.py"]},
     "scripts/ci-portable-cache-archive.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-archive.test.py"]},
     "scripts/ci-portable-cache-archive.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-archive.test.py"]},

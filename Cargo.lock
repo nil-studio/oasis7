@@ -6210,7 +6210,6 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "libc",
- "oasis7",
  "oasis7_client_api",
  "oasis7_proto",
  "oasis7_runtime",
@@ -6634,7 +6633,6 @@ name = "oasis7_ops_tools"
 version = "0.1.0"
 dependencies = [
  "hex",
- "oasis7",
  "oasis7_agent_api",
  "oasis7_client_api",
  "oasis7_hosted_access",
