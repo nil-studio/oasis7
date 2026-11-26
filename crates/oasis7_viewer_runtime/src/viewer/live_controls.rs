@@ -1,5 +1,4 @@
-use crate::simulator::unsupported_runtime_perf_snapshot;
-use crate::simulator::RuntimePerfSnapshot;
+use oasis7_simulator::{RuntimePerfSnapshot, unsupported_runtime_perf_snapshot};
 
 impl LiveScript {
     fn new(kernel: &WorldKernel) -> Self {
