@@ -6,9 +6,8 @@ use std::collections::BTreeMap;
 use super::binding::{BftSignerErrorV3, invalid};
 use super::{
     BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1, BFT_SUCCESSOR_WINDOW_MAX_SEGMENTS_V1,
-    BftSuccessorWindowArchiveKindV1,
-    BftSuccessorWindowArchiveManifestV1, BftSuccessorWindowArchiveRefV1,
-    BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowSourceV1,
+    BftSuccessorWindowArchiveKindV1, BftSuccessorWindowArchiveManifestV1,
+    BftSuccessorWindowArchiveRefV1, BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowSourceV1,
     LocalBftSuccessorArchiveStoreV1,
 };
 
@@ -35,9 +34,13 @@ impl LocalBftSuccessorArchiveStoreV1 {
         source.validate().map_err(invalid)?;
         if chain.is_empty()
             || chain.len() > BFT_SUCCESSOR_WINDOW_MAX_SEGMENTS_V1 as usize
-            || chain.last().is_none_or(|(_, root)| root != pinned_final_root)
+            || chain
+                .last()
+                .is_none_or(|(_, root)| root != pinned_final_root)
         {
-            return Err(invalid("successor archive original chain length or tip pin"));
+            return Err(invalid(
+                "successor archive original chain length or tip pin",
+            ));
         }
         let mut previous_root: Option<String> = None;
         let mut previous_usage = BftSuccessorWindowArchiveUsageV1::default();
@@ -56,7 +59,9 @@ impl LocalBftSuccessorArchiveStoreV1 {
                 || manifest.predecessor_root != previous_root
                 || previous_height.checked_add(1) != Some(manifest.first_height)
             {
-                return Err(invalid("successor archive source/segment/predecessor mismatch"));
+                return Err(invalid(
+                    "successor archive source/segment/predecessor mismatch",
+                ));
             }
             manifest.usage.validate_after(&previous_usage)?;
 
@@ -80,7 +85,9 @@ impl LocalBftSuccessorArchiveStoreV1 {
                         .map_err(|_| invalid("successor archive object count overflow"))?
                         > manifest.usage.objects
                 {
-                    return Err(invalid("successor archive cumulative object budget mismatch"));
+                    return Err(invalid(
+                        "successor archive cumulative object budget mismatch",
+                    ));
                 }
                 let original = self.load_object(&entry.object, MAX_ORIGINAL_OBJECT_BYTES)?;
                 entry.object.validate_bytes(&original)?;
@@ -97,9 +104,9 @@ impl LocalBftSuccessorArchiveStoreV1 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::BftSuccessorWindowArchiveEntryV1;
     use super::super::successor_archive_store::tests::Scratch;
+    use super::*;
     use oasis7_proto::distributed_bft::v2::BftScopeV2;
 
     fn source() -> BftSuccessorWindowSourceV1 {
@@ -170,22 +177,33 @@ mod tests {
             .load_exact_successor_archive_chain_v1(&source, kind, &chain, &root_b)
             .unwrap();
         assert_eq!(verified, vec![first, second]);
-        assert!(reopened
-            .load_exact_successor_archive_chain_v1(&source, kind, &chain[..1], &root_b)
-            .is_err());
-        assert!(reopened
-            .load_exact_successor_archive_chain_v1(&source, kind, &chain, &chain[0].1)
-            .is_err());
+        assert!(
+            reopened
+                .load_exact_successor_archive_chain_v1(&source, kind, &chain[..1], &root_b)
+                .is_err()
+        );
+        assert!(
+            reopened
+                .load_exact_successor_archive_chain_v1(&source, kind, &chain, &chain[0].1)
+                .is_err()
+        );
         let mut foreign = source.clone();
         foreign.scope.chain_id = "other".into();
-        assert!(reopened
-            .load_exact_successor_archive_chain_v1(&foreign, kind, &chain, &root_b)
-            .is_err());
-        assert!(reopened
-            .load_exact_successor_archive_chain_v1(
-                &source, BftSuccessorWindowArchiveKindV1::Public, &chain, &root_b
-            )
-            .is_err());
+        assert!(
+            reopened
+                .load_exact_successor_archive_chain_v1(&foreign, kind, &chain, &root_b)
+                .is_err()
+        );
+        assert!(
+            reopened
+                .load_exact_successor_archive_chain_v1(
+                    &source,
+                    BftSuccessorWindowArchiveKindV1::Public,
+                    &chain,
+                    &root_b
+                )
+                .is_err()
+        );
     }
 
     #[test]
@@ -202,27 +220,34 @@ mod tests {
         let mut second = manifest(&source, kind, 2, Some("aa".repeat(32)), b, 20);
         let broken_root = second.digest().unwrap();
         let broken_ref = store.persist_manifest(&second).unwrap();
-        assert!(store
-            .load_exact_successor_archive_chain_v1(
-                &source,
-                kind,
-                &[(ref_a.clone(), root_a.clone()), (broken_ref, broken_root.clone())],
-                &broken_root,
-            )
-            .is_err());
+        assert!(
+            store
+                .load_exact_successor_archive_chain_v1(
+                    &source,
+                    kind,
+                    &[
+                        (ref_a.clone(), root_a.clone()),
+                        (broken_ref, broken_root.clone())
+                    ],
+                    &broken_root,
+                )
+                .is_err()
+        );
         second.predecessor_root = Some(root_a.clone());
         second.first_height += 1;
         second.last_height += 1;
         let gap_root = second.digest().unwrap();
         let gap_ref = store.persist_manifest(&second).unwrap();
-        assert!(store
-            .load_exact_successor_archive_chain_v1(
-                &source,
-                kind,
-                &[(ref_a, root_a), (gap_ref, gap_root.clone())],
-                &gap_root,
-            )
-            .is_err());
+        assert!(
+            store
+                .load_exact_successor_archive_chain_v1(
+                    &source,
+                    kind,
+                    &[(ref_a, root_a), (gap_ref, gap_root.clone())],
+                    &gap_root,
+                )
+                .is_err()
+        );
     }
 
     #[test]
@@ -242,14 +267,16 @@ mod tests {
         let second = manifest(&source, kind, 2, Some(root_a.clone()), b, 10);
         let root_b = second.digest().unwrap();
         let ref_b = store.persist_manifest(&second).unwrap();
-        assert!(store
-            .load_exact_successor_archive_chain_v1(
-                &source,
-                kind,
-                &[(ref_a, root_a), (ref_b, root_b.clone())],
-                &root_b,
-            )
-            .is_err());
+        assert!(
+            store
+                .load_exact_successor_archive_chain_v1(
+                    &source,
+                    kind,
+                    &[(ref_a, root_a), (ref_b, root_b.clone())],
+                    &root_b,
+                )
+                .is_err()
+        );
     }
 
     #[test]
@@ -273,14 +300,16 @@ mod tests {
         drop(store);
         let original_path = scratch.blob(&object);
         std::fs::write(original_path, b"corrupted!").unwrap();
-        assert!(scratch
-            .store()
-            .load_exact_successor_archive_chain_v1(
-                &source,
-                BftSuccessorWindowArchiveKindV1::Public,
-                &[(reference, root.clone())],
-                &root,
-            )
-            .is_err());
+        assert!(
+            scratch
+                .store()
+                .load_exact_successor_archive_chain_v1(
+                    &source,
+                    BftSuccessorWindowArchiveKindV1::Public,
+                    &[(reference, root.clone())],
+                    &root,
+                )
+                .is_err()
+        );
     }
 }
