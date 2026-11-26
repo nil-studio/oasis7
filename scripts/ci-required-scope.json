@@ -1231,6 +1231,7 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    "scripts/ci-trusted-full-regression.py": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
@@ -1459,6 +1460,7 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-trusted-full-regression.py": {"group": "workflow_governance", "tests": ["scripts/ci-workflow.test.py"]},
     "scripts/ci-hosted-login-package.py": {
       "group": "packaging_contracts",
       "tests": ["scripts/ci-hosted-login-package.test.py"]
