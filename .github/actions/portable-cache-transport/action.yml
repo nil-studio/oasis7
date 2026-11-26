@@ -1,0 +1,29 @@
+name: Audited portable cache transport
+description: Explicit finite archive-root compatibility for the original main tool caches
+inputs:
+  operation:
+    description: restore or save
+    required: true
+  contract:
+    description: browser-archive or worker-build
+    required: true
+  component:
+    description: Exact original cache component
+    required: true
+  key:
+    description: Original metadata-derived full immutable key
+    required: true
+  admitted:
+    description: Original helper save decision, required for save
+    default: 'false'
+  upload-bound:
+    description: Original helper measured upload bound, required for admitted save
+    default: ''
+outputs:
+  cache-hit:
+    description: Exact restored key
+  saved:
+    description: SDK confirmed save request, false for denied or skipped upload
+runs:
+  using: node24
+  main: run.mjs

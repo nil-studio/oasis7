@@ -127,3 +127,10 @@ original source and Docker workspace path. Adoption preserves
 wasm-bindgen, and sentinel archive path and version compatibility before
 moving their writers. Candidate full regression retains its current
 runner until its canonical build can use an isolated Docker boundary.
+
+
+### 有限归档 Adapter 的消费边界
+
+有限入口位于 `.github/actions/portable-cache-transport/`，直接导入上述固定 SDK，不另行安装依赖或打包自有逻辑。它只接受原 `worker-build` 与三种 `browser-archive` component，由原 metadata helper 派生 key、root、条目与字节上限；调用者不能指定 cwd、raw paths 或 fallback keys。SDK 使用固定宿主 canonical 工作根，保留原归档相对成员和缓存版本，不改 `GITHUB_*`。执行前核对实际 checkout HEAD、工作区和动作目录 inode、可信 main workflow/job、V2/read-write 模式与 UID/GID；save 仍依赖原 helper 的 REST/库存/20 GB 准入及测量结果，不新增授权路径。
+
+恢复回调先绑定 exact matched key，再在解包前以 no-follow/nonblocking 描述符检查实际下载归档。有界 zstd 流覆盖 header、PAX、padding 和 payload；仅允许精确旧 prefix 内的普通文件及目录，拒绝链接、设备、sparse、未知 PAX、重复、路径穿越、文件目录冲突和当前目标 symlink。检查器沿现有 process runner 的 60 秒边界与进程回收运行；该边界不是同 UID 沙箱，也不保证硬终止后仍可执行用户态清理。SDK 缺失回调或检查失败不得作为成功命中。当前阶段只有入口与回归，没有生产 workflow 调用；两个 mixed job 的容器切换和自然 writer/reader 证据由下一消费批次独立交付。

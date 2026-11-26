@@ -1240,6 +1240,12 @@
     ".github/actions/cache-sdk/provenance.json": ["workflow_governance"],
     ".github/actions/cache-sdk/sdk-patch.json": ["workflow_governance"],
     ".github/actions/cache-sdk/sdk.test.cjs": ["workflow_governance"],
+    ".github/actions/portable-cache-transport/action.yml": ["workflow_governance"],
+    ".github/actions/portable-cache-transport/index.cjs": ["workflow_governance"],
+    ".github/actions/portable-cache-transport/run.mjs": ["workflow_governance"],
+    ".github/actions/portable-cache-transport/transport.test.cjs": ["workflow_governance"],
+    "scripts/ci-portable-cache-archive.py": ["workflow_governance"],
+    "scripts/ci-portable-cache-archive.test.py": ["workflow_governance"],
     "scripts/ci-cache-sdk.test.py": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
@@ -1407,6 +1413,7 @@
     "scripts/plan-rust-required-scope-selection-part2.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-portable-cache-archive.test.py",
     "scripts/ci-cache-sdk.test.py",
     "scripts/ci-hosted-login-package.test.py",
     "scripts/plan-rust-required-scope.test.py",
@@ -1480,6 +1487,8 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-portable-cache-archive.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-archive.test.py"]},
+    "scripts/ci-portable-cache-archive.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-archive.test.py"]},
     "scripts/ci-cache-sdk.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-cache-sdk.test.py"]},
     "scripts/ci-hosted-login-package.py": {
       "group": "packaging_contracts",
