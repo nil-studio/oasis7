@@ -12,6 +12,7 @@ viewer_base_tokens.css viewer_base_tokens.css
 viewer_base_layout.css viewer_base_layout.css
 viewer_base_components.css viewer_base_components.css
 viewer_terminal_shell.css viewer_terminal_shell.css
+viewer_terminal_shell_base.css viewer_terminal_shell_base.css
 viewer_first_agent_claim_evidence.html viewer_first_agent_claim_evidence.html
 dist/software_safe_first_agent_claim_evidence.html software_safe_first_agent_claim_evidence.html
 favicon.ico favicon.ico
@@ -30,6 +31,7 @@ viewer_base_tokens.css
 viewer_base_layout.css
 viewer_base_components.css
 viewer_terminal_shell.css
+viewer_terminal_shell_base.css
 viewer_first_agent_claim_evidence.html
 software_safe_first_agent_claim_evidence.html
 favicon.ico
@@ -64,6 +66,7 @@ scope = [
     "crates/oasis7_viewer/viewer_base_layout.css",
     "crates/oasis7_viewer/viewer_base_components.css",
     "crates/oasis7_viewer/viewer_terminal_shell.css",
+    "crates/oasis7_viewer/viewer_terminal_shell_base.css",
     "crates/oasis7_viewer/viewer_first_agent_claim_evidence.html",
     "crates/oasis7_viewer/package.json",
     "crates/oasis7_viewer/package-lock.json",
