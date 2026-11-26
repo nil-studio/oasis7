@@ -57,7 +57,7 @@ REQUIRED_NA_FIELDS = ("reason", "scope", "owner_role", "evidence_ref", "re-evalu
 DEMAND_ROW_CELLS = 5
 VALIDATION_ROW_CELLS = 6
 CANONICAL_GITHUB_EVIDENCE_RE = re.compile(
-    r"^https://github\.com/eng-cc/oasis7/issues/(?P<issue>[1-9][0-9]*)#issuecomment-(?P<comment>[1-9][0-9]*)$"
+    r"^https://github\.com/(?:nil-studio|eng-cc)/oasis7/issues/(?P<issue>[1-9][0-9]*)#issuecomment-(?P<comment>[1-9][0-9]*)$"
 )
 ADVISORY_CODES = frozenset({
     "trace-mapping-format", "trace-validation-format", "trace-demand-row-invalid",

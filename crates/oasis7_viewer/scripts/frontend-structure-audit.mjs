@@ -129,8 +129,9 @@ async function validateLineThresholds() {
 
 async function validateCanonicalCompatContracts() {
   const failures = [];
-  const [canonicalHtml, canonicalBundle, canonicalClaimEvidence] = await Promise.all([
+  const [canonicalHtml, canonicalBaseCss, canonicalBundle, canonicalClaimEvidence] = await Promise.all([
     readFile(canonicalHtmlPath, "utf8"),
+    readFile(resolve(viewerRoot, "viewer_base.css"), "utf8"),
     readFile(canonicalBundlePath, "utf8"),
     readFile(canonicalClaimEvidencePath, "utf8"),
   ]);
@@ -138,7 +139,8 @@ async function validateCanonicalCompatContracts() {
   if (!canonicalHtml.includes('<script type="module" src="./viewer.js"></script>')) {
     failures.push("viewer.html must reference canonical viewer.js bundle");
   }
-  const diagnosticStripRule = canonicalHtml.match(/\.command-surface__diagnostic-strip \.badge\s*\{([^}]*)\}/);
+  const combinedBaseStyles = `${canonicalBaseCss}\n${canonicalHtml}`;
+  const diagnosticStripRule = combinedBaseStyles.match(/\.command-surface__diagnostic-strip \.badge\s*\{([^}]*)\}/);
   if (!diagnosticStripRule || /(?:^|[;\s])color\s*:/.test(diagnosticStripRule[1])) {
     failures.push("diagnostic strip base styling must preserve badge status colors");
   }

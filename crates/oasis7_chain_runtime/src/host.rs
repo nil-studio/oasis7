@@ -109,6 +109,10 @@ mod formal_live_history;
 #[cfg(unix)]
 #[path = "host/formal_live_reconcile.rs"]
 mod formal_live_reconcile;
+#[cfg(unix)]
+#[allow(dead_code)] // Compatible preparation, not yet wired into an active recovery owner.
+#[path = "host/formal_live_recovery_original_adapter.rs"]
+mod formal_live_recovery_original_adapter;
 #[cfg(test)]
 #[path = "host/formal_live_recovery_test_support.rs"]
 mod formal_live_recovery_test_support;

@@ -893,10 +893,13 @@ else: record([name, *a])
         repo_root = Path(__file__).resolve().parents[1]
         rows = C.inventory(repo_root)
         discovered = {row['path'] for row in rows}
+        self.assertIn('test-session-public-client.integration.test.mjs', discovered)
         self.assertEqual(set(C.FILE_SECONDS), discovered)
-        batches = C.partition(rows, [0, 1, 2])
-        totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
-        self.assertLessEqual(max(totals) - min(totals), 15.0, f'expected balanced 3-shard weights, got {totals}')
+        for shards in ([0, 1, 2], [0, 1, 2, 3]):
+            batches = C.partition(rows, shards)
+            totals = [sum(C.FILE_SECONDS[name] for name in batch) for batch in batches]
+            self.assertLessEqual(max(totals) - min(totals), 15.0,
+                                 f'expected balanced {len(shards)}-shard weights, got {totals}')
 
     def test_export_inventory_and_zero_checkout_context_validation(self):
         script = Path(__file__).with_name('ci-custody-platform.py')
@@ -949,6 +952,56 @@ else: record([name, *a])
             '--results', str(results_root), '--run-id', '71', '--attempt', '2',
         ], capture_output=True, text=True)
         self.assertNotEqual(bad.returncode, 0)
+
+    def test_validate_results_accepts_rebalanced_weights_and_rejects_incomplete_or_duplicate_files(self):
+        rebalanced = {'0.test.mjs': 900.0, '1.test.mjs': 800.0, '2.test.mjs': 700.0, '3.test.mjs': 1.0}
+        receipts = []
+        with mock.patch.dict(C.FILE_SECONDS, rebalanced, clear=False):
+            for shard in C.SHARDS:
+                output = Path(self.temporary.name) / f'rebalanced-{shard}'
+                C.execute(self.root, self.plan, shard, output, '71', 2)
+                receipts.append(output / 'result.json')
+        # Baseline validator with unmodified FILE_SECONDS accepts rebalanced non-empty disjoint shards.
+        C.validate_results(self.root, self.plan, receipts, '71', 2)
+        baseline = [C.load(path) for path in receipts]
+
+        def write_variant(mutator):
+            variant_paths = []
+            payloads = json.loads(json.dumps(baseline))
+            mutator(payloads)
+            for idx, payload in enumerate(payloads):
+                target = Path(self.temporary.name) / f'variant-{idx}.json'
+                target.write_text(json.dumps(payload), encoding='utf-8')
+                variant_paths.append(target)
+            return variant_paths
+
+        # Empty shard rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            C.validate_results(self.root, self.plan, write_variant(
+                lambda p: (p[1]['files'].extend(p[0]['files']), p[1]['files'].sort(key=lambda r: r['file']), p[0]['files'].clear())
+            ), '71', 2)
+        # Unsorted files within a shard rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            C.validate_results(self.root, self.plan, write_variant(
+                lambda p: p[0]['files'].reverse() if len(p[0]['files']) >= 2 else p[0]['files'].append(p[0]['files'][0])
+            ), '71', 2)
+        # Cross-shard duplicate file rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            C.validate_results(self.root, self.plan, write_variant(
+                lambda p: (p[1]['files'].append(p[0]['files'][0]), p[1]['files'].sort(key=lambda r: r['file']))
+            ), '71', 2)
+        # Missing file rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            C.validate_results(self.root, self.plan, write_variant(
+                lambda p: next(s for s in p if len(s['files']) >= 2)['files'].pop()
+            ), '71', 2)
+        # Extra file not in inventory rejected
+        with self.assertRaisesRegex(ValueError, 'missing or duplicate custody test files'):
+            def inject_extra(p):
+                extra = dict(p[0]['files'][0], file='zzz-extra.test.mjs')
+                extra['process'] = dict(extra['process'], test_name='zzz-extra.test.mjs')
+                p[0]['files'].append(extra)
+            C.validate_results(self.root, self.plan, write_variant(inject_extra), '71', 2)
 
 
 if __name__ == '__main__':

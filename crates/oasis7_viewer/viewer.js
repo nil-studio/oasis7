@@ -11707,10 +11707,6 @@ function scheduleCanonicalGoalPending({ ack, feedback, state, clone, requestSnap
 		scheduleAgentChatAckTimeout(feedback);
 	}, 1500);
 }
-function canonicalGoalMarkup(state, agentId, escapeHtml) {
-	const goal = authenticatedCanonicalGoal(state, agentId);
-	return goal ? `<p data-canonical-agent-goal>Current goal: ${escapeHtml(goal.message)}</p>` : "";
-}
 function applyCommittedChatAck({ ack, feedback, state, clone, pushChatHistory }) {
 	feedback.stage = "ack";
 	feedback.ok = true;
@@ -12661,54 +12657,6 @@ function invalidateDependentQuote(state, kind, snapshot) {
 function coordinateDependentQuotes(state) {
 	invalidateDependentQuote(state, "refine", state.snapshot);
 	invalidateDependentQuote(state, "product", state.snapshot);
-}
-// software_safe_src/viewer_safe_alternative_legacy.js
-function safeAlternativeMarkup(state, escape) {
-	const ui = state.safeAlternative || {};
-	const record = ui.record;
-	const candidates = (record?.candidates || []).map((c, index) => `<article><h4>${escape(c.goal)}</h4><p>Target: ${escape(alternativePosition(c.to))}</p><p>Scope: ${escape(alternativeScopeLabel(c.scope))}</p><p>Cost upper bound: ${escape(String(c.cost_upper_bound))}</p><p>Risk: ${escape(alternativeRiskLabel(c.risk))}</p><p>Consequences: ${escape(c.consequences)}</p><p>Withdrawal: ${escape(c.retractability)}</p><p>Reason: ${escape(c.recommendation)}</p><p>Authority: ${escape(alternativeAuthorityLabel(c.required_authority))}</p><button data-safe-alt="confirm" data-index="${index}" ${record.state !== "awaiting_confirmation" || ui.status === "unknown" ? "disabled" : ""}>Confirm exact candidate</button></article>`).join("");
-	return `<details class="safe-alternative-panel"><style>${safeAlternativeStyles}</style><summary>Safe movement alternatives</summary><p>Waypoint/timed requests are unsupported. Preview and confirmation have no world effect. Confirm and execute separately.</p><label>Original goal<input id="safe-alt-goal"></label><label>Waypoint coordinates<textarea id="safe-alt-points" placeholder='[{"x_cm":0,"y_cm":0,"z_cm":0}]'></textarea></label><label>Requested arrival tick (optional)<input id="safe-alt-arrival" type="number"></label><button data-safe-alt="propose" ${ui.status === "unknown" ? "disabled" : ""}>Compare alternatives</button><button data-safe-alt="recover">Recover original command</button><button data-safe-alt="retry">Retry exact original</button><p role="status">${escape(alternativeStatusLabel(ui.status))} ${escape(ui.error || "")}</p>${record ? `<p>Original goal: ${escape(record.original?.goal || "")}</p><p>Requested waypoints: ${escape((record.original?.waypoints || []).map(alternativePosition).join(" → "))}</p><p>Requested arrival tick: ${escape(String(record.original?.arrival_tick ?? "No timing constraint"))}</p>${record.blocker ? `<p role="status">${escape(alternativeBlockerLabel(record.blocker))}</p>` : ""}${candidates}<button data-safe-alt="execute" ${record.authorization?.state !== "available" || ui.status === "unknown" ? "disabled" : ""}>Execute confirmed choice</button><button data-safe-alt="reevaluate">Reevaluate explicitly</button><button data-safe-alt="read">Read current state</button><button data-safe-alt="cancel">Decline or cancel</button><p>Actual outcome: ${escape(alternativeOutcomeLabel(record.outcome))}</p>` : ""}</details>`;
-}
-function bindSafeAlternativeLegacy(state, api, render) {
-	document.querySelectorAll("[data-safe-alt]").forEach((button) => button.addEventListener("click", async () => {
-		try {
-			const operation = button.dataset.safeAlt;
-			if (operation === "recover" || operation === "retry") return api.recover(operation === "retry");
-			const record = state.safeAlternative.record;
-			const data = { request_id: record?.request_id };
-			if (operation === "propose") Object.assign(data, {
-				request_id: crypto.randomUUID(),
-				original: {
-					goal: document.getElementById("safe-alt-goal").value,
-					waypoints: JSON.parse(document.getElementById("safe-alt-points").value),
-					arrival_tick: document.getElementById("safe-alt-arrival").value.trim() ? Number(document.getElementById("safe-alt-arrival").value) : null
-				},
-				valid_until_tick: state.logicalTime + 100
-			});
-			if (operation === "confirm") {
-				const candidate = record.candidates[Number(button.dataset.index)];
-				Object.assign(data, {
-					generation: record.generation,
-					candidate_id: candidate.candidate_id,
-					candidate_digest: candidate.candidate_digest,
-					confirmation_id: crypto.randomUUID(),
-					valid_until_tick: record.valid_until_tick
-				});
-			}
-			if (operation === "reevaluate") data.valid_until_tick = state.logicalTime + 100;
-			if (operation === "execute") Object.assign(data, {
-				authorization_id: record.authorization.authorization_id,
-				execution_id: crypto.randomUUID()
-			});
-			await api.command({
-				operation,
-				data
-			});
-		} catch (error) {
-			state.safeAlternative.error = String(error);
-			render();
-		}
-	}));
 }
 // software_safe_src/viewer_safe_alternative_module.js
 var uuid = () => crypto.randomUUID();
@@ -17166,11 +17114,6 @@ function createViewerBrowserRaceHandoffModule({ BroadcastChannelImpl = globalThi
 		offerKeyMaterial
 	};
 }
-Object.freeze({
-	channelPrefix: CHANNEL_PREFIX,
-	defaultTtlMs: DEFAULT_TTL_MS,
-	schema: HANDOFF_SCHEMA
-});
 // software_safe_src/viewer_browser_race_identity_test_api_module.js
 function createViewerBrowserRaceIdentityTestApi({ authHasSigningKeyMaterial, bumpRequestCounters, clone, connect, isTestApiEnabled, render, state, viewerBrowserRaceHandoffModule = createViewerBrowserRaceHandoffModule() } = {}) {
 	let browserRaceIdentityOffer = null;
@@ -18948,9 +18891,6 @@ function resourceSummary$1(resources) {
 		return `${key}:${value}`;
 	}).join(" · ") || "-";
 }
-function escapeHtml$1(value) {
-	return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#39;");
-}
 function buildViewerEntityLists({ entityCollections, selectedSearch, isAgentVisibleToCurrentSession }) {
 	const { agents, locations } = entityCollections();
 	const keyword = String(selectedSearch || "").trim().toLowerCase();
@@ -18959,37 +18899,6 @@ function buildViewerEntityLists({ entityCollections, selectedSearch, isAgentVisi
 		agents: agents.filter((agent) => isAgentVisibleToCurrentSession(agent.id)).filter((agent) => filter(agent, `${agent.id} ${agent.location_id}`)).sort((a, b) => String(a.id).localeCompare(String(b.id))),
 		locations: locations.filter((location) => filter(location, `${location.id} ${location.name}`)).sort((a, b) => String(a.id).localeCompare(String(b.id)))
 	};
-}
-function renderViewerEntityList({ state, lists }) {
-	const renderItem = (kind, entry, title, meta) => {
-		const selected = state.selectedKind === kind && state.selectedId === entry.id;
-		return `
-      <button class="list-item" data-select-kind="${kind}" data-select-id="${escapeHtml$1(entry.id)}" data-selected="${selected}">
-        <div class="list-item__title">${escapeHtml$1(title)}</div>
-        <div class="list-item__meta">${escapeHtml$1(meta)}</div>
-      </button>
-    `;
-	};
-	return `
-    <div class="stack">
-      <div class="field">
-        <label for="entity-search">Filter targets</label>
-        <input id="entity-search" type="search" placeholder="Search agents or locations" value="${escapeHtml$1(state.selectedSearch)}" />
-      </div>
-      <div>
-        <div class="panel__title" style="margin-bottom:10px;">Agents</div>
-        <div class="list">
-          ${lists.agents.length ? lists.agents.map((agent) => renderItem("agent", agent, agent.id, `location=${agent.location_id} · resources=${resourceSummary$1(agent.resources)}`)).join("") : "<div class=\"empty\">No agents in current snapshot.</div>"}
-        </div>
-      </div>
-      <div>
-        <div class="panel__title" style="margin-bottom:10px;">Locations</div>
-        <div class="list">
-          ${lists.locations.length ? lists.locations.map((location) => renderItem("location", location, location.name || location.id, `id=${location.id} · resources=${resourceSummary$1(location.resources)}`)).join("") : "<div class=\"empty\">No locations in current snapshot.</div>"}
-        </div>
-      </div>
-    </div>
-  `;
 }
 // software_safe_src/world_feed_state.js
 var WORLD_FEED_SCHEMA_VERSION = "world_feed/v1";
@@ -19669,11 +19578,712 @@ function isWorldScopedCrisisRuntimeEvent(event) {
 	const runtimeKind = event?.kind?.type === "RuntimeEvent" ? event?.kind?.data?.kind : null;
 	return WORLD_SCOPED_CRISIS_RUNTIME_KINDS.has(runtimeKind);
 }
+// software_safe_src/viewer_semantic_timeout_module.js
+function createViewerSemanticTimeoutModule({ state, windowRef = window, SESSION_REGISTER_ACK_TIMEOUT_MS, AGENT_CHAT_OVERALL_TIMEOUT_MS, AGENT_CHAT_ACK_TIMEOUT_MS, SEMANTIC_ACTION_ACK_TIMEOUT_MS, hasPendingSessionRegisterWaiter, maybeRecoverLocalTestStarterBindingFromSnapshot, isTestApiEnabled, authConnectionGeneration, render }) {
+	let hostedRuntimeSyncTimer = null;
+	let pendingAgentChatAckTimer = null;
+	let pendingAgentChatOverallTimer = null;
+	let pendingPromptControlAckTimer = null;
+	let pendingGameplayActionAckTimer = null;
+	function clearPendingAgentChatAckTimer() {
+		if (pendingAgentChatAckTimer) {
+			windowRef.clearTimeout(pendingAgentChatAckTimer);
+			pendingAgentChatAckTimer = null;
+		}
+	}
+	function setPendingAgentChatAckTimer(timer) {
+		pendingAgentChatAckTimer = timer;
+	}
+	function clearPendingAgentChatOverallTimer() {
+		if (pendingAgentChatOverallTimer) {
+			windowRef.clearTimeout(pendingAgentChatOverallTimer);
+			pendingAgentChatOverallTimer = null;
+		}
+	}
+	function clearPendingPromptControlAckTimer() {
+		if (pendingPromptControlAckTimer) {
+			windowRef.clearTimeout(pendingPromptControlAckTimer);
+			pendingPromptControlAckTimer = null;
+		}
+	}
+	function clearPendingGameplayActionAckTimer() {
+		if (pendingGameplayActionAckTimer) {
+			windowRef.clearTimeout(pendingGameplayActionAckTimer);
+			pendingGameplayActionAckTimer = null;
+		}
+	}
+	function clearHostedRuntimeSyncTimer() {
+		if (hostedRuntimeSyncTimer) {
+			windowRef.clearTimeout(hostedRuntimeSyncTimer);
+			hostedRuntimeSyncTimer = null;
+		}
+	}
+	function expireHostedRuntimeSyncTimeout() {
+		hostedRuntimeSyncTimer = null;
+		if (!state.auth.syncInFlight || hasPendingSessionRegisterWaiter()) return;
+		state.auth.syncInFlight = false;
+		state.auth.registrationStatus = state.auth.available ? "issued" : "guest";
+		state.auth.runtimeStatus = "error";
+		state.auth.recoveryErrorCode = "runtime_sync_timeout";
+		state.auth.recoveryErrorMessage = "runtime session sync timed out waiting for ack/error from live server";
+		state.auth.error = state.auth.recoveryErrorMessage;
+		maybeRecoverLocalTestStarterBindingFromSnapshot(state.snapshot);
+		render();
+	}
+	function scheduleHostedRuntimeSyncTimeout() {
+		clearHostedRuntimeSyncTimer();
+		hostedRuntimeSyncTimer = windowRef.setTimeout(expireHostedRuntimeSyncTimeout, SESSION_REGISTER_ACK_TIMEOUT_MS);
+	}
+	function expireHostedRuntimeSyncTimeoutForTest() {
+		if (!isTestApiEnabled()) throw new Error("expireHostedRuntimeSyncTimeoutForTest requires test_api=1");
+		clearHostedRuntimeSyncTimer();
+		expireHostedRuntimeSyncTimeout();
+	}
+	function agentChatFeedbackInFlight(feedback) {
+		return feedback && [
+			"queued",
+			"registering",
+			"signing",
+			"sent",
+			"pending"
+		].includes(String(feedback.stage || ""));
+	}
+	function semanticFeedbackInFlight(feedback) {
+		return feedback && [
+			"queued",
+			"registering",
+			"authorizing",
+			"signing",
+			"sent"
+		].includes(String(feedback.stage || ""));
+	}
+	function sameAgentChatFeedback(left, right) {
+		if (!left || !right) return false;
+		if (left === right) return true;
+		return left.id === right.id && left.kind === right.kind && left.action === right.action && left.agentId === right.agentId;
+	}
+	function sameSemanticFeedback(left, right) {
+		if (!left || !right) return false;
+		if (left === right) return true;
+		return left.id === right.id && left.kind === right.kind && left.action === right.action && left.agentId === right.agentId;
+	}
+	function isAgentChatInFlight() {
+		return agentChatFeedbackInFlight(state.lastChatFeedback);
+	}
+	function markAgentChatFeedbackError(feedback, reason, effect = "agent_chat failed") {
+		if (!feedback) return;
+		feedback.stage = feedback.canonicalRequest ? "unknown" : "error";
+		feedback.ok = false;
+		feedback.accepted = false;
+		feedback.reason = reason;
+		feedback.effect = feedback.canonicalRequest ? "canonical goal result unknown; refresh current world state" : effect;
+		state.lastChatFeedback = feedback;
+	}
+	function expireAgentChatOverallTimeout(feedback) {
+		if (!sameAgentChatFeedback(state.lastChatFeedback, feedback) || !agentChatFeedbackInFlight(state.lastChatFeedback)) return false;
+		clearPendingAgentChatOverallTimer();
+		clearPendingAgentChatAckTimer();
+		markAgentChatFeedbackError(feedback, "agent_chat timed out before live server ack/error completed", "agent_chat overall timeout");
+		render();
+		return true;
+	}
+	function scheduleAgentChatOverallTimeout(feedback) {
+		clearPendingAgentChatOverallTimer();
+		pendingAgentChatOverallTimer = windowRef.setTimeout(() => {
+			pendingAgentChatOverallTimer = null;
+			expireAgentChatOverallTimeout(feedback);
+		}, AGENT_CHAT_OVERALL_TIMEOUT_MS);
+	}
+	function expirePendingAgentChatOverallTimeoutForTest() {
+		if (!isTestApiEnabled()) throw new Error("expirePendingAgentChatOverallTimeoutForTest requires test_api=1");
+		clearPendingAgentChatOverallTimer();
+		return expireAgentChatOverallTimeout(state.lastChatFeedback);
+	}
+	function scheduleAgentChatAckTimeout(feedback) {
+		clearPendingAgentChatAckTimer();
+		pendingAgentChatAckTimer = windowRef.setTimeout(() => {
+			pendingAgentChatAckTimer = null;
+			if (!sameAgentChatFeedback(state.lastChatFeedback, feedback) || !["sent", "pending"].includes(state.lastChatFeedback.stage)) return;
+			clearPendingAgentChatOverallTimer();
+			markAgentChatFeedbackError(feedback, "agent_chat timed out waiting for ack/error from live server", "agent_chat ack timeout");
+			render();
+		}, AGENT_CHAT_ACK_TIMEOUT_MS);
+	}
+	function failPendingAgentChatAck(reason, effect = "agent_chat ack failed") {
+		clearPendingAgentChatAckTimer();
+		clearPendingAgentChatOverallTimer();
+		const feedback = state.lastChatFeedback;
+		if (!agentChatFeedbackInFlight(feedback)) return;
+		markAgentChatFeedbackError(feedback, reason, effect);
+	}
+	function markSemanticFeedbackError(feedback, reason, effect) {
+		if (!feedback) return;
+		feedback.stage = "error";
+		feedback.ok = false;
+		feedback.accepted = false;
+		feedback.reason = reason;
+		feedback.effect = effect;
+	}
+	function expirePromptControlAckTimeout(feedback) {
+		if (!sameSemanticFeedback(state.lastPromptFeedback, feedback) || state.lastPromptFeedback.stage !== "sent") return false;
+		clearPendingPromptControlAckTimer();
+		markSemanticFeedbackError(feedback, "prompt_control timed out waiting for ack/error from live server", "prompt_control ack timeout");
+		state.lastPromptFeedback = feedback;
+		render();
+		return true;
+	}
+	function expireGameplayActionAckTimeout(feedback) {
+		if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback) || ![
+			"sent",
+			"pending",
+			"received"
+		].includes(state.lastGameplayActionFeedback.stage)) return false;
+		clearPendingGameplayActionAckTimer();
+		markSemanticFeedbackError(feedback, "gameplay_action timed out waiting for ack/error from live server", "gameplay_action ack timeout");
+		feedback.stage = "unknown";
+		state.lastGameplayActionFeedback = feedback;
+		render();
+		return true;
+	}
+	function schedulePromptControlAckTimeout(feedback) {
+		clearPendingPromptControlAckTimer();
+		pendingPromptControlAckTimer = windowRef.setTimeout(() => {
+			pendingPromptControlAckTimer = null;
+			expirePromptControlAckTimeout(feedback);
+		}, SEMANTIC_ACTION_ACK_TIMEOUT_MS);
+	}
+	function scheduleGameplayActionAckTimeout(feedback) {
+		clearPendingGameplayActionAckTimer();
+		pendingGameplayActionAckTimer = windowRef.setTimeout(() => {
+			pendingGameplayActionAckTimer = null;
+			expireGameplayActionAckTimeout(feedback);
+		}, SEMANTIC_ACTION_ACK_TIMEOUT_MS);
+	}
+	function expirePendingPromptControlAckTimeoutForTest() {
+		if (!isTestApiEnabled()) throw new Error("expirePendingPromptControlAckTimeoutForTest requires test_api=1");
+		clearPendingPromptControlAckTimer();
+		return expirePromptControlAckTimeout(state.lastPromptFeedback);
+	}
+	function connectionGenerationForTest() {
+		if (!isTestApiEnabled()) throw new Error("connectionGenerationForTest requires test_api=1");
+		return authConnectionGeneration();
+	}
+	function expirePendingGameplayActionAckTimeoutForTest() {
+		if (!isTestApiEnabled()) throw new Error("expirePendingGameplayActionAckTimeoutForTest requires test_api=1");
+		clearPendingGameplayActionAckTimer();
+		return expireGameplayActionAckTimeout(state.lastGameplayActionFeedback);
+	}
+	function failPendingPromptControlAck(reason, effect = "prompt_control ack failed") {
+		clearPendingPromptControlAckTimer();
+		const feedback = state.lastPromptFeedback;
+		if (!feedback || feedback.stage !== "sent") return;
+		markSemanticFeedbackError(feedback, reason, effect);
+		state.lastPromptFeedback = feedback;
+	}
+	function failPendingGameplayActionAck(reason, effect = "gameplay_action ack failed") {
+		clearPendingGameplayActionAckTimer();
+		const feedback = state.lastGameplayActionFeedback;
+		if (!feedback || ![
+			"sent",
+			"pending",
+			"received"
+		].includes(feedback.stage)) return;
+		markSemanticFeedbackError(feedback, reason, effect);
+		feedback.stage = "unknown";
+		state.lastGameplayActionFeedback = feedback;
+	}
+	return {
+		clearPendingAgentChatAckTimer,
+		setPendingAgentChatAckTimer,
+		clearPendingAgentChatOverallTimer,
+		clearPendingPromptControlAckTimer,
+		clearPendingGameplayActionAckTimer,
+		clearHostedRuntimeSyncTimer,
+		expireHostedRuntimeSyncTimeout,
+		scheduleHostedRuntimeSyncTimeout,
+		expireHostedRuntimeSyncTimeoutForTest,
+		agentChatFeedbackInFlight,
+		semanticFeedbackInFlight,
+		sameAgentChatFeedback,
+		sameSemanticFeedback,
+		isAgentChatInFlight,
+		markAgentChatFeedbackError,
+		expireAgentChatOverallTimeout,
+		scheduleAgentChatOverallTimeout,
+		expirePendingAgentChatOverallTimeoutForTest,
+		scheduleAgentChatAckTimeout,
+		failPendingAgentChatAck,
+		markSemanticFeedbackError,
+		expirePromptControlAckTimeout,
+		expireGameplayActionAckTimeout,
+		schedulePromptControlAckTimeout,
+		scheduleGameplayActionAckTimeout,
+		expirePendingPromptControlAckTimeoutForTest,
+		connectionGenerationForTest,
+		expirePendingGameplayActionAckTimeoutForTest,
+		failPendingPromptControlAck,
+		failPendingGameplayActionAck
+	};
+}
+// software_safe_src/viewer_snapshot_ingestion_module.js
+function createViewerSnapshotIngestionModule({ state, windowRef = window, MAX_EVENTS, MAX_DECISION_TRACES, EMPTY_ENTITY_SNAPSHOT_REFRESH_DELAY_MS, LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE, STARTER_AGENT_ID, LOCAL_TEST_PLAYER_ID_PREFIX, isWorldScopedCrisisRuntimeEvent, onSnapshotReceived, clearInitialSnapshotRetryTimer, quoteProtocolFacade, recoverGameplayFeedback, hostedWorldAccount, getGameplayRecoveryScope, clearPendingGameplayActionAckTimer, requestGameplayResult, sendJson, entityCollections, applySelection, syncAgentInteractionDrafts, hydrateChatHistoryFromStorage, reconcilePendingPromptAuthoritativeRefresh, canonicalOwnerRead, worldFeedTransport, isTestApiEnabled, getSocket, requestSnapshotSafe, persistHostedPlayerSession, hasPendingSessionRegisterWaiter, ensureRegisteredPlayerSession, clone, render, getState, acceptRuntimeAckIdentity, pendingControlFeedback, liveControlState }) {
+	let emptyEntitySnapshotRefreshTimer = null;
+	let localTestStarterRebindAttemptKey = null;
+	function summarizeEventTitle(event) {
+		return (event?.kind?.type || "unknown").replace(/_/g, " ");
+	}
+	function addRecentEvent(event) {
+		state.eventSeq = Math.max(state.eventSeq, Number(event?.id || 0));
+		if (isWorldScopedCrisisRuntimeEvent(event)) return;
+		state.recentEvents.unshift(event);
+		state.recentEvents = state.recentEvents.slice(0, MAX_EVENTS);
+		state.eventCount = state.recentEvents.length;
+	}
+	function normalizedGameplayActions(snapshot = state.snapshot) {
+		const actions = snapshot?.player_gameplay?.available_actions || snapshot?.player_gameplay?.availableActions || [];
+		return Array.isArray(actions) ? actions : [];
+	}
+	function gameplayActionId(action) {
+		return String(action?.action_id || action?.actionId || "").trim();
+	}
+	function gameplayProtocolAction(action) {
+		return String(action?.protocol_action || action?.protocolAction || "").trim();
+	}
+	function hasGameplayAction(snapshot, actionId) {
+		return normalizedGameplayActions(snapshot).some((action) => gameplayActionId(action) === actionId);
+	}
+	function hasSnapshotRefreshAction(snapshot) {
+		return normalizedGameplayActions(snapshot).some((action) => {
+			const protocol = gameplayProtocolAction(action);
+			return gameplayActionId(action) === "request_snapshot" || protocol === "request_snapshot" || protocol === "world.request_snapshot";
+		});
+	}
+	function needsEmptyEntitySnapshotRefresh(snapshot = state.snapshot) {
+		const gameplay = snapshot?.player_gameplay || {};
+		if (String(gameplay.blocker_kind || gameplay.blockerKind || "").trim() !== "runtime_snapshot_empty_entities") return false;
+		if (hasGameplayAction(snapshot, "claim_first_agent")) return false;
+		return hasSnapshotRefreshAction(snapshot);
+	}
+	function clearEmptyEntitySnapshotRefreshTimer() {
+		if (emptyEntitySnapshotRefreshTimer) {
+			windowRef.clearTimeout(emptyEntitySnapshotRefreshTimer);
+			emptyEntitySnapshotRefreshTimer = null;
+		}
+	}
+	function needsEmptyEntitySnapshotRefreshForTest(snapshot = state.snapshot) {
+		if (!isTestApiEnabled()) throw new Error("needsEmptyEntitySnapshotRefreshForTest requires test_api=1");
+		return needsEmptyEntitySnapshotRefresh(snapshot);
+	}
+	function isEmptyEntitySnapshotRefreshPendingForTest() {
+		if (!isTestApiEnabled()) throw new Error("isEmptyEntitySnapshotRefreshPendingForTest requires test_api=1");
+		return Boolean(emptyEntitySnapshotRefreshTimer);
+	}
+	function syncEmptyEntitySnapshotRefreshLoop() {
+		if (!needsEmptyEntitySnapshotRefresh()) {
+			clearEmptyEntitySnapshotRefreshTimer();
+			return;
+		}
+		const socket = getSocket();
+		if (emptyEntitySnapshotRefreshTimer || !socket || socket.readyState !== WebSocket.OPEN) return;
+		emptyEntitySnapshotRefreshTimer = windowRef.setTimeout(() => {
+			emptyEntitySnapshotRefreshTimer = null;
+			const activeSocket = getSocket();
+			if (!needsEmptyEntitySnapshotRefresh() || !activeSocket || activeSocket.readyState !== WebSocket.OPEN) return;
+			requestSnapshotSafe();
+			syncEmptyEntitySnapshotRefreshLoop();
+		}, EMPTY_ENTITY_SNAPSHOT_REFRESH_DELAY_MS);
+	}
+	function adoptCurrentPlayerBindingFromSnapshot(snapshot) {
+		if (state.auth.source === "hosted_account_cookie" || state.viewerProtocol?.capabilities?.includes("canonical_agent_chat_v1")) return;
+		const playerId = String(state.auth.playerId || "").trim();
+		if (!playerId) return;
+		const bindings = snapshot?.model?.agent_player_bindings || {};
+		const boundAgentId = Object.entries(bindings).find(([, boundPlayerId]) => String(boundPlayerId || "").trim() === playerId)?.[0] || null;
+		if (!boundAgentId || state.auth.boundAgentId === boundAgentId) return;
+		state.auth.boundAgentId = boundAgentId;
+		state.auth.pendingRequestedAgentId = boundAgentId;
+		state.auth.registrationStatus = "registered";
+		state.auth.runtimeStatus = "registered";
+		state.auth.error = null;
+		if (state.auth.available && state.auth.source !== LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE) persistHostedPlayerSession(state.auth);
+	}
+	function maybeRecoverLocalTestStarterBindingFromSnapshot(snapshot) {
+		if (!isTestApiEnabled() || state.auth.source !== "local_test_api_ephemeral" || !state.auth.available) return;
+		if (state.auth.boundAgentId || state.auth.syncInFlight || hasPendingSessionRegisterWaiter()) return;
+		const socket = getSocket();
+		if (!socket || socket.readyState !== WebSocket.OPEN) return;
+		if (!(snapshot?.model?.agents || {})[STARTER_AGENT_ID]) return;
+		const currentPlayerId = String(state.auth.playerId || "").trim();
+		const boundPlayerId = String(snapshot?.model?.agent_player_bindings?.[STARTER_AGENT_ID] || "").trim();
+		if (!currentPlayerId || !boundPlayerId.startsWith(LOCAL_TEST_PLAYER_ID_PREFIX) || boundPlayerId === currentPlayerId) return;
+		const attemptKey = `${currentPlayerId}:${boundPlayerId}:${STARTER_AGENT_ID}`;
+		if (localTestStarterRebindAttemptKey === attemptKey) return;
+		localTestStarterRebindAttemptKey = attemptKey;
+		state.auth.pendingRequestedAgentId = STARTER_AGENT_ID;
+		state.auth.pendingForceRebind = true;
+		state.auth.rebindNotice = `Local test player is taking over ${STARTER_AGENT_ID} from an earlier local test session.`;
+		ensureRegisteredPlayerSession(STARTER_AGENT_ID, { forceRebind: true }).catch((error) => {
+			localTestStarterRebindAttemptKey = null;
+			state.auth.syncInFlight = false;
+			state.auth.pendingForceRebind = false;
+			state.auth.runtimeStatus = "error";
+			if (state.auth.recoveryErrorCode !== "session_register_timeout") {
+				state.auth.recoveryErrorCode = "local_test_starter_rebind_failed";
+				state.auth.recoveryErrorMessage = String(error);
+			}
+			state.auth.error = String(error);
+			render();
+		});
+	}
+	function handleSnapshot(snapshot) {
+		onSnapshotReceived();
+		clearInitialSnapshotRetryTimer();
+		quoteProtocolFacade.invalidateSnapshotBoundQuotes(snapshot);
+		state.snapshot = snapshot;
+		recoverGameplayFeedback(snapshot, state, hostedWorldAccount, getGameplayRecoveryScope(state), clearPendingGameplayActionAckTimer);
+		requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
+		state.logicalTime = Math.max(state.logicalTime, Number(snapshot?.time || 0));
+		state.tick = state.logicalTime;
+		adoptCurrentPlayerBindingFromSnapshot(snapshot);
+		maybeRecoverLocalTestStarterBindingFromSnapshot(snapshot);
+		const { agents, locations } = entityCollections();
+		if (!state.selectedObject) {
+			if (agents[0]) applySelection({
+				kind: "agent",
+				id: agents[0].id
+			});
+			else if (locations[0]) applySelection({
+				kind: "location",
+				id: locations[0].id
+			});
+		} else if (state.selectedKind && state.selectedId) {
+			if (!applySelection({
+				kind: state.selectedKind,
+				id: state.selectedId
+			}, { preserveInteractionDrafts: true })) {
+				state.selectedKind = null;
+				state.selectedId = null;
+				state.selectedObject = null;
+				syncAgentInteractionDrafts(true);
+			}
+		}
+		hydrateChatHistoryFromStorage();
+		syncAgentInteractionDrafts(reconcilePendingPromptAuthoritativeRefresh(snapshot));
+		canonicalOwnerRead.refresh().catch(() => {});
+		syncEmptyEntitySnapshotRefreshLoop();
+		worldFeedTransport.refreshAfterSnapshot();
+	}
+	function injectSnapshot(snapshot, options = {}) {
+		if (!isTestApiEnabled()) throw new Error("injectSnapshot requires test_api=1");
+		handleSnapshot(clone(snapshot));
+		render();
+		return options?.returnState === false ? { ok: true } : getState();
+	}
+	function handleMetrics(time, metrics) {
+		state.metrics = metrics || null;
+		state.traceCount = Number(metrics?.decision_trace_count || 0);
+		state.logicalTime = Math.max(state.logicalTime, Number(time || 0), Number(metrics?.total_ticks || 0));
+		state.tick = state.logicalTime;
+	}
+	function clipTraceText(value, limit = 480) {
+		const text = String(value || "").trim();
+		if (!text) return null;
+		return text.length <= limit ? text : `${text.slice(0, limit)}…`;
+	}
+	function snapshotDecisionTrace(trace) {
+		if (!trace || typeof trace !== "object") return null;
+		return {
+			agent_id: trace.agent_id || null,
+			time: Number(trace.time || 0),
+			decision: clone(trace.decision || null),
+			llm_error: trace.llm_error || null,
+			parse_error: trace.parse_error || null,
+			llm_input_excerpt: clipTraceText(trace.llm_input),
+			llm_output_excerpt: clipTraceText(trace.llm_output),
+			llm_diagnostics: clone(trace.llm_diagnostics || null)
+		};
+	}
+	function handleDecisionTrace(trace) {
+		if (!trace || typeof trace !== "object") return;
+		state.recentDecisionTraces.unshift(clone(trace));
+		state.recentDecisionTraces = state.recentDecisionTraces.slice(0, MAX_DECISION_TRACES);
+		state.traceCount = Math.max(state.traceCount, state.recentDecisionTraces.length);
+		state.logicalTime = Math.max(state.logicalTime, Number(trace?.time || 0));
+		state.tick = state.logicalTime;
+	}
+	function handleControlCompletionAck(ack) {
+		if (!acceptRuntimeAckIdentity(ack)) return;
+		const feedback = pendingControlFeedback.get(ack?.request_id);
+		if (!feedback) return;
+		liveControlState.blocked(ack);
+		feedback.deltaLogicalTime = Number(ack?.delta_logical_time || 0);
+		feedback.deltaEventSeq = Number(ack?.delta_event_seq || 0);
+		if (ack?.status === "advanced") {
+			feedback.stage = "completed_advanced";
+			feedback.effect = `control ack advanced: logicalTime +${feedback.deltaLogicalTime}, eventSeq +${feedback.deltaEventSeq}`;
+			feedback.reason = null;
+		} else if (ack?.status === "blocked") {
+			feedback.stage = "blocked";
+			feedback.reason = ack?.error_message || ack?.error_code || "control was blocked before runtime advance";
+			feedback.hint = state.snapshot?.player_gameplay?.next_step_hint || feedback.hint;
+			feedback.effect = `gameplay blocked before requested advance completed: logicalTime +${feedback.deltaLogicalTime}, eventSeq +${feedback.deltaEventSeq}`;
+		} else {
+			feedback.stage = "completed_no_progress";
+			feedback.reason = "timeout_no_progress";
+			feedback.effect = `no visible world delta: logicalTime +${feedback.deltaLogicalTime}, eventSeq +${feedback.deltaEventSeq}`;
+		}
+		state.lastControlFeedback = feedback;
+		pendingControlFeedback.delete(feedback.requestId);
+		if (feedback.stage === "completed_advanced") requestSnapshotSafe();
+		render();
+	}
+	return {
+		summarizeEventTitle,
+		addRecentEvent,
+		handleSnapshot,
+		normalizedGameplayActions,
+		gameplayActionId,
+		gameplayProtocolAction,
+		hasGameplayAction,
+		hasSnapshotRefreshAction,
+		needsEmptyEntitySnapshotRefresh,
+		clearEmptyEntitySnapshotRefreshTimer,
+		needsEmptyEntitySnapshotRefreshForTest,
+		isEmptyEntitySnapshotRefreshPendingForTest,
+		syncEmptyEntitySnapshotRefreshLoop,
+		adoptCurrentPlayerBindingFromSnapshot,
+		maybeRecoverLocalTestStarterBindingFromSnapshot,
+		injectSnapshot,
+		handleMetrics,
+		snapshotDecisionTrace,
+		handleDecisionTrace,
+		handleControlCompletionAck
+	};
+}
+// software_safe_src/viewer_selection_projection_module.js
+function createViewerSelectionProjectionModule({ state, STARTER_AGENT_ID, LOCAL_TEST_PLAYER_ID_PREFIX, isTestApiEnabled, isAgentControlLost, render }) {
+	function parseSelectionPayload(payload) {
+		if (payload == null) return null;
+		if (typeof payload === "string") {
+			const trimmed = payload.trim();
+			if (!trimmed) return null;
+			const parts = trimmed.split(":");
+			if (parts.length >= 2) return {
+				kind: parts[0],
+				id: parts.slice(1).join(":")
+			};
+			return {
+				kind: "agent",
+				id: trimmed
+			};
+		}
+		if (typeof payload === "object") {
+			const kind = payload.kind || payload.targetKind || payload.type;
+			const id = payload.id || payload.targetId || payload.value;
+			if (!kind || !id) return null;
+			return {
+				kind: String(kind),
+				id: String(id)
+			};
+		}
+		return null;
+	}
+	function normalizeModuleVisualEntity(entry, fallbackId = "") {
+		if (!entry || typeof entry !== "object") return null;
+		const id = String(entry.entity_id || entry.id || fallbackId || "").trim();
+		if (!id) return null;
+		return {
+			...entry,
+			id,
+			module_id: String(entry.module_id || entry.moduleId || "").trim(),
+			kind: String(entry.kind || "artifact").trim() || "artifact",
+			label: entry.label == null ? null : String(entry.label).trim() || null,
+			anchor: entry.anchor || null
+		};
+	}
+	function entityCollections() {
+		const model = state.snapshot?.model || {};
+		return {
+			agents: Object.values(model.agents || {}),
+			locations: Object.values(model.locations || {}),
+			moduleVisualEntities: Object.values(model.module_visual_entities || {}).map((entry) => normalizeModuleVisualEntity(entry)).filter(Boolean)
+		};
+	}
+	function moduleVisualEntityIdFromEvent(event) {
+		if (!event || typeof event !== "object" || typeof event.module_visual_entity_id !== "string") return null;
+		return event.module_visual_entity_id.trim() || null;
+	}
+	function moduleVisualEntityFromEvent(event) {
+		const id = moduleVisualEntityIdFromEvent(event);
+		return id ? entityCollections().moduleVisualEntities.find((entry) => entry.id === id) || null : null;
+	}
+	function focusModuleFromEvent(event) {
+		const target = moduleVisualEntityFromEvent(event);
+		return target ? applySelection({
+			kind: "module_visual",
+			id: target.id
+		}) : null;
+	}
+	function agentBindingForId(agentId) {
+		const id = String(agentId || "").trim();
+		if (!id) return {
+			playerId: null,
+			publicKey: null
+		};
+		return {
+			playerId: state.snapshot?.model?.agent_player_bindings?.[id] || null,
+			publicKey: state.snapshot?.model?.agent_player_public_key_bindings?.[id] || null
+		};
+	}
+	function isAgentVisibleToCurrentSession(agentId) {
+		const id = String(agentId || "").trim();
+		if (!id) return false;
+		const boundAgentId = String(state.auth.boundAgentId || "").trim();
+		const currentPlayerId = String(state.auth.playerId || "").trim();
+		const binding = agentBindingForId(id);
+		const boundPlayerId = String(binding.playerId || "").trim();
+		if (boundAgentId && id === boundAgentId) return true;
+		if (boundPlayerId && currentPlayerId && boundPlayerId === currentPlayerId) return true;
+		if (id === STARTER_AGENT_ID && isTestApiEnabled() && state.auth.source === "local_test_api_ephemeral" && boundPlayerId.startsWith(LOCAL_TEST_PLAYER_ID_PREFIX)) return true;
+		return false;
+	}
+	function currentBoundAgentControlError(agentId, actionLabel = "agent action") {
+		const id = String(agentId || "").trim();
+		if (!id) return `${actionLabel} requires a non-empty agent id`;
+		const boundAgentId = String(state.auth.boundAgentId || "").trim();
+		if (!boundAgentId) return `${actionLabel} requires the current account to have a bound Agent`;
+		if (id !== boundAgentId) return `${actionLabel} target ${id} does not match current bound Agent ${boundAgentId}`;
+		if (isAgentControlLost(id)) return `${actionLabel} control was lost; re-authenticate and refresh the current Agent binding`;
+		return null;
+	}
+	function selectedAgentId() {
+		return state.selectedKind === "agent" ? state.selectedId : null;
+	}
+	function selectedAgentPromptProfile() {
+		const agentId = selectedAgentId();
+		if (!agentId) return null;
+		return state.snapshot?.model?.agent_prompt_profiles?.[agentId] || {
+			agent_id: agentId,
+			version: 0,
+			updated_at_tick: 0,
+			updated_by: "",
+			system_prompt_override: null,
+			short_term_goal_override: null,
+			long_term_goal_override: null
+		};
+	}
+	function selectedAgentBindingInfo() {
+		const agentId = selectedAgentId();
+		return agentId ? agentBindingForId(agentId) : null;
+	}
+	function selectedAgentExecutionDebugContext() {
+		const agentId = selectedAgentId();
+		return agentId ? state.snapshot?.model?.agent_execution_debug_contexts?.[agentId] || null : null;
+	}
+	function syncAgentInteractionDrafts(force = false) {
+		const agentId = selectedAgentId();
+		const profile = selectedAgentPromptProfile();
+		if (force || state.promptDraft.agentId !== agentId || !state.promptDraft.dirty && agentId) {
+			const currentVersion = Number(profile?.version || 0);
+			state.promptDraft = {
+				agentId,
+				currentVersion,
+				rollbackTargetVersion: Math.max(0, currentVersion - 1),
+				updatedBy: String(profile?.updated_by || ""),
+				updatedAtTick: Number(profile?.updated_at_tick || 0),
+				systemPrompt: String(profile?.system_prompt_override || ""),
+				shortTermGoal: String(profile?.short_term_goal_override || ""),
+				longTermGoal: String(profile?.long_term_goal_override || ""),
+				dirty: false
+			};
+		}
+		if (force || state.chatDraft.agentId !== agentId) state.chatDraft = {
+			agentId,
+			message: agentId === state.chatDraft.agentId ? state.chatDraft.message : "",
+			dirty: false
+		};
+	}
+	function applySelection(selection, options = {}) {
+		if (!selection) return null;
+		const kind = String(selection.kind || "").toLowerCase();
+		const id = String(selection.id || "");
+		const { agents, locations, moduleVisualEntities } = entityCollections();
+		let object = null;
+		if (kind === "agent") object = agents.find((entry) => entry.id === id) || null;
+		else if (kind === "location") object = locations.find((entry) => entry.id === id) || null;
+		else if (kind === "module_visual") object = moduleVisualEntities.find((entry) => entry.id === id) || null;
+		if (!object) return null;
+		state.selectedKind = kind;
+		state.selectedId = id;
+		state.selectedObject = object;
+		syncAgentInteractionDrafts(options.preserveInteractionDrafts !== true);
+		render();
+		return {
+			kind,
+			id
+		};
+	}
+	function select(payload) {
+		const parsed = parseSelectionPayload(payload);
+		if (!parsed) return {
+			ok: false,
+			reason: "invalid selection payload"
+		};
+		const applied = applySelection(parsed);
+		if (!applied) return {
+			ok: false,
+			reason: `target not found: ${parsed.kind}:${parsed.id}`
+		};
+		return {
+			ok: true,
+			...applied
+		};
+	}
+	function focus(payload) {
+		return select(payload);
+	}
+	function parseStepCount(payload) {
+		if (payload == null) return 1;
+		if (typeof payload === "number" && Number.isFinite(payload) && payload >= 1) return Math.floor(payload);
+		if (typeof payload === "string") {
+			const trimmed = payload.trim();
+			if (!trimmed || trimmed === "step") return 1;
+			const numeric = Number(trimmed);
+			if (Number.isFinite(numeric) && numeric >= 1) return Math.floor(numeric);
+			const matched = trimmed.match(/step\s*[:=]\s*(\d+)/i);
+			return matched ? Number(matched[1]) : null;
+		}
+		if (typeof payload === "object") {
+			const numeric = Number(payload.count);
+			if (Number.isFinite(numeric) && numeric >= 1) return Math.floor(numeric);
+		}
+		return null;
+	}
+	return {
+		parseSelectionPayload,
+		entityCollections,
+		normalizeModuleVisualEntity,
+		moduleVisualEntityIdFromEvent,
+		moduleVisualEntityFromEvent,
+		focusModuleFromEvent,
+		agentBindingForId,
+		isAgentVisibleToCurrentSession,
+		currentBoundAgentControlError,
+		selectedAgentId,
+		selectedAgentPromptProfile,
+		selectedAgentBindingInfo,
+		selectedAgentExecutionDebugContext,
+		syncAgentInteractionDrafts,
+		applySelection,
+		select,
+		focus,
+		parseStepCount
+	};
+}
 // software_safe_src/legacy_core.js
 var legacy_core_exports = /* @__PURE__ */ __exportAll({
 	acceptScopeSnapshot: () => acceptScopeSnapshot,
 	applySelection: () => applySelection,
-	bindEvents: () => bindEvents,
 	buildAuthSurfaceModel: () => buildAuthSurfaceModel,
 	buildGameplaySummary: () => buildGameplaySummary,
 	buildHostedActionMatrixView: () => buildHostedActionMatrixView,
@@ -19716,7 +20326,6 @@ var legacy_core_exports = /* @__PURE__ */ __exportAll({
 	injectWarDeclarationQuoteForTest: () => injectWarDeclarationQuoteForTest,
 	invalidateHostedAccountSession: () => invalidateHostedAccountSession,
 	isAgentChatInFlight: () => isAgentChatInFlight,
-	isAgentControlLost: () => isAgentControlLost,
 	isAgentVisibleToCurrentSession: () => isAgentVisibleToCurrentSession,
 	isEmptyEntitySnapshotRefreshPendingForTest: () => isEmptyEntitySnapshotRefreshPendingForTest,
 	isLocaleZh: () => isLocaleZh,
@@ -19729,12 +20338,7 @@ var legacy_core_exports = /* @__PURE__ */ __exportAll({
 	refreshHostedAdmissionState: () => refreshHostedAdmissionState,
 	refreshPromptControlBinding: () => refreshPromptControlBinding,
 	registerPlayerSessionForTest: () => registerPlayerSessionForTest,
-	releaseHostedAccountWorld: () => releaseHostedAccountWorld,
 	reloadWorldFeedFromAuthoritativeSnapshot: () => reloadWorldFeedFromAuthoritativeSnapshot,
-	renderDetails: () => renderDetails,
-	renderInteractionPanel: () => renderInteractionPanel,
-	renderLists: () => renderLists,
-	renderSummary: () => renderSummary,
 	reportFatalError: () => reportFatalError,
 	requestFragmentRefillPreview: () => requestFragmentRefillPreview,
 	requestGovernanceVoteQuote: () => requestGovernanceVoteQuote,
@@ -19776,7 +20380,6 @@ var legacy_core_exports = /* @__PURE__ */ __exportAll({
 	subscribeRenderHook: () => subscribeRenderHook,
 	summarizeEventTitle: () => summarizeEventTitle,
 	togglePromptOverridesVisible: () => togglePromptOverridesVisible,
-	toggleSoftwareSafeLocale: () => toggleSoftwareSafeLocale,
 	toggleViewerLocale: () => toggleViewerLocale,
 	updatePixelWorldRuntimeMeta: () => updatePixelWorldRuntimeMeta
 });
@@ -19789,13 +20392,7 @@ var currentConnectionSnapshotReceived = false;
 var initialSnapshotReadFailed = false;
 var initialSnapshotRetryTimer = null;
 var initialSnapshotRetryCount = 0;
-var emptyEntitySnapshotRefreshTimer = null;
 var hostedSessionRefreshTimer = null;
-var hostedRuntimeSyncTimer = null;
-var pendingAgentChatAckTimer = null;
-var pendingAgentChatOverallTimer = null;
-var pendingPromptControlAckTimer = null;
-var pendingGameplayActionAckTimer = null;
 var requestId = 0;
 var authNonceCounter = 0;
 var localTestPlayerSessionInFlight = null;
@@ -19806,7 +20403,6 @@ var pendingControlFeedback = /* @__PURE__ */ new Map();
 var liveControlState = createLiveControlStateController(state, pendingControlFeedback);
 var pendingSemanticCommands = [];
 var pendingSessionRegisterWaiter = null;
-var elements = {};
 var application = createViewerApplication({
 	coordinateState: () => coordinateDependentQuotes(state),
 	bootstrap,
@@ -19841,7 +20437,6 @@ var CHAT_HISTORY_LIMIT = 40;
 var STARTER_AGENT_ID = "starter-agent-0";
 var LOCAL_TEST_PLAYER_ID_PREFIX = "local-test-player-";
 var PROMPT_CONTROL_RESULT_CAPABILITY = "prompt_control_result_v1";
-var localTestStarterRebindAttemptKey = null;
 function normalizeUiLocale(raw) {
 	const value = String(raw || "").trim().toLowerCase();
 	if ([
@@ -19876,7 +20471,6 @@ var { applyUiLocaleToDocument, resolveInitialUiLocale, resolveStoredPromptOverri
 	windowRef: window
 });
 var setSoftwareSafeLocale = setViewerLocale;
-var toggleSoftwareSafeLocale = toggleViewerLocale;
 function getSelectedSearch() {
 	return state.selectedSearch;
 }
@@ -20083,6 +20677,14 @@ var { authDeploymentHint, buildAuthSurfaceModel, buildHostedActionMatrixView, bu
 	state,
 	windowRef: window
 });
+var { parseSelectionPayload, entityCollections, normalizeModuleVisualEntity, moduleVisualEntityIdFromEvent, moduleVisualEntityFromEvent, focusModuleFromEvent, agentBindingForId: agentBindingForId$1, isAgentVisibleToCurrentSession, currentBoundAgentControlError, selectedAgentId, selectedAgentPromptProfile, selectedAgentBindingInfo, selectedAgentExecutionDebugContext, syncAgentInteractionDrafts, applySelection, select, focus, parseStepCount } = createViewerSelectionProjectionModule({
+	state,
+	STARTER_AGENT_ID,
+	LOCAL_TEST_PLAYER_ID_PREFIX,
+	isTestApiEnabled,
+	isAgentControlLost: (id) => Boolean(viewerControlLossModule?.isControlLost(id)),
+	render
+});
 var { buildGameplaySummary, describePromptVersionState, describeSemanticFeedback, snapshotControlFeedback, snapshotSemanticFeedback } = createViewerFeedbackModule({
 	clone,
 	feedbackBadgeClass,
@@ -20166,7 +20768,6 @@ var hostedWorldAccount = createHostedWorldAccount({
 });
 var joinHostedAccountWorld = (...args) => hostedWorldAccount.join(...args);
 var disableLegacyHostedSession = () => hostedWorldAccount.disableLegacy();
-var releaseHostedAccountWorld = () => hostedWorldAccount.release();
 var invalidateHostedAccountSession = () => hostedWorldAccount.invalidate();
 async function ensureHostedAuthSigningKey(auth = state.auth) {
 	if (auth?.source === "visual_fixture_projection") throw new Error("visual fixture authentication has no signing capability");
@@ -20363,214 +20964,11 @@ function reportFatalError(message, source = "runtime") {
 	state.lastError = text;
 	render();
 }
-function parseSelectionPayload(payload) {
-	if (payload == null) return null;
-	if (typeof payload === "string") {
-		const trimmed = payload.trim();
-		if (!trimmed) return null;
-		const parts = trimmed.split(":");
-		if (parts.length >= 2) return {
-			kind: parts[0],
-			id: parts.slice(1).join(":")
-		};
-		return {
-			kind: "agent",
-			id: trimmed
-		};
-	}
-	if (typeof payload === "object") {
-		const kind = payload.kind || payload.targetKind || payload.type;
-		const id = payload.id || payload.targetId || payload.value;
-		if (!kind || !id) return null;
-		return {
-			kind: String(kind),
-			id: String(id)
-		};
-	}
-	return null;
-}
-function entityCollections() {
-	const model = state.snapshot?.model || {};
-	return {
-		agents: Object.values(model.agents || {}),
-		locations: Object.values(model.locations || {}),
-		moduleVisualEntities: Object.values(model.module_visual_entities || {}).map((entry) => normalizeModuleVisualEntity(entry)).filter(Boolean)
-	};
-}
-function normalizeModuleVisualEntity(entry, fallbackId = "") {
-	if (!entry || typeof entry !== "object") return null;
-	const id = String(entry.entity_id || entry.id || fallbackId || "").trim();
-	if (!id) return null;
-	return {
-		...entry,
-		id,
-		module_id: String(entry.module_id || entry.moduleId || "").trim(),
-		kind: String(entry.kind || "artifact").trim() || "artifact",
-		label: entry.label == null ? null : String(entry.label).trim() || null,
-		anchor: entry.anchor || null
-	};
-}
-function moduleVisualEntityIdFromEvent(event) {
-	if (!event || typeof event !== "object" || typeof event.module_visual_entity_id !== "string") return null;
-	return event.module_visual_entity_id.trim() || null;
-}
-function moduleVisualEntityFromEvent(event) {
-	const id = moduleVisualEntityIdFromEvent(event);
-	return id ? entityCollections().moduleVisualEntities.find((entry) => entry.id === id) || null : null;
-}
-function focusModuleFromEvent(event) {
-	const target = moduleVisualEntityFromEvent(event);
-	return target ? applySelection({
-		kind: "module_visual",
-		id: target.id
-	}) : null;
-}
-function agentBindingForId$1(agentId) {
-	const id = String(agentId || "").trim();
-	if (!id) return {
-		playerId: null,
-		publicKey: null
-	};
-	return {
-		playerId: state.snapshot?.model?.agent_player_bindings?.[id] || null,
-		publicKey: state.snapshot?.model?.agent_player_public_key_bindings?.[id] || null
-	};
-}
-function isAgentVisibleToCurrentSession(agentId) {
-	const id = String(agentId || "").trim();
-	if (!id) return false;
-	const boundAgentId = String(state.auth.boundAgentId || "").trim();
-	const currentPlayerId = String(state.auth.playerId || "").trim();
-	const binding = agentBindingForId$1(id);
-	const boundPlayerId = String(binding.playerId || "").trim();
-	if (boundAgentId && id === boundAgentId) return true;
-	if (boundPlayerId && currentPlayerId && boundPlayerId === currentPlayerId) return true;
-	if (id === STARTER_AGENT_ID && isTestApiEnabled() && state.auth.source === "local_test_api_ephemeral" && boundPlayerId.startsWith(LOCAL_TEST_PLAYER_ID_PREFIX)) return true;
-	return false;
-}
-function currentBoundAgentControlError(agentId, actionLabel = "agent action") {
-	const id = String(agentId || "").trim();
-	if (!id) return `${actionLabel} requires a non-empty agent id`;
-	const boundAgentId = String(state.auth.boundAgentId || "").trim();
-	if (!boundAgentId) return `${actionLabel} requires the current account to have a bound Agent`;
-	if (id !== boundAgentId) return `${actionLabel} target ${id} does not match current bound Agent ${boundAgentId}`;
-	if (viewerControlLossModule?.isControlLost(id)) return `${actionLabel} control was lost; re-authenticate and refresh the current Agent binding`;
-	return null;
-}
-function isAgentControlLost(agentId) {
-	return viewerControlLossModule?.isControlLost(agentId) === true;
-}
-function selectedAgentId() {
-	return state.selectedKind === "agent" ? state.selectedId : null;
-}
-function selectedAgentPromptProfile() {
-	const agentId = selectedAgentId();
-	if (!agentId) return null;
-	return state.snapshot?.model?.agent_prompt_profiles?.[agentId] || {
-		agent_id: agentId,
-		version: 0,
-		updated_at_tick: 0,
-		updated_by: "",
-		system_prompt_override: null,
-		short_term_goal_override: null,
-		long_term_goal_override: null
-	};
-}
-function selectedAgentBindingInfo() {
-	const agentId = selectedAgentId();
-	if (!agentId) return null;
-	return agentBindingForId$1(agentId);
-}
-function selectedAgentExecutionDebugContext() {
-	const agentId = selectedAgentId();
-	if (!agentId) return null;
-	return state.snapshot?.model?.agent_execution_debug_contexts?.[agentId] || null;
-}
-function syncAgentInteractionDrafts(force = false) {
-	const agentId = selectedAgentId();
-	const profile = selectedAgentPromptProfile();
-	if (force || state.promptDraft.agentId !== agentId || !state.promptDraft.dirty && agentId) {
-		const currentVersion = Number(profile?.version || 0);
-		state.promptDraft = {
-			agentId,
-			currentVersion,
-			rollbackTargetVersion: Math.max(0, currentVersion - 1),
-			updatedBy: String(profile?.updated_by || ""),
-			updatedAtTick: Number(profile?.updated_at_tick || 0),
-			systemPrompt: String(profile?.system_prompt_override || ""),
-			shortTermGoal: String(profile?.short_term_goal_override || ""),
-			longTermGoal: String(profile?.long_term_goal_override || ""),
-			dirty: false
-		};
-	}
-	if (force || state.chatDraft.agentId !== agentId) state.chatDraft = {
-		agentId,
-		message: agentId === state.chatDraft.agentId ? state.chatDraft.message : "",
-		dirty: false
-	};
-}
 function promptDraftValuesForRequest(request) {
 	return viewerPromptControlModule?.draftValuesForRequest(request) || null;
 }
 function reconcilePendingPromptAuthoritativeRefresh(snapshot) {
 	return viewerPromptControlModule?.reconcilePendingAuthoritativeRefresh(snapshot) === true;
-}
-function applySelection(selection, options = {}) {
-	if (!selection) return null;
-	const kind = String(selection.kind || "").toLowerCase();
-	const id = String(selection.id || "");
-	const { agents, locations, moduleVisualEntities } = entityCollections();
-	let object = null;
-	if (kind === "agent") object = agents.find((entry) => entry.id === id) || null;
-	else if (kind === "location") object = locations.find((entry) => entry.id === id) || null;
-	else if (kind === "module_visual") object = moduleVisualEntities.find((entry) => entry.id === id) || null;
-	if (!object) return null;
-	state.selectedKind = kind;
-	state.selectedId = id;
-	state.selectedObject = object;
-	syncAgentInteractionDrafts(options.preserveInteractionDrafts !== true);
-	render();
-	return {
-		kind,
-		id
-	};
-}
-function select(payload) {
-	const parsed = parseSelectionPayload(payload);
-	if (!parsed) return {
-		ok: false,
-		reason: "invalid selection payload"
-	};
-	const applied = applySelection(parsed);
-	if (!applied) return {
-		ok: false,
-		reason: `target not found: ${parsed.kind}:${parsed.id}`
-	};
-	return {
-		ok: true,
-		...applied
-	};
-}
-function focus(payload) {
-	return select(payload);
-}
-function parseStepCount(payload) {
-	if (payload == null) return 1;
-	if (typeof payload === "number" && Number.isFinite(payload) && payload >= 1) return Math.floor(payload);
-	if (typeof payload === "string") {
-		const trimmed = payload.trim();
-		if (!trimmed || trimmed === "step") return 1;
-		const numeric = Number(trimmed);
-		if (Number.isFinite(numeric) && numeric >= 1) return Math.floor(numeric);
-		const matched = trimmed.match(/step\s*[:=]\s*(\d+)/i);
-		if (matched) return Number(matched[1]);
-		return null;
-	}
-	if (typeof payload === "object") {
-		const numeric = Number(payload.count);
-		if (Number.isFinite(numeric) && numeric >= 1) return Math.floor(numeric);
-	}
-	return null;
 }
 function controlActions() {
 	return [
@@ -20632,105 +21030,18 @@ function clearHelloAckTimer() {
 		helloAckTimer = null;
 	}
 }
-function clearPendingAgentChatAckTimer() {
-	if (pendingAgentChatAckTimer) {
-		window.clearTimeout(pendingAgentChatAckTimer);
-		pendingAgentChatAckTimer = null;
-	}
-}
-function clearPendingAgentChatOverallTimer() {
-	if (pendingAgentChatOverallTimer) {
-		window.clearTimeout(pendingAgentChatOverallTimer);
-		pendingAgentChatOverallTimer = null;
-	}
-}
-function clearPendingPromptControlAckTimer() {
-	if (pendingPromptControlAckTimer) {
-		window.clearTimeout(pendingPromptControlAckTimer);
-		pendingPromptControlAckTimer = null;
-	}
-}
-function clearPendingGameplayActionAckTimer() {
-	if (pendingGameplayActionAckTimer) {
-		window.clearTimeout(pendingGameplayActionAckTimer);
-		pendingGameplayActionAckTimer = null;
-	}
-}
-function clearHostedRuntimeSyncTimer() {
-	if (hostedRuntimeSyncTimer) {
-		window.clearTimeout(hostedRuntimeSyncTimer);
-		hostedRuntimeSyncTimer = null;
-	}
-}
-function expireHostedRuntimeSyncTimeout() {
-	hostedRuntimeSyncTimer = null;
-	if (!state.auth.syncInFlight || pendingSessionRegisterWaiter) return;
-	state.auth.syncInFlight = false;
-	state.auth.registrationStatus = state.auth.available ? "issued" : "guest";
-	state.auth.runtimeStatus = "error";
-	state.auth.recoveryErrorCode = "runtime_sync_timeout";
-	state.auth.recoveryErrorMessage = "runtime session sync timed out waiting for ack/error from live server";
-	state.auth.error = state.auth.recoveryErrorMessage;
-	maybeRecoverLocalTestStarterBindingFromSnapshot(state.snapshot);
-	render();
-}
-function scheduleHostedRuntimeSyncTimeout() {
-	clearHostedRuntimeSyncTimer();
-	hostedRuntimeSyncTimer = window.setTimeout(expireHostedRuntimeSyncTimeout, SESSION_REGISTER_ACK_TIMEOUT_MS);
-}
-function expireHostedRuntimeSyncTimeoutForTest() {
-	if (!isTestApiEnabled()) throw new Error("expireHostedRuntimeSyncTimeoutForTest requires test_api=1");
-	clearHostedRuntimeSyncTimer();
-	expireHostedRuntimeSyncTimeout();
-}
-function agentChatFeedbackInFlight(feedback) {
-	return feedback && [
-		"queued",
-		"registering",
-		"signing",
-		"sent",
-		"pending"
-	].includes(String(feedback.stage || ""));
-}
-function semanticFeedbackInFlight(feedback) {
-	return feedback && [
-		"queued",
-		"registering",
-		"authorizing",
-		"signing",
-		"sent"
-	].includes(String(feedback.stage || ""));
-}
-function sameAgentChatFeedback(left, right) {
-	if (!left || !right) return false;
-	if (left === right) return true;
-	return left.id === right.id && left.kind === right.kind && left.action === right.action && left.agentId === right.agentId;
-}
-function sameSemanticFeedback(left, right) {
-	if (!left || !right) return false;
-	if (left === right) return true;
-	return left.id === right.id && left.kind === right.kind && left.action === right.action && left.agentId === right.agentId;
-}
-function isAgentChatInFlight() {
-	return agentChatFeedbackInFlight(state.lastChatFeedback);
-}
-function markAgentChatFeedbackError(feedback, reason, effect = "agent_chat failed") {
-	if (!feedback) return;
-	feedback.stage = feedback.canonicalRequest ? "unknown" : "error";
-	feedback.ok = false;
-	feedback.accepted = false;
-	feedback.reason = reason;
-	feedback.effect = feedback.canonicalRequest ? "canonical goal result unknown; refresh current world state" : effect;
-	state.lastChatFeedback = feedback;
-}
-function expireAgentChatOverallTimeout(feedback) {
-	if (!sameAgentChatFeedback(state.lastChatFeedback, feedback) || !agentChatFeedbackInFlight(state.lastChatFeedback)) return false;
-	clearPendingAgentChatOverallTimer();
-	clearPendingAgentChatAckTimer();
-	markAgentChatFeedbackError(feedback, "agent_chat timed out before live server ack/error completed", "agent_chat overall timeout");
-	render();
-	return true;
-}
+var { clearPendingAgentChatAckTimer, setPendingAgentChatAckTimer, clearPendingAgentChatOverallTimer, clearPendingPromptControlAckTimer, clearPendingGameplayActionAckTimer, clearHostedRuntimeSyncTimer, expireHostedRuntimeSyncTimeout, scheduleHostedRuntimeSyncTimeout, expireHostedRuntimeSyncTimeoutForTest, agentChatFeedbackInFlight, semanticFeedbackInFlight, sameAgentChatFeedback, sameSemanticFeedback, isAgentChatInFlight, markAgentChatFeedbackError, expireAgentChatOverallTimeout, scheduleAgentChatOverallTimeout, expirePendingAgentChatOverallTimeoutForTest, scheduleAgentChatAckTimeout, failPendingAgentChatAck, markSemanticFeedbackError, expirePromptControlAckTimeout, expireGameplayActionAckTimeout, schedulePromptControlAckTimeout, scheduleGameplayActionAckTimeout, expirePendingPromptControlAckTimeoutForTest, connectionGenerationForTest, expirePendingGameplayActionAckTimeoutForTest, failPendingPromptControlAck, failPendingGameplayActionAck } = createViewerSemanticTimeoutModule({
+	state,
+	SESSION_REGISTER_ACK_TIMEOUT_MS,
+	AGENT_CHAT_OVERALL_TIMEOUT_MS,
+	AGENT_CHAT_ACK_TIMEOUT_MS,
+	SEMANTIC_ACTION_ACK_TIMEOUT_MS,
+	hasPendingSessionRegisterWaiter: () => Boolean(pendingSessionRegisterWaiter),
+	maybeRecoverLocalTestStarterBindingFromSnapshot: (snapshot) => maybeRecoverLocalTestStarterBindingFromSnapshot(snapshot),
+	isTestApiEnabled,
+	authConnectionGeneration,
+	render
+});
 function semanticCommandTimeoutError(command) {
 	if (!Number.isFinite(command?.timeoutMs) || command.timeoutMs <= 0) return null;
 	return new Promise((resolve) => {
@@ -20763,107 +21074,6 @@ async function executeSemanticCommand(command) {
 		}
 		return;
 	}
-}
-function scheduleAgentChatOverallTimeout(feedback) {
-	clearPendingAgentChatOverallTimer();
-	pendingAgentChatOverallTimer = window.setTimeout(() => {
-		pendingAgentChatOverallTimer = null;
-		expireAgentChatOverallTimeout(feedback);
-	}, AGENT_CHAT_OVERALL_TIMEOUT_MS);
-}
-function expirePendingAgentChatOverallTimeoutForTest() {
-	if (!isTestApiEnabled()) throw new Error("expirePendingAgentChatOverallTimeoutForTest requires test_api=1");
-	clearPendingAgentChatOverallTimer();
-	return expireAgentChatOverallTimeout(state.lastChatFeedback);
-}
-function scheduleAgentChatAckTimeout(feedback) {
-	clearPendingAgentChatAckTimer();
-	pendingAgentChatAckTimer = window.setTimeout(() => {
-		pendingAgentChatAckTimer = null;
-		if (!sameAgentChatFeedback(state.lastChatFeedback, feedback) || !["sent", "pending"].includes(state.lastChatFeedback.stage)) return;
-		clearPendingAgentChatOverallTimer();
-		markAgentChatFeedbackError(feedback, "agent_chat timed out waiting for ack/error from live server", "agent_chat ack timeout");
-		render();
-	}, AGENT_CHAT_ACK_TIMEOUT_MS);
-}
-function failPendingAgentChatAck(reason, effect = "agent_chat ack failed") {
-	clearPendingAgentChatAckTimer();
-	clearPendingAgentChatOverallTimer();
-	const feedback = state.lastChatFeedback;
-	if (!agentChatFeedbackInFlight(feedback)) return;
-	markAgentChatFeedbackError(feedback, reason, effect);
-}
-function markSemanticFeedbackError(feedback, reason, effect) {
-	if (!feedback) return;
-	feedback.stage = "error";
-	feedback.ok = false;
-	feedback.accepted = false;
-	feedback.reason = reason;
-	feedback.effect = effect;
-}
-function expirePromptControlAckTimeout(feedback) {
-	if (!sameSemanticFeedback(state.lastPromptFeedback, feedback) || state.lastPromptFeedback.stage !== "sent") return false;
-	clearPendingPromptControlAckTimer();
-	markSemanticFeedbackError(feedback, "prompt_control timed out waiting for ack/error from live server", "prompt_control ack timeout");
-	state.lastPromptFeedback = feedback;
-	render();
-	return true;
-}
-function expireGameplayActionAckTimeout(feedback) {
-	if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback) || ![
-		"sent",
-		"pending",
-		"received"
-	].includes(state.lastGameplayActionFeedback.stage)) return false;
-	clearPendingGameplayActionAckTimer();
-	markSemanticFeedbackError(feedback, "gameplay_action timed out waiting for ack/error from live server", "gameplay_action ack timeout");
-	feedback.stage = "unknown";
-	state.lastGameplayActionFeedback = feedback;
-	render();
-	return true;
-}
-function schedulePromptControlAckTimeout(feedback) {
-	clearPendingPromptControlAckTimer();
-	pendingPromptControlAckTimer = window.setTimeout(() => {
-		pendingPromptControlAckTimer = null;
-		expirePromptControlAckTimeout(feedback);
-	}, SEMANTIC_ACTION_ACK_TIMEOUT_MS);
-}
-function scheduleGameplayActionAckTimeout(feedback) {
-	clearPendingGameplayActionAckTimer();
-	pendingGameplayActionAckTimer = window.setTimeout(() => {
-		pendingGameplayActionAckTimer = null;
-		expireGameplayActionAckTimeout(feedback);
-	}, SEMANTIC_ACTION_ACK_TIMEOUT_MS);
-}
-function expirePendingPromptControlAckTimeoutForTest() {
-	if (!isTestApiEnabled()) throw new Error("expirePendingPromptControlAckTimeoutForTest requires test_api=1");
-	clearPendingPromptControlAckTimer();
-	return expirePromptControlAckTimeout(state.lastPromptFeedback);
-}
-function expirePendingGameplayActionAckTimeoutForTest() {
-	if (!isTestApiEnabled()) throw new Error("expirePendingGameplayActionAckTimeoutForTest requires test_api=1");
-	clearPendingGameplayActionAckTimer();
-	return expireGameplayActionAckTimeout(state.lastGameplayActionFeedback);
-}
-function failPendingPromptControlAck(reason, effect = "prompt_control ack failed") {
-	clearPendingPromptControlAckTimer();
-	const feedback = state.lastPromptFeedback;
-	if (!feedback || feedback.stage !== "sent") return;
-	markSemanticFeedbackError(feedback, reason, effect);
-	state.lastPromptFeedback = feedback;
-}
-function failPendingGameplayActionAck(reason, effect = "gameplay_action ack failed") {
-	clearPendingGameplayActionAckTimer();
-	const feedback = state.lastGameplayActionFeedback;
-	if (!feedback || ![
-		"sent",
-		"pending",
-		"received"
-	].includes(feedback.stage)) return;
-	markSemanticFeedbackError(feedback, reason, effect);
-	feedback.stage = "unknown";
-	state.lastGameplayActionFeedback = feedback;
 }
 function closeSocketForReconnect(targetSocket) {
 	if (!targetSocket || targetSocket.readyState === WebSocket.CLOSING || targetSocket.readyState === WebSocket.CLOSED) return;
@@ -21033,216 +21243,48 @@ function setMode() {
 		reason: "viewer does not expose 2d/3d camera modes"
 	};
 }
-function summarizeEventTitle(event) {
-	return (event?.kind?.type || "unknown").replace(/_/g, " ");
-}
-function addRecentEvent(event) {
-	state.eventSeq = Math.max(state.eventSeq, Number(event?.id || 0));
-	if (isWorldScopedCrisisRuntimeEvent(event)) return;
-	state.recentEvents.unshift(event);
-	state.recentEvents = state.recentEvents.slice(0, 24);
-	state.eventCount = state.recentEvents.length;
-}
-function handleSnapshot(snapshot) {
-	if (initialSnapshotReadFailed) state.lastError = null;
-	initialSnapshotReadFailed = false;
-	currentConnectionSnapshotReceived = true;
-	clearInitialSnapshotRetryTimer();
-	quoteProtocolFacade.invalidateSnapshotBoundQuotes(snapshot);
-	state.snapshot = snapshot;
-	recoverGameplayFeedback(snapshot, state, hostedWorldAccount, getGameplayRecoveryScope(state), clearPendingGameplayActionAckTimer);
-	requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
-	state.logicalTime = Math.max(state.logicalTime, Number(snapshot?.time || 0));
-	state.tick = state.logicalTime;
-	adoptCurrentPlayerBindingFromSnapshot(snapshot);
-	maybeRecoverLocalTestStarterBindingFromSnapshot(snapshot);
-	const { agents, locations } = entityCollections();
-	if (!state.selectedObject) {
-		if (agents[0]) applySelection({
-			kind: "agent",
-			id: agents[0].id
-		});
-		else if (locations[0]) applySelection({
-			kind: "location",
-			id: locations[0].id
-		});
-	} else if (state.selectedKind && state.selectedId) {
-		if (!applySelection({
-			kind: state.selectedKind,
-			id: state.selectedId
-		}, { preserveInteractionDrafts: true })) {
-			state.selectedKind = null;
-			state.selectedId = null;
-			state.selectedObject = null;
-			syncAgentInteractionDrafts(true);
-		}
-	}
-	hydrateChatHistoryFromStorage();
-	syncAgentInteractionDrafts(reconcilePendingPromptAuthoritativeRefresh(snapshot));
-	canonicalOwnerRead.refresh().catch(() => {});
-	syncEmptyEntitySnapshotRefreshLoop();
-	worldFeedTransport.refreshAfterSnapshot();
-}
-function normalizedGameplayActions(snapshot = state.snapshot) {
-	const actions = snapshot?.player_gameplay?.available_actions || snapshot?.player_gameplay?.availableActions || [];
-	return Array.isArray(actions) ? actions : [];
-}
-function gameplayActionId(action) {
-	return String(action?.action_id || action?.actionId || "").trim();
-}
-function gameplayProtocolAction(action) {
-	return String(action?.protocol_action || action?.protocolAction || "").trim();
-}
-function hasGameplayAction(snapshot, actionId) {
-	return normalizedGameplayActions(snapshot).some((action) => gameplayActionId(action) === actionId);
-}
-function hasSnapshotRefreshAction(snapshot) {
-	return normalizedGameplayActions(snapshot).some((action) => {
-		const protocol = gameplayProtocolAction(action);
-		return gameplayActionId(action) === "request_snapshot" || protocol === "request_snapshot" || protocol === "world.request_snapshot";
-	});
-}
-function needsEmptyEntitySnapshotRefresh(snapshot = state.snapshot) {
-	const gameplay = snapshot?.player_gameplay || {};
-	if (String(gameplay.blocker_kind || gameplay.blockerKind || "").trim() !== "runtime_snapshot_empty_entities") return false;
-	if (hasGameplayAction(snapshot, "claim_first_agent")) return false;
-	return hasSnapshotRefreshAction(snapshot);
-}
-function clearEmptyEntitySnapshotRefreshTimer() {
-	if (emptyEntitySnapshotRefreshTimer) {
-		window.clearTimeout(emptyEntitySnapshotRefreshTimer);
-		emptyEntitySnapshotRefreshTimer = null;
-	}
-}
-function needsEmptyEntitySnapshotRefreshForTest(snapshot = state.snapshot) {
-	if (!isTestApiEnabled()) throw new Error("needsEmptyEntitySnapshotRefreshForTest requires test_api=1");
-	return needsEmptyEntitySnapshotRefresh(snapshot);
-}
-function isEmptyEntitySnapshotRefreshPendingForTest() {
-	if (!isTestApiEnabled()) throw new Error("isEmptyEntitySnapshotRefreshPendingForTest requires test_api=1");
-	return Boolean(emptyEntitySnapshotRefreshTimer);
-}
-function syncEmptyEntitySnapshotRefreshLoop() {
-	if (!needsEmptyEntitySnapshotRefresh()) {
-		clearEmptyEntitySnapshotRefreshTimer();
-		return;
-	}
-	if (emptyEntitySnapshotRefreshTimer || !socket || socket.readyState !== WebSocket.OPEN) return;
-	emptyEntitySnapshotRefreshTimer = window.setTimeout(() => {
-		emptyEntitySnapshotRefreshTimer = null;
-		if (!needsEmptyEntitySnapshotRefresh()) return;
-		if (!socket || socket.readyState !== WebSocket.OPEN) return;
-		requestSnapshotSafe();
-		syncEmptyEntitySnapshotRefreshLoop();
-	}, EMPTY_ENTITY_SNAPSHOT_REFRESH_DELAY_MS);
-}
-function adoptCurrentPlayerBindingFromSnapshot(snapshot) {
-	if (state.auth.source === "hosted_account_cookie" || state.viewerProtocol?.capabilities?.includes("canonical_agent_chat_v1")) return;
-	const playerId = String(state.auth.playerId || "").trim();
-	if (!playerId) return;
-	const bindings = snapshot?.model?.agent_player_bindings || {};
-	const boundAgentId = Object.entries(bindings).find(([, boundPlayerId]) => String(boundPlayerId || "").trim() === playerId)?.[0] || null;
-	if (!boundAgentId || state.auth.boundAgentId === boundAgentId) return;
-	state.auth.boundAgentId = boundAgentId;
-	state.auth.pendingRequestedAgentId = boundAgentId;
-	state.auth.registrationStatus = "registered";
-	state.auth.runtimeStatus = "registered";
-	state.auth.error = null;
-	if (state.auth.available && state.auth.source !== "legacy_viewer_auth_bootstrap") persistHostedPlayerSession(state.auth);
-}
-function maybeRecoverLocalTestStarterBindingFromSnapshot(snapshot) {
-	if (!isTestApiEnabled() || state.auth.source !== "local_test_api_ephemeral" || !state.auth.available) return;
-	if (state.auth.boundAgentId || state.auth.syncInFlight || pendingSessionRegisterWaiter) return;
-	if (!socket || socket.readyState !== WebSocket.OPEN) return;
-	if (!(snapshot?.model?.agents || {})[STARTER_AGENT_ID]) return;
-	const currentPlayerId = String(state.auth.playerId || "").trim();
-	const boundPlayerId = String(snapshot?.model?.agent_player_bindings?.[STARTER_AGENT_ID] || "").trim();
-	if (!currentPlayerId || !boundPlayerId.startsWith(LOCAL_TEST_PLAYER_ID_PREFIX) || boundPlayerId === currentPlayerId) return;
-	const attemptKey = `${currentPlayerId}:${boundPlayerId}:${STARTER_AGENT_ID}`;
-	if (localTestStarterRebindAttemptKey === attemptKey) return;
-	localTestStarterRebindAttemptKey = attemptKey;
-	state.auth.pendingRequestedAgentId = STARTER_AGENT_ID;
-	state.auth.pendingForceRebind = true;
-	state.auth.rebindNotice = `Local test player is taking over ${STARTER_AGENT_ID} from an earlier local test session.`;
-	ensureRegisteredPlayerSession(STARTER_AGENT_ID, { forceRebind: true }).catch((error) => {
-		localTestStarterRebindAttemptKey = null;
-		state.auth.syncInFlight = false;
-		state.auth.pendingForceRebind = false;
-		state.auth.runtimeStatus = "error";
-		if (state.auth.recoveryErrorCode !== "session_register_timeout") {
-			state.auth.recoveryErrorCode = "local_test_starter_rebind_failed";
-			state.auth.recoveryErrorMessage = String(error);
-		}
-		state.auth.error = String(error);
-		render();
-	});
-}
-function injectSnapshot(snapshot, options = {}) {
-	if (!isTestApiEnabled()) throw new Error("injectSnapshot requires test_api=1");
-	handleSnapshot(clone(snapshot));
-	render();
-	if (options?.returnState === false) return { ok: true };
-	return getState();
-}
-function handleMetrics(time, metrics) {
-	state.metrics = metrics || null;
-	state.traceCount = Number(metrics?.decision_trace_count || 0);
-	state.logicalTime = Math.max(state.logicalTime, Number(time || 0), Number(metrics?.total_ticks || 0));
-	state.tick = state.logicalTime;
-}
-function clipTraceText(value, limit = 480) {
-	const text = String(value || "").trim();
-	if (!text) return null;
-	if (text.length <= limit) return text;
-	return `${text.slice(0, limit)}…`;
-}
-function snapshotDecisionTrace(trace) {
-	if (!trace || typeof trace !== "object") return null;
-	return {
-		agent_id: trace.agent_id || null,
-		time: Number(trace.time || 0),
-		decision: clone(trace.decision || null),
-		llm_error: trace.llm_error || null,
-		parse_error: trace.parse_error || null,
-		llm_input_excerpt: clipTraceText(trace.llm_input),
-		llm_output_excerpt: clipTraceText(trace.llm_output),
-		llm_diagnostics: clone(trace.llm_diagnostics || null)
-	};
-}
-function handleDecisionTrace(trace) {
-	if (!trace || typeof trace !== "object") return;
-	state.recentDecisionTraces.unshift(clone(trace));
-	state.recentDecisionTraces = state.recentDecisionTraces.slice(0, 12);
-	state.traceCount = Math.max(state.traceCount, state.recentDecisionTraces.length);
-	state.logicalTime = Math.max(state.logicalTime, Number(trace?.time || 0));
-	state.tick = state.logicalTime;
-}
-function handleControlCompletionAck(ack) {
-	if (!acceptRuntimeAckIdentity(ack)) return;
-	const feedback = pendingControlFeedback.get(ack?.request_id);
-	if (!feedback) return;
-	liveControlState.blocked(ack);
-	feedback.deltaLogicalTime = Number(ack?.delta_logical_time || 0);
-	feedback.deltaEventSeq = Number(ack?.delta_event_seq || 0);
-	if (ack?.status === "advanced") {
-		feedback.stage = "completed_advanced";
-		feedback.effect = `control ack advanced: logicalTime +${feedback.deltaLogicalTime}, eventSeq +${feedback.deltaEventSeq}`;
-		feedback.reason = null;
-	} else if (ack?.status === "blocked") {
-		feedback.stage = "blocked";
-		feedback.reason = ack?.error_message || ack?.error_code || "control was blocked before runtime advance";
-		feedback.hint = state.snapshot?.player_gameplay?.next_step_hint || feedback.hint;
-		feedback.effect = `gameplay blocked before requested advance completed: logicalTime +${feedback.deltaLogicalTime}, eventSeq +${feedback.deltaEventSeq}`;
-	} else {
-		feedback.stage = "completed_no_progress";
-		feedback.reason = "timeout_no_progress";
-		feedback.effect = `no visible world delta: logicalTime +${feedback.deltaLogicalTime}, eventSeq +${feedback.deltaEventSeq}`;
-	}
-	state.lastControlFeedback = feedback;
-	pendingControlFeedback.delete(feedback.requestId);
-	if (feedback.stage === "completed_advanced") requestSnapshotSafe();
-	render();
-}
+var { summarizeEventTitle, addRecentEvent, handleSnapshot, normalizedGameplayActions, gameplayActionId, gameplayProtocolAction, hasGameplayAction, hasSnapshotRefreshAction, needsEmptyEntitySnapshotRefresh, clearEmptyEntitySnapshotRefreshTimer, needsEmptyEntitySnapshotRefreshForTest, isEmptyEntitySnapshotRefreshPendingForTest, syncEmptyEntitySnapshotRefreshLoop, adoptCurrentPlayerBindingFromSnapshot, maybeRecoverLocalTestStarterBindingFromSnapshot, injectSnapshot, handleMetrics, snapshotDecisionTrace, handleDecisionTrace, handleControlCompletionAck } = createViewerSnapshotIngestionModule({
+	state,
+	MAX_EVENTS: 24,
+	MAX_DECISION_TRACES: 12,
+	EMPTY_ENTITY_SNAPSHOT_REFRESH_DELAY_MS,
+	LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE,
+	STARTER_AGENT_ID,
+	LOCAL_TEST_PLAYER_ID_PREFIX,
+	isWorldScopedCrisisRuntimeEvent,
+	onSnapshotReceived() {
+		if (initialSnapshotReadFailed) state.lastError = null;
+		initialSnapshotReadFailed = false;
+		currentConnectionSnapshotReceived = true;
+	},
+	clearInitialSnapshotRetryTimer,
+	quoteProtocolFacade,
+	recoverGameplayFeedback,
+	hostedWorldAccount,
+	getGameplayRecoveryScope,
+	clearPendingGameplayActionAckTimer,
+	requestGameplayResult,
+	sendJson,
+	entityCollections,
+	applySelection,
+	syncAgentInteractionDrafts,
+	hydrateChatHistoryFromStorage,
+	reconcilePendingPromptAuthoritativeRefresh,
+	canonicalOwnerRead,
+	worldFeedTransport,
+	isTestApiEnabled,
+	getSocket: () => socket,
+	requestSnapshotSafe: () => requestSnapshotSafe(),
+	persistHostedPlayerSession,
+	hasPendingSessionRegisterWaiter: () => Boolean(pendingSessionRegisterWaiter),
+	ensureRegisteredPlayerSession: (...args) => ensureRegisteredPlayerSession(...args),
+	clone,
+	render,
+	getState,
+	acceptRuntimeAckIdentity: (ack) => acceptRuntimeAckIdentity(ack),
+	pendingControlFeedback,
+	liveControlState
+});
 async function buildAgentChatAuthProof(request, auth) {
 	return viewerAgentChatAuthModule.buildAuthProof(request, auth);
 }
@@ -22677,7 +22719,7 @@ function handleAgentChatAck(ack) {
 	if (feedback.requestAuthNonce != null && (ack?.request_auth_nonce ?? ack?.auth_nonce) !== feedback.requestAuthNonce) return;
 	clearPendingAgentChatAckTimer();
 	if (feedback.canonicalRequest && ack?.status === "pending") {
-		pendingAgentChatAckTimer = scheduleCanonicalGoalPending({
+		setPendingAgentChatAckTimer(scheduleCanonicalGoalPending({
 			ack,
 			feedback,
 			state,
@@ -22688,7 +22730,7 @@ function handleAgentChatAck(ack) {
 			sendJson,
 			scheduleAgentChatAckTimeout,
 			getSocket: () => socket
-		});
+		}));
 		return;
 	}
 	if (feedback.canonicalRequest && (ack?.status !== "accepted" || !ack?.intent_id)) {
@@ -23166,441 +23208,6 @@ function feedbackBadgeClass(feedback) {
 	if (feedback.stage === "error") return "badge badge--bad";
 	if (feedback.ok) return "badge badge--good";
 	return "badge badge--warn";
-}
-function escapeHtml(value) {
-	return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&#39;");
-}
-function renderLists() {
-	elements.leftPanel.innerHTML = renderViewerEntityList({
-		state,
-		lists: modelLists()
-	});
-}
-function renderSummary() {
-	const controlFeedback = snapshotControlFeedback(state.lastControlFeedback);
-	const promptFeedback = snapshotSemanticFeedback(state.lastPromptFeedback);
-	const chatFeedback = snapshotSemanticFeedback(state.lastChatFeedback);
-	const authSurface = buildAuthSurfaceModel();
-	const hostedActionMatrixView = buildHostedActionMatrixView();
-	const hostedRecoveryHint = buildHostedRecoveryHint();
-	const authBadgeClass = state.auth.available ? "badge badge--good" : "badge badge--warn";
-	const selectedDebug = selectedAgentExecutionDebugContext();
-	const tierBadgeClass = (status) => status === "active" || status === "active_legacy_preview" ? "badge badge--good" : status === "superseded" ? "badge" : "badge badge--warn";
-	const showRebindNotice = !!state.auth.pendingRequestedAgentId && (state.auth.pendingForceRebind || state.auth.runtimeStatus === "rebind_retrying" || state.auth.runtimeStatus === "rebind_registering");
-	elements.centerPanel.innerHTML = `
-    <div class="stack">
-      <div class="badge-row">
-        <span class="badge badge--accent">viewer</span>
-        <span class="${connectionBadgeClass()}">${escapeHtml(state.connectionStatus)}</span>
-        <span class="badge">rendererClass=${escapeHtml(state.rendererClass)}</span>
-        <span class="badge">controlProfile=${escapeHtml(state.controlProfile)}</span>
-      </div>
-      <div class="summary-grid">
-        <div class="metric"><div class="metric__label">Logical Time</div><div class="metric__value">${state.logicalTime}</div></div>
-        <div class="metric"><div class="metric__label">Event Seq</div><div class="metric__value">${state.eventSeq}</div></div>
-        <div class="metric"><div class="metric__label">World</div><div class="metric__value">${escapeHtml(state.worldId || "-")}</div></div>
-        <div class="metric"><div class="metric__label">Viewer Server</div><div class="metric__value">${escapeHtml(state.server || "-")}</div></div>
-      </div>
-      <div class="badge-row">
-        <span class="badge">ws=${escapeHtml(state.wsUrl || "-")}</span>
-        <span class="badge">entryReason=${escapeHtml(state.viewerReason || "-")}</span>
-        <span class="badge">renderer=${escapeHtml(state.renderer || "n/a")}</span>
-      </div>
-      <div class="panel panel--nested" style="background:rgba(255,255,255,0.02);">
-        <div class="panel__header"><div class="panel__title">Execution Lanes</div></div>
-        <div class="panel__body stack">
-          ${selectedDebug ? `<div class="badge-row">
-                <span class="badge badge--accent">selected agent lane</span>
-                <span class="badge">renderMode=${escapeHtml(state.renderMode)}</span>
-                <span class="badge">entryReason=${escapeHtml(state.viewerReason || "-")}</span>
-                <span class="badge">provider=${escapeHtml(selectedDebug.provider_mode || "-")}</span>
-                <span class="badge">mode=${escapeHtml(selectedDebug.execution_mode || "-")}</span>
-                <span class="badge">env=${escapeHtml(selectedDebug.environment_class || "-")}</span>
-              </div>
-              <div class="badge-row">
-                <span class="badge">obs=${escapeHtml(selectedDebug.observation_schema_version || "-")}</span>
-                <span class="badge">act=${escapeHtml(selectedDebug.action_schema_version || "-")}</span>
-                <span class="badge">agentProfile=${escapeHtml(selectedDebug.agent_profile || "-")}</span>
-                <span class="badge">providerFallback=${escapeHtml(selectedDebug.fallback_reason || "-")}</span>
-              </div>
-              <pre class="json">${escapeHtml(JSON.stringify(selectedDebug, null, 2))}</pre>` : "<div class=\"empty\">Select an agent to inspect the current execution-lane metadata.</div>"}
-        </div>
-      </div>
-      <div class="badge-row">
-        <span class="${authBadgeClass}">auth=${state.auth.available ? state.auth.registrationStatus || "ready" : "missing"}</span>
-        <span class="badge badge--accent">tier=${escapeHtml(authSurface.currentTier)}</span>
-        <span class="badge">source=${escapeHtml(authSurface.source)}</span>
-        <span class="badge">deploymentHint=${escapeHtml(authSurface.deploymentHint)}</span>
-        <span class="badge">player=${escapeHtml(state.auth.playerId || "-")}</span>
-        <span class="badge">pubkey=${escapeHtml(state.auth.publicKey ? `${state.auth.publicKey.slice(0, 10)}…` : "-")}</span>
-        <span class="badge">epoch=${escapeHtml(state.auth.sessionEpoch == null ? "-" : state.auth.sessionEpoch)}</span>
-        <span class="badge">runtime=${escapeHtml(state.auth.runtimeStatus || "-")}</span>
-        <span class="badge">boundAgent=${escapeHtml(state.auth.boundAgentId || "-")}</span>
-        <span class="badge">requestedAgent=${escapeHtml(state.auth.pendingRequestedAgentId || "-")}</span>
-        <span class="badge">${escapeHtml(state.auth.pendingForceRebind ? "rebind=forcing" : "rebind=idle")}</span>
-      </div>
-      ${state.auth.recoveryErrorCode || state.auth.recoveryErrorMessage ? `<div class="badge-row">
-            <span class="badge badge--warn">recoveryError=${escapeHtml(state.auth.recoveryErrorCode || "-")}</span>
-            <span class="badge">${escapeHtml(state.auth.recoveryErrorMessage || "-")}</span>
-          </div>` : ""}
-      ${showRebindNotice ? `<div class="badge-row">
-            <span class="badge badge--accent">rebind</span>
-            <span class="badge">target=${escapeHtml(state.auth.pendingRequestedAgentId || "-")}</span>
-            <span class="badge">${escapeHtml(state.auth.pendingForceRebind ? "mode=force_rebind" : "mode=awaiting_retry")}</span>
-          </div>
-          <div class="empty">Player session is switching to the requested agent and the current action will continue after registration succeeds.</div>` : ""}
-      ${state.auth.rebindNotice ? `<div class="empty">${escapeHtml(state.auth.rebindNotice)}</div>` : ""}
-      ${state.hostedAdmission ? `<div class="badge-row">
-            <span class="badge">activeSlots=${escapeHtml(`${state.hostedAdmission.active_player_sessions}/${state.hostedAdmission.max_player_sessions}`)}</span>
-            <span class="badge">effectiveSlots=${escapeHtml(state.hostedAdmission.effective_player_sessions == null ? "-" : `${state.hostedAdmission.effective_player_sessions}/${state.hostedAdmission.max_player_sessions}`)}</span>
-            <span class="badge">runtimeBound=${escapeHtml(state.hostedAdmission.runtime_bound_player_sessions == null ? "-" : state.hostedAdmission.runtime_bound_player_sessions)}</span>
-            <span class="badge">runtimeOnly=${escapeHtml(state.hostedAdmission.runtime_only_player_sessions == null ? "-" : state.hostedAdmission.runtime_only_player_sessions)}</span>
-            <span class="badge">runtimeProbe=${escapeHtml(state.hostedAdmission.runtime_probe_status || "-")}</span>
-            <span class="badge">issueBudget=${escapeHtml(state.hostedAdmission.remaining_issue_budget)}</span>
-            <span class="badge">leaseTTL=${escapeHtml(state.hostedAdmission.slot_lease_ttl_ms)}</span>
-            <span class="badge">issued=${escapeHtml(state.hostedAdmission.issued_players_total)}</span>
-            <span class="badge">released=${escapeHtml(state.hostedAdmission.released_players_total)}</span>
-          </div>` : ""}
-      ${state.hostedAdmission?.runtime_probe_error ? `<div class="badge-row">
-            <span class="badge badge--warn">runtimeProbeError=${escapeHtml(state.hostedAdmission.runtime_probe_error)}</span>
-          </div>` : ""}
-      ${hostedRecoveryHint ? `<div class="panel panel--nested" style="background:rgba(255,255,255,0.02); border-color:rgba(255,184,77,0.35);">
-            <div class="panel__header"><div class="panel__title">Hosted Recovery</div></div>
-            <div class="panel__body stack">
-              <div class="badge-row">
-                <span class="badge badge--warn">${escapeHtml(hostedRecoveryHint.kind)}</span>
-                <span class="badge">${escapeHtml(hostedRecoveryHint.title)}</span>
-              </div>
-              <div class="empty">${escapeHtml(hostedRecoveryHint.detail)}</div>
-              <div class="toolbar"><button data-auth-action="retry-issue" ${state.auth.issueInFlight ? "disabled" : ""}>${escapeHtml(hostedRecoveryHint.cta)}</button></div>
-            </div>
-          </div>` : ""}
-      ${!state.auth.available && isHostedPublicJoinDeploymentMode(state.hostedAccess?.deployment_mode) ? hostedRecoveryHint ? "" : `<div class="toolbar"><button data-auth-action="retry-issue" ${state.auth.issueInFlight ? "disabled" : ""}>Acquire Hosted Player Session</button></div>` : ""}
-      ${state.auth.available && state.auth.source !== "legacy_viewer_auth_bootstrap" ? `<div class="toolbar"><button data-auth-action="logout">Release Hosted Player Session</button></div>` : ""}
-      <div class="panel panel--nested" style="background:rgba(255,255,255,0.02);">
-        <div class="panel__header"><div class="panel__title">Session Ladder</div></div>
-        <div class="panel__body stack">
-          <div class="empty">${escapeHtml(authSurface.currentTierReason)}</div>
-          <div class="event-list">
-            ${authSurface.tiers.map((tier) => `
-                  <div class="event-card">
-                    <div class="event-card__title">
-                      <span>${escapeHtml(tier.label)}</span>
-                      <span class="${tierBadgeClass(tier.status)}">${escapeHtml(tier.status)}</span>
-                    </div>
-                    <div class="event-card__meta">${escapeHtml(tier.reason)}</div>
-                  </div>`).join("")}
-          </div>
-          <div class="badge-row">
-            <span class="${authSurface.capabilities.prompt_control.enabled ? "badge badge--good" : "badge badge--warn"}">prompt=${escapeHtml(authSurface.capabilities.prompt_control.enabled ? "enabled" : authSurface.capabilities.prompt_control.code)}</span>
-            <span class="${authSurface.capabilities.agent_chat.enabled ? "badge badge--good" : "badge badge--warn"}">chat=${escapeHtml(authSurface.capabilities.agent_chat.enabled ? "enabled" : authSurface.capabilities.agent_chat.code)}</span>
-            <span class="badge badge--warn">mainToken=${escapeHtml(authSurface.capabilities.main_token_transfer.code)}</span>
-          </div>
-          <div class="empty">${escapeHtml(authSurface.reconnect)}</div>
-        </div>
-      </div>
-      ${hostedActionMatrixView.length ? `<div class="panel panel--nested" style="background:rgba(255,255,255,0.02);">
-            <div class="panel__header"><div class="panel__title">Hosted Action Matrix</div></div>
-            <div class="panel__body stack">
-              <div class="empty">This is the hosted public-join truth surface exported by the launcher. QA should read these action ids directly instead of inferring from button state alone.</div>
-              <div class="event-list">
-                ${hostedActionMatrixView.map((item) => `
-                      <div class="event-card">
-                        <div class="event-card__title">
-                          <span>${escapeHtml(item.actionId)}</span>
-                          <span class="${item.enabled ? "badge badge--good" : "badge badge--warn"}">${escapeHtml(item.enabled ? "enabled" : item.code || "blocked")}</span>
-                        </div>
-                        <div class="event-card__meta">required_auth=${escapeHtml(item.requiredAuth)} · availability=${escapeHtml(item.availability)}</div>
-                        <div class="empty">${escapeHtml(item.reason || "-")}</div>
-                        ${item.capabilityReason && item.capabilityReason !== item.reason ? `<div class="empty">viewer=${escapeHtml(item.capabilityReason)}</div>` : ""}
-                      </div>`).join("")}
-              </div>
-            </div>
-          </div>` : ""}
-      <div class="panel panel--nested" style="background:rgba(255,255,255,0.02);">
-        <div class="panel__header"><div class="panel__title">Playback Controls</div></div>
-        <div class="panel__body stack">
-          <div class="toolbar">
-            <button data-action="play">Play</button>
-            <button data-action="pause">Pause</button>
-            <button data-action="step">Step x1</button>
-          </div>
-          <div class="control-grid">
-            <div class="field">
-              <label for="step-count">Step count</label>
-              <input id="step-count" type="number" min="1" step="1" value="3" />
-            </div>
-            <div class="field" style="align-self:end;">
-              <button data-action="step-count">Step custom count</button>
-            </div>
-          </div>
-          ${controlFeedback ? `<div class="badge-row">
-                <span class="badge">action=${escapeHtml(controlFeedback.action)}</span>
-                <span class="badge">stage=${escapeHtml(controlFeedback.stage)}</span>
-                <span class="badge">Δtick=${controlFeedback.deltaLogicalTime}</span>
-                <span class="badge">Δevent=${controlFeedback.deltaEventSeq}</span>
-              </div>
-              <pre class="json">${escapeHtml(JSON.stringify(controlFeedback, null, 2))}</pre>` : "<div class=\"empty\">No control feedback yet.</div>"}
-        </div>
-      </div>
-      <div class="summary-grid">
-        <div class="metric">
-          <div class="metric__label">Prompt Feedback</div>
-          <div class="metric__value">${escapeHtml(promptFeedback?.stage || "idle")}</div>
-          ${promptFeedback ? `<div class="badge-row" style="margin-top:8px;"><span class="${feedbackBadgeClass(promptFeedback)}">${escapeHtml(promptFeedback.effect || promptFeedback.reason || "ready")}</span></div>` : ""}
-        </div>
-        <div class="metric">
-          <div class="metric__label">Chat Feedback</div>
-          <div class="metric__value">${escapeHtml(chatFeedback?.stage || "idle")}</div>
-          ${chatFeedback ? `<div class="badge-row" style="margin-top:8px;"><span class="${feedbackBadgeClass(chatFeedback)}">${escapeHtml(chatFeedback.effect || chatFeedback.reason || "ready")}</span></div>` : ""}
-        </div>
-      </div>
-      <div>
-        <div class="panel__title" style="margin-bottom:10px;">Recent Events</div>
-        <div class="event-list">
-          ${state.recentEvents.length ? state.recentEvents.map((event) => `
-                    <div class="event-card">
-                      <div class="event-card__title">
-                        <span>${escapeHtml(summarizeEventTitle(event))}</span>
-                        <span>#${Number(event.id || 0)}</span>
-                      </div>
-                      <div class="event-card__meta">time=${Number(event.time || 0)}</div>
-                      <pre class="json">${escapeHtml(JSON.stringify(event.kind, null, 2))}</pre>
-                    </div>`).join("") : "<div class=\"empty\">Waiting for live events…</div>"}
-        </div>
-      </div>
-    </div>
-  `;
-}
-function renderInteractionPanel() {
-	const rawAgentId = selectedAgentId();
-	const agentId = rawAgentId && isAgentVisibleToCurrentSession(rawAgentId) ? rawAgentId : null;
-	if (!agentId) return "<div class=\"empty\">Select an agent to unlock prompt/chat controls.</div>";
-	const binding = selectedAgentBindingInfo();
-	const promptFeedback = snapshotSemanticFeedback(state.lastPromptFeedback);
-	const chatFeedback = snapshotSemanticFeedback(state.lastChatFeedback);
-	const authSurface = buildAuthSurfaceModel();
-	const promptCapability = authSurface.capabilities.prompt_control;
-	const chatCapability = authSurface.capabilities.agent_chat;
-	const mainTokenTransferCapability = authSurface.capabilities.main_token_transfer;
-	const mainTokenTransferPolicy = hostedActionPolicy("main_token_transfer");
-	const interactionEnabled = promptCapability.enabled;
-	const strongAuthGrantHint = authSurface.capabilities.prompt_control.enabled && isHostedPublicJoinDeploymentMode(state.hostedAccess?.deployment_mode) ? `<div class="field">
-         <label for="strong-auth-approval-code">Backend Approval Code</label>
-         <input id="strong-auth-approval-code" type="password" autocomplete="off" value="${escapeHtml(state.strongAuth.approvalCode || "")}" />
-       </div>` : "";
-	const authNotice = interactionEnabled ? `<div class="badge-row"><span class="badge badge--good">${escapeHtml(authSurface.currentTier)}</span><span class="badge">player=${escapeHtml(state.auth.playerId)}</span><span class="badge">source=${escapeHtml(authSurface.source)}</span></div>
-       <div class="empty">${escapeHtml(promptCapability.reason)}</div>` : `<div class="empty">${escapeHtml(promptCapability.reason)}</div>`;
-	const chatHistory = state.chatHistory.filter((entry) => entry.agentId === agentId || entry.targetAgentId === agentId).slice(0, 12);
-	const assetLaneStatusText = mainTokenTransferCapability.enabled ? "preview_only" : mainTokenTransferCapability.code || "blocked";
-	const assetLaneDetail = mainTokenTransferCapability.enabled ? "Contract marks main_token_transfer as strong_auth-capable on this lane, but viewer still exposes no transfer form here." : mainTokenTransferCapability.reason;
-	return `
-    <div class="stack">
-      <div class="badge-row">
-        <span class="badge badge--accent">Agent Interaction</span>
-        <span class="badge">agent=${escapeHtml(agentId)}</span>
-        <span class="badge">promptVersion=${Number(state.promptDraft.currentVersion || 0)}</span>
-      </div>
-      ${authNotice}
-      <div class="badge-row">
-        <span class="badge">boundPlayer=${escapeHtml(binding?.playerId || "-")}</span>
-        <span class="badge">boundKey=${escapeHtml(binding?.publicKey ? `${binding.publicKey.slice(0, 10)}…` : "-")}</span>
-        <span class="${promptCapability.enabled ? "badge badge--good" : "badge badge--warn"}">prompt=${escapeHtml(promptCapability.enabled ? "enabled" : promptCapability.code)}</span>
-        <span class="${chatCapability.enabled ? "badge badge--good" : "badge badge--warn"}">chat=${escapeHtml(chatCapability.enabled ? "enabled" : chatCapability.code)}</span>
-        <span class="${mainTokenTransferCapability.enabled ? "badge badge--good" : "badge badge--warn"}">mainToken=${escapeHtml(assetLaneStatusText)}</span>
-      </div>
-      <div class="empty">${escapeHtml(assetLaneDetail)}</div>
-      <div class="panel panel--nested" style="background:rgba(255,255,255,0.02);">
-        <div class="panel__header"><div class="panel__title">Prompt Overrides</div></div>
-        <div class="panel__body stack">
-          ${strongAuthGrantHint}
-          <div class="field">
-            <label for="prompt-system">System Prompt Override</label>
-            <textarea id="prompt-system" rows="4" ${promptCapability.enabled ? "" : "disabled"}>${escapeHtml(state.promptDraft.systemPrompt)}</textarea>
-          </div>
-          <div class="field">
-            <label for="prompt-short">Short-Term Goal Override</label>
-            <textarea id="prompt-short" rows="3" ${promptCapability.enabled ? "" : "disabled"}>${escapeHtml(state.promptDraft.shortTermGoal)}</textarea>
-          </div>
-          <div class="field">
-            <label for="prompt-long">Long-Term Goal Override</label>
-            <textarea id="prompt-long" rows="3" ${promptCapability.enabled ? "" : "disabled"}>${escapeHtml(state.promptDraft.longTermGoal)}</textarea>
-          </div>
-          <div class="toolbar">
-            <button data-prompt-action="preview" ${promptCapability.enabled ? "" : "disabled"}>Preview Prompt</button>
-            <button data-prompt-action="apply" ${promptCapability.enabled ? "" : "disabled"}>Apply Prompt</button>
-          </div>
-          <div class="toolbar">
-            <div class="field" style="margin:0; min-width:180px; flex:1;">
-              <label for="prompt-rollback-version">Rollback Target Version</label>
-              <input id="prompt-rollback-version" type="number" min="0" step="1" value="${Number(state.promptDraft.rollbackTargetVersion || 0)}" ${promptCapability.enabled ? "" : "disabled"} />
-            </div>
-            <button data-prompt-action="rollback" ${promptCapability.enabled ? "" : "disabled"}>Rollback Prompt</button>
-          </div>
-          ${promptFeedback ? `<div class="badge-row"><span class="${feedbackBadgeClass(promptFeedback)}">${escapeHtml(promptFeedback.stage)}</span></div>
-               <pre class="json">${escapeHtml(JSON.stringify(promptFeedback, null, 2))}</pre>` : "<div class=\"empty\">No prompt feedback yet.</div>"}
-          ${state.strongAuth.lastGrantActionId ? `<div class="empty">lastGrant=${escapeHtml(state.strongAuth.lastGrantActionId)} expiresAt=${escapeHtml(String(state.strongAuth.lastGrantExpiresAtUnixMs || "-"))}</div>` : ""}
-          ${state.strongAuth.lastGrantError ? `<div class="empty" style="color:var(--bad);">${escapeHtml(state.strongAuth.lastGrantError)}</div>` : ""}
-        </div>
-      </div>
-      <div class="panel panel--nested" style="background:rgba(255,255,255,0.02);">
-        <div class="panel__header"><div class="panel__title">Asset / Governance Lane</div></div>
-        <div class="panel__body stack">
-          <div class="badge-row">
-            <span class="${mainTokenTransferCapability.enabled ? "badge badge--good" : "badge badge--warn"}">main_token_transfer=${escapeHtml(assetLaneStatusText)}</span>
-            <span class="badge">required_auth=${escapeHtml(mainTokenTransferPolicy?.required_auth || "-")}</span>
-            <span class="badge">availability=${escapeHtml(mainTokenTransferPolicy?.availability || "-")}</span>
-          </div>
-          <div class="empty">${escapeHtml(assetLaneDetail)}</div>
-          <div class="empty">${escapeHtml(mainTokenTransferPolicy?.reason || "No hosted action policy is available for main_token_transfer on this lane.")}</div>
-          <div class="toolbar">
-            <button disabled>Main Token Transfer (Not Exposed Here Yet)</button>
-          </div>
-        </div>
-      </div>
-      <div class="panel panel--nested" style="background:rgba(255,255,255,0.02);">
-        <div class="panel__header"><div class="panel__title">Agent Chat</div></div>
-        <div class="panel__body stack">
-          <div class="field">
-            ${safeAlternativeMarkup(state, escapeHtml)}<label for="agent-chat-message">Message</label>${canonicalGoalMarkup(state, selectedAgentId(), escapeHtml)}
-            <textarea id="agent-chat-message" rows="4" placeholder="Send a message to the selected agent" ${chatCapability.enabled ? "" : "disabled"}>${escapeHtml(state.chatDraft.message)}</textarea>
-          </div>
-          <div class="toolbar">
-            <button data-chat-send="1" ${chatCapability.enabled ? "" : "disabled"}>Send Chat</button>
-          </div>
-          ${chatFeedback ? `<div class="badge-row"><span class="${feedbackBadgeClass(chatFeedback)}">${escapeHtml(chatFeedback.stage)}</span></div>
-               <pre class="json">${escapeHtml(JSON.stringify(chatFeedback, null, 2))}</pre>` : "<div class=\"empty\">No chat feedback yet.</div>"}
-          <div>
-            <div class="panel__title" style="margin-bottom:10px;">Message Flow</div>
-            <div class="event-list">
-              ${chatHistory.length ? chatHistory.map((entry) => `
-                        <div class="event-card">
-                          <div class="event-card__title">
-                            <span>${escapeHtml(entry.source === "player" ? `player → ${entry.targetAgentId || entry.agentId || "agent"}` : `${entry.agentId || "agent"} spoke`)}</span>
-                            <span>tick=${Number(entry.tick || 0)}</span>
-                          </div>
-                          <div class="event-card__meta">speaker=${escapeHtml(entry.speaker || entry.playerId || "-")} · location=${escapeHtml(entry.locationId || "-")}</div>
-                          <pre class="json">${escapeHtml(JSON.stringify(entry, null, 2))}</pre>
-                        </div>`).join("") : "<div class=\"empty\">No chat history for this agent yet.</div>"}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-function renderDetails() {
-	const selectedLabel = state.selectedKind && state.selectedId ? `${state.selectedKind}:${state.selectedId}` : "nothing selected";
-	elements.rightPanel.innerHTML = `
-    <div class="stack">
-      <div class="badge-row">
-        <span class="badge badge--accent">Selected</span>
-        <span class="badge">${escapeHtml(selectedLabel)}</span>
-      </div>
-      ${renderInteractionPanel()}
-      ${state.selectedObject ? `<pre class="json">${escapeHtml(JSON.stringify(state.selectedObject, null, 2))}</pre>` : "<div class=\"empty\">Select an agent or location from Targets first.</div>"}
-      <div>
-        <div class="panel__title" style="margin-bottom:10px;">Snapshot Summary</div>
-        <pre class="json">${escapeHtml(JSON.stringify({
-		config: state.snapshot?.config || null,
-		counts: {
-			agents: Object.keys(state.snapshot?.model?.agents || {}).length,
-			locations: Object.keys(state.snapshot?.model?.locations || {}).length,
-			promptProfiles: Object.keys(state.snapshot?.model?.agent_prompt_profiles || {}).length,
-			executionDebugContexts: Object.keys(state.snapshot?.model?.agent_execution_debug_contexts || {}).length
-		},
-		metrics: state.metrics,
-		hostedAccess: clone(state.hostedAccess)
-	}, null, 2))}</pre>
-      </div>
-      ${state.lastError ? `<div>
-            <div class="panel__title" style="margin-bottom:10px; color: var(--bad);">Last Error</div>
-            <pre class="json">${escapeHtml(state.lastError)}</pre>
-          </div>` : ""}
-    </div>
-  `;
-}
-function bindEvents() {
-	const searchInput = document.getElementById("entity-search");
-	if (searchInput) searchInput.addEventListener("input", (event) => {
-		state.selectedSearch = String(event.target.value || "");
-		renderLists();
-		bindEvents();
-	});
-	document.querySelectorAll("[data-select-kind][data-select-id]").forEach((button) => {
-		button.addEventListener("click", () => {
-			applySelection({
-				kind: button.getAttribute("data-select-kind"),
-				id: button.getAttribute("data-select-id")
-			});
-		});
-	});
-	document.querySelectorAll("[data-action]").forEach((button) => {
-		button.addEventListener("click", () => {
-			const action = button.getAttribute("data-action");
-			if (action === "step-count") {
-				const value = Number(document.getElementById("step-count")?.value || 1);
-				sendControl("step", { count: Math.max(1, Math.floor(value || 1)) });
-				return;
-			}
-			sendControl(action, null);
-		});
-	});
-	const promptSystem = document.getElementById("prompt-system");
-	if (promptSystem) promptSystem.addEventListener("input", (event) => {
-		state.promptDraft.systemPrompt = String(event.target.value || "");
-		state.promptDraft.dirty = true;
-	});
-	const promptShort = document.getElementById("prompt-short");
-	if (promptShort) promptShort.addEventListener("input", (event) => {
-		state.promptDraft.shortTermGoal = String(event.target.value || "");
-		state.promptDraft.dirty = true;
-	});
-	const promptLong = document.getElementById("prompt-long");
-	if (promptLong) promptLong.addEventListener("input", (event) => {
-		state.promptDraft.longTermGoal = String(event.target.value || "");
-		state.promptDraft.dirty = true;
-	});
-	const promptRollbackVersion = document.getElementById("prompt-rollback-version");
-	if (promptRollbackVersion) promptRollbackVersion.addEventListener("input", (event) => {
-		const nextValue = Number(event.target.value || 0);
-		state.promptDraft.rollbackTargetVersion = Math.max(0, Math.floor(nextValue || 0));
-	});
-	const strongAuthApprovalCode = document.getElementById("strong-auth-approval-code");
-	if (strongAuthApprovalCode) strongAuthApprovalCode.addEventListener("input", (event) => {
-		state.strongAuth.approvalCode = String(event.target.value || "");
-	});
-	document.querySelectorAll("[data-prompt-action]").forEach((button) => {
-		button.addEventListener("click", () => {
-			const action = button.getAttribute("data-prompt-action");
-			if (action === "rollback") {
-				sendPromptControl("rollback", { toVersion: Number(state.promptDraft.rollbackTargetVersion || 0) });
-				return;
-			}
-			sendPromptControl(action, null);
-		});
-	});
-	bindSafeAlternativeLegacy(state, safeAlternative, render);
-	const chatMessage = document.getElementById("agent-chat-message");
-	if (chatMessage) chatMessage.addEventListener("input", (event) => {
-		state.chatDraft.message = String(event.target.value || "");
-		state.chatDraft.dirty = true;
-	});
-	document.querySelectorAll("[data-chat-send]").forEach((button) => {
-		button.addEventListener("click", () => {
-			sendAgentChat(selectedAgentId(), state.chatDraft.message);
-		});
-	});
-	document.querySelectorAll("[data-auth-action]").forEach((button) => {
-		button.addEventListener("click", () => {
-			const action = button.getAttribute("data-auth-action");
-			if (action === "logout") {
-				logoutHostedPlayerSession();
-				return;
-			}
-			if (action === "retry-issue") retryHostedPlayerIdentityIssue();
-		});
-	});
 }
 function render(invalidation) {
 	application.coordinateAndPublish(invalidation);

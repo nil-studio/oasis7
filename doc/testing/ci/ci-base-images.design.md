@@ -20,15 +20,23 @@ Linux CI 共用一套 Ubuntu 24.04 底座、一份多阶段 Dockerfile 和一条
 | `build` | 在 runtime 上增加 GCC、pkg-config 和系统开发包。用于需要本地 C 编译或链接的任务。custody 首批用 build，因为分片 0 的 workerd GDB 合同需编译 C fixture | 四个 custody 分片全部执行，保留 GDB、类型检查、产物身份和结果收集 |
 | `rust-build` | 在 build 上预装仓库固定的 Rust stable、WASM nightly、组件和 targets。用于 Rust 编译、Clippy、编译指标和适用的缓存预热及打包任务 | 核对 rustc 版本、组件、targets、链接器、profile、缓存身份和实际产物消费 |
 | `codeql-rust` | 复用 build 底座并预装正式 CodeQL Rust 分析固定的工具链，以及 GTK、WebKitGTK 和 D-Bus 编译依赖 | 核对工具链来源、非 root 离线编译、已安装包及分析器使用的全部 pkg-config 模块。CodeQL bundle 随原分析作业选择 |
+| `api-runtime` | 复用 runtime 底座，为只读 GitHub API 证据作业提供固定 GitHub CLI | 核对官方 Linux 发行资产 SHA256、非 root 离线 CLI 版本与 API 命令。调用者保留各自的认证、权限和证据校验 |
+| `rust-ordinary-builder` | 复用 rust-build，为普通产物构建预装固定 Docker CLI 与 Buildx（可信 main 读写与 eligible 候选只读共享摘要） | 候选离线校验普通 UID、客户端路径和版本。可信消费者验证 runner 已有 daemon、原 canonical WASM recipe 与产物身份；候选只读消费者强验 UID 1001 与 Docker socket 拒绝 |
 | `browser` | 复用 runtime 的 Node，在其上提供 npm、按锁文件安装的 Playwright、对应 Chromium 和字体。先用于 site-quality，再按实际需求评估其他 Web job | 核对锁文件、浏览器版本、非 root 启动和真实浏览器测试 |
+| `rust-custody-wasm` | 复用 rust-build，在专用路径提供固定 Node 22 及 npm。容器内部仅向 UID 1001 开放 `/.cache/oasis7`，供现有只读工具归档按原相对路径恢复 | 非 root 离线验证 Node/npm、Rust WASM targets、实际 tar 解包与路径权限。原 Worker 和 bindgen 身份由消费作业核对 |
+| `rust-viewer` | 复用 Rust 层和 Node 24/npm，按现 Viewer 合同固定完整 Chrome、agent-browser、Playwright 模块与字体 | 非 root 离线运行原 Chrome 探针，并用 Playwright 连接同一 Chrome 验证 site quality 入口 |
 
 五个目标从同一 Node 24 官方镜像来源构建，构建时固定来源 digest 并记录在镜像标签。通用层提供 Node 可执行文件，browser 层提供 npm 及其锁文件依赖。镜像 smoke 验证离线工具能力，CodeQL 的 JavaScript/TypeScript 提取由实际分析 job 验证所用的正式摘要。
 
 Rust 或 Node 依赖仍沿用仓库锁文件和相应的缓存策略。预装 rustup 工具链减少每个 job 下载编译器的开销，Cargo registry 下载与缓存缺失仍按现有机制处理。预编译产物消费者按实际需要选择 runtime 或 build，包括两条 storage-recovery 路径。依赖宿主网络、挂载、内核权限、Docker、签名或目标环境的任务先核对平台合同。现有 WASM canonical builder、macOS 和 Windows 原生验证继续承担各自既定验收。
 
+Viewer 必需检查和历史性能报告共用 `rust-viewer`。可信选择作业用已选测 Git 对象核对镜像发布源码的浏览器包锁、浏览器准备代码、Rust 工具链与 wasm-bindgen 准备入口。兼容源码走固定摘要及独立只读 Cargo 缓存，确切版本的工具归档继续按原可信键读取。输入缺失或变动的历史源码沿用原宿主准备路径。业务源码继续按原选测版本，功能、安全、性能与站点质量测试保留各自原入口。
+
 ## 构建、发布与信任决策
 
 独立工作流从受保护的 main 构建并发布到 GHCR。基础镜像以 digest 固定，记录 Dockerfile 与清单来源提交、目标架构、实际系统包及工具链版本、目标镜像 digest 和安全扫描结果。Rust 工具链合同或 Playwright 锁文件改变时，由发布流水线重建受影响目标，再以 PR 提升消费 digest。通过定期重建或安全更新触发候选构建，由更新 PR 审查并提升消费 digest。历史已采用 digest 至少保留到迁移验证结束并覆盖回退窗口。
+
+发布分为通用、专用和应用 WASM 三组并行作业，每组在原 10 分钟时限内逐个下载、加载、推送并清理所属镜像。各组消费同一可信构建作业的扫描通过产物。原九个目标串行时在第八个推送期间耗尽预算。十个目标分两组时，专用组在下载 Custody WASM 时超时，Viewer 尚未发布，因此将这两个大构件移入应用 WASM 组。 [串行发布记录](https://github.com/nil-studio/oasis7/actions/runs/45599148910) · [两组发布记录](https://github.com/nil-studio/oasis7/actions/runs/45623494794)
 
 发布 job 单独授予包写权限。普通 PR，包括 fork PR，只拉取已发布的可信 digest。接入前验证 fork pull_request 的无发布凭据拉取路径。若镜像可见性不满足此条件，先解决分发方案。镜像只含可公开分发的构建工具与系统包，发布工作流不使用普通 PR 产物或其缓存作为可信输入。镜像改动、digest 提升和 CI 门禁接线接受独立评审。
 
@@ -42,6 +50,22 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 2. 使用同一候选源码和测试选择，分别执行原 runner 路径与镜像路径。按 job 比较冷拉取和原安装耗时、总时长与失败类型，多次采样并报告样本数、中位数及尾部耗时。记录构建、扫描、发布频率与镜像大小，判断节省能否覆盖镜像维护成本。
 3. 首批验收要求宿主平台合同、测试覆盖和真实结果等价，普通路径无系统包现场安装，且镜像引入的冷启动成本有可接受的实测结果。采用 rust-build 后，常规编译 job 无需现场执行 rustup 工具链或组件安装。候选镜像现场构建的结果可以证明测试兼容，需另用已发布 digest 验证冷拉取。对拉取拒绝、缺库与缓存不匹配验证可观测的失败及回退路径。
 4. 普通 Linux 编译、缓存和指标采纳同一镜像后，再逐工作流迁移打包与验收。发布类任务逐一核对 SOURCEPLAN、BUILDINFO、签名边界和实际目标系统启动，保持 source HEAD 与被测产物绑定。任何依赖宿主能力的例外都记录在相应工作流设计。
+
+### ordinary producer 的镜像与缓存配对
+
+可信 main 的 `oasis7-test-build-trusted` 以可写与宿主 daemon 访问模式运行固定完整摘要的 `rust-ordinary-builder`（仅该可信路径持有缓存写准入与 Docker daemon 访问），保留原 selector 准入、45 分钟 job 边界、实际 Cargo 变体、features、分包格式及下游 required 执行。该叶子沿用 `rust-build` 的编译器、系统及 mold，仅补预装的 Docker CLI 和 Buildx 客户端。预检核对 Python、stable/nightly 工具链、组件和 WASM targets、native pkg-config 依赖，mold 沿原固定路径实际验证。该路径不执行现场 apt/rustup；候选宿主回退路径的真实宿主 SDK 回收保持独立，不借本迁移改选测或权限。
+
+完整 ordinary 产物仍包含原 Docker canonical WASM 测试材料：`local_test_provider` 和 sensor、mobility、memory、storage 四个 m1 模块。GitHub runner 已提供默认 Docker socket；本消费者不新增 daemon、socket 挂载或 privileged。耗时 native 编译前，使用有界客户端调用验证实际 daemon 可达、版本可读及默认 context/builder 的 `docker` driver；预检不能只看客户端文件存在，也不启动或替换 builder。后续仍由原 canonical wrapper 选择实际执行镜像，生成 WASM、metadata、receipt，并由当前源码编译的 checker 严格验证源、模块集合与各文件摘要。不能设置 `IN_CONTAINER` 伪装 canonical 环境、改用 host-native fallback，或把 tiny Rust/ABI 探针算作这五个模块的验证。
+
+同一 producer 作为镜像 dependency cache 的 writer 和后续 reader，使用单独包含完整 digest 的命名空间、原固定 Swatinem 动作及相同环境 hash；只在构建成功后，经真实归档 post 容量准入保存。新增 family 绑定原 Rust workflow 和 trusted job，只允许当前 main/source/实际 Git HEAD、一致 workflow SHA、适用 push/schedule 或 `run_mode=full` 手动事件，校验固定 image 与 GitHub provider。普通 PR、错误 job/source/digest/mode 均拒绝。命名空间进入现仓库容量/保留规划，不增加配额或绕过上传时点的检查。
+
+普通 artifact 的既有 runner_image 身份同样不能因容器化改成 `sys.platform` 的通用 `linux`。trusted job 固定 Ubuntu 24.04，容器显式声明既有 `ImageOS=ubuntu24`，并在路径预检中用实际 os-release 核对 Ubuntu 24.04 后才进入构建；不修改 host consumer 期望或放宽 loader。镜像完整摘要继续单独绑定实际工具及 native 库版本。
+
+普通 artifact 继续严格要求生产与消费的绝对 checkout 相同，且 Cargo 会将原二进制和 manifest 路径嵌入测试产物。可信 producer 固定使用现 Ubuntu hosted consumer 的 `/home/runner/work/oasis7/oasis7` 作为实际编译目录；容器将 runner 的同一 workspace 另行 bind 到该原路径，首个预检在 shell 内声明固定原路径并显式 cd，随后通过仅含相同路径声明与 cd 的 mode 0600 Bash 启动文件，让全部后续 run 步骤也在该路径执行。不能只依赖 defaults.run.working-directory 或 job env 的 host 路径值：[runner 的容器路径映射](https://github.com/actions/runner/blob/v2.338.2/src/Runner.Worker/Handlers/StepHost.cs)会把 host workspace 前缀转换回 `/__w`。启动前核对声明路径、脚本解析 ROOT、实际 cwd、默认 workspace 与 alias 的 directory device/inode，以及原 Git HEAD；拒绝 symlink、不同目录或任何身份不一致。不能只改 manifest、放宽 loader 的 checkout 比较或假造原二进制路径。该 bind 只提供已挂载 workspace 的另一入口，不增加宿主目录范围、capability 或 host PID 权限；真实容器路径及宿主消费仍须实测。
+
+ordinary workspace 保留当前 v1 格式与宿主兼容输入的计算方式，脚本内容变更仍按原规则改变兼容 hash；镜像路径在兼容 hash 中额外加入完整 image，并在产物 manifest 记录 image，拒绝不完整摘要。宿主与不同 digest 不共享该 workspace 兼容组。原 `shared-native-cache` 仍服务尚未迁移的 full/support/production 与宿主消费者，不为预热 ordinary 另起广泛 full 编译。真实验收分别核可信写入与后续同环境恢复、实际 ELF 与所选测试消费、mold/profile/环境 hash、冷拉取和总成本；本地合同或一次 producer 绿色不能代签跨 run 精确命中。
+
+当受信任选择计划判定本轮普通构建无需运行宿主 Docker canonical WASM 材料构建（`fast_plan_version=1`、`execution_profile` 属于 `pr-fast` 或 `main-fast`、`test_policy_changed=false`、不含 `ordinary_full_fast_targets`，且 `ordinary_risk_targets` 仅含无需 `local_test_provider` 的集成测试目标）时，`oasis7-test-build-candidate` 以只读模式（`cache-mode: read`、`save-if: false`）进入同一固定完整摘要的 `rust-ordinary-builder` 容器，配对恢复主干写入的镜像依赖缓存与 `ordinary-workspace-v1`。候选容器强制声明 `--user 1001:1001 --init` 与 `--tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec`，既使 `setup-linux-mold` 在无 root/sudo 条件下保持与可信 writer 完全一致的 `/opt/oasis7-mold` 链接器路径及缓存身份，又利用普通 UID 无 `docker` 附加组的内核权限边界阻断默认挂载 `/var/run/docker.sock` 的读写与连接；启动预检除核对 canonical 工作区路径、同目录 inode、Ubuntu 24.04、`tested_sha` 与 `selection.json` SHA-256 外，还显式校验 `1001:1001` 身份及对 `/var/run/docker.sock` 的 `AF_UNIX` 连接被拒绝（`PermissionError`）。凡 `test_policy_changed=true`、`candidate-full` 或其他需构建 Docker canonical WASM 材料的运行，`container.image` 保持为空并继续回退宿主 `ubuntu-24.04`（保留宿主 SDK 磁盘回收与 `ci-shared-native-trusted-v4` 只读依赖缓存）。
 
 ### Ordinary 原生测试构件消费
 

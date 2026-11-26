@@ -27,9 +27,18 @@ import unittest
 
 VERSION = 1
 PLANNER_TEST = 'scripts/plan-rust-required-scope.test.py'
-# These are safety properties, not an exhaustive snapshot of path-selection
-# policy. A full change can evolve that policy without satisfying obsolete
-# "every Python edit is full" assertions from an earlier baseline.
+EVOLVING_POLICY_TESTS = frozenset({
+    PLANNER_TEST,
+    'scripts/ci-bin-ownership.test.py',
+    'scripts/ci-formal-process.test.py',
+    'scripts/ci-full-result.test.py',
+    'scripts/ci-workflow.test.py',
+    'scripts/ci-workspace-cache.test.py',
+})
+# These are safety properties, not an exhaustive snapshot of path-selection,
+# workflow DAG wiring, or mid-migration module ownership. Evolving suites run
+# these immutable baseline red-lines from policy_sha while executing their
+# complete updated suite from the candidate checkout.
 FIXED_TESTS = {
     PLANNER_TEST: [
         'Selection.test_unknown_inputs_block_even_with_full_control_or_extra_groups',
@@ -55,6 +64,15 @@ FIXED_TESTS = {
         'EnclosingFunctionCfgOwners.test_function_impl_and_module_moves_do_not_cancel_cfg_changes',
         'EnclosingFunctionCfgOwners.test_macro_and_unknown_parent_contexts_keep_conservative_handling',
     ],
+    'scripts/ci-bin-ownership.test.py': [
+        'Ownership.test_core_is_library_and_original_executable_names_survive_once',
+        'Ownership.test_newapi_service_has_no_transitive_world_dependency',
+        'Ownership.test_light_tool_and_provider_normal_build_dependency_boundaries',
+        'Ownership.test_signer_protocol_and_client_storage_are_independent_foundations',
+        'Ownership.test_client_proof_library_has_no_normal_world_or_node_dependency',
+        'Ownership.test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world',
+        'Ownership.test_no_cross_package_source_borrowing_from_binary_directories',
+    ],
     'scripts/ci-formal-process.test.py': [
         'Transition.test_selected_requires_real_success_and_not_selected_requires_skip',
         'Transition.test_formal_builder_failure_and_skip_combinations',
@@ -70,7 +88,60 @@ FIXED_TESTS = {
         'InlineExecutionSelection.test_clippy_owner_requires_the_complete_known_inline_plan',
         'DriverCoverage.test_inline_driver_builds_once_runs_manifest_and_propagates_each_failure',
     ],
+    'scripts/ci-full-result.test.py': [
+        'Collections.test_unsafe_artifact_redirects_never_open_storage',
+        'DefinitionDigest.test_complete_governance_assertions_are_hashed_at_the_fixed_revision',
+        'DefinitionDigest.test_complete_governance_inventory_cannot_escape_or_duplicate_files',
+        'DefinitionDigest.test_digest_reads_contracts_at_fixed_revision_not_worktree',
+        'DefinitionDigest.test_invalid_trusted_contract_paths_fail_before_reading_unowned_data',
+        'DefinitionDigest.test_trusted_python_runner_change_invalidates_previous_definition',
+        'InheritedAttempts.test_attempt_identity_and_missing_producer_timing_fail_closed',
+        'InheritedAttempts.test_changed_failed_incomplete_or_ambiguous_alias_cannot_reuse_old_evidence',
+        'InheritedAttempts.test_newer_artifact_cannot_be_skipped_or_forged_from_an_alias',
+        'PeriodicAdmission.test_untrusted_workflow_or_current_context_fails_before_writing_a_decision',
+        'PublicationSource.test_candidate_cli_still_requires_main_policy_and_full_result',
+        'PublicationSource.test_only_trusted_main_testnet_can_opt_in_to_a_fixed_unmerged_source',
+        'Qualification.test_candidate_bootstrap_old_definition_and_wrong_event_fail',
+        'Qualification.test_failed_cancelled_missing_ambiguous_and_old_actual_gate',
+        'Qualification.test_missing_platform_result_or_inventory_entry_fails',
+        'Qualification.test_source_policy_attempt_and_repository_are_bound',
+    ],
     'scripts/ci-required-result.test.py': None,
+    'scripts/ci-workflow.test.py': [
+        'AllWorkflowJobsTimeoutGuardTests.test_every_executable_workflow_job_declares_timeout_minutes',
+        'BrowserDownloadCache.test_archive_writer_rejects_foreign_identity_unbounded_restore_and_unadmitted_save',
+        'PriorityRunnerRoutingContractTests.test_ci_priority_label_routes_same_repo_pr_required_jobs_only',
+        'PriorityRunnerRoutingContractTests.test_noop_label_runs_never_publish_skipped_required_gate_or_cancel_preview',
+        'WorkerToolCache.test_writer_rejects_foreign_identity_unbounded_keys_and_unadmitted_save',
+        'Workflow.test_candidate_source_input_requires_trusted_main_dispatch',
+        'Workflow.test_dependency_save_requires_success_and_current_trusted_source',
+        'Workflow.test_explicit_full_gate_covers_every_group_and_records_only_success',
+        'Workflow.test_failed_scope_planning_reports_gate_failure_before_artifact_download',
+        'Workflow.test_full_gate_produces_verifiable_policy_bound_receipt_from_real_authority',
+        'Workflow.test_governance_mode_is_fixed_before_candidate_code_can_write_outputs',
+        'Workflow.test_invalid_selected_group_cannot_silently_skip_command',
+        'Workflow.test_manual_candidate_full_is_read_only_and_not_scheduled',
+        'Workflow.test_old_policy_cannot_be_replaced_by_candidate_fast_policy',
+        'Workflow.test_partial_fast_builds_and_main_dispatched_candidates_never_write_cache',
+        'Workflow.test_preview_is_cold_read_only_and_independent_of_required_authority',
+        'Workflow.test_python_control_assertions_use_fixed_baseline_and_pinned_offline_tools',
+        'Workflow.test_required_gate_runs_real_json_cli_with_large_file_and_preserves_failure',
+        'Workflow.test_shared_cache_checkout_verifies_actual_current_main_source',
+        'Workflow.test_trusted_closure_and_safe_checkout',
+        'Workflow.test_trusted_writer_only_runs_on_protected_main',
+    ],
+    'scripts/ci-workspace-cache.test.py': [
+        'Workspace.test_formal_components_have_exact_writer_and_reader_boundaries',
+        'Workspace.test_only_matching_trusted_main_lane_can_stage',
+        'Workspace.test_manual_writer_requires_full_in_event_payload',
+        'Workspace.test_stage_rechecks_capacity_and_never_saves_when_inventory_grows',
+        'Workspace.test_stage_rejects_untrusted_or_nonfull_manual_runs_before_preparation',
+        'Workspace.test_stage_round_trip_and_restore_requires_compatible_key',
+        'Workspace.test_wrong_selection_cannot_be_uploaded_as_ordinary',
+        'BoundedWorkspace.test_malformed_baseline_cannot_name_unrecorded_or_partial_units',
+        'BoundedWorkspace.test_malformed_capture_cannot_be_pruned_into_success',
+        'BoundedWorkspace.test_pack_retries_are_bounded_and_do_not_publish_an_oversized_archive',
+    ],
     'scripts/ci-python-control-contracts.test.py': [
         'TrustedContracts.test_baseline_code_loads_candidate_with_correct_main_and_inherited_inventory',
         'TrustedContracts.test_removing_candidate_tests_cannot_hide_a_broken_implementation',
@@ -136,8 +207,43 @@ def run_governance_remaining(root):
 def local_governance(root):
     """Preserve each canonical CLI's local platform/optional-tool semantics."""
     paths = governance_tests(json.loads((root / 'scripts/ci-required-scope.json').read_text()))
-    for path in paths:
-        subprocess.run([sys.executable, str(root / path)], cwd=root, check=True)
+    workers = 1 if os.environ.get('OASIS7_LOCAL_CHECK') == '1' else contract_workers(len(paths))
+    if workers <= 1:
+        for path in paths:
+            subprocess.run([sys.executable, str(root / path)], cwd=root, check=True)
+    else:
+        ordered = sorted(paths, key=lambda path: (_HEAVY_CONTRACT_ORDER.get(path, 100), path))
+        stop_event = threading.Event()
+        results = {}
+
+        def invoke(index, path):
+            if stop_event.is_set():
+                return
+            completed = subprocess.run([sys.executable, str(root / path)], cwd=root,
+                                       capture_output=True, text=True)
+            results[index] = completed
+            if completed.returncode != 0:
+                stop_event.set()
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(invoke, index, path) for index, path in enumerate(ordered)]
+            for future in as_completed(futures):
+                future.result()
+        first_failure = None
+        for index, path in enumerate(ordered):
+            completed = results.get(index)
+            if completed is None:
+                continue
+            if completed.stdout:
+                sys.stdout.write(completed.stdout)
+                sys.stdout.flush()
+            if completed.stderr:
+                sys.stderr.write(completed.stderr)
+                sys.stderr.flush()
+            if completed.returncode != 0 and first_failure is None:
+                first_failure = subprocess.CalledProcessError(completed.returncode, [sys.executable, str(root / path)])
+        if first_failure is not None:
+            raise first_failure
     run_governance_remaining(root)
 
 
@@ -470,9 +576,10 @@ def contract_workers(task_count):
 _HEAVY_CONTRACT_ORDER = {
     PLANNER_TEST: 0,
     'scripts/ci-formal-process.test.py': 1,
-    'scripts/ci-workflow.test.py': 2,
-    'scripts/ci-cache-maintenance.test.py': 3,
-    'scripts/ci-local-check.test.py': 4,
+    'scripts/ci-workspace-cache.test.py': 2,
+    'scripts/ci-workflow.test.py': 3,
+    'scripts/ci-cache-maintenance.test.py': 4,
+    'scripts/ci-local-check.test.py': 5,
 }
 
 
@@ -663,9 +770,11 @@ def run_contracts(root, policy_sha, plan, *, governance=False):
                 changed_paths=migration, retained='fixed baseline safety tests and real Rust fixture',
                 historical_contracts_delegated_to_candidate=selected), sort_keys=True), flush=True)
         for path in selected:
-            # Planner policy changes are covered by the fixed baseline safety
-            # subset. The complete candidate suite still runs in governance.
-            if path == PLANNER_TEST:
+            # Evolving policy/topology suites are guarded by their immutable
+            # baseline safety subset in FIXED_TESTS while the complete updated
+            # candidate suite runs against the candidate checkout.
+            if path in EVOLVING_POLICY_TESTS and FIXED_TESTS.get(path):
+                candidate_tasks[path] = None
                 continue
             if not migration:
                 # A complete suite subsumes its fixed subset without losing the

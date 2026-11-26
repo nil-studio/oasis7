@@ -317,10 +317,21 @@ pub(super) fn exercise() {
     )
     .unwrap()
     .unwrap();
-    for mode in 0..26 {
-        let state = store
+    let modes: &[usize] = if cfg!(feature = "test_tier_full") {
+        &[
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25,
+        ]
+    } else {
+        &[0, 1, 2, 3, 4, 6, 8, 9, 10, 19, 23, 25]
+    };
+    for &mode in modes {
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let mut tx = ExecutionTransaction::begin(
             parent.clone(),
             [6; 32],

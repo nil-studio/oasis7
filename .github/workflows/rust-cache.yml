@@ -45,6 +45,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     if: >-
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
@@ -61,9 +62,36 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
+      - name: Pull the pinned portable cache tool image
+        id: portable-cache-image
+        timeout-minutes: 2
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          image=ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+          config=$(mktemp -d "$RUNNER_TEMP/portable-cache-docker.XXXXXX")
+          chmod 700 "$config"
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$image"
+          bootstrap="$RUNNER_TEMP/portable-cache-browser-env.bash"
+          cat > "$bootstrap" <<'PORTABLE_CACHE_ENV'
+          python3() {
+            case "${1:-}" in
+              scripts/ci-browser-deps.py)
+                shift
+                command python3 "$GITHUB_WORKSPACE/scripts/ci-portable-cache-container.py" --kind browser -- "$@"
+                ;;
+              *) command python3 "$@" ;;
+            esac
+          }
+          PORTABLE_CACHE_ENV
+          chmod 600 "$bootstrap"
+          printf 'BASH_ENV=%s\n' "$bootstrap" >> "$GITHUB_ENV"
       - name: Identify exact browser archives
         id: browser-meta
         run: python3 scripts/ci-browser-deps.py metadata --browser agent --github-output "$GITHUB_OUTPUT"
@@ -148,6 +176,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     if: >-
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
@@ -167,13 +196,36 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Install pinned Rust toolchain
+      - name: Pull the pinned portable cache tool image
+        id: portable-cache-image
+        timeout-minutes: 2
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          image=ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
+          config=$(mktemp -d "$RUNNER_TEMP/portable-cache-docker.XXXXXX")
+          chmod 700 "$config"
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$image"
+          bootstrap="$RUNNER_TEMP/portable-cache-worker-env.bash"
+          cat > "$bootstrap" <<'PORTABLE_CACHE_ENV'
+          python3() {
+            case "${1:-}" in
+              scripts/ci-worker-build.py)
+                shift
+                command python3 "$GITHUB_WORKSPACE/scripts/ci-portable-cache-container.py" --kind worker -- "$@"
+                ;;
+              *) command python3 "$@" ;;
+            esac
+          }
+          PORTABLE_CACHE_ENV
+          chmod 600 "$bootstrap"
+          printf 'BASH_ENV=%s\n' "$bootstrap" >> "$GITHUB_ENV"
       - name: Identify pinned Worker build tool
         id: worker-meta
         run: python3 scripts/ci-worker-build.py metadata --github-output "$GITHUB_OUTPUT"
@@ -479,7 +531,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
+    timeout-minutes: 22
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

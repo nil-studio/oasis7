@@ -26,7 +26,7 @@ impl PeerRecordReceiver {
         if trusted_now_ms <= 0 {
             return Err(protocol_error("trusted time must be positive".into()));
         }
-        if let Some(last) = durable.last_trusted_now_ms
+        if let Some(last) = durable.effective_time_floor_ms()
             && trusted_now_ms < last
         {
             return Err(protocol_error("trusted time moved backward".into()));
@@ -74,7 +74,7 @@ impl PeerRecordReceiver {
         if trusted_now_ms <= 0 {
             return Err(protocol_error("trusted time must be positive".into()));
         }
-        if let Some(last) = durable.last_trusted_now_ms
+        if let Some(last) = durable.effective_time_floor_ms()
             && trusted_now_ms < last
         {
             return Err(protocol_error("trusted time moved backward".into()));
@@ -167,6 +167,13 @@ pub(super) fn validate_ledger_structure(ledger: &ReceiverLedgerV2) -> Result<(),
     {
         return Err(protocol_error(
             "receiver pruning watermark must be positive".into(),
+        ));
+    }
+    if let Some(floor) = ledger.trusted_time_floor_ms
+        && floor <= 0
+    {
+        return Err(protocol_error(
+            "receiver trusted time floor must be positive".into(),
         ));
     }
     for (peer_id, expiry) in &ledger.pre_migration_v1_expiries {

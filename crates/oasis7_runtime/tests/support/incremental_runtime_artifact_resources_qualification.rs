@@ -601,6 +601,22 @@ fn rich_sources() -> (
     (manifest, delta, builtins)
 }
 
+pub(super) fn transition_sources() -> (
+    ChainResourceManifest,
+    ChainResourceDelta,
+    BTreeMap<String, BTreeMap<String, BuiltinReleaseManifestEntry>>,
+) {
+    let (manifest, delta, builtins) = rich_sources();
+    if cfg!(feature = "test_tier_full") {
+        return (manifest, delta, builtins);
+    }
+    let mut manifest = ChainResourceManifest::empty_at_height("artifact-world", 17, 4);
+    manifest.refresh_hashes();
+    let mut delta = ChainResourceDelta::empty_for_manifest("artifact-world", "base", 5, 12);
+    delta.chain_id = "chain-4".into();
+    (manifest, delta, builtins)
+}
+
 #[test]
 fn artifact_qualification_rejects_generic_valid_same_name_in_wrong_root_namespace() {
     let directory = Directory::new();
@@ -616,7 +632,12 @@ fn artifact_qualification_rejects_generic_valid_same_name_in_wrong_root_namespac
     .unwrap();
     let mut base_roots = bounded_root_set(StateRootV1::from_canonical_bytes(&canonical).unwrap());
     install_governance_control_roots(&store, &memory, &mut base_roots);
-    for namespace in [StateNamespaceV1::Authorization, StateNamespaceV1::Allocator] {
+    let namespaces: &[StateNamespaceV1] = if cfg!(feature = "test_tier_full") {
+        &[StateNamespaceV1::Authorization, StateNamespaceV1::Allocator]
+    } else {
+        &[StateNamespaceV1::Authorization]
+    };
+    for &namespace in namespaces {
         let mut root_set = base_roots.clone();
         install_wrong_namespace_artifact_alias(&store, &memory, &mut root_set, namespace);
         assert!(matches!(
@@ -628,7 +649,12 @@ fn artifact_qualification_rejects_generic_valid_same_name_in_wrong_root_namespac
 
 #[test]
 fn raw_and_zstd_family_qualification_closes_every_runtime_artifact_record() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let (manifest, delta, builtin_entries) = rich_sources();
         let builtin = BuiltinSource(&builtin_entries);
         let source = RuntimeArtifactResourcesRefV1 {
@@ -677,7 +703,12 @@ fn raw_and_zstd_family_qualification_closes_every_runtime_artifact_record() {
 
 #[test]
 fn original_genesis_with_absent_optional_values_qualifies_without_forged_cells() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let (mut manifest, mut delta, builtins) = rich_sources();
         // The original producer encodes .present=false and deliberately does
         // not emit a .value cell; the family verifier must accept this shape
@@ -857,10 +888,15 @@ fn full_qualification_rejects_orphan_count_and_wrong_owner_child_binding() {
 
 #[test]
 fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
-        let (manifest, delta, builtins) = rich_sources();
+        let (manifest, delta, builtins) = transition_sources();
         let initial_tick = delta.tick;
         let builtin_source = BuiltinSource(&builtins);
         let source = RuntimeArtifactResourcesRefV1 {

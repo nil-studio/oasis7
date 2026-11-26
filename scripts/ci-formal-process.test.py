@@ -1599,6 +1599,7 @@ class DistfsClippyHandoff(unittest.TestCase):
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
                 path = scripts / name
@@ -1757,6 +1758,7 @@ class DistfsNamedIntegrationDriver(unittest.TestCase):
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
                 path = scripts / name
@@ -2665,6 +2667,26 @@ class CasePartitionArtifactDelivery(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifacts.fast_plan(self.plan | {'ordinary_partitions': ['controls', 'native-0', 'native-1', 'native-2', 'native-3']})
 
+        # Multi-package targeted workloads exceeding 60s of non-runtime harnesses expand to 4 shards
+        # so the ~358s/shard 2-way runtime-tests baseline does not push shards past 8m.
+        bft_like = dict(
+            self.plan,
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_formal_protocol', 'oasis7_viewer_runtime'],
+        )
+        self.assertEqual(
+            list(artifacts.targeted_ordinary_artifact_partitions(bft_like)),
+            list(artifacts.TARGETED_ORDINARY_ARTIFACT_PARTITIONS),
+        )
+        with self.assertRaises(ValueError):
+            artifacts.fast_plan(bft_like)
+
+        # Verify inventory_pairs preserves exact keys/results under bounded concurrency and OASIS7_LOCAL_CHECK=1.
+        with patch.object(artifacts, 'inventory', side_effect=lambda p, ignored=False, env=None: [f'{p.name}:{int(ignored)}']):
+            for local_flag in ('0', '1'):
+                with patch.dict(os.environ, {'OASIS7_LOCAL_CHECK': local_flag}):
+                    pairs = artifacts.inventory_pairs([('a', Path('/tmp/bin_a')), ('b', Path('/tmp/bin_b'))])
+                self.assertEqual(pairs, {'a': (['bin_a:0'], ['bin_a:1']), 'b': (['bin_b:0'], ['bin_b:1'])})
+
     def test_full_case_partition_delivery_requires_new_authority_and_preserves_profile_gates(self):
         for scope in ('targeted', 'full'):
             for profile in ('pr-fast', 'main-fast'):
@@ -3050,6 +3072,7 @@ pub fn mark(name: &str) {
         (runtime / 'tests/process.rs').write_text(
             '#[test] fn complete_integration() {\n'
             ' assert!(std::process::Command::new(env!("CARGO_BIN_EXE_oasis7_chain_runtime")).status().unwrap().success());\n'
+            ' assert!(std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap().contains("oasis7_chain_runtime"));\n'
             ' oasis7_chain_runtime::mark("complete_integration");\n}\n'
             '#[test] fn new_integration_case() { oasis7_chain_runtime::mark("new_integration_case"); }\n')
         (risk / 'Cargo.toml').write_text(
@@ -3105,10 +3128,13 @@ pub fn mark(name: &str) {
             ordinary_harness_costs=TargetedArtifactPartitions.costs([
                 dict(package='oasis7_chain_runtime', target_kind='test', target_name='process',
                      variant='required', mode='batch', selector='', elapsed_ms=5000)]))
+        cls.image = os.environ.get('ORDINARY_BUILD_IMAGE',
+                                   'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64)
         cls.bundle, cls.consumer = cls.root / 'bundle', cls.root / 'consumer'
         with patch.object(artifacts, 'ROOT', cls.root), patch.object(artifacts, 'CONFIG', cls.config), \
              patch.dict(os.environ, SOURCE_SHA=cls.sha):
-            artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
+            with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=cls.image):
+                artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
             archive = cls.root / 'ordinary.tar.gz'
             artifacts.pack(cls.bundle, archive, suite='ordinary', plan=cls.selected)
         cls.consumer.mkdir()
@@ -3127,6 +3153,9 @@ pub fn mark(name: &str) {
         return stack
 
     def test_real_build_pack_load_and_four_owners_equal_the_original_complete_execution(self):
+        self.assertEqual(json.loads((self.bundle / 'manifest.json').read_text())['image'], self.image)
+        self.assertEqual(json.loads((self.consumer / 'manifest.json').read_text())['image'], self.image)
+        self.assertNotIn('ORDINARY_BUILD_IMAGE', os.environ)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             baseline, partitioned = root / 'baseline', root / 'partitioned'
@@ -3161,6 +3190,25 @@ pub fn mark(name: &str) {
             self.assertEqual(sum(record['expected_count'] for record in records),
                              sum(record['expected_count'] for record in baseline_records))
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
+
+    def test_ordinary_runner_image_identity_remains_exact(self):
+        manifest = json.loads((self.consumer / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)), \
+             patch.dict(os.environ, ImageOS='ubuntu24'):
+            generic = dict(manifest, runner_image='linux')
+            with self.assertRaisesRegex(ValueError, 'artifact identity mismatch: runner_image'):
+                artifacts.validate_artifact_manifest(generic, suite='ordinary', plan=self.selected)
+            verified = dict(manifest, runner_image='ubuntu24')
+            self.assertEqual(artifacts.validate_artifact_manifest(verified, suite='ordinary', plan=self.selected),
+                             set(manifest['included_binaries']))
+
+    def test_real_ordinary_artifact_still_rejects_another_consumer_checkout(self):
+        manifest = json.loads((self.bundle / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary, self.context(Path(temporary)):
+            with patch.object(artifacts, 'ROOT', self.root / 'different-consumer'), \
+                 patch.object(artifacts, 'output', return_value=self.sha), \
+                 self.assertRaisesRegex(ValueError, 'artifact identity mismatch: checkout'):
+                artifacts.validate_artifact_manifest(manifest, suite='ordinary', plan=self.selected)
 
     def test_real_v1_delivery_preserves_behavior_and_restores_cargo_binary_paths_without_compiling(self):
         selected = self.selected | dict(scope='full', ordinary_artifact_partition_version=1,
@@ -4045,6 +4093,7 @@ printf '[%s]\\n' "$args_json" >> "$CARGO_CALLS"
             scripts.mkdir(parents=True)
             binary.mkdir()
             (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            (scripts / 'check-rust-hygiene.py').write_text('print("rust hygiene fixture")\n')
             for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
                          'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh',
                          'check-standalone-tool-lockfiles.test.sh', 'check-standalone-tool-lockfiles.sh'):
@@ -5113,6 +5162,254 @@ class ParallelFormalExecution(unittest.TestCase):
 
 
 class BuildAndBundles(unittest.TestCase):
+    def test_ordinary_docker_preflight_checks_daemon_and_default_driver(self):
+        responses = {
+            ('info', '--format', '{{json .ServerVersion}}'): '"28.0.4"',
+            ('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'): '28.5.2 1.48',
+            ('buildx', 'version'): 'github.com/docker/buildx v0.29.1 test-commit',
+            ('context', 'show'): 'default',
+            ('buildx', 'inspect'): ('Name:          default\nDriver:        docker\n\nNodes:\n'
+                                    'Name:          default\nEndpoint:      default\nStatus:        running\n'),
+        }
+
+        def invoke(command, **kwargs):
+            self.assertEqual(command[0], 'docker')
+            self.assertEqual(kwargs['timeout'], 15)
+            self.assertTrue(kwargs['text'])
+            for name in ('GH_TOKEN', 'GITHUB_TOKEN', 'ACTIONS_RUNTIME_TOKEN', 'INPUT_GITHUB-TOKEN', 'NODE_OPTIONS'):
+                self.assertNotIn(name, kwargs['env'])
+            if tuple(command[1:]) not in responses:
+                raise subprocess.CalledProcessError(1, command, output='unknown command or flag')
+            return responses[tuple(command[1:])]
+
+        with patch.object(artifacts.Path, 'is_socket', return_value=True), \
+             patch.dict(os.environ, DOCKER_HOST='', DOCKER_CONTEXT='', BUILDX_BUILDER='',
+                        GH_TOKEN='private', GITHUB_TOKEN='private', ACTIONS_RUNTIME_TOKEN='private',
+                        NODE_OPTIONS='private', **{'INPUT_GITHUB-TOKEN': 'private'}), \
+             patch.object(artifacts.subprocess, 'check_output', side_effect=invoke) as execute:
+            self.assertEqual(artifacts.ordinary_docker_preflight(), {
+                'client_version': '28.5.2', 'server_version': '28.0.4', 'server_api': '1.48',
+                'buildx_version': 'v0.29.1', 'context': 'default', 'builder': 'default', 'driver': 'docker',
+                'builder_status': 'running'})
+            self.assertEqual(execute.call_count, 5)
+            for key, invalid in (
+                    (('info', '--format', '{{json .ServerVersion}}'), 'null'),
+                    (('version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}'), '28.5.2 invalid-api'),
+                    (('buildx', 'version'), 'unknown plugin'),
+                    (('context', 'show'), 'remote'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker-container\n\nNodes:\nStatus: running'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\nError: private\n\nNodes:\nStatus: running'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\n\nNodes:\nStatus: stopped'),
+                    (('buildx', 'inspect'), 'Name: default\nDriver: docker\n\nNodes:\nStatus: running\nError: private')):
+                with self.subTest(command=key):
+                    original = responses[key]
+                    responses[key] = invalid
+                    try:
+                        with self.assertRaises(ValueError):
+                            artifacts.ordinary_docker_preflight()
+                    finally:
+                        responses[key] = original
+            for environment in ({'DOCKER_HOST': 'tcp://remote:2375'},
+                                {'DOCKER_CONTEXT': 'remote'}, {'BUILDX_BUILDER': 'remote'}):
+                with self.subTest(environment=environment), patch.dict(os.environ, environment):
+                    execute.reset_mock()
+                    with self.assertRaises(ValueError):
+                        artifacts.ordinary_docker_preflight()
+                    execute.assert_not_called()
+            with patch.object(artifacts.Path, 'is_socket', return_value=False):
+                with self.assertRaisesRegex(ValueError, 'runner-provided Docker socket'):
+                    artifacts.ordinary_docker_preflight()
+            for failure in (subprocess.CalledProcessError(1, ['docker', 'info'], output='private'),
+                            subprocess.TimeoutExpired(['docker', 'info'], 15, output='private')):
+                with self.subTest(failure=type(failure).__name__), \
+                     patch.object(artifacts.subprocess, 'check_output', side_effect=failure):
+                    with self.assertRaisesRegex(ValueError, 'daemon info') as rejected:
+                        artifacts.ordinary_docker_preflight()
+                    self.assertNotIn('private', str(rejected.exception))
+
+    def test_ordinary_image_cli_reports_the_checked_docker_capability(self):
+        docker = {'driver': 'docker', 'server_api': '1.48'}
+        output = io.StringIO()
+        with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+             patch.object(artifacts, 'ordinary_docker_preflight', return_value=docker) as checked, \
+             patch.object(sys, 'argv', ['ci-test-artifacts.py', 'ordinary-image-preflight']), \
+             patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                            FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(output):
+            artifacts.main()
+        checked.assert_called_once_with()
+        self.assertEqual(json.loads(output.getvalue()), {'same_directory': True, 'docker': docker})
+
+    def test_ordinary_image_cli_refuses_missing_canonical_docker(self):
+        with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+             patch.object(artifacts.Path, 'is_socket', return_value=True), \
+             patch.object(artifacts.subprocess, 'check_output', side_effect=FileNotFoundError('docker')), \
+             patch.dict(os.environ, DOCKER_HOST='', DOCKER_CONTEXT='', BUILDX_BUILDER=''), \
+             patch.object(sys, 'argv', ['ci-test-artifacts.py', 'ordinary-image-preflight']), \
+             patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                            FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'Docker CLI'):
+                artifacts.main()
+
+    def test_ordinary_image_preflight_preserves_canonical_real_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            checkout, other = root / 'checkout', root / 'other'
+            checkout.mkdir()
+            other.mkdir()
+            alias = root / 'symlink'
+            alias.symlink_to(checkout, target_is_directory=True)
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(checkout)
+                with patch.object(artifacts, 'ROOT', checkout), \
+                     patch.object(artifacts, 'ORDINARY_HOST_CHECKOUT', checkout), \
+                     patch.object(artifacts.platform, 'freedesktop_os_release',
+                                  return_value={'ID': 'ubuntu', 'VERSION_ID': '24.04'}), \
+                     patch.dict(os.environ, ImageOS='ubuntu24', ORDINARY_ARTIFACT_CHECKOUT=str(checkout),
+                                GITHUB_WORKSPACE=str(checkout),
+                                ORDINARY_BUILD_IMAGE='ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64):
+                    report = artifacts.ordinary_image_preflight()
+                    self.assertTrue(report['same_directory'])
+                    self.assertEqual((report['device'], report['inode']),
+                                     (checkout.stat().st_dev, checkout.stat().st_ino))
+                    for changes in ({'GITHUB_WORKSPACE': str(other)},
+                                    {'GITHUB_WORKSPACE': str(alias)}, {'GITHUB_WORKSPACE': ''},
+                                    {'ORDINARY_ARTIFACT_CHECKOUT': str(other)},
+                                    {'ORDINARY_BUILD_IMAGE': 'rust-build:latest'},
+                                    {'ImageOS': ''}, {'ImageOS': 'linux'}):
+                        with self.subTest(changes=changes), patch.dict(os.environ, changes), self.assertRaises(ValueError):
+                            artifacts.ordinary_image_preflight()
+                    self.assertEqual(report['runner_image'], 'ubuntu24')
+                    for release in ({'ID': 'debian', 'VERSION_ID': '24.04'},
+                                    {'ID': 'ubuntu', 'VERSION_ID': '22.04'}, {}):
+                        with patch.object(artifacts.platform, 'freedesktop_os_release', return_value=release), self.assertRaises(ValueError):
+                            artifacts.ordinary_image_preflight()
+                    with patch.object(artifacts, 'ROOT', other), self.assertRaises(ValueError):
+                        artifacts.ordinary_image_preflight()
+                    os.chdir(other)
+                    with self.assertRaises(ValueError):
+                        artifacts.ordinary_image_preflight()
+            finally:
+                os.chdir(original_cwd)
+
+    def test_ordinary_candidate_isolation_and_cli_forbid_docker_access(self):
+        with tempfile.TemporaryDirectory(dir='/tmp') as temporary:
+            sock_path = Path(temporary) / 'docker.sock'
+            with patch.object(os, 'getuid', return_value=1001), \
+                 patch.object(os, 'getgid', return_value=1001), \
+                 patch.object(os, 'geteuid', return_value=1001), \
+                 patch.object(os, 'getegid', return_value=1001), \
+                 patch.object(os, 'getgroups', return_value=[1001]), \
+                 patch.dict(os.environ, {'DOCKER_HOST': ''}, clear=False):
+                self.assertEqual(
+                    artifacts.ordinary_candidate_isolation_preflight(sock_path),
+                    {'uid': 1001, 'gid': 1001, 'groups': [1001], 'docker_socket': 'absent'},
+                )
+                server = artifacts.socket.socket(artifacts.socket.AF_UNIX, artifacts.socket.SOCK_STREAM)
+                try:
+                    server.bind(str(sock_path))
+                    server.listen(1)
+                    sock_path.chmod(0o600)
+                    with self.assertRaisesRegex(ValueError, 'must not access'):
+                        artifacts.ordinary_candidate_isolation_preflight(sock_path)
+                    with patch.object(os, 'access', return_value=False):
+                        with self.assertRaisesRegex(ValueError, 'must not connect'):
+                            artifacts.ordinary_candidate_isolation_preflight(sock_path)
+                    if os.geteuid() != 0:
+                        sock_path.chmod(0o000)
+                        self.assertEqual(
+                            artifacts.ordinary_candidate_isolation_preflight(sock_path),
+                            {'uid': 1001, 'gid': 1001, 'groups': [1001], 'docker_socket': 'permission_denied'},
+                        )
+                finally:
+                    try:
+                        sock_path.chmod(0o600)
+                    except OSError:
+                        pass
+                    server.close()
+                for bad_patch in (
+                    patch.object(os, 'getuid', return_value=0),
+                    patch.object(os, 'getgid', return_value=0),
+                    patch.object(os, 'geteuid', return_value=0),
+                    patch.object(os, 'getgroups', return_value=[1001, 999]),
+                    patch.dict(os.environ, {'DOCKER_HOST': 'unix:///var/run/docker.sock'}, clear=False),
+                ):
+                    with bad_patch, self.assertRaises(ValueError):
+                        artifacts.ordinary_candidate_isolation_preflight(Path(temporary) / 'missing.sock')
+
+            tested = 'a' * 40
+            source = 'b' * 40
+            base_plan = {
+                'fast_plan_version': 1,
+                'execution_profile': 'pr-fast',
+                'scope': 'full',
+                'groups': ['baseline', 'rust_baseline', 'oasis7_required'],
+                'oasis7_required_packages': ['oasis7_runtime'],
+                'test_policy_changed': False,
+                'source_sha': source,
+                'tested_sha': tested,
+                'architecture': {'version': 1, 'base': 'c' * 40, 'source': source, 'tested': tested},
+                'risk_test_inventory_version': 1,
+                'ordinary_risk_targets': [{
+                    'package': 'oasis7_runtime',
+                    'target_kind': 'test',
+                    'target_name': 'incremental_full_scales',
+                    'default_features': True,
+                    'features': ['test_tier_full'],
+                    'cases': ['case_a'],
+                }],
+            }
+            self.assertTrue(artifacts.ordinary_candidate_image_eligible(base_plan))
+            for ineligible in (
+                {**base_plan, 'test_policy_changed': True},
+                {**base_plan, 'execution_profile': 'candidate-full'},
+                {**base_plan, 'ordinary_full_fast_targets': []},
+                {**base_plan, 'ordinary_risk_targets': [{**base_plan['ordinary_risk_targets'][0], 'target_kind': 'lib'}]},
+                {**base_plan, 'ordinary_risk_targets': [{**base_plan['ordinary_risk_targets'][0], 'package': 'oasis7_chain_runtime'}]},
+            ):
+                self.assertFalse(artifacts.ordinary_candidate_image_eligible(ineligible))
+
+            plan_file = Path(temporary) / 'selection.json'
+            plan_file.write_text(json.dumps(base_plan))
+            digest = hashlib.sha256(plan_file.read_bytes()).hexdigest()
+            isolation = {'uid': 1001, 'gid': 1001, 'groups': [1001], 'docker_socket': 'permission_denied'}
+            output = io.StringIO()
+            with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+                 patch.object(artifacts, 'ordinary_candidate_isolation_preflight', return_value=isolation), \
+                 patch.object(artifacts, 'ordinary_docker_preflight', side_effect=AssertionError('must not run docker preflight')), \
+                 patch.object(artifacts, 'output', return_value=tested), \
+                 patch.dict(os.environ, {'SOURCE_SHA': source}, clear=False), \
+                 patch.object(sys, 'argv', [
+                     'ci-test-artifacts.py', 'ordinary-image-preflight', '--forbid-docker',
+                     '--plan', str(plan_file), '--expected-selection-sha256', digest,
+                 ]), \
+                 patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                                FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY), redirect_stdout(output):
+                artifacts.main()
+            self.assertEqual(json.loads(output.getvalue()),
+                             {'same_directory': True, 'candidate_isolation': isolation})
+            for bad_digest in ('0' * 64, 'not-a-sha256'):
+                with patch.object(artifacts, 'ordinary_image_preflight', return_value={'same_directory': True}), \
+                     patch.object(sys, 'argv', [
+                         'ci-test-artifacts.py', 'ordinary-image-preflight', '--forbid-docker',
+                         '--plan', str(plan_file), '--expected-selection-sha256', bad_digest,
+                     ]), \
+                     patch.multiple(artifacts, ROOT=artifacts.ROOT, CONFIG=artifacts.CONFIG,
+                                    FORMAL_AUTHORITY=artifacts.FORMAL_AUTHORITY):
+                    with self.assertRaisesRegex(ValueError, 'selection digest mismatch'):
+                        artifacts.main()
+
+            bundle_dir = Path(temporary) / 'forbid-bundle'
+            with patch.object(artifacts, 'build_variants', return_value=[]), \
+                 patch.object(artifacts, 'output', side_effect=lambda cmd: 'host: x86_64-unknown-linux-gnu' if cmd == ['rustc', '-vV'] else tested), \
+                 patch.object(artifacts, 'digest', return_value='d' * 64), \
+                 patch.object(artifacts, 'formal_configuration', return_value={'suites': {}, 'shell_tests': {}, 'environment_formal_batches': {}}), \
+                 patch.object(artifacts.BuiltinTestArtifact, 'required', return_value=True), \
+                 patch.object(artifacts.BuiltinTestArtifact, 'build', side_effect=AssertionError('must not invoke Docker WASM build')), \
+                 patch.dict(os.environ, {'OASIS7_FORBID_ORDINARY_DOCKER_WASM': '1', 'SOURCE_SHA': tested}, clear=False):
+                with self.assertRaisesRegex(ValueError, 'forbids canonical Docker WASM builds'):
+                    artifacts.build(bundle_dir, 'ordinary')
+
     def test_build_timings_include_dependency_freshness_per_variant(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -6039,6 +6336,253 @@ class MixedLibraryWorkspaceCache(WorkspaceCache):
         self.assertEqual(value, 'alpha:outside:one:one')
 
 
+class CanonicalWorkspaceOutputs(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name).resolve()
+        self.root = self.base / 'checkout'
+        self.root.mkdir()
+        self.manifest = artifacts.ProviderArtifact.MANIFEST
+        self.project = self.root / Path(self.manifest).parent
+        (self.project / 'src').mkdir(parents=True)
+        (self.project / 'Cargo.toml').write_text(
+            '[workspace]\n[package]\nname="canonical_cache_fixture"\nversion="0.1.0"\nedition="2021"\n')
+        (self.project / 'src/lib.rs').write_text('pub fn value() -> u8 { 7 }\n')
+        fingerprint = 'debug/.fingerprint/fixture-' + 'a' * 16
+        self.payload = ['debug/deps/libfixture-' + 'a' * 16 + '.rlib', fingerprint + '/lib-fixture']
+        for name in self.payload:
+            path = self.root / 'target' / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('original native unit')
+        self.fingerprint = fingerprint
+
+    def state(self):
+        state = artifacts.cache_begin(self.root, selection='libraries')
+        state['files'], state['directories'] = self.payload, [self.fingerprint]
+        return state
+
+    def register(self, state, metadata=None):
+        metadata = metadata or dict(workspace_root=str(self.project), target_directory=str(self.project / 'target'))
+        with patch.object(artifacts.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                [], 0, stdout=json.dumps(metadata))) as execute:
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        return execute
+
+    def output(self):
+        path = self.project / 'target/wasm32-unknown-unknown/release/module.wasm'
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'owned compiler output')
+
+    def test_real_standalone_cargo_outputs_do_not_become_native_source_inputs(self):
+        self.assertNotIn('CARGO_TARGET_DIR', os.environ)
+        environment = {key: value for key, value in os.environ.items() if key != 'RUSTC_WRAPPER'}
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.project,
+                       check=True, env=environment, capture_output=True)
+        state = self.state()
+        artifacts.cache_register_canonical_targets(state, [self.manifest])
+        subprocess.run(['cargo', 'build', '--locked', '--offline', '--lib'], cwd=self.project,
+                       check=True, env=environment, capture_output=True)
+        changed = set(artifacts._cache_inputs(self.root)) - set(state['inputs'])
+        self.assertTrue(changed)
+        prefix = (Path(self.manifest).parent / 'target').as_posix() + '/'
+        self.assertTrue(all(name.startswith(prefix) for name in changed))
+        artifacts.cache_finish(state)
+        self.assertTrue(state['complete'])
+        cache = self.base / 'cache'
+        report = artifacts.cache_stage(state, cache)
+        self.assertTrue(report['save'], report)
+        saved = json.loads((cache / 'manifest.json').read_text())
+        self.assertNotIn('generated_cargo_targets', saved)
+        self.assertEqual(saved['inputs'], state['inputs'])
+        # A reader still validates the complete clean checkout; no output
+        # allowlist is supplied by the long-lived archive.
+        shutil.rmtree(self.project / 'target')
+        shutil.rmtree(self.root / 'target')
+        self.assertTrue(artifacts.cache_restore(self.root, cache)['restored'])
+
+    def test_existing_inputs_are_never_removed_by_output_registration(self):
+        self.output()
+        state = self.state()
+        with self.assertRaisesRegex(ValueError, 'captured source input'):
+            self.register(state)
+        self.assertNotIn('generated_cargo_targets', state)
+        self.assertEqual(artifacts._cache_inputs(self.root), state['inputs'])
+
+    def test_outputs_created_by_the_native_phase_cannot_be_registered_later(self):
+        state = self.state()
+        self.output()
+        with self.assertRaisesRegex(ValueError, 'existed before registration'):
+            self.register(state)
+        self.assertNotIn('generated_cargo_targets', state)
+        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
+            artifacts.cache_finish(state)
+
+    def test_metadata_cannot_create_new_inputs_and_then_declare_them_outputs(self):
+        state = self.state()
+        def metadata(*args, **keywords):
+            self.output()
+            return subprocess.CompletedProcess([], 0, stdout=json.dumps(dict(
+                workspace_root=str(self.project), target_directory=str(self.project / 'target'))))
+        with patch.object(artifacts.subprocess, 'run', side_effect=metadata), \
+             self.assertRaisesRegex(ValueError, 'existed before registration'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        self.assertNotIn('generated_cargo_targets', state)
+        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
+            artifacts.cache_finish(state)
+
+    def test_real_source_mutation_and_unknown_nested_output_still_fail_closed(self):
+        for name in ('src/lib.rs', 'other/target/output', '.ignored-input'):
+            with self.subTest(name=name):
+                state = self.state()
+                self.register(state)
+                path = self.project / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                existed = path.exists()
+                original = path.read_bytes() if existed else None
+                path.write_text('changed actual input')
+                with self.assertRaisesRegex(ValueError, 'source inputs changed during the build'):
+                    artifacts.cache_finish(state)
+                self.assertFalse(state['complete'])
+                if existed:
+                    path.write_bytes(original)
+                else:
+                    path.unlink()
+
+    def test_metadata_must_prove_the_exact_default_owned_target(self):
+        state = self.state()
+        for metadata in (dict(workspace_root=str(self.root), target_directory=str(self.project / 'target')),
+                         dict(workspace_root=str(self.project), target_directory=str(self.base / 'outside')),
+                         dict(workspace_root=str(self.project), target_directory=str(self.project / 'src'))):
+            with self.subTest(metadata=metadata), self.assertRaisesRegex(ValueError, 'unsupported output layout'):
+                self.register(state, metadata)
+            self.assertNotIn('generated_cargo_targets', state)
+        with patch.dict(os.environ, CARGO_TARGET_DIR=str(self.project / 'target')), \
+             self.assertRaisesRegex(ValueError, 'original default target'):
+            self.register(state)
+        with patch.object(artifacts.subprocess, 'run', side_effect=subprocess.TimeoutExpired('cargo', 30)), \
+             self.assertRaisesRegex(ValueError, 'cannot verify'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        self.assertNotIn('generated_cargo_targets', state)
+
+    def test_reader_of_state_rejects_forged_and_swapped_output_roots(self):
+        state = self.state()
+        self.register(state)
+        artifacts.cache_finish(state)
+        for records in ({'other/Cargo.toml': 'other/target'}, {self.manifest: 'src'},
+                        {self.manifest: []}):
+            with self.subTest(records=records):
+                forged = dict(state, generated_cargo_targets=records)
+                self.assertFalse(artifacts.cache_stage(forged, self.base / 'cache')['save'])
+        outside = self.base / 'outside'
+        outside.mkdir()
+        (self.project / 'target').symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            artifacts.cache_finish(state)
+        # Re-establish the genuinely completed capture to exercise the stage
+        # parser independently of its incomplete-state rejection.
+        state['complete'] = True
+        for measure in (True, False):
+            report = artifacts.cache_stage(state, self.base / 'cache', measure_only=measure)
+            self.assertFalse(report['save'])
+            self.assertIn('symlink', report['reason'])
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_registration_and_stage_recheck_symlinks_before_metadata_and_after_copy(self):
+        state = self.state()
+        outside = self.base / 'outside'
+        outside.mkdir()
+        output = self.project / 'target'
+        output.symlink_to(outside, target_is_directory=True)
+        with patch.object(artifacts.subprocess, 'run') as execute, \
+             self.assertRaisesRegex(ValueError, 'symlink'):
+            artifacts.cache_register_canonical_targets(state, [self.manifest])
+        execute.assert_not_called()
+        output.unlink()
+        self.register(state)
+        artifacts.cache_finish(state)
+        original = artifacts._cache_copy
+        def swap(*args):
+            original(*args)
+            output.symlink_to(outside, target_is_directory=True)
+        with patch.object(artifacts, '_cache_copy', side_effect=swap):
+            report = artifacts.cache_stage(state, self.base / 'cache')
+        self.assertFalse(report['save'])
+        self.assertIn('symlink', report['reason'])
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_optional_cache_metadata_failure_keeps_both_original_material_builds(self):
+        config = self.root / 'suites.json'
+        config.write_text('{}')
+        state_path = self.base / 'state.json'
+        with patch.object(artifacts, 'ROOT', self.root), patch.object(artifacts, 'CONFIG', config), \
+             patch.object(artifacts, 'build_variants', return_value=[]), \
+             patch.object(artifacts, 'output', return_value='host: fixture'), \
+             patch.object(artifacts, 'preview_provider_required', return_value=True), \
+             patch.object(artifacts.BuiltinTestArtifact, 'required', return_value=True), \
+             patch.object(artifacts, 'cache_register_canonical_targets', side_effect=ValueError('unavailable')), \
+             patch.object(artifacts.provider_artifact, 'build', return_value={}) as provider, \
+             patch.object(artifacts.BuiltinTestArtifact, 'build', return_value={}) as builtin:
+            bundle = self.base / 'bundle'
+            artifacts.build(bundle, 'ordinary', state_path)
+        provider.assert_called_once()
+        builtin.assert_called_once()
+        self.assertEqual(json.loads((bundle / 'manifest.json').read_text())['builtin_test_resources'], {})
+        state = json.loads(state_path.read_text())
+        self.assertFalse(state['complete'])
+        self.assertEqual(state['error'], 'unavailable')
+
+    def test_real_build_registers_only_selected_material_roles_before_their_builds(self):
+        catalog = {self.manifest, *(f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+                                   for crate in artifacts.BuiltinTestArtifact.MODULES.values())}
+        for scope in ('ordinary', 'formal'):
+            with self.subTest(scope=scope):
+                for manifest in catalog:
+                    path = self.root / manifest
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if not path.exists():
+                        path.write_text('[workspace]\n')
+                    if (path.parent / 'target').exists():
+                        shutil.rmtree(path.parent / 'target')
+                config = self.root / 'suites.json'
+                config.write_text(json.dumps(dict(suites={}, legacy_ignored_filters={},
+                    environment_formal_batches={}, shell_tests={})))
+                events = []
+                def metadata(command, **keywords):
+                    path = Path(command[-1])
+                    self.assertEqual(command[1:6], ['metadata', '--locked', '--offline', '--no-deps', '--format-version=1'])
+                    self.assertEqual(keywords['timeout'], 30)
+                    events.append('metadata')
+                    return subprocess.CompletedProcess(command, 0, stdout=json.dumps(dict(
+                        workspace_root=str(path.parent), target_directory=str(path.parent / 'target'))))
+                def material(kind):
+                    def build(*args):
+                        events.append(kind)
+                        manifests = {self.manifest} if kind == 'provider' else catalog - {self.manifest}
+                        for manifest in manifests:
+                            output = self.root / Path(manifest).parent / 'target/module.wasm'
+                            output.parent.mkdir(parents=True)
+                            output.write_bytes(b'original material compiler output')
+                        return {}
+                    return build
+                with patch.object(artifacts, 'ROOT', self.root), patch.object(artifacts, 'CONFIG', config), \
+                     patch.object(artifacts, 'build_variants', return_value=[]), \
+                     patch.object(artifacts, 'output', return_value='host: fixture'), \
+                     patch.object(artifacts, 'preview_provider_required', return_value=True), \
+                     patch.object(artifacts.BuiltinTestArtifact, 'required', return_value=True), \
+                     patch.object(artifacts.provider_artifact, 'build', side_effect=material('provider')), \
+                     patch.object(artifacts.BuiltinTestArtifact, 'build', side_effect=material('builtin')), \
+                     patch.object(artifacts.subprocess, 'run', side_effect=metadata):
+                    state_path = self.base / (scope + '.json')
+                    artifacts.build(self.base / scope, scope, state_path)
+                state = json.loads(state_path.read_text())
+                self.assertTrue(state['complete'], state.get('error'))
+                selected = catalog - ({self.manifest} if scope == 'formal' else set())
+                self.assertEqual(set(state['generated_cargo_targets']), selected)
+                self.assertEqual(events, ['metadata'] * len(selected) +
+                                 (['provider', 'builtin'] if scope == 'ordinary' else ['builtin']))
+
+
 class WorkspaceInputPaths(unittest.TestCase):
     """Exercise input retiming through the real stage/restore boundary."""
 
@@ -6861,6 +7405,49 @@ compile_error!("full scale target must not be compiled by the required tuple");
                         artifacts.execute(bundle, 'ordinary', root / 'bad-results.jsonl', plan=selected)
                     execute_test.assert_not_called()
 
+    def test_ordinary_build_strips_staged_elf_and_keeps_original_target_intact(self):
+        if sys.platform != 'linux' or shutil.which('strip') is None:
+            return
+        source = '''
+#[cfg(feature="default")] compile_error!("default feature was incorrectly enabled");
+#[cfg(all(test,feature="test_tier_required"))] mod required {
+    #[test] fn round_trip() { assert_eq!(1 + 1, 2); }
+    #[test] fn newly_added() { assert_eq!(2 + 2, 4); }
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, sha = self.prepare_target_workspace(root, source, source)
+            target = FastTargetInventory().target
+            selected = InlineExecutionSelection().selection() | {
+                'architecture': dict(source=sha, tested=sha),
+                'ordinary_fast_targets': [target()],
+            }
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=2), \
+                 patch.dict(os.environ, SOURCE_SHA=sha):
+                bundle = root / 'bundle'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                manifest = json.loads((bundle / 'manifest.json').read_text())
+                entry = next(iter(manifest['binaries'].values()))
+                staged = bundle / entry['path']
+                original = Path(entry['original_executable'])
+                self.assertEqual(entry['sha256'], artifacts.digest(staged))
+                self.assertEqual(entry['bytes'], staged.stat().st_size)
+                self.assertLess(staged.stat().st_size, original.stat().st_size)
+                self.assertNotEqual(artifacts.digest(staged), artifacts.digest(original))
+                readelf = shutil.which('readelf')
+                if readelf is not None:
+                    original_sections = subprocess.check_output([readelf, '-SW', str(original)], text=True)
+                    staged_sections = subprocess.check_output([readelf, '-SW', str(staged)], text=True)
+                    self.assertIn('.symtab', original_sections)
+                    self.assertNotIn('.symtab', staged_sections)
+                results = root / 'results.jsonl'
+                artifacts.execute(bundle, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 1)
+                self.assertTrue(records[0]['passed'] and records[0]['expected_count'] == 2)
+
     def test_real_inline_harnesses_overlap_without_dropping_new_cases(self):
         def source(name, other):
             return '''
@@ -7521,7 +8108,7 @@ mod family {
             v2_plan | {'ordinary_clippy_group': 'oasis7_required'},
             v2_plan | {'ordinary_wasm_group': 'oasis7_required'},
             v2_plan | {'groups': ['baseline', 'oasis7_required']},
-            v2_plan | {'ordinary_controls_in_rust_baseline_version': 2},
+            v2_plan | {'ordinary_controls_in_rust_baseline_version': 99},
             v2_plan | {'ordinary_controls_in_rust_baseline_version': True},
             {k: v for k, v in v2_plan.items() if k != 'ordinary_controls_in_rust_baseline_version'},
         ):
@@ -7562,6 +8149,48 @@ mod family {
         self.assertIn('CARGO:check -p oasis7_simulator --lib --target wasm32-unknown-unknown --locked', baseline_out)
         self.assertNotIn('CLIPPY_EXECUTED', ordinary_out)
         self.assertNotIn('CARGO:check', ordinary_out)
+
+    def test_parallel_ordinary_bundle_consumer_uses_bounded_pool_and_honors_local_check_serial(self):
+        selected = CompleteArtifactPartitions().selection()
+        selected.pop('ordinary_artifact_partition_version', None)
+        selected.pop('ordinary_partitions', None)
+        manifest = dict(
+            execution_plan=selected,
+            binaries={
+                'short-test': dict(path='bin/short', cwd='crates/oasis7', package='oasis7', target='short',
+                                   target_kind=['test'], variant='required', ordinary=True,
+                                   tests=['a', 'b', 'c'], ignored_tests=[]),
+                'heavy-test': dict(path='bin/heavy', cwd='crates/oasis7_runtime', package='oasis7_runtime',
+                                   target='incremental_full_scales', target_kind=['test'],
+                                   variant='required-risk-0', ordinary=True, tests=['x'], ignored_tests=[]),
+            },
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary)
+            results = bundle / 'results.jsonl'
+            with patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                 patch.object(artifacts, 'execute_inline_jobs') as pool, \
+                 patch.dict(os.environ, {}, clear=False):
+                os.environ.pop('OASIS7_LOCAL_CHECK', None)
+                artifacts.execute(bundle, 'ordinary', results, plan=selected, parallel_ordinary=True)
+                pool.assert_called_once()
+                self.assertTrue(pool.call_args.kwargs['artifact_partition'])
+                # Heavy calibrated cost (incremental_full_scales) starts before higher-case-count short target
+                self.assertEqual([job['name'] for job in pool.call_args.args[0]], ['heavy-test', 'short-test'])
+            with patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                 patch.object(artifacts, 'execute_inline_jobs') as pool, \
+                 patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')) as serial, \
+                 patch.dict(os.environ, OASIS7_LOCAL_CHECK='1'):
+                artifacts.execute(bundle, 'ordinary', results, plan=selected, parallel_ordinary=True)
+                pool.assert_not_called()
+                self.assertEqual(serial.call_count, 2)
+        for bad_args in (['build', '--bundle', 'b', '--parallel-ordinary'],
+                         ['run', '--bundle', 'b', '--shard', 'storage-recovery', '--parallel-ordinary']):
+            proc = subprocess.run([sys.executable, str(HERE / 'ci-test-artifacts.py'), *bad_args],
+                                  text=True, capture_output=True)
+            self.assertNotEqual(proc.returncode, 0)
 
 
 if __name__ == '__main__':

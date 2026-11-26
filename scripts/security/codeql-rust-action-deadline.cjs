@@ -10,7 +10,7 @@ const FIXED_SOURCE_MODE = 'rust-default-fixed-source-observation';
 const NEGATIVE_PROJECTION_MODE = 'rust-default-negative-projection-observation';
 const OBSERVATION_MODES = [FIXED_SOURCE_MODE, NEGATIVE_PROJECTION_MODE];
 const FIXED_SOURCE = '2bcc4edafdc615f395c9138a0b39ede366726d34';
-const ACTION = '33d7b85da1a04171e211befe2c739303b9a4c066';
+const ACTION = '1bd86f2fdb4b86187fa4059f16f31a3202acc9ea';
 const MAIN_BLOB = '8b8462e5a06f394cd0504d57868488cebc7030c9';
 const POST_BLOB = 'ea0e9ead88d0835b98aac612aa89b76fed74b7a5';
 

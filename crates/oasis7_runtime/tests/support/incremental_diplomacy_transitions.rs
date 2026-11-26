@@ -31,9 +31,12 @@ fn fresh_creates_ordered_edits_closed_delete_and_receiver() {
         },
     };
     let live = parent.fence().unwrap();
-    let state = store
+    let mut state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(physical());
     let mut io = logical();
     let mut keys = SemanticKeyBudget {

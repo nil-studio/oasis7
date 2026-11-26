@@ -278,6 +278,177 @@ fn tcp_dht_receiver_persists_v2_floor_across_restart_and_allows_higher_sequence(
     drop(source);
     std::thread::sleep(Duration::from_millis(100));
     std::fs::remove_dir_all(&scratch).expect("remove isolated TCP receiver fixture");
+
+    {
+        use super::super::api::install_verified_discovery_floor as install_floor;
+        use super::super::durable_peer_record_publisher::DurablePeerRecordPublisher;
+        use super::super::peer_record_cache::PeerRecordCache;
+        use super::super::peer_record_time::DiscoveryClock;
+        use super::super::receiver_floor::{PeerRecordReceiver, ReceiverAdmission};
+        use std::collections::HashMap;
+
+        let temp = tempfile::tempdir_in(&physical_temp_dir).unwrap();
+        let mk_dir = |name: &str| {
+            let dir = temp.path().join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+            dir
+        };
+        let (pub_dir, recv_dir, snap_dir) = (mk_dir("pub"), mk_dir("recv"), mk_dir("snap"));
+        let (pub_key, recv_key) = (Keypair::generate_ed25519(), Keypair::generate_ed25519());
+        let pub_peer = PeerId::from(pub_key.public());
+        let now = super::now_ms();
+        let mut pub_tpl = super::signed_discovery_peer_record(
+            &pub_key,
+            vec![crate::dht::PeerDiscoverySource::Dht],
+            now - 100,
+        )
+        .record;
+        pub_tpl.ttl_ms = 15_000;
+        let recv_tpl = super::signed_discovery_peer_record(&recv_key, Vec::new(), now).record;
+        let recv_cfg = PeerRecordReceiverConfig {
+            mode: PeerRecordReceiverMode::DurableCompatible,
+            directory: Some(recv_dir.clone()),
+        };
+        DurablePeerRecordPublisher::initialize(&pub_dir, &pub_key, &pub_tpl).unwrap();
+        PeerRecordReceiver::initialize(&recv_cfg, &recv_key, &recv_tpl).unwrap();
+
+        let pub_clock = DiscoveryClock::requiring_independent_floor();
+        let mut publisher = DurablePeerRecordPublisher::open_with_clock(
+            &pub_dir,
+            &pub_key,
+            &pub_tpl,
+            pub_clock.clone(),
+        )
+        .unwrap();
+        assert!(publisher.publish_materialized(&pub_tpl).is_err());
+        let t0 = Instant::now();
+        assert!(
+            pub_clock
+                .install_independently_verified_floor(now, now - 1, t0)
+                .is_err()
+        );
+        pub_clock
+            .install_independently_verified_floor(now, now, t0)
+            .unwrap();
+        let seq1 = publisher.publish_materialized(&pub_tpl).unwrap();
+        let seq1_expiry = seq1.record.expires_at_ms().unwrap();
+        drop(publisher);
+
+        let receiver = PeerRecordReceiver::open(&recv_cfg, &recv_key, Some(&recv_tpl)).unwrap();
+        let recv_clock = DiscoveryClock::requiring_independent_floor();
+        install_floor(&recv_clock, &receiver, now, now, t0).unwrap();
+        assert_eq!(
+            receiver.admit_serialized(&seq1).unwrap(),
+            ReceiverAdmission::Accepted
+        );
+        drop(receiver);
+        for entry in std::fs::read_dir(&recv_dir).unwrap() {
+            let entry = entry.unwrap();
+            let dst = snap_dir.join(entry.file_name());
+            std::fs::copy(entry.path(), &dst).unwrap();
+            std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+
+        let snap_cfg = PeerRecordReceiverConfig {
+            mode: PeerRecordReceiverMode::DurableCompatible,
+            directory: Some(snap_dir.clone()),
+        };
+        let restored = PeerRecordReceiver::open(&snap_cfg, &recv_key, Some(&recv_tpl)).unwrap();
+        let cold_clock = DiscoveryClock::requiring_independent_floor();
+        assert!(install_floor(&cold_clock, &restored, now - 1, now, Instant::now()).is_err());
+        install_floor(&cold_clock, &restored, now, now, Instant::now()).unwrap();
+        assert!(install_floor(&cold_clock, &restored, now + 1, now + 1, Instant::now()).is_err());
+        assert_eq!(restored.persisted_time_floor_ms().unwrap(), Some(now));
+        restored.observe_trusted_time(seq1_expiry).unwrap();
+        assert!(restored.admit_serialized(&seq1).is_err());
+        assert!(restored.lease_guard(&seq1).is_err());
+        drop(restored);
+
+        let pub_cold = DiscoveryClock::requiring_independent_floor();
+        let mut reopened_pub = DurablePeerRecordPublisher::open_with_clock(
+            &pub_dir,
+            &pub_key,
+            &pub_tpl,
+            pub_cold.clone(),
+        )
+        .unwrap();
+        assert!(reopened_pub.publish_materialized(&pub_tpl).is_err());
+        let now2 = super::now_ms();
+        pub_cold
+            .install_independently_verified_floor(now2, now2, Instant::now())
+            .unwrap();
+        let mut regressed = pub_tpl.clone();
+        regressed.published_at_ms -= 1;
+        assert!(reopened_pub.publish_materialized(&regressed).is_err());
+        drop(reopened_pub);
+        let mut fresh = pub_tpl.clone();
+        fresh.published_at_ms = now2;
+        fresh.ttl_ms = 60_000;
+        let pub_recover = DiscoveryClock::requiring_independent_floor();
+        pub_recover
+            .install_independently_verified_floor(now2, now2, Instant::now())
+            .unwrap();
+        let mut reopened_pub =
+            DurablePeerRecordPublisher::open_with_clock(&pub_dir, &pub_key, &fresh, pub_recover)
+                .unwrap();
+        let seq2 = reopened_pub.publish_materialized(&fresh).unwrap();
+        assert_eq!(seq2.publication.as_ref().unwrap().sequence, 2);
+        drop(reopened_pub);
+
+        let source = Libp2pNetwork::try_new(config(&pub_key, None, Vec::new(), None)).unwrap();
+        let gated_cfg = config(
+            &recv_key,
+            Some(recv_tpl),
+            vec![tcp_peer_address(&source)],
+            Some(snap_dir),
+        )
+        .requiring_independent_discovery_clock_floor();
+        let live_recv = open_receiver(&gated_cfg);
+        connect(&live_recv, pub_peer);
+        store_and_verify_source_record(&source, &seq1);
+        assert_remote_record_rejected(&live_recv, pub_peer, "independent UTC floor");
+        assert!(
+            live_recv
+                .install_verified_discovery_clock_floor(now - 1)
+                .is_err()
+        );
+        live_recv
+            .install_verified_discovery_clock_floor(super::now_ms())
+            .unwrap();
+        live_recv
+            .observe_peer_record_receiver_trusted_time(seq1_expiry)
+            .unwrap();
+        assert_remote_record_rejected(&live_recv, pub_peer, "expired");
+
+        store_and_verify_source_record(&source, &seq2);
+        assert_eq!(
+            live_recv
+                .get_peer_record("world-a", &pub_peer.to_string())
+                .unwrap(),
+            Some(seq2.clone())
+        );
+
+        let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
+            live_recv.discovery_clock.clone(),
+            Default::default(),
+            Arc::clone(&live_recv.peer_record_receiver),
+        );
+        let lease2 = cache
+            .prepare(pub_peer, &seq2)
+            .unwrap()
+            .with_receiver_guard(live_recv.peer_record_receiver.lease_guard(&seq2).unwrap());
+        cache.install(pub_peer, seq2.clone(), lease2);
+        live_recv
+            .observe_peer_record_receiver_trusted_time(seq2.record.expires_at_ms().unwrap())
+            .unwrap();
+        assert!(cache.get(&pub_peer).is_none());
+        let path = super::super::transport_paths::peer_record_transport_paths(&seq2)
+            .unwrap()
+            .remove(0);
+        assert!(cache.prune(&HashMap::from([(pub_peer, path)])));
+        assert!(cache.session_record(&pub_peer).is_some());
+    }
 }
 
 #[cfg(unix)]
@@ -422,4 +593,157 @@ fn tcp_dht_tombstone_is_forwarded_verbatim_until_higher_live_replaces_it() {
     drop(source);
     std::thread::sleep(Duration::from_millis(100));
     std::fs::remove_dir_all(&scratch).expect("remove isolated TCP tombstone fixture");
+}
+
+// Reproduce the real detached-network lifetime in an owned OS process.
+// Exiting that process while persist is paused must leave evidence, never repaired by
+// the upgrade command. Waiting for the writer lock proves the opposite path.
+#[cfg(unix)]
+#[test]
+fn receiver_drop_during_persist_requires_writer_completion_before_process_exit() {
+    use std::process::{Command, Stdio};
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path().canonicalize().unwrap();
+    for drain in [false, true] {
+        let directory = root.join(if drain { "drained" } else { "early" });
+        std::fs::create_dir(&directory).unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "receiver_persist_shutdown_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("OASIS7_RECEIVER_SHUTDOWN_CHILD", &directory)
+            .env(
+                "OASIS7_RECEIVER_SHUTDOWN_DRAIN",
+                if drain { "1" } else { "0" },
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        struct OwnedChild<'a>(&'a mut std::process::Child);
+        impl Drop for OwnedChild<'_> {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let owned = OwnedChild(&mut child);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !directory.join("network-dropped").exists() {
+            if let Some(status) = owned.0.try_wait().unwrap() {
+                // The early-exit control may create its marker and finish
+                // between the first path check and this process-status read.
+                assert!(
+                    status.success() && directory.join("network-dropped").is_file(),
+                    "child failed before controlled drop: {status}"
+                );
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "child did not reach controlled drop"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let receiver = directory.join("receiver");
+        let temp = receiver.join("peer-record-receiver-v2.state.cbor.tmp");
+        assert!(directory.join("persist-paused").is_file());
+        assert!(
+            temp.is_file(),
+            "the real atomic write must be paused with durable temp bytes"
+        );
+        if drain {
+            // A same-path lock probe demonstrates that the paused writer still
+            // owns the lifetime after the public network value has been dropped.
+            let lock = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(receiver.join("peer-record-receiver-v2.lock"))
+                .unwrap();
+            assert!(matches!(
+                lock.try_lock(),
+                Err(std::fs::TryLockError::WouldBlock)
+            ));
+            assert!(!directory.join("shutdown-complete").exists());
+            std::fs::write(directory.join("persist-release"), b"continue").unwrap();
+        }
+        loop {
+            if let Some(status) = owned.0.try_wait().unwrap() {
+                assert!(status.success(), "controlled child failed: {status}");
+                break;
+            }
+            assert!(Instant::now() < deadline, "controlled child did not exit");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let key = Keypair::ed25519_from_bytes([91; 32]).unwrap();
+        let template =
+            super::signed_discovery_peer_record(&key, Vec::new(), super::now_ms()).record;
+        let mut cfg = config(&key, Some(template), Vec::new(), Some(receiver));
+        cfg.peer_record_receiver.mode = PeerRecordReceiverMode::V2Only;
+        let upgrade = Libp2pNetwork::upgrade_peer_record_receiver(&cfg);
+        if drain {
+            upgrade.expect("completed writer permits the original strict upgrade");
+            assert!(!temp.exists());
+        } else {
+            assert!(
+                format!("{:?}", upgrade.unwrap_err())
+                    .contains("incomplete initialization material")
+            );
+            assert!(
+                temp.is_file(),
+                "strict rejection must preserve interrupted-write evidence"
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn receiver_persist_shutdown_child() {
+    let Some(directory) = std::env::var_os("OASIS7_RECEIVER_SHUTDOWN_CHILD") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    let receiver = directory.join("receiver");
+    let key = Keypair::ed25519_from_bytes([91; 32]).unwrap();
+    let template = super::signed_discovery_peer_record(&key, Vec::new(), super::now_ms()).record;
+    let cfg = config(&key, Some(template), Vec::new(), Some(receiver.clone()));
+    Libp2pNetwork::initialize_peer_record_receiver(&cfg).unwrap();
+    super::super::durable_peer_record_publisher::state_write_test_hook::install(
+        receiver.join("peer-record-receiver-v2.state.cbor.tmp"),
+        directory.clone(),
+    );
+    let network = Libp2pNetwork::try_new(cfg).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !directory.join("persist-paused").exists() {
+        assert!(
+            Instant::now() < deadline,
+            "network did not persist its original local record"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    drop(network);
+    std::fs::write(directory.join("network-dropped"), b"dropped").unwrap();
+    if std::env::var("OASIS7_RECEIVER_SHUTDOWN_DRAIN").as_deref() == Ok("1") {
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(receiver.join("peer-record-receiver-v2.lock"))
+            .unwrap();
+        while let Err(error) = lock.try_lock() {
+            assert!(
+                matches!(error, std::fs::TryLockError::WouldBlock),
+                "writer lock failed: {error:?}"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "writer did not release its original lock"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::fs::write(directory.join("shutdown-complete"), b"drained").unwrap();
+    }
 }

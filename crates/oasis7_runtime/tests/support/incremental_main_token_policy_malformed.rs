@@ -16,9 +16,12 @@ fn edit(
     key: &WorldFieldKeyV1,
     after: Option<[u8; 32]>,
 ) -> StateRootV1 {
-    let state = store
+    let mut state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let before = root.get(key.as_bytes(), &state).unwrap();
     let delta = memory
         .reserve(1 << 20, MemoryClass::Ordinary)
@@ -134,9 +137,12 @@ fn generic_valid_policy_receipts_require_closed_fields_original_keys_and_exact_d
         },
     };
     let live = parent.fence().unwrap();
-    let bootstrap_state = store
+    let mut bootstrap_state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        bootstrap_state = bootstrap_state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let bootstrap_values = store.value_session(physical());
     let mut io = logical();
     let mut keys = SemanticKeyBudget {
@@ -180,7 +186,12 @@ fn generic_valid_policy_receipts_require_closed_fields_original_keys_and_exact_d
                 .unwrap(),
         );
     }
-    for case in 0..16 {
+    let cases: &[usize] = if cfg!(feature = "test_tier_full") {
+        &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    } else {
+        &[0, 5, 7, 8, 9, 11, 12, 14]
+    };
+    for &case in cases {
         let (key, slot) = match case {
             5 | 6 => (K::Grant(" raw grant "), 3),
             7 => (K::Issuance(7), 2),
@@ -372,9 +383,12 @@ fn generic_valid_policy_receipts_require_closed_fields_original_keys_and_exact_d
             outer(&store, &memory, key, bad)
         };
         // Each variant is a separate operation with its own finite provider session.
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let mut tx = ExecutionTransaction::begin(
             parent.clone(),
             [6; 32],
@@ -425,9 +439,12 @@ fn generic_valid_policy_receipts_require_closed_fields_original_keys_and_exact_d
                 )
                 .unwrap();
         }
-        let raw_state = store
+        let mut raw_state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            raw_state = raw_state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let raw_values = store.value_session(physical());
         let mut io = logical();
         let mut keys = SemanticKeyBudget {
@@ -450,9 +467,12 @@ fn generic_valid_policy_receipts_require_closed_fields_original_keys_and_exact_d
             &mut 8192,
             165,
         );
-        let receiver_state = store
+        let mut receiver_state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            receiver_state = receiver_state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let receiver_values = store.value_session(physical());
         let verifier = TransitionVerifier {
             parent: &parent,

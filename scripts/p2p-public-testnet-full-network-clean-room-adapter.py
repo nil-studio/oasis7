@@ -355,13 +355,6 @@ def _digest(value: Any, label: str) -> str:
     return raw.lower()
 
 
-def _oid(value: Any, label: str) -> str:
-    raw = _string(value, label)
-    if OID_RE.fullmatch(raw) is None:
-        _fail(f"{label} must be a commit oid")
-    return raw.lower()
-
-
 def _nonzero_hex(value: Any, pattern: re.Pattern[str], label: str) -> str:
     raw = _string(value, label)
     if pattern.fullmatch(raw) is None or not any(character != "0" for character in raw):
@@ -436,20 +429,6 @@ def _safe_relative_paths(root: str, paths: Any, platform: str, label: str) -> li
                 _fail(f"{label} contains a path outside its canonical root")
         result.append(path)
     return result
-
-
-def _expected_paths(planner: Any, node: dict[str, Any]) -> list[str]:
-    name = node["name"]
-    path_style = "windows" if planner.EXPECTED_NODES[name]["platform"] == "windows-x64" else "posix"
-    root = planner._normalized_path(
-        planner.EXPECTED_NODES[name]["node_root"], path_style, f"{name}.expected_node_root"
-    )
-    if name in planner.VALIDATOR_NAMES:
-        surfaces = planner.VALIDATOR_RESET_SURFACES
-    else:
-        surfaces = planner._expected_surfaces(name)
-    node_id = planner.EXPECTED_NODES[name]["node_id"]
-    return [root.rstrip("/") + "/" + surface.replace("{node_id}", node_id).replace("\\", "/") for surface in surfaces]
 
 
 def _canonical_deployment_inventory_payload_digest(inventory: dict[str, Any]) -> str:
@@ -3719,10 +3698,6 @@ def _transport_plan(plan: dict[str, Any]) -> dict[str, Any]:
     _reject_transport_auth_aliases(result, "transport plan")
     _reject_secret_fields(result, "transport plan")
     return result
-
-
-def _mutating_operation(operation: str) -> bool:
-    return operation.startswith(("forensic-backup:", "stop:", "delete:", "rebuild:", "start:"))
 
 
 def _receipt_phase(operation: str) -> str:
