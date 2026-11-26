@@ -182,6 +182,8 @@ impl World {
         projection.governance_execution_policy = self.governance_execution_policy.clone();
         projection.devlocal_participant_authority = self.devlocal_participant_authority.clone();
         projection.bft_governance_parent = self.bft_governance_parent.clone();
+        projection.formal_history_reader = self.formal_history_reader.clone();
+        projection.formal_execution_tick = self.formal_execution_tick;
         projection.governance_replaying = true;
         let mut budget = ByteBudget(MAX_BYTES, false);
         let mut touched = BTreeSet::new();
