@@ -36,7 +36,7 @@ use oasis7_distfs::controlled_authority::{
 use oasis7_node::{NodeConfig, NodeNetworkPolicy, NodeRole, NodeRuntime};
 use std::{
     collections::{HashMap, VecDeque},
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -84,6 +84,7 @@ pub(crate) struct FormalLiveRuntime {
     state: FormalLiveState,
     admission_gate: Arc<Mutex<()>>,
     original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
+    original_pending_directory: Option<PathBuf>,
     durable_set_arm:
         Arc<super::execution_bridge::formal_durable_set_arm::FormalDurableSetArmControlV1>,
     server: Option<FormalHttpServer>,
@@ -251,6 +252,35 @@ impl FormalLiveRuntime {
         validated: ValidatedFormalLiveConfigV1,
         original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
     ) -> Result<Self, String> {
+        Self::open_from_validated_with_original_pending_adapter_and_directory(
+            validated,
+            original_pending,
+            None,
+        )
+    }
+
+    /// Owner-only constructor. The producer and its private directory are
+    /// created for one exact operation/config/incarnation before Node starts.
+    pub(crate) fn open_from_validated_with_original_pending_owner_adapter(
+        validated: ValidatedFormalLiveConfigV1,
+        original_pending: Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>,
+        original_pending_directory: PathBuf,
+    ) -> Result<Self, String> {
+        Self::open_from_validated_with_original_pending_adapter_and_directory(
+            validated,
+            Some(original_pending),
+            Some(original_pending_directory),
+        )
+    }
+
+    fn open_from_validated_with_original_pending_adapter_and_directory(
+        validated: ValidatedFormalLiveConfigV1,
+        original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
+        original_pending_directory: Option<PathBuf>,
+    ) -> Result<Self, String> {
+        if original_pending.is_some() != original_pending_directory.is_some() {
+            return Err("original pending producer/directory must be installed together".into());
+        }
         let identity_lease = acquire_runtime_identity(&validated)?;
         let timing = OpenTiming::new();
         let _open = timing.stage("open_total");
@@ -270,6 +300,7 @@ impl FormalLiveRuntime {
             &timing,
             identity_lease,
             original_pending,
+            original_pending_directory,
         )
     }
 
@@ -281,6 +312,7 @@ impl FormalLiveRuntime {
         timing: &OpenTiming,
         identity_lease: Arc<super::node_keypair_config::RuntimeIdentityLease>,
         original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
+        original_pending_directory: Option<PathBuf>,
     ) -> Result<Self, String> {
         validate_loaded_execution_policy(&validated)?;
         // Seed only content-addressed bytes from the exact configured initial
@@ -540,6 +572,7 @@ impl FormalLiveRuntime {
             state: FormalLiveState::default(),
             admission_gate,
             original_pending,
+            original_pending_directory,
             durable_set_arm,
             server: None,
             stop_worker: None,
@@ -811,6 +844,49 @@ impl FormalLiveRuntime {
         self.server = Some(server);
         self.started = true;
         Ok(())
+    }
+
+    /// Exact-owner original pending freeze. Close admission, wait for every
+    /// in-flight Submit/Node-hook gate user, persist the exact original bytes,
+    /// then stop the real Node owner. The final Frozen marker is written only
+    /// after stop has returned success. Unknown/timeout retries reuse the same
+    /// prepared bytes; local root/count never authorizes a recovery.
+    pub(crate) fn freeze_original_pending(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<super::formal_live_original_pending_producer::OriginalPendingPinV1, String> {
+        if timeout.is_zero() || timeout > Duration::from_secs(60) {
+            return Err("original pending owner freeze timeout in (0,60s]".into());
+        }
+        let producer = self
+            .original_pending
+            .as_ref()
+            .ok_or("formal owner has no original pending producer")?;
+        let directory = self
+            .original_pending_directory
+            .as_deref()
+            .ok_or("formal owner has no original pending directory")?;
+        let deadline = std::time::Instant::now() + timeout;
+        self.state.ready.store(false, std::sync::atomic::Ordering::Release);
+        self.state.stopping.store(true, std::sync::atomic::Ordering::Release);
+        let Some(admission) = quiesce::acquire_for_stop(&self.admission_gate, deadline)? else {
+            return Err("formal Node stop is still pending; original pending remains prepared only".into());
+        };
+        let prepared = producer
+            .lock()
+            .map_err(|_| "original pending producer lock poisoned")?
+            .begin_freeze(directory)?;
+        drop(admission);
+
+        self.stop(deadline.saturating_duration_since(std::time::Instant::now()))?;
+        let frozen = producer
+            .lock()
+            .map_err(|_| "original pending producer lock poisoned")?
+            .finish_node_freeze(directory)?;
+        if frozen != prepared {
+            return Err("original pending owner Frozen pin changed after real Node stop".into());
+        }
+        Ok(frozen)
     }
 
     /// Graceful stop budgets admission and Node waits by the supplied interval.
