@@ -104,7 +104,6 @@ fn node_runtime_execution_driver_rolls_back_in_memory_worlds_after_state_persist
     let persisted = load_execution_bridge_state(state_path.as_path()).expect("persisted state");
     assert_eq!(persisted.last_applied_committed_height, 1);
     assert_eq!(persisted.last_node_block_hash.as_deref(), Some("node-h1"));
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -152,7 +151,6 @@ fn node_runtime_execution_driver_recovers_when_bridge_state_metadata_is_lost() {
         blake3_hex(snapshot_bytes.as_slice()),
         record.execution_state_root
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -196,7 +194,6 @@ fn node_runtime_execution_driver_rejects_conflicting_equal_height_v3_record_iden
             "error must identify conflicting {field}: {err}"
         );
     }
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -239,7 +236,6 @@ fn node_runtime_execution_driver_rejects_conflicting_equal_height_v3_effect_iden
             "error must identify conflicting {field}: {err}"
         );
     }
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -286,7 +282,6 @@ fn assert_tampered_authoritative_effect_identity_rejected(
         err.contains(field),
         "error must identify conflicting authoritative effect {field}: {err}"
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -344,7 +339,6 @@ fn node_runtime_execution_driver_rejects_conflicting_equal_height_v3_record_time
         err.contains("committed_at_unix_ms"),
         "error must identify conflicting record timestamp: {err}"
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -393,7 +387,6 @@ fn node_runtime_execution_driver_rejects_equal_height_replay_when_authoritative_
         err.contains("committed_actions"),
         "error must identify conflicting committed actions: {err}"
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -488,7 +481,6 @@ fn node_runtime_execution_driver_restart_recovers_latest_head_after_retention() 
     let state = load_execution_bridge_state(state_path.as_path()).expect("load state");
     assert_eq!(state.last_applied_committed_height, 34);
     assert_eq!(state.last_node_block_hash.as_deref(), Some("node-h34"));
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -534,7 +526,6 @@ fn node_runtime_execution_driver_restart_recovers_authoritative_cas_when_world_c
         restarted.execution_world.journal().len(),
         committed_journal_len
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -580,7 +571,6 @@ fn node_runtime_execution_driver_restart_fails_closed_when_authoritative_cas_is_
         err.contains("authoritative") || err.contains("CAS") || err.contains("record"),
         "restart failure must identify authoritative recovery data: {err}"
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -661,7 +651,6 @@ fn node_runtime_execution_driver_startup_restores_lower_authoritative_head_when_
         Some("node-h1")
     );
     assert_eq!(restarted.state.last_applied_committed_height, 1);
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -742,7 +731,6 @@ fn node_runtime_execution_driver_startup_uses_higher_durable_record_when_latest_
         fs::read(height_two_path).expect("read height two after startup"),
         height_two_bytes
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -810,7 +798,6 @@ fn node_runtime_execution_driver_startup_rejects_lower_v3_record_missing_journal
         err.contains("authoritative v3 record missing exact CAS refs"),
         "unexpected startup error: {err}"
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -903,7 +890,6 @@ fn node_runtime_execution_driver_reconciles_stale_state_from_exact_record() {
         Some(height_three.execution_state_root.as_str())
     );
     assert_eq!(state.last_node_block_hash.as_deref(), Some("node-h3"));
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -984,7 +970,6 @@ fn node_runtime_execution_driver_restart_reconciles_newer_published_record_when_
         .expect("equal-height delivery is idempotent after restart");
     assert_eq!(replayed.execution_block_hash, second.execution_block_hash);
     assert_eq!(replayed.execution_state_root, second.execution_state_root);
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -1135,7 +1120,6 @@ fn node_runtime_execution_driver_recovers_malformed_v2_record_from_state_root_an
             .as_deref()
             .is_some_and(|journal_ref| !journal_ref.is_empty())
     );
-
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -1201,6 +1185,5 @@ fn node_runtime_execution_driver_rejects_stale_restore_from_other_world() {
         err.contains("stale-height restore world_id mismatch"),
         "unexpected mismatch error: {err}"
     );
-
     let _ = fs::remove_dir_all(dir);
 }
