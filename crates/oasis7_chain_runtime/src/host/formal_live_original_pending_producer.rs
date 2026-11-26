@@ -14,6 +14,7 @@ use oasis7_formal_protocol::controlled_authority::formal::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
@@ -92,6 +93,9 @@ enum PendingPhase {
 pub(super) struct OriginalPendingProducerV1 {
     owner: OriginalPendingOwnerV1,
     requests: Vec<RecoveryPendingRequestV1>,
+    // Private, volatile exact Node action identity used only AFTER durable
+    // writer Frozen. Never infer this from the outer Node queue snapshot.
+    action_bindings: BTreeMap<LocalRequestIdentity, Vec<u8>>,
     phase: PendingPhase,
 }
 
@@ -118,6 +122,7 @@ impl OriginalPendingProducerV1 {
         Ok(Self {
             owner,
             requests: Vec::new(),
+            action_bindings: BTreeMap::new(),
             phase: PendingPhase::Accepting,
         })
     }
@@ -176,6 +181,59 @@ impl OriginalPendingProducerV1 {
         RecoveryPendingHandoffV1::from_requests(next.clone())
             .map_err(|err| err.to_string())?;
         self.requests = next;
+        Ok(())
+    }
+
+    /// Bind the exact original signed request to the *actual* Node action
+    /// bytes that were successfully admitted. This is only an in-memory
+    /// retirement index; the original request alone is the recovery material.
+    pub(super) fn note_enqueued_with_action(
+        &mut self,
+        identity: LocalRequestIdentity,
+        original_signed_bytes: Vec<u8>,
+        node_action_bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        if node_action_bytes.is_empty() {
+            return Err("original pending missing real Node action binding".into());
+        }
+        self.note_accepted_enqueue(identity.clone(), original_signed_bytes)?;
+        if let Some(existing) = self.action_bindings.get(&identity) {
+            if existing == &node_action_bytes {
+                return Ok(());
+            }
+            return Err("original pending Node action binding changed".into());
+        }
+        self.action_bindings.insert(identity, node_action_bytes);
+        Ok(())
+    }
+
+    /// Called ONLY after the existing FormalNodeHook's real writer has
+    /// completed its Frozen prepare with dual durable acknowledgements.
+    /// A rejected or unknown prepare MUST leave the original pending intact.
+    pub(super) fn note_successful_frozen_actions(
+        &mut self,
+        exact_frozen_actions: &[&[u8]],
+    ) -> Result<(), String> {
+        if self.phase != PendingPhase::Accepting {
+            return Err("original pending owner frozen; cannot retire further actions".into());
+        }
+        self.requests.retain(|original| {
+            !self.action_bindings.get(&original.identity).is_some_and(|node_bytes| {
+                exact_frozen_actions
+                    .iter()
+                    .any(|actual| node_bytes.as_slice() == *actual)
+            })
+        });
+        self.action_bindings.retain(|identity, _| {
+            self.requests.iter().any(|original| &original.identity == identity)
+        });
+        Ok(())
+    }
+
+    pub(super) fn ensure_unfrozen_admission(&self) -> Result<(), String> {
+        if self.phase != PendingPhase::Accepting {
+            return Err("original pending owner no longer accepts Node Frozen".into());
+        }
         Ok(())
     }
 
@@ -466,6 +524,32 @@ mod tests {
         assert!(cold_read_exact_frozen(&scratch.0, &other, &pin.root, 2).is_err());
         assert!(cold_read_exact_frozen(&scratch.0, &owner(), &"f".repeat(64), 2).is_err());
         assert!(cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, 1).is_err());
+    }
+
+    #[test]
+    fn real_action_retirement_requires_exact_frozen_payload_and_preserves_other_pending() {
+        let scratch = Scratch::new();
+        let mut producer = OriginalPendingProducerV1::open(&scratch.0, owner()).unwrap();
+        producer
+            .note_enqueued_with_action(identity("a"), vec![7, 9], vec![10, 11])
+            .unwrap();
+        producer
+            .note_enqueued_with_action(identity("b"), vec![3, 4], vec![12, 13])
+            .unwrap();
+        producer
+            .note_successful_frozen_actions(&[&[10, 12]])
+            .unwrap();
+        assert_eq!(producer.requests.len(), 2);
+        producer
+            .note_successful_frozen_actions(&[&[10, 11]])
+            .unwrap();
+        assert_eq!(producer.requests.len(), 1);
+        assert_eq!(producer.requests[0].signed_request, [3, 4]);
+        let frozen = producer.begin_freeze(&scratch.0).unwrap();
+        assert_eq!(frozen.count, 1);
+        assert!(producer
+            .note_successful_frozen_actions(&[&[12, 13]])
+            .is_err());
     }
 
     #[test]

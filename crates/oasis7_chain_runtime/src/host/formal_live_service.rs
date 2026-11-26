@@ -1003,6 +1003,7 @@ impl FormalLiveService {
         } else {
             None
         };
+        let original_action_bytes = self.original_pending.as_ref().map(|_| action.clone());
         let runtime = self.runtime.lock().map_err(|_| {
             (
                 503,
@@ -1027,7 +1028,11 @@ impl FormalLiveService {
                 .lock()
                 .map_err(|_| "original pending owner lock poisoned".to_string())
                 .and_then(|mut tracker| {
-                    tracker.note_accepted_enqueue(identity, original_signed_request.to_vec())
+                    tracker.note_enqueued_with_action(
+                        identity,
+                        original_signed_request.to_vec(),
+                        original_action_bytes.expect("tracked Node action already captured"),
+                    )
                 });
             if let Err(error) = captured {
                 // Node may already contain the original action; never turn
