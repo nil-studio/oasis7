@@ -1,0 +1,130 @@
+name: Rust model diagnostic image prerequisite probe
+on:
+  pull_request:
+    branches: [codex/engineering-codeql-rust-model-probe-base]
+    types: [opened]
+permissions:
+  contents: read
+  packages: read
+cache-mode: read
+jobs:
+  verify:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.base_ref == 'codex/engineering-codeql-rust-model-probe-base' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/engineering-codeql-rust-model-image-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - probe: trait-scope-plan
+            bundle: '2.27.3'
+          - probe: node-only
+            bundle: '2.27.2'
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      options: --user 1001:1001 --init --read-only --tmpfs /tmp:rw,nosuid,nodev,mode=1777
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      MODEL_PROBE: ${{ matrix.probe }}
+      BUNDLE_VERSION: ${{ matrix.bundle }}
+      RUST_TOOLCHAIN: '1.96.0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 4ae1474a9d96dc80bef4af39b1077e1d03647b90
+          persist-credentials: false
+      - name: Run the frozen candidate proxy preflight
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 4ae1474a9d96dc80bef4af39b1077e1d03647b90
+          python3 -I - <<'PY'
+          import os, pathlib, re, subprocess, tempfile
+          raw = pathlib.Path('.github/workflows/rust.yml').read_text()
+          job = raw.split('  codeql-rust-model-diagnostic:\n', 1)[1].split('  periodic-admission:\n', 1)[0]
+          blocks = re.split(r'(?m)^      - ', job)
+          def command(name):
+              step = next(block for block in blocks if block.startswith('name: ' + name + '\n'))
+              return '\n'.join(line[10:] for line in step.split('        run: |\n', 1)[1].splitlines())
+          args = ['bash', '-e', '-o', 'pipefail', '-c']
+          guard = command('Verify the immutable Rust toolchain proxies')
+          subprocess.run([*args, guard], check=True)
+          for binary in ('rustup', 'cargo'):
+              with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as directory:
+                  marker = pathlib.Path(directory) / binary
+                  marker.write_text('#!/bin/sh\nexit 99\n')
+                  marker.chmod(0o700)
+                  result = subprocess.run([*args, guard], env=os.environ | {'PATH':directory + os.pathsep + os.environ['PATH']})
+                  assert result.returncode == 1, binary
+          dest = pathlib.Path(os.environ['RUNNER_TEMP']) / 'model-preparation.sh'
+          dest.write_text(command('Set up selected immutable Rust CodeQL bundle'))
+          PY
+      - name: Configure the original mold linker
+        if: matrix.probe != 'trait-scope-plan'
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-codeql-model-mold
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 49b25e1ab631ffb433bce88709fa5601720cfc17
+          path: model-source
+          persist-credentials: false
+      - name: Run the original preparation and reject wrong bundle or tool identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 4ae1474a9d96dc80bef4af39b1077e1d03647b90
+          test "$(git -C model-source rev-parse HEAD)" = 49b25e1ab631ffb433bce88709fa5601720cfc17
+          test "$TMPDIR" = "$RUNNER_TEMP"
+          reject() {
+            if "$@"; then
+              echo 'unexpected accepted model preparation input' >&2
+              return 1
+            fi
+            test ! -e "$RUNNER_TEMP/rust-model-tools"
+          }
+          prepare="$RUNNER_TEMP/model-preparation.sh"
+          reject env BUNDLE_VERSION=2.27.4 bash -euo pipefail "$prepare"
+          reject env BUNDLE_VERSION=2.27.2 MODEL_PROBE=trait-scope-plan bash -euo pipefail "$prepare"
+          reject env GITHUB_SHA=0000000000000000000000000000000000000000 bash -euo pipefail "$prepare"
+          # The isolated replay controller has its own SHA. This exact candidate
+          # was verified above and is the workflow tool checkout under test.
+          GITHUB_SHA=4ae1474a9d96dc80bef4af39b1077e1d03647b90 bash -euo pipefail "$prepare"
+      - name: Validate real bundle, nested source, and selected toolchain contract
+        run: |
+          set -euo pipefail
+          if [[ "$MODEL_PROBE" == trait-scope-plan ]]; then
+            test "$RUSTUP_HOME" = /opt/oasis7-rust/rustup
+            compgen -G "$RUNNER_TEMP/rust-model-toolchains.*" && exit 1
+          else
+            [[ "$RUSTUP_HOME" == "$RUNNER_TEMP"/rust-model-toolchains.*/rustup ]]
+            [[ "$CARGO_HOME" == "$RUNNER_TEMP"/rust-model-toolchains.*/cargo ]]
+            rustup run 1.96.0 rustc --version | grep -F 'rustc 1.96.0'
+            rustup run 1.98.1 rustc --version | grep -F 'rustc 1.98.1'
+            rustup run 1.96.0 cargo fmt --version
+            rustup run 1.96.0 cargo clippy --version
+          fi
+          PYTHONPATH="$GITHUB_WORKSPACE/scripts/security" python3 - <<'PY'
+          import importlib.util, json, os, pathlib, subprocess
+          spec = importlib.util.spec_from_file_location('model', pathlib.Path('scripts/security/codeql-rust-model-diagnostic.py'))
+          model = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(model)
+          cli = pathlib.Path(os.environ['RUNNER_TEMP']) / 'rust-model-tools/codeql/codeql'
+          version = json.loads(subprocess.check_output([cli, 'version', '--format=json']))['version']
+          assert version == os.environ['BUNDLE_VERSION']
+          closure = model.bundle_closure(cli.parent, version)
+          assert closure
+          print(json.dumps({'probe': os.environ['MODEL_PROBE'], 'bundle': version,
+                            'library_closure_size': len(closure), 'toolchain_scope_verified': True}, sort_keys=True))
+          PY
+      - name: Run the unchanged Linux diagnostic contracts
+        if: matrix.probe == 'node-only'
+        run: python3 scripts/security/codeql-rust-model-diagnostic.test.py
