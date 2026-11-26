@@ -35,7 +35,7 @@ pub use oasis7_runtime_host::provider_json_admission;
 pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_loopback_http;
-mod provider_material_capture;
+pub(crate) use oasis7_runtime_host::provider_material_capture;
 mod runner;
 #[cfg(not(target_arch = "wasm32"))]
 mod turn_engine;
