@@ -2802,6 +2802,17 @@
         "viewer_js_required"
       ],
       "reason": "viewer_scripts"
+    },
+    {
+      "match": [
+        "scripts/ci-formal-process-*.test.py",
+        "scripts/ci-workflow-*.test.py",
+        "scripts/plan-rust-required-scope-*.test.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "split_python_control_test_suites"
     }
   ]
 }
