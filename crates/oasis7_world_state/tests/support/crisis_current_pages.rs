@@ -35,6 +35,9 @@ impl Pages {
     }
 }
 impl Pages {
+    pub(crate) fn remove(&self, id: &[u8; 32]) {
+        self.nodes.borrow_mut().remove(id);
+    }
     fn put_shared(
         &self,
         id: [u8; 32],

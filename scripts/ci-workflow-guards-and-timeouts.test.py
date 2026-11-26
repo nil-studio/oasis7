@@ -3,6 +3,7 @@
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -565,6 +566,95 @@ class FleetHealthSubcontractsExecutionTests(unittest.TestCase):
                     effective_job_condition(conds['Verify cleanup on native host'], vals, ('success',)),
                     runner_os != 'Windows',
                 )
+
+
+MAX_PYTHON_TEST_SCRIPT_LINES = 2500
+
+
+def _is_python_test_script(path: Path) -> bool:
+    name = path.name
+    return name.endswith('.test.py') or (name.startswith('test_') and name.endswith('.py'))
+
+
+def find_oversized_python_test_scripts(
+    scripts_dir: Path,
+    *,
+    max_lines: int = MAX_PYTHON_TEST_SCRIPT_LINES,
+) -> tuple[int, list[tuple[str, int]]]:
+    """Scan scripts_dir recursively and return (scanned_count, [(rel_path, line_count), ...])."""
+    scanned = 0
+    violations: list[tuple[str, int]] = []
+    for path in sorted(scripts_dir.rglob('*.py')):
+        if '__pycache__' in path.parts or not path.is_file():
+            continue
+        if not _is_python_test_script(path):
+            continue
+        scanned += 1
+        line_count = len(path.read_text(encoding='utf-8').splitlines())
+        if line_count > max_lines:
+            rel = path.relative_to(scripts_dir).as_posix()
+            violations.append((rel, line_count))
+    return scanned, violations
+
+
+class PythonTestScriptLineCapGuardTests(unittest.TestCase):
+    """Fail-closed ceiling preventing oversized monolithic Python test scripts (Refs #7068)."""
+
+    def test_all_scripts_python_test_files_stay_within_line_cap(self):
+        scanned, violations = find_oversized_python_test_scripts(ROOT / 'scripts')
+        self.assertGreaterEqual(
+            scanned,
+            50,
+            f'expected >= 50 Python test scripts under scripts/, got {scanned}',
+        )
+        self.assertEqual(
+            violations,
+            [],
+            'Oversized Python test scripts exceed the '
+            f'{MAX_PYTHON_TEST_SCRIPT_LINES}-line cap (split into modular subsuites; see #7068):\n'
+            + '\n'.join(
+                f'  scripts/{rel}: {count} lines (limit <= {MAX_PYTHON_TEST_SCRIPT_LINES})'
+                for rel, count in violations
+            ),
+        )
+
+    def test_line_cap_guard_accepts_files_at_exact_limit_and_ignores_non_test_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'ok.test.py').write_text('x = 1\n' * MAX_PYTHON_TEST_SCRIPT_LINES, encoding='utf-8')
+            nested = root / 'security'
+            nested.mkdir()
+            (nested / 'test_ok.py').write_text('x = 1\n' * MAX_PYTHON_TEST_SCRIPT_LINES, encoding='utf-8')
+            (root / 'helper_not_a_test.py').write_text(
+                'x = 1\n' * (MAX_PYTHON_TEST_SCRIPT_LINES + 500),
+                encoding='utf-8',
+            )
+            scanned, violations = find_oversized_python_test_scripts(root)
+            self.assertEqual(scanned, 2)
+            self.assertEqual(violations, [])
+
+    def test_line_cap_guard_rejects_oversized_top_level_and_nested_test_scripts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'oversized.test.py').write_text(
+                'x = 1\n' * (MAX_PYTHON_TEST_SCRIPT_LINES + 1),
+                encoding='utf-8',
+            )
+            nested = root / 'security'
+            nested.mkdir()
+            (nested / 'test_nested_oversized.py').write_text(
+                'x = 1\n' * (MAX_PYTHON_TEST_SCRIPT_LINES + 42),
+                encoding='utf-8',
+            )
+            scanned, violations = find_oversized_python_test_scripts(root)
+            self.assertEqual(scanned, 2)
+            self.assertEqual(
+                violations,
+                [
+                    ('oversized.test.py', MAX_PYTHON_TEST_SCRIPT_LINES + 1),
+                    ('security/test_nested_oversized.py', MAX_PYTHON_TEST_SCRIPT_LINES + 42),
+                ],
+            )
 
 
 if __name__ == '__main__':
