@@ -1,0 +1,140 @@
+name: Hosted Login assembly fixture transport
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/hosted-login-assembly-probe-base]
+    paths: [.github/workflows/hosted-login-assembly-probe.yml]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+env:
+  FROZEN_SOURCE: 8b9f9adab10c7281d965ff4d89579d719d5d7424
+  PYTHONDONTWRITEBYTECODE: '1'
+jobs:
+  fixtures:
+    if: github.repository == 'nil-studio/oasis7' && github.base_ref == 'codex/hosted-login-assembly-probe-base' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/hosted-login-assembly-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      native: ${{ steps.native.outputs.artifact-id }}
+      viewer: ${{ steps.viewer.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8b9f9adab10c7281d965ff4d89579d719d5d7424
+          persist-credentials: false
+      - name: Seal fixture archives using the existing package tests
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$FROZEN_SOURCE"
+          python3 -I - <<'PY'
+          import importlib.util, os, shutil
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('fixture', 'scripts/ci-hosted-login-package.test.py')
+          fixture = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(fixture)
+          fixture.SOURCE = os.environ['FROZEN_SOURCE']
+          case = fixture.PackageTest(methodName='test_valid_same_source_package')
+          try:
+              case.setUp()
+              for stage in ('hosted-native', 'hosted-viewer'):
+                  shutil.copytree(case.root / stage, Path(os.environ['RUNNER_TEMP']) / stage)
+          finally:
+              case.doCleanups()
+          PY
+      - id: native
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: probe-hosted-native
+          path: ${{ runner.temp }}/hosted-native
+          if-no-files-found: error
+          retention-days: 1
+      - id: viewer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: probe-hosted-viewer
+          path: ${{ runner.temp }}/hosted-viewer
+          if-no-files-found: error
+          retention-days: 1
+  assemble:
+    name: Fixture assembly (${{ matrix.lane }})
+    needs: fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: host
+            image: ''
+            options: ''
+          - lane: image
+            image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+            options: --user 1001:1001
+    container:
+      image: ${{ matrix.image }}
+      options: ${{ matrix.options }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      LANE: ${{ matrix.lane }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8b9f9adab10c7281d965ff4d89579d719d5d7424
+          persist-credentials: false
+      - name: Verify exact fixture tool identity
+        run: |
+          test "$(git rev-parse HEAD)" = "$FROZEN_SOURCE"
+          test -z "$(git status --porcelain)"
+      - id: stage_paths
+        name: Verify image tools and locate stage downloads
+        run: |
+          if [ "$LANE" = image ]; then test "$(id -u):$(id -g)" = 1001:1001; fi
+          for tool in bash git tar gzip; do command -v "$tool"; done
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          runner_temp=$(realpath -- "$RUNNER_TEMP")
+          test -d "$runner_temp"
+          test -w "$runner_temp"
+          printf 'native=%s/hosted-native\nviewer=%s/hosted-viewer\n' "$runner_temp" "$runner_temp" >>"$GITHUB_OUTPUT"
+      - name: Verify exact producer artifact IDs
+        shell: bash
+        env:
+          NATIVE_ARTIFACT_ID: ${{ needs.fixtures.outputs.native }}
+          VIEWER_ARTIFACT_ID: ${{ needs.fixtures.outputs.viewer }}
+        run: |
+          [[ "$NATIVE_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$VIEWER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$NATIVE_ARTIFACT_ID" != "$VIEWER_ARTIFACT_ID"
+      - name: Download native stage from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.fixtures.outputs.native }}
+          path: ${{ steps.stage_paths.outputs.native }}
+      - name: Download Viewer stage from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.fixtures.outputs.viewer }}
+          path: ${{ steps.stage_paths.outputs.viewer }}
+      - name: Verify and stage deployable artifact
+        env:
+          BUILD_PROFILE: release
+        run: |
+          python3 scripts/ci-hosted-login-package.py assemble "$RUNNER_TEMP" "$FROZEN_SOURCE" "$BUILD_PROFILE"
+          mkdir -p output
+          tar -czf output/hosted-login-linux-x86_64.tar.gz -C "$RUNNER_TEMP/hosted-login" .
+
+      - name: Run the original package rejection fixtures
+        run: python3 scripts/ci-hosted-login-package.test.py
+      - name: Upload the fixture-only assembled archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: probe-hosted-assembled-${{ matrix.lane }}
+          path: output/hosted-login-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 1
