@@ -20,14 +20,7 @@ const canonicalBundleBanner = "// Generated canonical Viewer bundle; source trut
 const PRODUCTION_SOURCE_LINE_LIMIT = 1200;
 const TEST_SOURCE_LINE_LIMIT = 1600;
 
-const knownLineDebt = new Map(Object.entries({
-  "crates/oasis7_viewer/software_safe_src/viewer_app.jsx": {
-    maxLines: 3978,
-    owner: "viewer_engineer",
-    reason: "security frontend extraction moves the shared application to viewer_app.jsx and removes visual fixture data and installers from the release entry",
-    nextTrigger: "the next shared application UI change must extract an adjacent surface; the fixture assembly is already separate",
-  },
-}));
+const knownLineDebt = new Map();
 
 function repoRelative(path) {
   return relative(repoRoot, path).replaceAll("\\", "/");
