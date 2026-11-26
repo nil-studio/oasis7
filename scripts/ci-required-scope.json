@@ -1419,7 +1419,8 @@
     "scripts/plan-rust-required-scope-selection-part2.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-selection-part3.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-selection-part4.test.py": ["workflow_governance"],
-    "scripts/plan-rust-required-scope-selection-part5.test.py": ["workflow_governance"]
+    "scripts/plan-rust-required-scope-selection-part5.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-selection-part6.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
     "scripts/ci-portable-cache-container-contract.test.py",
@@ -1442,6 +1443,7 @@
     "scripts/plan-rust-required-scope-selection-part3.test.py",
     "scripts/plan-rust-required-scope-selection-part4.test.py",
     "scripts/plan-rust-required-scope-selection-part5.test.py",
+    "scripts/plan-rust-required-scope-selection-part6.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
     "scripts/ci-python-control-contracts.test.py",
@@ -2140,7 +2142,8 @@
         "scripts/plan-rust-required-scope-selection-part2.test.py",
         "scripts/plan-rust-required-scope-selection-part3.test.py",
         "scripts/plan-rust-required-scope-selection-part4.test.py",
-        "scripts/plan-rust-required-scope-selection-part5.test.py"
+        "scripts/plan-rust-required-scope-selection-part5.test.py",
+        "scripts/plan-rust-required-scope-selection-part6.test.py"
       ]
     },
     "scripts/plan-rust-required-scope.test.py": {
@@ -2208,6 +2211,10 @@
     "scripts/plan-rust-required-scope-selection-part5.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/plan-rust-required-scope-selection-part5.test.py"]
+    },
+    "scripts/plan-rust-required-scope-selection-part6.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-selection-part6.test.py"]
     },
     "scripts/ci-governance-preview.py": {
       "group": "workflow_governance",
