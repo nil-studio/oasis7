@@ -466,10 +466,14 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     if planner is None:
         json_blocks = re.findall(r"fromJSON\('(\[.*?\])'\)", header, re.DOTALL)
         if json_blocks:
-            assert len(json_blocks) == 2 and "inputs.run_mode == 'image-support' &&" in header
+            assert len(json_blocks) in (2, 3) and "inputs.run_mode == 'image-support' &&" in header
             support_records = json.loads(' '.join(json_blocks[0].split()))
-            records = json.loads(' '.join(json_blocks[1].split()))
+            records = json.loads(' '.join(json_blocks[-1].split()))
             assert support_records == [row for row in records if row.get('profile') == 'support']
+            if len(json_blocks) == 3:
+                assert "inputs.run_mode == 'image-viewer' &&" in header
+                viewer_records = json.loads(' '.join(json_blocks[1].split()))
+                assert viewer_records == [row for row in records if row.get('profile') == 'viewer']
             rows = {row['profile']: {key: value for key, value in row.items() if key != 'profile'}
                     for row in records}
         else:
@@ -493,6 +497,9 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     support_family = 'rust-image-support'
     if 'support' in rows or support_family in families:
         expected['support'] = (('workspace-support-other',), support_family)
+    viewer_family = 'rust-image-viewer'
+    if 'viewer' in rows or viewer_family in families:
+        expected['viewer'] = (('viewer-js-required', 'viewer-performance-report'), viewer_family)
     assert len(records) == len(rows) == len(expected) and set(rows) == set(expected)
     for profile, (names, family) in expected.items():
         row = rows[profile]
@@ -502,8 +509,34 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                                         'rust-image-component-cache')
         for name in names:
             reader = readers[name]
-            assert re.fullmatch(r'ghcr.io/nil-studio/oasis7/ci-rust-(?:wasm-)?build@sha256:[0-9a-f]{64}', row['image'])
+            expected_image_re = (
+                r'ghcr.io/nil-studio/oasis7/ci-rust-viewer@sha256:[0-9a-f]{64}'
+                if profile == 'viewer'
+                else r'ghcr.io/nil-studio/oasis7/ci-rust-(?:wasm-)?build@sha256:[0-9a-f]{64}'
+            )
+            assert re.fullmatch(expected_image_re, row['image'])
             assert row['namespace'] == row['image'].rsplit('/', 1)[1].replace('@sha256:', '-')
+            if name in ('viewer-js-required', 'viewer-performance-report'):
+                assert ("needs.select.outputs.viewer_image_compatible == 'true' && '"
+                        + row['image'] + "' || ''") in reader
+                assert row['options'] == '--user 1001:1001 --init'
+                assert '      options: --user 1001:1001 --init\n' in reader
+                assert row['mold-dir'] == 'oasis7-viewer-mold'
+                assert ("needs.select.outputs.viewer_image_compatible == 'true' && "
+                        "format('{0}/" + row['mold-dir'] + "', runner.temp) || ''") in reader
+                caches = rust_cache_steps(reader)
+                assert len(caches) == 1
+                assert ("env.VIEWER_IMAGE_COMPATIBLE == 'true' && '"
+                        + row['namespace'] + "' || 'release-packages-web-wasm-trusted-v3'") in caches[0]
+                assert 'save-if: false\n' in caches[0]
+                assert 'add-rust-environment-hash-key: true' in caches[0]
+                assert 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST\n' in caches[0]
+                assert not re.search(
+                    r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets):',
+                    caches[0],
+                    re.M,
+                )
+                continue
             if name == 'workspace-support-other':
                 assert workspace_support_image_matrix(reader) == row['namespace']
                 assert row['options'] == row['mold-dir'] == ''
@@ -559,11 +592,16 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     caches = rust_cache_steps(job)
     assert len(caches) == 1
     cache = caches[0]
+    expected_env_vars = (
+        "env-vars: ${{ matrix.profile == 'viewer' && 'CARGO CC CFLAGS CXX CMAKE RUST' || 'CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' }}"
+        if 'viewer' in rows
+        else 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM'
+    )
     for required in ('Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0',
                      'OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ matrix.family }}',
                      'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
                      'shared-key: ${{ matrix.namespace }}', 'add-rust-environment-hash-key: true',
-                     'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',
+                     expected_env_vars,
                      'cache-on-failure: false'):
         assert required in cache
     assert not re.search(r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets|restore-keys):', cache, re.M)
@@ -622,7 +660,7 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
         tool_jobs.add(component_writer)
     else:
         assert not {'rust-image-components', 'rust-image-net', 'rust-image-launcher',
-                    'rust-image-tooling', 'rust-image-support'}.intersection(families)
+                    'rust-image-tooling', 'rust-image-support', 'rust-image-viewer'}.intersection(families)
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs
                                | ({'plan-image-component-cache'} if 'plan-image-component-cache' in cache_jobs else set())), 'incomplete cache producer layout'
@@ -1015,6 +1053,9 @@ class Workflow(unittest.TestCase):
         if 'rust-image-support' in families:
             expected_profiles.add('support')
             image_families.add('rust-image-support')
+        if 'rust-image-viewer' in families:
+            expected_profiles.add('viewer')
+            image_families.add('rust-image-viewer')
         self.assertEqual(set(component_image_cache_writer(job, families, planner=planner)), expected_profiles)
         # These global values enter the upstream Rust environment hash. The
         # matrix must not create a different identity before any Cargo runs.
@@ -1022,12 +1063,17 @@ class Workflow(unittest.TestCase):
             header = text.split('\njobs:\n', 1)[0]
             return dict(re.findall(r'^  ((?:CARGO|RUST|OASIS7_WASM)[A-Z0-9_]*): (.+)$', header, re.M))
         self.assertEqual(cache_environment(workflow), cache_environment(RAW_WORKFLOW))
+        current_env_vars_line = (
+            "env-vars: ${{ matrix.profile == 'viewer' && 'CARGO CC CFLAGS CXX CMAKE RUST' || 'CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' }}"
+            if 'rust-image-viewer' in families
+            else 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM'
+        )
         mutations = (
             job.replace('max-parallel: 1', 'max-parallel: 5', 1),
             job.replace('add-rust-environment-hash-key: true', 'add-rust-environment-hash-key: false', 1),
             job.replace('cache-on-failure: false', 'cache-on-failure: true', 1),
             job.replace('shared-key: ${{ matrix.namespace }}', 'shared-key: ci-shared-native-trusted-v4', 1),
-            job.replace('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', 'env-vars: CARGO', 1),
+            job.replace(current_env_vars_line, 'env-vars: CARGO', 1),
             job.replace('cache-on-failure: false', 'cache-on-failure: false\n          workspaces: . -> other-target', 1),
             job.replace('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
                         'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: 999999999999', 1),
@@ -1797,252 +1843,6 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('GITHUB_STEP_SUMMARY', candidate)
         self.assertIn('CI_VERBOSE=1 ./scripts/ci-tests.sh full', candidate)
 
-    def test_candidate_full_preserves_full_setup_and_execution(self):
-        # Both lanes run the same full validation. Only the trusted main lane
-        # additionally saves its existing tool caches and sentinel.
-        writer = selected_source_steps('full-regression')
-        candidate = selected_source_steps('candidate-full-regression')
-        for job in (writer, candidate):
-            self.assertNotIn('cache-native', job)
-            self.assertNotIn('dependency-cache-tools', job)
-        caches = []
-        for job in (writer, candidate):
-            matches = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
-                       if 'uses: Swatinem/rust-cache@' in step]
-            self.assertEqual(len(matches), 1)
-            caches.append(matches[0])
-        # Action input order is immaterial; compare every setting before
-        # comparing the remaining compiler setup, tests and diagnostics.
-        self.assertEqual(sorted(caches[0].splitlines()), sorted(caches[1].splitlines()))
-        writer = writer.replace(caches[0], '', 1)
-        candidate = candidate.replace(caches[1], '', 1)
-        candidate = re.sub(r'      - name: Record exact candidate identity\n.*?(?=      - name: Resolve)', '', candidate, flags=re.S)
-        writer = re.sub(r'      - name: Prepare trusted cache sentinel\n.*?(?=      - (?:name: Run full|uses: actions/download-artifact))', '', writer, flags=re.S)
-        writer = re.sub(r'      - name: Save prepared wasm-bindgen tool cache\n.*?(?=      - name:)', '', writer, flags=re.S)
-        candidate = candidate.replace('actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0',
-                                      'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0')
-        self.assertEqual(candidate.strip(), writer.strip())
-
-    def test_pinned_trunk_helper_failure_and_success_paths(self):
-        # The protected baseline already executes this suite during migration.
-        subprocess.run(['bash',str(ROOT/'scripts/install-ci-trunk.test.sh')],cwd=ROOT,check=True)
-
-    def test_viewer_security_smoke_uses_installed_browser_after_formal_build(self):
-        job = JOBS['viewer-js-required']
-        self.assertIn('uses: ./.github/actions/setup-ci-browser', job)
-        self.assertIn('browser: agent', job)
-        self.assertIn("node-version: '24'", job)
-        self.assertNotIn('cache-mode: write', job)
-        group = re.search(r'^    viewer_js_required\) (.*?) ;;$',
-                          (ROOT / 'scripts/ci-tests.sh').read_text(), re.M).group(1)
-        self.assertLess(group.index('run_oasis7_viewer_software_safe_build'),
-                        group.index('viewer-auth-browser-security-smoke.mjs'))
-
-    def test_signed_read_codegen_runs_in_support_and_full(self):
-        job = JOBS['workspace-support-legacy']
-        self.assertIn('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1', job)
-        self.assertIn("node-version: '22'", job)
-        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        function = driver.split('run_signed_read_protocol_contract_tests() {', 1)[1].split('\n}', 1)[0]
-        self.assertIn('protocol_codegen/generate.py check', function)
-        self.assertNotIn('generate.py write', function)
-        self.assertIn('--ignore-scripts', function)
-        self.assertIn('npm test --prefix crates/oasis7_agent_api/protocol_conformance', function)
-        self.assertIn('PYTHON="$ci_python"', function)
-        support = driver.split('run_oasis7_workspace_support_crate_tests() {', 1)[1].split('\n}', 1)[0]
-        self.assertIn('run_signed_read_protocol_contract_tests', support)
-        self.assertIn('oasis7_agent_api) run_signed_read_protocol_contract_tests;', driver)
-        for full in ('run_full_support_tier_tests', 'run_full_required_superset'):
-            self.assertIn('run_oasis7_workspace_support_crate_tests',
-                          driver.split(full + '() {', 1)[1].split('\n}', 1)[0])
-
-    def test_additive_security_steps_preserve_candidate_groups(self):
-        for name in ('net', 'viewer-js-required', 'viewer-performance-report', 'workflow-governance'):
-            self.assertEqual(JOBS[name].count('name: Execute selected group'), 1)
-            self.assertIn(f'bash ./scripts/ci-tests.sh required --group "{name.replace(chr(45), chr(95))}"', JOBS[name])
-        performance = JOBS['viewer-performance-report']
-        self.assertIn('uses: ./.github/actions/setup-ci-browser', performance)
-        self.assertIn('browser: agent', performance)
-        self.assertIn("node-version: '24'", performance)
-        self.assertLess(performance.index('Install pinned performance browser'), performance.index('Execute selected group'))
-        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        for job, forbidden in [('net', 'Verify pinned network source'),
-                               ('viewer-js-required', 'Verify browser authentication security'),
-                               ('viewer-performance-report', 'Build performance test artifact')]:
-            self.assertNotIn(forbidden, JOBS[job])
-        net = JOBS['net']
-        compiler_step = ('Verify the preinstalled WASM C compiler' if rust_image_cache_namespace('net', net)
-                         else 'Install WASM C compiler')
-        self.assertLess(net.index(compiler_step), net.index('Execute selected group'))
-        for check in ('scripts/libp2p-security-source.test.py', 'scripts/libp2p-compat.test.py',
-                      'CC_wasm32_unknown_unknown=clang', 'AR_wasm32_unknown_unknown=llvm-ar',
-                      'cargo check -p oasis7_net --no-default-features --target wasm32-unknown-unknown --locked',
-                      'cargo check -p oasis7_node --features libp2p --target wasm32-unknown-unknown --locked'):
-            self.assertIn(check, driver)
-        governance = JOBS['workflow-governance']
-        self.assertGreater(governance.index('Verify new source archive'), governance.index('Execute selected group'))
-        for test in ('package-source-plan.test.py', 'safe-git-archive.test.py', 'cache-permission-probe.test.cjs'):
-            self.assertIn(test, governance)
-        self.assertNotIn('run: python3 scripts/ci-workflow.test.py', governance) # already in candidate dispatcher
-
-    def test_bindgen_cache_has_exact_identity_and_single_trusted_writer(self):
-        identities = []
-        for name in ('viewer-js-required', 'viewer-performance-report', 'full-regression'):
-            job = JOBS[name]
-            self.assertIn('source scripts/wasm-bindgen-cli-common.sh', job)
-            self.assertIn('uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25', job)
-            self.assertIn('--ensure-cache --print-bin', job)
-            self.assertIn('test -x "$bindgen_bin"', job)
-            self.assertIn('test "$("$bindgen_bin" --version)" = "wasm-bindgen $WASM_BINDGEN_LOCK_VERSION"', job)
-            self.assertLess(job.index('Swatinem/rust-cache@'), job.index('id: bindgen-meta'))
-            prepare = job.split('id: prepare-bindgen', 1)[1].split('      - ', 1)[0]
-            self.assertIn('set -euo pipefail', prepare)
-            hot, cold = prepare.split('          else\n', 1)
-            self.assertNotIn('--ensure-cache', hot)
-            self.assertIn('--ensure-cache', cold)
-            self.assertIn('WASM_BINDGEN_BIN=%s', prepare)
-            identity = re.search(r'          key: (wasm-bindgen-cli-v1-.*)', job).group(1)
-            identities.append(identity)
-            self.assertIn("hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh')", identity)
-            self.assertIn('path: ${{ steps.bindgen-meta.outputs.root }}', job)
-            if name != 'full-regression':
-                self.assertNotIn('actions/cache/save@', job)
-            else:
-                save = job.split('name: Save prepared wasm-bindgen tool cache', 1)[1].split('      - ', 1)[0]
-                for condition in ('success()', "github.ref == 'refs/heads/main'", "steps.bindgen-cache.outputs.cache-hit != 'true'", "steps.prepare-bindgen.outcome == 'success'"):
-                    self.assertIn(condition, save)
-                self.assertIn('key: ' + identity, save)
-                self.assertLess(job.index('Save prepared wasm-bindgen'), job.index('Run full test tier'))
-        self.assertEqual(len(set(identities)), 1)
-        self.assertNotIn('bindgen-meta', JOBS['launcher-web'])
-
-    def test_pr_auxiliary_workflows_scope_triggers_and_skip_drafts(self):
-        ci_base = (ROOT / '.github/workflows/ci-base-images.yml').read_text()
-        ci_base_pr = ci_base.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
-        self.assertNotIn('.github/workflows/rust.yml', ci_base_pr)
-        self.assertIn(
-            "if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'",
-            ci_base,
-        )
-        ci_base_jobs = workflow_jobs(ci_base)
-        self.assertEqual(set(ci_base_jobs), {'build', 'publish'})
-        targets = ['runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build']
-        dockerfile = (ROOT / 'docker/ci-base/Dockerfile').read_text()
-        if re.search(r'^FROM build AS codeql-rust$', dockerfile, re.M):
-            targets.append('codeql-rust')
-        if re.search(r'^FROM runtime AS api-runtime$', dockerfile, re.M):
-            targets.append('api-runtime')
-        if re.search(r'^FROM rust-build AS rust-ordinary-builder$', dockerfile, re.M):
-            targets.append('rust-ordinary-builder')
-            self.assertRegex(dockerfile, r'(?m)^FROM docker:[0-9]+[.][0-9]+[.][0-9]+-cli@sha256:[0-9a-f]{64} AS docker-cli-tools$')
-        if re.search(r'^FROM rust-build AS rust-custody-wasm$', dockerfile, re.M):
-            targets.append('rust-custody-wasm')
-            self.assertIn('ARG CUSTODY_NODE_BASE=node:22-bookworm-slim', dockerfile)
-            self.assertIn('install -d -m 0700 -o 1001 -g 1001 /.cache/oasis7', dockerfile)
-        if re.search(r'^FROM rust-build AS rust-viewer$', dockerfile, re.M):
-            targets.append('rust-viewer')
-            self.assertIn('activate --prebuilt --browser agent', (ROOT / 'docker/ci-base/build.sh').read_text())
-            self.assertIn('COPY --from=viewer-browser . /opt/oasis7-viewer-browser/', dockerfile)
-        if re.search(r'^FROM rust-custody-wasm AS rust-full-regression$', dockerfile, re.M):
-            targets.append('rust-full-regression')
-            full_leaf = dockerfile.split('FROM rust-custody-wasm AS rust-full-regression\n', 1)[1].split('\nFROM ', 1)[0]
-            self.assertIn('apt-get install -y --no-install-recommends clang llvm', full_leaf)
-            self.assertIn('COPY --from=rust-ordinary-builder /usr/local/bin/docker /usr/local/bin/docker', full_leaf)
-            self.assertNotIn('dockerd', full_leaf)
-        self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
-        publish_job = ci_base_jobs['publish']
-        publish_header = publish_job.split('    steps:', 1)[0]
-        groups = 'base, specialized, app-wasm' if 'rust-viewer' in targets else 'base, specialized'
-        self.assertIn(f'    strategy:\n      matrix:\n        group: [{groups}]\n', publish_header)
-        self.assertIn('timeout-minutes: 10\n', publish_header)
-        self.assertIn("if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n", publish_header)
-        self.assertIn('needs: build\n', publish_header)
-        self.assertIn('packages: write\n', publish_header)
-        self.assertIn('rm -f "ci-${target}.tar"\n', publish_job)
-        self.assertIn('docker rmi "$ref" "oasis7-ci-${target}:candidate"\n', publish_job)
-        self.assertNotIn('if [[ "$target" == "browser" ]]', publish_job)
-        expected_groups = (
-            ('base', {'runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'}),
-            ('specialized', {'codeql-rust', 'api-runtime', 'rust-ordinary-builder', 'rust-full-regression'}),
-            ('app-wasm' if 'rust-viewer' in targets else 'specialized', {'rust-custody-wasm', 'rust-viewer'}),
-        )
-        by_target = {target: group for group, members in expected_groups for target in members}
-        routes = [(by_target[target], target) for target in targets]
-        downloads = re.findall(
-            r"^      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333\n"
-            r"        if: matrix.group == '([a-z-]+)'\n        with:\n          name: ci-image-([a-z-]+)$",
-            publish_job, re.M,
-        )
-        pushes = re.findall(
-            r"^      - name: Publish verified [^\n]+\n        if: matrix.group == '([a-z-]+)'\n"
-            r'        run: bash "\$RUNNER_TEMP/publish-ci-image.sh" ([a-z-]+)$',
-            publish_job, re.M,
-        )
-        self.assertEqual(downloads, routes)
-        self.assertEqual(pushes, routes)
-        self.assertEqual(re.findall(r'^          name: ci-image-([a-z-]+)$', publish_job, re.M), targets)
-        self.assertEqual(publish_job.count('run: bash "$RUNNER_TEMP/publish-ci-image.sh"'), len(targets))
-        self.assertIn('      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n', publish_job)
-
-        wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
-        wasm_pr = wasm_wf.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
-        wf_paths = re.findall(r'^      - (.+)$', wasm_pr, re.M)
-        self.assertTrue(wf_paths)
-        self.assertIn(
-            "if: github.event_name != 'pull_request' || !github.event.pull_request.draft",
-            wasm_wf,
-        )
-        planner = (ROOT / 'scripts/plan-wasm-determinism-scope.sh').read_text()
-        classify_body = planner.split('classify_changed_path() {', 1)[1].split('\n}', 1)[0]
-        # Extract every pattern branch from classify_changed_path() and ensure the workflow paths cover it.
-        raw_patterns = re.findall(r'^\s+([^\s#][^\n]*?)(?:\|\\|\))', classify_body, re.M)
-        planner_patterns = []
-        for line in raw_patterns:
-            for item in line.split('|'):
-                item = item.strip()
-                if item and item != 'case "$path" in':
-                    planner_patterns.append(item)
-        self.assertTrue(planner_patterns)
-        for pattern in planner_patterns:
-            # Strip trailing /* or /** to compare directory prefixes cleanly against workflow globs.
-            normalized = pattern
-            if normalized in (
-                'crates/oasis7_wasm_build',
-                'crates/oasis7_wasm_build/*',
-                'crates/oasis7_wasm_build/**/*',
-            ):
-                normalized = 'crates/oasis7_wasm_build/**'
-            elif normalized in (
-                'crates/oasis7_wasm_sdk',
-                'crates/oasis7_wasm_sdk/*',
-                'crates/oasis7_wasm_sdk/**/*',
-            ):
-                normalized = 'crates/oasis7_wasm_sdk/**'
-            elif normalized in (
-                'crates/oasis7_wasm_abi',
-                'crates/oasis7_wasm_abi/*',
-                'crates/oasis7_wasm_abi/**/*',
-            ):
-                normalized = 'crates/oasis7_wasm_abi/**'
-            elif normalized == 'docker/wasm-builder/*':
-                normalized = 'docker/wasm-builder/**'
-            elif normalized in ('tools/wasm_build_suite/*', 'tools/wasm_build_suite/**/*'):
-                normalized = 'tools/wasm_build_suite/**'
-            self.assertIn(normalized, wf_paths, f'wasm-determinism-gate.yml paths missing {pattern}')
-
-    def test_network_wasm_tools_precede_group_execution(self):
-        net = JOBS['net']
-        compiler_step = ('Verify the preinstalled WASM C compiler' if rust_image_cache_namespace('net', net)
-                         else 'Install WASM C compiler')
-        self.assertLess(net.index(compiler_step), net.index('Execute selected group'))
-        self.assertLess(net.index('llvm-ar --version'), net.index('Execute selected group'))
-        writer = JOBS['full-regression']
-        self.assertIn('            clang \\', writer)
-        self.assertIn('            llvm \\', writer)
-        self.assertIn('rustup target add wasm32-unknown-unknown', writer)
-        for tool in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
-            self.assertLess(writer.index(tool), writer.index('Run full test tier'))
-
     def test_trusted_writer_only_runs_on_protected_main(self):
         workflow, writer = self.shared_cache_workflow()
         on = re.search(r'^on:\n(.*?)(?=^[^\s#]|\Z)', workflow, re.M | re.S)[1]
@@ -2189,9 +1989,31 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         ecs_text = (ROOT / '.github/workflows/ecs-packages.yml').read_text()
         ecs_jobs = workflow_jobs(ecs_text)
         cache_workflow, shared_writer = self.shared_cache_workflow()
-        lanes = ((shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
-                 (ecs_jobs['native'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'),
-                 (ecs_jobs['native-trusted'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
+        dual_ecs = 'OASIS7_DEPENDENCY_CACHE_FAMILY: ecs-image\n' in ecs_jobs['native-trusted']
+        lanes = [
+            (shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
+            (ecs_jobs['native'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'),
+        ]
+        if not dual_ecs:
+            lanes.append((ecs_jobs['native-trusted'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
+        else:
+            steps = re.findall(r'^      - .*?(?=^      - |\Z)', ecs_jobs['native-trusted'], re.M | re.S)
+            install, = [step for step in steps if 'id: image-dependency-cache-tools\n' in step]
+            _, image = [step for step in steps if 'uses: Swatinem/rust-cache@' in step]
+            self.assertIn("if: github.job == 'native-trusted'\n", install)
+            self.assertIn('continue-on-error: true', install)
+            self.assertIn('run: /usr/bin/python3 scripts/ci-rust-cache-admission.py install-release\n', install)
+            self.assertNotIn('GITHUB_PATH', install)
+            self.assertIn('uses: Swatinem/rust-cache@' + revision[1] + ' # v2', image)
+            self.assertLess(steps.index(install), steps.index(image))
+            self.assertIn('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}', image)
+            self.assertIn('GH_TOKEN: ${{ github.token }}', image)
+            self.assertIn('cache-on-failure: false', image)
+            self.assertNotIn('lookup-only:', image)
+            for step in steps:
+                if step != image:
+                    self.assertNotIn('steps.image-dependency-cache-tools.outputs.node_options', step)
+                    self.assertNotIn('steps.image-dependency-cache-tools.outputs.python', step)
         for job, family, budget in lanes:
             with self.subTest(family=family, trusted='cache-mode: write' in job):
                 steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
@@ -2215,6 +2037,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 for outcome in ('success', 'failure', 'skipped', 'cancelled'):
                     for has_toolchains in (False, True):
                         predicate = condition.replace('steps.dependency-cache-tools.outcome', repr(outcome))
+                        if dual_ecs and family == 'ecs':
+                            predicate = predicate.replace('github.job', repr('native'))
                         predicate = predicate.replace("hashFiles('scripts/ci-rust-cache-toolchains.py')",
                                                       repr('hash' if has_toolchains else ''))
                         allowed = eval(predicate.replace('&&', ' and '), {'__builtins__': {}}, {})
@@ -2222,7 +2046,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 for step in steps:
                     if step != cache:
                         self.assertNotIn('steps.dependency-cache-tools.outputs.path', step)
-                        self.assertNotIn('OASIS7_DEPENDENCY_CACHE_', step)
+                        if not (dual_ecs and family == 'ecs' and 'OASIS7_DEPENDENCY_CACHE_FAMILY: ecs-image\n' in step):
+                            self.assertNotIn('OASIS7_DEPENDENCY_CACHE_', step)
                 self.assertNotIn('steps.dependency-cache-tools.outputs.path', job.split('    steps:', 1)[0])
         self.assertIn('permissions:\n      contents: read\n      actions: read', shared_writer)
         # Native uses one optional installer. The migrated Web lane also has
@@ -2243,9 +2068,14 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         _, shared_writer = self.shared_cache_workflow()
         for name, job in (('shared-native-cache', shared_writer),
                           ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
-            cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
-                         if 'uses: Swatinem/rust-cache@' in step)
-            save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', cache)
+            caches = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                      if 'uses: Swatinem/rust-cache@' in step]
+            if name in ('native', 'native-trusted') and len(caches) == 2:
+                host, image = caches
+                self.assertIn('save-if: false\n', host)
+                caches = [image]
+            self.assertEqual(len(caches), 1, name)
+            save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', caches[0])
             self.assertIsNotNone(save, name)
             with self.subTest(job=name):
                 self.assertNotRegex(save.group(1), r'(?i)\b(?:always|cancelled|failure|success)\s*\(')
@@ -2255,24 +2085,38 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         _, shared_writer = self.shared_cache_workflow()
         for name, job in (('shared-native-cache', shared_writer),
                           ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
-            cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
-                         if 'uses: Swatinem/rust-cache@' in step)
+            caches = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                      if 'uses: Swatinem/rust-cache@' in step]
+            image = name in ('native', 'native-trusted') and len(caches) == 2
+            if image:
+                host, cache = caches
+                self.assertIn("if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'\n", host)
+                self.assertIn('save-if: false\n', host)
+                self.assertIn("if: github.job == 'native-trusted' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'\n", cache)
+                self.assertIn('NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}', cache)
+                self.assertIn('OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.image-dependency-cache-tools.outputs.python }}', cache)
+                self.assertIn('cache-provider: github\n', cache)
+            else:
+                self.assertEqual(len(caches), 1, name)
+                cache, = caches
             save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', cache)
             self.assertIsNotNone(save, name)
             expression = save.group(1)
             for status in ('success', 'failure', 'cancelled'):
                 for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge'):
                     for matching_source in (False, True):
-                        values = {'job.status': status, 'github.ref': ref, 'github.job': name,
-                                  'github.workflow_sha': 'a' if matching_source else 'b', 'github.sha': 'a'}
-                        predicate = expression
-                        for token, value in values.items():
-                            predicate = predicate.replace(token, repr(value))
-                        predicate = predicate.replace('&&', ' and ').replace('||', ' or ')
-                        with self.subTest(job=name, status=status, ref=ref, matching=matching_source):
-                            actual = eval(predicate, {'__builtins__': {}}, {})
-                            self.assertEqual(actual, status == 'success' and ref == 'refs/heads/main'
-                                             and matching_source and name != 'native')
+                        for guard in ('true', 'false', '') if image else ('true',):
+                            values = {'job.status': status, 'github.ref': ref, 'github.job': name,
+                                      'github.workflow_sha': 'a' if matching_source else 'b', 'github.sha': 'a',
+                                      'steps.image-dependency-cache-tools.outputs.guard_ready': guard}
+                            predicate = expression
+                            for token, value in values.items():
+                                predicate = predicate.replace(token, repr(value))
+                            predicate = predicate.replace('&&', ' and ').replace('||', ' or ')
+                            with self.subTest(job=name, status=status, ref=ref, matching=matching_source, guard=guard):
+                                actual = eval(predicate, {'__builtins__': {}}, {})
+                                self.assertEqual(actual, status == 'success' and ref == 'refs/heads/main'
+                                                 and matching_source and name != 'native' and guard == 'true')
 
     def test_shared_cache_is_populated_completely_before_successful_save(self):
         _, writer = self.shared_cache_workflow()
@@ -4644,6 +4488,58 @@ class WorkflowEnvUsageTests(unittest.TestCase):
             [],
             'Top-level custom workflow env vars with zero consumers: ' + ', '.join(unused),
         )
+
+
+class ViewerImageCacheWriterGuardTests(unittest.TestCase):
+    def test_component_image_cache_writer_accepts_optional_viewer_profile_and_rejects_mismatch(self):
+        cache_jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
+        admission_source = (ROOT / 'scripts/ci-rust-cache-admission.py').read_text()
+        assignments = [
+            node for node in ast.parse(admission_source).body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == 'FAMILIES' for t in node.targets)
+        ]
+        families = dict(ast.literal_eval(assignments[0].value))
+        base_job = cache_jobs['rust-image-component-cache']
+        rows = component_image_cache_writer(base_job, families)
+        self.assertNotIn('viewer', rows)
+
+        viewer_match = re.search(
+            r"(ghcr\.io/nil-studio/oasis7/ci-rust-viewer@sha256:[0-9a-f]{64})",
+            JOBS['viewer-js-required'],
+        )
+        self.assertIsNotNone(viewer_match)
+        viewer_image = viewer_match.group(1)
+        viewer_ns = viewer_image.rsplit('/', 1)[1].replace('@sha256:', '-')
+        viewer_row_json = json.dumps({
+            'profile': 'viewer',
+            'family': 'rust-image-viewer',
+            'image': viewer_image,
+            'namespace': viewer_ns,
+            'options': '--user 1001:1001 --init',
+            'mold-dir': 'oasis7-viewer-mold',
+        }, separators=(',', ':'))
+        # Replace the final fromJSON block (all profiles), not the first (image-support).
+        blocks = re.findall(r"fromJSON\('(\[.*?\])'\)", base_job, re.DOTALL)
+        migrated_all = blocks[-1].rstrip()[:-1].rstrip() + ',\n              ' + viewer_row_json + '\n            ]'
+        migrated_job = base_job.replace(blocks[-1], migrated_all, 1).replace(
+            'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',
+            "env-vars: ${{ matrix.profile == 'viewer' && 'CARGO CC CFLAGS CXX CMAKE RUST' || 'CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' }}",
+        )
+        migrated_families = dict(
+            families,
+            **{'rust-image-viewer': (viewer_ns, '.github/workflows/rust-cache.yml', 'rust-image-component-cache')},
+        )
+        migrated_rows = component_image_cache_writer(migrated_job, migrated_families)
+        self.assertIn('viewer', migrated_rows)
+
+        # Mismatched options or dropping $OASIS7_WASM_TOOLCHAIN stabilization must fail closed.
+        for bad_job in (
+            migrated_job.replace('--user 1001:1001 --init', ''),
+            migrated_job.replace('"$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"', '"$RUST_TOOLCHAIN"'),
+        ):
+            with self.assertRaises(AssertionError):
+                component_image_cache_writer(bad_job, migrated_families)
 
 
 if __name__ == '__main__':

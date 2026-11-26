@@ -397,6 +397,96 @@ class ScopeSliceAndDirectSupportGateTests(_ScopeFixtureBase):
         with self.assertRaises(selector.UnknownInputsError):
             selector.select(self.config, preexisting_base, attempt_head, profile='pr-fast')
 
+    def test_ordinary_scope_config_slice_v2_narrows_additive_governance_test_splits_safely(self):
+        self.write('scripts/ci-workflow.test.py', '# existing suite\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        split_base = self.commit()
+
+        new_test = 'scripts/ci-workflow-split-part99.test.py'
+        split_cfg = copy.deepcopy(self.config)
+        split_cfg['scoped_control_paths'][new_test] = ['workflow_governance']
+        split_cfg['workflow_governance_python_tests'] = [
+            *split_cfg['workflow_governance_python_tests'],
+            new_test,
+        ]
+        split_cfg['python_control_contracts'][new_test] = {
+            'group': 'workflow_governance',
+            'tests': [new_test],
+        }
+        split_cfg['python_control_contracts']['scripts/ci-workflow.test.py']['tests'] = [
+            *split_cfg['python_control_contracts']['scripts/ci-workflow.test.py']['tests'],
+            new_test,
+        ]
+        self.write('scripts/ci-workflow.test.py', '# split out part99\n')
+        self.write(new_test, '# split suite\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(split_cfg))
+        split_head = self.commit()
+
+        # 1) Purely additive governance test split slices cleanly to baseline + workflow_governance
+        plan = selector.select(self.config, split_base, split_head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted', plan['reasons'])
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+        self.assertIn('scripts/ci-workflow.test.py', plan['python_control_paths'])
+        self.assertFalse(plan['test_policy_changed'])
+
+        # 2) Under v1 policy, governance test split conservatively falls back to full
+        v1_policy = copy.deepcopy(self.config)
+        v1_policy['ordinary_scope_config_slice_version'] = 1
+        self.assertEqual(selector.select(v1_policy, split_base, split_head, profile='pr-fast')['scope'], 'full')
+
+        # 3) Co-changing scripts/ci-tests.sh still conservatively falls back to full
+        self.write('scripts/ci-tests.sh', '#!/usr/bin/env bash\necho changed\n')
+        cochange_head = self.commit()
+        self.assertEqual(selector.select(self.config, split_base, cochange_head, profile='pr-fast')['scope'], 'full')
+
+        # 4) Pre-existing unregistered scripts/*.test.py modified (not newly added) cannot self-enroll
+        pre_test = 'scripts/ci-preexisting-unregistered.test.py'
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.write(pre_test, 'x = 1\n')
+        pre_base = self.commit()
+        pre_cfg = copy.deepcopy(self.config)
+        pre_cfg['scoped_control_paths'][pre_test] = ['workflow_governance']
+        pre_cfg['workflow_governance_python_tests'] = [*pre_cfg['workflow_governance_python_tests'], pre_test]
+        pre_cfg['python_control_contracts'][pre_test] = {'group': 'workflow_governance', 'tests': [pre_test]}
+        self.write('scripts/ci-required-scope.json', json.dumps(pre_cfg))
+        self.write(pre_test, 'x = 2\n')
+        pre_head = self.commit()
+        self.assertEqual(selector.select(self.config, pre_base, pre_head, profile='pr-fast')['scope'], 'full')
+
+        # 5) Reordering workflow_governance_python_tests or mapping to another group falls back to full
+        reordered_cfg = copy.deepcopy(split_cfg)
+        reordered_cfg['workflow_governance_python_tests'] = list(
+            reversed(reordered_cfg['workflow_governance_python_tests'])
+        )
+        self.write('scripts/ci-required-scope.json', json.dumps(reordered_cfg))
+        reordered_head = self.commit()
+        self.assertEqual(selector.select(self.config, split_base, reordered_head, profile='pr-fast')['scope'], 'full')
+
+        # 6) Splitting a non-EVOLVING_POLICY_TESTS suite (e.g. ci-local-check.test.py) keeps scope='full'
+        #    so policy_sha ci-python-control-contracts.py authorizes baseline identity migration.
+        self.write('scripts/ci-local-check.test.py', '# non-evolving suite\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        nonevolving_base = self.commit()
+        nonevolving_new = 'scripts/ci-local-check-part2.test.py'
+        nonevolving_cfg = copy.deepcopy(self.config)
+        nonevolving_cfg['scoped_control_paths'][nonevolving_new] = ['workflow_governance']
+        nonevolving_cfg['workflow_governance_python_tests'] = [
+            *nonevolving_cfg['workflow_governance_python_tests'],
+            nonevolving_new,
+        ]
+        nonevolving_cfg['python_control_contracts'][nonevolving_new] = {
+            'group': 'workflow_governance',
+            'tests': [nonevolving_new],
+        }
+        self.write('scripts/ci-local-check.test.py', '# retired case into part2\n')
+        self.write(nonevolving_new, '# split part2\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(nonevolving_cfg))
+        nonevolving_head = self.commit()
+        self.assertEqual(
+            selector.select(self.config, nonevolving_base, nonevolving_head, profile='pr-fast')['scope'],
+            'full',
+        )
+
     def test_standalone_non_workspace_cargo_manifests_scope_to_owners_and_keep_root_or_patch_full(self):
         cases = {
             'tools/oasis7-command-center/Cargo.toml': (
