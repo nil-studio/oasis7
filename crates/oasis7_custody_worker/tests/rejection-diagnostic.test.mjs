@@ -97,7 +97,7 @@ test('client phases preserve returned errors and classify before core errors are
 });
 test('original integration roles explicitly enable the sink without selecting another artifact',()=>{
   const fixture=readFileSync(new URL('./fixtures/test-session-support.mjs',import.meta.url),'utf8');
-  for(const [suffix,group] of [['','lifecycle'],['-activation','activation'],['-alarm','alarm'],['-paid','paid'],['-paid-role','paidRole'],['-results','results'],['-tools','tools']]) {
+  for(const [suffix,group] of [['','lifecycle'],['-activation','activation'],['-alarm','alarm'],['-paid','paid'],['-paid-role','paidRole'],['-public-client','publicClient'],['-results','results'],['-tools','tools']]) {
     const entry=readFileSync(new URL(`./test-session${suffix}.integration.test.mjs`,import.meta.url),'utf8');
     assert.match(entry,/import \{createTestSessionSuite\} from '\.\/fixtures\/test-session-support\.mjs';/);
     assert.ok(entry.includes(`createTestSessionSuite().${group}();`),`${group} uses the shared diagnostic fixture`);
