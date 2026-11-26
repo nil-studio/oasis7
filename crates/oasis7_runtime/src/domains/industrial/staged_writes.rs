@@ -186,24 +186,34 @@ impl StagedTransition for StagedDueMaterialTransits {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::economy_test_support::{authorize_factory_build, factory_spec};
     use crate::world::transition::{
         DurableCommitConfirmation, StagedRootTransaction, TransitionReject,
     };
-    use crate::{Action, MaterialLedgerId};
-    use oasis7_agent_api::world_geometry::GeoPos;
+    use crate::{
+        Action, AgentLocationAuthorityV1, FactoryConstructionPowerMode, FactoryConstructionPowerProfileV1,
+        FactoryProfileV1, FactorySiteAuthorityV1, LocationAnchorV1, MaterialLedgerId,
+    };
+    use oasis7_agent_api::world_action::{GeoPos, ResourceKind};
+    use oasis7_wasm_abi::MaterialStack;
 
     fn setup_factory_world(builder: &str, site_id: &str, factory_id: &str, build_ticks: u32) -> (World, FactoryModuleSpec) {
         let mut world = World::new();
-        let spec = factory_spec(factory_id, build_ticks, 1);
-        world.submit_action(Action::RegisterAgent {
-            agent_id: builder.to_string(),
-            pos: GeoPos { x_cm: 0.0, y_cm: 0.0, z_cm: 0.0 },
-        });
-        world.step().expect("register builder");
-        authorize_factory_build(&mut world, builder, site_id, &spec.factory_id);
-        world.set_ledger_material_balance(MaterialLedgerId::agent(builder.to_string()), "steel_plate", 10).unwrap();
-        world.set_ledger_material_balance(MaterialLedgerId::agent(builder.to_string()), "circuit_board", 2).unwrap();
+        let spec = FactoryModuleSpec {
+            factory_id: factory_id.into(), display_name: "Test".into(), tier: 1, tags: vec!["assembly".into()],
+            build_cost: vec![MaterialStack::new("steel_plate", 10), MaterialStack::new("circuit_board", 2)],
+            build_time_ticks: build_ticks, base_power_draw: 5, recipe_slots: 1, throughput_bps: 10_000, maintenance_per_tick: 1,
+        };
+        world.submit_action(Action::RegisterAgent { agent_id: builder.into(), pos: GeoPos::new(0, 0, 0) });
+        world.step().unwrap();
+        let loc = format!("location-{site_id}");
+        world.set_location_anchor(LocationAnchorV1 { location_id: loc.clone(), active: true, authority_revision: 1, effective_at: 0 }).unwrap();
+        world.set_agent_location_authority(AgentLocationAuthorityV1 { agent_id: builder.into(), location_id: loc.clone(), active: true, authority_revision: 1, effective_at: 0 }).unwrap();
+        world.set_factory_site_authority(FactorySiteAuthorityV1 { site_id: site_id.into(), location_id: loc, owner_agent_id: builder.into(), authorized_agent_ids: Vec::new(), chunk_ready: true, active: true, authority_revision: 1, registered_at: 0 }).unwrap();
+        world.set_factory_construction_power_profile(FactoryConstructionPowerProfileV1 { factory_id: factory_id.into(), factory_kind: "test".into(), source_module_id: None, electricity_amount: 10, mode: FactoryConstructionPowerMode::StartOnlySink, authority_revision: 1, active: true }).unwrap();
+        world.upsert_factory_profile(FactoryProfileV1 { factory_id: factory_id.into(), tier: 1, recipe_slots: 1, tags: vec!["assembly".into()] }).unwrap();
+        world.set_agent_resource_balance(builder, ResourceKind::Electricity, 10).unwrap();
+        world.set_ledger_material_balance(MaterialLedgerId::agent(builder.into()), "steel_plate", 10).unwrap();
+        world.set_ledger_material_balance(MaterialLedgerId::agent(builder.into()), "circuit_board", 2).unwrap();
         (world, spec)
     }
 
@@ -293,7 +303,7 @@ mod tests {
     fn staged_due_material_transits_installs_batch_and_metrics_atomically() {
         let mut staged = World::new();
         staged.submit_action(Action::RegisterAgent {
-            agent_id: "operator-staged".into(), pos: GeoPos { x_cm: 0.0, y_cm: 0.0, z_cm: 0.0 },
+            agent_id: "operator-staged".into(), pos: GeoPos::new(0, 0, 0),
         });
         staged.step().unwrap();
         staged.set_ledger_material_balance(MaterialLedgerId::site("site-a"), "copper_wire", 50).unwrap();
