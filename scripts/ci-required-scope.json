@@ -1361,11 +1361,13 @@
     "scripts/ci-workspace-cache.test.py": ["workflow_governance"],
     "scripts/ci_process_runner.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.py": ["workflow_governance"],
-    "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
+    "scripts/plan-rust-required-scope.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-worker-local.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
     "scripts/ci-hosted-login-package.test.py",
     "scripts/plan-rust-required-scope.test.py",
+    "scripts/plan-rust-required-scope-worker-local.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
     "scripts/ci-python-control-contracts.test.py",
@@ -1422,7 +1424,7 @@
     },
     "scripts/ci-local-input.py": {
       "group": "workflow_governance",
-      "tests": ["scripts/ci-local-check.test.py", "scripts/plan-rust-required-scope.test.py"]
+      "tests": ["scripts/ci-local-check.test.py", "scripts/plan-rust-required-scope.test.py", "scripts/plan-rust-required-scope-worker-local.test.py"]
     },
     "scripts/ci-local-check-command.py": {
       "group": "workflow_governance",
@@ -1833,7 +1835,8 @@
         "scripts/ci-support-profiles.test.py",
         "scripts/ci-workflow-guards-and-timeouts.test.py",
         "scripts/ci-workflow.test.py",
-        "scripts/plan-rust-required-scope.test.py"
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/plan-rust-required-scope-worker-local.test.py"
       ]
     },
     "scripts/plan-rust-required-scope.test.py": {
@@ -1841,6 +1844,10 @@
       "tests": [
         "scripts/plan-rust-required-scope.test.py"
       ]
+    },
+    "scripts/plan-rust-required-scope-worker-local.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-worker-local.test.py"]
     },
     "scripts/ci-governance-preview.py": {
       "group": "workflow_governance",
