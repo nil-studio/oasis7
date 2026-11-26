@@ -88,7 +88,7 @@ pub(super) fn send_control_reply(
                 .as_ref()
                 .ok_or("original pending freeze reply omitted its pin")?;
             let expected_owner =
-                super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+                super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
                     authority_id: instance.authority_id.clone(),
                     operation_id: instance.operation_id.clone(),
                     request_digest: instance.request_digest.clone(),

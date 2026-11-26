@@ -1,5 +1,6 @@
 //! Stop work must leave time for an authenticated reply within the caller budget.
 use super::*;
+use super::control::send_control_reply;
 use std::io::Read;
 
 fn instance() -> FormalRuntimeInstanceV1 {

@@ -434,7 +434,7 @@ pub(crate) fn launch_operation_with_fixed_trust(
     timeout: Duration,
 ) -> Result<FormalRuntimeOwnerSnapshotV1, String> {
     let (root, state_path, socket_path) = paths(config_path, operation_id)?;
-    let prepared_root = prepare_operation_root(&root, operation_id)?;
+    let prepared_root = operation_root(&root, operation_id)?;
     let launch_lock =
         super::super::node_lifecycle::local_io::private_file(&prepared_root.join("launch.lock"))?;
     launch_lock.try_lock().map_err(|_| {
@@ -763,7 +763,7 @@ fn run_owner_with_fixed_trust(
     expected_read_trust_digest: Option<&str>,
 ) -> Result<(), String> {
     let (root, _, socket_path) = paths(config_path, operation_id)?;
-    let operation_root = prepare_operation_root(&root, operation_id)?;
+    let operation_root = operation_root(&root, operation_id)?;
     let state_path = operation_root.join("owner.json");
     let owner_lock =
         super::super::node_lifecycle::local_io::private_file(&root.join("owner.lock"))?;

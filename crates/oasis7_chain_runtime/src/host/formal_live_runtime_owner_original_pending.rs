@@ -1,11 +1,11 @@
 use super::*;
 
-pub(super) fn owner_root(config_path: &Path) -> Result<PathBuf, String> {
+pub(in super::super) fn owner_root(config_path: &Path) -> Result<PathBuf, String> {
     let validated = super::FormalLiveConfigV1::load(config_path)?;
     Ok(validated.config.writer_directory.join("runtime-owner"))
 }
 
-pub(super) fn operation_root(root: &Path, operation_id: &str) -> Result<PathBuf, String> {
+pub(in super::super) fn operation_root(root: &Path, operation_id: &str) -> Result<PathBuf, String> {
     if operation_id.is_empty()
         || operation_id.len() > 128
         || !operation_id
@@ -18,7 +18,7 @@ pub(super) fn operation_root(root: &Path, operation_id: &str) -> Result<PathBuf,
     Ok(root.join("operations").join(digest))
 }
 
-pub(super) fn paths(
+pub(in super::super) fn paths(
     config_path: &Path,
     operation_id: &str,
 ) -> Result<(PathBuf, PathBuf, PathBuf), String> {
@@ -35,7 +35,7 @@ pub(crate) fn freeze_original_pending(
     config_path: &Path,
     instance: &FormalRuntimeInstanceV1,
     timeout: Duration,
-) -> Result<super::super::formal_live_original_pending_producer::OriginalPendingPinV1, String> {
+) -> Result<super::super::super::formal_live_original_pending_producer::OriginalPendingPinV1, String> {
     if timeout.is_zero() || timeout > Duration::from_secs(60) {
         return Err("original pending owner control timeout in (0,60s]".into());
     }
@@ -65,7 +65,7 @@ pub(crate) fn freeze_original_pending(
         .original_pending_pin
         .ok_or("original pending owner freeze reply omitted its prepared pin")?;
     let expected_owner =
-        super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+        super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
             authority_id: instance.authority_id.clone(),
             operation_id: instance.operation_id.clone(),
             request_digest: instance.request_digest.clone(),
@@ -78,7 +78,7 @@ pub(crate) fn freeze_original_pending(
 pub(crate) fn read_original_pending_pin_candidate(
     config_path: &Path,
     instance: &FormalRuntimeInstanceV1,
-) -> Result<super::super::formal_live_original_pending_producer::OriginalPendingPinV1, String> {
+) -> Result<super::super::super::formal_live_original_pending_producer::OriginalPendingPinV1, String> {
     let (root, state_path, _) = paths(config_path, &instance.operation_id)?;
     let record = read_owner_record(&state_path)?.ok_or("original pending owner receipt missing")?;
     validate_snapshot(
@@ -93,14 +93,14 @@ pub(crate) fn read_original_pending_pin_candidate(
     }
     let directory = operation_root(&root, &instance.operation_id)?.join("original-pending");
     let expected_owner =
-        super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+        super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
             authority_id: instance.authority_id.clone(),
             operation_id: instance.operation_id.clone(),
             request_digest: instance.request_digest.clone(),
             config_digest: instance.config_digest.clone(),
             incarnation: instance.incarnation.clone(),
         };
-    super::super::formal_live_original_pending_producer::read_prepared_pin_candidate(
+    super::super::super::formal_live_original_pending_producer::read_prepared_pin_candidate(
         &directory,
         &expected_owner,
     )
@@ -125,14 +125,14 @@ pub(crate) fn cold_read_original_pending_for_owner(
     }
     let directory = operation_root(&root, &instance.operation_id)?.join("original-pending");
     let expected_owner =
-        super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+        super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
             authority_id: instance.authority_id.clone(),
             operation_id: instance.operation_id.clone(),
             request_digest: instance.request_digest.clone(),
             config_digest: instance.config_digest.clone(),
             incarnation: instance.incarnation.clone(),
         };
-    super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
+    super::super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
         &directory,
         &expected_owner,
         independent_root,
