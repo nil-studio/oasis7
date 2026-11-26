@@ -1,6 +1,6 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
-import { delimiter, join, resolve, sep } from "node:path";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
 import { DRAFT_TEXT, helloAck, promptSnapshot } from "./browser_functional_regression_fixture_server.mjs";
