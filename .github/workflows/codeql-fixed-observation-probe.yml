@@ -143,7 +143,7 @@ jobs:
           tar --zstd -xf "$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" -C "$RUNNER_TEMP/codeql-rust-production-tools"
           "$RUNNER_TEMP/codeql-rust-production-tools/codeql/codeql" version --format=json
           python3 -I - <<'PYTHON'
-          import hashlib, importlib.util, json, os, pathlib, subprocess, sys
+          import hashlib, importlib.util, json, os, pathlib, shutil, subprocess, sys
           temp = pathlib.Path(os.environ['RUNNER_TEMP'])
           helper = temp / 'codeql-rust-fixed-source-helper'
           sys.path.insert(0, str(helper))
@@ -189,11 +189,16 @@ jobs:
           else:
               raise AssertionError('unpinned image accepted')
           env = dict(os.environ, GITHUB_SHA=os.environ['FROZEN_TOOL'])
+          denied = temp / 'rejected-layout'
+          denied.mkdir()
+          shutil.copyfile(temp / 'codeql-rust-fixed-source-layout/tool-snapshot.json', denied / 'tool-snapshot.json')
           check = ['python3', str(helper / 'codeql_rust_capacity_layout.py'), 'check', '--production-default',
                    '--source', str(pathlib.Path.cwd()), '--tools', str(helper),
-                   '--output', str(temp / 'codeql-rust-fixed-source-layout'), '--source-sha', os.environ['FROZEN_TOOL'],
+                   '--output', str(denied), '--source-sha', os.environ['FROZEN_TOOL'],
                    '--deadline', str(__import__('time').time() + 30)]
           assert subprocess.run(check, env=env, capture_output=True, timeout=15).returncode != 0
+          rejected = json.loads((denied / 'collection-layout.json').read_text())
+          assert rejected['tool_snapshot_gate'] == 'PASS' and rejected['errors'] == ['BUSINESS_IDENTITY_NOT_PASS']
           PYTHON
       - name: Mark probe-only transport samples
         if: always()
