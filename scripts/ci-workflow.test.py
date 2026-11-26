@@ -321,8 +321,81 @@ def rust_cache_steps(job):
             if 'uses: Swatinem/rust-cache@' in step]
 
 
+def portable_cache_container_layout(job, kind):
+    """Validate the finite container ABI before reusing the original save guards."""
+    image = {'browser': 'ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9',
+             'worker': 'ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3'}[kind]
+    container = ('    container:\n      image: ghcr.io/nil-studio/oasis7/' + image +
+                 '\n      credentials:\n        username: ${{ github.actor }}\n        password: ${{ github.token }}\n'
+                 '      options: --user 1001:1001 --init' +
+                 (' --tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec' if kind == 'worker' else '') +
+                 '\n      volumes:\n        - ${{ github.workspace }}:/home/runner/work/oasis7/oasis7\n'
+                 '        - ${{ runner.temp }}:/home/runner/work/_temp\n' +
+                 ('        - ${{ runner.temp }}:/home/runner/.cache/oasis7/worker-build\n' if kind == 'worker' else '') +
+                 '    defaults:\n      run:\n        shell: bash\n        working-directory: /home/runner/work/oasis7/oasis7\n' +
+                 ('    env:\n      HOME: /home/runner/work/_temp/portable-worker-home\n'
+                  '      CARGO_HOME: /home/runner/work/_temp/portable-worker-home/.cargo\n' if kind == 'worker' else ''))
+    assert job.count(container) == 1, 'portable cache requires exact finite mounts/image/UID/cwd'
+    header = job.split('    steps:', 1)[0].replace(container, '')
+    assert not re.search(r'^    (container|defaults|env):', header, re.M)
+    assert all(value not in job for value in ('BASH_ENV', 'id: portable-cache-image', 'scripts/ci-portable-cache-container.py',
+                                              'actions/setup-python@', 'rustup toolchain install', 'GITHUB_WORKSPACE='))
+    guard = ('      - name: Verify canonical portable cache container\n'
+             '        run: python3 scripts/ci-portable-cache-job.py ' + kind + '\n')
+    assert job.count(guard) == 1
+    checkouts = re.findall(r'^      - uses: actions/checkout@[^\n]+\n', job, re.M)
+    assert len(checkouts) == 1 and job.index(checkouts[0]) < job.index(guard)
+    first_tool = 'run: python3 scripts/ci-' + ('worker-build' if kind == 'worker' else 'browser-deps') + '.py '
+    assert job.index(guard) < job.index(first_tool), 'portable preflight must precede tool I/O'
+    if kind == 'worker':
+        assert job.index(guard) < job.index('      - name: Configure original pinned mold without writing its auxiliary cache\n')
+    job = job.replace(container, '').replace(guard, '')
+    if kind == 'worker':
+        mold = ('      - name: Configure original pinned mold without writing its auxiliary cache\n'
+                '        run: python3 .github/actions/setup-linux-mold/setup.py --install-dir /opt/oasis7-mold/3.0.0-v1\n')
+        assert job.count(mold) == 1 and 'uses: ./.github/actions/setup-linux-mold' not in job
+        assert job.index(mold) < job.index(first_tool), 'pinned mold must precede Worker preparation'
+        commands, flag, count = ('metadata', 'check', 'ensure', 'admit-save'), '--root /home/runner/.cache/oasis7/worker-build/0.7.5', 4
+        components = [('worker-build', 'worker-tool-admission', '${{ steps.worker-meta.outputs.root }}',
+                       'worker-build-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-0.7.5-${{ steps.worker-meta.outputs.definition_sha }}')]
+    else:
+        commands, flag, count = ('metadata', 'fetch', 'admit-save'), '--cache-base /home/runner/work/_temp/oasis7-browser-archives', 7
+        components = [(component, 'browser-admission-' + slug, '${{ steps.browser-meta.outputs.' + prefix + '_root }}',
+                       '${{ steps.browser-meta.outputs.' + prefix + '_key }}')
+                      for component, prefix, slug in [('fonts-noto-cjk', 'fonts_noto_cjk', 'noto'),
+                                                     ('fonts-freefont-ttf', 'fonts_freefont_ttf', 'freefont'), ('chrome', 'chrome', 'chrome')]]
+    assert job.count(flag) == count
+    helper = 'worker-build' if kind == 'worker' else 'browser-deps'
+    command_pattern = r'scripts/ci-' + helper + r'\.py (?:' + '|'.join(commands) + r')[^\n]* ' + re.escape(flag) + r'$'
+    assert len(re.findall(command_pattern, job, re.M)) == count
+    for command in commands:
+        if command != 'admit-save':
+            pattern = r'(scripts/ci-' + helper + r'\.py ' + command + r'[^\n]*) ' + re.escape(flag) + r'$'
+            job = re.sub(pattern, r'\1', job, flags=re.M)
+    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+    finite = [step for step in steps if 'uses: ./.github/actions/portable-cache-transport' in step]
+    expected = [(operation, *component) for component in components for operation in ('restore', 'save')]
+    assert len(finite) == len(expected), 'portable cache requires one exact restore/save pair per component'
+    for step, (operation, component, admission, root, key) in zip(finite, expected):
+        prefix, suffix = step.split('        uses:', 1)
+        assert '        env:' not in prefix and '        run:' not in prefix
+        original = (' ./.github/actions/portable-cache-transport\n        with:\n'
+                    f'          operation: {operation}\n          contract: {"worker-build" if kind == "worker" else "browser-archive"}\n'
+                    f'          component: {component}\n          key: {key}\n')
+        if operation == 'save':
+            original += ('          admitted: ${{ steps.' + admission + '.outputs.save }}\n'
+                         '          upload-bound: ${{ steps.' + admission + '.outputs.upload_bound_bytes }}\n')
+        assert suffix.rstrip('\n') == original.rstrip('\n'), 'portable cache finite input contract differs'
+        replacement = (f' actions/cache/{operation}@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0\n'
+                       f'        with:\n          path: {root}\n          key: {key}\n')
+        job = job.replace(step, prefix + '        uses:' + replacement, 1)
+    return job
+
+
 def portable_cache_host_layout(job, kind):
     """Check the explicit mixed tool lane; official host cache steps stay exact."""
+    if '    container:' in job.split('    steps:', 1)[0]:
+        return portable_cache_container_layout(job, kind)
     if 'id: portable-cache-image' not in job:
         return job
     images = {
