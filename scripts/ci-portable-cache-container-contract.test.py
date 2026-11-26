@@ -277,7 +277,8 @@ class PortableContainerContract(unittest.TestCase):
             for name in names:
                 step = next(step for step in steps if '- name: ' + name + '\n' in step)
                 remaining = job.replace(step, '', 1)
-                for changed in (remaining + step, step + remaining):
+                first_step = remaining.replace('    steps:\n', '    steps:\n' + step, 1)
+                for changed in (remaining + step, first_step):
                     with self.subTest(kind=kind, name=name), self.assertRaises(AssertionError):
                         checker(changed)
 
