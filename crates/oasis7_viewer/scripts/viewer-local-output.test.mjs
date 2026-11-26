@@ -138,7 +138,7 @@ export async function verifyPixelWorldProjection({bindingsPath,wasmPath}) {
 }`);
   write(join(viewer, "viewer.html"), '<script type="module" src="./viewer.js"></script>\n');
   copyFileSync(join(repo, "crates/oasis7_viewer/viewer_first_agent_claim_evidence.html"), join(viewer, "viewer_first_agent_claim_evidence.html"));
-  for (const name of ["viewer.js", "software_safe.js", "software_safe.html", "software_safe_first_agent_claim_evidence.html", "viewer_base.css", "viewer_base_tokens.css", "viewer_base_layout.css", "viewer_terminal_shell.css", "favicon.ico"]) {
+  for (const name of ["viewer.js", "software_safe.js", "software_safe.html", "software_safe_first_agent_claim_evidence.html", "viewer_base.css", "viewer_base_tokens.css", "viewer_base_layout.css", "viewer_base_components.css", "viewer_terminal_shell.css", "favicon.ico"]) {
     write(join(viewer, name), `source sentinel: ${name}\n`);
   }
   for (const name of ["pixel_world_runtime_module_selector.js", "pixel_world_runtime_module_wasm.js"]) write(join(viewer, "software_safe_src", name), "export const fixture = true;\n");
