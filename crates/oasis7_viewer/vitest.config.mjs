@@ -6,6 +6,7 @@ import solid from "vite-plugin-solid";
 const NATIVE_REALM_TESTS = [
   "software_safe_src/browser_*.test.js",
   "software_safe_src/main.test.jsx",
+  "software_safe_src/main_*.test.jsx",
 ];
 
 export default defineConfig({
