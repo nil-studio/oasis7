@@ -73,7 +73,9 @@ mod canonical_contract_owner_tests {
         );
         assert_eq!(
             std::any::TypeId::of::<ContinuousAgentResponseContextV1>(),
-            std::any::TypeId::of::<oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>>()
+            std::any::TypeId::of::<
+                oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>,
+            >()
         );
         assert_eq!(
             std::any::TypeId::of::<FeedbackEnvelopeV1>(),
