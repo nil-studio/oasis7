@@ -1069,6 +1069,9 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     assert_eq!(fs::read(temp.path().join(LEDGER_FILE)).unwrap(), on_disk);
 }
 
+#[path = "full_sync_issuer_v3_revocation_tests.rs"]
+mod revocation_tests;
+
 #[path = "full_sync_issuer_v3_migration_tests.rs"]
 mod migration_tests;
 
