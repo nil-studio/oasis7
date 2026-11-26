@@ -146,22 +146,37 @@ async function canonicalBundleContents() {
     : `${canonicalBundleBanner}${bundle}`;
 }
 
-async function buildPixelWorldRuntimeVariant({ featureName, backendDirName }) {
+const cargoReleaseProfileArgs = [
+  "--config",
+  'profile.release.lto="off"',
+  "--config",
+  'profile.release.package.oasis7_browser_game_client.opt-level="s"',
+  "--config",
+  'profile.release.package.pixel_world_bridge.opt-level="s"',
+];
+
+async function buildViewerWasmArtifacts() {
+  // Build both WASM crates in one Cargo graph so shared proc-macros and
+  // serialization crates (syn, serde, serde_json, wasm-bindgen) compile once,
+  // and disable default 16-CGU thin-local LTO while keeping dependency opt-level=3.
   await runChecked("env", [
     "-u",
     "RUSTC_WRAPPER",
     "cargo",
     "build",
     ...cargoLockArgs,
+    ...cargoReleaseProfileArgs,
+    "-p",
+    "oasis7_browser_game_client",
     "-p",
     "pixel_world_bridge",
     "--target",
     "wasm32-unknown-unknown",
     "--release",
-    "--no-default-features",
-    "--features",
-    featureName,
   ]);
+}
+
+async function finalizePixelWorldRuntimeVariant({ backendDirName }) {
   await access(pixelWorldCompiledWasmPath);
   const outputDir = resolve(pixelWorldRuntimeDir, backendDirName);
   await mkdir(outputDir, { recursive: true });
@@ -197,12 +212,11 @@ await mkdir(viewerDistDir, { recursive: true });
 await copyFile(canonicalHtmlPath, resolve(viewerDistDir, "viewer.html"));
 await writeFile(finalDistBundlePath, canonicalBundle, "utf8");
 await writeViewerCompatAliases(viewerRoot, viewerDistDir);
-// The Task protocol is a separate, credential-free WASM module. Generate it
-// serially with the rendering bridge; both use the repository Cargo target.
-await runChecked("env", ["-u", "RUSTC_WRAPPER", "cargo", "build", ...cargoLockArgs, "-p", "oasis7_browser_game_client", "--target", "wasm32-unknown-unknown", "--release"]);
+await buildViewerWasmArtifacts();
+const wasmBindgenCommand = await resolveWasmBindgenCommand();
 const gameProtocolDir = resolve(viewerDistDir, "browser-game-client");
 await mkdir(gameProtocolDir, { recursive: true });
-await runChecked(await resolveWasmBindgenCommand(), ["--target", "web", "--out-dir", gameProtocolDir, "--out-name", "oasis7_browser_game_client", resolve(workspaceRoot, "target", "wasm32-unknown-unknown", "release", "oasis7_browser_game_client.wasm")]);
+await runChecked(wasmBindgenCommand, ["--target", "web", "--out-dir", gameProtocolDir, "--out-name", "oasis7_browser_game_client", resolve(workspaceRoot, "target", "wasm32-unknown-unknown", "release", "oasis7_browser_game_client.wasm")]);
 if (visualTest || buildPaths.local) await Promise.all(["viewer_base.css", "viewer_base_tokens.css", "viewer_base_layout.css", "viewer_base_components.css", "viewer_terminal_shell.css", "viewer_terminal_shell_base.css", "viewer_terminal_shell_panels.css", "favicon.ico", "viewer_first_agent_claim_evidence.html"].map(name => copyFile(resolve(viewerRoot, name), resolve(viewerDistDir, name))));
 if (!visualTest && !buildPaths.local) await Promise.all([
   rm(staleRootCompatHtmlPath, { force: true }),
@@ -212,8 +226,7 @@ if (!visualTest && !buildPaths.local) await Promise.all([
 await rm(pixelWorldRuntimeDir, { recursive: true, force: true });
 await mkdir(pixelWorldRuntimeDir, { recursive: true });
 await copyFile(pixelWorldRuntimeSelectorSourcePath, pixelWorldRuntimeModulePath);
-await buildPixelWorldRuntimeVariant({
-  featureName: "webgl2_runtime",
+await finalizePixelWorldRuntimeVariant({
   backendDirName: "webgl2",
 });
 const projectionReports = await verifyPixelWorldProjection({

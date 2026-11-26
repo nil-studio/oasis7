@@ -1245,6 +1245,7 @@
     ".github/actions/portable-cache-transport/run.mjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/transport.test.cjs": ["workflow_governance"],
     "scripts/ci-portable-cache-archive.py": ["workflow_governance"],
+    "scripts/ci-portable-cache-container-contract.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-archive.test.py": ["workflow_governance"],
     "scripts/ci-cache-sdk.test.py": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
@@ -1352,6 +1353,7 @@
     "scripts/ci-formal-process-outputs-and-backpressure.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-process-part1.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-process-part2.test.py": ["workflow_governance"],
+    "scripts/ci-formal-process-distfs-and-private.test.py": ["workflow_governance"],
     "scripts/ci-full-result.py": ["workflow_governance"],
     "scripts/ci-full-result.test.py": ["workflow_governance"],
     "scripts/ci-local-check-plan.py": ["workflow_governance"],
@@ -1410,9 +1412,11 @@
     "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-selection-part1.test.py": ["workflow_governance"],
-    "scripts/plan-rust-required-scope-selection-part2.test.py": ["workflow_governance"]
+    "scripts/plan-rust-required-scope-selection-part2.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-selection-part3.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-portable-cache-container-contract.test.py",
     "scripts/ci-portable-cache-archive.test.py",
     "scripts/ci-cache-sdk.test.py",
     "scripts/ci-hosted-login-package.test.py",
@@ -1429,6 +1433,7 @@
     "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py",
     "scripts/plan-rust-required-scope-selection-part1.test.py",
     "scripts/plan-rust-required-scope-selection-part2.test.py",
+    "scripts/plan-rust-required-scope-selection-part3.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
     "scripts/ci-python-control-contracts.test.py",
@@ -1442,6 +1447,7 @@
     "scripts/ci-formal-process-outputs-and-backpressure.test.py",
     "scripts/ci-formal-process-process-part1.test.py",
     "scripts/ci-formal-process-process-part2.test.py",
+    "scripts/ci-formal-process-distfs-and-private.test.py",
     "scripts/ci-storage-acceptance.test.py",
     "scripts/ci-storage-network.test.py",
     "scripts/ci-required-result.test.py",
@@ -1487,6 +1493,7 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-portable-cache-container-contract.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-container-contract.test.py"]},
     "scripts/ci-portable-cache-archive.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-archive.test.py"]},
     "scripts/ci-portable-cache-archive.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-archive.test.py"]},
     "scripts/ci-cache-sdk.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-cache-sdk.test.py"]},
@@ -1732,6 +1739,7 @@
         "scripts/ci-formal-process-outputs-and-backpressure.test.py",
         "scripts/ci-formal-process-process-part1.test.py",
         "scripts/ci-formal-process-process-part2.test.py",
+        "scripts/ci-formal-process-distfs-and-private.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/plan-rust-required-scope.test.py"
       ]
@@ -1794,6 +1802,12 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-formal-process-process-part2.test.py"
+      ]
+    },
+    "scripts/ci-formal-process-distfs-and-private.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process-distfs-and-private.test.py"
       ]
     },
     "scripts/ci-full-result.py": {
@@ -1938,6 +1952,7 @@
         "scripts/ci-formal-process-outputs-and-backpressure.test.py",
         "scripts/ci-formal-process-process-part1.test.py",
         "scripts/ci-formal-process-process-part2.test.py",
+        "scripts/ci-formal-process-distfs-and-private.test.py",
         "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/ci-workspace-cache.test.py",
@@ -2080,7 +2095,8 @@
         "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py",
         "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py",
         "scripts/plan-rust-required-scope-selection-part1.test.py",
-        "scripts/plan-rust-required-scope-selection-part2.test.py"
+        "scripts/plan-rust-required-scope-selection-part2.test.py",
+        "scripts/plan-rust-required-scope-selection-part3.test.py"
       ]
     },
     "scripts/plan-rust-required-scope.test.py": {
@@ -2136,6 +2152,10 @@
     "scripts/plan-rust-required-scope-selection-part2.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/plan-rust-required-scope-selection-part2.test.py"]
+    },
+    "scripts/plan-rust-required-scope-selection-part3.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-selection-part3.test.py"]
     },
     "scripts/ci-governance-preview.py": {
       "group": "workflow_governance",
