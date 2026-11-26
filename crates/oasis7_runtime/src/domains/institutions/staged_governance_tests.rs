@@ -61,7 +61,7 @@ fn staged_governance_proposal_lifecycle_links_v2_sidecar_digest_and_fences_failu
     let env_initial = assert_v2_envelope_linked(&world);
     let proposal_id = 1;
     let next_manifest = Manifest {
-        version: world.manifest.version.saturating_add(1),
+        version: world.manifest().version.saturating_add(1),
         content: serde_json::json!({"staged_proposal": true}),
     };
     let next_hash = crate::util::hash_json(&next_manifest).expect("manifest hash");
