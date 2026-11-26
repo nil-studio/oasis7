@@ -65,7 +65,7 @@ impl World {
         })
     }
 
-    fn state_root_hash_for_state(&self, state: &WorldState) -> Result<String, WorldError> {
+    pub(in crate::world) fn state_root_hash_for_state(&self, state: &WorldState) -> Result<String, WorldError> {
         let manifest_hash = self.current_manifest_hash()?;
         let policy_hash = hash_json(&self.policies)?;
         state_root_hash(&StateRootProjection {

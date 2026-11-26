@@ -9,6 +9,7 @@ use super::{ActionEnvelope, World, WorldError};
 mod factory_authority;
 mod factory_quote;
 mod recipe_quote;
+mod staged_writes;
 
 pub use factory_quote::{BuiltinFactoryStartPreview, NativeBuiltinFactoryQuote};
 pub use recipe_quote::{BuiltinRecipeStartPreview, NativeBuiltinRecipeQuote};

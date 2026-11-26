@@ -61,7 +61,7 @@ mod action_to_event_policy_contract_rejection;
 mod core_policy_root;
 mod main_token;
 pub(super) mod prepared_governance_events;
-mod publication;
+pub(in crate::world) mod publication;
 
 use publication::PreparedEventStateDelta;
 
