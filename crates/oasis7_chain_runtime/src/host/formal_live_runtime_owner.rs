@@ -28,6 +28,13 @@ mod control_wire;
 use control_wire::{bounded_reason, read_message, write_message};
 #[path = "formal_live_runtime_owner_control.rs"]
 mod control;
+#[path = "formal_live_runtime_owner_original_pending.rs"]
+mod original_pending;
+pub(super) use original_pending::{operation_root, owner_root, paths};
+pub(crate) use original_pending::{
+    cold_read_original_pending_for_owner, freeze_original_pending,
+    read_original_pending_pin_candidate,
+};
 #[cfg(test)]
 use control::control_work_timeout;
 use control::{send_control, send_control_on_stream};
@@ -115,6 +122,8 @@ pub(crate) enum DurableSetControlRequestV1 {
 #[serde(deny_unknown_fields)]
 struct ControlReply {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    original_pending_pin: Option<super::super::formal_live_original_pending_producer::OriginalPendingPinV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     prepared_transition:
         Option<oasis7_distfs::controlled_authority::formal::SignedNormalDurableSetTransitionV1>,
     api_version: String,
@@ -131,43 +140,6 @@ struct ControlReply {
 #[path = "formal_live_owner_diagnostics.rs"]
 mod diagnostics;
 use diagnostics::{WorkerDiagnostics, append_worker_diagnostic};
-
-fn owner_root(config_path: &Path) -> Result<PathBuf, String> {
-    let validated = FormalLiveConfigV1::load(config_path)?;
-    Ok(validated.config.writer_directory.join("runtime-owner"))
-}
-
-fn operation_root(root: &Path, operation_id: &str) -> Result<PathBuf, String> {
-    if operation_id.is_empty()
-        || operation_id.len() > 128
-        || !operation_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-_:".contains(&byte))
-    {
-        return Err("invalid formal runtime owner operation identity".into());
-    }
-    let digest = super::super::node_lifecycle::local_io::digest(&operation_id)?;
-    Ok(root.join("operations").join(digest))
-}
-
-fn prepare_operation_root(root: &Path, operation_id: &str) -> Result<PathBuf, String> {
-    super::super::node_lifecycle::local_io::private_dir(root)?;
-    let operations = root.join("operations");
-    super::super::node_lifecycle::local_io::private_dir(&operations)?;
-    let operation = operation_root(root, operation_id)?;
-    super::super::node_lifecycle::local_io::private_dir(&operation)?;
-    Ok(operation)
-}
-
-fn paths(config_path: &Path, operation_id: &str) -> Result<(PathBuf, PathBuf, PathBuf), String> {
-    let root = owner_root(config_path)?;
-    let operation = operation_root(&root, operation_id)?;
-    Ok((
-        root,
-        operation.join("owner.json"),
-        socket_path(config_path, operation_id)?,
-    ))
-}
 
 fn socket_path(config_path: &Path, operation_id: &str) -> Result<PathBuf, String> {
     let uid = unsafe { libc::geteuid() };
@@ -851,22 +823,46 @@ fn run_owner_with_fixed_trust(
     let initial_authority =
         super::super::formal_live_history::verified_startup_authority(&validated)?;
     let node_id = validated.config.node_id.clone();
-    // Restore and verify lineage before binding the immutable attempt identity.
-    // An open runtime does not serve until the receipt and socket are ready.
-    let restored = FormalLiveRuntime::open_from_validated_with_native_history(validated);
+    let incarnation = super::super::node_lifecycle::local_io::random_id()?;
+    let original_pending_directory = operation_root.join("original-pending");
+    super::super::node_lifecycle::local_io::private_dir(&original_pending_directory)?;
+    let original_owner =
+        super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+            authority_id: initial_authority.authority_id().map_err(|error| error.to_string())?,
+            operation_id: operation_id.into(),
+            request_digest: request_digest.into(),
+            config_digest: config_digest_value.clone(),
+            incarnation: incarnation.clone(),
+        };
+    let original_owner_authority_id = original_owner.authority_id.clone();
+    let original_pending = std::sync::Arc::new(std::sync::Mutex::new(
+        super::super::formal_live_original_pending_producer::OriginalPendingProducerV1::open(
+            &original_pending_directory,
+            original_owner,
+        )?,
+    ));
+    let restored = FormalLiveRuntime::open_from_validated_with_original_pending_owner_adapter(
+        validated,
+        std::sync::Arc::clone(&original_pending),
+        original_pending_directory,
+    );
     let active = restored
         .as_ref()
         .map_or(&initial_authority, |runtime| runtime.active_authority());
+    let active_authority_id = active.authority_id().map_err(|error| error.to_string())?;
+    if active_authority_id != original_owner_authority_id {
+        return Err("original pending owner authority differs from restored runtime".into());
+    }
     let instance = FormalRuntimeInstanceV1 {
         api_version: OWNER_API.into(),
         operation_id: operation_id.into(),
         request_digest: request_digest.into(),
-        incarnation: super::super::node_lifecycle::local_io::random_id()?,
+        incarnation,
         config_digest: config_digest_value,
         node_id,
         world_id: active.definition().world.world_id.clone(),
         chain_id: active.definition().world.chain_id.clone(),
-        authority_id: active.authority_id().map_err(|error| error.to_string())?,
+        authority_id: active_authority_id,
         authority_epoch: active.definition().epoch,
         profile_version: active.definition().profile_version,
         process_id: std::process::id(),
@@ -982,6 +978,7 @@ fn run_owner_with_fixed_trust(
                     let mut durable_set_status = None;
                     let mut prepared_transition = None;
                     let mut protected_observation = None;
+                    let mut original_pending_pin = None;
                     match request.action.as_str() {
                         "query" => {}
                         "observe_protected" => {
@@ -999,6 +996,19 @@ fn run_owner_with_fixed_trust(
                             write_owner_record(&state_path, snapshot.clone())?;
                             runtime
                                 .stop(stop_deadline.saturating_duration_since(Instant::now()))?;
+                            snapshot.state = "stopped".into();
+                            write_owner_record(&state_path, snapshot.clone())?;
+                        }
+                        "freeze_original_pending" => {
+                            if !matches!(snapshot.state.as_str(), "ready" | "unknown" | "stopping") {
+                                return Err("original pending freeze requires the exact live owner".into());
+                            }
+                            stop_started = true;
+                            snapshot.state = "stopping".into();
+                            write_owner_record(&state_path, snapshot.clone())?;
+                            original_pending_pin = Some(runtime.freeze_original_pending(
+                                Duration::from_millis(request.timeout_ms),
+                            )?);
                             snapshot.state = "stopped".into();
                             write_owner_record(&state_path, snapshot.clone())?;
                         }
@@ -1052,6 +1062,7 @@ fn run_owner_with_fixed_trust(
                             snapshot: snapshot.clone(),
                             durable_set_status,
                             prepared_transition,
+                            original_pending_pin,
                             control_error: None,
                             protected_observation,
                         },
@@ -1059,7 +1070,7 @@ fn run_owner_with_fixed_trust(
                     stream
                         .shutdown(Shutdown::Both)
                         .map_err(|error| format!("close owner control reply: {error}"))?;
-                    Ok(request.action == "stop")
+                    Ok(request.action == "stop" || request.action == "freeze_original_pending")
                 })();
                 match result {
                     Ok(true) => return Ok(()),
@@ -1079,6 +1090,7 @@ fn run_owner_with_fixed_trust(
                                     snapshot: snapshot.clone(),
                                     durable_set_status: None,
                                     prepared_transition: None,
+                                    original_pending_pin: None,
                                     control_error: Some(bounded_reason(&error)),
                                     protected_observation: None,
                                 },
@@ -1098,8 +1110,9 @@ fn run_owner_with_fixed_trust(
                                 snapshot: snapshot.clone(),
                                 durable_set_status: None,
                                 prepared_transition: None,
+                                original_pending_pin: None,
                                 control_error: Some(bounded_reason(&error)),
-                                    protected_observation: None,
+                                protected_observation: None,
                             },
                         );
                         if snapshot.state == "stopped" {
