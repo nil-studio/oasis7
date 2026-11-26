@@ -22,6 +22,7 @@ mod private_retention_input;
 mod rotation;
 mod service;
 mod state;
+mod successor_archive_chain;
 mod successor_archive_store;
 mod successor_manifest;
 mod successor_source;
