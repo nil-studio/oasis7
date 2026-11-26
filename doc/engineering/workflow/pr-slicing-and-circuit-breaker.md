@@ -4,10 +4,13 @@
 
 ## 1. 前置契约 Draft PR 工作流（Scope-Lock Before Coding）
 
-为防止 PR 实现偏离设计，同时避免多切片基线过期：
+为防止代码 Issue 在拆解后因未核算硬门禁而在实现期跑偏、临场拆微 PR 或跨层越界，同时避免多切片基线过期：
 
-1. **Issue 全景锚定：** 在代码 Issue 拆解阶段明确列出计划串行切片序列（每个计划切片的 `Slice-Type`、`Allowed-Crates`、核心交付物与 `Non-Goals`）。
-2. **单飞契约 Draft PR：** 每次仅针对**当前动工的那 1 个切片**基于最新 `main` 创建空提交（`git commit --allow-empty`）并建立 Draft PR，在 PR 描述顶部锁死 `Slice-Type` 与 `Allowed-Crates` 白名单后，再在分支内编写实现代码；若复用预先创建的空壳分支，动工第一步必须执行 `git fetch origin main && git rebase origin/main` 刷新基线。
+1. **Issue 全景锚定（前置锁定预计 PR 总数与逐片边界）：** 在代码 Issue 新建或拆解阶段（见[预计 PR 边界](source-of-truth.md#planned-pr-scope)），须对照当前 `main` 盘点真实受影响的 `crates/*`、所属 `L0..L3` 架构环、消费者扇出与预计非锁文件改动行数，显式写出**预计 PR 总数（`N`）**及有序切片序列（逐片列明 `PR k/N`、`Slice-Type`、`Allowed-Crates` 白名单、预计行数/文件数、核心交付物与 `Active-Path-Impact`、`Non-Goals`），严禁留“实施时视情况拆分”等模糊占位：
+   - 仅当改动同时满足 `<= 30` 个代码文件、`<= 3` 个 `crates/*`、`<= 2` 个相邻架构环（`max_ring - min_ring <= 1`）且符合对应单切片行数与活跃路径上限时，方可规划为 `预计 1 PR`；
+   - 受影响消费者超过 `3` 个 Crate 或跨越非相邻环时，须在拆单时即按每批 `<= 3` 个相邻环 Crate 拆出确定的多批 `Adapter` / `Cutover` 序列；若单个子 Issue 预排切片超过 **3–4 个串行 PR** 且包含可独立交付的能力簇或消费者组，应直接拆分为独立[原生 sub-issue](source-of-truth.md#code-task-sub-issues)；
+   - **存量/在途 Issue 接手补锚：** 对尚未给出明确剩余 PR 数量与逐片白名单的历史开放 Issue，执行者在接手或新开下一个 PR 前，必须先盘点当前 `main` 剩余差异并在原 Issue 补齐剩余 `1..N` 切片计划，再启动编码。
+2. **单飞契约 Draft PR（`1:1` 映射预定切片）：** 每次仅针对计划序列中**当前动工的第 `k/N` 个切片**基于最新 `main` 创建空提交（`git commit --allow-empty`）并建立 Draft PR，在 PR 描述顶部原样锁死该切片预定的 `Slice-Type`、`Allowed-Crates` 与 `Planned-Slice: k/N` 后，再在分支内编写实现代码；若复用预先创建的空壳分支，动工第一步必须执行 `git fetch origin main && git rebase origin/main` 刷新基线。编码前或编码中若发现真实依赖与原定切片数量或 `Allowed-Crates` 不符，须**先停笔**在原 Issue 说明原因并更新切片计划（已越界分支按第 4 节拆骨），严禁无计划私自扩写白名单外 Crate、擅自增拆微 PR 或合并多个预定切片。
 3. **零改动契约态免检：** 当分支处于 `0` 文件改动的纯契约占位态时，`PR Boundary Gate` 仅核验 `Slice-Type` 与 `Allowed-Crates` 元数据完整性即短路放行，重型编译 CI 自动跳过。
 
 ## 2. 三段式“暗发布”切片模型（Dark-Launch Slicing）
@@ -20,7 +23,7 @@
 | **兼容适配单** | `[Slice: Adapter]` | `<= 600` 行 | 在投影、服务、客户端或 Harness 补齐类型转换与双路径读取兼容，保持主干旧链路 100% 可用。 | 核对边界转换与兼容性 Fixture |
 | **状态机切换单** | `[Slice: Cutover]` | `<= 150` 行 | 将已合入 `main` 的暗代码接线至 `actions_resolution`、运行时路由或 Viewer 入口并清理旧开关。**严禁顺手夹带新业务逻辑或无关重构。** | 集中精力深度审查规则与安全边界 |
 
-*(注：独立小修补与纯文档/脚本维护可分别使用 `[Slice: Bugfix]` `<= 400` 行、`[Slice: Docs]` / `[Slice: Chore]` `<= 1200` 行；其中 `[Slice: Docs]` 禁止修改任何 `crates/*` 文件。)*
+*(注：独立小修补与纯文档/机械维护可分别使用 `[Slice: Bugfix]` `<= 400` 行、`[Slice: Docs]` / `[Slice: Chore]` `<= 1200` 行；其中 `[Slice: Docs]` 禁止修改任何 `crates/*` 文件，`[Slice: Chore]` 仅限无语义变化的纯机械维护如测试/样式文件切分、工具配置与格式化，**严禁将新业务/宿主实现或跨层入口切换伪装为 `[Slice: Chore]` 规避 `Dark -> Adapter -> Cutover` 串行切片**。)*
 
 ## 3. L0–L3 架构环隔离与白名单红线（Architecture Ring & Whitelist Limits）
 
