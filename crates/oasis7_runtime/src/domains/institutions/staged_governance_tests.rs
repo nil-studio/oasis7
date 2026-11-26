@@ -252,23 +252,49 @@ fn staged_organization_continuity_write_links_v2_commitment_envelope() {
     };
     world.append_event_for_test(WorldEventBody::Domain(alliance), None).expect("form alliance");
 
+    let command = WorldRuleCommandV1::OrganizationContinuity {
+        command: OrganizationContinuityCommandV1::Enable {
+            organization_id: "org-1".into(),
+            expected_charter_hash,
+            governance_proposal_key: "enable-org-1".into(),
+            designated_successors: charter.designated_successors,
+            neutral_maintainers: charter.neutral_maintainers,
+            appointment_authorities: charter.appointment_authorities,
+            remedy_adjudicators: charter.remedy_adjudicators,
+            residual_share_bps: charter.residual_share_bps,
+        },
+    };
+    let description = oasis7_agent_api::world_action::world_rule_proposal_description(&command)
+        .expect("proposal description");
+    world.state.governance_proposals.insert(
+        "enable-org-1".into(),
+        crate::GovernanceProposalState {
+            proposal_key: "enable-org-1".into(),
+            proposer_agent_id: "owner".into(),
+            title: "enable org".into(),
+            description,
+            options: vec!["yes".into(), "no".into()],
+            voting_window_ticks: 10,
+            quorum_weight: 1,
+            pass_threshold_bps: 5_000,
+            opened_at: 0,
+            closes_at: 10,
+            status: crate::GovernanceProposalStatus::Passed,
+            finalized_at: Some(1),
+            winning_option: Some("yes".into()),
+            winning_weight: 1,
+            total_weight_at_finalize: 1,
+            snapshot_at_tick: 0,
+            vote_weight_snapshot: BTreeMap::new(),
+        },
+    );
+
     let env_before = assert_v2_envelope_linked(&world);
     let org_enable_body = WorldEventBody::Domain(DomainEvent::WorldRuleCommitted {
         action_id: 0,
         actor_id: "owner".into(),
         request_id: "org-enable-staged-1".into(),
-        command: WorldRuleCommandV1::OrganizationContinuity {
-            command: OrganizationContinuityCommandV1::Enable {
-                organization_id: "org-1".into(),
-                expected_charter_hash,
-                governance_proposal_key: "enable-org-1".into(),
-                designated_successors: charter.designated_successors,
-                neutral_maintainers: charter.neutral_maintainers,
-                appointment_authorities: charter.appointment_authorities,
-                remedy_adjudicators: charter.remedy_adjudicators,
-                residual_share_bps: charter.residual_share_bps,
-            },
-        },
+        command,
         governance_epoch: world.current_governance_epoch(),
         world_binding: world.world_rule_binding(),
     });
