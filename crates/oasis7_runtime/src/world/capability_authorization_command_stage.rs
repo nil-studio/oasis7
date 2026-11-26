@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::super::state::{CommandStateOverlay, WorldStateProjection};
+use super::super::capability_authorization::CapabilityInvocationContext;
 use super::super::{
     CapabilityAuthorizationEvent, EffectIntent, EffectOrigin, ModuleManifest,
     ModuleRuntimeChargeEvent, PolicyDecisionRecord, WorldError, WorldEvent, WorldEventBody,
@@ -21,6 +22,7 @@ use super::super::{
 };
 use super::World;
 use super::prepared_base_head::WorldPreparedBaseHead;
+use super::transition::{RootInstallContext, SubsystemDelta};
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_agent_api::world_entity::ModuleVisualEntity;
 
@@ -108,6 +110,8 @@ pub(super) struct PreparedCapabilityAuthorizationProjection {
     pub(super) capability_budget_accounts: BTreeMap<String, super::super::CapabilityBudgetAccount>,
     pub(super) capability_effect_receipt_links:
         BTreeMap<String, super::super::CapabilityEffectReceiptLink>,
+    pub(super) capability_invocation_contexts:
+        Option<BTreeMap<String, CapabilityInvocationContext>>,
     pub(super) capability_authorization_root: String,
 }
 
@@ -121,8 +125,8 @@ pub(super) struct PreparedModuleTickRoutingSample {
 }
 
 /// All state that a trusted command can publish after validation.
-pub(super) struct PreparedTrustedCommand {
-    pub(super) base_head: WorldPreparedBaseHead,
+pub(crate) struct PreparedTrustedCommand {
+    pub(in crate::world) base_head: WorldPreparedBaseHead,
     pub(super) module_cache_additions: Vec<ModuleArtifact>,
     pub(super) module_states: BTreeMap<String, Vec<u8>>,
     pub(super) module_visual_entities: BTreeMap<String, ModuleVisualEntity>,
@@ -138,7 +142,7 @@ pub(super) struct PreparedTrustedCommand {
     pub(super) journal_events_evicted: u64,
     pub(super) module_tick_schedule: BTreeMap<String, WorldTime>,
     pub(super) module_tick_routing_sample: Option<PreparedModuleTickRoutingSample>,
-    pub(super) consensus_record: Option<super::super::TickConsensusRecord>,
+    pub(in crate::world) consensus_record: Option<super::super::TickConsensusRecord>,
     pub(super) capability_authorization: Option<PreparedCapabilityAuthorizationProjection>,
 }
 
@@ -479,7 +483,8 @@ impl<'a> TrustedCommandStage<'a> {
     pub(super) fn append_event(&mut self, body: WorldEventBody) -> Result<u64, WorldError> {
         match &body {
             WorldEventBody::CapabilityAuthorization(
-                CapabilityAuthorizationEvent::CommandCommitted { .. },
+                CapabilityAuthorizationEvent::CommandCommitted { .. }
+                | CapabilityAuthorizationEvent::InvocationContextInstalled { .. },
             ) => {}
             WorldEventBody::PolicyDecisionRecorded(_) => {}
             WorldEventBody::ModuleEmitted(event) => {
@@ -897,13 +902,7 @@ impl PreparedTrustedCommand {
         self
     }
 
-    pub(super) fn install(self, world: &mut World) -> Result<(), WorldError> {
-        if WorldPreparedBaseHead::capture(world)? != self.base_head {
-            return Err(WorldPreparedBaseHead::stale_error());
-        }
-        if let Some(consensus_record) = self.consensus_record {
-            world.install_prepared_tick_consensus_record(consensus_record)?;
-        }
+    pub(super) fn apply_fields_infallible(self, world: &mut World) {
         for artifact in self.module_cache_additions {
             world.module_cache.insert(artifact);
         }
@@ -948,8 +947,30 @@ impl PreparedTrustedCommand {
             world.capability_authorization_receipts = projection.capability_authorization_receipts;
             world.capability_budget_accounts = projection.capability_budget_accounts;
             world.capability_effect_receipt_links = projection.capability_effect_receipt_links;
+            if let Some(contexts) = projection.capability_invocation_contexts {
+                world.capability_invocation_contexts = contexts;
+            }
             world.capability_authorization_root = projection.capability_authorization_root;
         }
+    }
+
+    pub(super) fn install(mut self, world: &mut World) -> Result<(), WorldError> {
+        if WorldPreparedBaseHead::capture(world)? != self.base_head {
+            return Err(WorldPreparedBaseHead::stale_error());
+        }
+        if let Some(consensus_record) = self.consensus_record.take() {
+            world.install_prepared_tick_consensus_record(consensus_record)?;
+        }
+        self.apply_fields_infallible(world);
         Ok(())
+    }
+}
+
+#[allow(dead_code)] // adapter: #6142
+pub(crate) struct TrustedCommandDelta(pub(crate) PreparedTrustedCommand);
+
+impl SubsystemDelta for TrustedCommandDelta {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        self.0.apply_fields_infallible(ctx.world_mut());
     }
 }
