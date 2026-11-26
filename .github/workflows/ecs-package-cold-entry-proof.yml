@@ -1,0 +1,202 @@
+name: ECS runtime cold entry from genuine historical artifacts
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/ecs-package-cold-entry-proof-base]
+    paths: [.github/workflows/ecs-package-cold-entry-proof.yml]
+permissions:
+  contents: read
+  actions: read
+  packages: read
+cache-mode: none
+jobs:
+  replay:
+    if: github.repository == 'nil-studio/oasis7' && github.base_ref == 'codex/ecs-package-cold-entry-proof-base' && github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/ecs-package-cold-entry-proof'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      HISTORICAL_SOURCE: 774f9c994b4b71a149740506fd1b8c17ba63b66f
+      HISTORICAL_RUN: '44973074594'
+      HISTORICAL_ATTEMPT: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 774f9c994b4b71a149740506fd1b8c17ba63b66f
+          persist-credentials: false
+      - name: Verify historical business source
+        run: |
+          test "$(git rev-parse HEAD)" = "$HISTORICAL_SOURCE"
+          test -z "$(git status --porcelain)"
+      - name: Download genuine inputs and historic host output for comparison
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I - <<'PY'
+          import concurrent.futures, hashlib, json, os, shutil, stat
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.parse import urlparse
+          from urllib.request import Request, HTTPRedirectHandler, build_opener
+          from zipfile import ZipFile
+
+          archive = 'oasis7-ecs-linux-x64-81-774f9c994b4b.tar.gz'
+          scratch = Path(os.environ['RUNNER_TEMP'])
+          references = {
+              'ecs-native-stage': (14736454251, '245572b9084ed981aedc4be2d06e3d9c4bb2d6ac3e7de8cf2141146a995e23df', {'native.tar.gz': Path('output/native.tar.gz')}),
+              'ecs-web-stage': (14734867286, '63586e6cd5c59d17333a88886282a9374b072af1e288015306d9fdc7e0a5ae16', {'web.tar.gz': Path('output/web.tar.gz')}),
+              'ecs-cold-entry-probe-stage': (14736503767, '4732f613c8b3c5857e6eb8bcb4e408b15b6e94c31741875fb3d1fcd89f66e8a4', {'cold_entry_probe': Path('output/cold-entry-probe/cold_entry_probe')}),
+              'oasis7-ecs-linux-x64': (14737118972, '7f44622b92808da7307adc1d5b8235c9788ac9afb900805be322186d7473a609', {archive: scratch / archive, archive+'.sha256': scratch / (archive+'.sha256')}),
+              'ecs-cold-entry-verification': (14737462391, '351bd323772c1dd085b5319d47da4d394dd3252eabd4ebbcba1371836ceea05d', {'receipt.json': scratch / 'historical-ecs-receipt.json'}),
+          }
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, msg, headers, url):
+                  return None
+          api = build_opener(NoRedirect())
+          headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'}
+          base = 'https://api.github.com/repos/nil-studio/oasis7/actions'
+          def request(url):
+              return api.open(Request(url, headers=headers), timeout=25)
+          run, attempt, source = (os.environ[key] for key in ('HISTORICAL_RUN', 'HISTORICAL_ATTEMPT', 'HISTORICAL_SOURCE'))
+          with request(base + '/runs/' + run) as response:
+              metadata = json.load(response)
+          assert (str(metadata['id']), str(metadata['run_attempt']), metadata['head_sha'], metadata['run_number'], metadata['conclusion']) == (run, attempt, source, 81, 'success')
+          def restore(item):
+              name, (artifact_id, sha, allowed) = item
+              url = base + '/artifacts/' + str(artifact_id)
+              with request(url) as response:
+                  metadata = json.load(response)
+              assert (metadata['id'], metadata['name'], metadata['digest'], metadata['expired']) == (artifact_id, name, 'sha256:'+sha, False)
+              assert str(metadata['workflow_run']['id']) == run and metadata['workflow_run']['head_sha'] == source
+              try:
+                  with request(url + '/zip'):
+                      raise RuntimeError('expected an object URL without credentials')
+              except HTTPError as response:
+                  assert response.code == 302
+                  redirect = response.headers['Location']
+              origin = urlparse(redirect)
+              assert origin.scheme == 'https' and origin.hostname and not origin.username and not origin.password
+              zipped = scratch / f'{artifact_id}.zip'
+              digest = hashlib.sha256()
+              with api.open(redirect, timeout=60) as response, zipped.open('xb') as out:
+                  received = 0
+                  for block in iter(lambda: response.read(1024**2), b''):
+                      received += len(block)
+                      assert received <= 300 * 1024**2
+                      out.write(block)
+                      digest.update(block)
+              assert digest.hexdigest() == sha
+              with ZipFile(zipped) as package:
+                  assert sorted(package.namelist()) == sorted(allowed)
+                  assert all(item.file_size <= 300 * 1024**2 and not stat.S_ISLNK(item.external_attr >> 16) for item in package.infolist())
+                  for member, destination in allowed.items():
+                      destination.parent.mkdir(parents=True, exist_ok=True)
+                      with package.open(member) as payload, destination.open('xb') as out:
+                          shutil.copyfileobj(payload, out)
+              zipped.unlink()
+              print(f'verified {artifact_id} {name} {sha}', flush=True)
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+              list(pool.map(restore, references.items()))
+          PY
+      - name: Assemble versioned ECS bundle
+        env:
+          SOURCE_SHA: 774f9c994b4b71a149740506fd1b8c17ba63b66f
+          RUN_NUMBER: '81'
+        run: |
+          mkdir -p output/native output/web
+          tar -xzf output/native.tar.gz -C output/native
+          tar -xzf output/web.tar.gz -C output/web
+          python3 scripts/package-ecs.py assemble --native output/native --web output/web --out output/ecs
+          asset="oasis7-ecs-linux-x64-${RUN_NUMBER}-${SOURCE_SHA:0:12}.tar.gz"
+          tar -C output/ecs -czf "output/$asset" .
+          (cd output && sha256sum "$asset" > "$asset.sha256")
+      - name: Verify original native ELF loader closure
+        run: |
+          for executable in output/ecs/bin/* output/cold-entry-probe/cold_entry_probe; do
+            file --brief "$executable" | grep -E 'ELF 64-bit LSB .*x86-64'
+            dependencies=$(ldd "$executable")
+            printf '%s\n' "$dependencies"
+            if grep -F 'not found' <<<"$dependencies"; then exit 1; fi
+          done
+      - name: Verify assembled bundle through actual cold entry services
+        id: cold_entry_smoke
+        timeout-minutes: 15
+        run: |
+          evidence_dir="$(realpath -- "$RUNNER_TEMP")/ecs-cold-entry-live"
+          printf 'receipt=%s/receipt.json\n' "$evidence_dir" >>"$GITHUB_OUTPUT"
+          test "$(id -u):$(id -g)" = 1001:1001
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          openssl version
+          for package in openssl libx11-6 libxi6 libxcursor1 libxrandr2 libxinerama1 libasound2t64 libudev1; do
+            test "$(dpkg-query -W -f='${db:Status-Status}' "$package")" = installed
+            dpkg-query -W "$package"
+          done
+          chmod 700 output/cold-entry-probe/cold_entry_probe
+          python3 scripts/package-ecs-cold-entry-smoke.py \
+            --bundle "$GITHUB_WORKSPACE/output/ecs" \
+            --probe-binary "$GITHUB_WORKSPACE/output/cold-entry-probe/cold_entry_probe" \
+            --evidence-directory "$evidence_dir" --timeout-seconds 600
+      - name: Compare the assembled files and actual cold service receipt with historic host
+        run: |
+          asset=oasis7-ecs-linux-x64-81-774f9c994b4b.tar.gz
+          (cd output && sha256sum -c "$asset.sha256")
+          (cd "$RUNNER_TEMP" && sha256sum -c "$asset.sha256")
+          ASSET="$asset" python3 -I - <<'PY'
+          from hashlib import file_digest
+          import json, os, tarfile
+          from pathlib import Path, PurePosixPath
+
+          def inventory(archive):
+              files = {}
+              with tarfile.open(archive, 'r|gz') as content:
+                  for member in content:
+                      path = PurePosixPath(member.name)
+                      assert not path.is_absolute() and '..' not in path.parts and str(path) not in files
+                      assert member.isdir() or member.isfile()
+                      sha = file_digest(content.extractfile(member), 'sha256').hexdigest() if member.isfile() else None
+                      files[str(path)] = (member.type, member.mode, member.size, sha)
+              return files
+
+          scratch = Path(os.environ['RUNNER_TEMP'])
+          asset = os.environ['ASSET']
+          reference = inventory(scratch / asset)
+          actual = inventory(Path('output', asset))
+          assert reference == actual
+          print(f'identical package inventory: {len(actual)} entries; {sum(value[-1] is not None for value in actual.values())} files')
+          def receipt(path):
+              record = json.loads(path.read_text())
+              assert record['state'] == 'passed' and record['kind'] == 'actual_service_integration_fixture'
+              assert record['model_runtime_playtest'] is False and record['response_losses_recovered'] == 2
+              assert record['canonical_originals_unchanged'] is True
+              restart = record['committed_policy_restart']
+              assert all(restart[key] is True for key in ('production_chain_restarted', 'original_argv_preserved', 'canonical_owner_read_verified'))
+              assert restart['before_position'] == restart['after_position']
+              return record
+          old = receipt(scratch / 'historical-ecs-receipt.json')
+          new = receipt(scratch / 'ecs-cold-entry-live/receipt.json')
+          print(f'original TLS and service receipts verified; host positions {old["committed_policy_restart"]["before_position"]}, image positions {new["committed_policy_restart"]["before_position"]}')
+          PY
+      - name: Upload public cold entry verification receipt
+        if: always() && steps.cold_entry_smoke.outcome != 'skipped'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: proof-ecs-cold-entry-verification
+          path: ${{ steps.cold_entry_smoke.outputs.receipt }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: proof-oasis7-ecs-linux-x64
+          path: |
+            output/oasis7-ecs-linux-x64-*.tar.gz
+            output/oasis7-ecs-linux-x64-*.tar.gz.sha256
+          if-no-files-found: error
+
