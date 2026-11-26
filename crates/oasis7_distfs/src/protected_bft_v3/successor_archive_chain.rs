@@ -1,9 +1,12 @@
 //! Original successor archive chain reader. An authenticated tip/root must be
 //! supplied externally; the returned data never grants protected signing,
 //! read-contract-4 access, a minimum checkpoint, or a FullReadOnly install.
+use std::collections::BTreeMap;
+
 use super::binding::{BftSignerErrorV3, invalid};
 use super::{
-    BFT_SUCCESSOR_WINDOW_MAX_SEGMENTS_V1, BftSuccessorWindowArchiveKindV1,
+    BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1, BFT_SUCCESSOR_WINDOW_MAX_SEGMENTS_V1,
+    BftSuccessorWindowArchiveKindV1,
     BftSuccessorWindowArchiveManifestV1, BftSuccessorWindowArchiveRefV1,
     BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowSourceV1,
     LocalBftSuccessorArchiveStoreV1,
@@ -40,6 +43,8 @@ impl LocalBftSuccessorArchiveStoreV1 {
         let mut previous_usage = BftSuccessorWindowArchiveUsageV1::default();
         let mut previous_height = source.handoff_position;
         let mut manifests = Vec::with_capacity(chain.len());
+        let mut checked_objects = BTreeMap::<String, u64>::new();
+        let mut checked_bytes = 0_u64;
 
         for (index, (reference, root)) in chain.iter().enumerate() {
             let manifest = self.load_manifest(reference, root)?;
@@ -56,12 +61,30 @@ impl LocalBftSuccessorArchiveStoreV1 {
             manifest.usage.validate_after(&previous_usage)?;
 
             // A verified metadata root alone cannot authenticate the underlying
-            // object: reopen the original immutable bytes and check their CAS
-            // length/hash before accepting this segment. Only one object is
-            // retained in memory at a time (never the whole chain's payload).
+            // object. Cold-open each distinct immutable object once, bound total
+            // physical read bytes to the advertised cumulative protected budget,
+            // and do not let repeated refs turn a 4 GiB archive into unbounded I/O.
             for entry in &manifest.entries {
+                if let Some(length) = checked_objects.get(&entry.object.digest) {
+                    if *length != entry.object.bytes {
+                        return Err(invalid("successor archived object length conflict"));
+                    }
+                    continue;
+                }
+                checked_bytes = checked_bytes
+                    .checked_add(entry.object.bytes)
+                    .ok_or_else(|| invalid("successor archive cumulative read overflow"))?;
+                if checked_bytes > BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1
+                    || checked_bytes > manifest.usage.total_bytes
+                    || u64::try_from(checked_objects.len() + 1)
+                        .map_err(|_| invalid("successor archive object count overflow"))?
+                        > manifest.usage.objects
+                {
+                    return Err(invalid("successor archive cumulative object budget mismatch"));
+                }
                 let original = self.load_object(&entry.object, MAX_ORIGINAL_OBJECT_BYTES)?;
                 entry.object.validate_bytes(&original)?;
+                checked_objects.insert(entry.object.digest.clone(), entry.object.bytes);
             }
             previous_root = Some(root.clone());
             previous_height = manifest.last_height;
@@ -198,6 +221,33 @@ mod tests {
                 kind,
                 &[(ref_a, root_a), (gap_ref, gap_root.clone())],
                 &gap_root,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn original_chain_rejects_cross_segment_cumulative_underreport() {
+        let scratch = Scratch::new();
+        let source = source();
+        let kind = BftSuccessorWindowArchiveKindV1::Execution;
+        let store = scratch.store();
+        let a = store.persist_object(b"original-a", 64).unwrap();
+        let b = store.persist_object(b"original-b", 64).unwrap();
+        let first = manifest(&source, kind, 1, None, a, 10);
+        let root_a = first.digest().unwrap();
+        let ref_a = store.persist_manifest(&first).unwrap();
+        // Individually valid: one new 10-byte object, two cumulative object
+        // slots. But it fraudulently reuses the first segment's 10-byte
+        // cumulative budget instead of accounting for both distinct objects.
+        let second = manifest(&source, kind, 2, Some(root_a.clone()), b, 10);
+        let root_b = second.digest().unwrap();
+        let ref_b = store.persist_manifest(&second).unwrap();
+        assert!(store
+            .load_exact_successor_archive_chain_v1(
+                &source,
+                kind,
+                &[(ref_a, root_a), (ref_b, root_b.clone())],
+                &root_b,
             )
             .is_err());
     }
