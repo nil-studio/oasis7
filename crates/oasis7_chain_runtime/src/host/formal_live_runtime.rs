@@ -83,6 +83,7 @@ pub(crate) struct FormalLiveRuntime {
     history: Arc<dyn FormalLiveHistoryResolver>,
     state: FormalLiveState,
     admission_gate: Arc<Mutex<()>>,
+    original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
     durable_set_arm:
         Arc<super::execution_bridge::formal_durable_set_arm::FormalDurableSetArmControlV1>,
     server: Option<FormalHttpServer>,
@@ -240,6 +241,16 @@ impl FormalLiveRuntime {
     pub(crate) fn open_from_validated_with_native_history(
         validated: ValidatedFormalLiveConfigV1,
     ) -> Result<Self, String> {
+        Self::open_from_validated_with_original_pending_adapter(validated, None)
+    }
+
+    /// Explicit opt-in. A validated, exact original owner installs one shared
+    /// instance before the actual Node hook and HTTP ingress are constructed.
+    /// Ordinary production remains disabled until the final Cutover slice.
+    pub(crate) fn open_from_validated_with_original_pending_adapter(
+        validated: ValidatedFormalLiveConfigV1,
+        original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
+    ) -> Result<Self, String> {
         let identity_lease = acquire_runtime_identity(&validated)?;
         let timing = OpenTiming::new();
         let _open = timing.stage("open_total");
@@ -258,6 +269,7 @@ impl FormalLiveRuntime {
             Some(startup),
             &timing,
             identity_lease,
+            original_pending,
         )
     }
 
@@ -268,6 +280,7 @@ impl FormalLiveRuntime {
         startup: Option<super::formal_live_history::FormalLiveStartupAnchorV1>,
         timing: &OpenTiming,
         identity_lease: Arc<super::node_keypair_config::RuntimeIdentityLease>,
+        original_pending: Option<Arc<Mutex<super::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
     ) -> Result<Self, String> {
         validate_loaded_execution_policy(&validated)?;
         // Seed only content-addressed bytes from the exact configured initial
@@ -498,8 +511,12 @@ impl FormalLiveRuntime {
         );
         let hook = FormalNodeHook::new(writer)?
             .with_identity_lease(Arc::clone(&identity_lease))
-            .with_durable_set_arm(Arc::clone(&durable_set_arm), Arc::clone(&admission_gate))?
-            .with_publication_sink(sink)?;
+            .with_durable_set_arm(Arc::clone(&durable_set_arm), Arc::clone(&admission_gate))?;
+        let hook = match &original_pending {
+            Some(pending) => hook.with_original_pending_producer(Arc::clone(pending)),
+            None => hook,
+        };
+        let hook = hook.with_publication_sink(sink)?;
         let node_config = local_single_authority_node_config(&node_id, &world.world_id)?;
         let genesis = hook.genesis_bootstrap()?;
         let mut runtime = NodeRuntime::new(node_config);
@@ -522,6 +539,7 @@ impl FormalLiveRuntime {
             history,
             state: FormalLiveState::default(),
             admission_gate,
+            original_pending,
             durable_set_arm,
             server: None,
             stop_worker: None,
@@ -733,6 +751,10 @@ impl FormalLiveRuntime {
             self.state.clone(),
             Arc::clone(&self.admission_gate),
         );
+        let service = match &self.original_pending {
+            Some(pending) => service.with_original_pending_producer(Arc::clone(pending)),
+            None => service,
+        };
         let service = match full_sync_read_gate {
             Some(gate) => service.with_full_sync_read_gate(gate)?,
             None => service,
