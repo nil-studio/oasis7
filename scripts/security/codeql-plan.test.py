@@ -419,6 +419,59 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(deleted['selected_units'], ['rust-repo'])
                 self.assertIn(path, deleted['reasons']['rust-repo'])
 
+    def test_cache_sdk_metadata_routes_exact_add_modify_delete(self):
+        for path in ('.github/actions/cache-sdk/build-receipt.json',
+                     '.github/actions/cache-sdk/provenance.json', '.github/actions/cache-sdk/sdk-patch.json'):
+            for value in ('{"fixture":1}', '{"fixture":2}', None):
+                self.base = self.git('rev-parse', 'HEAD')
+                if value is None:
+                    (self.root / path).unlink()
+                else:
+                    self.write(path, value)
+                self.commit()
+                result = self.run_plan()
+                expected = ['python-repo'] if path.endswith('/build-receipt.json') else ['python-repo', 'javascript-repo']
+                self.assertEqual(result['candidate_units'], expected)
+                self.assertEqual(result['selected_units'], expected)
+                self.assertEqual(result['fallback_reasons'], [])
+                self.assertEqual(self.run_plan(batch_modes='{}')['selected_units'], [])
+
+    def test_cache_sdk_metadata_neighbors_remain_unregistered(self):
+        for path in ('.github/actions/cache-sdk/unknown.json', '.github/actions/other/provenance.json',
+                     '.github/actions/cache-sdk/nested/provenance.json',
+                     '.github/actions/cache-sdk/provenance.JSON',
+                     'vendor/actions-cache-explicit-context/provenance.json'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write(path, '{}'); self.commit()
+            for full in (False, True):
+                with self.subTest(path=path, full=full), self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan(full=full)
+
+    def test_cache_sdk_metadata_rename_validates_both_endpoints(self):
+        original = '.github/actions/cache-sdk/build-receipt.json'
+        known = '.github/actions/cache-sdk/provenance.json'
+        unknown = '.github/actions/cache-sdk/unknown.json'
+        self.write(original, '{"unique":"rename"}'); self.base = self.commit()
+        (self.root / original).rename(self.root / known); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'javascript-repo'])
+        for source, destination in ((known, unknown), (unknown, known)):
+            self.base = self.git('rev-parse', 'HEAD')
+            (self.root / source).rename(self.root / destination); self.commit()
+            with self.assertRaisesRegex(ValueError, 'unregistered input: ' + unknown):
+                self.run_plan()
+
+    def test_cache_sdk_metadata_preserves_old_rust_consumers_and_batch_hold(self):
+        path = '.github/actions/cache-sdk/sdk-patch.json'
+        self.write(path, '{}')
+        self.write('src/sdk.rs', 'const SDK: &str = include_str!("../' + path + '");')
+        self.base = self.commit()
+        (self.root / path).unlink(); (self.root / 'src/sdk.rs').unlink(); self.commit()
+        result = self.run_plan(batch_modes=json.dumps({'javascript-repo/default': 'observe'}))
+        self.assertEqual(result['candidate_units'], ['python-repo', 'javascript-repo', 'rust-repo'])
+        self.assertEqual(result['selected_units'], ['javascript-repo'])
+        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+
     def test_fixed_vendor_provenance_routes_to_python_and_rust_including_deletion(self):
         for path in ('vendor/if-watch-3.2.2/upstream-source-sha256.json',
                      'vendor/libp2p-quic-0.15.0/local-patch-sha256.json',

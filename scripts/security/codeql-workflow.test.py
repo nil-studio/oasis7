@@ -547,7 +547,14 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         artifact = text.split('      - name: Persist bounded observation evidence\n', 1)[1]
         for forbidden in ('codeql_databases', 'codeql-results', 'fixed-source-helper', 'github.workspace', '*.sarif'):
             self.assertNotIn(forbidden, artifact)
-        self.assertIn('codeql-rust-production-evidence', artifact)
+        self.assertIn("if: always() && steps.observation_evidence.outcome == 'success'", artifact)
+        self.assertIn('path: ${{ steps.observation_evidence.outputs.path }}', artifact)
+        staging = self.section(text, '      - id: observation_evidence\n', '      - name: Persist bounded observation evidence\n')
+        self.assertIn('if: always()', staging)
+        self.assertEqual(re.findall(r"'(codeql-rust-[^']+)'", staging),
+                         ['codeql-rust-fixed-source-layout', 'codeql-rust-native',
+                          'codeql-rust-production-evidence', 'codeql-rust-production-budget.json'])
+        self.assertIn("path.is_symlink()", staging)
         scope = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
         self.assertEqual(scope['scoped_control_paths']['.github/workflows/codeql-rust-capacity.yml'], ['workflow_governance'])
 
@@ -575,7 +582,28 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         native = self.python_body(self.section(text, '      - id: rust_native\n', '      - id: rust_tools\n'))
         original_native = self.python_body(self.section(WORKFLOW, '      - id: rust_native\n', '      - id: rust_tools\n'))
         native = native.replace("pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-fixed-source-helper'", "source / 'scripts/security'")
-        # Compare the shared wrapper while the fixed-source diagnostic keeps its host apt operation.
+        self.assertRegex(text, r'image: &observe-image ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[0-9a-f]{64}')
+        self.assertIn('OASIS7_CODEQL_OBSERVATION_IMAGE: *observe-image', text)
+        self.assertIn('options: --user 1001:1001 --init', text)
+        self.assertIn('packages: read', text)
+        self.assertNotIn('rustup toolchain install', text)
+        self.assertIn('source-root: ${{ steps.image_paths.outputs.source_root }}', init)
+        self.assertIn('db-location: ${{ steps.image_paths.outputs.db_location }}', init)
+        self.assertIn('output: ${{ steps.image_paths.outputs.sarif_output }}', text)
+        cohort = ast.parse(native).body[-1].body
+        self.assertEqual([ast.unparse(item) for item in cohort],
+                         ["image = os.environ['OASIS7_CODEQL_OBSERVATION_IMAGE']",
+                          "cgroup = pathlib.Path('/sys/fs/cgroup')",
+                          "terminal.update(source_profile='preinstalled-image', image=image, "
+                          "cpu_max=(cgroup / 'cpu.max').read_text().strip(), "
+                          "memory_max=(cgroup / 'memory.max').read_text().strip(), "
+                          "visible_cpus=len(os.sched_getaffinity(0)))",
+                          'native.verify_preinstalled_native(source, out, started + 270, env, image)',
+                          "terminal['status'] = 'PASS'"])
+        # Compare the shared failure and evidence wrapper after normalizing preparation.
+        native = native[:native.index('    image = ')] + (
+            '    native.prepare_native(source, out, started + 270, env)\n'
+        ) + native[native.index("    terminal['status'] = 'PASS'"):]
         original_native = original_native.replace("profile = os.environ['CODEQL_NATIVE_SOURCE_PROFILE']\n", '')
         original_native = original_native.replace(", 'source_profile': profile,\n            'image': os.environ['CODEQL_NATIVE_IMAGE']", '')
         inventory = ("    for name, argv in (", "file_limit=None)")

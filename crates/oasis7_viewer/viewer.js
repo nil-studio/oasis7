@@ -21080,6 +21080,1012 @@ function createViewerGameplayActionModule({ state, getSocket, hostedWorldAccount
 		handleGameplayActionError
 	};
 }
+// software_safe_src/viewer_prompt_request_module.js
+function createViewerPromptRequestModule({ state, getViewerPromptControlModule, semanticActionOverallTimeoutMs, selectedAgentId, selectedAgentPromptProfile, currentBoundAgentControlError, promptControlCapabilitySelected, promptControlReadinessError, attachPromptControlIdentity, promptDraftValuesForRequest, nextRequestId, createSemanticFeedback, snapshotSemanticFeedback, enqueueSemanticCommand, ensureHostedPlayerAuthAvailable, assertPromptFeedbackActive, assertSemanticCapability, ensureRegisteredPlayerSession, requestHostedStrongAuthGrant, buildPromptControlAuthProof, buildPromptRollbackAuthProof, sendJson, schedulePromptControlAckTimeout, acceptRuntimeAckIdentity, render }) {
+	function promptPatchFromDraft(currentValue, draftValue) {
+		const current = currentValue == null ? "" : String(currentValue);
+		const draft = String(draftValue ?? "");
+		if (draft === current) return { mode: "unchanged" };
+		if (draft.length === 0) return currentValue == null ? { mode: "unchanged" } : { mode: "clear" };
+		return {
+			mode: "set",
+			value: draft
+		};
+	}
+	function buildPromptRequestFromDraft(agentId, draftOverrides) {
+		const currentProfile = selectedAgentPromptProfile();
+		if (!agentId || !currentProfile) throw new Error("select an agent before editing prompt overrides");
+		const request = {
+			agent_id: agentId,
+			player_id: state.auth.playerId,
+			public_key: state.auth.publicKey,
+			expected_version: Number(currentProfile.version || 0),
+			updated_by: state.auth.playerId,
+			system_prompt_override: promptPatchFromDraft(currentProfile.system_prompt_override, draftOverrides.systemPrompt),
+			short_term_goal_override: promptPatchFromDraft(currentProfile.short_term_goal_override, draftOverrides.shortTermGoal),
+			long_term_goal_override: promptPatchFromDraft(currentProfile.long_term_goal_override, draftOverrides.longTermGoal)
+		};
+		if (promptControlCapabilitySelected()) request.request_id = `pc-${String(nextRequestId()).padStart(8, "0")}`;
+		return request;
+	}
+	function encodePromptRequestForJson(request) {
+		const encodePatch = (patch) => {
+			if (!patch || patch.mode === "unchanged") return void 0;
+			if (patch.mode === "clear") return null;
+			return patch.value;
+		};
+		return {
+			agent_id: request.agent_id,
+			player_id: request.player_id,
+			...request.request_id ? { request_id: request.request_id } : {},
+			...request.session_epoch != null ? { session_epoch: request.session_epoch } : {},
+			...request.binding_epoch != null ? { binding_epoch: request.binding_epoch } : {},
+			...request.expected_authority_epoch ? { expected_authority_epoch: request.expected_authority_epoch } : {},
+			public_key: request.public_key,
+			expected_version: request.expected_version,
+			updated_by: request.updated_by,
+			system_prompt_override: encodePatch(request.system_prompt_override),
+			short_term_goal_override: encodePatch(request.short_term_goal_override),
+			long_term_goal_override: encodePatch(request.long_term_goal_override)
+		};
+	}
+	function buildPromptRollbackRequest(agentId, toVersion) {
+		const profile = selectedAgentPromptProfile();
+		const targetVersion = Number(toVersion);
+		if (!agentId || !profile) throw new Error("select an agent before rolling back prompt overrides");
+		if (!Number.isInteger(targetVersion) || targetVersion < 0) throw new Error("prompt rollback requires integer toVersion >= 0");
+		const request = {
+			agent_id: agentId,
+			player_id: state.auth.playerId,
+			public_key: state.auth.publicKey,
+			to_version: targetVersion,
+			expected_version: Number(profile.version || 0),
+			updated_by: state.auth.playerId
+		};
+		if (promptControlCapabilitySelected()) request.request_id = `pc-${String(nextRequestId()).padStart(8, "0")}`;
+		return request;
+	}
+	function sendPromptControl(mode, payload = null) {
+		const normalizedMode = String(mode || "").trim().toLowerCase();
+		if (![
+			"preview",
+			"apply",
+			"rollback"
+		].includes(normalizedMode)) return {
+			ok: false,
+			reason: "prompt control mode must be preview, apply, or rollback"
+		};
+		const selectedId = selectedAgentId();
+		const agentId = String(payload?.agentId || payload?.agent_id || selectedId || "");
+		if (!agentId) return {
+			ok: false,
+			reason: "prompt control requires a selected agent or explicit agentId"
+		};
+		const controlError = currentBoundAgentControlError(agentId, "prompt_control");
+		if (controlError) return {
+			ok: false,
+			reason: controlError
+		};
+		const protocolError = promptControlReadinessError(agentId);
+		if (protocolError) return {
+			ok: false,
+			reason: protocolError
+		};
+		let request;
+		try {
+			if (normalizedMode === "rollback") {
+				const currentVersion = Number(state.promptDraft.currentVersion || selectedAgentPromptProfile()?.version || 0);
+				const fallbackVersion = Math.max(0, currentVersion - 1);
+				request = buildPromptRollbackRequest(agentId, payload?.toVersion ?? payload?.to_version ?? fallbackVersion);
+			} else request = buildPromptRequestFromDraft(agentId, {
+				systemPrompt: payload?.systemPrompt ?? payload?.system_prompt_override ?? state.promptDraft.systemPrompt,
+				shortTermGoal: payload?.shortTermGoal ?? payload?.short_term_goal_override ?? state.promptDraft.shortTermGoal,
+				longTermGoal: payload?.longTermGoal ?? payload?.long_term_goal_override ?? state.promptDraft.longTermGoal
+			});
+		} catch (error) {
+			return {
+				ok: false,
+				reason: String(error)
+			};
+		}
+		state.lastPromptFeedback = createSemanticFeedback("prompt", `prompt_${normalizedMode}`, agentId, {
+			effect: "queued for signing and send",
+			toVersion: request.to_version ?? null,
+			requestId: request.request_id || null
+		});
+		const feedback = state.lastPromptFeedback;
+		enqueueSemanticCommand({
+			kind: "prompt",
+			feedback,
+			timeoutMs: semanticActionOverallTimeoutMs,
+			execute: async () => {
+				await ensureHostedPlayerAuthAvailable();
+				assertPromptFeedbackActive(feedback);
+				assertSemanticCapability("prompt_control");
+				feedback.stage = "registering";
+				feedback.effect = "registering player session";
+				render();
+				await ensureRegisteredPlayerSession(agentId);
+				assertPromptFeedbackActive(feedback);
+				attachPromptControlIdentity(request);
+				let strongAuthGrant = null;
+				if (isHostedPublicJoinDeploymentMode(state.hostedAccess?.deployment_mode)) {
+					feedback.stage = "authorizing";
+					feedback.effect = "requesting backend strong-auth grant";
+					render();
+					strongAuthGrant = await requestHostedStrongAuthGrant(normalizedMode === "rollback" ? "prompt_control_rollback" : `prompt_control_${normalizedMode}`, agentId);
+					assertPromptFeedbackActive(feedback);
+				}
+				feedback.stage = "signing";
+				feedback.effect = "building auth proof";
+				render();
+				let commandRequest;
+				if (normalizedMode === "rollback") {
+					commandRequest = {
+						...request,
+						auth: await buildPromptRollbackAuthProof(request, state.auth)
+					};
+					if (strongAuthGrant) commandRequest.strong_auth_grant = strongAuthGrant;
+				} else {
+					commandRequest = encodePromptRequestForJson(request);
+					commandRequest.auth = await buildPromptControlAuthProof(normalizedMode, request, state.auth);
+					if (strongAuthGrant) commandRequest.strong_auth_grant = strongAuthGrant;
+				}
+				assertPromptFeedbackActive(feedback);
+				feedback.stage = "sent";
+				feedback.effect = `prompt ${normalizedMode} request sent; waiting for ack`;
+				state.lastPromptFeedback = feedback;
+				feedback.requestId = request.request_id || null;
+				feedback.requestAuthNonce = commandRequest.auth?.nonce;
+				feedback.submittedDraft = promptDraftValuesForRequest(request);
+				sendJson({
+					type: "prompt_control",
+					command: {
+						mode: normalizedMode,
+						request: commandRequest
+					}
+				});
+				schedulePromptControlAckTimeout(feedback);
+				render();
+			}
+		});
+		render();
+		return {
+			ok: true,
+			feedback: snapshotSemanticFeedback(feedback)
+		};
+	}
+	function applyPromptAckLocally(ack) {
+		const agentId = ack?.agent_id;
+		if (!agentId || !state.snapshot?.model) return;
+		if (!state.snapshot.model.agent_prompt_profiles) state.snapshot.model.agent_prompt_profiles = {};
+		const current = state.snapshot.model.agent_prompt_profiles[agentId] || { agent_id: agentId };
+		const nextProfile = {
+			...current,
+			agent_id: agentId,
+			version: Number(ack.version || current.version || 0),
+			updated_at_tick: Number(ack.updated_at_tick || state.logicalTime),
+			updated_by: state.auth.playerId || current.updated_by || ""
+		};
+		if (!ack.preview) {
+			nextProfile.system_prompt_override = state.promptDraft.systemPrompt || null;
+			nextProfile.short_term_goal_override = state.promptDraft.shortTermGoal || null;
+			nextProfile.long_term_goal_override = state.promptDraft.longTermGoal || null;
+		}
+		state.snapshot.model.agent_prompt_profiles[agentId] = nextProfile;
+		if (selectedAgentId() === agentId) state.promptDraft = {
+			agentId,
+			currentVersion: nextProfile.version,
+			rollbackTargetVersion: Math.max(0, Number(nextProfile.version || 0) - 1),
+			updatedBy: nextProfile.updated_by,
+			updatedAtTick: nextProfile.updated_at_tick,
+			systemPrompt: String(nextProfile.system_prompt_override || ""),
+			shortTermGoal: String(nextProfile.short_term_goal_override || ""),
+			longTermGoal: String(nextProfile.long_term_goal_override || ""),
+			dirty: false
+		};
+	}
+	function handlePromptControlAck(ack) {
+		if (acceptRuntimeAckIdentity(ack)) getViewerPromptControlModule()?.handleAck(ack);
+	}
+	function handlePromptControlError(error) {
+		getViewerPromptControlModule()?.handleError(error);
+	}
+	return {
+		sendPromptControl,
+		applyPromptAckLocally,
+		handlePromptControlAck,
+		handlePromptControlError
+	};
+}
+// software_safe_src/viewer_semantic_queue_chat_module.js
+function createViewerSemanticQueueChatModule({ state, getSocket, getViewerControlLossModule, canonicalOwnerRead, agentChatOverallTimeoutMs, clone, render, sendJson, requestSnapshotSafe, selectedAgentId, currentBoundAgentControlError, buildSemanticCapability, isAgentChatInFlight, sameAgentChatFeedback, agentChatFeedbackInFlight, sameSemanticFeedback, semanticFeedbackInFlight, markSemanticFeedbackError, createSemanticFeedback, snapshotSemanticFeedback, expireAgentChatOverallTimeout, scheduleAgentChatOverallTimeout, scheduleAgentChatAckTimeout, clearPendingAgentChatAckTimer, clearPendingAgentChatOverallTimer, setPendingAgentChatAckTimer, failPendingAgentChatAck, clearPendingPromptControlAckTimer, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, buildAgentChatAuthProof, acceptRuntimeAckIdentity, pushChatHistory }) {
+	let semanticSendLoop = null;
+	const pendingSemanticCommands = [];
+	function semanticCommandTimeoutError(command) {
+		if (!Number.isFinite(command?.timeoutMs) || command.timeoutMs <= 0) return null;
+		return new Promise((resolve) => {
+			window.setTimeout(() => {
+				resolve(/* @__PURE__ */ new Error(`${command.kind || "semantic"} command timed out before send completed`));
+			}, command.timeoutMs);
+		});
+	}
+	async function executeSemanticCommand(command) {
+		let executePromise;
+		try {
+			executePromise = Promise.resolve(command.execute());
+		} catch (error) {
+			executePromise = Promise.reject(error);
+		}
+		const timeoutPromise = semanticCommandTimeoutError(command);
+		if (!timeoutPromise) {
+			await executePromise;
+			return;
+		}
+		if (await Promise.race([executePromise.then(() => null), timeoutPromise]) instanceof Error) {
+			executePromise.catch(() => {});
+			if (command.kind === "chat") expireAgentChatOverallTimeout(command.feedback);
+			else if (command.kind === "prompt" && sameSemanticFeedback(state.lastPromptFeedback, command.feedback)) {
+				markSemanticFeedbackError(command.feedback, "prompt_control timed out before live server ack/error completed", "prompt_control overall timeout");
+				state.lastPromptFeedback = command.feedback;
+				render();
+			}
+		}
+	}
+	function handleSemanticCommandError(command, error) {
+		if (command.kind === "chat") {
+			if (!sameAgentChatFeedback(state.lastChatFeedback, command.feedback) || !agentChatFeedbackInFlight(state.lastChatFeedback)) {
+				render();
+				return;
+			}
+			clearPendingAgentChatAckTimer();
+			clearPendingAgentChatOverallTimer();
+		}
+		if (command.kind === "prompt") {
+			if (!sameSemanticFeedback(state.lastPromptFeedback, command.feedback) || !semanticFeedbackInFlight(state.lastPromptFeedback)) {
+				render();
+				return;
+			}
+			clearPendingPromptControlAckTimer();
+		}
+		const feedback = command.kind === "chat" ? state.lastChatFeedback : state.lastPromptFeedback;
+		feedback.stage = "error";
+		feedback.ok = false;
+		feedback.accepted = false;
+		feedback.reason = String(error);
+		feedback.effect = "request build/send failed";
+		render();
+	}
+	async function processSemanticCommands() {
+		try {
+			while (pendingSemanticCommands.length > 0) {
+				const command = pendingSemanticCommands.shift();
+				try {
+					await executeSemanticCommand(command);
+				} catch (error) {
+					handleSemanticCommandError(command, error);
+				}
+			}
+		} finally {
+			semanticSendLoop = null;
+			if (pendingSemanticCommands.length > 0) semanticSendLoop = processSemanticCommands();
+		}
+	}
+	function enqueueSemanticCommand(command) {
+		pendingSemanticCommands.push(command);
+		if (!semanticSendLoop) semanticSendLoop = processSemanticCommands();
+	}
+	function assertSemanticCapability(actionId) {
+		const capability = buildSemanticCapability(actionId);
+		if (!capability.enabled) throw new Error(capability.reason || state.auth.error || `${actionId} is unavailable`);
+	}
+	function assertAgentChatFeedbackActive(feedback) {
+		if (!sameAgentChatFeedback(state.lastChatFeedback, feedback) || !agentChatFeedbackInFlight(state.lastChatFeedback)) throw new Error("agent_chat request expired before send completed");
+		state.lastChatFeedback = feedback;
+	}
+	function assertPromptFeedbackActive(feedback) {
+		if (!sameSemanticFeedback(state.lastPromptFeedback, feedback) || !semanticFeedbackInFlight(state.lastPromptFeedback)) throw new Error("prompt_control request expired before send completed");
+		state.lastPromptFeedback = feedback;
+	}
+	function sendAgentChat(agentIdOrPayload, maybeMessage) {
+		let agentId = null;
+		let message = null;
+		if (typeof agentIdOrPayload === "object" && agentIdOrPayload !== null) {
+			agentId = String(agentIdOrPayload.agentId || agentIdOrPayload.agent_id || selectedAgentId() || "");
+			message = String(agentIdOrPayload.message || "");
+		} else {
+			agentId = String(agentIdOrPayload || selectedAgentId() || "");
+			message = String(maybeMessage || "");
+		}
+		if (!agentId) return {
+			ok: false,
+			reason: "agent chat requires a selected agent or explicit agentId"
+		};
+		const controlError = currentBoundAgentControlError(agentId, "agent_chat");
+		if (controlError) return {
+			ok: false,
+			reason: controlError
+		};
+		if (!message.trim()) return {
+			ok: false,
+			reason: "agent chat message cannot be empty"
+		};
+		if (isAgentChatInFlight()) return {
+			ok: false,
+			reason: "agent_chat is already in flight; wait for ack/error before sending another message"
+		};
+		const feedback = createSemanticFeedback("chat", "agent_chat", agentId, {
+			effect: "queued for signing and send",
+			pendingMessage: message,
+			pendingPlayerId: state.auth.playerId || null
+		});
+		state.lastChatFeedback = feedback;
+		enqueueSemanticCommand({
+			kind: "chat",
+			feedback,
+			timeoutMs: agentChatOverallTimeoutMs,
+			execute: async () => {
+				assertAgentChatFeedbackActive(feedback);
+				scheduleAgentChatOverallTimeout(feedback);
+				feedback.stage = "registering";
+				feedback.effect = "registering player session";
+				render();
+				await ensureHostedPlayerAuthAvailable();
+				assertAgentChatFeedbackActive(feedback);
+				await ensureRegisteredPlayerSession(agentId);
+				assertAgentChatFeedbackActive(feedback);
+				await canonicalOwnerRead.refresh(agentId);
+				assertSemanticCapability("agent_chat");
+				feedback.stage = "signing";
+				feedback.effect = "building auth proof";
+				render();
+				const request = {
+					agent_id: agentId,
+					message,
+					player_id: state.auth.playerId,
+					public_key: state.auth.publicKey
+				};
+				request.auth = await buildAgentChatAuthProof(request, state.auth);
+				assertAgentChatFeedbackActive(feedback);
+				if (request.auth.player_id !== state.auth.playerId || request.auth.public_key !== state.auth.publicKey) throw new Error("agent_chat identity changed during signing");
+				feedback.requestAuthNonce = request.auth?.nonce;
+				feedback.canonicalRequest = request.canonical_authority ? request : null;
+				feedback.canonicalRetryCount = 0;
+				feedback.stage = "sent";
+				feedback.effect = "agent_chat request sent; waiting for ack";
+				state.lastChatFeedback = feedback;
+				sendJson({
+					type: "agent_chat",
+					request
+				});
+				scheduleAgentChatAckTimeout(feedback);
+				state.chatDraft.message = "";
+				state.chatDraft.dirty = false;
+				render();
+			}
+		});
+		render();
+		return {
+			ok: true,
+			feedback: snapshotSemanticFeedback(feedback)
+		};
+	}
+	function handleAgentChatAck(ack) {
+		if (!acceptRuntimeAckIdentity(ack)) return;
+		const feedback = state.lastChatFeedback;
+		if (!agentChatFeedbackInFlight(feedback) || ack?.agent_id !== feedback.agentId) return;
+		if (feedback.canonicalRequest && !canonicalAckMatches(ack, feedback.canonicalRequest)) return;
+		if (feedback.requestAuthNonce != null && (ack?.request_auth_nonce ?? ack?.auth_nonce) !== feedback.requestAuthNonce) return;
+		clearPendingAgentChatAckTimer();
+		if (feedback.canonicalRequest && ack?.status === "pending") {
+			setPendingAgentChatAckTimer(scheduleCanonicalGoalPending({
+				ack,
+				feedback,
+				state,
+				clone,
+				requestSnapshotSafe,
+				sameAgentChatFeedback,
+				failPendingAgentChatAck,
+				sendJson,
+				scheduleAgentChatAckTimeout,
+				getSocket
+			}));
+			return;
+		}
+		if (feedback.canonicalRequest && (ack?.status !== "accepted" || !ack?.intent_id)) {
+			failPendingAgentChatAck("canonical goal commit was not confirmed");
+			return;
+		}
+		clearPendingAgentChatOverallTimer();
+		applyCommittedChatAck({
+			ack,
+			feedback,
+			state,
+			clone,
+			pushChatHistory
+		});
+	}
+	function handleAgentChatError(error) {
+		const current = state.lastChatFeedback;
+		if (!agentChatFeedbackInFlight(current) || error?.agent_id !== current.agentId) return;
+		if (current.canonicalRequest && error?.request_auth_nonce !== current.canonicalRequest.auth?.nonce) return;
+		if (current.requestAuthNonce != null && error?.request_auth_nonce !== current.requestAuthNonce) return;
+		clearPendingAgentChatAckTimer();
+		clearPendingAgentChatOverallTimer();
+		const feedback = state.lastChatFeedback || createSemanticFeedback("chat", "agent_chat", error?.agent_id || selectedAgentId());
+		const agentId = error?.agent_id || feedback.agentId || selectedAgentId() || null;
+		const controlLoss = getViewerControlLossModule();
+		const controlLost = controlLoss?.isControlLossError(error) === true;
+		const response = controlLost ? controlLoss.markControlLost(agentId) : clone(error);
+		feedback.stage = "error";
+		feedback.ok = false;
+		feedback.accepted = false;
+		feedback.reason = controlLost ? "control_lost" : error?.message || error?.code || "agent chat failed";
+		feedback.effect = controlLost ? "control_lost" : error?.code || "agent chat error";
+		feedback.response = response;
+		state.lastChatFeedback = feedback;
+		pushChatHistory({
+			id: `chat-error-${feedback.id}`,
+			source: "error",
+			agentId,
+			targetAgentId: agentId,
+			playerId: feedback.pendingPlayerId || state.auth.playerId || null,
+			speaker: "runtime",
+			message: feedback.reason,
+			code: controlLost ? "control_lost" : error?.code || null,
+			tick: Number(error?.accepted_at_tick || state.logicalTime || 0),
+			locationId: error?.location_id || null,
+			response
+		});
+	}
+	return {
+		enqueueSemanticCommand,
+		assertSemanticCapability,
+		assertAgentChatFeedbackActive,
+		assertPromptFeedbackActive,
+		sendAgentChat,
+		handleAgentChatAck,
+		handleAgentChatError
+	};
+}
+// software_safe_src/viewer_authoritative_recovery_module.js
+function createViewerAuthoritativeRecoveryModule({ state, getPendingSessionRegisterWaiter, getViewerControlLossModule, hostedWorldAccount, cancelHostedLeaseRefresh, clearPendingSessionRegisterWaiter, stopHostedSessionRefreshLoop, clearHostedPlayerSession, resolveAuthBootstrap, refreshHostedAdmissionState, releaseHostedPlayerSlot, sendJson, render, acceptRuntimeAckIdentity, clearHostedRuntimeSyncTimer, persistHostedPlayerSession, refreshHostedPlayerLease, syncHostedSessionRefreshLoop, resolvePendingSessionRegisterWaiterAfterRuntimeAck, maybeRecoverLocalTestStarterBindingFromSnapshot, requestSnapshotSafe, canAutoIssueHostedPlayerSession, isHostedAuthExpired, recoveryErrorRequiresExplicitRebind, ensureRegisteredPlayerSession, latestRequestedAgentId, issueHostedPlayerIdentity, rebindAgentIdFromRecoveryError, markPendingSemanticRebind, retryPendingSessionRegisterWaiterWithForceRebind }) {
+	function resetHostedPlayerAuthState(errorMessage = null, revocationMeta = null) {
+		cancelHostedLeaseRefresh();
+		clearPendingSessionRegisterWaiter("authentication session was invalidated");
+		stopHostedSessionRefreshLoop();
+		clearHostedPlayerSession();
+		const bootstrap = resolveAuthBootstrap();
+		const revokeReason = String(revocationMeta?.revokeReason || "").trim() || null;
+		const revokedBy = String(revocationMeta?.revokedBy || "").trim() || null;
+		clearSession(state, {
+			...bootstrap,
+			source: "guest_only",
+			registrationStatus: "guest",
+			error: errorMessage,
+			revokeReason,
+			revokedBy,
+			sessionEpoch: null,
+			issuedAtUnixMs: null,
+			releaseToken: null,
+			recoveryErrorCode: null,
+			recoveryErrorMessage: null,
+			issueInFlight: false,
+			syncInFlight: false,
+			runtimeStatus: "guest",
+			boundAgentId: null,
+			controlLostAgentId: null,
+			pendingRequestedAgentId: null,
+			pendingForceRebind: false,
+			rebindNotice: null
+		});
+		if (bootstrap.available) installSession(state, bootstrap).then(() => render());
+		refreshHostedAdmissionState().then(() => render());
+	}
+	async function logoutHostedPlayerSession() {
+		if (!state.auth.available || state.auth.source === "legacy_viewer_auth_bootstrap") return {
+			ok: false,
+			reason: "hosted browser session is unavailable"
+		};
+		const revokeRequest = {
+			player_id: state.auth.playerId,
+			session_pubkey: state.auth.publicKey,
+			revoke_reason: "player_logout",
+			revoked_by: state.auth.playerId
+		};
+		try {
+			if (state.connectionStatus === "connected") sendJson({
+				type: "authoritative_recovery",
+				command: {
+					mode: "revoke_session",
+					request: revokeRequest
+				}
+			});
+		} catch (_) {}
+		try {
+			await releaseHostedPlayerSlot();
+		} finally {
+			resetHostedPlayerAuthState("hosted player session released locally");
+			render();
+		}
+		return { ok: true };
+	}
+	function markHostedSessionRefreshFailure() {
+		state.auth.syncInFlight = false;
+		state.auth.registrationStatus = "issued";
+		state.auth.runtimeStatus = "error";
+		state.auth.recoveryErrorCode = "session_refresh_failed";
+		state.auth.recoveryErrorMessage = state.auth.error || "hosted player session refresh failed; retry to recover this browser session";
+		render();
+	}
+	function adoptHostedRecoveryAck(ack) {
+		if (!ack || !state.auth.available || ack.status === "catch_up_ready" && ack.message === "snapshot_sync_metadata" && [
+			ack.player_id,
+			ack.session_pubkey,
+			ack.session_epoch,
+			ack.binding_epoch,
+			ack.agent_id
+		].every((value) => value == null)) return;
+		if (!acceptRuntimeAckIdentity(ack, ack.status === "session_registered" || ack.status === "session_revoked")) return;
+		const waiter = getPendingSessionRegisterWaiter();
+		if (ack.status === "session_registered" && (!waiter || !isSessionContextCurrent(state, waiter.context, authConnectionGeneration(), state.wsUrl))) return;
+		clearHostedRuntimeSyncTimer();
+		const usesLegacyPreviewBootstrap = state.auth.source === LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE;
+		const hadPendingForceRebind = state.auth.pendingForceRebind === true;
+		const previousRequestedAgentId = state.auth.pendingRequestedAgentId;
+		const nextBoundAgentId = Object.prototype.hasOwnProperty.call(ack, "agent_id") ? ack.agent_id || null : state.auth.boundAgentId || null;
+		const nextRequestedAgentId = ack.agent_id || state.auth.pendingRequestedAgentId || state.auth.boundAgentId || null;
+		state.auth.syncInFlight = false;
+		state.auth.recoveryErrorCode = null;
+		state.auth.recoveryErrorMessage = null;
+		state.auth.error = null;
+		state.auth.revokeReason = null;
+		state.auth.revokedBy = null;
+		if (ack.session_epoch != null) state.auth.sessionEpoch = Number(ack.session_epoch);
+		if (Object.prototype.hasOwnProperty.call(ack, "binding_epoch")) state.auth.bindingEpoch = ack.binding_epoch == null ? null : Number(ack.binding_epoch);
+		state.auth.boundAgentId = nextBoundAgentId;
+		if (ack.status === "session_registered" || ack.status === "catch_up_ready") getViewerControlLossModule()?.clearControlLost(nextBoundAgentId);
+		state.auth.pendingRequestedAgentId = nextRequestedAgentId;
+		state.auth.pendingForceRebind = false;
+		if (ack.status === "session_registered" && hadPendingForceRebind) state.auth.rebindNotice = `Player session switched to ${ack.agent_id || previousRequestedAgentId || "requested agent"}.`;
+		state.auth.registrationStatus = ack.status === "session_registered" || ack.status === "catch_up_ready" ? "registered" : ack.status === "session_revoked" ? "guest" : "issued";
+		if (ack.status === "session_registered" || ack.status === "catch_up_ready") updateRegistrationGrant(state.auth, null);
+		state.auth.runtimeStatus = ack.status === "session_revoked" ? "revoked" : nextBoundAgentId ? "registered" : "registered_unbound";
+		if (ack.status === "session_revoked") {
+			if (usesLegacyPreviewBootstrap) {
+				state.auth.registrationStatus = "issued";
+				state.auth.runtimeStatus = "revoked";
+				state.auth.error = ack.message || "legacy preview player session was revoked";
+				state.auth.pendingRequestedAgentId = null;
+				state.auth.pendingForceRebind = false;
+			} else {
+				releaseHostedPlayerSlot().catch(() => {});
+				resetHostedPlayerAuthState(ack.message || "hosted player session was revoked", {
+					revokeReason: ack.revoke_reason || ack.message || null,
+					revokedBy: ack.revoked_by || null
+				});
+			}
+		} else if (!usesLegacyPreviewBootstrap) {
+			persistHostedPlayerSession(state.auth);
+			refreshHostedPlayerLease();
+			syncHostedSessionRefreshLoop();
+		}
+		if (ack.status === "session_registered") resolvePendingSessionRegisterWaiterAfterRuntimeAck(ack);
+		maybeRecoverLocalTestStarterBindingFromSnapshot(state.snapshot);
+		if (ack.status === "session_registered") {
+			requestSnapshotSafe();
+			requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
+		}
+	}
+	async function recoverHostedSessionFromError(error) {
+		if (!canAutoIssueHostedPlayerSession() && !state.auth.available || state.auth.source === "legacy_viewer_auth_bootstrap") return;
+		if (isHostedAuthExpired(error)) {
+			if (state.auth.source === "hosted_account_cookie") {
+				await hostedWorldAccount.renew();
+				return;
+			}
+		}
+		const code = String(error?.code || "").trim();
+		if (code === "session_not_found" && getPendingSessionRegisterWaiter()?.forceRebind) return;
+		if (recoveryErrorRequiresExplicitRebind(error) && state.auth.pendingRequestedAgentId && !state.auth.pendingForceRebind) {
+			await ensureRegisteredPlayerSession(state.auth.pendingRequestedAgentId, { forceRebind: true });
+			return;
+		}
+		if (code === "session_not_found") {
+			await ensureRegisteredPlayerSession(latestRequestedAgentId());
+			return;
+		}
+		if (code === "session_revoked") {
+			releaseHostedPlayerSlot().catch(() => {});
+			resetHostedPlayerAuthState(error?.message || code || "hosted player session failed", {
+				revokeReason: error?.revoke_reason || error?.message || null,
+				revokedBy: error?.revoked_by || null
+			});
+			render();
+			return;
+		}
+		if (["session_key_mismatch", "session_player_id_invalid"].includes(code)) {
+			releaseHostedPlayerSlot().catch(() => {});
+			resetHostedPlayerAuthState(error?.message || code || "hosted player session failed");
+			render();
+			await issueHostedPlayerIdentity();
+			if (state.auth.available) await ensureRegisteredPlayerSession(latestRequestedAgentId());
+		}
+	}
+	function handleAuthoritativeRecoveryAck(ack) {
+		adoptHostedRecoveryAck(ack);
+	}
+	function handleAuthoritativeRecoveryError(error) {
+		clearHostedRuntimeSyncTimer();
+		const waiter = getPendingSessionRegisterWaiter();
+		if (String(error?.code || "").trim() === "session_not_found" && waiter?.forceRebind) {
+			state.auth.recoveryErrorCode = null;
+			state.auth.recoveryErrorMessage = null;
+			state.auth.runtimeStatus = "rebind_registering";
+			state.auth.error = null;
+			render();
+			return;
+		}
+		const rebindAgentId = rebindAgentIdFromRecoveryError(error);
+		if (waiter && recoveryErrorRequiresExplicitRebind(error) && (waiter.requestedAgentId || rebindAgentId) && !waiter.forceRebind) {
+			if (!waiter.requestedAgentId && rebindAgentId) {
+				waiter.requestedAgentId = rebindAgentId;
+				state.auth.pendingRequestedAgentId = rebindAgentId;
+			}
+			state.auth.recoveryErrorCode = error?.code || null;
+			state.auth.recoveryErrorMessage = error?.message || null;
+			state.auth.error = error?.message || error?.code || "authoritative recovery failed";
+			state.auth.registrationStatus = "registering";
+			state.auth.runtimeStatus = "rebind_retrying";
+			state.auth.pendingForceRebind = true;
+			state.auth.rebindNotice = `Requested agent ${state.auth.pendingRequestedAgentId || "-"} needs explicit rebind; retrying now.`;
+			markPendingSemanticRebind("explicit rebind required; retrying registration for the requested agent");
+			render();
+			retryPendingSessionRegisterWaiterWithForceRebind().catch((retryError) => {
+				handleAuthoritativeRecoveryError({
+					code: "player_bind_failed",
+					message: String(retryError)
+				});
+			});
+			return;
+		}
+		if (!waiter && state.auth.source === "local_test_api_ephemeral" && recoveryErrorRequiresExplicitRebind(error) && rebindAgentId) {
+			state.auth.recoveryErrorCode = error?.code || null;
+			state.auth.recoveryErrorMessage = error?.message || null;
+			state.auth.error = error?.message || error?.code || "authoritative recovery failed";
+			state.auth.registrationStatus = "registering";
+			state.auth.runtimeStatus = "rebind_retrying";
+			state.auth.pendingRequestedAgentId = rebindAgentId;
+			state.auth.pendingForceRebind = true;
+			state.auth.rebindNotice = `Requested agent ${rebindAgentId} needs explicit rebind; retrying now.`;
+			render();
+			ensureRegisteredPlayerSession(rebindAgentId, { forceRebind: true }).catch((retryError) => {
+				handleAuthoritativeRecoveryError({
+					code: "player_bind_failed",
+					message: String(retryError),
+					agent_id: rebindAgentId
+				});
+			});
+			return;
+		}
+		if (!state.auth.available || state.auth.source === "legacy_viewer_auth_bootstrap") {
+			clearPendingSessionRegisterWaiter(error?.message || error?.code || "authoritative recovery failed");
+			return;
+		}
+		if (isHostedAuthExpired(error)) {
+			clearPendingSessionRegisterWaiter(error?.message || error?.code || "hosted authorization expired");
+			hostedWorldAccount.handleAuthorizationExpired?.(error);
+			return;
+		}
+		state.auth.syncInFlight = false;
+		state.auth.recoveryErrorCode = error?.code || null;
+		state.auth.recoveryErrorMessage = error?.message || null;
+		state.auth.error = error?.message || error?.code || "authoritative recovery failed";
+		state.auth.revokeReason = error?.revoke_reason || null;
+		state.auth.revokedBy = error?.revoked_by || null;
+		state.auth.registrationStatus = "issued";
+		state.auth.runtimeStatus = error?.code === "session_revoked" ? "revoked" : error?.code === "session_not_found" ? "missing" : "error";
+		if (!recoveryErrorRequiresExplicitRebind(error) && !isHostedAuthExpired(error)) state.auth.boundAgentId = null;
+		clearPendingSessionRegisterWaiter(error?.message || error?.code || "authoritative recovery failed");
+		syncHostedSessionRefreshLoop();
+		recoverHostedSessionFromError(error);
+	}
+	return {
+		resetHostedPlayerAuthState,
+		logoutHostedPlayerSession,
+		markHostedSessionRefreshFailure,
+		handleAuthoritativeRecoveryAck,
+		handleAuthoritativeRecoveryError
+	};
+}
+// software_safe_src/viewer_ws_transport_module.js
+function createViewerWsTransportModule({ state, getSocket, setSocket, getViewerPromptControlModule, helloAckTimeoutMs, initialSnapshotRetryDelayMs, initialSnapshotSlowRetryDelayMs, initialSnapshotSlowRetryAfter, promptControlResultCapability, sendJson, initialWsUrl, render, reportFatalError, resetViewerProtocolForConnection, worldFeedTransport, worldViewTransport, scopeSnapshotTransport, quoteProtocolFacade, liveControlState, hostedWorldAccount, safeAlternative, canonicalOwnerRead, hydrateChatHistoryFromStorage, ensureHostedPlayerAuthAvailable, syncHostedPlayerSessionOnConnect, handleSnapshot, addRecentEvent, extractAgentSpokeEntry, pushChatHistory, handleMetrics, handleDecisionTrace, handleControlCompletionAck, handlePromptControlAck, handlePromptControlError, handleAgentChatAck, handleAgentChatError, clearPendingGameplayActionAckTimer, requestSnapshotSafe, handleGameplayActionAck, handleGameplayActionError, handleAuthoritativeRecoveryAck, handleAuthoritativeRecoveryError, cancelHostedLeaseRefresh, clearHostedRuntimeSyncTimer, clearPendingSessionRegisterWaiter, failPendingAgentChatAck, failPendingPromptControlAck, failPendingGameplayActionAck, stopHostedSessionRefreshLoop, syncHostedSessionRefreshLoop }) {
+	let reconnectTimer = null;
+	let helloAckTimer = null;
+	let initialSnapshotRequested = false;
+	let currentConnectionSnapshotReceived = false;
+	let initialSnapshotReadFailed = false;
+	let initialSnapshotRetryTimer = null;
+	let initialSnapshotRetryCount = 0;
+	function clearInitialSnapshotRetryTimer() {
+		if (initialSnapshotRetryTimer) {
+			window.clearTimeout(initialSnapshotRetryTimer);
+			initialSnapshotRetryTimer = null;
+		}
+	}
+	function clearHelloAckTimer() {
+		if (helloAckTimer) {
+			window.clearTimeout(helloAckTimer);
+			helloAckTimer = null;
+		}
+	}
+	function closeSocketForReconnect(targetSocket) {
+		if (!targetSocket || targetSocket.readyState === WebSocket.CLOSING || targetSocket.readyState === WebSocket.CLOSED) return;
+		try {
+			targetSocket.close();
+		} catch (_) {}
+	}
+	function scheduleHelloAckTimeout(targetSocket) {
+		clearHelloAckTimer();
+		helloAckTimer = window.setTimeout(() => {
+			helloAckTimer = null;
+			if (getSocket() !== targetSocket || state.server || targetSocket.readyState !== WebSocket.OPEN) return;
+			closeSocketForReconnect(targetSocket);
+		}, helloAckTimeoutMs);
+	}
+	function sendInitialSnapshotRequest() {
+		sendJson({
+			type: "subscribe",
+			streams: [
+				"snapshot",
+				"events",
+				"metrics"
+			],
+			event_kinds: []
+		});
+		worldFeedTransport.requestWorldFeed({ cursor: null });
+		sendJson({ type: "request_snapshot" });
+	}
+	function scheduleInitialSnapshotRetry() {
+		clearInitialSnapshotRetryTimer();
+		if (currentConnectionSnapshotReceived) return;
+		if (initialSnapshotRetryCount >= 8) {
+			initialSnapshotReadFailed = true;
+			state.lastError = "World snapshot unavailable. Refresh the snapshot to retry.";
+			render();
+			return;
+		}
+		const retryDelay = initialSnapshotRetryCount >= initialSnapshotSlowRetryAfter ? initialSnapshotSlowRetryDelayMs : initialSnapshotRetryDelayMs;
+		initialSnapshotRetryTimer = window.setTimeout(() => {
+			initialSnapshotRetryTimer = null;
+			const socket = getSocket();
+			if (currentConnectionSnapshotReceived || !socket || socket.readyState !== WebSocket.OPEN) return;
+			initialSnapshotRetryCount += 1;
+			try {
+				sendInitialSnapshotRequest();
+			} catch (_) {} finally {
+				scheduleInitialSnapshotRetry();
+			}
+		}, retryDelay);
+	}
+	function markSnapshotReceived() {
+		if (initialSnapshotReadFailed) state.lastError = null;
+		initialSnapshotReadFailed = false;
+		currentConnectionSnapshotReceived = true;
+	}
+	function getInitialSnapshotState() {
+		return {
+			snapshotReceived: currentConnectionSnapshotReceived,
+			snapshotReadFailed: initialSnapshotReadFailed,
+			snapshotRequested: initialSnapshotRequested,
+			snapshotRetryCount: initialSnapshotRetryCount
+		};
+	}
+	function handleViewerMessage(message, sourceSocket = null) {
+		if (sourceSocket && getSocket() !== sourceSocket) return;
+		if (message?.request_auth_nonce != null) {
+			for (const key of [
+				"ack",
+				"error",
+				"quote"
+			]) if (message[key]) message[key].request_auth_nonce = message.request_auth_nonce;
+		}
+		if (scopeSnapshotTransport.handle(message)) return;
+		if (worldViewTransport.handle(message)) return;
+		if (quoteProtocolFacade.handleQuoteViewerMessage(message)) return;
+		switch (message?.type) {
+			case "hello_ack":
+				clearHelloAckTimer();
+				getViewerPromptControlModule()?.handleHelloAck(message);
+				state.server = message.server || null;
+				state.worldId = message.world_id || null;
+				state.controlProfile = message.control_profile || "playback";
+				liveControlState.hello(message);
+				hydrateChatHistoryFromStorage();
+				if (!initialSnapshotRequested) {
+					initialSnapshotRequested = true;
+					initialSnapshotRetryCount = 0;
+					sendInitialSnapshotRequest();
+					scheduleInitialSnapshotRetry();
+				}
+				ensureHostedPlayerAuthAvailable().then(() => {
+					syncHostedPlayerSessionOnConnect().catch((error) => {
+						state.auth.error = String(error);
+						render();
+					});
+					render();
+				}).catch((error) => {
+					state.auth.error = String(error);
+					render();
+				});
+				break;
+			case "live_control_state":
+				liveControlState.receive(message.state);
+				break;
+			case "snapshot":
+				handleSnapshot(message.snapshot);
+				break;
+			case "world_feed":
+				worldFeedTransport.handleWorldFeed(message.feed, sourceSocket);
+				hostedWorldAccount.restoreGameplayRequest(getGameplayRecoveryScope(state));
+				break;
+			case "event": {
+				addRecentEvent(message.event);
+				const chatEntry = extractAgentSpokeEntry(message.event);
+				if (chatEntry) pushChatHistory(chatEntry);
+				state.logicalTime = Math.max(state.logicalTime, Number(message.event?.time || 0));
+				state.tick = state.logicalTime;
+				worldFeedTransport.refreshAfterWorldActivity();
+				break;
+			}
+			case "metrics":
+				handleMetrics(message.time, message.metrics);
+				break;
+			case "decision_trace":
+				handleDecisionTrace(message.trace);
+				break;
+			case "control_completion_ack":
+				handleControlCompletionAck(message.ack);
+				break;
+			case "prompt_control_ack":
+				handlePromptControlAck(message.ack);
+				break;
+			case "prompt_control_error":
+				handlePromptControlError(message.error);
+				break;
+			case "safe_alternative_result":
+				safeAlternative.receive(message);
+				break;
+			case "canonical_agent_owner_read_context":
+				canonicalOwnerRead.handleContext(message.context);
+				break;
+			case "canonical_agent_owner_view":
+				canonicalOwnerRead.handleView(message);
+				break;
+			case "agent_chat_ack":
+				handleAgentChatAck(message.ack);
+				break;
+			case "agent_chat_error":
+				handleAgentChatError(message.error);
+				break;
+			case "gameplay_action_result":
+				if (receiveGameplayResult(state, getGameplayRecoveryScope(state), hostedWorldAccount, message)) {
+					clearPendingGameplayActionAckTimer();
+					requestSnapshotSafe();
+					render();
+				}
+				break;
+			case "gameplay_action_ack":
+				handleGameplayActionAck(message.ack);
+				break;
+			case "gameplay_action_error":
+				handleGameplayActionError(message.error);
+				break;
+			case "authoritative_recovery_ack":
+				handleAuthoritativeRecoveryAck(message.ack);
+				break;
+			case "authoritative_recovery_error":
+				handleAuthoritativeRecoveryError(message.error);
+				break;
+			case "error": reportFatalError(message.message, "viewer");
+		}
+		render({ pixelWorldChanged: message?.type !== "metrics" && message?.type !== "decision_trace" });
+	}
+	function attachSocket(ws) {
+		ws.addEventListener("open", () => {
+			if (getSocket() !== ws) return;
+			worldFeedTransport.resetGeneration(ws);
+			resetViewerProtocolForConnection();
+			state.connectionStatus = "connected";
+			state.lastError = null;
+			state.server = null;
+			state.worldId = null;
+			initialSnapshotRequested = false;
+			currentConnectionSnapshotReceived = false;
+			initialSnapshotReadFailed = false;
+			initialSnapshotRetryCount = 0;
+			clearHelloAckTimer();
+			clearInitialSnapshotRetryTimer();
+			sendJson({
+				type: "hello_v2",
+				client: "viewer",
+				version: 2,
+				capabilities: [
+					promptControlResultCapability,
+					LIVE_CONTROL_STATE_CAPABILITY,
+					"gameplay_result_lookup_v1",
+					"canonical_agent_chat_v1",
+					"world_view",
+					"world_view_pins_v1",
+					"world_view_delta_v1",
+					"world_view_aggregate_v1",
+					"world_view_event_anchor_v1"
+				]
+			});
+			scheduleHelloAckTimeout(ws);
+			syncHostedSessionRefreshLoop();
+			render();
+		});
+		ws.addEventListener("message", (event) => {
+			if (getSocket() !== ws) return;
+			try {
+				handleViewerMessage(JSON.parse(String(event.data || "null")), ws);
+			} catch (error) {
+				reportFatalError(String(error), "viewer.parse");
+			}
+		});
+		ws.addEventListener("error", () => {
+			if (getSocket() !== ws) return;
+			reportFatalError("websocket error", "viewer.ws");
+		});
+		ws.addEventListener("close", () => {
+			if (getSocket() !== ws) return;
+			invalidateAuthConnection();
+			cancelHostedLeaseRefresh();
+			worldFeedTransport.markDisconnected(ws);
+			resetViewerProtocolForConnection();
+			state.connectionStatus = "connecting";
+			clearHostedRuntimeSyncTimer();
+			if (state.auth.available && state.auth.source !== "legacy_viewer_auth_bootstrap") {
+				state.auth.syncInFlight = false;
+				state.auth.runtimeStatus = "disconnected";
+			}
+			worldViewTransport.clear();
+			scopeSnapshotTransport.clear();
+			clearPendingSessionRegisterWaiter("websocket disconnected during player session registration");
+			failPendingAgentChatAck("websocket disconnected before agent_chat ack/error returned", "agent_chat websocket disconnected");
+			failPendingPromptControlAck("websocket disconnected before prompt_control ack/error returned", "prompt_control websocket disconnected");
+			failPendingGameplayActionAck("websocket disconnected before gameplay_action ack/error returned", "gameplay_action websocket disconnected");
+			stopHostedSessionRefreshLoop();
+			render();
+			if (reconnectTimer) window.clearTimeout(reconnectTimer);
+			clearHelloAckTimer();
+			clearInitialSnapshotRetryTimer();
+			reconnectTimer = window.setTimeout(connect, 1200);
+		});
+	}
+	function connect() {
+		invalidateAuthConnection();
+		const currentSocket = getSocket();
+		if (currentSocket) try {
+			currentSocket.close();
+		} catch (_) {}
+		cancelHostedLeaseRefresh();
+		state.wsUrl = initialWsUrl();
+		state.connectionStatus = "connecting";
+		render();
+		const nextSocket = new WebSocket(state.wsUrl);
+		setSocket(nextSocket);
+		attachSocket(nextSocket);
+	}
+	return {
+		clearInitialSnapshotRetryTimer,
+		markSnapshotReceived,
+		getInitialSnapshotState,
+		handleViewerMessage,
+		connect
+	};
+}
 // software_safe_src/legacy_core.js
 var legacy_core_exports = /* @__PURE__ */ __exportAll({
 	acceptScopeSnapshot: () => acceptScopeSnapshot,
@@ -21185,22 +22191,13 @@ var legacy_core_exports = /* @__PURE__ */ __exportAll({
 });
 var state = createSoftwareSafeState();
 var socket = null;
-var reconnectTimer = null;
-var helloAckTimer = null;
-var initialSnapshotRequested = false;
-var currentConnectionSnapshotReceived = false;
-var initialSnapshotReadFailed = false;
-var initialSnapshotRetryTimer = null;
-var initialSnapshotRetryCount = 0;
 var hostedSessionRefreshTimer = null;
 var requestId = 0;
 var authNonceCounter = 0;
 var viewerPromptControlModule = null;
 var viewerControlLossModule = null;
-var semanticSendLoop = null;
 var pendingControlFeedback = /* @__PURE__ */ new Map();
 var liveControlState = createLiveControlStateController(state, pendingControlFeedback);
-var pendingSemanticCommands = [];
 var pendingSessionRegisterWaiter = null;
 var application = createViewerApplication({
 	coordinateState: () => coordinateDependentQuotes(state),
@@ -21873,18 +22870,6 @@ function sendJson(payload) {
 	if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("viewer websocket is not connected");
 	socket.send(JSON.stringify(payload));
 }
-function clearInitialSnapshotRetryTimer() {
-	if (initialSnapshotRetryTimer) {
-		window.clearTimeout(initialSnapshotRetryTimer);
-		initialSnapshotRetryTimer = null;
-	}
-}
-function clearHelloAckTimer() {
-	if (helloAckTimer) {
-		window.clearTimeout(helloAckTimer);
-		helloAckTimer = null;
-	}
-}
 var { clearPendingAgentChatAckTimer, setPendingAgentChatAckTimer, clearPendingAgentChatOverallTimer, clearPendingPromptControlAckTimer, clearPendingGameplayActionAckTimer, clearHostedRuntimeSyncTimer, expireHostedRuntimeSyncTimeout, scheduleHostedRuntimeSyncTimeout, expireHostedRuntimeSyncTimeoutForTest, agentChatFeedbackInFlight, semanticFeedbackInFlight, sameAgentChatFeedback, sameSemanticFeedback, isAgentChatInFlight, markAgentChatFeedbackError, expireAgentChatOverallTimeout, scheduleAgentChatOverallTimeout, expirePendingAgentChatOverallTimeoutForTest, scheduleAgentChatAckTimeout, failPendingAgentChatAck, markSemanticFeedbackError, expirePromptControlAckTimeout, expireGameplayActionAckTimeout, schedulePromptControlAckTimeout, scheduleGameplayActionAckTimeout, expirePendingPromptControlAckTimeoutForTest, connectionGenerationForTest, expirePendingGameplayActionAckTimeoutForTest, failPendingPromptControlAck, failPendingGameplayActionAck } = createViewerSemanticTimeoutModule({
 	state,
 	SESSION_REGISTER_ACK_TIMEOUT_MS,
@@ -21897,87 +22882,6 @@ var { clearPendingAgentChatAckTimer, setPendingAgentChatAckTimer, clearPendingAg
 	authConnectionGeneration,
 	render
 });
-function semanticCommandTimeoutError(command) {
-	if (!Number.isFinite(command?.timeoutMs) || command.timeoutMs <= 0) return null;
-	return new Promise((resolve) => {
-		window.setTimeout(() => {
-			resolve(/* @__PURE__ */ new Error(`${command.kind || "semantic"} command timed out before send completed`));
-		}, command.timeoutMs);
-	});
-}
-async function executeSemanticCommand(command) {
-	let executePromise;
-	try {
-		executePromise = Promise.resolve(command.execute());
-	} catch (error) {
-		executePromise = Promise.reject(error);
-	}
-	const timeoutPromise = semanticCommandTimeoutError(command);
-	if (!timeoutPromise) {
-		await executePromise;
-		return;
-	}
-	if (await Promise.race([executePromise.then(() => null), timeoutPromise]) instanceof Error) {
-		executePromise.catch(() => {});
-		if (command.kind === "chat") expireAgentChatOverallTimeout(command.feedback);
-		else if (command.kind === "prompt") {
-			if (sameSemanticFeedback(state.lastPromptFeedback, command.feedback)) {
-				markSemanticFeedbackError(command.feedback, "prompt_control timed out before live server ack/error completed", "prompt_control overall timeout");
-				state.lastPromptFeedback = command.feedback;
-				render();
-			}
-		}
-		return;
-	}
-}
-function closeSocketForReconnect(targetSocket) {
-	if (!targetSocket || targetSocket.readyState === WebSocket.CLOSING || targetSocket.readyState === WebSocket.CLOSED) return;
-	try {
-		targetSocket.close();
-	} catch (_) {}
-}
-function scheduleHelloAckTimeout(targetSocket) {
-	clearHelloAckTimer();
-	helloAckTimer = window.setTimeout(() => {
-		helloAckTimer = null;
-		if (socket !== targetSocket || state.server || targetSocket.readyState !== WebSocket.OPEN) return;
-		closeSocketForReconnect(targetSocket);
-	}, HELLO_ACK_TIMEOUT_MS);
-}
-function sendInitialSnapshotRequest() {
-	sendJson({
-		type: "subscribe",
-		streams: [
-			"snapshot",
-			"events",
-			"metrics"
-		],
-		event_kinds: []
-	});
-	worldFeedTransport.requestWorldFeed({ cursor: null });
-	sendJson({ type: "request_snapshot" });
-}
-function scheduleInitialSnapshotRetry() {
-	clearInitialSnapshotRetryTimer();
-	if (currentConnectionSnapshotReceived) return;
-	if (initialSnapshotRetryCount >= 8) {
-		initialSnapshotReadFailed = true;
-		state.lastError = "World snapshot unavailable. Refresh the snapshot to retry.";
-		render();
-		return;
-	}
-	const retryDelay = initialSnapshotRetryCount >= INITIAL_SNAPSHOT_SLOW_RETRY_AFTER ? INITIAL_SNAPSHOT_SLOW_RETRY_DELAY_MS : INITIAL_SNAPSHOT_RETRY_DELAY_MS;
-	initialSnapshotRetryTimer = window.setTimeout(() => {
-		initialSnapshotRetryTimer = null;
-		if (currentConnectionSnapshotReceived || !socket || socket.readyState !== WebSocket.OPEN) return;
-		initialSnapshotRetryCount += 1;
-		try {
-			sendInitialSnapshotRequest();
-		} catch (_) {} finally {
-			scheduleInitialSnapshotRetry();
-		}
-	}, retryDelay);
-}
 function gameplayActionByProtocolAction(protocolAction) {
 	return normalizedGameplayActions().find((action) => gameplayProtocolAction(action) === protocolAction) || null;
 }
@@ -22107,12 +23011,8 @@ var { summarizeEventTitle, addRecentEvent, handleSnapshot, normalizedGameplayAct
 	STARTER_AGENT_ID,
 	LOCAL_TEST_PLAYER_ID_PREFIX,
 	isWorldScopedCrisisRuntimeEvent,
-	onSnapshotReceived() {
-		if (initialSnapshotReadFailed) state.lastError = null;
-		initialSnapshotReadFailed = false;
-		currentConnectionSnapshotReceived = true;
-	},
-	clearInitialSnapshotRetryTimer,
+	onSnapshotReceived: () => markSnapshotReceived(),
+	clearInitialSnapshotRetryTimer: () => clearInitialSnapshotRetryTimer(),
 	quoteProtocolFacade,
 	recoverGameplayFeedback,
 	hostedWorldAccount,
@@ -22142,16 +23042,6 @@ var { summarizeEventTitle, addRecentEvent, handleSnapshot, normalizedGameplayAct
 });
 async function buildAgentChatAuthProof(request, auth) {
 	return viewerAgentChatAuthModule.buildAuthProof(request, auth);
-}
-function promptPatchFromDraft(currentValue, draftValue) {
-	const current = currentValue == null ? "" : String(currentValue);
-	const draft = String(draftValue ?? "");
-	if (draft === current) return { mode: "unchanged" };
-	if (draft.length === 0) return currentValue == null ? { mode: "unchanged" } : { mode: "clear" };
-	return {
-		mode: "set",
-		value: draft
-	};
 }
 async function buildPromptControlAuthProof(mode, request, auth) {
 	return viewerPromptControlModule?.buildAuthProof(mode, request, auth);
@@ -22319,74 +23209,38 @@ async function refreshPromptControlBinding() {
 		reason: "prompt control module is not ready"
 	};
 }
-function resetHostedPlayerAuthState(errorMessage = null, revocationMeta = null) {
-	cancelHostedLeaseRefresh();
-	clearPendingSessionRegisterWaiter("authentication session was invalidated");
-	stopHostedSessionRefreshLoop();
-	clearHostedPlayerSession();
-	const bootstrap = resolveAuthBootstrap();
-	const revokeReason = String(revocationMeta?.revokeReason || "").trim() || null;
-	const revokedBy = String(revocationMeta?.revokedBy || "").trim() || null;
-	clearSession(state, {
-		...bootstrap,
-		source: "guest_only",
-		registrationStatus: "guest",
-		error: errorMessage,
-		revokeReason,
-		revokedBy,
-		sessionEpoch: null,
-		issuedAtUnixMs: null,
-		releaseToken: null,
-		recoveryErrorCode: null,
-		recoveryErrorMessage: null,
-		issueInFlight: false,
-		syncInFlight: false,
-		runtimeStatus: "guest",
-		boundAgentId: null,
-		controlLostAgentId: null,
-		pendingRequestedAgentId: null,
-		pendingForceRebind: false,
-		rebindNotice: null
-	});
-	if (bootstrap.available) installSession(state, bootstrap).then(() => render());
-	refreshHostedAdmissionState().then(() => render());
-}
-async function logoutHostedPlayerSession() {
-	if (!state.auth.available || state.auth.source === "legacy_viewer_auth_bootstrap") return {
-		ok: false,
-		reason: "hosted browser session is unavailable"
-	};
-	const revokeRequest = {
-		player_id: state.auth.playerId,
-		session_pubkey: state.auth.publicKey,
-		revoke_reason: "player_logout",
-		revoked_by: state.auth.playerId
-	};
-	try {
-		if (state.connectionStatus === "connected") sendJson({
-			type: "authoritative_recovery",
-			command: {
-				mode: "revoke_session",
-				request: revokeRequest
-			}
-		});
-	} catch (_) {}
-	try {
-		await releaseHostedPlayerSlot();
-	} finally {
-		resetHostedPlayerAuthState("hosted player session released locally");
-		render();
-	}
-	return { ok: true };
-}
-function markHostedSessionRefreshFailure() {
-	state.auth.syncInFlight = false;
-	state.auth.registrationStatus = "issued";
-	state.auth.runtimeStatus = "error";
-	state.auth.recoveryErrorCode = "session_refresh_failed";
-	state.auth.recoveryErrorMessage = state.auth.error || "hosted player session refresh failed; retry to recover this browser session";
-	render();
-}
+var { resetHostedPlayerAuthState, logoutHostedPlayerSession, markHostedSessionRefreshFailure, handleAuthoritativeRecoveryAck, handleAuthoritativeRecoveryError } = createViewerAuthoritativeRecoveryModule({
+	state,
+	getPendingSessionRegisterWaiter: () => pendingSessionRegisterWaiter,
+	getViewerControlLossModule: () => viewerControlLossModule,
+	hostedWorldAccount,
+	cancelHostedLeaseRefresh,
+	clearPendingSessionRegisterWaiter,
+	stopHostedSessionRefreshLoop,
+	clearHostedPlayerSession,
+	resolveAuthBootstrap,
+	refreshHostedAdmissionState,
+	releaseHostedPlayerSlot,
+	sendJson: (...args) => sendJson(...args),
+	render: () => render(),
+	acceptRuntimeAckIdentity,
+	clearHostedRuntimeSyncTimer,
+	persistHostedPlayerSession,
+	refreshHostedPlayerLease,
+	syncHostedSessionRefreshLoop,
+	resolvePendingSessionRegisterWaiterAfterRuntimeAck,
+	maybeRecoverLocalTestStarterBindingFromSnapshot,
+	requestSnapshotSafe: () => requestSnapshotSafe(),
+	canAutoIssueHostedPlayerSession,
+	isHostedAuthExpired,
+	recoveryErrorRequiresExplicitRebind,
+	ensureRegisteredPlayerSession,
+	latestRequestedAgentId,
+	issueHostedPlayerIdentity,
+	rebindAgentIdFromRecoveryError,
+	markPendingSemanticRebind: (...args) => markPendingSemanticRebind(...args),
+	retryPendingSessionRegisterWaiterWithForceRebind
+});
 var { syncHostedPlayerSessionOnConnect } = createViewerHostedSessionReconnectModule({
 	authHasSigningKeyMaterial,
 	legacyViewerAuthBootstrapSource: LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE,
@@ -22396,59 +23250,6 @@ var { syncHostedPlayerSessionOnConnect } = createViewerHostedSessionReconnectMod
 	sendReconnectSync,
 	state
 });
-function buildPromptRequestFromDraft(agentId, draftOverrides) {
-	const currentProfile = selectedAgentPromptProfile();
-	if (!agentId || !currentProfile) throw new Error("select an agent before editing prompt overrides");
-	const request = {
-		agent_id: agentId,
-		player_id: state.auth.playerId,
-		public_key: state.auth.publicKey,
-		expected_version: Number(currentProfile.version || 0),
-		updated_by: state.auth.playerId,
-		system_prompt_override: promptPatchFromDraft(currentProfile.system_prompt_override, draftOverrides.systemPrompt),
-		short_term_goal_override: promptPatchFromDraft(currentProfile.short_term_goal_override, draftOverrides.shortTermGoal),
-		long_term_goal_override: promptPatchFromDraft(currentProfile.long_term_goal_override, draftOverrides.longTermGoal)
-	};
-	if (promptControlCapabilitySelected()) request.request_id = `pc-${String(nextRequestId()).padStart(8, "0")}`;
-	return request;
-}
-function encodePromptRequestForJson(request) {
-	const encodePatch = (patch) => {
-		if (!patch || patch.mode === "unchanged") return;
-		if (patch.mode === "clear") return null;
-		return patch.value;
-	};
-	return {
-		agent_id: request.agent_id,
-		player_id: request.player_id,
-		...request.request_id ? { request_id: request.request_id } : {},
-		...request.session_epoch != null ? { session_epoch: request.session_epoch } : {},
-		...request.binding_epoch != null ? { binding_epoch: request.binding_epoch } : {},
-		...request.expected_authority_epoch ? { expected_authority_epoch: request.expected_authority_epoch } : {},
-		public_key: request.public_key,
-		expected_version: request.expected_version,
-		updated_by: request.updated_by,
-		system_prompt_override: encodePatch(request.system_prompt_override),
-		short_term_goal_override: encodePatch(request.short_term_goal_override),
-		long_term_goal_override: encodePatch(request.long_term_goal_override)
-	};
-}
-function buildPromptRollbackRequest(agentId, toVersion) {
-	const profile = selectedAgentPromptProfile();
-	const targetVersion = Number(toVersion);
-	if (!agentId || !profile) throw new Error("select an agent before rolling back prompt overrides");
-	if (!Number.isInteger(targetVersion) || targetVersion < 0) throw new Error("prompt rollback requires integer toVersion >= 0");
-	const request = {
-		agent_id: agentId,
-		player_id: state.auth.playerId,
-		public_key: state.auth.publicKey,
-		to_version: targetVersion,
-		expected_version: Number(profile.version || 0),
-		updated_by: state.auth.playerId
-	};
-	if (promptControlCapabilitySelected()) request.request_id = `pc-${String(nextRequestId()).padStart(8, "0")}`;
-	return request;
-}
 function pushChatHistory(entry) {
 	const normalized = normalizeChatHistoryEntry(entry);
 	if (!normalized) return;
@@ -22513,254 +23314,68 @@ function markPendingSemanticRebind(message) {
 		feedback.reason = null;
 	}
 }
-function enqueueSemanticCommand(command) {
-	pendingSemanticCommands.push(command);
-	if (!semanticSendLoop) semanticSendLoop = processSemanticCommands();
-}
-function handleSemanticCommandError(command, error) {
-	if (command.kind === "chat") {
-		if (!sameAgentChatFeedback(state.lastChatFeedback, command.feedback) || !agentChatFeedbackInFlight(state.lastChatFeedback)) {
-			render();
-			return;
-		}
-		clearPendingAgentChatAckTimer();
-		clearPendingAgentChatOverallTimer();
-	}
-	if (command.kind === "prompt") {
-		if (!sameSemanticFeedback(state.lastPromptFeedback, command.feedback) || !semanticFeedbackInFlight(state.lastPromptFeedback)) {
-			render();
-			return;
-		}
-		clearPendingPromptControlAckTimer();
-	}
-	const feedback = command.kind === "chat" ? state.lastChatFeedback : state.lastPromptFeedback;
-	feedback.stage = "error";
-	feedback.ok = false;
-	feedback.accepted = false;
-	feedback.reason = String(error);
-	feedback.effect = "request build/send failed";
-	render();
-}
-async function processSemanticCommands() {
-	try {
-		while (pendingSemanticCommands.length > 0) {
-			const command = pendingSemanticCommands.shift();
-			try {
-				await executeSemanticCommand(command);
-			} catch (error) {
-				handleSemanticCommandError(command, error);
-			}
-		}
-	} finally {
-		semanticSendLoop = null;
-		if (pendingSemanticCommands.length > 0) semanticSendLoop = processSemanticCommands();
-	}
-}
-function assertSemanticCapability(actionId) {
-	const capability = buildSemanticCapability(actionId);
-	if (!capability.enabled) throw new Error(capability.reason || state.auth.error || `${actionId} is unavailable`);
-}
-function assertAgentChatFeedbackActive(feedback) {
-	if (!sameAgentChatFeedback(state.lastChatFeedback, feedback) || !agentChatFeedbackInFlight(state.lastChatFeedback)) throw new Error("agent_chat request expired before send completed");
-	state.lastChatFeedback = feedback;
-}
-function assertPromptFeedbackActive(feedback) {
-	if (!sameSemanticFeedback(state.lastPromptFeedback, feedback) || !semanticFeedbackInFlight(state.lastPromptFeedback)) throw new Error("prompt_control request expired before send completed");
-	state.lastPromptFeedback = feedback;
-}
-function sendAgentChat(agentIdOrPayload, maybeMessage) {
-	let agentId = null;
-	let message = null;
-	if (typeof agentIdOrPayload === "object" && agentIdOrPayload !== null) {
-		agentId = String(agentIdOrPayload.agentId || agentIdOrPayload.agent_id || selectedAgentId() || "");
-		message = String(agentIdOrPayload.message || "");
-	} else {
-		agentId = String(agentIdOrPayload || selectedAgentId() || "");
-		message = String(maybeMessage || "");
-	}
-	if (!agentId) return {
-		ok: false,
-		reason: "agent chat requires a selected agent or explicit agentId"
-	};
-	const controlError = currentBoundAgentControlError(agentId, "agent_chat");
-	if (controlError) return {
-		ok: false,
-		reason: controlError
-	};
-	if (!message.trim()) return {
-		ok: false,
-		reason: "agent chat message cannot be empty"
-	};
-	if (isAgentChatInFlight()) return {
-		ok: false,
-		reason: "agent_chat is already in flight; wait for ack/error before sending another message"
-	};
-	const feedback = createSemanticFeedback("chat", "agent_chat", agentId, {
-		effect: "queued for signing and send",
-		pendingMessage: message,
-		pendingPlayerId: state.auth.playerId || null
-	});
-	state.lastChatFeedback = feedback;
-	enqueueSemanticCommand({
-		kind: "chat",
-		feedback,
-		timeoutMs: AGENT_CHAT_OVERALL_TIMEOUT_MS,
-		execute: async () => {
-			assertAgentChatFeedbackActive(feedback);
-			scheduleAgentChatOverallTimeout(feedback);
-			feedback.stage = "registering";
-			feedback.effect = "registering player session";
-			render();
-			await ensureHostedPlayerAuthAvailable();
-			assertAgentChatFeedbackActive(feedback);
-			await ensureRegisteredPlayerSession(agentId);
-			assertAgentChatFeedbackActive(feedback);
-			await canonicalOwnerRead.refresh(agentId);
-			assertSemanticCapability("agent_chat");
-			feedback.stage = "signing";
-			feedback.effect = "building auth proof";
-			render();
-			const request = {
-				agent_id: agentId,
-				message,
-				player_id: state.auth.playerId,
-				public_key: state.auth.publicKey
-			};
-			request.auth = await buildAgentChatAuthProof(request, state.auth);
-			assertAgentChatFeedbackActive(feedback);
-			if (request.auth.player_id !== state.auth.playerId || request.auth.public_key !== state.auth.publicKey) throw new Error("agent_chat identity changed during signing");
-			feedback.requestAuthNonce = request.auth?.nonce;
-			feedback.canonicalRequest = request.canonical_authority ? request : null;
-			feedback.canonicalRetryCount = 0;
-			feedback.stage = "sent";
-			feedback.effect = "agent_chat request sent; waiting for ack";
-			state.lastChatFeedback = feedback;
-			sendJson({
-				type: "agent_chat",
-				request
-			});
-			scheduleAgentChatAckTimeout(feedback);
-			state.chatDraft.message = "";
-			state.chatDraft.dirty = false;
-			render();
-		}
-	});
-	render();
-	return {
-		ok: true,
-		feedback: snapshotSemanticFeedback(feedback)
-	};
-}
-function sendPromptControl(mode, payload = null) {
-	const normalizedMode = String(mode || "").trim().toLowerCase();
-	if (![
-		"preview",
-		"apply",
-		"rollback"
-	].includes(normalizedMode)) return {
-		ok: false,
-		reason: "prompt control mode must be preview, apply, or rollback"
-	};
-	const selectedId = selectedAgentId();
-	const agentId = String(payload?.agentId || payload?.agent_id || selectedId || "");
-	if (!agentId) return {
-		ok: false,
-		reason: "prompt control requires a selected agent or explicit agentId"
-	};
-	const controlError = currentBoundAgentControlError(agentId, "prompt_control");
-	if (controlError) return {
-		ok: false,
-		reason: controlError
-	};
-	const protocolError = promptControlReadinessError(agentId);
-	if (protocolError) return {
-		ok: false,
-		reason: protocolError
-	};
-	let request;
-	try {
-		if (normalizedMode === "rollback") {
-			const currentVersion = Number(state.promptDraft.currentVersion || selectedAgentPromptProfile()?.version || 0);
-			const fallbackVersion = Math.max(0, currentVersion - 1);
-			request = buildPromptRollbackRequest(agentId, payload?.toVersion ?? payload?.to_version ?? fallbackVersion);
-		} else request = buildPromptRequestFromDraft(agentId, {
-			systemPrompt: payload?.systemPrompt ?? payload?.system_prompt_override ?? state.promptDraft.systemPrompt,
-			shortTermGoal: payload?.shortTermGoal ?? payload?.short_term_goal_override ?? state.promptDraft.shortTermGoal,
-			longTermGoal: payload?.longTermGoal ?? payload?.long_term_goal_override ?? state.promptDraft.longTermGoal
-		});
-	} catch (error) {
-		return {
-			ok: false,
-			reason: String(error)
-		};
-	}
-	state.lastPromptFeedback = createSemanticFeedback("prompt", `prompt_${normalizedMode}`, agentId, {
-		effect: "queued for signing and send",
-		toVersion: request.to_version ?? null,
-		requestId: request.request_id || null
-	});
-	const feedback = state.lastPromptFeedback;
-	enqueueSemanticCommand({
-		kind: "prompt",
-		feedback,
-		timeoutMs: SEMANTIC_ACTION_OVERALL_TIMEOUT_MS,
-		execute: async () => {
-			await ensureHostedPlayerAuthAvailable();
-			assertPromptFeedbackActive(feedback);
-			assertSemanticCapability("prompt_control");
-			feedback.stage = "registering";
-			feedback.effect = "registering player session";
-			render();
-			await ensureRegisteredPlayerSession(agentId);
-			assertPromptFeedbackActive(feedback);
-			attachPromptControlIdentity(request);
-			let strongAuthGrant = null;
-			if (isHostedPublicJoinDeploymentMode(state.hostedAccess?.deployment_mode)) {
-				feedback.stage = "authorizing";
-				feedback.effect = "requesting backend strong-auth grant";
-				render();
-				strongAuthGrant = await requestHostedStrongAuthGrant(normalizedMode === "rollback" ? "prompt_control_rollback" : `prompt_control_${normalizedMode}`, agentId);
-				assertPromptFeedbackActive(feedback);
-			}
-			feedback.stage = "signing";
-			feedback.effect = "building auth proof";
-			render();
-			let commandRequest;
-			if (normalizedMode === "rollback") {
-				commandRequest = {
-					...request,
-					auth: await buildPromptRollbackAuthProof(request, state.auth)
-				};
-				if (strongAuthGrant) commandRequest.strong_auth_grant = strongAuthGrant;
-			} else {
-				commandRequest = encodePromptRequestForJson(request);
-				commandRequest.auth = await buildPromptControlAuthProof(normalizedMode, request, state.auth);
-				if (strongAuthGrant) commandRequest.strong_auth_grant = strongAuthGrant;
-			}
-			assertPromptFeedbackActive(feedback);
-			feedback.stage = "sent";
-			feedback.effect = `prompt ${normalizedMode} request sent; waiting for ack`;
-			state.lastPromptFeedback = feedback;
-			feedback.requestId = request.request_id || null;
-			feedback.requestAuthNonce = commandRequest.auth?.nonce;
-			feedback.submittedDraft = promptDraftValuesForRequest(request);
-			sendJson({
-				type: "prompt_control",
-				command: {
-					mode: normalizedMode,
-					request: commandRequest
-				}
-			});
-			schedulePromptControlAckTimeout(feedback);
-			render();
-		}
-	});
-	render();
-	return {
-		ok: true,
-		feedback: snapshotSemanticFeedback(feedback)
-	};
-}
+var { enqueueSemanticCommand, assertSemanticCapability, assertAgentChatFeedbackActive, assertPromptFeedbackActive, sendAgentChat, handleAgentChatAck, handleAgentChatError } = createViewerSemanticQueueChatModule({
+	state,
+	getSocket: () => socket,
+	getViewerControlLossModule: () => viewerControlLossModule,
+	canonicalOwnerRead,
+	agentChatOverallTimeoutMs: AGENT_CHAT_OVERALL_TIMEOUT_MS,
+	clone,
+	render: () => render(),
+	sendJson: (...args) => sendJson(...args),
+	requestSnapshotSafe: () => requestSnapshotSafe(),
+	selectedAgentId,
+	currentBoundAgentControlError,
+	buildSemanticCapability,
+	isAgentChatInFlight,
+	sameAgentChatFeedback,
+	agentChatFeedbackInFlight,
+	sameSemanticFeedback,
+	semanticFeedbackInFlight,
+	markSemanticFeedbackError,
+	createSemanticFeedback,
+	snapshotSemanticFeedback,
+	expireAgentChatOverallTimeout,
+	scheduleAgentChatOverallTimeout,
+	scheduleAgentChatAckTimeout,
+	clearPendingAgentChatAckTimer,
+	clearPendingAgentChatOverallTimer,
+	setPendingAgentChatAckTimer,
+	failPendingAgentChatAck,
+	clearPendingPromptControlAckTimer,
+	ensureHostedPlayerAuthAvailable: (...args) => ensureHostedPlayerAuthAvailable(...args),
+	ensureRegisteredPlayerSession: (...args) => ensureRegisteredPlayerSession(...args),
+	buildAgentChatAuthProof,
+	acceptRuntimeAckIdentity,
+	pushChatHistory
+});
+var { sendPromptControl, applyPromptAckLocally, handlePromptControlAck, handlePromptControlError } = createViewerPromptRequestModule({
+	state,
+	getViewerPromptControlModule: () => viewerPromptControlModule,
+	semanticActionOverallTimeoutMs: SEMANTIC_ACTION_OVERALL_TIMEOUT_MS,
+	selectedAgentId,
+	selectedAgentPromptProfile,
+	currentBoundAgentControlError,
+	promptControlCapabilitySelected,
+	promptControlReadinessError,
+	attachPromptControlIdentity,
+	promptDraftValuesForRequest,
+	nextRequestId,
+	createSemanticFeedback,
+	snapshotSemanticFeedback,
+	enqueueSemanticCommand,
+	ensureHostedPlayerAuthAvailable: (...args) => ensureHostedPlayerAuthAvailable(...args),
+	assertPromptFeedbackActive,
+	assertSemanticCapability,
+	ensureRegisteredPlayerSession: (...args) => ensureRegisteredPlayerSession(...args),
+	requestHostedStrongAuthGrant: (...args) => requestHostedStrongAuthGrant(...args),
+	buildPromptControlAuthProof,
+	buildPromptRollbackAuthProof,
+	sendJson: (...args) => sendJson(...args),
+	schedulePromptControlAckTimeout,
+	acceptRuntimeAckIdentity,
+	render: () => render()
+});
 var { sendGameplayAction, handleGameplayActionAck, handleGameplayActionError } = createViewerGameplayActionModule({
 	state,
 	getSocket: () => socket,
@@ -22786,279 +23401,6 @@ var { sendGameplayAction, handleGameplayActionAck, handleGameplayActionError } =
 	acceptRuntimeAckIdentity,
 	isHostedAuthExpired
 });
-function applyPromptAckLocally(ack) {
-	const agentId = ack?.agent_id;
-	if (!agentId || !state.snapshot?.model) return;
-	if (!state.snapshot.model.agent_prompt_profiles) state.snapshot.model.agent_prompt_profiles = {};
-	const current = state.snapshot.model.agent_prompt_profiles[agentId] || { agent_id: agentId };
-	const nextProfile = {
-		...current,
-		agent_id: agentId,
-		version: Number(ack.version || current.version || 0),
-		updated_at_tick: Number(ack.updated_at_tick || state.logicalTime),
-		updated_by: state.auth.playerId || current.updated_by || ""
-	};
-	if (!ack.preview) {
-		nextProfile.system_prompt_override = state.promptDraft.systemPrompt || null;
-		nextProfile.short_term_goal_override = state.promptDraft.shortTermGoal || null;
-		nextProfile.long_term_goal_override = state.promptDraft.longTermGoal || null;
-	}
-	state.snapshot.model.agent_prompt_profiles[agentId] = nextProfile;
-	if (selectedAgentId() === agentId) state.promptDraft = {
-		agentId,
-		currentVersion: nextProfile.version,
-		rollbackTargetVersion: Math.max(0, Number(nextProfile.version || 0) - 1),
-		updatedBy: nextProfile.updated_by,
-		updatedAtTick: nextProfile.updated_at_tick,
-		systemPrompt: String(nextProfile.system_prompt_override || ""),
-		shortTermGoal: String(nextProfile.short_term_goal_override || ""),
-		longTermGoal: String(nextProfile.long_term_goal_override || ""),
-		dirty: false
-	};
-}
-function handlePromptControlAck(ack) {
-	if (acceptRuntimeAckIdentity(ack)) viewerPromptControlModule?.handleAck(ack);
-}
-function handlePromptControlError(error) {
-	viewerPromptControlModule?.handleError(error);
-}
-function handleAgentChatAck(ack) {
-	if (!acceptRuntimeAckIdentity(ack)) return;
-	const feedback = state.lastChatFeedback;
-	if (!agentChatFeedbackInFlight(feedback) || ack?.agent_id !== feedback.agentId) return;
-	if (feedback.canonicalRequest && !canonicalAckMatches(ack, feedback.canonicalRequest)) return;
-	if (feedback.requestAuthNonce != null && (ack?.request_auth_nonce ?? ack?.auth_nonce) !== feedback.requestAuthNonce) return;
-	clearPendingAgentChatAckTimer();
-	if (feedback.canonicalRequest && ack?.status === "pending") {
-		setPendingAgentChatAckTimer(scheduleCanonicalGoalPending({
-			ack,
-			feedback,
-			state,
-			clone,
-			requestSnapshotSafe,
-			sameAgentChatFeedback,
-			failPendingAgentChatAck,
-			sendJson,
-			scheduleAgentChatAckTimeout,
-			getSocket: () => socket
-		}));
-		return;
-	}
-	if (feedback.canonicalRequest && (ack?.status !== "accepted" || !ack?.intent_id)) {
-		failPendingAgentChatAck("canonical goal commit was not confirmed");
-		return;
-	}
-	clearPendingAgentChatOverallTimer();
-	applyCommittedChatAck({
-		ack,
-		feedback,
-		state,
-		clone,
-		pushChatHistory
-	});
-}
-function handleAgentChatError(error) {
-	const current = state.lastChatFeedback;
-	if (!agentChatFeedbackInFlight(current) || error?.agent_id !== current.agentId) return;
-	if (current.canonicalRequest && error?.request_auth_nonce !== current.canonicalRequest.auth?.nonce) return;
-	if (current.requestAuthNonce != null && error?.request_auth_nonce !== current.requestAuthNonce) return;
-	clearPendingAgentChatAckTimer();
-	clearPendingAgentChatOverallTimer();
-	const feedback = state.lastChatFeedback || createSemanticFeedback("chat", "agent_chat", error?.agent_id || selectedAgentId());
-	const agentId = error?.agent_id || feedback.agentId || selectedAgentId() || null;
-	const controlLost = viewerControlLossModule?.isControlLossError(error) === true;
-	const response = controlLost ? viewerControlLossModule.markControlLost(agentId) : clone(error);
-	feedback.stage = "error";
-	feedback.ok = false;
-	feedback.accepted = false;
-	feedback.reason = controlLost ? "control_lost" : error?.message || error?.code || "agent chat failed";
-	feedback.effect = controlLost ? "control_lost" : error?.code || "agent chat error";
-	feedback.response = response;
-	state.lastChatFeedback = feedback;
-	pushChatHistory({
-		id: `chat-error-${feedback.id}`,
-		source: "error",
-		agentId,
-		targetAgentId: agentId,
-		playerId: feedback.pendingPlayerId || state.auth.playerId || null,
-		speaker: "runtime",
-		message: feedback.reason,
-		code: controlLost ? "control_lost" : error?.code || null,
-		tick: Number(error?.accepted_at_tick || state.logicalTime || 0),
-		locationId: error?.location_id || null,
-		response
-	});
-}
-function adoptHostedRecoveryAck(ack) {
-	if (!ack || !state.auth.available || ack.status === "catch_up_ready" && ack.message === "snapshot_sync_metadata" && [
-		ack.player_id,
-		ack.session_pubkey,
-		ack.session_epoch,
-		ack.binding_epoch,
-		ack.agent_id
-	].every((value) => value == null)) return;
-	if (!acceptRuntimeAckIdentity(ack, ack.status === "session_registered" || ack.status === "session_revoked")) return;
-	if (ack.status === "session_registered" && (!pendingSessionRegisterWaiter || !isSessionContextCurrent(state, pendingSessionRegisterWaiter.context, authConnectionGeneration(), state.wsUrl))) return;
-	clearHostedRuntimeSyncTimer();
-	const usesLegacyPreviewBootstrap = state.auth.source === LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE;
-	const hadPendingForceRebind = state.auth.pendingForceRebind === true;
-	const previousRequestedAgentId = state.auth.pendingRequestedAgentId;
-	const nextBoundAgentId = Object.prototype.hasOwnProperty.call(ack, "agent_id") ? ack.agent_id || null : state.auth.boundAgentId || null;
-	const nextRequestedAgentId = ack.agent_id || state.auth.pendingRequestedAgentId || state.auth.boundAgentId || null;
-	state.auth.syncInFlight = false;
-	state.auth.recoveryErrorCode = null;
-	state.auth.recoveryErrorMessage = null;
-	state.auth.error = null;
-	state.auth.revokeReason = null;
-	state.auth.revokedBy = null;
-	if (ack.session_epoch != null) state.auth.sessionEpoch = Number(ack.session_epoch);
-	if (Object.prototype.hasOwnProperty.call(ack, "binding_epoch")) state.auth.bindingEpoch = ack.binding_epoch == null ? null : Number(ack.binding_epoch);
-	state.auth.boundAgentId = nextBoundAgentId;
-	if (ack.status === "session_registered" || ack.status === "catch_up_ready") viewerControlLossModule?.clearControlLost(nextBoundAgentId);
-	state.auth.pendingRequestedAgentId = nextRequestedAgentId;
-	state.auth.pendingForceRebind = false;
-	if (ack.status === "session_registered" && hadPendingForceRebind) state.auth.rebindNotice = `Player session switched to ${ack.agent_id || previousRequestedAgentId || "requested agent"}.`;
-	state.auth.registrationStatus = ack.status === "session_registered" || ack.status === "catch_up_ready" ? "registered" : ack.status === "session_revoked" ? "guest" : "issued";
-	if (ack.status === "session_registered" || ack.status === "catch_up_ready") updateRegistrationGrant(state.auth, null);
-	state.auth.runtimeStatus = ack.status === "session_revoked" ? "revoked" : nextBoundAgentId ? "registered" : "registered_unbound";
-	if (ack.status === "session_revoked") {
-		if (usesLegacyPreviewBootstrap) {
-			state.auth.registrationStatus = "issued";
-			state.auth.runtimeStatus = "revoked";
-			state.auth.error = ack.message || "legacy preview player session was revoked";
-			state.auth.pendingRequestedAgentId = null;
-			state.auth.pendingForceRebind = false;
-		} else {
-			releaseHostedPlayerSlot().catch(() => {});
-			resetHostedPlayerAuthState(ack.message || "hosted player session was revoked", {
-				revokeReason: ack.revoke_reason || ack.message || null,
-				revokedBy: ack.revoked_by || null
-			});
-		}
-	} else if (!usesLegacyPreviewBootstrap) {
-		persistHostedPlayerSession(state.auth);
-		refreshHostedPlayerLease();
-		syncHostedSessionRefreshLoop();
-	}
-	if (ack.status === "session_registered") resolvePendingSessionRegisterWaiterAfterRuntimeAck(ack);
-	maybeRecoverLocalTestStarterBindingFromSnapshot(state.snapshot);
-	if (ack.status === "session_registered") {
-		requestSnapshotSafe();
-		requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
-	}
-}
-async function recoverHostedSessionFromError(error) {
-	if (!canAutoIssueHostedPlayerSession() && !state.auth.available || state.auth.source === "legacy_viewer_auth_bootstrap") return;
-	if (isHostedAuthExpired(error)) {
-		if (state.auth.source === "hosted_account_cookie") {
-			await hostedWorldAccount.renew();
-			return;
-		}
-	}
-	const code = String(error?.code || "").trim();
-	if (code === "session_not_found" && pendingSessionRegisterWaiter?.forceRebind) return;
-	if (recoveryErrorRequiresExplicitRebind(error) && state.auth.pendingRequestedAgentId && !state.auth.pendingForceRebind) {
-		await ensureRegisteredPlayerSession(state.auth.pendingRequestedAgentId, { forceRebind: true });
-		return;
-	}
-	if (code === "session_not_found") {
-		await ensureRegisteredPlayerSession(latestRequestedAgentId());
-		return;
-	}
-	if (code === "session_revoked") {
-		releaseHostedPlayerSlot().catch(() => {});
-		resetHostedPlayerAuthState(error?.message || code || "hosted player session failed", {
-			revokeReason: error?.revoke_reason || error?.message || null,
-			revokedBy: error?.revoked_by || null
-		});
-		render();
-		return;
-	}
-	if (["session_key_mismatch", "session_player_id_invalid"].includes(code)) {
-		releaseHostedPlayerSlot().catch(() => {});
-		resetHostedPlayerAuthState(error?.message || code || "hosted player session failed");
-		render();
-		await issueHostedPlayerIdentity();
-		if (state.auth.available) await ensureRegisteredPlayerSession(latestRequestedAgentId());
-	}
-}
-function handleAuthoritativeRecoveryAck(ack) {
-	adoptHostedRecoveryAck(ack);
-}
-function handleAuthoritativeRecoveryError(error) {
-	clearHostedRuntimeSyncTimer();
-	if (String(error?.code || "").trim() === "session_not_found" && pendingSessionRegisterWaiter?.forceRebind) {
-		state.auth.recoveryErrorCode = null;
-		state.auth.recoveryErrorMessage = null;
-		state.auth.runtimeStatus = "rebind_registering";
-		state.auth.error = null;
-		render();
-		return;
-	}
-	const rebindAgentId = rebindAgentIdFromRecoveryError(error);
-	if (pendingSessionRegisterWaiter && recoveryErrorRequiresExplicitRebind(error) && (pendingSessionRegisterWaiter.requestedAgentId || rebindAgentId) && !pendingSessionRegisterWaiter.forceRebind) {
-		if (!pendingSessionRegisterWaiter.requestedAgentId && rebindAgentId) {
-			pendingSessionRegisterWaiter.requestedAgentId = rebindAgentId;
-			state.auth.pendingRequestedAgentId = rebindAgentId;
-		}
-		state.auth.recoveryErrorCode = error?.code || null;
-		state.auth.recoveryErrorMessage = error?.message || null;
-		state.auth.error = error?.message || error?.code || "authoritative recovery failed";
-		state.auth.registrationStatus = "registering";
-		state.auth.runtimeStatus = "rebind_retrying";
-		state.auth.pendingForceRebind = true;
-		state.auth.rebindNotice = `Requested agent ${state.auth.pendingRequestedAgentId || "-"} needs explicit rebind; retrying now.`;
-		markPendingSemanticRebind("explicit rebind required; retrying registration for the requested agent");
-		render();
-		retryPendingSessionRegisterWaiterWithForceRebind().catch((retryError) => {
-			handleAuthoritativeRecoveryError({
-				code: "player_bind_failed",
-				message: String(retryError)
-			});
-		});
-		return;
-	}
-	if (!pendingSessionRegisterWaiter && state.auth.source === "local_test_api_ephemeral" && recoveryErrorRequiresExplicitRebind(error) && rebindAgentId) {
-		state.auth.recoveryErrorCode = error?.code || null;
-		state.auth.recoveryErrorMessage = error?.message || null;
-		state.auth.error = error?.message || error?.code || "authoritative recovery failed";
-		state.auth.registrationStatus = "registering";
-		state.auth.runtimeStatus = "rebind_retrying";
-		state.auth.pendingRequestedAgentId = rebindAgentId;
-		state.auth.pendingForceRebind = true;
-		state.auth.rebindNotice = `Requested agent ${rebindAgentId} needs explicit rebind; retrying now.`;
-		render();
-		ensureRegisteredPlayerSession(rebindAgentId, { forceRebind: true }).catch((retryError) => {
-			handleAuthoritativeRecoveryError({
-				code: "player_bind_failed",
-				message: String(retryError),
-				agent_id: rebindAgentId
-			});
-		});
-		return;
-	}
-	if (!state.auth.available || state.auth.source === "legacy_viewer_auth_bootstrap") {
-		clearPendingSessionRegisterWaiter(error?.message || error?.code || "authoritative recovery failed");
-		return;
-	}
-	if (isHostedAuthExpired(error)) {
-		clearPendingSessionRegisterWaiter(error?.message || error?.code || "hosted authorization expired");
-		hostedWorldAccount.handleAuthorizationExpired?.(error);
-		return;
-	}
-	state.auth.syncInFlight = false;
-	state.auth.recoveryErrorCode = error?.code || null;
-	state.auth.recoveryErrorMessage = error?.message || null;
-	state.auth.error = error?.message || error?.code || "authoritative recovery failed";
-	state.auth.revokeReason = error?.revoke_reason || null;
-	state.auth.revokedBy = error?.revoked_by || null;
-	state.auth.registrationStatus = "issued";
-	state.auth.runtimeStatus = error?.code === "session_revoked" ? "revoked" : error?.code === "session_not_found" ? "missing" : "error";
-	if (!recoveryErrorRequiresExplicitRebind(error) && !isHostedAuthExpired(error)) state.auth.boundAgentId = null;
-	clearPendingSessionRegisterWaiter(error?.message || error?.code || "authoritative recovery failed");
-	syncHostedSessionRefreshLoop();
-	recoverHostedSessionFromError(error);
-}
 var worldViewTransport = createWorldViewTransport({
 	send: sendJson,
 	getScope: () => worldViewScopeKey(state),
@@ -23072,201 +23414,60 @@ var scopeSnapshotTransport = createScopeSnapshotTransport({
 });
 var requestScopeSnapshot = () => scopeSnapshotTransport.request();
 var acceptScopeSnapshot = (snapshot) => handleSnapshot(snapshot);
-function handleViewerMessage(message, sourceSocket = null) {
-	if (sourceSocket && socket !== sourceSocket) return;
-	if (message?.request_auth_nonce != null) {
-		for (const key of [
-			"ack",
-			"error",
-			"quote"
-		]) if (message[key]) message[key].request_auth_nonce = message.request_auth_nonce;
-	}
-	if (scopeSnapshotTransport.handle(message)) return;
-	if (worldViewTransport.handle(message)) return;
-	if (quoteProtocolFacade.handleQuoteViewerMessage(message)) return;
-	switch (message?.type) {
-		case "hello_ack":
-			clearHelloAckTimer();
-			viewerPromptControlModule?.handleHelloAck(message);
-			state.server = message.server || null;
-			state.worldId = message.world_id || null;
-			state.controlProfile = message.control_profile || "playback";
-			liveControlState.hello(message);
-			hydrateChatHistoryFromStorage();
-			if (!initialSnapshotRequested) {
-				initialSnapshotRequested = true;
-				initialSnapshotRetryCount = 0;
-				sendInitialSnapshotRequest();
-				scheduleInitialSnapshotRetry();
-			}
-			ensureHostedPlayerAuthAvailable().then(() => {
-				syncHostedPlayerSessionOnConnect().catch((error) => {
-					state.auth.error = String(error);
-					render();
-				});
-				render();
-			}).catch((error) => {
-				state.auth.error = String(error);
-				render();
-			});
-			break;
-		case "live_control_state":
-			liveControlState.receive(message.state);
-			break;
-		case "snapshot":
-			handleSnapshot(message.snapshot);
-			break;
-		case "world_feed":
-			worldFeedTransport.handleWorldFeed(message.feed, sourceSocket);
-			hostedWorldAccount.restoreGameplayRequest(getGameplayRecoveryScope(state));
-			break;
-		case "event": {
-			addRecentEvent(message.event);
-			const chatEntry = extractAgentSpokeEntry(message.event);
-			if (chatEntry) pushChatHistory(chatEntry);
-			state.logicalTime = Math.max(state.logicalTime, Number(message.event?.time || 0));
-			state.tick = state.logicalTime;
-			worldFeedTransport.refreshAfterWorldActivity();
-			break;
-		}
-		case "metrics":
-			handleMetrics(message.time, message.metrics);
-			break;
-		case "decision_trace":
-			handleDecisionTrace(message.trace);
-			break;
-		case "control_completion_ack":
-			handleControlCompletionAck(message.ack);
-			break;
-		case "prompt_control_ack":
-			handlePromptControlAck(message.ack);
-			break;
-		case "prompt_control_error":
-			handlePromptControlError(message.error);
-			break;
-		case "safe_alternative_result":
-			safeAlternative.receive(message);
-			break;
-		case "canonical_agent_owner_read_context":
-			canonicalOwnerRead.handleContext(message.context);
-			break;
-		case "canonical_agent_owner_view":
-			canonicalOwnerRead.handleView(message);
-			break;
-		case "agent_chat_ack":
-			handleAgentChatAck(message.ack);
-			break;
-		case "agent_chat_error":
-			handleAgentChatError(message.error);
-			break;
-		case "gameplay_action_result":
-			if (receiveGameplayResult(state, getGameplayRecoveryScope(state), hostedWorldAccount, message)) {
-				clearPendingGameplayActionAckTimer();
-				requestSnapshotSafe();
-				render();
-			}
-			break;
-		case "gameplay_action_ack":
-			handleGameplayActionAck(message.ack);
-			break;
-		case "gameplay_action_error":
-			handleGameplayActionError(message.error);
-			break;
-		case "authoritative_recovery_ack":
-			handleAuthoritativeRecoveryAck(message.ack);
-			break;
-		case "authoritative_recovery_error":
-			handleAuthoritativeRecoveryError(message.error);
-			break;
-		case "error": reportFatalError(message.message, "viewer");
-	}
-	render({ pixelWorldChanged: message?.type !== "metrics" && message?.type !== "decision_trace" });
-}
-function attachSocket(ws) {
-	ws.addEventListener("open", () => {
-		if (socket !== ws) return;
-		worldFeedTransport.resetGeneration(ws);
-		resetViewerProtocolForConnection();
-		state.connectionStatus = "connected";
-		state.lastError = null;
-		state.server = null;
-		state.worldId = null;
-		initialSnapshotRequested = false;
-		currentConnectionSnapshotReceived = false;
-		initialSnapshotReadFailed = false;
-		initialSnapshotRetryCount = 0;
-		clearHelloAckTimer();
-		clearInitialSnapshotRetryTimer();
-		sendJson({
-			type: "hello_v2",
-			client: "viewer",
-			version: 2,
-			capabilities: [
-				PROMPT_CONTROL_RESULT_CAPABILITY,
-				LIVE_CONTROL_STATE_CAPABILITY,
-				"gameplay_result_lookup_v1",
-				"canonical_agent_chat_v1",
-				"world_view",
-				"world_view_pins_v1",
-				"world_view_delta_v1",
-				"world_view_aggregate_v1",
-				"world_view_event_anchor_v1"
-			]
-		});
-		scheduleHelloAckTimeout(ws);
-		syncHostedSessionRefreshLoop();
-		render();
-	});
-	ws.addEventListener("message", (event) => {
-		if (socket !== ws) return;
-		try {
-			handleViewerMessage(JSON.parse(String(event.data || "null")), ws);
-		} catch (error) {
-			reportFatalError(String(error), "viewer.parse");
-		}
-	});
-	ws.addEventListener("error", () => {
-		if (socket !== ws) return;
-		reportFatalError("websocket error", "viewer.ws");
-	});
-	ws.addEventListener("close", () => {
-		if (socket !== ws) return;
-		invalidateAuthConnection();
-		cancelHostedLeaseRefresh();
-		worldFeedTransport.markDisconnected(ws);
-		resetViewerProtocolForConnection();
-		state.connectionStatus = "connecting";
-		clearHostedRuntimeSyncTimer();
-		if (state.auth.available && state.auth.source !== "legacy_viewer_auth_bootstrap") {
-			state.auth.syncInFlight = false;
-			state.auth.runtimeStatus = "disconnected";
-		}
-		worldViewTransport.clear();
-		scopeSnapshotTransport.clear();
-		clearPendingSessionRegisterWaiter("websocket disconnected during player session registration");
-		failPendingAgentChatAck("websocket disconnected before agent_chat ack/error returned", "agent_chat websocket disconnected");
-		failPendingPromptControlAck("websocket disconnected before prompt_control ack/error returned", "prompt_control websocket disconnected");
-		failPendingGameplayActionAck("websocket disconnected before gameplay_action ack/error returned", "gameplay_action websocket disconnected");
-		stopHostedSessionRefreshLoop();
-		render();
-		if (reconnectTimer) window.clearTimeout(reconnectTimer);
-		clearHelloAckTimer();
-		clearInitialSnapshotRetryTimer();
-		reconnectTimer = window.setTimeout(connect, 1200);
-	});
-}
-function connect() {
-	invalidateAuthConnection();
-	if (socket) try {
-		socket.close();
-	} catch (_) {}
-	cancelHostedLeaseRefresh();
-	state.wsUrl = initialWsUrl();
-	state.connectionStatus = "connecting";
-	render();
-	socket = new WebSocket(state.wsUrl);
-	attachSocket(socket);
-}
+var { clearInitialSnapshotRetryTimer, markSnapshotReceived, getInitialSnapshotState, handleViewerMessage, connect } = createViewerWsTransportModule({
+	state,
+	getSocket: () => socket,
+	setSocket: (ws) => {
+		socket = ws;
+	},
+	getViewerPromptControlModule: () => viewerPromptControlModule,
+	helloAckTimeoutMs: HELLO_ACK_TIMEOUT_MS,
+	initialSnapshotRetryDelayMs: INITIAL_SNAPSHOT_RETRY_DELAY_MS,
+	initialSnapshotSlowRetryDelayMs: INITIAL_SNAPSHOT_SLOW_RETRY_DELAY_MS,
+	initialSnapshotSlowRetryAfter: INITIAL_SNAPSHOT_SLOW_RETRY_AFTER,
+	promptControlResultCapability: PROMPT_CONTROL_RESULT_CAPABILITY,
+	sendJson,
+	initialWsUrl,
+	render: (inv) => render(inv),
+	reportFatalError,
+	resetViewerProtocolForConnection,
+	worldFeedTransport,
+	worldViewTransport,
+	scopeSnapshotTransport,
+	quoteProtocolFacade,
+	liveControlState,
+	hostedWorldAccount,
+	safeAlternative,
+	canonicalOwnerRead,
+	hydrateChatHistoryFromStorage,
+	ensureHostedPlayerAuthAvailable,
+	syncHostedPlayerSessionOnConnect,
+	handleSnapshot,
+	addRecentEvent,
+	extractAgentSpokeEntry,
+	pushChatHistory,
+	handleMetrics,
+	handleDecisionTrace,
+	handleControlCompletionAck,
+	handlePromptControlAck,
+	handlePromptControlError,
+	handleAgentChatAck,
+	handleAgentChatError,
+	clearPendingGameplayActionAckTimer,
+	requestSnapshotSafe,
+	handleGameplayActionAck,
+	handleGameplayActionError,
+	handleAuthoritativeRecoveryAck,
+	handleAuthoritativeRecoveryError,
+	cancelHostedLeaseRefresh,
+	clearHostedRuntimeSyncTimer,
+	clearPendingSessionRegisterWaiter,
+	failPendingAgentChatAck,
+	failPendingPromptControlAck,
+	failPendingGameplayActionAck,
+	stopHostedSessionRefreshLoop,
+	syncHostedSessionRefreshLoop
+});
 function modelLists() {
 	return buildViewerEntityLists({
 		entityCollections,
@@ -23277,12 +23478,12 @@ function modelLists() {
 function buildTargetSyncProgress() {
 	const { agents, locations } = entityCollections();
 	const lists = modelLists();
-	const snapshotReceived = currentConnectionSnapshotReceived;
+	const { snapshotReceived, snapshotReadFailed, snapshotRequested, snapshotRetryCount } = getInitialSnapshotState();
 	const serverReady = !!state.server;
 	const sessionSyncing = !!state.auth.syncInFlight || !!pendingSessionRegisterWaiter;
 	let stage = "connecting";
 	if (state.connectionStatus === "connected") {
-		if (initialSnapshotReadFailed) stage = "error";
+		if (snapshotReadFailed) stage = "error";
 		else if (!serverReady) stage = "handshake";
 		else if (!snapshotReceived) stage = "snapshot";
 		else if (sessionSyncing) stage = "session";
@@ -23293,8 +23494,8 @@ function buildTargetSyncProgress() {
 		stage,
 		connectionStatus: state.connectionStatus,
 		serverReady,
-		snapshotRequested: initialSnapshotRequested,
-		snapshotRetryCount: initialSnapshotRetryCount,
+		snapshotRequested,
+		snapshotRetryCount,
 		snapshotReceived,
 		totalAgentCount: agents.length,
 		visibleAgentCount: lists.agents.length,
