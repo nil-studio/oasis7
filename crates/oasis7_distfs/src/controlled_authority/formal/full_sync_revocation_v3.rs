@@ -170,7 +170,10 @@ impl FullSyncRevocationInventoryV1 {
             || observed.revision < self.revocation_anchor.revision
             || (observed.revision == self.revocation_anchor.revision
                 && observed != &self.revocation_anchor)
-            || !all_leases_expired(&self.leases, observation.body.protected_time.earliest_unix_ms)
+            || !all_leases_expired(
+                &self.leases,
+                observation.body.protected_time.earliest_unix_ms,
+            )
         {
             return Err(FormalError::Rollback(
                 "V3 signed time cannot prove every original lease expired".into(),
@@ -197,8 +200,7 @@ impl FullSyncRevocationInventoryV1 {
         FullSyncRevocationSummaryV1 {
             original_lease_count: self.leases.len(),
             pending_lease_count: self.leases.len(),
-            signed_expiry_observed: self.phase
-                == FullSyncRevocationPhaseV1::SignedExpiryObserved,
+            signed_expiry_observed: self.phase == FullSyncRevocationPhaseV1::SignedExpiryObserved,
             effective: false,
         }
     }
@@ -243,10 +245,7 @@ impl FullSyncV3RequiredFloorV1 {
         })
     }
 
-    pub fn require_v3(
-        &self,
-        state: &VerifiedFullSyncIssuerStateV3,
-    ) -> Result<(), FormalError> {
+    pub fn require_v3(&self, state: &VerifiedFullSyncIssuerStateV3) -> Result<(), FormalError> {
         let actual = Self::from_verified_history(state)?;
         if self.schema_version != SCHEMA_V1
             || actual != *self
