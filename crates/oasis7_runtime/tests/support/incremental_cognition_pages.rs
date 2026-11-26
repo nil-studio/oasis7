@@ -4,6 +4,11 @@ use oasis7_runtime::{incremental_cognition_family::*, incremental_json_records::
 use std::{path::Path, sync::atomic::AtomicBool};
 pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootSetV1) {
     let cancelled_path = target_path.with_extension("cancelled-zstd");
+    let second_compression = if cfg!(feature = "test_tier_full") {
+        PageCompression::Zstd
+    } else {
+        PageCompression::Raw
+    };
     {
         let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let source = IncrementalPageStore::open(
@@ -17,11 +22,14 @@ pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootS
             IncrementalPageStore::create(target_path, memory.clone(), PageCompression::Raw)
                 .unwrap();
         let second =
-            IncrementalPageStore::create(&cancelled_path, memory.clone(), PageCompression::Zstd)
+            IncrementalPageStore::create(&cancelled_path, memory.clone(), second_compression)
                 .unwrap();
-        let state = source
+        let mut state = source
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let values = source.value_session(physical());
         let mut io = fixture::logical();
         let mut keys = SemanticKeyBudget {
@@ -118,12 +126,17 @@ pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootS
             .unwrap();
         cognition_missing_child::exercise(&source, &memory, roots, &feedback.body_root().node_root);
         let target_values = target.value_session(physical());
+        let mut visited = 0usize;
         pages
             .visit_pages(|id| {
-                let bytes = target_values
-                    .read_node(id, BUFFERED_PAGE_MAX_BYTES, &memory, MemoryClass::Ordinary)
-                    .unwrap();
-                assert_eq!(blake3::hash(&bytes).as_bytes(), id);
+                let sample = cfg!(feature = "test_tier_full") || visited.is_multiple_of(16);
+                visited += 1;
+                if sample {
+                    let bytes = target_values
+                        .read_node(id, BUFFERED_PAGE_MAX_BYTES, &memory, MemoryClass::Ordinary)
+                        .unwrap();
+                    assert_eq!(blake3::hash(&bytes).as_bytes(), id);
+                }
                 Ok::<_, ()>(())
             })
             .unwrap();
@@ -139,10 +152,15 @@ pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootS
         assert!(matches!(completed, Err(PageStoreError::Cancelled)));
         assert!(recipe_count() > baseline.get());
     }
-    for (target_path, compression) in [
-        (target_path, PageCompression::Raw),
-        (cancelled_path.as_path(), PageCompression::Zstd),
-    ] {
+    let reopen_targets: &[(&Path, PageCompression)] = if cfg!(feature = "test_tier_full") {
+        &[
+            (target_path, PageCompression::Raw),
+            (cancelled_path.as_path(), second_compression),
+        ]
+    } else {
+        &[(target_path, PageCompression::Raw)]
+    };
+    for &(target_path, compression) in reopen_targets {
         let cold = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
         let target = IncrementalPageStore::open(
             target_path,
@@ -152,9 +170,12 @@ pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootS
         )
         .unwrap();
         let _root_charge = cold.reserve(32 << 10, MemoryClass::Recovery).unwrap();
-        let state = target
+        let mut state = target
             .state_session(physical(), MemoryClass::Recovery)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(128, 512 << 10).unwrap();
+        }
         let values = target.value_session(physical());
         let mut io = fixture::logical();
         let mut keys = SemanticKeyBudget {

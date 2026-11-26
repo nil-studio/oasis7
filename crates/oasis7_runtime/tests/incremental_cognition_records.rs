@@ -133,9 +133,12 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
         generated.unwrap();
         assert_eq!(writes.len(), if all_optional { 60 } else { 22 });
         assert_eq!(records, if all_optional { 4 } else { 42 });
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         for (index, namespace) in namespaces.into_iter().enumerate() {
             let count = writes.iter().filter(|w| w.namespace == namespace).count();
             let _heap = memory
@@ -647,10 +650,13 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
             roots[2].copy_from_slice(&delta.after.canonical_bytes().unwrap());
             // Independent query determines N. N+1 is the core's post-equality
             // check; N+2 closes the public overlay after its core returns.
-            let mut cancelled_boundaries = [false; 4];
-            for (boundary, (offset, channel)) in
-                [(1, 0), (1, 1), (2, 0), (2, 1)].into_iter().enumerate()
-            {
+            let boundaries: &[(usize, usize)] = if cfg!(feature = "test_tier_full") {
+                &[(1, 0), (1, 1), (2, 0), (2, 1)]
+            } else {
+                &[(1, 0), (2, 1)]
+            };
+            let mut cancelled_boundaries = Vec::with_capacity(boundaries.len());
+            for &(offset, channel) in boundaries {
                 use std::{cell::Cell, rc::Rc};
                 let _inputs = memory.reserve(16 << 10, MemoryClass::Ordinary).unwrap();
                 let prefix = "λ".repeat(1536);
@@ -818,14 +824,14 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
                 let guard = failed_tx.guard();
                 let sealed_prefix = failed_tx.seal(&guard, &failed_live, 2);
                 let aborted = matches!(sealed_prefix, Err(ExecutionError::Aborted));
-                cancelled_boundaries[boundary] = was_cancelled && polls == n + offset && aborted;
+                cancelled_boundaries.push(was_cancelled && polls == n + offset && aborted);
                 eprintln!(
                     "Cognition independent getter N={n} offset={offset} channel={channel} polls={polls} cancelled={was_cancelled} sealable={} result={result:?}",
                     sealed_prefix.is_ok()
                 );
             }
             assert!(
-                cancelled_boundaries.into_iter().all(|passed| passed),
+                cancelled_boundaries.iter().all(|&passed| passed),
                 "core/overlay NoOp boundaries={cancelled_boundaries:?}"
             );
         }
@@ -846,9 +852,12 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
         reads_remaining: if all_optional { 3_000_000 } else { 2_500_000 },
         ..physical()
     };
-    let state = store
+    let mut state = store
         .state_session(cold_physical.clone(), MemoryClass::Recovery)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(64, 256 << 10).unwrap();
+    }
     let values = store.value_session(cold_physical);
     let mut io = ValueIoBudget {
         nodes_remaining: if all_optional { 200_000 } else { 100_000 },
@@ -1010,9 +1019,12 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
             reads_remaining: if all_optional { 3_000_000 } else { 2_500_000 },
             ..physical()
         };
-        let family_state = store
+        let mut family_state = store
             .state_session(scope.clone(), MemoryClass::Recovery)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            family_state = family_state.with_read_memo(64, 256 << 10).unwrap();
+        }
         let family_values = store.value_session(scope);
         let mut family_io = ValueIoBudget {
             nodes_remaining: if all_optional { 200_000 } else { 100_000 },

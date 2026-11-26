@@ -70,7 +70,12 @@ impl<W: StatePageWriter> StatePageWriter for FinalPut<'_, W> {
     }
 }
 pub(super) fn final_real_root_put_cancel_or_failure_never_seals_the_successful_prefix() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();
         let _caller = memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap();
         let dir = Directory::new();

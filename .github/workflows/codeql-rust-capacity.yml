@@ -35,6 +35,19 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.mode != 'rust-default-fixed-source-observation' && inputs.mode != 'rust-default-negative-projection-observation'
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || inputs.mode == 'qualifier-research' && 150 || 90 }}
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
@@ -51,7 +64,8 @@ jobs:
       CODEQL_THREADS: ''
       CODEQL_OVERLAY_DATABASE_MODE: none
       CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: 'true'
-      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '["${{ github.workspace }}/crates/oasis7_builtin_wasm_modules/_templates"]'
+      CAPACITY_NATIVE_IMAGE: ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      RUSTUP_AUTO_INSTALL: '0'
     steps:
       - name: Bind fixed deadline to actual hosted job start
         env:
@@ -95,6 +109,8 @@ jobs:
           persist-credentials: false
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-codeql-capacity-mold
       - id: snapshot
         name: Freeze the helper closure outside the collection tree
         run: |
@@ -124,16 +140,35 @@ jobs:
             "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CAPACITY_BUNDLE_VERSION}/codeql-bundle-rust-linux64.tar.zst" \
             --output "$RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst"
           echo "$CAPACITY_BUNDLE_SHA256  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
-          timeout 120 rustup toolchain install 1.96.0 --profile minimal
+          test "$(id -u):$(id -g)" = 1001:1001
+          test "$(command -v rustc)" = /opt/oasis7-rust/bin/rustc
+          test "$(rustc --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
+          test "$(cargo --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
+          python3 -I - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+
+          source = Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
+          templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
+          if not templates.is_dir() or templates.resolve(strict=True) != templates:
+              raise SystemExit('Rust template directory is unavailable in the actual checkout')
+          temporary = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=' + json.dumps([str(templates)]) + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'source_root={source}\ndb_location={temporary}/rust-capacity-databases\n')
+              out.write(f'bundle={temporary}/rust-capacity-tools/bundle.tar.zst\n')
+              out.write(f'node_options=--require={temporary}/rust-capacity-helper/codeql-rust-action-deadline.cjs\n')
+          PYTHON
       - id: init
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         timeout-minutes: 5
         with:
           languages: rust
           build-mode: none
-          source-root: ${{ github.workspace }}
-          db-location: ${{ runner.temp }}/rust-capacity-databases
-          tools: ${{ runner.temp }}/rust-capacity-tools/bundle.tar.zst
+          source-root: ${{ steps.tools.outputs.source_root }}
+          db-location: ${{ steps.tools.outputs.db_location }}
+          tools: ${{ steps.tools.outputs.bundle }}
           dependency-caching: false
           trap-caching: false
           config: |
@@ -155,7 +190,7 @@ jobs:
             --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
             --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
-            --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
+            --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE" --preinstalled-native-image "$CAPACITY_NATIVE_IMAGE"
       - id: candidate_prepare
         name: Freeze candidate source layout and resolve the exact 37 plus 7 queries
         if: inputs.mode == 'candidate-workload-research'
@@ -171,13 +206,13 @@ jobs:
             --deadline "$CAPACITY_DEADLINE" --analysis-deadline "$CAPACITY_ANALYSIS_DEADLINE"
       - id: analyze
         name: ${{ (inputs.mode == 'qualifier-research' || inputs.mode == 'candidate-workload-research') && 'Extract the complete fixed source for private research' || 'Extraction and complete official default queries' }}
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
         env:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
-          NODE_OPTIONS: ${{ inputs.mode == 'candidate-workload-research' && format('--require={0}/rust-capacity-helper/codeql-rust-action-deadline.cjs', runner.temp) || env.NODE_OPTIONS }}
+          NODE_OPTIONS: ${{ inputs.mode == 'candidate-workload-research' && steps.tools.outputs.node_options || env.NODE_OPTIONS }}
         with:
-          checkout_path: ${{ github.workspace }}
+          checkout_path: ${{ steps.tools.outputs.source_root }}
           category: oasis7/rust-repo/default
           output: ${{ runner.temp }}/rust-capacity-sarif
           upload: never
@@ -320,6 +355,19 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && (inputs.mode == 'rust-default-fixed-source-observation' || inputs.mode == 'rust-default-negative-projection-observation')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    container:
+      image: &observe-image ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:1c4282cf9627eb59399d739d38f00e14b3a9f4145f40bd8ef03362226adee565
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
@@ -334,7 +382,7 @@ jobs:
       CODEQL_RAM: ''
       CODEQL_THREADS: ''
       CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: 'true'
-      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '["${{ github.workspace }}/crates/oasis7_builtin_wasm_modules/_templates"]'
+      OASIS7_CODEQL_OBSERVATION_IMAGE: *observe-image
     steps:
       - name: Reject incompatible observation inputs
         run: |
@@ -348,7 +396,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
+        run: |
+          python3 .github/actions/setup-linux-mold/setup.py \
+            --install-dir "$RUNNER_TEMP/oasis7-codeql-fixed-observation-mold"
       - id: snapshot
         name: Freeze production helpers outside the collection tree
         timeout-minutes: 1
@@ -371,8 +421,27 @@ jobs:
             --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/codeql-rust-fixed-source-helper" \
             --output "$RUNNER_TEMP/codeql-rust-fixed-source-layout" \
             --source-sha "$OASIS7_CODEQL_PRODUCTION_SOURCE" --deadline "$(python3 -c 'import time; print(time.time() + 180)')"
-      - name: Minimal stable Rust extraction toolchain
-        run: rustup toolchain install 1.96.0 --profile minimal
+      - id: image_paths
+        name: Verify fixed image tools and template input
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          test "$(command -v rustc)" = /opt/oasis7-rust/bin/rustc
+          test "$(rustc --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
+          test "$(cargo --version | cut -d' ' -f2)" = "$RUSTUP_TOOLCHAIN"
+          python3 -I - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          source = Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
+          templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
+          if not templates.is_dir() or templates.resolve(strict=True) != templates:
+              raise SystemExit('Rust template directory is unavailable in the actual checkout')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=' + json.dumps([str(templates)]) + '\n')
+          temporary = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'source_root={source}\ndb_location={temporary}/codeql_databases\n')
+              out.write(f'sarif_output={temporary}/codeql-results\n')
+          PYTHON
       - id: rust_native
         name: Prepare Rust native extraction prerequisites
         timeout-minutes: 5
@@ -393,7 +462,13 @@ jobs:
           started = time.monotonic()
           terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180}
           try:
-              native.prepare_native(source, out, started + 270, env)
+              image = os.environ['OASIS7_CODEQL_OBSERVATION_IMAGE']
+              cgroup = pathlib.Path('/sys/fs/cgroup')
+              terminal.update(source_profile='preinstalled-image', image=image,
+                              cpu_max=(cgroup / 'cpu.max').read_text().strip(),
+                              memory_max=(cgroup / 'memory.max').read_text().strip(),
+                              visible_cpus=len(os.sched_getaffinity(0)))
+              native.verify_preinstalled_native(source, out, started + 270, env, image)
               terminal['status'] = 'PASS'
           except Exception as error:
               terminal.update(error_type=type(error).__name__, error=str(error))
@@ -413,14 +488,15 @@ jobs:
           echo "1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b  $RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" | sha256sum --check
           echo "tools_path=$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
       - id: init
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         env:
           CODEQL_OVERLAY_DATABASE_MODE: none
         with:
           tools: ${{ steps.rust_tools.outputs.tools_path }}
           languages: rust
           build-mode: none
-          db-location: ${{ runner.temp }}/codeql_databases
+          source-root: ${{ steps.image_paths.outputs.source_root }}
+          db-location: ${{ steps.image_paths.outputs.db_location }}
           ram: 14570
           threads: 4
           dependency-caching: false
@@ -507,10 +583,10 @@ jobs:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
           NODE_OPTIONS: ${{ steps.rust_prepare.outputs.node_options }}
           RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           category: oasis7/rust-repo/default
-          output: ${{ runner.temp }}/codeql-results
+          output: ${{ steps.image_paths.outputs.sarif_output }}
           upload: never
           skip-queries: true
           upload-database: false
@@ -529,16 +605,36 @@ jobs:
             --output "$RUNNER_TEMP/codeql-rust-production-evidence" \
             --sarif "$RUNNER_TEMP/codeql-results/rust.sarif" \
             --analysis-deadline "$RUST_ANALYSIS_DEADLINE" --extraction-outcome "$EXTRACTION_OUTCOME"
-      - name: Persist bounded observation evidence
+      - id: observation_evidence
+        name: Stage the bounded observation evidence
         if: always()
+        run: |
+          python3 -I - <<'PY'
+          import os, shutil, tempfile
+          from itertools import chain
+          from pathlib import Path
+          runner = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+          stage = Path(tempfile.mkdtemp(prefix='fixed-observation-upload-', dir=runner))
+          for name in ('codeql-rust-fixed-source-layout', 'codeql-rust-native',
+                       'codeql-rust-production-evidence', 'codeql-rust-production-budget.json'):
+              source = runner / name
+              paths = chain((source,), source.rglob('*'))
+              if any(path.is_symlink() or (path.exists() and not (path.is_file() or path.is_dir()))
+                     for path in paths):
+                  raise SystemExit('Unsafe observation evidence path: ' + name)
+              if source.is_dir():
+                  shutil.copytree(source, stage / name)
+              elif source.is_file():
+                  shutil.copyfile(source, stage / name)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'path={stage}\n')
+          PY
+      - name: Persist bounded observation evidence
+        if: always() && steps.observation_evidence.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: oasis7-codeql-rust-fixed-source-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/codeql-rust-fixed-source-layout
-            ${{ runner.temp }}/codeql-rust-native
-            ${{ runner.temp }}/codeql-rust-production-evidence
-            ${{ runner.temp }}/codeql-rust-production-budget.json
+          path: ${{ steps.observation_evidence.outputs.path }}
           include-hidden-files: true
           if-no-files-found: error
           overwrite: false

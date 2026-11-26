@@ -64,6 +64,7 @@ mod node_bft_v3_peer_transport;
 #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
 pub use node_bft_v3_peer_transport::NodeBftLibp2pPeerTransportV3;
 pub use node_bft_v3_peer_transport::{NodeBftPeerTransportV3, NodeBftReceivedPublicV3};
+mod node_bft_v3_observation_validation;
 mod node_bft_v3_runtime;
 mod node_bft_wal;
 mod node_engine_core;
@@ -129,6 +130,9 @@ pub use gossip_udp::{
     GossipTrafficMetricsSnapshot,
 };
 pub use node_bft_exports::*;
+pub use node_bft_v3_observation_validation::{
+    BftNodeObservedCutV1, BftNodeObservedIdentityPinsV1, validate_bft_node_observation_v1,
+};
 #[cfg(feature = "libp2p")]
 mod libp2p_network_exports;
 #[cfg(feature = "libp2p")]
@@ -246,6 +250,8 @@ pub struct NodeRuntime {
     replication_network: Option<NodeReplicationNetworkHandle>,
     replication_network_consensus_enabled: bool,
     gossip_endpoint: Option<Arc<GossipEndpoint>>,
+    #[cfg(test)]
+    gossip_socket_for_test: Option<std::net::UdpSocket>,
     feedback_store: Option<Arc<FeedbackStore>>,
     pending_feedback_announces: Arc<Mutex<Vec<FeedbackAnnounce>>>,
     execution_hook: Option<std::sync::Arc<std::sync::Mutex<Box<dyn NodeExecutionHook>>>>,

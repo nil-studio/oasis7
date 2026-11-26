@@ -12,10 +12,11 @@ use crate::runtime::{
     AgentActivityStatus, DomainEvent as RuntimeDomainEvent, WorldEvent as RuntimeWorldEvent,
     WorldEventBody as RuntimeWorldEventBody,
 };
-use crate::simulator::{
+use crate::simulator::WorldEvent;
+use oasis7_agent_api::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
-    WorldEvent, provider_phase1_required_actions, provider_phase1_required_capabilities,
 };
+use oasis7_client_api::{provider_phase1_required_actions, provider_phase1_required_capabilities};
 #[cfg(test)]
 use oasis7_simulator::RejectReason as SimulatorRejectReason;
 use oasis7_simulator::{

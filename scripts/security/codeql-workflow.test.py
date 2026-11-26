@@ -244,18 +244,19 @@ class WorkflowTests(unittest.TestCase):
     def test_analyzer_containers_preserve_shared_matrix_and_upload_identity(self):
         analyze = WORKFLOW.split("\n  analyze:\n", 1)[1]
         header = analyze.split("    steps:\n", 1)[0]
-        self.assertRegex(header, r"(?m)^      image: \$\{\{ \(matrix.language == 'python' \|\| matrix.language == 'javascript-typescript'\) && "
+        self.assertRegex(header, r"(?m)^      image: \$\{\{ matrix.language == 'rust' && "
+                                r"'ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:[0-9a-f]{64}' \|\| \(matrix.language == 'python' \|\| matrix.language == 'javascript-typescript'\) && "
                                 r"'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:[0-9a-f]{64}' \|\| matrix.language == 'actions' && "
                                 r"'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:[0-9a-f]{64}' \|\| '' \}\}$")
         permissions = header.split("    permissions:\n", 1)[1].split("    container:\n", 1)[0]
         self.assertEqual(permissions.splitlines(), [
             "      contents: read", "      security-events: write", "      actions: read", "      packages: read",
         ])
-        self.assertIn("      options: --user 1001:1001\n", header)
+        self.assertIn("      options: ${{ matrix.language == 'rust' && '--user 1001:1001 --init' || '--user 1001:1001' }}\n", header)
         self.assertIn("      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}\n", header)
         self.assertIn("      max-parallel: 2\n", header)
         preflight = analyze.split("      - name: Verify CodeQL image prerequisites\n", 1)[1]
-        self.assertTrue(preflight.startswith("        if: matrix.language == 'actions' || matrix.language == 'python' || matrix.language == 'javascript-typescript'\n"))
+        self.assertTrue(preflight.startswith("        shell: bash\n"))
         node = analyze.split("      - name: Verify JavaScript image Node.js\n", 1)[1].split("\n      - ", 1)[0]
         self.assertTrue(node.startswith("        if: matrix.language == 'javascript-typescript'\n"))
         self.assertIn('/usr/local/bin/node', node)
@@ -308,11 +309,45 @@ class WorkflowTests(unittest.TestCase):
                     with self.subTest(event=event, mode=mode, draft=draft, action=action):
                         self.assertEqual(eval_guard(plan_if, values), expected_plan)
 
+    def test_rust_template_inclusion_uses_the_local_workspace(self):
+        name = '      - name: Set Rust template inclusion from the actual checkout\n'
+        analyze = WORKFLOW.split('\n  analyze:\n', 1)[1]
+        self.assertIn("CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '[]'\n", analyze)
+        self.assertLess(analyze.index('Confirm actual analysis checkout'), analyze.index(name))
+        self.assertLess(analyze.index(name), analyze.index('      - id: init\n'))
+        step = analyze.split(name, 1)[1].split('\n      - ', 1)[0]
+        self.assertTrue(step.startswith("        if: matrix.language == 'rust'\n"))
+        body = step.split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
+        body = '\n'.join(line[10:] for line in body.splitlines())
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory).resolve()
+            for mount in ('host/work/oasis7/oasis7', '__w/oasis7/oasis7'):
+                with self.subTest(mount=mount):
+                    source = folder / mount
+                    templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
+                    templates.mkdir(parents=True)
+                    env_file = source / 'env'
+                    env = dict(GITHUB_WORKSPACE=str(source), GITHUB_ENV=str(env_file))
+                    subprocess.run([sys.executable, '-I', '-c', body], env=env, check=True)
+                    name, value = env_file.read_text().split('=', 1)
+                    self.assertEqual(name, 'CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES')
+                    self.assertEqual(json.loads(value), [str(templates)])
+                    templates.rmdir()
+                    env_file.unlink()
+                    result = subprocess.run([sys.executable, '-I', '-c', body], env=env, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(env_file.exists())
+
     def test_rust_native_preparation_scope_budget_and_artifact(self):
         step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id:', 1)[0]
         self.assertIn("if: matrix.language == 'rust'", step)
         self.assertIn('timeout-minutes: 5', step)
-        self.assertIn("CODEQL_NATIVE_SOURCE_PROFILE: ${{ needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && 'ubuntu-archive-https' || 'runner-sources' }}", step)
+        self.assertIn('CODEQL_NATIVE_SOURCE_PROFILE: preinstalled-image', step)
+        image = re.search(r"'(ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:[0-9a-f]{64})'", WORKFLOW)
+        self.assertIsNotNone(image)
+        self.assertIn('CODEQL_NATIVE_IMAGE: ' + image[1], step)
+        self.assertNotIn('prepare_native(', step)
+        self.assertNotIn('apt-get', step)
         self.assertNotIn('Debug::pkgAcquire::Worker', step)
         self.assertNotIn('NativeObservation', step)
         artifact = WORKFLOW.split('      - name: Persist Rust native preparation evidence\n', 1)[1]
@@ -327,51 +362,62 @@ class WorkflowTests(unittest.TestCase):
         body = '\n'.join(line[10:] for line in body.splitlines())
         class PhaseError(RuntimeError):
             def __init__(self):
-                super().__init__('private-apt-error-canary')
-                self.result = {'exit':124, 'failure_kind':'child_exit'}
-                self.native_source_evidence_error = {'stage':'final-source-receipt', 'type':'OSError'}
-        for profile, failure in ((profile, failure) for profile in ('runner-sources', 'ubuntu-archive-https')
-                                 for failure in (None, RuntimeError, PhaseError)):
-            with self.subTest(profile=profile, failure=failure), tempfile.TemporaryDirectory() as directory:
+                super().__init__('private-probe-error-canary')
+                self.result = {'exit': 124, 'failure_kind': 'child_exit'}
+
+        for failed_probe in (None, 'native-packages', 'native-modules'):
+            with self.subTest(failed_probe=failed_probe), tempfile.TemporaryDirectory() as directory:
                 folder = Path(directory)
                 calls = []
-                error = None if failure is None else (PhaseError() if failure is PhaseError else RuntimeError('private-source-error-canary'))
-                def prepare(source, out, end, env, **kwargs):
-                    calls.append((source, out, end, env, kwargs))
-                    if error is not None: raise error
-                native = SimpleNamespace(runtime=SimpleNamespace(PhaseError=PhaseError), prepare_native=prepare)
+                error = PhaseError() if failed_probe else None
+
+                def probe(argv, source, output, end, timeout, out, env, **kwargs):
+                    calls.append((argv, source, output, end, timeout, out, env, kwargs))
+                    if error is not None and output.name == failed_probe + '.stdout':
+                        raise error
+
+                native = SimpleNamespace(runtime=SimpleNamespace(PhaseError=PhaseError, run=probe),
+                                         NATIVE_PACKAGES=('dev-fixture',), NATIVE_MODULES=('module >= 1',))
                 spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
                 env = dict(GITHUB_WORKSPACE=str(ROOT), RUNNER_TEMP=directory,
                            GH_TOKEN='hidden', GITHUB_TOKEN='hidden', RUSTC_WRAPPER='wrapper',
-                           CODEQL_NATIVE_SOURCE_PROFILE=profile)
+                           CODEQL_NATIVE_SOURCE_PROFILE='preinstalled-image',
+                           CODEQL_NATIVE_IMAGE='fixed-image')
                 with patch.dict(os.environ, env), patch.object(sys, 'path', list(sys.path)), \
                         patch('importlib.util.spec_from_file_location', return_value=spec), \
                         patch('importlib.util.module_from_spec', return_value=native), \
                         patch('time.monotonic', side_effect=[100, 103]):
                     if error is not None:
-                        with self.assertRaises(type(error)) as caught:
+                        with self.assertRaises(PhaseError) as caught:
                             exec(compile(body, 'codeql.yml:native', 'exec'), {})
                         self.assertIs(caught.exception, error)
                     else:
                         exec(compile(body, 'codeql.yml:native', 'exec'), {})
-                self.assertEqual(len(calls), 1)
-                source, out, end, child_env, kwargs = calls[0]
-                self.assertEqual((source, out, end), (ROOT, folder / 'codeql-rust-native', 370))
-                self.assertEqual(kwargs, {'source_profile':profile})
-                self.assertFalse({'GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER'} & child_env.keys())
+
+                expected = [
+                    ('native-packages.stdout', ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n', 'dev-fixture']),
+                    ('native-modules.stdout', ['pkg-config', '--print-errors', '--modversion', 'module >= 1']),
+                ]
+                if failed_probe == 'native-packages':
+                    expected.pop()
+                self.assertEqual([(output.name, argv) for argv, _, output, *_ in calls], expected)
+                for _, source, output, end, timeout, out, child_env, kwargs in calls:
+                    self.assertEqual((source, output.parent, end, timeout, out),
+                                     (ROOT, folder / 'codeql-rust-native', 280, 10, folder / 'codeql-rust-native'))
+                    self.assertEqual(kwargs, {'file_limit': None})
+                    self.assertFalse({'GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER'} & child_env.keys())
                 self.assertEqual((native.runtime.CAP, native.runtime.WRITE_CAP), (16 * 1024**2, 15 * 1024**2))
-                terminal = json.loads((out / 'native-terminal.json').read_text())
+                terminal = json.loads((folder / 'codeql-rust-native/native-terminal.json').read_text())
                 self.assertEqual(terminal['status'], 'FAILED' if error else 'PASS')
                 self.assertEqual(terminal['elapsed_seconds'], 3)
                 self.assertEqual(terminal['preparation_budget_seconds'], 180)
-                self.assertEqual(terminal['source_profile'], profile)
-                self.assertEqual(terminal.get('error_type'), None if failure is None else failure.__name__)
-                self.assertNotIn('error', terminal)
+                self.assertEqual(terminal['source_profile'], 'preinstalled-image')
+                self.assertEqual(terminal['image'], 'fixed-image')
+                self.assertEqual(terminal.get('error_type'), None if error is None else 'PhaseError')
                 self.assertNotIn('canary', json.dumps(terminal))
-                if failure is PhaseError:
+                if error is not None:
                     self.assertEqual(terminal['exit'], 124)
                     self.assertEqual(terminal['failure_kind'], 'child_exit')
-                    self.assertEqual(terminal['source_evidence_error'], error.native_source_evidence_error)
 
     def test_upload_evidence_actual_producer_and_failure_identity(self):
         # Execute the actual workflow producer, rather than a mirror serializer.
@@ -501,7 +547,14 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         artifact = text.split('      - name: Persist bounded observation evidence\n', 1)[1]
         for forbidden in ('codeql_databases', 'codeql-results', 'fixed-source-helper', 'github.workspace', '*.sarif'):
             self.assertNotIn(forbidden, artifact)
-        self.assertIn('codeql-rust-production-evidence', artifact)
+        self.assertIn("if: always() && steps.observation_evidence.outcome == 'success'", artifact)
+        self.assertIn('path: ${{ steps.observation_evidence.outputs.path }}', artifact)
+        staging = self.section(text, '      - id: observation_evidence\n', '      - name: Persist bounded observation evidence\n')
+        self.assertIn('if: always()', staging)
+        self.assertEqual(re.findall(r"'(codeql-rust-[^']+)'", staging),
+                         ['codeql-rust-fixed-source-layout', 'codeql-rust-native',
+                          'codeql-rust-production-evidence', 'codeql-rust-production-budget.json'])
+        self.assertIn("path.is_symlink()", staging)
         scope = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
         self.assertEqual(scope['scoped_control_paths']['.github/workflows/codeql-rust-capacity.yml'], ['workflow_governance'])
 
@@ -514,7 +567,7 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         self.assertIn('codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst', text)
         self.assertIn('1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b', text)
         self.assertEqual(re.findall(r'uses: github/codeql-action/(?:init|analyze)@([0-9a-f]+)', text),
-                         ['33d7b85da1a04171e211befe2c739303b9a4c066'] * 2)
+                         ['1bd86f2fdb4b86187fa4059f16f31a3202acc9ea'] * 2)
         original_init = self.section(WORKFLOW, '      - id: init\n', '      - name: Verify Actions query')
         self.assertEqual(re.findall(r'^              - (.+)$', init, re.M),
                          re.findall(r'^              - (.+)$', original_init, re.M))
@@ -529,16 +582,41 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         native = self.python_body(self.section(text, '      - id: rust_native\n', '      - id: rust_tools\n'))
         original_native = self.python_body(self.section(WORKFLOW, '      - id: rust_native\n', '      - id: rust_tools\n'))
         native = native.replace("pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-fixed-source-helper'", "source / 'scripts/security'")
-        # Fixed-source research retains runner sources and its historical error text.
-        # Only the production profile selection and safe error projection differ.
+        self.assertRegex(text, r'image: &observe-image ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[0-9a-f]{64}')
+        self.assertIn('OASIS7_CODEQL_OBSERVATION_IMAGE: *observe-image', text)
+        self.assertIn('options: --user 1001:1001 --init', text)
+        self.assertIn('packages: read', text)
+        self.assertNotIn('rustup toolchain install', text)
+        self.assertIn('source-root: ${{ steps.image_paths.outputs.source_root }}', init)
+        self.assertIn('db-location: ${{ steps.image_paths.outputs.db_location }}', init)
+        self.assertIn('output: ${{ steps.image_paths.outputs.sarif_output }}', text)
+        cohort = ast.parse(native).body[-1].body
+        self.assertEqual([ast.unparse(item) for item in cohort],
+                         ["image = os.environ['OASIS7_CODEQL_OBSERVATION_IMAGE']",
+                          "cgroup = pathlib.Path('/sys/fs/cgroup')",
+                          "terminal.update(source_profile='preinstalled-image', image=image, "
+                          "cpu_max=(cgroup / 'cpu.max').read_text().strip(), "
+                          "memory_max=(cgroup / 'memory.max').read_text().strip(), "
+                          "visible_cpus=len(os.sched_getaffinity(0)))",
+                          'native.verify_preinstalled_native(source, out, started + 270, env, image)',
+                          "terminal['status'] = 'PASS'"])
+        # Compare the shared failure and evidence wrapper after normalizing preparation.
+        native = native[:native.index('    image = ')] + (
+            '    native.prepare_native(source, out, started + 270, env)\n'
+        ) + native[native.index("    terminal['status'] = 'PASS'"):]
         original_native = original_native.replace("profile = os.environ['CODEQL_NATIVE_SOURCE_PROFILE']\n", '')
-        original_native = original_native.replace(", 'source_profile': profile", '')
-        original_native = original_native.replace(', source_profile=profile)', ')')
+        original_native = original_native.replace(", 'source_profile': profile,\n            'image': os.environ['CODEQL_NATIVE_IMAGE']", '')
+        inventory = ("    for name, argv in (", "file_limit=None)")
+        self.assertIn(inventory[0], original_native)
+        self.assertIn(inventory[1], original_native)
+        loop_start = original_native.index(inventory[0])
+        loop_end = original_native.index(inventory[1], loop_start) + len(inventory[1])
+        original_native = (original_native[:loop_start]
+                           + '    native.prepare_native(source, out, started + 270, env)'
+                           + original_native[loop_end:])
         projected = ("terminal.update(error_type=type(error).__name__)\n"
                      "    if isinstance(error, native.runtime.PhaseError):\n"
-                     "        terminal.update(exit=error.result.get('exit'), failure_kind=error.result.get('failure_kind'))\n"
-                     "    if hasattr(error, 'native_source_evidence_error'):\n"
-                     "        terminal['source_evidence_error'] = error.native_source_evidence_error")
+                     "        terminal.update(exit=error.result.get('exit'), failure_kind=error.result.get('failure_kind'))")
         self.assertEqual(original_native.count(projected), 1)
         original_native = original_native.replace(projected,
             "terminal.update(error_type=type(error).__name__, error=str(error))")

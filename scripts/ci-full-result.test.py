@@ -2206,17 +2206,17 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
             if path.startswith("actions/runs/") and path.endswith("/artifacts?per_page=100"):
                 run_id = int(path.split("/")[2])
                 if run_id in deferred_ids:
-                    return {"total_count": 1, "artifacts": [{"name": f"ci-main-fast-deferred-{run_id}-1"}]}
+                    return {"total_count": 1, "artifacts": [{"name": f"{module.MAIN_FAST_DEFERRED_ARTIFACT_PREFIX}{run_id}-1"}]}
                 return {"total_count": 0, "artifacts": []}
             raise AssertionError(f"unexpected path: {path}")
         api.get.side_effect = fake_get
         return api
 
-    def run_item(self, run_id, sha, status="completed", conclusion="success", *, event="push", branch="main"):
+    def run_item(self, run_id, sha, status="completed", conclusion="success", *, event="push", branch="main", updated_at="2026-11-24T08:00:00Z"):
         return {
             "id": run_id, "workflow_id": 7, "path": module.WORKFLOW,
             "event": event, "head_branch": branch, "head_sha": sha,
-            "status": status, "conclusion": conclusion,
+            "status": status, "conclusion": conclusion, "updated_at": updated_at,
         }
 
     def test_keeps_before_when_immediate_prior_push_succeeded_or_history_pruned(self):
@@ -2244,6 +2244,89 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         # When m1 was cancelled and m0 has no recorded run (initial push), widen to m0 (parent of m1).
         api_initial = self.make_api([self.run_item(21, m1, "completed", "cancelled")])
         self.assertEqual(module.resolve_main_fast_base(api_initial, self.repo, m1, m2), m0)
+
+    def test_widens_across_cooldown_deferred_main_fast_runs(self):
+        m0, m1, m2, m3, _ = self.commits
+        # m2 completed with success ONLY because main-fast-admission deferred it; m0 was the real verified run.
+        runs = [
+            self.run_item(30, m2, "completed", "success", updated_at="2026-11-24T09:00:00Z"),
+            self.run_item(20, m1, "completed", "cancelled", updated_at="2026-11-24T08:30:00Z"),
+            self.run_item(10, m0, "completed", "success", updated_at="2026-11-24T08:00:00Z"),
+        ]
+        api = self.make_api(runs, deferred_run_ids={30})
+        self.assertEqual(module.resolve_main_fast_base(api, self.repo, m2, m3), m0)
+
+    def test_admit_main_fast_enforces_cooldown_ignores_deferred_and_allows_failure_recovery(self):
+        m0, m1, m2, _, _ = self.commits
+        now = datetime(2026, 11, 24, 9, 30, 0, tzinfo=timezone.utc)
+        # Last verified green run completed 90 min ago (< 120 min cooldown), newer deferred & cancelled runs ignored.
+        runs_active = [
+            self.run_item(30, m2, "completed", "success", updated_at="2026-11-24T09:10:00Z"),
+            self.run_item(25, m1, "completed", "cancelled", updated_at="2026-11-24T08:50:00Z"),
+            self.run_item(10, m0, "completed", "success", updated_at="2026-11-24T08:00:00Z"),
+        ]
+        decision = module.admit_main_fast(self.make_api(runs_active, deferred_run_ids={30}), now)
+        self.assertFalse(decision["run_main_fast"])
+        self.assertEqual(decision["reason"], "cooldown_active")
+        self.assertEqual(decision["last_verified_run_id"], 10)
+        self.assertEqual(decision["elapsed_seconds"], 5400)
+        self.assertEqual(decision["remaining_seconds"], 1800)
+
+        # Once 120 min have elapsed, admit immediately.
+        now_elapsed = datetime(2026, 11, 24, 10, 0, 0, tzinfo=timezone.utc)
+        decision_ok = module.admit_main_fast(self.make_api(runs_active, deferred_run_ids={30}), now_elapsed)
+        self.assertTrue(decision_ok["run_main_fast"])
+        self.assertEqual(decision_ok["reason"], "cooldown_elapsed")
+
+        # When the most recent executed run failed, bypass cooldown so fixes verify promptly.
+        runs_failed = [
+            self.run_item(20, m1, "completed", "failure", updated_at="2026-11-24T09:20:00Z"),
+            self.run_item(10, m0, "completed", "success", updated_at="2026-11-24T08:00:00Z"),
+        ]
+        decision_recover = module.admit_main_fast(self.make_api(runs_failed), now)
+        self.assertTrue(decision_recover["run_main_fast"])
+        self.assertEqual(decision_recover["reason"], "recover_after_non_success")
+
+        # Empty history admits immediately.
+        decision_empty = module.admit_main_fast(self.make_api([]), now)
+        self.assertTrue(decision_empty["run_main_fast"])
+        self.assertEqual(decision_empty["reason"], "no_recent_executed_main_fast")
+
+    def test_admit_main_fast_bypasses_cooldown_on_cache_rotation_files_only(self):
+        m0, m1, _, _, _ = self.commits
+        now = datetime(2026, 11, 24, 9, 30, 0, tzinfo=timezone.utc)
+        runs = [self.run_item(10, m0, "completed", "success", updated_at="2026-11-24T08:00:00Z")]
+
+        # Ordinary source change between m0 and m1 keeps cooldown active.
+        decision_normal = module.admit_main_fast(
+            self.make_api(runs), now, repo_root=self.repo, head_sha=m1,
+        )
+        self.assertFalse(decision_normal["run_main_fast"])
+        self.assertEqual(decision_normal["reason"], "cooldown_active")
+
+        # Missing/unfetched commit falls back safely to cooldown_active.
+        decision_missing = module.admit_main_fast(
+            self.make_api(runs), now, repo_root=self.repo, head_sha="f" * 40,
+        )
+        self.assertFalse(decision_missing["run_main_fast"])
+        self.assertEqual(decision_missing["reason"], "cooldown_active")
+
+        # Cache-rotating file changes bypass cooldown immediately.
+        for rel in ("Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "scripts/ci-workspace-cache.py"):
+            with self.subTest(path=rel):
+                target = self.repo / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(f"updated {rel}\n")
+                self.git("add", rel)
+                self.git("commit", "-m", f"update {rel}")
+                head = self.git("rev-parse", "HEAD")
+                decision = module.admit_main_fast(
+                    self.make_api(runs), now, repo_root=self.repo, head_sha=head,
+                )
+                self.assertTrue(decision["run_main_fast"])
+                self.assertEqual(decision["reason"], "cache_rotation_bypass")
+                self.assertIn(rel, decision["cache_rotation_files"])
+                self.git("reset", "--hard", m1)
 
     def test_rejects_non_ancestor_before_and_never_narrows_wide_push(self):
         import inspect
@@ -2275,6 +2358,21 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
             module.main()
         self.assertEqual(out.getvalue().strip(), m0)
         gh_cls.assert_called_once_with("nil-studio/oasis7", "tok")
+        # Also verify admit-main-fast CLI output + github-output wiring.
+        receipt_path = Path(self.temp.name) / "main-fast-admission.json"
+        gh_out_path = Path(self.temp.name) / "gh-output.txt"
+        gh_out_path.write_text("", encoding="utf-8")
+        admit_argv = ["ci-full-result.py", "admit-main-fast",
+                      "--output", str(receipt_path), "--github-output", str(gh_out_path),
+                      "--cooldown-seconds", "0"]
+        out2 = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=False), \
+             mock.patch.object(sys, "argv", admit_argv), \
+             mock.patch.object(module, "GitHub", return_value=api), \
+             redirect_stdout(out2):
+            module.main()
+        self.assertIn("run_main_fast=true\n", gh_out_path.read_text(encoding="utf-8"))
+        self.assertTrue(json.loads(receipt_path.read_text(encoding="utf-8"))["run_main_fast"])
         for bad_field in ("main_fast_range_recovery_version", "main_fast_coalesce_concurrency_version",
                           "draft_pr_heavy_ci_skip_version",
                           "auxiliary_workflow_consolidation_version",
@@ -2283,7 +2381,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
                           "workspace_member_cargo_manifest_scope_version", "scoped_production_cfg_version",
                           "ordinary_controls_in_rust_baseline_version",
                           "workspace_support_direct_gate_version",
-                          "custody_node_shards_version"):
+                          "custody_node_shards_version",
+                          "command_center_offline_version"):
             bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 9})).encode()
             def fake_check_output(cmd, **_kwargs):
                 target = cmd[-1]
@@ -2297,6 +2396,7 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
     def test_consolidated_full_receipt_requires_skipped_retired_jobs_and_direct_producer_xor(self):
         receipt, run, jobs = fixture()
         receipt["plan"]["contract_job_consolidation_version"] = CONFIG["contract_job_consolidation_version"]
+        receipt["plan"]["command_center_offline_version"] = CONFIG["command_center_offline_version"]
         del receipt["needs"]["oasis7-test-build"]
         receipt["needs"]["oasis7-test-build-candidate"] = {"result": "skipped"}
         receipt["needs"]["oasis7-test-build-trusted"] = {"result": "success"}
@@ -2305,8 +2405,9 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         verified = module.verify_receipt(receipt, run, jobs, source=A, repository="nil-studio/oasis7",
                                          workflow_id=7, config=CONFIG, digest="definition")
         self.assertEqual(verified, receipt)
-        for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report",
-                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout",
+        for retired_job in ("command-center", "compile-metrics", "consensus", "pixel-world-bridge",
+                            "viewer-performance-report", "packaging-contracts",
+                            "cargo-tooling-contracts", "windows-rollout",
                             "operational-contracts"):
             broken = copy.deepcopy(receipt)
             broken["needs"][retired_job] = {"result": "success"}

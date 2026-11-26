@@ -383,6 +383,12 @@ class EntryBoundaryTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 7", workflow)
         self.assertIn("checks: read", workflow)
         self.assertIn("security-events: read", workflow)
+        self.assertIn("packages: read", workflow)
+        self.assertRegex(workflow, r"(?m)^      image: ghcr\.io/nil-studio/oasis7/ci-api-runtime@sha256:[0-9a-f]{64}$")
+        self.assertIn("      options: --user 1001:1001\n", workflow)
+        preflight = workflow.split("      - name: Verify the API runtime prerequisites\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("/usr/local/bin/gh", preflight)
+        self.assertNotIn("GH_TOKEN", preflight)
         self.assertNotIn(": write", workflow)
         self.assertNotIn("upload-sarif", workflow)
         self.assertNotIn("codeql-action", workflow)

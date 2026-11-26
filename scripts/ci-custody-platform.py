@@ -32,7 +32,10 @@ SCHEMA = 'oasis7.custody-platform/v1'
 ZLIB_CHUNK_BYTES = 4 * 1024 * 1024
 MAX_RAW_BINARY_BYTES = 2 * 1024 * 1024 * 1024
 # Complete serial Node file durations from run 45283513119, jobs
-# 138082922714/138082922769/138082922743 (with test-session-paid split 6/8).
+# 138082922714/138082922769/138082922743 (with test-session-paid split 6/8 and
+# test-session split 4/3; test-session-public-client matches policy_sha's
+# size-based fallback weight=1.0 during single-PR rollout while landing
+# 9.01m / 9.66m / 9.59m empirical 3-shard balance on run 45631783784 timings).
 # Weights only determine shard placement; every discovered file still executes
 # serially and without local contention exactly once.
 FILE_SECONDS = {
@@ -69,6 +72,7 @@ FILE_SECONDS = {
     'test-session-alarm.test.mjs': 0.100,
     'test-session-paid-role.integration.test.mjs': 147.700,
     'test-session-paid.integration.test.mjs': 110.800,
+    'test-session-public-client.integration.test.mjs': 1.000,
     'test-session-results.integration.test.mjs': 120.400,
     'test-session-tools.integration.test.mjs': 122.800,
     'test-session.integration.test.mjs': 199.300,
@@ -607,8 +611,9 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False, 
     context = identity(root, plan, run_id, context_data=context_data)
     positive_attempt(attempt)
     shards = plan_shards(plan)
-    batches = partition(context['tests'], shards)
+    expected_files = [row['path'] for row in context['tests']]
     seen = set()
+    executed = set()
     for path in paths:
         receipt = load(path)
         shard = receipt.get('shard')
@@ -618,7 +623,12 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False, 
                 or type(producer) is not int or not 1 <= producer <= attempt):
             raise ValueError('custody result identity mismatch')
         rows = receipt.get('files')
-        if not isinstance(rows, list) or [row.get('file') for row in rows] != batches[shard]:
+        if not isinstance(rows, list) or not rows:
+            raise ValueError('missing or duplicate custody test files')
+        files = [row.get('file') for row in rows]
+        if (any(not isinstance(name, str) or not name for name in files)
+                or files != sorted(set(files))
+                or executed & set(files)):
             raise ValueError('missing or duplicate custody test files')
         for row in rows:
             capture = path.parent / 'workerd-fault'
@@ -635,8 +645,11 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False, 
                     or process.get('cleanup_result') != 'clean' or process.get('log_complete') is not True):
                 raise ValueError('custody process did not complete cleanly')
         seen.add(shard)
+        executed.update(files)
     if seen != set(shards):
         raise ValueError('missing custody shard results')
+    if sorted(executed) != expected_files:
+        raise ValueError('missing or duplicate custody test files')
 
 
 def validate_jobs(plan, needs):

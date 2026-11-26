@@ -489,15 +489,6 @@ impl AsyncAgentRunner {
         self.start_turn_with_context_and_observation(agent_id, observation, None)
     }
 
-    /// Legacy compatibility lane without the trusted outer V1 context.
-    pub fn start_turn_with_observation(
-        &mut self,
-        agent_id: &str,
-        observation: Observation,
-    ) -> Result<AsyncTurnId, AsyncAgentRunnerError> {
-        self.start_turn_with_context_and_observation(agent_id, observation, None)
-    }
-
     /// Reduced V1 compatibility lane. Production target callers must provide
     /// the complete outer context with `start_turn_with_request_context`.
     pub fn start_turn_with_context(
