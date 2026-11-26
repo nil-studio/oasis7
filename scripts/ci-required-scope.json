@@ -1,6 +1,7 @@
 {
   "fast_scope_version": 1,
   "ordinary_dynamic_partition_version": 1,
+  "ordinary_universal_sharding_version": 1,
   "architecture_artifact_build_policy_version": 1,
   "custody_node_shards_version": 2,
   "contract_job_consolidation_version": 5,
@@ -1340,6 +1341,10 @@
     "scripts/ci-formal-process-workspace-cache.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-targeted-artifact-process.test.py": ["workflow_governance"],
     "scripts/ci-formal-process-real-components.test.py": ["workflow_governance"],
+    "scripts/ci-formal-process-ordinary-delivery.test.py": ["workflow_governance"],
+    "scripts/ci-formal-process-parallel-native.test.py": ["workflow_governance"],
+    "scripts/ci-formal-process-outputs-and-backpressure.test.py": ["workflow_governance"],
+    "scripts/ci-formal-process-process-part1.test.py": ["workflow_governance"],
     "scripts/ci-full-result.py": ["workflow_governance"],
     "scripts/ci-full-result.test.py": ["workflow_governance"],
     "scripts/ci-local-check-plan.py": ["workflow_governance"],
@@ -1372,6 +1377,10 @@
     "scripts/ci-workflow-cache-and-local-check.test.py": ["workflow_governance"],
     "scripts/ci-workflow-core-part1.test.py": ["workflow_governance"],
     "scripts/ci-workflow-core-part2.test.py": ["workflow_governance"],
+    "scripts/ci-workflow-core-part3.test.py": ["workflow_governance"],
+    "scripts/ci-workflow-core-part4.test.py": ["workflow_governance"],
+    "scripts/ci-workflow-core-part5.test.py": ["workflow_governance"],
+    "scripts/ci-workflow-core-part6.test.py": ["workflow_governance"],
     "scripts/ci-workflow-delivery-and-capacity.test.py": ["workflow_governance"],
     "scripts/ci-workflow-guards-and-timeouts.test.py": ["workflow_governance"],
     "scripts/ci-workflow.test.py": ["workflow_governance"],
@@ -1384,7 +1393,12 @@
     "scripts/plan-rust-required-scope-native-contracts.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-targeted-plans.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-private-and-expanded-native.test.py": ["workflow_governance"],
-    "scripts/plan-rust-required-scope-retired-and-viewer.test.py": ["workflow_governance"]
+    "scripts/plan-rust-required-scope-retired-and-viewer.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-custody-and-additive.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-native-root-and-ordinary-proof.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-slice-and-cfg.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
     "scripts/ci-cache-sdk.test.py",
@@ -1395,6 +1409,11 @@
     "scripts/plan-rust-required-scope-targeted-plans.test.py",
     "scripts/plan-rust-required-scope-private-and-expanded-native.test.py",
     "scripts/plan-rust-required-scope-retired-and-viewer.test.py",
+    "scripts/plan-rust-required-scope-custody-and-additive.test.py",
+    "scripts/plan-rust-required-scope-native-root-and-ordinary-proof.test.py",
+    "scripts/plan-rust-required-scope-slice-and-cfg.test.py",
+    "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py",
+    "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
     "scripts/ci-python-control-contracts.test.py",
@@ -1403,6 +1422,10 @@
     "scripts/ci-formal-process-workspace-cache.test.py",
     "scripts/ci-formal-process-targeted-artifact-process.test.py",
     "scripts/ci-formal-process-real-components.test.py",
+    "scripts/ci-formal-process-ordinary-delivery.test.py",
+    "scripts/ci-formal-process-parallel-native.test.py",
+    "scripts/ci-formal-process-outputs-and-backpressure.test.py",
+    "scripts/ci-formal-process-process-part1.test.py",
     "scripts/ci-storage-acceptance.test.py",
     "scripts/ci-storage-network.test.py",
     "scripts/ci-required-result.test.py",
@@ -1414,6 +1437,10 @@
     "scripts/ci-workflow-cache-and-local-check.test.py",
     "scripts/ci-workflow-core-part1.test.py",
     "scripts/ci-workflow-core-part2.test.py",
+    "scripts/ci-workflow-core-part3.test.py",
+    "scripts/ci-workflow-core-part4.test.py",
+    "scripts/ci-workflow-core-part5.test.py",
+    "scripts/ci-workflow-core-part6.test.py",
     "scripts/ci-workflow-delivery-and-capacity.test.py",
     "scripts/ci-workflow-guards-and-timeouts.test.py",
     "scripts/ci-workflow.test.py",
@@ -1679,6 +1706,10 @@
         "scripts/ci-formal-process-workspace-cache.test.py",
         "scripts/ci-formal-process-targeted-artifact-process.test.py",
         "scripts/ci-formal-process-real-components.test.py",
+        "scripts/ci-formal-process-ordinary-delivery.test.py",
+        "scripts/ci-formal-process-parallel-native.test.py",
+        "scripts/ci-formal-process-outputs-and-backpressure.test.py",
+        "scripts/ci-formal-process-process-part1.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/plan-rust-required-scope.test.py"
       ]
@@ -1711,6 +1742,30 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-formal-process-real-components.test.py"
+      ]
+    },
+    "scripts/ci-formal-process-ordinary-delivery.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process-ordinary-delivery.test.py"
+      ]
+    },
+    "scripts/ci-formal-process-parallel-native.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process-parallel-native.test.py"
+      ]
+    },
+    "scripts/ci-formal-process-outputs-and-backpressure.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process-outputs-and-backpressure.test.py"
+      ]
+    },
+    "scripts/ci-formal-process-process-part1.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process-process-part1.test.py"
       ]
     },
     "scripts/ci-full-result.py": {
@@ -1850,6 +1905,10 @@
         "scripts/ci-formal-process-workspace-cache.test.py",
         "scripts/ci-formal-process-targeted-artifact-process.test.py",
         "scripts/ci-formal-process-real-components.test.py",
+        "scripts/ci-formal-process-ordinary-delivery.test.py",
+        "scripts/ci-formal-process-parallel-native.test.py",
+        "scripts/ci-formal-process-outputs-and-backpressure.test.py",
+        "scripts/ci-formal-process-process-part1.test.py",
         "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/ci-workspace-cache.test.py",
@@ -1872,6 +1931,30 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-workflow-core-part2.test.py"
+      ]
+    },
+    "scripts/ci-workflow-core-part3.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow-core-part3.test.py"
+      ]
+    },
+    "scripts/ci-workflow-core-part4.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow-core-part4.test.py"
+      ]
+    },
+    "scripts/ci-workflow-core-part5.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow-core-part5.test.py"
+      ]
+    },
+    "scripts/ci-workflow-core-part6.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow-core-part6.test.py"
       ]
     },
     "scripts/ci-workflow-delivery-and-capacity.test.py": {
@@ -1928,6 +2011,10 @@
         "scripts/ci-workflow-cache-and-local-check.test.py",
         "scripts/ci-workflow-core-part1.test.py",
         "scripts/ci-workflow-core-part2.test.py",
+        "scripts/ci-workflow-core-part3.test.py",
+        "scripts/ci-workflow-core-part4.test.py",
+        "scripts/ci-workflow-core-part5.test.py",
+        "scripts/ci-workflow-core-part6.test.py",
         "scripts/ci-workflow-delivery-and-capacity.test.py",
         "scripts/ci-workflow-guards-and-timeouts.test.py",
         "scripts/ci-workflow.test.py",
@@ -1936,7 +2023,12 @@
         "scripts/plan-rust-required-scope-native-contracts.test.py",
         "scripts/plan-rust-required-scope-targeted-plans.test.py",
         "scripts/plan-rust-required-scope-private-and-expanded-native.test.py",
-        "scripts/plan-rust-required-scope-retired-and-viewer.test.py"
+        "scripts/plan-rust-required-scope-retired-and-viewer.test.py",
+        "scripts/plan-rust-required-scope-custody-and-additive.test.py",
+        "scripts/plan-rust-required-scope-native-root-and-ordinary-proof.test.py",
+        "scripts/plan-rust-required-scope-slice-and-cfg.test.py",
+        "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py",
+        "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py"
       ]
     },
     "scripts/plan-rust-required-scope.test.py": {
@@ -1964,6 +2056,26 @@
     "scripts/plan-rust-required-scope-retired-and-viewer.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/plan-rust-required-scope-retired-and-viewer.test.py"]
+    },
+    "scripts/plan-rust-required-scope-custody-and-additive.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-custody-and-additive.test.py"]
+    },
+    "scripts/plan-rust-required-scope-native-root-and-ordinary-proof.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-native-root-and-ordinary-proof.test.py"]
+    },
+    "scripts/plan-rust-required-scope-slice-and-cfg.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-slice-and-cfg.test.py"]
+    },
+    "scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py"]
+    },
+    "scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/plan-rust-required-scope-cargo-and-cfg-misc.test.py"]
     },
     "scripts/ci-governance-preview.py": {
       "group": "workflow_governance",

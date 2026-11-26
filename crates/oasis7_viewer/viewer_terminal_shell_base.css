@@ -1,0 +1,475 @@
+.viewer-shell {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  overflow-x: hidden;
+  overflow: hidden;
+}
+
+body {
+  padding: 0;
+}
+
+/* Legacy selector kept as a stage-first compatibility alias; the mounted root is
+ * `.viewer-shell`, so this cannot reintroduce the former three-column layout. */
+.shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "stage";
+  min-height: 100dvh;
+}
+
+#viewer-stage-panel[data-viewer-map-layer="base"] {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: none;
+}
+
+#viewer-stage-panel[data-viewer-map-layer="base"] > .panel__body {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+#viewer-stage-panel[data-viewer-map-layer="base"] > .panel__body > .stack {
+  position: absolute;
+  inset: 0;
+  min-height: 100%;
+}
+
+.panel--stage::before {
+  display: none;
+}
+
+[data-viewer-overlay="world-hud"] {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* Reuse the selection HUD's responsive lane instead of adding a focus grid row. */
+[data-viewer-overlay="world-hud"] .pixel-world-canvas__selection:has(.pixel-world-selection-status) {
+  pointer-events: none;
+  max-height: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.pixel-world-selection-status {
+  color: var(--text, #e2e8f0);
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+[data-viewer-overlay="world-hud"] > .pixel-world-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  pointer-events: auto;
+}
+
+[data-viewer-overlay="world-hud"] .pixel-world-canvas__surface {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+
+[data-viewer-overlay="world-hud"] .pixel-world-canvas__overlay {
+  pointer-events: auto;
+}
+
+[data-viewer-overlay="world-hud"] .pixel-world-focus-drawer {
+  pointer-events: auto;
+}
+
+[data-viewer-overlay="cinematic-entry"] {
+  position: fixed;
+  z-index: 40;
+  top: 16px;
+  right: 112px;
+  display: flex;
+  pointer-events: auto;
+}
+
+[data-viewer-overlay="cinematic-entry"] .pixel-world-focus-entry__hint {
+  display: none;
+}
+
+[data-viewer-overlay="cinematic-entry"][hidden] {
+  display: none;
+}
+
+[data-viewer-overlay="renderer-unavailable"] {
+  position: absolute;
+  z-index: 30;
+  top: 72px;
+  left: 16px;
+  right: 96px;
+  width: auto;
+  max-width: min(520px, calc(100vw - 112px));
+  min-height: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(229, 143, 118, 0.34);
+  border-radius: 8px;
+  background: rgba(24, 11, 9, 0.78);
+  color: var(--text);
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+/* Retained receipts belong to the recovery card's content, not the world HUD.
+ * The global receipt overlay positioning would cover the reload button. */
+[data-viewer-overlay="renderer-unavailable"] > [data-viewer-overlay="receipt"] {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  margin-block: 8px;
+}
+
+[data-viewer-overlay="renderer-unavailable"] .pixel-world-render-unavailable__retry {
+  margin-top: 8px;
+}
+
+[data-viewer-overlay="world-hud"] .pixel-world-host__summary,
+[data-viewer-overlay="world-hud"] .pixel-world-render-diagnostics,
+[data-viewer-overlay="world-hud"] > .diagnostic:not(.pixel-world-focus-drawer) {
+  position: absolute;
+  z-index: 14;
+  pointer-events: auto;
+}
+
+[data-viewer-overlay="world-hud"] .pixel-world-host__summary,
+[data-viewer-overlay="world-hud"] .pixel-world-render-diagnostics {
+  display: none;
+}
+
+[data-viewer-overlay="world-hud"] .pixel-world-render-diagnostics[data-renderer-state="unavailable"] {
+  display: block;
+  top: 112px;
+  left: 16px;
+  right: 96px;
+  width: auto;
+  max-width: min(520px, calc(100vw - 112px));
+  max-height: min(32vh, 300px);
+  overflow: auto;
+}
+
+[data-viewer-overlay="world-hud"] > .diagnostic:not(.pixel-world-focus-drawer) {
+  display: none;
+}
+
+[data-viewer-overlay="world-hud"] .pixel-world-canvas__selection {
+  top: 16px;
+  right: 280px;
+}
+
+/* Keep the fixed More control's 80px hit area clear of Cinematic HUD controls. */
+.pixel-world-host--focus .pixel-world-focus-hud {
+  right: 96px;
+}
+
+[data-viewer-shell="player-fullscreen"] .pixel-world-readout {
+  position: absolute;
+  z-index: 13;
+  top: 64px;
+  left: 16px;
+  display: flex;
+  max-width: min(520px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+[data-viewer-shell="player-fullscreen"] .pixel-world-host--focus .pixel-world-readout,
+[data-viewer-shell="player-fullscreen"] .pixel-world-host--focus .pixel-world-focus-hud__cell--mission,
+[data-viewer-shell="player-fullscreen"] .pixel-world-host--focus .pixel-world-focus-hud__cell--tick,
+[data-viewer-shell="player-fullscreen"] .pixel-world-host--focus .pixel-world-focus-rail,
+[data-viewer-shell="player-fullscreen"] .pixel-world-host--focus .pixel-world-focus-minimap {
+  display: none;
+}
+
+[data-viewer-shell="player-fullscreen"] .stage-hero {
+  display: none;
+}
+
+[data-viewer-overlay="world-summary"] {
+  display: none;
+}
+
+[data-viewer-overlay="world-summary"]:has(#viewer-gameplay-details[open]) {
+  display: block;
+  position: fixed;
+  z-index: 50;
+  inset: 96px 24px 24px auto;
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100dvh - 120px);
+  overflow: auto;
+  background: #141d19;
+  border: 1px solid rgba(152, 177, 150, 0.34);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  overscroll-behavior: contain;
+}
+
+[data-viewer-overlay="next-move"] {
+  position: absolute;
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(220px, 0.85fr);
+  z-index: 24;
+  left: 16px;
+  right: auto;
+  bottom: 120px;
+  width: min(760px, calc(100vw - 32px));
+  gap: 10px;
+  pointer-events: auto;
+}
+
+[data-viewer-overlay="next-move"] [data-shell-region="next-move-primary"] {
+  min-width: 0;
+  min-height: 132px;
+  opacity: 1;
+}
+
+[data-viewer-overlay="next-move"] [data-shell-region="supporting-context"] {
+  min-width: 0;
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  opacity: 0.86;
+  border-color: rgba(99, 179, 255, 0.26);
+  background:
+    linear-gradient(135deg, rgba(99, 179, 255, 0.08), rgba(255, 255, 255, 0.012) 56%),
+    rgba(8, 14, 12, 0.64);
+}
+
+[data-viewer-overlay="next-move"] [data-shell-region="next-move-primary"] {
+  border-color: color-mix(in srgb, var(--accent, #f4c15d) 72%, transparent);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 34%);
+}
+
+[data-viewer-overlay="next-move"] [data-shell-region="supporting-context"] .pixel-world-shell-context-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+[data-viewer-overlay="next-move"] [data-shell-region="supporting-context"] .pixel-world-shell-context-group--leverage {
+  padding-top: 8px;
+  border-top: 1px solid rgba(152, 177, 150, 0.15);
+}
+
+[data-viewer-overlay="next-move"] .pixel-world-shell-context-group__agent {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+  color: #d8e5dd;
+  font-size: 12px;
+}
+
+[data-viewer-overlay="next-move"] .pixel-world-shell-context-group__agent strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+[data-viewer-overlay="next-move"] [data-shell-region="next-move-primary"] .pixel-world-command-cell__action {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.pixel-world-canvas__callout--goal,
+.pixel-world-canvas__callout--blocker {
+  display: none;
+}
+
+[data-viewer-overlay="receipt"] {
+  position: absolute;
+  z-index: 25;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  pointer-events: auto;
+}
+
+[data-viewer-overlay="feed"] {
+  position: absolute;
+  z-index: 26;
+  top: 72px;
+  right: 16px;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(52vh, 520px);
+  overflow: auto;
+  pointer-events: auto;
+}
+
+/* Hotspot explanations are portaled to document.body so the expanded Feed
+ * stacking context cannot cover the read-only inspection surface. */
+.pixel-world-hotspot:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.pixel-world-canvas__hotspot-tooltip {
+  position: fixed;
+  padding: 5px 9px;
+  min-height: 56px;
+  max-height: var(--hotspot-tooltip-max-height, calc(100dvh - 20px));
+  overflow: hidden;
+  z-index: 70;
+  top: 52px;
+  right: 10px;
+  width: min(42vw, 320px);
+  max-width: calc(100vw - 20px);
+}
+
+[data-viewer-overlay="navigation"] {
+  position: fixed;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  z-index: 40;
+  top: 16px;
+  left: 16px;
+  pointer-events: auto;
+}
+
+.secondary-viewer-nav {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 40;
+  top: 16px;
+  right: 16px;
+  pointer-events: auto;
+}
+
+.secondary-viewer-nav__more {
+  appearance: none;
+  min-width: 72px;
+  min-height: 44px;
+  border: 1px solid rgba(152, 177, 150, 0.28);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(9, 13, 11, 0.68);
+  color: var(--muted-strong);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.secondary-viewer-nav__more::after {
+  content: " ▾";
+}
+
+.secondary-viewer-nav__more:hover,
+.secondary-viewer-nav__more:focus-visible,
+.secondary-viewer-nav__more[aria-expanded="true"] {
+  border-color: rgba(152, 177, 150, 0.52);
+  color: var(--text);
+}
+
+[data-viewer-route-panel="targets"],
+[data-viewer-route-panel="command"] {
+  display: none;
+  position: fixed;
+  inset: 24px 24px 24px auto;
+  z-index: 50;
+  width: min(420px, calc(100vw - 48px));
+  max-width: min(420px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.48);
+}
+
+#viewer-targets-panel,
+#viewer-details-panel {
+  display: none;
+  position: fixed;
+  z-index: 50;
+  max-width: min(420px, calc(100vw - 48px));
+  overflow-x: hidden;
+}
+
+#viewer-details-panel {
+  --command-route-chrome-height: 140px;
+}
+
+#viewer-details-panel > .command-route-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--panel-bg, rgba(9, 13, 11, 0.96));
+  box-shadow: 0 1px 0 rgba(152, 177, 150, 0.14);
+}
+
+#viewer-targets-panel:target,
+#viewer-targets-panel[data-route-open="true"],
+#viewer-details-panel:target,
+#viewer-details-panel[data-route-open="true"] {
+  display: block;
+}
+
+.mobile-rail__link,
+.secondary-viewer-nav__link {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+[data-viewer-route-panel="targets"]:target,
+[data-viewer-route-panel="targets"][data-route-open="true"],
+[data-viewer-route-panel="command"]:target,
+[data-viewer-route-panel="command"][data-route-open="true"] {
+  display: block;
+}
+
+.panel__route-close {
+  align-self: flex-start;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.panel__route-close:hover,
+.panel__route-close:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+}

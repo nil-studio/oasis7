@@ -46,6 +46,7 @@ def api(entries=()):
 
 
 def fixture(directory, scope='ordinary'):
+    import time
     root = directory / 'checkout'
     (root / 'src').mkdir(parents=True)
     (root / 'Cargo.toml').write_text('[package]\nname="tiny"\nversion="0.1.0"\n')
@@ -57,6 +58,10 @@ def fixture(directory, scope='ordinary'):
     library = target / 'debug/deps/libtiny-1234567890abcdef.rlib'
     library.parent.mkdir(parents=True)
     library.write_bytes(b'complete library unit\n' * 100)
+    past = time.time_ns() - 1_000_000_000
+    for item in (root / 'Cargo.toml', root / 'src/lib.rs', root / 'src',
+                 fingerprint / 'lib-tiny', fingerprint, library):
+        os.utime(item, ns=(past, past))
     state = cache.units.cache_begin(root, selection='libraries' if scope == 'ordinary' else 'all')
     state.update(packages={'tiny': str(root / 'Cargo.toml')},
         files=[library.relative_to(target).as_posix()],
@@ -402,9 +407,12 @@ class Workspace(unittest.TestCase):
 
 class BoundedWorkspace(unittest.TestCase):
     def make_state(self, directory, sizes=(600, 500, 400)):
+        import time
+        base_ns = time.time_ns() - 1_000_000_000
         root = directory / 'checkout'
         root.mkdir()
         (root / 'Cargo.toml').write_text('[workspace]\n')
+        os.utime(root / 'Cargo.toml', ns=(base_ns, base_ns))
         target = root / 'target'
         state = cache.units.cache_begin(root, selection='libraries')
         for index, size in enumerate(sizes):
@@ -422,6 +430,7 @@ class BoundedWorkspace(unittest.TestCase):
                 os.utime(file, ns=(1_000_000_000 + index, 1_000_000_000 + index))
                 state['files'].append(output)
             os.utime(path / ('lib-' + name), ns=(1_000_000_000 + index, 1_000_000_000 + index))
+            os.utime(path, ns=(base_ns + index, base_ns + index))
             state['directories'].append(fingerprint)
             state['packages'][name] = name
         cache.units.cache_finish(state)
@@ -459,6 +468,7 @@ class BoundedWorkspace(unittest.TestCase):
                 os.link(target / f'debug/deps/libunit{index}-{unit}.rlib', public)
                 dep_info = public.with_suffix('.d')
                 dep_info.write_bytes(b'dep-info')
+                os.utime(dep_info, ns=(1_000_000_000 + index, 1_000_000_000 + index))
                 state['files'].extend([public.relative_to(target).as_posix(),
                                        dep_info.relative_to(target).as_posix()])
             chosen = cache.bounded_library_state(state, 1900, {})
@@ -958,6 +968,131 @@ class RealCargoCompact(unittest.TestCase):
                     self.assertEqual(item['fresh'], item['target']['name'] == kept and not changed, item)
                 value = subprocess.check_output([str(root / 'target/debug/trim_app')], text=True).strip()
                 self.assertEqual(value, '16' if changed else '15')
+
+    def test_consume_source_restore_moves_same_device_inodes_and_falls_back_on_exdev(self):
+        import errno
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, state_path, library = fixture(base)
+            alias = root / 'target/debug/deps/libtiny-alias-1234567890abcdef.rlib'
+            os.link(library, alias)
+            state = json.loads(state_path.read_text())
+            state['files'] = sorted({*state['files'], alias.relative_to(root / 'target').as_posix()})
+            state['complete'] = True
+            staged_dir = base / 'staged'
+            staged = cache.units.cache_stage(state, staged_dir)
+            self.assertTrue(staged['save'], staged)
+            rel_lib = library.relative_to(root / 'target').as_posix()
+            rel_alias = alias.relative_to(root / 'target').as_posix()
+            staged_inode = (staged_dir / 'target' / rel_lib).stat().st_ino
+            self.assertEqual((staged_dir / 'target' / rel_alias).stat().st_ino, staged_inode)
+
+            shutil.rmtree(root / 'target')
+            restored = cache.units.cache_restore(root, staged_dir, consume_source=True)
+            self.assertTrue(restored['restored'], restored)
+            self.assertEqual((root / 'target' / rel_lib).stat().st_ino, staged_inode)
+            self.assertEqual((root / 'target' / rel_alias).stat().st_ino, staged_inode)
+
+            # Re-stage and verify cross-device EXDEV cleanly falls back to copy2.
+            staged_exdev = base / 'staged-exdev'
+            self.assertTrue(cache.units.cache_stage(state, staged_exdev)['save'])
+            shutil.rmtree(root / 'target')
+            with patch.object(cache.units.os, 'replace', side_effect=OSError(errno.EXDEV, 'Cross-device link')):
+                fallback = cache.units.cache_restore(root, staged_exdev, consume_source=True)
+            self.assertTrue(fallback['restored'], fallback)
+            self.assertEqual((root / 'target' / rel_lib).read_bytes(), b'complete library unit\n' * 100)
+            self.assertEqual((root / 'target' / rel_lib).stat().st_ino,
+                             (root / 'target' / rel_alias).stat().st_ino)
+
+    def test_parallel_digest_pairs_matches_sequential_and_respects_local_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            pairs = []
+            expected = {}
+            for index in range(12):
+                path = base / f'unit-{index}.bin'
+                payload = f'payload-{index}\n'.encode() * (index + 1)
+                path.write_bytes(payload)
+                pairs.append((f'k-{index}', path))
+                expected[f'k-{index}'] = cache.units.digest(path)
+            with patch.dict(os.environ, {'OASIS7_LOCAL_CHECK': '0'}):
+                self.assertEqual(cache.units._digest_pairs(pairs), expected)
+            with patch.dict(os.environ, {'OASIS7_LOCAL_CHECK': '1'}), \
+                 patch.object(cache.units, 'ThreadPoolExecutor') as executor:
+                self.assertEqual(cache.units._digest_pairs(pairs), expected)
+                executor.assert_not_called()
+
+    def test_trusted_main_ordinary_targeted_warmup_records_baseline_units_only_on_main_writer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / 'checkout'
+            chain_dir = root / 'crates/oasis7_chain_runtime'
+            (chain_dir / 'src').mkdir(parents=True)
+            (chain_dir / 'tests').mkdir(parents=True)
+            (root / 'Cargo.toml').write_text('[workspace]\nmembers=["crates/oasis7_chain_runtime"]\n')
+            (chain_dir / 'Cargo.toml').write_text(
+                '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\n'
+                '[features]\ntest_tier_required = []\n'
+            )
+            (chain_dir / 'src/lib.rs').write_text('pub fn chain() {}\n')
+            (chain_dir / 'tests/incremental_cognition_history_original.rs').write_text('#[test] fn smoke() {}\n')
+            deps = root / 'target/debug/deps'
+            fp = root / 'target/debug/.fingerprint/oasis7_chain_runtime-fedcba9876543210'
+            deps.mkdir(parents=True)
+            fp.mkdir(parents=True)
+            rlib = deps / 'liboasis7_chain_runtime-fedcba9876543210.rlib'
+            rlib.write_bytes(b'narrow-feature-rlib')
+            (fp / 'lib-oasis7_chain_runtime').write_bytes(b'fp')
+            state = cache.units.cache_begin(root, selection='libraries')
+            artifact_line = json.dumps({
+                'reason': 'compiler-artifact',
+                'package_id': 'path+file:///oasis7_chain_runtime#0.1.0',
+                'manifest_path': str(chain_dir / 'Cargo.toml'),
+                'target': {'kind': ['lib'], 'name': 'oasis7_chain_runtime', 'src_path': str(chain_dir / 'src/lib.rs')},
+                'profile': {'test': False},
+                'features': ['test_tier_required'],
+                'filenames': [str(rlib)],
+                'executable': None,
+                'fresh': False,
+            }) + '\n'
+
+            class FakeProcess:
+                def __init__(self, command, **kwargs):
+                    calls.append(command)
+                    self.stdout = [artifact_line]
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+                def wait(self):
+                    return 0
+
+            calls = []
+            full_variants = [('required', ['test', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_launcher_backend',
+                                           '--tests', '--features', 'test_tier_required', '--no-run'], ['test_tier_required'])]
+            narrow_variants = [('required', ['test', '-p', 'oasis7_chain_runtime', '--tests',
+                                             '--features', 'oasis7_chain_runtime/test_tier_required', '--no-run'],
+                                ['oasis7_chain_runtime/test_tier_required'])]
+            with patch.object(cache.units, 'ROOT', root), \
+                 patch.object(cache.units.subprocess, 'Popen', side_effect=FakeProcess):
+                # Candidate / PR lanes never run warmup.
+                with patch.dict(os.environ, environment('ordinary', GITHUB_JOB='oasis7-test-build-candidate'), clear=True):
+                    cache.units._warm_ordinary_targeted_cache(state, {}, full_variants)
+                self.assertEqual(calls, [])
+                # Already-narrow single-package variant skips redundant warmup.
+                with patch.dict(os.environ, environment('ordinary'), clear=True):
+                    cache.units._warm_ordinary_targeted_cache(state, {}, narrow_variants)
+                self.assertEqual(calls, [])
+                # Trusted main full build runs narrow integration-target warmup and records baseline unit.
+                with patch.dict(os.environ, environment('ordinary'), clear=True):
+                    cache.units._warm_ordinary_targeted_cache(state, {}, full_variants)
+                self.assertEqual(len(calls), 1)
+                self.assertIn('--test', calls[0])
+                self.assertIn('incremental_cognition_history_original', calls[0])
+                self.assertIn('debug/.fingerprint/oasis7_chain_runtime-fedcba9876543210',
+                              state.get('ordinary_baseline_units', ()))
 
 
 if __name__ == '__main__':

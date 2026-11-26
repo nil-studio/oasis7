@@ -13,13 +13,14 @@ use tracing::Level;
 
 use crate::geometry::space_distance_cm;
 use crate::simulator::{
-    ActionResult, AgentDecision, AgentDecisionTrace, AgentRunner, LlmAgentBehavior,
+    ActionResult, AgentRunner, LlmAgentBehavior,
     LlmAgentBuildError, LlmAgentConfig, OpenAiChatCompletionClient, RunnerMetrics, WorldEvent,
     WorldKernel, WorldSnapshot, initialize_kernel,
 };
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_simulator::{
-    Action, ActionSubmitter, AgentPromptProfile, PromptUpdateOperation, ResourceOwner, WorldConfig,
+    Action, ActionSubmitter, AgentDecision, AgentDecisionTrace, AgentPromptProfile,
+    PromptUpdateOperation, ResourceOwner, WorldConfig,
     WorldEventKind, WorldInitConfig, WorldInitError, WorldScenario,
 };
 

@@ -296,7 +296,7 @@ def plan(args):
             add('rust-repo', path)
         elif suffix in ('.py', '.pyi') or name in ('pyproject.toml', 'requirements.txt', 'Pipfile', 'Pipfile.lock', 'poetry.lock', 'uv.lock', 'setup.cfg', 'setup.py'):
             add('python-repo', path)
-        elif path in ('crates/oasis7_viewer/viewer_base.css', 'crates/oasis7_viewer/viewer_terminal_shell.css'):
+        elif path in ('crates/oasis7_viewer/viewer_base.css', 'crates/oasis7_viewer/viewer_base_tokens.css', 'crates/oasis7_viewer/viewer_base_layout.css', 'crates/oasis7_viewer/viewer_base_components.css', 'crates/oasis7_viewer/viewer_terminal_shell.css', 'crates/oasis7_viewer/viewer_terminal_shell_base.css', 'crates/oasis7_viewer/viewer_terminal_shell_panels.css'):
             # Exact Viewer HTML/build/test inputs; other CSS stays unregistered.
             # Possible Rust consumers are still added below.
             add('javascript-repo', path)

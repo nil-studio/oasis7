@@ -1091,10 +1091,17 @@ run_packaging_contract_tests() {
 }
 
 run_operational_identity_contract_tests() {
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 0/4
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 1/4
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 2/4
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 3/4
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-core-part1.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-core-part2.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-boundaries.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-formal-findings.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-storage-adapter-red.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-storage-red.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-adversarial-part1.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-adversarial-part2.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-adversarial-part3.test.py
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter-blockchain-p1.test.py
   run python3 ./scripts/p2p-public-testnet-full-network-clean-room.test.py
   run python3 ./scripts/p2p-public-testnet-identity-v2-cli-bridge.test.py
   run python3 ./scripts/p2p-public-testnet-identity-v2-signing-tool.test.py
