@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use std::{cell::Cell, sync::Arc};
 struct CountState<'a, R> {
@@ -59,6 +60,7 @@ fn state_error(e: oasis7_distfs::incremental_page_store::PageStoreError) -> Valu
         E::UnsupportedPlatform => ValueTreeError::Invalid("agent authority physical platform"),
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn scalar_receiver_cost_excludes_unchanged_intent_text() {
     let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {

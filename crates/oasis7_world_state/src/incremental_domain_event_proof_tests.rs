@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::test_support::provenance;
 use super::*;
 use std::cell::Cell;
@@ -337,6 +338,7 @@ fn inherited_domain_reuses_exact_immutable_semantics_across_signed_successor() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn domain_identity_type_pool_and_same_length_content_mismatches_poison() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -376,6 +378,7 @@ fn domain_identity_type_pool_and_same_length_content_mismatches_poison() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn domain_continuous_allowances_and_final_cancel_cannot_mint_a_witness() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -416,6 +419,7 @@ fn domain_continuous_allowances_and_final_cancel_cannot_mint_a_witness() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn authenticated_non_domain_original_is_not_a_domain_witness() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -438,6 +442,7 @@ fn authenticated_non_domain_original_is_not_a_domain_witness() {
     assert!(ctx.is_poisoned());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn concrete_domain_exhaustion_leaks_no_charge_or_reusable_context() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -538,6 +543,7 @@ fn mailbox_requires_same_domain_original_and_head_and_spends_continuous_work() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn mailbox_mutation_cancel_is_checked_during_matching_and_at_final_boundary() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -627,6 +633,7 @@ fn ordinary_mailbox_refuses_a_recovery_domain_witness() {
     assert!(ordinary.is_poisoned());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_domain_metadata_readmission_is_explicit_paid_and_keeps_exact_head() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
