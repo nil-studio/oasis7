@@ -4419,6 +4419,12 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             targets.append('rust-viewer')
             self.assertIn('activate --prebuilt --browser agent', (ROOT / 'docker/ci-base/build.sh').read_text())
             self.assertIn('COPY --from=viewer-browser . /opt/oasis7-viewer-browser/', dockerfile)
+        if re.search(r'^FROM rust-custody-wasm AS rust-full-regression$', dockerfile, re.M):
+            targets.append('rust-full-regression')
+            full_leaf = dockerfile.split('FROM rust-custody-wasm AS rust-full-regression\n', 1)[1].split('\nFROM ', 1)[0]
+            self.assertIn('apt-get install -y --no-install-recommends clang llvm', full_leaf)
+            self.assertIn('COPY --from=rust-ordinary-builder /usr/local/bin/docker /usr/local/bin/docker', full_leaf)
+            self.assertNotIn('dockerd', full_leaf)
         self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]
@@ -4433,7 +4439,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertNotIn('if [[ "$target" == "browser" ]]', publish_job)
         expected_groups = (
             ('base', {'runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'}),
-            ('specialized', {'codeql-rust', 'api-runtime', 'rust-ordinary-builder'}),
+            ('specialized', {'codeql-rust', 'api-runtime', 'rust-ordinary-builder', 'rust-full-regression'}),
             ('app-wasm' if 'rust-viewer' in targets else 'specialized', {'rust-custody-wasm', 'rust-viewer'}),
         )
         by_target = {target: group for group, members in expected_groups for target in members}
