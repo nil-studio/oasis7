@@ -212,8 +212,8 @@ mod tests {
         world.set_factory_construction_power_profile(FactoryConstructionPowerProfileV1 { factory_id: factory_id.into(), factory_kind: "test".into(), source_module_id: None, electricity_amount: 10, mode: FactoryConstructionPowerMode::StartOnlySink, authority_revision: 1, active: true }).unwrap();
         world.upsert_factory_profile(FactoryProfileV1 { factory_id: factory_id.into(), tier: 1, recipe_slots: 1, tags: vec!["assembly".into()] }).unwrap();
         world.set_agent_resource_balance(builder, ResourceKind::Electricity, 10).unwrap();
-        world.set_ledger_material_balance(MaterialLedgerId::agent(builder.into()), "steel_plate", 10).unwrap();
-        world.set_ledger_material_balance(MaterialLedgerId::agent(builder.into()), "circuit_board", 2).unwrap();
+        world.set_ledger_material_balance(MaterialLedgerId::agent(builder), "steel_plate", 10).unwrap();
+        world.set_ledger_material_balance(MaterialLedgerId::agent(builder), "circuit_board", 2).unwrap();
         (world, spec)
     }
 
