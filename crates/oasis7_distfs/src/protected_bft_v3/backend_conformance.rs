@@ -145,11 +145,24 @@ pub fn exercise_disposable_backend_lease_handoff_v3(
         second_token_digest,
         binding_digest,
     )?;
+    // A fenced owner must not commit even an otherwise well-shaped state.
+    // The test deliberately supplies the exact current revision and digest;
+    // a backend that checks only these values, but not the lease, is unsafe.
     if first
         .read_for_lease(first_lease.lease_generation, first_token_digest)
         .is_ok()
         || first
             .release_lease(first_lease.lease_generation, first_token_digest)
+            .is_ok()
+        || first
+            .compare_and_swap(
+                first_lease.lease_generation,
+                first_token_digest,
+                second_lease.state.revision,
+                &second_lease.state.state_digest,
+                None,
+                second_lease.state.clone(),
+            )
             .is_ok()
     {
         return Err(invalid("protected backend stale owner remains authorized"));
@@ -178,6 +191,7 @@ mod tests {
     struct SoftwareOnlyFixture {
         shared: Arc<Mutex<BftSignerBackendSnapshotV3>>,
         permit_stale_read: bool,
+        permit_stale_cas: bool,
     }
 
     impl SoftwareOnlyFixture {
@@ -271,6 +285,11 @@ mod tests {
             _minimum: Option<i64>,
             _next: BftSignerStateV3,
         ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+            if self.permit_stale_cas {
+                // Deliberately defective adapter: reports a stale write as
+                // accepted, so the conformance verifier must reject it.
+                return self.load();
+            }
             Err(invalid("fixture does not implement protected CAS"))
         }
     }
@@ -291,6 +310,7 @@ mod tests {
                 protected_time_floor_ms: 100,
             })),
             permit_stale_read: false,
+            permit_stale_cas: false,
         }
     }
 
@@ -313,6 +333,20 @@ mod tests {
     fn contract_refuses_a_backend_that_keeps_old_owner_readable() {
         let mut first = fixture();
         first.permit_stale_read = true;
+        let factory = first.clone();
+        assert!(exercise_disposable_backend_lease_handoff_v3(
+            &mut first,
+            move || Ok(Box::new(factory)),
+            &"11".repeat(32),
+            &"33".repeat(32),
+            &"44".repeat(32),
+        ).is_err());
+    }
+
+    #[test]
+    fn contract_refuses_stale_compare_and_swap_even_when_revision_matches() {
+        let mut first = fixture();
+        first.permit_stale_cas = true;
         let factory = first.clone();
         assert!(exercise_disposable_backend_lease_handoff_v3(
             &mut first,
