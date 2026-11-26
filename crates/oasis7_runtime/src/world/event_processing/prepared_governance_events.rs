@@ -7,14 +7,14 @@ use super::super::World;
 use super::PreparedEventStateDelta;
 
 pub(crate) struct PreparedGovernanceApprovalPublication {
-    proposal_id: ProposalId,
-    proposal: Proposal,
-    events: Vec<WorldEvent>,
-    next_event_id: WorldEventId,
-    next_event_id_era: u64,
-    journal_events: Vec<WorldEvent>,
-    journal_events_evicted: u64,
-    consensus_record: TickConsensusRecord,
+    pub(in crate::world::event_processing) proposal_id: ProposalId,
+    pub(in crate::world::event_processing) proposal: Proposal,
+    pub(in crate::world::event_processing) events: Vec<WorldEvent>,
+    pub(in crate::world::event_processing) next_event_id: WorldEventId,
+    pub(in crate::world::event_processing) next_event_id_era: u64,
+    pub(in crate::world::event_processing) journal_events: Vec<WorldEvent>,
+    pub(in crate::world::event_processing) journal_events_evicted: u64,
+    pub(in crate::world::event_processing) consensus_record: TickConsensusRecord,
 }
 
 impl PreparedGovernanceApprovalPublication {
@@ -439,7 +439,7 @@ impl World {
         Ok(())
     }
 
-    fn prepare_governance_approval(
+    pub(in crate::world::event_processing) fn prepare_governance_approval(
         &self,
         approved_event: GovernanceEvent,
         queued_event: Option<GovernanceEvent>,

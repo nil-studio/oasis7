@@ -14,6 +14,8 @@ pub(super) use prepared_state_delta::PreparedEventStateDelta;
 mod staged_industrial;
 #[path = "../../domains/institutions/staged_publication.rs"]
 mod staged_institutions;
+#[path = "../../domains/institutions/staged_governance.rs"]
+mod staged_institutions_governance;
 use staged_industrial::StagedIndustrialPublication;
 use staged_institutions::StagedInstitutionsPublication;
 
