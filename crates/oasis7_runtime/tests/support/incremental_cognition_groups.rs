@@ -49,9 +49,12 @@ fn exercise_group(
     group: CognitionOptionalGroupV1,
     nonempty_original_grants: bool,
 ) {
-    let state = store
+    let mut state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let whole = PageIoBudget {
         reads_remaining: 8_000_000,
         read_bytes_remaining: 2 << 30,
@@ -433,9 +436,12 @@ fn delete_and_reject_partial(
 ) {
     use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1;
     for partial in [true, false] {
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let values = store.value_session(physical());
         let mut writer = store.value_session(physical());
         let mut tx = ExecutionTransaction::begin(

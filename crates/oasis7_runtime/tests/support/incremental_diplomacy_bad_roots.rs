@@ -5,9 +5,12 @@ pub(super) fn rows(
     memory: &MemoryBudget,
     root: &StateRootV1,
 ) -> Rows {
-    let state = store
+    let mut state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let mut result = Vec::with_capacity(root.leaf_count as usize);
     StateScanContext {
         source: &state,
@@ -48,9 +51,12 @@ fn independent_orphan_required_column_option_enum_and_u32_roots_rejected() {
     .unwrap();
     let original = produce(&store, &memory, &source());
     let before = build(&store, &memory, &original);
-    let state = store
+    let mut state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(physical());
     let mut io = logical();
     let mut keys = SemanticKeyBudget {
@@ -65,7 +71,12 @@ fn independent_orphan_required_column_option_enum_and_u32_roots_rejected() {
         let rows = rows(&store, &memory, &root);
         children.push((root, rows));
     }
-    for case in 0..8 {
+    let cases: &[usize] = if cfg!(feature = "test_tier_full") {
+        &[0, 1, 2, 3, 4, 5, 6, 7]
+    } else {
+        &[0, 1, 4, 6]
+    };
+    for &case in cases {
         let (field, index) = match case {
             0 => (DiplomacyFieldV1::Alliances, 0),
             1..=3 => (DiplomacyFieldV1::Wars, 1),
@@ -201,9 +212,12 @@ fn independent_orphan_required_column_option_enum_and_u32_roots_rejected() {
             .unwrap() = (row.field_key.as_bytes().to_vec(), row.value_root);
         let bad_outer = build_from(&store, &memory, &before, &original, &outer);
         let roots = roots(&bad_outer);
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let values = store.value_session(physical());
         let mut io = logical();
         let mut keys = SemanticKeyBudget {
@@ -226,9 +240,12 @@ fn independent_orphan_required_column_option_enum_and_u32_roots_rejected() {
         );
     }
     // The valid saved root remains independently recoverable after every rejected candidate.
-    let state = store
+    let mut state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
+    if !cfg!(feature = "test_tier_full") {
+        state = state.with_read_memo(256, 1 << 20).unwrap();
+    }
     let values = store.value_session(physical());
     let mut io = logical();
     let mut keys = SemanticKeyBudget {

@@ -110,6 +110,11 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
 pub(super) fn exercise_unchanged_symbol(sizes: &[usize]) {
     assert!(sizes.len() >= 2);
     let mut samples = Vec::new();
+    let compression = if cfg!(feature = "test_tier_full") {
+        PageCompression::Zstd
+    } else {
+        PageCompression::Raw
+    };
     for &text in sizes {
         let directory = Directory::new();
         let path = directory.0.join("scale");
@@ -120,25 +125,23 @@ pub(super) fn exercise_unchanged_symbol(sizes: &[usize]) {
                 .unwrap();
             let mut original = source();
             original.main_token_config.symbol = "x".repeat(text);
-            let store =
-                IncrementalPageStore::create(&path, memory.clone(), PageCompression::Zstd).unwrap();
+            let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
             seed_sized(&store, &memory, &original, text)
         };
         // Original World, source store and producing pool are gone; complete bootstrap
         // consumes Recovery4MiB before any ordinary operation or inherited closure.
         let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
         let _roots = memory.reserve(8192, MemoryClass::Recovery).unwrap();
-        let store = IncrementalPageStore::open(
-            &path,
-            memory.clone(),
-            PageCompression::Zstd,
-            MemoryClass::Recovery,
-        )
-        .unwrap();
+        let store =
+            IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Recovery)
+                .unwrap();
         let (family, record, forbidden) = {
-            let state = store
+            let mut state = store
                 .state_session(physical(), MemoryClass::Recovery)
                 .unwrap();
+            if !cfg!(feature = "test_tier_full") {
+                state = state.with_read_memo(128, 512 << 10).unwrap();
+            }
             let values = store.value_session(physical());
             let mut io = logical();
             let mut keys = SemanticKeyBudget {
@@ -206,9 +209,12 @@ pub(super) fn exercise_unchanged_symbol(sizes: &[usize]) {
             },
         };
         let live = parent.fence().unwrap();
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let values = store.value_session(physical());
         let hits = Cell::new(0usize);
         let calls = Cell::new(0usize);
