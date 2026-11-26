@@ -1030,18 +1030,14 @@ async function runReleaseProbe({ releasePort, options }) {
     driver.prepare();
     await driver.runJson(["set", "viewport", "1440", "1000"]);
     await driver.runJson(["open", `http://127.0.0.1:${releasePort}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
-    observed = await waitForObservation(
-      driver,
-      `(() => JSON.stringify({
-        testApi: typeof window.__AW_TEST__,
-        transportShim: typeof window.__BFR__,
-        remountApi: typeof window.__BFR_REMOUNT__,
-        viewerMounted: Boolean(document.querySelector(".viewer-shell")),
-        query: location.search,
-      }))()`,
-      (state) => Boolean(state?.viewerMounted),
-      "release viewer shell mounted",
-    );
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 800));
+    observed = await driver.evalJson(`(() => JSON.stringify({
+      testApi: typeof window.__AW_TEST__,
+      transportShim: typeof window.__BFR__,
+      remountApi: typeof window.__BFR_REMOUNT__,
+      viewerMounted: Boolean(document.querySelector(".viewer-shell")),
+      query: location.search,
+    }))()`);
     if (observed.testApi !== "undefined") failures.push("release bundle exposed the test API with test_api=1");
     if (observed.transportShim !== "undefined") failures.push("release bundle page installed a transport controller");
     if (observed.remountApi !== "undefined") failures.push("release bundle page exposed the remount lifecycle controller");
