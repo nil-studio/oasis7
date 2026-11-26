@@ -11,7 +11,14 @@ mod game_task_projection_tests;
 
 pub mod bootstrap;
 pub mod harness_authority;
-pub mod ordinary_starter;
+#[cfg(test)]
+mod ordinary_starter {
+    pub use oasis7_world_service::ordinary_starter::*;
+
+    // Preserve the original signed-claim and publication integration tests here:
+    // these intentionally require the full legacy application host assembly.
+    mod legacy_claim_tests;
+}
 
 pub mod feedback;
 

@@ -98,6 +98,49 @@ impl PreparedRuntimeCommit {
         )
     }
 
+    /// Bind the actual prepared IWS `TransitionRecordV1.after` to the
+    /// existing local v2 namespace commitment, with no World materialization.
+    ///
+    /// This returns **candidate-only** evidence. The two sidecar roots must
+    /// come from separately verified original owners; no certificate, durable
+    /// acceptance, selected head, or cache promotion is issued by this method.
+    /// In particular a caller must not use it to bypass GEN/Frozen/Host gates.
+    pub fn candidate_iws_commitment_binding_v2(
+        &self,
+        governance_sidecar_root: [u8; 32],
+        control_continuation_root: [u8; 32],
+    ) -> Result<crate::IncrementalWorldCommitmentBindingV2, crate::WorldError> {
+        let invalid = |reason: &str| crate::WorldError::DistributedValidationFailed {
+            reason: format!("candidate IWS commitment binding: {reason}"),
+        };
+        let decoded = RootSetV1::from_canonical_bytes(self.root_set_bytes.as_slice())
+            .map_err(|_| invalid("root set canonical bytes invalid"))?;
+        self.transition
+            .record
+            .validate()
+            .map_err(|_| invalid("prepared transition invalid"))?;
+        let digest = decoded
+            .digest()
+            .map_err(|_| invalid("root set digest invalid"))?;
+        let body_digest = self
+            .history
+            .body
+            .digest()
+            .map_err(|_| invalid("prepared history digest invalid"))?;
+        if decoded != self.transition.record.after
+            || self.history.body.roots != digest
+            || self.history.body.height != decoded.height
+            || self.catalog.entry.commit != body_digest
+        {
+            return Err(invalid("transition, history and catalog disagree"));
+        }
+        crate::IncrementalWorldCommitmentBindingV2::from_root_set(
+            &decoded,
+            governance_sidecar_root,
+            control_continuation_root,
+        )
+    }
+
     /// Recheck immediately at each later protocol/publication boundary too.
     pub fn validate_live_fence(&self, live: &ExecutionFence) -> Result<(), ExecutionError> {
         if self.fence == *live {

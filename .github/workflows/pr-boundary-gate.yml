@@ -1,0 +1,55 @@
+name: PR Boundary Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  boundary-check:
+    name: Slice, Scope-Lock & Architecture Ring Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Extract PR labels as comma-separated list
+        id: meta
+        env:
+          GH_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LABELS_CSV="$(jq -r 'join(",")' <<< "$GH_LABELS_JSON")"
+          {
+            echo "labels_csv<<__OASIS7_LABELS_EOF__"
+            printf '%s\n' "$LABELS_CSV"
+            echo "__OASIS7_LABELS_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run PR boundary gatekeeper
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ steps.meta.outputs.labels_csv }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "${HEAD_REF}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "${HEAD_REF}"
+          fi
+          ./scripts/check-pr-boundaries.sh

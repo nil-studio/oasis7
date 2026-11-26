@@ -6,6 +6,7 @@ mod geometry {
 }
 mod agent_decision;
 mod agent_memory;
+pub mod agent_memory_selector;
 mod agent_query;
 mod asteroid_fragment;
 mod chain_resource;
@@ -18,7 +19,9 @@ mod init_module_visual;
 mod kernel;
 mod kernel_snapshot;
 mod memory_entry;
-mod module_visual;
+mod module_visual {
+    pub use oasis7_agent_api::world_entity::{ModuleVisualAnchor, ModuleVisualEntity};
+}
 mod persist_error;
 mod power;
 mod runner_stats;

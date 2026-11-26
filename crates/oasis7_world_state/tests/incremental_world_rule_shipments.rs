@@ -169,7 +169,12 @@ impl Reader<'_> {
 #[test]
 fn original_shipment_fields_have_typed_u64_keys_and_cold_streaming_reads() {
     use WorldRuleShipmentValueV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();

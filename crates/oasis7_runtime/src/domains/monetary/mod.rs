@@ -12,10 +12,20 @@ use oasis7_domain_types::rule_settlement::{
 };
 
 use crate::world::transition::{
-    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition, SubsystemDelta,
-    TransitionContext, TransitionReject,
+    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedRootTransaction,
+    StagedTransition, SubsystemDelta, TransitionContext, TransitionReject,
 };
-use crate::{ResourceDelta, WorldError};
+use crate::{
+    CognitionEconomyError, CognitionEconomyStateV1, CognitionLeaseRequestV1, CognitionLeaseV1,
+    CognitionProvisioningReceiptV1, CognitionReceiptV1, ResourceDelta, World, WorldError,
+    WorldTime,
+};
+
+pub(crate) fn cognition_economy_world_error(error: CognitionEconomyError) -> WorldError {
+    WorldError::DistributedValidationFailed {
+        reason: error.code().to_string(),
+    }
+}
 
 /// Same per-key signed, checked arithmetic as the original live
 /// World::apply_resource_delta path. All entries are planned before any write.
@@ -26,13 +36,14 @@ pub(crate) fn plan_resource_delta(
     let mut planned = Vec::with_capacity(delta.entries.len());
     for (kind, amount) in &delta.entries {
         let current = balances.get(kind).copied().unwrap_or(0);
-        let next = current.checked_add(*amount).ok_or_else(|| {
-            WorldError::ResourceBalanceInvalid {
-                reason: format!(
-                    "resource balance overflow: kind={kind:?} current={current} delta={amount}"
-                ),
-            }
-        })?;
+        let next =
+            current
+                .checked_add(*amount)
+                .ok_or_else(|| WorldError::ResourceBalanceInvalid {
+                    reason: format!(
+                        "resource balance overflow: kind={kind:?} current={current} delta={amount}"
+                    ),
+                })?;
         planned.push((*kind, next));
     }
     Ok(planned)
@@ -59,7 +70,34 @@ impl StagedRuleFeeSettlement<'_> {
             with_distance: self.with_distance,
             disposition: self.disposition,
         });
+        // The live consumer and Stage 1 must reject the very same selected
+        // debit before planning any balance assignments. In particular an
+        // unpriced rejected movement must not require distance-only funds.
+        let deficits = quote.selected.deficits(balances);
+        if !deficits.is_empty() {
+            return Err(WorldError::ResourceBalanceInvalid {
+                reason: format!("staged rule fee insufficient resources: {deficits:?}"),
+            });
+        }
         plan_resource_delta(balances, quote.selected)
+    }
+
+    #[cfg_attr(not(test), expect(dead_code, reason = "composed by #6150 root tick"))]
+    pub(crate) fn stage_in_root(
+        &self,
+        root: &mut StagedRootTransaction<'_, MonetaryDomainDelta>,
+    ) -> Result<(), TransitionReject> {
+        let mut overlaid = root.view().state().resources.clone();
+        for delta in root.deltas() {
+            if let MonetaryDeltaInner::RuleFee(prev) = &delta.0 {
+                overlaid.extend(prev.planned.iter().copied());
+            }
+        }
+        let planned = self.plan_checked(&overlaid)?;
+        root.stage_delta(MonetaryDomainDelta(MonetaryDeltaInner::RuleFee(
+            PreparedRuleFeeDelta { planned },
+        )));
+        Ok(())
     }
 }
 
@@ -86,28 +124,180 @@ impl StagedTransition for StagedRuleFeeSettlement<'_> {
         view: &BorrowedWorldView<'_>,
         _ctx: &TransitionContext,
     ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
-        let quote = AuthoritativeDebit.quote(RuleSettlementInput {
-            general: self.general,
-            with_distance: self.with_distance,
-            disposition: self.disposition,
-        });
-        let balances = &view.state().resources;
-        // Preserve the existing Runtime priority: only the final selected
-        // scope can be charged and its insufficiency is checked before debit.
-        let deficits = quote.selected.deficits(balances);
-        if !deficits.is_empty() {
-            return Err(TransitionReject::World(
-                WorldError::ResourceBalanceInvalid {
-                    reason: format!("staged rule fee insufficient resources: {deficits:?}"),
-                },
-            ));
-        }
-        let planned = self.plan_checked(balances)?;
+        let planned = self.plan_checked(&view.state().resources)?;
         Ok(PreparedStagedCommit::new(
             view.base_head().clone(),
             None,
             PreparedRuleFeeDelta { planned },
         ))
+    }
+}
+
+pub(crate) struct CognitionEconomyDelta {
+    projection: serde_json::Value,
+}
+
+impl SubsystemDelta for CognitionEconomyDelta {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        ctx.world_mut()
+            .install_cognition_economy_projection(self.projection);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CognitionEconomyOutput {
+    Unit,
+    ProvisionReceipt(CognitionProvisioningReceiptV1),
+    Lease(CognitionLeaseV1),
+    Receipt(CognitionReceiptV1),
+}
+
+pub(crate) enum StagedCognitionEconomyOp<'a> {
+    SetBalance(&'a str, &'a str, u64),
+    ProvisionForAgent(&'a str, &'a str, &'a str, u64),
+    ReserveLease(&'a CognitionLeaseRequestV1),
+    SettleLease(&'a str, u64),
+    ReleaseLease(&'a str),
+    ExpireLease(&'a str),
+    RefundLease(&'a str),
+    RefundSettledLease(&'a str, u64, &'a str, &'a str),
+}
+
+type PreparedBase = (
+    CognitionEconomyOutput,
+    CognitionEconomyStateV1,
+    CognitionEconomyDelta,
+);
+type StagedCognitionPrepared = (
+    CognitionEconomyOutput,
+    PreparedStagedCommit<CognitionEconomyDelta>,
+);
+
+impl StagedCognitionEconomyOp<'_> {
+    fn prepare_with_base(
+        &self,
+        world: &World,
+        tick: WorldTime,
+        prior_econ: Option<&CognitionEconomyStateV1>,
+    ) -> Result<PreparedBase, WorldError> {
+        if tick != world.state.time {
+            return Err(WorldError::DistributedValidationFailed {
+                reason: "staged cognition balance requires original tick context".into(),
+            });
+        }
+        let map_err = cognition_economy_world_error;
+        let provision_req = match self {
+            Self::ProvisionForAgent(agent, id, ctx, amt) => {
+                Some(world.build_cognition_provisioning_request(agent, id, ctx, *amt)?)
+            }
+            _ => None,
+        };
+        let mut econ = match prior_econ {
+            Some(prev) => prev.clone(),
+            None => world.cognition_economy()?,
+        };
+        let output = match self {
+            Self::SetBalance(acct, res, amt) => {
+                econ.set_resource_balance(*acct, *res, *amt)
+                    .map_err(map_err)?;
+                CognitionEconomyOutput::Unit
+            }
+            Self::ProvisionForAgent(..) => CognitionEconomyOutput::ProvisionReceipt(
+                econ.provision(provision_req.expect("built above"), tick)
+                    .map_err(map_err)?,
+            ),
+            Self::ReserveLease(req) => {
+                let lease = match world.cognition_provisioning_binding_for_request(req, &econ)? {
+                    Some(key) => econ.reserve_for_binding((*req).clone(), key, tick),
+                    None => econ.reserve((*req).clone(), tick),
+                }
+                .map_err(map_err)?;
+                CognitionEconomyOutput::Lease(lease)
+            }
+            Self::SettleLease(id, amt) => {
+                CognitionEconomyOutput::Receipt(econ.settle(id, *amt, tick).map_err(map_err)?)
+            }
+            Self::ReleaseLease(id) => {
+                CognitionEconomyOutput::Receipt(econ.release(id, tick).map_err(map_err)?)
+            }
+            Self::ExpireLease(id) => {
+                CognitionEconomyOutput::Receipt(econ.expire(id, tick).map_err(map_err)?)
+            }
+            Self::RefundLease(id) => {
+                CognitionEconomyOutput::Receipt(econ.refund(id, tick).map_err(map_err)?)
+            }
+            Self::RefundSettledLease(id, amt, parent, reason) => CognitionEconomyOutput::Receipt(
+                econ.refund_settled(id, *amt, parent, reason, tick)
+                    .map_err(map_err)?,
+            ),
+        };
+        let projection = econ.snapshot_json().map_err(map_err)?;
+        Ok((output, econ, CognitionEconomyDelta { projection }))
+    }
+
+    pub(crate) fn prepare_on_world(
+        &self,
+        world: &World,
+        tick: WorldTime,
+    ) -> Result<(CognitionEconomyOutput, CognitionEconomyDelta), WorldError> {
+        self.prepare_with_base(world, tick, None)
+            .map(|(out, _, delta)| (out, delta))
+    }
+
+    pub(crate) fn prepare_with_output(
+        &self,
+        view: &BorrowedWorldView<'_>,
+        ctx: &TransitionContext,
+    ) -> Result<StagedCognitionPrepared, TransitionReject> {
+        let (out, _, delta) = self.prepare_with_base(view.world(), ctx.tick, None)?;
+        Ok((out, PreparedStagedCommit::new(view.base_head().clone(), None, delta)))
+    }
+
+    #[cfg_attr(not(test), expect(dead_code, reason = "composed by #6150 root tick"))]
+    pub(crate) fn stage_in_root(
+        &self,
+        root: &mut StagedRootTransaction<'_, MonetaryDomainDelta>,
+    ) -> Result<CognitionEconomyOutput, TransitionReject> {
+        let prior = root.deltas().iter().rev().find_map(|d| match &d.0 {
+            MonetaryDeltaInner::Cognition(state, _) => Some(state.as_ref()),
+            MonetaryDeltaInner::RuleFee(_) => None,
+        });
+        let (out, state, delta) =
+            self.prepare_with_base(root.view().world(), root.context().tick, prior)?;
+        root.stage_delta(MonetaryDomainDelta(MonetaryDeltaInner::Cognition(
+            Box::new(state),
+            delta,
+        )));
+        Ok(out)
+    }
+}
+
+impl StagedTransition for StagedCognitionEconomyOp<'_> {
+    type Delta = CognitionEconomyDelta;
+
+    fn prepare(
+        &self,
+        view: &BorrowedWorldView<'_>,
+        ctx: &TransitionContext,
+    ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
+        self.prepare_with_output(view, ctx)
+            .map(|(_, commit)| commit)
+    }
+}
+
+enum MonetaryDeltaInner {
+    RuleFee(PreparedRuleFeeDelta),
+    Cognition(Box<CognitionEconomyStateV1>, CognitionEconomyDelta),
+}
+
+pub(crate) struct MonetaryDomainDelta(MonetaryDeltaInner);
+
+impl SubsystemDelta for MonetaryDomainDelta {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        match self.0 {
+            MonetaryDeltaInner::RuleFee(delta) => delta.apply_infallible(ctx),
+            MonetaryDeltaInner::Cognition(_, delta) => delta.apply_infallible(ctx),
+        }
     }
 }
 

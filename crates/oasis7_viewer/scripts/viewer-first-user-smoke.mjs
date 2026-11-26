@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import { loadPlaywright } from "../../../scripts/playwright-module-loader.mjs";
+import { browserExecutablePath, loadPlaywright } from "../../../scripts/playwright-module-loader.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const { chromium } = loadPlaywright(import.meta.url);
@@ -226,13 +225,6 @@ async function clickClaimFirstAgent(page) {
   return { clicked: false, selector: "missing" };
 }
 
-function chromeExecutablePath(requestedPath) {
-  if (requestedPath && existsSync(requestedPath)) return requestedPath;
-  const macChrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  if (existsSync(macChrome)) return macChrome;
-  return undefined;
-}
-
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   options.url = viewerUrl(options.url);
@@ -241,7 +233,7 @@ async function main() {
 
   const browser = await chromium.launch({
     headless: !options.headed,
-    executablePath: chromeExecutablePath(options.chromePath),
+    executablePath: browserExecutablePath(options.chromePath),
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await installWebSocketRecorder(page);

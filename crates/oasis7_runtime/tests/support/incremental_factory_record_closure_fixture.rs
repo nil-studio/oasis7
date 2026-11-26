@@ -381,7 +381,12 @@ pub(crate) fn qualified_factory_create_receiver_and_typed_transfer_preserve_cold
         incremental_field_read::WorldFieldReadContextV1,
     };
 
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let source = source();
         let large_name = source.factories["outer:large/Δ"].spec.display_name.clone();
         let new_factory = source.factories["outer:small/Δ"].clone();

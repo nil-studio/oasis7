@@ -174,7 +174,12 @@ macro_rules! read_ctx {
 
 #[test]
 fn scheduler_controls_root_only_cold_original_values() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("pages");
         let canonical = {
@@ -188,9 +193,12 @@ fn scheduler_controls_root_only_cold_original_values() {
             IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Recovery)
                 .unwrap();
         let roots = RootSetV1::from_canonical_bytes(&canonical).unwrap();
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Recovery)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(128, 512 << 10).unwrap();
+        }
         let values = store.value_session(physical());
         let mut io = logical();
         let mut keys = SemanticKeyBudget {
@@ -271,6 +279,7 @@ mod operations;
 #[path = "support/incremental_runtime_scheduler_schema.rs"]
 mod schema;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_runtime_scheduler_pages.rs"]
 mod pages;
 

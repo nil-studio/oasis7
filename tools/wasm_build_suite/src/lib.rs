@@ -952,8 +952,10 @@ fn canonicalize_wasm_bytes(wasm_bytes: &[u8]) -> Result<Vec<u8>, BuildError> {
             continue;
         }
 
-        let section_bytes = wasm_bytes
-            .get(section_range.start..section_range.end)
+        let section_bytes = usize::try_from(section_range.start)
+            .ok()
+            .zip(usize::try_from(section_range.end).ok())
+            .and_then(|(start, end)| wasm_bytes.get(start..end))
             .ok_or_else(|| {
                 BuildError::MetadataInvalid(format!(
                     "invalid wasm section range start={} end={} len={}",

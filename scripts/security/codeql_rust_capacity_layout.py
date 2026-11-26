@@ -40,7 +40,7 @@ TOOL_FILES = (
     'codeql_rust_capacity_evidence.py',
     'codeql_rust_cargo_guard.py',
 )
-ACTION_SHA = '33d7b85da1a04171e211befe2c739303b9a4c066'
+ACTION_SHA = '1bd86f2fdb4b86187fa4059f16f31a3202acc9ea'
 FILE_LIMIT = 4 * 1024**2
 RECEIPT_LIMIT = 128 * 1024
 

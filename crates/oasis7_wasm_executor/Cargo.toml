@@ -40,4 +40,5 @@ rustix = { version = "1.1.6", optional = true, default-features = false, feature
 regex = { version = "1", optional = true }
 
 [dev-dependencies]
-wat = "1"
+# Match wasmtime 49.0.6's wasm-tools 0.258 generation so wat does not pull a second wasm-encoder/wasmparser tree.
+wat = ">=1.258.3, <1.259.0"

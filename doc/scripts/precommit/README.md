@@ -27,7 +27,7 @@ This router for `doc/scripts/precommit/` does not duplicate commands, failure pr
 
 - Keep the two-file topic chain addressable in `doc/scripts/prd.index.md`.
 - Update this router in the same change when a new pre-commit topic changes a first-read path or authority boundary.
-- Completed project history stays in PR、实际 CI 与评审记录（Issue 按需）; current behavior and operator actions stay in `pre-commit.prd.md`.
+- Completed project history stays in PRs, actual CI runs, and review records (Issues as needed); current behavior and operator actions stay in `pre-commit.prd.md`.
 - Do not add redirect-only design or compatibility leaves. Historical review
   logs retain audit conclusions; exact deleted-path provenance stays in Git
   history.

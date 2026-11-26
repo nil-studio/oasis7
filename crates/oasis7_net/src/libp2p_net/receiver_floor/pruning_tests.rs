@@ -86,6 +86,7 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
         mode: fixture.config.mode,
         floors,
         pruned_trusted_time_watermark_ms: None,
+        trusted_time_floor_ms: None,
         pre_migration_v1_expiries: BTreeMap::new(),
     };
     write_state(&fixture, &state_bytes(&ledger));
@@ -574,6 +575,7 @@ fn pre_upgrade_floor_with_none_max_expiry_survives_conflict_with_earlier_expiry(
         mode: fixture.config.mode,
         floors,
         pruned_trusted_time_watermark_ms: None,
+        trusted_time_floor_ms: None,
         pre_migration_v1_expiries: BTreeMap::new(),
     };
     write_state(&fixture, &state_bytes(&ledger));
@@ -747,6 +749,7 @@ fn combined_v1_and_v2_capacity_limits_admission_and_allows_v1_migration_at_capac
         mode: fixture.config.mode,
         floors: BTreeMap::new(),
         pruned_trusted_time_watermark_ms: None,
+        trusted_time_floor_ms: None,
         pre_migration_v1_expiries,
     };
     write_state(&fixture, &state_bytes(&ledger));
@@ -1011,6 +1014,7 @@ fn legacy_missing_admission_bound_must_retain_floor_after_reopen() {
         mode: fixture.config.mode,
         floors,
         pruned_trusted_time_watermark_ms: None,
+        trusted_time_floor_ms: None,
         pre_migration_v1_expiries: BTreeMap::new(),
     };
     write_state(&fixture, &state_bytes(&ledger));

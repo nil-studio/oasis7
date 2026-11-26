@@ -31,7 +31,7 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
     version = architecture['build_policy_version']
     if type(version) is not int:
         raise InspectionError('invalid architecture build policy version')
-    if version != 1:
+    if version not in (1, 2):
         return False
     if (architecture.get('build_policy') != 'ordinary-targets'
             or type(architecture.get('version')) is not int or architecture['version'] != 1
@@ -44,11 +44,13 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
         spec.loader.exec_module(artifacts)
         artifacts.ROOT = root
         selected = artifacts.fast_plan(plan)
-        if (selected is None or selected.get('fast_execution_version') != 1
-                or selected.get('ordinary_execution') != 'inline'
+        if (selected is None
+                or selected.get('scope') != 'targeted'
+                or selected.get('execution_profile') not in ('pr-fast', 'main-fast')
                 or not {'baseline', 'rust_baseline', 'oasis7_required'}.issubset(selected['groups'])
                 or len(selected['groups']) != len(set(selected['groups']))
                 or selected.get('test_policy_changed') is not False
+                or 'ordinary_full_fast_targets' in selected
                 or any(selected.get(key) != [] for key in
                        ('fast_plan_exceptions', 'formal_suites', 'oasis7_required_wasm_packages'))):
             raise ValueError('ordinary-targets requires the complete bounded fast plan without extra matrices')
@@ -57,14 +59,48 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
             if not isinstance(value, str) or architecture.get(key) != value:
                 raise ValueError('architecture and execution plan disagree on ' + key)
         artifacts.validate_plan_identity(selected)
-        targets = artifacts.ordinary_fast_targets(selected)
-        if not targets:
-            raise ValueError('ordinary-targets requires a complete fast target inventory')
         inputs = architecture.get('packages')
         if (not isinstance(inputs, list) or not inputs
                 or any(not isinstance(package, str) or not package for package in inputs)
-                or len(inputs) != len(set(inputs))
-                or not set(inputs) <= {target['package'] for target in targets}):
+                or len(inputs) != len(set(inputs))):
+            raise ValueError('ordinary fast target owners do not cover every direct architecture input')
+        if version == 1:
+            if (selected.get('fast_execution_version') != 1
+                    or selected.get('ordinary_execution') != 'inline'):
+                raise ValueError('ordinary-targets v1 requires inline fast execution')
+            targets = artifacts.ordinary_fast_targets(selected)
+            if not targets:
+                raise ValueError('ordinary-targets requires a complete fast target inventory')
+            covered_owners = {target['package'] for target in targets}
+        else:
+            policy = selected.get('policy_sha')
+            if ('fast_execution_version' in selected
+                    or selected.get('ordinary_execution') == 'inline'
+                    or 'ordinary_fast_targets' in selected
+                    or selected.get('ordinary_artifact_partition_version') not in (1, 2)
+                    or selected.get('ordinary_controls_in_rust_baseline_version') != 1
+                    or selected.get('ordinary_clippy_group') != 'rust_baseline'
+                    or selected.get('ordinary_wasm_group') != 'rust_baseline'
+                    or not isinstance(policy, str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', policy)):
+                raise ValueError('ordinary-targets v2 requires the complete artifact-mode fast plan')
+            # Bind both capability and ordinary required package inventory to fixed BASE policy.
+            policy_config = json.loads(run(root, ['git', 'show', policy + ':scripts/ci-required-scope.json']))
+            if (not isinstance(policy_config, dict)
+                    or policy_config.get('architecture_artifact_build_policy_version') != 1):
+                raise ValueError('ordinary-targets v2 requires trusted policy capability')
+            policy_required = policy_config.get('oasis7_required_packages')
+            if (not isinstance(policy_required, list) or not policy_required
+                    or any(not isinstance(pkg, str) or not pkg for pkg in policy_required)
+                    or len(policy_required) != len(set(policy_required))):
+                raise ValueError('invalid trusted oasis7_required_packages')
+            tested_required = artifacts.load_oasis7_required_packages(root / 'scripts/ci-required-scope.json')
+            required_list = artifacts.plan_list(
+                selected,
+                'oasis7_required_packages',
+                sorted(set(policy_required).intersection(tested_required)),
+            )
+            covered_owners = set(required_list)
+        if not set(inputs) <= covered_owners:
             raise ValueError('ordinary fast target owners do not cover every direct architecture input')
         extra_groups = set(selected['groups']) - {'baseline', 'rust_baseline', 'oasis7_required'}
         consumers = architecture.get('consumer_groups', {})

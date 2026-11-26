@@ -620,6 +620,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
+    parser.add_argument('--preinstalled-native-image')
     parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CALLEE_SOURCE,PREVIOUS_CAPACITY_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
     parser.add_argument('--mode',choices=('capacity','official-default-research','qualifier-research','candidate-workload-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
@@ -693,7 +694,12 @@ def main():
             terminal['native_preparation']='INCOMPLETE'
             # Reuse only native preparation, never the standalone Cargo check.
             # Its end-90 reserve becomes the capacity end-120 reserve.
-            native.prepare_native(source,out,end-30,env,maximum_seconds=360 if qualifier_research else 180)
+            maximum_seconds = 360 if qualifier_research else 180
+            if args.preinstalled_native_image is not None:
+                native.verify_preinstalled_native(source, out, end - 30, env, args.preinstalled_native_image,
+                                                   maximum_seconds=maximum_seconds)
+            else:
+                native.prepare_native(source, out, end - 30, env, maximum_seconds=maximum_seconds)
             terminal['native_preparation']='PASS'
             run(['rustc','-vV'],'project-toolchain',20)
             run([args.codeql,'version','--format=json'],'version',20)

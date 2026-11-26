@@ -124,6 +124,26 @@ impl GossipEndpoint {
         let socket = UdpSocket::bind(config.bind_addr).map_err(|err| NodeError::Gossip {
             reason: format!("bind {} failed: {}", config.bind_addr, err),
         })?;
+        Self::from_socket(config, socket)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_reserved_for_test(
+        config: &NodeGossipConfig,
+        socket: UdpSocket,
+    ) -> Result<Self, NodeError> {
+        let actual = socket.local_addr().map_err(|error| NodeError::Gossip {
+            reason: format!("reserved socket local address: {error}"),
+        })?;
+        if actual != config.bind_addr {
+            return Err(NodeError::Gossip {
+                reason: "reserved socket differs from configured address".into(),
+            });
+        }
+        Self::from_socket(config, socket)
+    }
+
+    fn from_socket(config: &NodeGossipConfig, socket: UdpSocket) -> Result<Self, NodeError> {
         socket
             .set_nonblocking(true)
             .map_err(|err| NodeError::Gossip {
@@ -244,6 +264,22 @@ impl GossipEndpoint {
                 ),
             })
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_static_peers_for_test(
+        &self,
+        addresses: &[SocketAddr],
+    ) -> Result<(), NodeError> {
+        let peers = addresses
+            .iter()
+            .copied()
+            .filter(|peer| *peer != self.bind_addr)
+            .collect();
+        *self.peers.lock().map_err(|_| NodeError::Gossip {
+            reason: "peers mutex poisoned".into(),
+        })? = GossipPeerBook::new(peers);
+        Ok(())
     }
 
     pub(crate) fn remember_peer(&self, peer: SocketAddr) -> Result<(), NodeError> {

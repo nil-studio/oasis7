@@ -18,6 +18,8 @@ mod membership;
 mod rotation;
 #[path = "node_bft_v3_startup.rs"]
 mod startup;
+#[path = "node_bft_v3_successor_rotation.rs"]
+pub(crate) mod successor_rotation;
 #[path = "node_bft_v3_worker.rs"]
 mod worker;
 pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {

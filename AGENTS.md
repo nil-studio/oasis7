@@ -18,6 +18,14 @@
 - 独立评审的强制范围按[验证与评审](doc/engineering/workflow/source-of-truth.md#3-验证与评审)执行；其他变更按复杂度和风险选择。专业关注点见 `.agents/roles/`，方法见 `.agents/skills/README.md`。
 - 实施按[最小完整改动](doc/engineering/workflow/source-of-truth.md#minimal-complete-change)核对影响范围与复用边界；新发现或范围扩大按[范围变化的处置](doc/engineering/workflow/source-of-truth.md#task-scope-change)判断归属，评审按[有依据的评审](doc/engineering/workflow/source-of-truth.md#evidence-based-review)区分缺陷与非阻断建议。
 
+### PR Boundaries, Scope-Lock & Slicing Gate (Hard Rules)
+- **Authoritative Spec:** Read [pr-slicing-and-circuit-breaker.md](doc/engineering/workflow/pr-slicing-and-circuit-breaker.md) before decomposing issues or opening PRs.
+- **Scope-Lock Contract:** Lock `Slice-Type` and `Allowed-Crates` in the Draft PR body before coding (rebase onto latest `origin/main` first if starting from an empty contract branch). Never modify crates outside `Allowed-Crates`.
+- **Mandatory Slicing:** Split cross-layer or `>300` LOC work into serial PRs: `[Slice: Dark]` (`<=800` LOC, unwired additive) -> `[Slice: Adapter]` (`<=600` LOC) -> `[Slice: Cutover]` (`<=150` LOC, wiring only).
+- **Blast Radius Cap:** Max **3** workspace crates and **2 adjacent** rings (`L0`..`L3`) per PR; maintainer override requires `pr-boundary-override` label (never self-applied by Agents).
+- **Circuit Breaker:** If `./scripts/check-pr-boundaries.sh` fails, or a branch falls `>40` commits behind `main` with conflicts / fails rebase twice, **STOP patching in place** and execute the Read-Only Donor Salvage Protocol.
+- **Local Preflight:** Run `./scripts/check-pr-boundaries.sh --slice <Type> --allowed-crates <csv>` before pushing.
+
 ## 常用命令
 
 - Rust canonical：`env -u RUSTC_WRAPPER cargo ...`

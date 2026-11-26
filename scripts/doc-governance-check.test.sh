@@ -245,6 +245,8 @@ for gate in unified-world-code-terminology-scan.test.sh lint-skills.sh check-win
   chmod +x "$FIXTURE/scripts/$gate"
 done
 printf 'raise SystemExit(0)\n' >"$FIXTURE/scripts/validate-codex-agent-config.py"
+printf 'raise SystemExit(0)\n' >"$FIXTURE/scripts/check-ci-scope-paths.py"
+printf 'raise SystemExit(0)\n' >"$FIXTURE/scripts/check-governance-hygiene.test.py"
 # Remove the inventoried input immediately before real awk opens it. This
 # exercises an actual read error without platform-dependent chmod semantics.
 REAL_AWK="$(command -v awk)"

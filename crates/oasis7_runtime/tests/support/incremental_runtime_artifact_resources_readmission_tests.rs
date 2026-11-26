@@ -3,8 +3,13 @@ use super::*;
 
 #[test]
 fn recovery_resources_readmission_bridges_to_ordinary_delta_tick_and_cold_requalifies() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
-        let (manifest, initial_delta, builtins) = rich_sources();
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
+        let (manifest, initial_delta, builtins) = transition_sources();
         let builtin_source = BuiltinSource(&builtins);
         let source = RuntimeArtifactResourcesRefV1 {
             chain_resource_manifest: &manifest,
