@@ -414,10 +414,12 @@ describe("fullscreen map shell contract", () => {
   });
 
   it("keeps the Command route chrome and truthful context available at scroll bottom", async () => {
-    const [{ terminalShellCss }, mainSource] = await Promise.all([
+    const [{ terminalShellCss }, appSource, interactionSource] = await Promise.all([
       readViewerHtml(),
       readFile("software_safe_src/viewer_app.jsx", "utf8"),
+      readFile("software_safe_src/viewer_interaction_panel.jsx", "utf8"),
     ]);
+    const mainSource = `${appSource}\n${interactionSource}`;
     expect(mainSource).toMatch(
       /id="viewer-details-panel"[\s\S]*?class="panel__header panel__header--stack command-route-chrome"[\s\S]*?href="#viewer-stage-panel"/i,
     );
