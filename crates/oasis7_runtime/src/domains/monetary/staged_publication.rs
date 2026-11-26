@@ -26,7 +26,6 @@ use crate::{
     WorldEvent, WorldEventBody, WorldEventId,
 };
 
-#[cfg_attr(not(test), expect(dead_code, reason = "cutover in #6143 PR 4/4"))]
 pub(crate) enum StagedMonetaryPublication<'a> {
     EconomyData(&'a DomainEvent),
     PowerRedemption(&'a DomainEvent),
