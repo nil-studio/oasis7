@@ -20,10 +20,13 @@
 4. **`required-gate` 静默跳过且不扩充 `needs:`**：`main` `push` 被冷却延后导致 `select` 为 `skipped` 时，`required-gate` 通过 `if:` 条件 `(github.ref != 'refs/heads/main' || needs.select.result != 'skipped')` 同步跳过；**不向 `required-gate` 的 `needs:` 追加 `main-fast-admission`**，保持与 `ci-required-result.py` 额外依赖校验完全兼容。
 
 <a id="post-merge-telemetry-closure"></a>
-## 3. 合入后 12–24 小时生产遥测验收闭环
+## 3. 合入后生产遥测验收闭环
 
-容量优化 PR 合入 `main` 后，须拉取合入后 **12–24 小时** 真实 `rust.yml` 运行及 job 耗时复测，对照优化前基线核验五项实证指标：
+容量、产物瘦身或分片提速 PR 合入 `main` 后，须拉取合入后真实 `rust.yml` 运行及 job/step 日志对照优化前基线复测：
 
+- **PR 端到端分层墙钟与短留存产物/解压复测（`#7053`、`#7057`、`#7058`、`#7061` 实证）**：
+  - 剔除带 `oasis7-priority-linux` 标签的样本，将成功 `pull_request` 运行按实际唤醒的 Stage 3/4 拓扑分层（`T1..T5`），分别对比端到端中位数/`P90`、Stage 3 构建中位数与 Stage 4 最慢分片中位数（同时区分 `test_policy_changed == true` 触发的 `test_tier_full` 全矩阵验证运行，避免将其混入常规 `pr-fast` 样本误判退化）；
+  - 因中间测试产物留存期短，`actions/runs/{id}/artifacts` API 常仅剩诊断报告——核实跨 Job 产物瘦身效果时，直接解析构建 Job 日志中 `upload-artifact` 的 `Final size is <bytes> bytes` 与消费分片日志中的 `ordinary_artifact_unpack={"elapsed_seconds": ...}` 及逐套件 JSON 回执。
 - **主干 24h 折算算力与延后率**：`main-fast` 折合 24h runner-minutes、冷却延后占比与 `main` `push` 取消耗时（`#6831` 实测 14.7h：`main-fast` 从 ~5,400 min/天降至 **~2,099 min/天 / `-61.1%`**，65 次 push 中 40 次冷却延后、19 次排队合并、仅 6 次实际执行，取消耗时 `0.0 min`）。
 - **失败恢复绕过实证**：确认真实 `main-fast` 失败后的下一次 `main` push 未受 120 分钟冷却阻塞。
 - **前置门禁拦截与零漏网率**：统计 `fast-preflight` 均值耗时、实际拦截失败次数，以及失败 run 中受控重型 job（含 `inline` 模式 `oasis7-required` 与 `rust-baseline`）的漏网数为 **0**（`#6831` + `#6925` 实测 14.7h：均值 `49s`，拦截 11 次，`#6925` 后 7 次拦截 `0` 漏网）。

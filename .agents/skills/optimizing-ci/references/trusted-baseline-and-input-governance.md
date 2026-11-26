@@ -14,9 +14,9 @@
 
 ---
 
-## 2. 受信基线断言设计：写“单调边界不变量”，禁写“演进态精确快照”（`#6922`）
+## 2. 受信基线断言设计：写“单调边界不变量”，禁写“演进态精确快照”（`#6922`、`#7057`）
 
-任何由 `policy_sha`（`main`）加载并针对候选工作区执行的测试（如 `scripts/ci-bin-ownership.test.py` 及各 `FIXED_TESTS` 用例），编写与评审时严守三条准则：
+任何由 `policy_sha`（`main`）加载并针对候选工作区或分片回执执行的校验（如 `scripts/ci-bin-ownership.test.py`、各 `FIXED_TESTS` 用例及 `required-gate` 直接校验器），编写与评审时严守四条准则：
 
 1. **依赖边界用“核心子集 + 禁区黑名单”，禁锁精确全集**：
    - **反模式**：对仍在承接拆迁或迭代的 crate 写 `self.assertIn(set(deps), (old_set, old_set | new_edge))`。每新增一个合法依赖（如 `url`、`reqwest`、`tracing`）都会迫使开发者先提独立白名单 PR。
@@ -25,6 +25,10 @@
    - 在 `[Slice: Dark] -> [Slice: Adapter] -> [Slice: Cutover]` 推进及薄门面清理期间，断言**“至少存在一个活跃 owner、无重复定义且消费者指向规范接口”**，对历史兼容门面使用 `if legacy_path.is_file():` 校验纯重导出，允许后续 Cutover 或薄 shim 清理单 PR 直接删除旧门面而不触发基线判红。
 3. **职责归位：不在 Python 治理脚本枚举业务函数与负例名**：
    - 受信基线只守跨包所有权、方向矩阵与可执行目标边界；模块内部的具体业务函数签名、错误文本和单测用例覆盖留给目标 crate 自身的 Rust 单测与 `cargo-dev-architecture.py` 承接。
+4. **直接门禁分片校验器验“集合划分不变量”，禁重算候选 LPT 权重（`#7057`）**：
+   - 在 `workspace_support_direct_gate_version` 等零检出直验拓扑中，分片执行端（如 `custody-node`）运行候选 `HEAD` 的 `partition()` 分配文件，而 `required-gate` 运行受信 `policy_sha` 的 `validate_results()`。若校验器用 `policy_sha` 静态耗时表重算 `batches[shard]` 并断言逐片相等，任何拆分慢测试并刷新权重的 PR 都会因跨版本分片漂移在 `required-gate` 判败；
+   - **正模式**：`validate_results()` 只断言**严格集合划分不变量**——所有期望分片回执齐全且非空、分片内文件严格有序无重、跨分片两两无交集、全部已执行文件并集精确等于 `context['tests']` 不可变清单（使后续刷新 `FILE_SECONDS` 永久变为单文件单步 PR）；
+   - **旧精确分片校验器的单 PR 过渡技巧**：首次解耦仍受旧 `policy_sha` 精确分片约束的脚本时，可为同 PR 新拆出的测试文件暂设与旧 `policy_sha` 未知文件回退公式（如 `max(1, byte_len // 1000)`）完全一致的过渡权重，在单个 PR 内保持跨版本 `partition()` 100% 一致完成拆片提速与校验器解耦。
 
 ---
 

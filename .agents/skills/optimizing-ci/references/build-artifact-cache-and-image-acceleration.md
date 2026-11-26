@@ -1,6 +1,6 @@
 # 分册：编译调优、跨 Job 产物瘦身、缓存命中率配对与预制镜像加速
 
-本分册隶属 [optimizing-ci](../SKILL.md)，汇总 `#5745`、`#6031`、`#6205`、`#6296`、`#6315`、`#6492`、`#6539`、`#6547`、`#6583`、`#6654`、`#6712`、`#6730`、`#6732`、`#6739`、`#6771`、`#6802`、`#6910`、`#6929`、`#6935`、`#6968`、`#6969`、`#6970`、`#6971`、`#6977`、`#6989`、`#7001`、`#7005`、`#7007`、`#7010`、`#7014`、`#7016` 验证有效的构建期、跨 Job 传输期、缓存层与容器底座提速方法及跨环境防坑清单。权威镜像规范见 [CI 基础镜像设计](../../../../doc/testing/ci/ci-base-images.design.md)。
+本分册隶属 [optimizing-ci](../SKILL.md)，汇总 `#5745`、`#6031`、`#6205`、`#6296`、`#6315`、`#6492`、`#6539`、`#6547`、`#6583`、`#6654`、`#6712`、`#6730`、`#6732`、`#6739`、`#6771`、`#6802`、`#6910`、`#6929`、`#6935`、`#6968`、`#6969`、`#6970`、`#6971`、`#6977`、`#6989`、`#7001`、`#7005`、`#7007`、`#7010`、`#7014`、`#7016`、`#7053`、`#7061` 验证有效的构建期、跨 Job 传输期、缓存层与容器底座提速方法及跨环境防坑清单。权威镜像规范见 [CI 基础镜像设计](../../../../doc/testing/ci/ci-base-images.design.md)。
 
 ## 1. 诊断信号：拆分非测试执行耗时
 
@@ -10,7 +10,7 @@
 2. **工作区/组件缓存低命中或单侧断流**：`ordinary-workspace-v1` 或组件缓存频繁 miss，使 `8–10m` 热构建退化为 `25–37m` 全冷编译。
 3. **单包 LLVM 优化与 Thin-Local LTO 长尾**：`cargo check` 仅十几秒，但 `cargo build --release` 在单个大胶水/WASM crate 上消耗 `3–7m`。
 4. **粗粒度附属资源误触发构建**：测试产物构建器未区分 `lib` 与 `test` 目标，令普通 `targeted` PR 串行空跑 `~7m` 无关 Docker WASM 构建并额外绑定宿主 Docker。
-5. **跨 Job 裸传 GB 级未裁剪二进制**：`upload-artifact` 设 `compression-level: 0` 时直接传输超 `1 GB` 含 `.symtab`/`.strtab` 的测试可执行文件，导致多个下游分片 `download-artifact` 出现 `80–380s` 尾延迟。
+5. **跨 Job 传输未剥离符号表的数 GB 测试二进制**：即便开启 `debug = 0` 或 `gzip` 打包，百余个未优化 Linux ELF 仍携带约 `35%` 非加载 `.symtab`/`.strtab` 符号节（`compression-level: 0` 时更甚），放大打包哈希、跨节点上传下载与分片解压耗时。
 
 ## 2. 关键文件与职责接缝
 
@@ -19,7 +19,7 @@
 | `scripts/ci-workspace-cache.py`、`scripts/ci-cache-archive.py` | 计算 `ordinary-workspace-v1` 等缓存身份、守卫 `main` 可信写权限并打包归档 | `scripts/ci-workspace-cache.test.py`、`scripts/ci-cache-policy.test.py` |
 | `scripts/ci-cache-maintenance.py` | 守卫 20 GB 仓库缓存容量上限，在容量压力下分级回收已停用历史依赖环境 | `scripts/ci-cache-maintenance.test.py` |
 | `scripts/ci-image-cache.py` | 定义 `rust-cache.yml` 各容器组件编译上下文的精确预热命令集合 | `scripts/ci-image-cache.test.py` |
-| `scripts/ci-test-artifacts.py` | 构建普通/Formal 测试产物、按需门控 `BuiltinTestArtifact`、并发打包分片产物及 `cache_restore()` 增量 mtime 刷新 | `scripts/ci-formal-process.test.py`、`scripts/ci-builtin-test-resources.test.py` |
+| `scripts/ci-test-artifacts.py` | 构建普通/Formal 测试产物、暂存 `ordinary` ELF 符号剥离、按需门控 `BuiltinTestArtifact`、并发打包分片产物及 `cache_restore()` 增量 mtime 刷新 | `scripts/ci-formal-process.test.py`、`scripts/ci-builtin-test-resources.test.py` |
 | `scripts/ci-custody-platform.py` | Custody 原生产物副本 `strip`、流式 `zlib` 双摘要压缩打包与原子校验恢复 | `scripts/ci-custody-platform.test.py` |
 | `.github/workflows/ci-base-images.yml`、`docker/ci-base/` | 构建、离线自检、Trivy 扫描并发布分层预制 CI 镜像及不可变 `@sha256` 摘要 | `scripts/ci-workflow.test.py` 及镜像目标烟测 |
 
@@ -34,11 +34,11 @@
   2. **仅对业务胶水/路由 crate 设 `opt-level = "s"` 并关闭 LTO**：在构建脚本透传 `--config 'profile.release.lto="off"'` 与 `--config 'profile.release.package.<crate>.opt-level="s"'`（实测合并 WASM 编译从 `964s` 降至 `489s`，净省 `7m55s`，且 `.wasm` 体积同步缩小）；
   3. **同 Job 多脚本 `--config` 严格一致**：用单测（如 `verify-stages.test.py`）锁死同目录所有角色/夹具构建脚本的 `--config` 标志完全一致，防止 Cargo 元数据哈希分裂触发 `target/` 二次重编。
 
-### 模式 B：跨 Job 产物剥离压缩、按消费者分包与重打包并行组装（`#5745`、`#6296`、`#6654`、`#6712`）
-1. **`compression-level: 0` 通道下的副本 `strip` + 流式 `zlib` 双摘要恢复（`#6712`）**：
-   - 即便设置 `CARGO_PROFILE_TEST_DEBUG=0`，Linux 测试 ELF 仍含数百 MiB 非加载 `.symtab`/`.strtab` 符号表；
-   - 在 `pack()` 拷贝二进制至临时 bundle 目录后（**严禁原地修改 `target/` 原始产物**），对 ELF 副本执行 `strip --strip-unneeded`（保留 `.eh_frame` 栈展开与 `.rodata` panic 定位），再以标准库流式 `zlib`（`level=1`，`4 MiB` 常量内存分块）压缩（`custody-native` 工件从 `1,282 MB` 降至 `210 MB`，`-83.6%`，下游三路下载从 `80–102s` 降至 `5–12s`）；
-   - **完整性闭环**：`manifest.json` 同时记录传输态 `(size, sha256)` 与解压态 `(raw_size, raw_sha256)`；`restore()` 设置解压硬上限（如 `2 GiB`），先在临时目录完成双摘要及尾随字节零残留校验，再原子替换至目标路径。
+### 模式 B：跨 Job 产物剥离压缩、按消费者分包与重打包并行组装（`#5745`、`#6296`、`#6654`、`#6712`、`#7061`）
+1. **暂存副本 `strip --strip-unneeded` 与摘要自洽闭环（`#6712` Custody、`#7061` Ordinary）**：
+   - 即便设置 `CARGO_PROFILE_TEST_DEBUG=0`，未优化 Linux 测试与辅助 ELF 仍携带约 `35%` 非加载 `.symtab`/`.strtab` 符号表；
+   - **`ordinary` 暂存期剥离（`#7061`）**：在 `scripts/ci-test-artifacts.py::build()` 将 `target/` 产物通过 `shutil.copy2(source, destination)` 拷入 `bundle/bin/<logical>` 之后、**计算 `manifest.json` 的 `sha256` 与 `bytes` 之前**，严格限定 `scope == 'ordinary'`、Linux 常规文件（`not is_symlink()`）且头部魔数为 `b'\x7fELF'` 时执行 `strip --strip-unneeded`。既保持 `target/` 原件（不影响 `ordinary-workspace-v1` 库缓存与本地 Cargo 新鲜度）、`bundle/lib/*.so` 及 `formal*`/`storage*` 作用域 100% 不变，又保留 `.eh_frame` 栈展开与 `.dynsym` 动态符号（生产实测整包上传 `2.98 GB -> 2.22 GB` 净省 `-753.6 MB`，4 分片总下载 `5.22 GB -> 3.87 GB` 净省 `-1.34 GB`，分片解压校验耗时 `-40.4%`）；
+   - **`compression-level: 0` 通道下的流式 `zlib` 双摘要恢复（`#6712`）**：对无自带压缩通道的 `custody-native` 工件，在副本 `strip` 后以标准库流式 `zlib`（`level=1`，`4 MiB` 分块）压缩（`1,282 MB -> 210 MB`，`-83.6%`，三路下载 `80–102s -> 5–12s`），`manifest.json` 同时记录传输态 `(size, sha256)` 与解压态 `(raw_size, raw_sha256)`，`restore()` 设解压硬上限并在临时目录校验双摘要及零尾随字节后原子替换。
 2. **按消费者切片交付与多线程并发打包（`#5745`、`#6296`）**：将单一大包拆分为共享 `common` 辅助包 + 各分片唯一归属 payload 包（`controls` 零下载 native 测试二进制，总传输字节 `-70.6%`），`pack_ordinary_delivery` 按 `native_cpu_budget()` 多线程并发 `gzip` 压缩并按确定性键序写出 `delivery.json`。
 3. **超预算串行重打包拆分为同源并行 Producer + 零 Cargo 组装（`#6654`）**：当单 Job 串行执行“重原生 release 编译 + 前端/WASM 构建”逼近超时上限时，拆为检出同一明确 `source_sha` 的两个并行构建 Job，再由短组装 Job 按同 run 产物 ID 强验来源、归档摘要、ELF、`BUILDINFO` 与新鲜度清单后打包（组装阶段零编译）。
 
@@ -47,8 +47,8 @@
 - **跨版本兼容细节**：缺省值必须保留 `['lib']`（`binary.get('target_kind', ['lib'])`），确保 `policy_sha` 上未传 `target_kind` 字段的既有非演进单测夹具（`ci-builtin-test-resources.test.py`）100% 向后兼容通过。
 
 <a id="workspace-and-component-cache-pairing"></a>
-### 模式 D：工作区/组件缓存高命中率治理与跨环境严格配对（`#6315`、`#6492`、`#6539`、`#6547`、`#6583`、`#6732`、`#6929`、`#6935`、`#6968`、`#6969`、`#7005`、`#7010`、`#7014`）
-1. **工作区缓存主键剔除高频无关噪音（`#6929`、`#6935` `ORDINARY_STABLE_IDENTITY`、以及 `Cargo.lock` 前缀解耦）**：
+### 模式 D：工作区/组件缓存高命中率治理与跨环境严格配对（`#6315`、`#6492`、`#6539`、`#6547`、`#6583`、`#6732`、`#6929`、`#6935`、`#6968`、`#6969`、`#7005`、`#7010`、`#7014`、`#7053`）
+1. **工作区缓存主键剔除高频无关噪音（`#6929`、`#6935` `ORDINARY_STABLE_IDENTITY`、`#7053` `Cargo.lock` 前缀解耦）**：
    - `scripts/ci-workspace-cache.py` 的 `ordinary` 前缀不哈希无关的 `ci-formal-process-suites.json`、高频演进的 `ci-test-artifacts.py` 整文件、成员 `Cargo.toml` 内容或 `Cargo.lock` 内容，仅绑定工具链、镜像摘要、`units.CACHE_SCHEMA`、根 `Cargo.toml` 及排序后的 `member_manifests` **路径列表**；成员 `Cargo.toml` 与 `Cargo.lock` 内容变化保留在精确提交后缀并交由 `ci-test-artifacts.py::cache_restore()` 基于 `(bytes, mode, sha256)` 刷新 mtime 触发 Cargo 安全重算受影响指纹（使增删内部依赖边或小幅依赖对齐的 PR 仍能通过 `restore-keys` 复用工作区单元缓存）；构建与消费端的测试二进制 `--list` 清单校验采用 4 线程有界并发。
 2. **严防无过渡覆盖的单侧 Writer 迁移，落实非 root 候选读端与可信写端精确配对（`#6732`、`#6713`、`#7005`、`#7040`）**：
    - **反例教训（`#6732` 早期）**：当缓存身份包含容器镜像摘要（如 `ORDINARY_BUILD_IMAGE`）时，若直接迁走宿主读端唯一依赖的 writer 且未对齐读端环境哈希，会导致普通 PR 全面退化为 `20–37m` 冷编译；
@@ -59,8 +59,8 @@
 4. **`@actions/cache` 跨宿主/容器的 `archive version` 与相对路径落点对齐（`#6315`）**：
    - `actions/cache` 的内部 archive version 同时取决于**归档路径列表字符串**与**压缩工具（`zstd` vs `gzip`）**；容器复用宿主 writer 的只读缓存时，镜像必须预装并预检 `zstd`、恢复步骤显式采用 writer 路径字符串维持 archive version 一致；
    - 注意 `@actions/cache` 按相对 writer `GITHUB_WORKSPACE` 打包工作区外路径（如 `../../../.cache/...` 在容器挂载目录解压后落到 `/.cache/...` 而非 `/home/runner/.cache/...`），须按已验证 workspace 词法计算实际 `restored_root` 并强验工具版本，损坏命中直接 fail-closed 报错而非静默回退重装。
-5. **预热编译上下文对齐、显式工具路径注入与 20 GB 休眠环境回收**：
-   - `scripts/ci-image-cache.py` 预热命令须与真实消费者子命令/target/features 严格一致（纯二进制包用 `--bins` `#6583`；禁误传 `--no-deps` `#6547`；补齐重型上下文后 `workspace-support-other` 从 `30.7m` 降至 `17.3m` `#6492`）；
+5. **预热编译上下文、链接器路径哈希对齐、显式工具路径注入与 20 GB 休眠环境回收**：
+   - `scripts/ci-image-cache.py` 预热命令须与真实消费者子命令/target/features 严格一致（纯二进制包用 `--bins` `#6583`；禁误传 `--no-deps` `#6547`；补齐重型上下文后 `workspace-support-other` 从 `30.7m` 降至 `17.3m` `#6492`）；**新增预热目标前必须核对两端 `Swatinem/rust-cache` 恢复键环境哈希一致**——例如 `rust-image-native-cache` 以 root 默认 `/opt/oasis7-mold` 预热（且仅 `workflow_dispatch` 手动触发、`timeout-minutes: 20`），若消费端（如 `custody-native`）使用 `--user 1001:1001` 与独立 `install-dir: ${{ runner.temp }}/...`，双方 `CARGO_TARGET_*_LINKER` 哈希不同会导致预热完全无法命中且平白挤占缓存池与超时预算；
    - 对内部会二次联网拉取 CLI 的封装器（如 `worker-build` 下载锁定版 `wasm-bindgen`），复用经 `Cargo.lock` 版本校验的只读工具缓存并显式传入绝对路径环境变量（如 `WASM_BINDGEN_BIN`，消除 ~100s 下载与 HTTP 503，`#6968`）；
    - `scripts/ci-cache-maintenance.py` 在 20 GB 容量压力下按“同命名空间新代已就绪 + 旧代 `>=6h` 无读取 + 非活跃运行保护 + 双清单重校验”回收停用依赖快照（`#6539`），且缓存输入轮换自动绕过 `main-fast` 120 分钟冷却立即热库（`#6969`）。
 
