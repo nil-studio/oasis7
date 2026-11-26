@@ -69,7 +69,7 @@ pub(super) fn invalid_recipe_plan_stack_note(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ProductionQueuePriority {
+pub(super) enum ProductionQueuePriority {
     Survival = 0,
     Energy = 1,
     Scale = 2,
@@ -370,6 +370,7 @@ impl World {
         }
     }
 
+    #[cfg(test)]
     fn prepare_due_economy_event_bodies_at(&self, now: WorldTime) -> Vec<WorldEventBody> {
         let mut due_builds: Vec<_> = self
             .state
