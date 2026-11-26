@@ -323,7 +323,9 @@ impl ProviderLoopbackHttpClient {
         let req_len = rq.length;
         let req_id = rq.digest().ctx("req digest")?;
         let qf = rq.rewind().ctx("rewind")?;
-        let att = store.persist_request(req, req_id, qf, req_len).ctx("req")?;
+        let att = store
+            .persist_request(req, req_id, qf, req_len)
+            .ctx("request persistence failed")?;
         let inv = req.provider_invocation_key().to_string();
         let ok_att = att.owner == *bnd
             && att.operation_id == inv

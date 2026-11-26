@@ -224,10 +224,16 @@ impl ProviderLoopbackAdapter {
                 dp_chk(ok, "module_command_context_mismatch")
             }
             ProviderDecision::Wait => Ok(()),
-            ProviderDecision::WaitTicks { .. } => dp_chk(
-                Self::has_ref(req, "wait_ticks"),
-                "action_ref_not_in_catalog",
-            ),
+            ProviderDecision::WaitTicks { .. } => {
+                if Self::has_ref(req, "wait_ticks") {
+                    Ok(())
+                } else {
+                    bail(
+                        "action_ref_not_in_catalog",
+                        "provider returned wait_ticks which is not in request action catalog",
+                    )
+                }
+            }
             ProviderDecision::Act {
                 action_ref: ar,
                 action,
