@@ -725,3 +725,23 @@ fn recovery_family_qualification_cannot_be_used_by_an_ordinary_context() {
         Some(SupplyMemberValueV1::I64(i64::MIN))
     );
 }
+
+// Consolidated sibling incremental integration suites (4-shard LPT balanced).
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_authorization_mapsets.rs"]
+mod incremental_authorization_mapsets;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_field_member.rs"]
+mod incremental_field_member;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_json_records.rs"]
+mod incremental_json_records;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_number_maps.rs"]
+mod incremental_world_number_maps;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_rule_organization_root_closure.rs"]
+mod incremental_world_rule_organization_root_closure;
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_rule_supply_cold_point.rs"]
+mod incremental_world_rule_supply_cold_point;

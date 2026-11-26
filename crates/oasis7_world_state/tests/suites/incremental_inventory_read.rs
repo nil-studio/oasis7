@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageStoreError,
@@ -15,7 +14,7 @@ use oasis7_world_state::{
     incremental_field_member::*, incremental_inventory_read::*, types::MaterialLedgerId,
 };
 use std::cell::Cell;
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::*;
 fn typed(error: PageStoreError) -> ValueTreeError {

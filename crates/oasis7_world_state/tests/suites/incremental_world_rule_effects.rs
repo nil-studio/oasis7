@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget, PageStoreError,
 };
@@ -21,10 +20,10 @@ use std::{
     io::{self, Write},
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
-#[path = "support/incremental_world_rules_fixture.rs"]
+#[path = "../support/incremental_world_rules_fixture.rs"]
 mod rules_fixture;
 use rules_fixture::*;
 
@@ -374,5 +373,5 @@ fn rule_genesis_failures_never_return_a_completed_prefix() {
     }
 }
 
-#[path = "support/incremental_world_rule_effects_overlay.rs"]
+#[path = "../support/incremental_world_rule_effects_overlay.rs"]
 mod overlay;

@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
 use oasis7_formal_protocol::{
     incremental_execution::ExecutionWriteV1,
@@ -13,10 +12,10 @@ use oasis7_world_state::{
     incremental_world_number_maps::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
-#[path = "support/incremental_number_maps_noop_cancel.rs"]
+#[path = "../support/incremental_number_maps_noop_cancel.rs"]
 mod noop_cancel;
 #[test]
 fn numeric_maps_keep_original_key_value_types_and_absence_after_reopen() {

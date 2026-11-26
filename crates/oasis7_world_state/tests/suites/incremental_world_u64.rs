@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageStoreError,
 };
@@ -14,10 +13,10 @@ use oasis7_world_state::{
     WorldState, incremental_field_member::*, incremental_field_read::*, incremental_world_u64::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
-#[path = "support/incremental_control_noop_cancel.rs"]
+#[path = "../support/incremental_control_noop_cancel.rs"]
 mod noop_cancel;
 fn typed(error: PageStoreError) -> ValueTreeError {
     match error {

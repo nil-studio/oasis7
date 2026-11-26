@@ -1,5 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
-
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression, PageIoBudget};
 use oasis7_formal_protocol::incremental_state::{
     STATE_ROOT_BYTES, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1, StateWriteV1,

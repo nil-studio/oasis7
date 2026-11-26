@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget, PageStoreError,
 };
@@ -20,7 +19,7 @@ use oasis7_world_state::{
     world_rules::{SupplyAuthorizationV1, SupplyBatchV1, SupplyLineageV1, WorldRulesStateV1},
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
 fn physical() -> PageIoBudget {
@@ -30,12 +29,12 @@ fn physical() -> PageIoBudget {
     }
 }
 #[allow(dead_code)]
-#[path = "support/incremental_world_rules_fixture.rs"]
+#[path = "../support/incremental_world_rules_fixture.rs"]
 mod rules_fixture;
 use rules_fixture::*;
 const KEY: &str = "outer-record\0é";
 const OLD: &str = "old-member\0é";
-#[path = "support/incremental_world_rule_supply_fixture.rs"]
+#[path = "../support/incremental_world_rule_supply_fixture.rs"]
 mod supply_fixture;
 use supply_fixture::{authorization, batch};
 struct Missing<'a, R> {
@@ -63,7 +62,7 @@ impl<R: oasis7_formal_protocol::incremental_value::ValueNodeReader>
         self.inner.read_node(id, max, memory, class)
     }
 }
-#[path = "support/incremental_world_rule_supply_semantic_oracle.rs"]
+#[path = "../support/incremental_world_rule_supply_semantic_oracle.rs"]
 mod semantic_oracle;
 use semantic_oracle::{Path, semantic};
 fn literal_rows(auth: bool) -> Vec<(Path<'static>, MemberPayloadCodecV1, Vec<u8>)> {
@@ -429,5 +428,5 @@ fn borrowed_supply_genesis_preserves_all_literal_fields_and_cold_root_only_closu
     }
 }
 
-#[path = "support/incremental_world_rule_supply_scalar_oracle.rs"]
+#[path = "../support/incremental_world_rule_supply_scalar_oracle.rs"]
 mod scalar_oracle;

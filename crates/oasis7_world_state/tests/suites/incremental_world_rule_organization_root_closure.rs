@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget, PageStoreError,
 };
@@ -28,7 +27,7 @@ use oasis7_world_state::{
     },
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
 fn physical() -> PageIoBudget {
@@ -38,7 +37,7 @@ fn physical() -> PageIoBudget {
     }
 }
 #[allow(dead_code)]
-#[path = "support/incremental_world_rules_fixture.rs"]
+#[path = "../support/incremental_world_rules_fixture.rs"]
 mod rules_fixture;
 use rules_fixture::*;
 const CASE: &str = "outer-case";
@@ -121,7 +120,7 @@ fn relative_member_key(member: &str) -> WorldFieldKeyV1 {
     )
     .unwrap()
 }
-#[path = "support/incremental_world_rule_organization_root_faults.rs"]
+#[path = "../support/incremental_world_rule_organization_root_faults.rs"]
 mod faults;
 use faults::{BatchObserver, StateArcMode, StateArcReader, verify_missing_original_pages};
 fn creation(
@@ -704,5 +703,5 @@ fn post_batch_real_put_cancellation_poisons_and_original_root_can_retry() {
     }
 }
 
-#[path = "support/incremental_world_rule_organization_root_receipts.rs"]
+#[path = "../support/incremental_world_rule_organization_root_receipts.rs"]
 mod receipt_points;

@@ -1,4 +1,3 @@
-#![cfg(all(unix, not(target_arch = "wasm32")))]
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget, PageStoreError,
 };
@@ -20,10 +19,10 @@ use oasis7_world_state::{
 };
 use std::cell::Cell;
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
-#[path = "support/incremental_world_rules_fixture.rs"]
+#[path = "../support/incremental_world_rules_fixture.rs"]
 mod rules_fixture;
 use rules_fixture::*;
 fn shipment() -> SupplyShipmentV1 {
@@ -443,7 +442,7 @@ fn shipment_genesis_failures_discard_the_combined_parent_prefix() {
         }
     }
 }
-#[path = "support/incremental_world_rule_shipments_overlay.rs"]
+#[path = "../support/incremental_world_rule_shipments_overlay.rs"]
 mod overlay;
 
 #[test]
