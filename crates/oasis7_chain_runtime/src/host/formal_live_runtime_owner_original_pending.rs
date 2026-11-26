@@ -1,6 +1,37 @@
 //! Exact-owner original pending Freeze control and independent cold reader.
 use super::*;
 
+pub(super) fn owner_root(config_path: &Path) -> Result<PathBuf, String> {
+    let validated = super::FormalLiveConfigV1::load(config_path)?;
+    Ok(validated.config.writer_directory.join("runtime-owner"))
+}
+
+pub(super) fn operation_root(root: &Path, operation_id: &str) -> Result<PathBuf, String> {
+    if operation_id.is_empty()
+        || operation_id.len() > 128
+        || !operation_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_:".contains(&byte))
+    {
+        return Err("invalid formal runtime owner operation identity".into());
+    }
+    let digest = super::super::super::node_lifecycle::local_io::digest(&operation_id)?;
+    Ok(root.join("operations").join(digest))
+}
+
+pub(super) fn paths(
+    config_path: &Path,
+    operation_id: &str,
+) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    let root = owner_root(config_path)?;
+    let operation = operation_root(&root, operation_id)?;
+    Ok((
+        root,
+        operation.join("owner.json"),
+        super::socket_path(config_path, operation_id)?,
+    ))
+}
+
 /// Request an exact-owner Freeze. The returned pin is only a candidate for
 /// an independent protected witness; it is not a recovery permission.
 pub(crate) fn freeze_original_pending(
