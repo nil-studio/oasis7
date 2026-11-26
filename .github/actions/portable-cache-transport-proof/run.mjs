@@ -29,7 +29,15 @@ function python(args) {return execFileSync('python3',args,{cwd:REPO,env:childEnv
 function same(first,second) {const a=fs.statSync(first),b=fs.statSync(second);if(a.dev!==b.dev||a.ino!==b.ino)throw Error('proof workspace bind mismatch');}
 function admission() {
   const e=process.env,pull=JSON.parse(bounded(e.GITHUB_EVENT_PATH,1024*1024));
-  if(process.platform!=='linux'||process.getuid()!==1001||process.getgid()!==1001||e.GITHUB_ACTIONS!=='true'||e.GITHUB_REPOSITORY!=='nil-studio/oasis7'||e.RUNNER_OS!=='Linux'||e.RUNNER_ARCH!=='X64'||e.RUNNER_ENVIRONMENT!=='github-hosted'||e.GITHUB_EVENT_NAME!=='pull_request'||e.GITHUB_HEAD_REF!==HEAD||e.GITHUB_BASE_REF!==BASE||pull.action!=='edited'||pull.changes?.title?.from!==FROM||pull.pull_request?.title!==TO||pull.pull_request?.draft!==true||pull.pull_request?.head?.repo?.full_name!=='nil-studio/oasis7'||pull.pull_request?.base?.repo?.full_name!=='nil-studio/oasis7')throw Error('proof is not the exact owned one-shot title transition');
+  if(process.platform!=='linux'||process.getuid()!==1001||process.getgid()!==1001)throw Error('proof requires Linux UID/GID1001');
+  const expected={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'nil-studio/oasis7',RUNNER_OS:'Linux',RUNNER_ARCH:'X64',
+    RUNNER_ENVIRONMENT:'github-hosted',GITHUB_EVENT_NAME:'pull_request',GITHUB_HEAD_REF:HEAD,GITHUB_BASE_REF:BASE};
+  for(const [key,value]of Object.entries(expected))if(e[key]!==value)throw Error('proof runner/event identity mismatch');
+  const request=pull.pull_request;
+  if(pull.action!=='edited'||pull.changes?.title?.from!==FROM||request?.title!==TO||request?.draft!==true||
+     request?.head?.repo?.full_name!=='nil-studio/oasis7'||request?.base?.repo?.full_name!=='nil-studio/oasis7') {
+    throw Error('proof is not the exact owned one-shot title transition');
+  }
   if(e.CODE_SHA!==CODE||e.CONTROLLER_SHA!==pull.pull_request.head.sha||!/^[a-f0-9]{40}$/.test(e.CONTROLLER_SHA)||!/^[1-9][0-9]*$/.test(e.GITHUB_RUN_ID)||e.GITHUB_RUN_ATTEMPT!=='1')throw Error('proof source/run identity mismatch');
   same(e.GITHUB_WORKSPACE,REPO);
   if(execFileSync('git',['-C',REPO,'rev-parse','HEAD'],{encoding:'utf8'}).trim()!==CODE)throw Error('proof checkout mismatch');
@@ -76,7 +84,12 @@ function incoming(directory,role,rows) {
   const names=fs.readdirSync(directory).sort(),expected=['manifest.json',...components.map(c=>c+'.tzst')].sort();
   if(JSON.stringify(names)!==JSON.stringify(expected))throw Error('proof archive inventory differs');
   const manifest=JSON.parse(bounded(path.join(directory,'manifest.json')));
-  if(JSON.stringify(Object.keys(manifest).sort())!==JSON.stringify(['controller','image','role','rows','run','schema','source'].sort())||manifest.schema!==1||manifest.source!==CODE||manifest.controller!==process.env.CONTROLLER_SHA||manifest.run!==process.env.GITHUB_RUN_ID||manifest.role!==role||manifest.image!==(IMAGES[role]||'host')||!Array.isArray(manifest.rows)||manifest.rows.length!==4)throw Error('proof manifest identity mismatch');
+  const keys=['controller','image','role','rows','run','schema','source'].sort();
+  if(JSON.stringify(Object.keys(manifest).sort())!==JSON.stringify(keys)||!Array.isArray(manifest.rows)||manifest.rows.length!==4) {
+    throw Error('proof manifest schema mismatch');
+  }
+  const identity={schema:1,source:CODE,controller:process.env.CONTROLLER_SHA,run:process.env.GITHUB_RUN_ID,role,image:IMAGES[role]||'host'};
+  for(const [key,value]of Object.entries(identity))if(manifest[key]!==value)throw Error('proof manifest identity mismatch');
   for(const [index,row]of rows.entries()) {
     const found=manifest.rows[index],file=row.component+'.tzst';
     const required={component:row.component,key:row.key,root:row.root,member:row.member,version:row.version,file};
