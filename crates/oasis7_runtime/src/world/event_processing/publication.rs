@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[path = "prepared_state_delta.rs"]
 mod prepared_state_delta;
-pub(super) use prepared_state_delta::PreparedEventStateDelta;
+pub(crate) use prepared_state_delta::PreparedEventStateDelta;
 #[path = "../../domains/industrial/staged_publication.rs"]
 mod staged_industrial;
 #[path = "../../domains/institutions/staged_publication.rs"]
@@ -17,14 +17,14 @@ mod staged_institutions;
 use staged_industrial::StagedIndustrialPublication;
 use staged_institutions::StagedInstitutionsPublication;
 
-struct PreparedEventPublication {
-    event: WorldEvent,
-    next_event_id: WorldEventId,
-    next_event_id_era: u64,
-    journal_events: Vec<WorldEvent>,
-    journal_events_evicted: u64,
-    consensus_record: TickConsensusRecord,
-    state_delta: PreparedEventStateDelta,
+pub(crate) struct PreparedEventPublication {
+    pub(crate) event: WorldEvent,
+    pub(crate) next_event_id: WorldEventId,
+    pub(crate) next_event_id_era: u64,
+    pub(crate) journal_events: Vec<WorldEvent>,
+    pub(crate) journal_events_evicted: u64,
+    pub(crate) consensus_record: TickConsensusRecord,
+    pub(crate) state_delta: PreparedEventStateDelta,
 }
 
 impl World {
@@ -616,7 +616,7 @@ impl World {
         Ok(())
     }
 
-    fn prepare_event_publication(
+    pub(crate) fn prepare_event_publication(
         &self,
         body: WorldEventBody,
         caused_by: Option<CausedBy>,

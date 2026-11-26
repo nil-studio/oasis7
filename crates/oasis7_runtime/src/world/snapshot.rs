@@ -234,7 +234,7 @@ impl World {
         digest32_from_hex(&computed_hex)
     }
 
-    fn governance_sidecar_commitment_digest32(&self) -> Result<Digest32, WorldError> {
+    pub(crate) fn governance_sidecar_commitment_digest32(&self) -> Result<Digest32, WorldError> {
         GovernanceSidecarCommitmentView {
             proposals: &self.proposals,
             next_proposal_id: self.next_proposal_id,
