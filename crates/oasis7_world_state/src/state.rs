@@ -1013,6 +1013,7 @@ impl WorldState {
                 )?
                 .install(self)
             }
+            DomainEvent::ModuleTickScheduleUpdated { .. } => {}
         }
         self.migrate_compat_material_ledgers();
         Ok(())

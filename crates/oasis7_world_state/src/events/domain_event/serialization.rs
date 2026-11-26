@@ -433,6 +433,10 @@ impl Tag {
         index: 103,
         name: "FactoryProfileGoverned",
     };
+    const MODULE_TICK_SCHEDULE_UPDATED: Self = Self {
+        index: 104,
+        name: "ModuleTickScheduleUpdated",
+    };
 }
 
 impl serde::Serialize for Tag {
@@ -490,7 +494,8 @@ impl serde::Serialize for DomainEvent {
             | Self::ModuleArtifactDestroyed { .. }
             | Self::ModuleArtifactBidPlaced { .. }
             | Self::ModuleArtifactBidCancelled { .. }
-            | Self::ModuleArtifactSaleCompleted { .. } => {
+            | Self::ModuleArtifactSaleCompleted { .. }
+            | Self::ModuleTickScheduleUpdated { .. } => {
                 module_lifecycle::serialize(self, serializer)
             }
             Self::ResourceTransferred { .. }

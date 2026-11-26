@@ -953,6 +953,11 @@ pub enum DomainEvent {
         proposal_id: ProposalId,
         profile: FactoryProfileV1,
     },
+    ModuleTickScheduleUpdated {
+        instance_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next_tick: Option<WorldTime>,
+    },
 }
 
 #[path = "domain_event_rejections.rs"]

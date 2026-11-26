@@ -697,4 +697,284 @@ mod tests {
                 .expect("uninterrupted new-era commitment")
         );
     }
+
+    #[test]
+    fn nonempty_c_to_t_j2_module_wake_clear_recovery_matches_uninterrupted_branch() {
+        use oasis7_wasm_abi::{
+            ModuleCallFailure, ModuleCallRequest, ModuleOutput, ModuleSandbox,
+            ModuleTickLifecycleDirective,
+        };
+        use std::collections::BTreeMap;
+
+        struct ScriptedTickSandbox {
+            // (module_id, world_time) -> (new_state, directive)
+            script: BTreeMap<(String, u64), (Option<Vec<u8>>, ModuleTickLifecycleDirective)>,
+            calls: Vec<(String, String)>,
+        }
+
+        impl ModuleSandbox for ScriptedTickSandbox {
+            fn call(
+                &mut self,
+                request: &ModuleCallRequest,
+            ) -> Result<ModuleOutput, ModuleCallFailure> {
+                self.calls
+                    .push((request.module_id.clone(), request.trace_id.clone()));
+                let time =
+                    serde_cbor::from_slice::<oasis7_wasm_abi::ModuleCallInput>(&request.input)
+                        .map(|input| input.ctx.time)
+                        .unwrap_or(0);
+                let (new_state, directive) = self
+                    .script
+                    .get(&(request.module_id.clone(), time))
+                    .cloned()
+                    .unwrap_or((None, ModuleTickLifecycleDirective::Suspend));
+                Ok(ModuleOutput {
+                    new_state,
+                    effects: Vec::new(),
+                    emits: Vec::new(),
+                    tick_lifecycle: Some(directive),
+                    output_bytes: 0,
+                })
+            }
+        }
+
+        let mut control = World::new();
+        control.set_policy(PolicySet::allow_all());
+        for (id, x) in [("alice", 0), ("bob", 1)] {
+            control.submit_action(Action::RegisterAgent {
+                agent_id: id.into(),
+                pos: crate::tests::pos(x, 0),
+            });
+            control.step().expect("register agent");
+            control
+                .set_agent_resource_balance(id, ResourceKind::Electricity, 1_000)
+                .expect("fund electricity");
+            control
+                .set_agent_resource_balance(id, ResourceKind::Data, 500)
+                .expect("fund data");
+        }
+
+        let wasm_bytes = b"j2-wake-clear-recovery-module";
+        let wasm_hash = crate::util::sha256_hex(wasm_bytes);
+        control
+            .register_module_artifact(wasm_hash.clone(), wasm_bytes)
+            .expect("register artifact");
+
+        let make_manifest = |module_id: &str, kind: ModuleKind| crate::ModuleManifest {
+            module_id: module_id.to_string(),
+            name: module_id.to_string(),
+            version: "0.1.0".to_string(),
+            kind: kind.clone(),
+            role: crate::ModuleRole::Domain,
+            wasm_hash: wasm_hash.clone(),
+            interface_version: "wasm-1".to_string(),
+            abi_contract: crate::ModuleAbiContract::default(),
+            exports: vec![kind.entrypoint().to_string()],
+            subscriptions: vec![crate::ModuleSubscription {
+                event_kinds: Vec::new(),
+                action_kinds: Vec::new(),
+                stage: Some(crate::ModuleSubscriptionStage::Tick),
+                filters: None,
+            }],
+            required_caps: Vec::new(),
+            artifact_identity: Some(crate::tests::signed_test_artifact_identity(
+                wasm_hash.as_str(),
+            )),
+            limits: crate::ModuleLimits::unbounded(),
+        };
+
+        let wake_manifest = make_manifest("m.tick.wake", ModuleKind::Pure);
+        let clear_manifest = make_manifest("m.tick.clear", ModuleKind::Reducer);
+        let changes = crate::ModuleChangeSet {
+            register: vec![wake_manifest.clone(), clear_manifest.clone()],
+            activate: vec![
+                crate::ModuleActivation {
+                    module_id: wake_manifest.module_id.clone(),
+                    version: wake_manifest.version.clone(),
+                },
+                crate::ModuleActivation {
+                    module_id: clear_manifest.module_id.clone(),
+                    version: clear_manifest.version.clone(),
+                },
+            ],
+            ..crate::ModuleChangeSet::default()
+        };
+        let mut content = serde_json::Map::new();
+        content.insert(
+            "module_changes".to_string(),
+            serde_json::to_value(&changes).expect("encode module changes"),
+        );
+        let proposal_id = control
+            .propose_manifest_update(
+                Manifest {
+                    version: 2,
+                    content: serde_json::Value::Object(content),
+                },
+                "alice",
+            )
+            .expect("propose tick modules");
+        control.shadow_proposal(proposal_id).expect("shadow");
+        control
+            .approve_proposal(proposal_id, "bob", ProposalDecision::Approve)
+            .expect("approve");
+        control.apply_proposal(proposal_id).expect("apply");
+
+        let mut script = BTreeMap::new();
+        // At C (t=2): m.tick.wake -> wake at t=3, m.tick.clear -> wake at t=5.
+        script.insert(
+            ("m.tick.wake".to_string(), 2),
+            (
+                None,
+                ModuleTickLifecycleDirective::WakeAfterTicks { ticks: 1 },
+            ),
+        );
+        script.insert(
+            ("m.tick.clear".to_string(), 2),
+            (
+                Some(b"clear-init".to_vec()),
+                ModuleTickLifecycleDirective::WakeAfterTicks { ticks: 3 },
+            ),
+        );
+        // In C..T:
+        // t=3: only m.tick.wake is due -> wakes at t=5.
+        script.insert(
+            ("m.tick.wake".to_string(), 3),
+            (
+                None,
+                ModuleTickLifecycleDirective::WakeAfterTicks { ticks: 2 },
+            ),
+        );
+        // t=5: both m.tick.wake (wakes at t=7) and m.tick.clear (suspends/clears).
+        script.insert(
+            ("m.tick.wake".to_string(), 5),
+            (
+                None,
+                ModuleTickLifecycleDirective::WakeAfterTicks { ticks: 2 },
+            ),
+        );
+        script.insert(
+            ("m.tick.clear".to_string(), 5),
+            (
+                Some(b"clear-done".to_vec()),
+                ModuleTickLifecycleDirective::Suspend,
+            ),
+        );
+        // Post-T:
+        // t=7: only m.tick.wake is due -> suspends/clears.
+        script.insert(
+            ("m.tick.wake".to_string(), 7),
+            (None, ModuleTickLifecycleDirective::Suspend),
+        );
+
+        let mut control_sandbox = ScriptedTickSandbox {
+            script: script.clone(),
+            calls: Vec::new(),
+        };
+        assert_eq!(
+            control
+                .route_tick_to_modules(&mut control_sandbox)
+                .expect("initial schedule at t=2"),
+            2
+        );
+        assert_eq!(control.module_tick_schedule.get("m.tick.wake"), Some(&3));
+        assert_eq!(control.module_tick_schedule.get("m.tick.clear"), Some(&5));
+
+        // Capture checkpoint C and v2 envelope.
+        let checkpoint_c = control.snapshot();
+        let envelope_c = control.commitment_envelope_v2().expect("envelope at C");
+        let c_journal_len = checkpoint_c.journal_len;
+
+        // Advance C -> T across ticks 3, 4, 5 (t=3 only wake due; t=4 none; t=5 wake+clear).
+        for _ in 0..3 {
+            control
+                .step_with_modules(&mut control_sandbox)
+                .expect("step C..T");
+        }
+        assert_eq!(control.state().time, 5);
+        assert_eq!(control.module_tick_schedule.get("m.tick.wake"), Some(&7));
+        assert!(!control.module_tick_schedule.contains_key("m.tick.clear"));
+
+        let journal_at_t = control.journal().clone();
+        assert!(journal_at_t.len() > c_journal_len);
+
+        // Recover from C + v2 envelope + non-empty C..T journal.
+        let mut recovered = World::from_snapshot_with_commitment_envelope(
+            checkpoint_c.clone(),
+            journal_at_t.clone(),
+            Some(&envelope_c),
+        )
+        .expect("recover C -> T with J2 wake/clear");
+
+        assert_eq!(recovered.module_tick_schedule, control.module_tick_schedule);
+        assert_eq!(recovered.state(), control.state());
+        assert_eq!(recovered.journal(), control.journal());
+        assert_eq!(
+            recovered
+                .commitment_envelope_v2()
+                .expect("recovered v2 at T"),
+            control.commitment_envelope_v2().expect("control v2 at T")
+        );
+
+        // Tampering with a replayed ModuleTickScheduleUpdated event must diverge at T.
+        let mut tampered_journal = journal_at_t;
+        let schedule_event = tampered_journal
+            .events
+            .iter_mut()
+            .rev()
+            .find(|event| {
+                matches!(
+                    &event.body,
+                    crate::WorldEventBody::Domain(
+                        crate::DomainEvent::ModuleTickScheduleUpdated { instance_id, .. }
+                    ) if instance_id == "m.tick.wake"
+                )
+            })
+            .expect("ModuleTickScheduleUpdated event in C..T");
+        schedule_event.body =
+            crate::WorldEventBody::Domain(crate::DomainEvent::ModuleTickScheduleUpdated {
+                instance_id: "m.tick.wake".to_string(),
+                next_tick: Some(99),
+            });
+        let tampered_recovered = World::from_snapshot_with_commitment_envelope(
+            checkpoint_c,
+            tampered_journal,
+            Some(&envelope_c),
+        )
+        .expect("replay tampered schedule event");
+        assert_ne!(
+            tampered_recovered
+                .commitment_envelope_v2()
+                .expect("tampered v2"),
+            control.commitment_envelope_v2().expect("control v2")
+        );
+
+        // Execute identical subsequent inputs after T on both branches (ticks 6, 7, 8).
+        control_sandbox.calls.clear();
+        let mut recovered_sandbox = ScriptedTickSandbox {
+            script,
+            calls: Vec::new(),
+        };
+        for _ in 0..3 {
+            control
+                .step_with_modules(&mut control_sandbox)
+                .expect("control post-T step");
+            recovered
+                .step_with_modules(&mut recovered_sandbox)
+                .expect("recovered post-T step");
+        }
+
+        assert_eq!(recovered_sandbox.calls, control_sandbox.calls);
+        assert_eq!(control_sandbox.calls.len(), 1);
+        assert_eq!(control_sandbox.calls[0].0, "m.tick.wake");
+        assert!(recovered.module_tick_schedule.is_empty());
+        assert_eq!(recovered.module_tick_schedule, control.module_tick_schedule);
+        assert_eq!(recovered.state(), control.state());
+        assert_eq!(recovered.journal(), control.journal());
+        assert_eq!(
+            recovered
+                .commitment_envelope_v2()
+                .expect("recovered post-T v2"),
+            control.commitment_envelope_v2().expect("control post-T v2")
+        );
+    }
 }

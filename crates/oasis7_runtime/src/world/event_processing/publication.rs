@@ -179,6 +179,25 @@ impl World {
                 let schedule = self.prepare_module_instance_schedule(event, self.state.time)?;
                 Some(PreparedEventStateDelta::ModuleInstance { prepared, schedule })
             }
+            WorldEventBody::Domain(DomainEvent::ModuleTickScheduleUpdated {
+                instance_id,
+                next_tick,
+            }) => {
+                let mut module_tick_schedule = self.module_tick_schedule.clone();
+                match next_tick {
+                    Some(wake) => {
+                        module_tick_schedule.insert(instance_id.clone(), *wake);
+                    }
+                    None => {
+                        module_tick_schedule.remove(instance_id);
+                    }
+                }
+                Some(PreparedEventStateDelta::ModuleTickScheduleUpdated {
+                    instance_id: instance_id.clone(),
+                    next_tick: *next_tick,
+                    module_tick_schedule,
+                })
+            }
             WorldEventBody::Domain(
                 event @ (DomainEvent::ResourceTransferred { .. }
                 | DomainEvent::DataCollected { .. }
@@ -667,6 +686,9 @@ impl World {
                 )?,
             PreparedEventStateDelta::ModuleInstance { prepared, .. } => {
                 self.state_root_hash_with_module_instance_overlay(prepared)?
+            }
+            PreparedEventStateDelta::ModuleTickScheduleUpdated { .. } => {
+                self.current_state_root_hash()?
             }
             PreparedEventStateDelta::ModuleStateUpdated { module_states } => self
                 .state_root_hash_with_command_overlay(

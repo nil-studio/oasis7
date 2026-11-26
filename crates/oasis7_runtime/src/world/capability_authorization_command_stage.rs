@@ -505,6 +505,18 @@ impl<'a> TrustedCommandStage<'a> {
             WorldEventBody::EffectQueued(intent) => {
                 self.push_pending_effect(intent.clone())?;
             }
+            WorldEventBody::Domain(crate::DomainEvent::ModuleTickScheduleUpdated {
+                instance_id,
+                next_tick,
+            }) => match next_tick {
+                Some(wake) => {
+                    self.module_tick_schedule
+                        .insert(instance_id.clone(), *wake);
+                }
+                None => {
+                    self.module_tick_schedule.remove(instance_id);
+                }
+            },
             _ => {
                 return Err(super::capability_authorization::deny(
                     "trusted command stage received unsupported event body",
