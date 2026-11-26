@@ -66,7 +66,7 @@ pub(super) struct OriginalPendingPinV1 {
 }
 
 impl OriginalPendingPinV1 {
-    fn validate(&self, owner: &OriginalPendingOwnerV1) -> Result<(), String> {
+    pub(super) fn validate(&self, owner: &OriginalPendingOwnerV1) -> Result<(), String> {
         owner.validate()?;
         if self.schema_version != 1
             || self.owner != *owner
@@ -302,6 +302,19 @@ impl OriginalPendingProducerV1 {
     pub(super) fn is_frozen(&self) -> bool {
         self.phase == PendingPhase::Frozen
     }
+}
+
+/// Return the prepared root/count only as an *untrusted candidate* after
+/// an exact owner identity match. A caller must obtain an independent protected
+/// witness for these values before cold_read_exact_frozen can authorize bytes.
+pub(super) fn read_prepared_pin_candidate(
+    owner_directory: &Path,
+    expected_owner: &OriginalPendingOwnerV1,
+) -> Result<OriginalPendingPinV1, String> {
+    validate_owned_directory(owner_directory)?;
+    let pin = read_owner_pin(owner_directory, PREPARED_PIN_FILE)?;
+    pin.validate(expected_owner)?;
+    Ok(pin)
 }
 
 /// After process loss, require both exact owner identity and an independently
