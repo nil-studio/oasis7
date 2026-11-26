@@ -569,3 +569,110 @@ fn current_crisis_foreign_parent_pool_aborts() {
         Err(ExecutionError::Aborted)
     ));
 }
+
+
+#[test]
+fn current_crisis_missing_parent_merkle_page_preserves_source_error_and_aborts() {
+    use oasis7_formal_protocol::incremental_execution::ExecutionError;
+    use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
+    let f = fixture();
+    let qualification = qualify(&f);
+    let parent = parent(&f);
+    let root = f
+        .roots
+        .state_root(StateNamespaceV1::Business)
+        .node_root
+        .clone();
+    let mut tx =
+        ExecutionTransaction::begin(parent, [96; 32], &f.pages, &f.memory, limits()).unwrap();
+    // An actual parent Merkle page disappears after qualification; the caller
+    // must see its original source error rather than an absent Crisis record.
+    f.pages.remove(blake3::Hash::from_hex(&root).unwrap().as_bytes());
+    let guard = tx.guard();
+    let live = tx.parent_fence();
+    let mut io = io();
+    let mut keys = keys();
+    let mut read = context(
+        &f,
+        f.roots.state_root(StateNamespaceV1::Business),
+        &mut io,
+        &mut keys,
+        || false,
+    );
+    let result = open_current_diplomacy_crisis_record_v1(
+        "outer",
+        &qualification,
+        &f.roots,
+        &mut tx,
+        &mut read,
+        &mut scan(),
+        &mut 100_000,
+        1 << 20,
+        &guard,
+        &live,
+    );
+    assert!(
+        matches!(
+            result,
+            Err(WorldFieldOverlayErrorV1::Execution(ExecutionError::Tree(_)))
+        ),
+        "{result:?}"
+    );
+    let guard = tx.guard();
+    assert!(matches!(
+        tx.seal(&guard, &live, 1),
+        Err(ExecutionError::Aborted)
+    ));
+}
+
+#[test]
+fn current_crisis_exhausted_typed_scan_is_not_a_valid_current_proof() {
+    use oasis7_formal_protocol::incremental_execution::ExecutionError;
+    use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
+    let f = fixture();
+    let qualification = qualify(&f);
+    let mut tx =
+        ExecutionTransaction::begin(parent(&f), [97; 32], &f.pages, &f.memory, limits()).unwrap();
+    let live = tx.parent_fence();
+    let guard = tx.guard();
+    let mut io = io();
+    let mut keys = keys();
+    let mut read = context(
+        &f,
+        f.roots.state_root(StateNamespaceV1::Business),
+        &mut io,
+        &mut keys,
+        || false,
+    );
+    let mut exhausted = StateScanBudget {
+        nodes_remaining: 0,
+        read_bytes_remaining: 0,
+        leaves_remaining: 0,
+    };
+    let result = open_current_diplomacy_crisis_record_v1(
+        "outer",
+        &qualification,
+        &f.roots,
+        &mut tx,
+        &mut read,
+        &mut exhausted,
+        &mut 100_000,
+        1 << 20,
+        &guard,
+        &live,
+    );
+    assert!(
+        matches!(
+            result,
+            Err(WorldFieldOverlayErrorV1::Value(
+                ValueTreeError::ResourceLimited("diplomacy closure scan")
+            ))
+        ),
+        "{result:?}"
+    );
+    let guard = tx.guard();
+    assert!(matches!(
+        tx.seal(&guard, &live, 1),
+        Err(ExecutionError::Aborted)
+    ));
+}
