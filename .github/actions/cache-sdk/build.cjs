@@ -31,7 +31,7 @@ for (const [file, change] of Object.entries(patch.files)) {
 if (process.argv.includes('--patch-only')) process.exit(0);
 const destination = path.resolve(root, '../../../vendor/actions-cache-explicit-context');
 fs.mkdirSync(destination, {recursive: true});
-execFileSync(process.execPath, [path.join(root, 'node_modules/@vercel/ncc/dist/ncc/cli.js'), 'build', 'entry.mjs', '-o', destination, '--license', 'licenses.txt'], {cwd: root, stdio: 'inherit'});
+execFileSync(process.execPath, [path.join(root, 'node_modules/@vercel/ncc/dist/ncc/cli.js'), 'build', 'entry.mjs', '-o', destination, '--license', 'licenses.txt', '--minify'], {cwd: root, stdio: 'inherit'});
 const inputs = ['entry.mjs', 'build.cjs', 'package.json', 'package-lock.json', 'provenance.json', 'sdk-patch.json'];
 const outputs = ['index.mjs', 'licenses.txt'];
 const hashes = (directory, names) => Object.fromEntries(names.map(name => [name, digest(fs.readFileSync(path.join(directory, name)))]));
