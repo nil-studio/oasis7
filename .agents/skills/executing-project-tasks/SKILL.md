@@ -35,6 +35,8 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 使用验证和评审方法。同一交付范围继续更新原 PR，并优先在本地把已知关联问题一并修完自测后再推送，避免短时间高频零散 push 反复启动并取消远程 CI。创建和更新时按[PR 描述要求](../../../doc/engineering/workflow/source-of-truth.md#pr-description)读取[默认模板](../../../.github/pull_request_template.md)，填写实际问题、改动结果、验证和适用风险；简单变更可用等价简短结构。
 
+接手已有拆分、实质调整范围及交付阶段成果时，按[前置事实与剩余验收承接](../../../doc/engineering/workflow/source-of-truth.md#decomposition-evidence-and-remainder)核对目标分支、输入版本和真实能力。请求评审前把实际 diff 对回 Issue 验收和计划批次；若仅完成局部范围或原承接 PR 已退出，更新原 Issue 的已交付范围、剩余验收承接、后续批次或解除动作，并让当前 PR 的剩余事项引用该安排。未启动批次保留计划，后续沿既有规则创建当前切片的 Draft；不把历史预留范围或来源分支测试当作当前交付。
+
 通过 CLI 提交时，先把完整正文写入文件，再用 `gh pr create --title '<English title>' --body-file <path>`；通过 API 提交时显式提供同样的正文。发布后回读确认内容完整。实质改动后及请求评审前对照当前 diff 更新摘要，详细执行过程按规范归位，收尾时修正过期的当前状态。
 
 按本次约定的交付终点收尾；仅交付可评审 PR 时如实注明尚未合入。合入前检查当前 HEAD、required checks、评审及阻断项、冲突、权限和 hold；正常保护合入绑定预期 HEAD。PR 实际 merged 才完成代码交付；已明确的部署或整体验收继续执行。
