@@ -18,7 +18,7 @@ use crate::simulator::AsyncAgentRunner;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::simulator::ProviderOriginalMaterialStore;
 use crate::simulator::{
-    AgentDecision, AgentDecisionTrace, ContinuousAgentResponseContextV1, LlmAgentBehavior,
+    ContinuousAgentResponseContextV1, LlmAgentBehavior,
     LlmAgentConfig, MemoryWriteStore, OpenAiChatCompletionClient, ProviderBackedAgentBehavior,
     ProviderLoopbackAdapter, ProviderLoopbackHttpClient, WorldEvent, WorldKernel,
 };
@@ -30,7 +30,8 @@ use oasis7_agent_api::{
 };
 use oasis7_client_api::evaluate_provider_compatibility;
 use oasis7_simulator::{
-    Action as SimulatorAction, AgentPromptProfile, ChunkRuntimeConfig, Location, ResourceOwner,
+    Action as SimulatorAction, AgentDecision, AgentDecisionTrace, AgentPromptProfile,
+    ChunkRuntimeConfig, Location, ResourceOwner,
     WorldConfig, WorldEventKind, WorldModel,
 };
 use sha2::{Digest, Sha256};

@@ -23,14 +23,15 @@ use crate::runtime::{
     WorldError as RuntimeWorldError, WorldEventBody as RuntimeWorldEventBody, blake3_hex,
 };
 use crate::simulator::{
-    AgentDecisionTrace, PlayerGameplayRecentFeedback, RunnerMetrics, WorldEvent, WorldSnapshot,
+    PlayerGameplayRecentFeedback, RunnerMetrics, WorldEvent, WorldSnapshot,
 };
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_observability::emit_stderr_or_event;
 #[cfg(test)]
 use oasis7_simulator::WorldInitConfig;
 use oasis7_simulator::{
-    CHUNK_GENERATION_SCHEMA_VERSION, RejectReason as SimulatorRejectReason, SNAPSHOT_VERSION,
+    AgentDecisionTrace, CHUNK_GENERATION_SCHEMA_VERSION,
+    RejectReason as SimulatorRejectReason, SNAPSHOT_VERSION,
     WorldConfig, WorldModel, WorldScenario,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
