@@ -73,14 +73,14 @@ jobs:
                                   OASIS7_PRODUCT_DOC_HEAD=source))
               assert argv[-5:] == [tool['IMAGE'], 'python3', 'scripts/ci-trusted-full-regression.py', '_inside', 'governance']
               assert '/var/run/docker.sock' not in ' '.join(argv) and '--group-add' not in argv
-              check = """
+              check = f"""
           import os
           from pathlib import Path
           assert (os.getuid(), os.getgid()) == (1001, 1001)
           cargo = Path(os.environ['CARGO_HOME'])
           assert cargo.stat().st_uid == 1001
           for name in ('.package-cache', '.global-cache', 'registry/marker', 'git/marker'):
-              with (cargo / ('oasis7-' + name if '/' not in name else name.replace('marker', 'oasis7-mount-proof'))).open('xb') as file:
+              with (cargo / ('oasis7-' + name if '/' not in name else name.replace('marker', '{name}'))).open('xb') as file:
                   file.write(b'mounted')
           """
               args = argv[:-4] + ['python3', '-I', '-c', check]
@@ -89,13 +89,13 @@ jobs:
               try:
                   subprocess.run(args, env=environment, check=True)
                   for category in ('registry', 'git'):
-                      marker = tool['HOST_CARGO'] / category / 'oasis7-mount-proof'
+                      marker = tool['HOST_CARGO'] / category / name
                       assert marker.read_bytes() == b'mounted'
                   for lock in ('oasis7-.package-cache', 'oasis7-.global-cache'):
                       assert (scratch / 'cargo' / lock).read_bytes() == b'mounted'
               finally:
                   for category in ('registry', 'git'):
-                      (tool['HOST_CARGO'] / category / 'oasis7-mount-proof').unlink(missing_ok=True)
+                      (tool['HOST_CARGO'] / category / name).unlink(missing_ok=True)
                   subprocess.run(['docker', 'rm', '-f', name], env=environment, check=False,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
               print('probe_only=true cargo_home_owner=1001 registry_bind=write_seen git_bind=write_seen docker_socket=none')
