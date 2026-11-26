@@ -769,6 +769,40 @@ pub fn mark(name: &str) {
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'universal sharding'):
                 artifacts.ordinary_partitions(selected | {'ordinary_universal_sharding_version': bad})
 
+    def test_universal_sharding_rejects_docker_backed_runtime_full_lib_plans(self):
+        costs = targeted_artifact_costs([
+            dict(package='oasis7_runtime', target_kind='test', target_name=f'suite_{index}',
+                 variant='required', mode='batch', selector='', elapsed_ms=(index + 1) * 10000)
+            for index in range(5)
+        ])
+        selected = fast_execution_selection(packages=('oasis7_runtime',)) | dict(
+            ordinary_artifact_partition_version=2,
+            ordinary_artifact_delivery_version=2,
+            ordinary_universal_sharding_version=1,
+            ordinary_partitions=['controls', 'native-0', 'native-1', 'native-2', 'native-3'],
+            ordinary_harness_costs=costs,
+        )
+        with self.assertRaisesRegex(ValueError, 'universal sharding'):
+            artifacts.ordinary_partitions(selected | {'test_policy_changed': True})
+        with self.assertRaisesRegex(ValueError, 'universal sharding'):
+            artifacts.ordinary_partitions(selected | {
+                'risk_test_inventory_version': 1,
+                'ordinary_risk_targets': [dict(
+                    package='oasis7_runtime', target_kind='lib', target_name='oasis7_runtime',
+                    default_features=True, features=['test_tier_full'], cases=['wasm_case'],
+                )],
+            })
+        without_universal = {k: v for k, v in selected.items() if k != 'ordinary_universal_sharding_version'}
+        with self.assertRaisesRegex(ValueError, 'invalid complete ordinary artifact partitions'):
+            artifacts.ordinary_partitions(without_universal | {
+                'oasis7_required_packages': ['oasis7_chain_runtime', 'oasis7_runtime'],
+                'risk_test_inventory_version': 1,
+                'ordinary_risk_targets': [dict(
+                    package='oasis7_runtime', target_kind='lib', target_name='oasis7_runtime',
+                    default_features=True, features=['test_tier_full'], cases=['wasm_case'],
+                )],
+            })
+
 
 if __name__ == '__main__':
     unittest.main()

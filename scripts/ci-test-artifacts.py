@@ -599,6 +599,20 @@ def _ordinary_packages_support_universal_v2(plan):
     return sum(1 for row in harnesses if row['package'] in selected) >= 4
 
 
+def _ordinary_runtime_full_requires_host_docker(plan):
+    if (plan.get('test_policy_changed') is True
+            and isinstance(plan.get('oasis7_required_packages'), list)
+            and 'oasis7_runtime' in plan['oasis7_required_packages']):
+        return True
+    risk_targets = plan.get('ordinary_risk_targets')
+    return isinstance(risk_targets, list) and any(
+        isinstance(target, dict)
+        and target.get('package') == 'oasis7_runtime'
+        and target.get('target_kind') == 'lib'
+        for target in risk_targets
+    )
+
+
 def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
     # Match the trusted planner's bounded v1 policy-migration layout without
@@ -643,6 +657,7 @@ def validate_ordinary_partitions(plan):
                 or plan.get('scope') != 'targeted'
                 or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
                 or type(plan.get('test_policy_changed')) is not bool
+                or _ordinary_runtime_full_requires_host_docker(plan)
                 or not _ordinary_packages_support_universal_v2(plan)):
             raise ValueError('invalid ordinary universal sharding capability')
         universal_v2 = True
@@ -670,6 +685,7 @@ def validate_ordinary_partitions(plan):
                         plan.get('scope') == 'full' and plan.get('ordinary_artifact_delivery_version') == 2))
                     or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
                     or (plan.get('test_policy_changed') is not False and not universal_v2)
+                    or _ordinary_runtime_full_requires_host_docker(plan)
                     or 'ordinary_fast_targets' in plan or 'ordinary_full_fast_targets' in plan
                     or not isinstance(plan.get('oasis7_required_packages'), list)
                     or ('oasis7_chain_runtime' not in plan.get('oasis7_required_packages', []) and not universal_v2)))):
