@@ -357,8 +357,14 @@ class AptWorkflow(unittest.TestCase):
             expected['rust', 'pr-fast-preview', 'Install WASM C compiler'] = ['clang', 'llvm']
         if not rust_image_cache_namespace('net', JOBS['net']):
             expected['rust', 'net', 'Install WASM C compiler'] = ['clang', 'llvm']
-        expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
-                         for name in ('full-regression', 'candidate-full-regression')})
+        expected['rust', 'candidate-full-regression', 'Install system deps'] = ['clang', 'llvm', *self.NATIVE]
+        if 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in JOBS['full-regression']:
+            dockerfile = (ROOT / 'docker/ci-base/Dockerfile').read_text()
+            self.assertIn('FROM rust-custody-wasm AS rust-full-regression\n', dockerfile)
+            self.assertIn('apt-get install -y --no-install-recommends clang llvm', dockerfile)
+            self.assertLessEqual(set(self.NATIVE), set((ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()))
+        else:
+            expected['rust', 'full-regression', 'Install system deps'] = ['clang', 'llvm', *self.NATIVE]
         newapi = JOBS['newapi-bridge-package']
         if '    container:' in newapi:
             image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$',

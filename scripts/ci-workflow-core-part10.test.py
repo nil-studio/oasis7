@@ -519,7 +519,11 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 for command in commands:
                     self.assertIn('--formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json"', command)
         for name in ('full-regression', 'candidate-full-regression'):
-            self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[name])
+            if name == 'full-regression' and 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in JOBS[name]:
+                self.assertIn("['./scripts/ci-tests.sh', 'full-extended']",
+                              (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
+            else:
+                self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[name])
             self.assertNotIn('full-extended --plan', JOBS[name])
             self.assertNotIn('OASIS7_CI_TEST_BUNDLE', JOBS[name])
             self.assertNotIn('name: native-tests-', JOBS[name])
@@ -539,8 +543,12 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertIsNotNone(dispatch)
         self.assertEqual(driver.count('run bash "$repo_root/' + entry + '" full'), 1)
         self.assertLess(dispatch.end(), driver.index('if [[ -n "$group" ]]; then\n  [[ "$tier"'))
-        for job in ('full-regression', 'candidate-full-regression'):
-            self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[job])
+        self.assertIn('./scripts/ci-tests.sh full-extended', JOBS['candidate-full-regression'])
+        if 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in JOBS['full-regression']:
+            self.assertIn("['./scripts/ci-tests.sh', 'full-extended']",
+                          (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
+        else:
+            self.assertIn('./scripts/ci-tests.sh full-extended', JOBS['full-regression'])
         mapping = next(rule for rule in CONFIG['rules'] if entry in rule['match'])
         self.assertIn('workflow_governance', mapping['groups'])
         self.assertIn('scripts/ci-local-check.test.py', CONFIG['workflow_governance_python_tests'])
