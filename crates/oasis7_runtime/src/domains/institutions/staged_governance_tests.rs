@@ -6,8 +6,8 @@ use crate::world::transition::{
     TransitionReject,
 };
 use crate::{
-    Action, DomainEvent, GovernanceEvent, GovernanceFinalityEpochSnapshot,
-    GovernanceIdentityStatus, Manifest, ProposalDecision, ProposalStatus, World, WorldEventBody,
+    Action, DomainEvent, GovernanceEvent, GovernanceIdentityStatus, Manifest, ProposalDecision,
+    ProposalStatus, World, WorldEventBody,
 };
 use oasis7_agent_api::world_action::{
     OrganizationContinuityCommandV1, Position, WorldRuleCommandV1,
@@ -140,19 +140,19 @@ fn staged_governance_proposal_lifecycle_links_v2_sidecar_digest_and_fences_failu
         Some(ProposalStatus::Rejected { .. })
     ));
 
+    let snapshot = world.governance_effective_finality_epoch_snapshot(9);
     let snapshot_set = WorldEventBody::Governance(GovernanceEvent::FinalityEpochSnapshotSet {
-        snapshot: GovernanceFinalityEpochSnapshot {
-            epoch_id: 9,
-            validator_set_hash: "val-hash-9".into(),
-            stake_root: "stake-root-9".into(),
-            threshold_bps: 6700,
-            min_unique_signers: 2,
-        },
+        snapshot: snapshot.clone(),
         previous: None,
     });
     install_staged(&mut world, &snapshot_set).expect("install epoch snapshot");
     let env_epoch_set = assert_v2_envelope_linked(&world);
     assert_ne!(env_epoch_set.governance_sidecar_root, env_vetoed.governance_sidecar_root);
+
+    let snapshot_removed = GovernanceEvent::FinalityEpochSnapshotRemoved { epoch_id: 9, snapshot };
+    let transition = StagedInstitutionsGovernanceTransition::ProposalState(&snapshot_removed);
+    world.append_staged_institutions_governance_event(transition, None).expect("remove epoch snapshot");
+    assert_ne!(assert_v2_envelope_linked(&world).governance_sidecar_root, env_epoch_set.governance_sidecar_root);
 }
 
 #[test]
