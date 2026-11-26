@@ -1356,6 +1356,7 @@
     "scripts/ci-storage-network.test.py": ["workflow_governance"],
     "scripts/ci-support-profiles.test.py": ["workflow_governance"],
     "scripts/ci-test-artifacts.py": ["workflow_governance"],
+    "scripts/ci-workflow-cache-and-local-check.test.py": ["workflow_governance"],
     "scripts/ci-workflow-delivery-and-capacity.test.py": ["workflow_governance"],
     "scripts/ci-workflow-guards-and-timeouts.test.py": ["workflow_governance"],
     "scripts/ci-workflow.test.py": ["workflow_governance"],
@@ -1387,6 +1388,7 @@
     "scripts/ci-apt-dns.test.py",
     "scripts/ci-linux-mold.test.py",
     "scripts/ci-contract-jobs.test.py",
+    "scripts/ci-workflow-cache-and-local-check.test.py",
     "scripts/ci-workflow-delivery-and-capacity.test.py",
     "scripts/ci-workflow-guards-and-timeouts.test.py",
     "scripts/ci-workflow.test.py",
@@ -1804,6 +1806,12 @@
         "scripts/package-ecs-resource-monitor.test.py"
       ]
     },
+    "scripts/ci-workflow-cache-and-local-check.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow-cache-and-local-check.test.py"
+      ]
+    },
     "scripts/ci-workflow-delivery-and-capacity.test.py": {
       "group": "workflow_governance",
       "tests": [
@@ -1855,6 +1863,7 @@
         "scripts/ci-fast-preview.test.py",
         "scripts/ci-rust-cache-build.test.py",
         "scripts/ci-support-profiles.test.py",
+        "scripts/ci-workflow-cache-and-local-check.test.py",
         "scripts/ci-workflow-delivery-and-capacity.test.py",
         "scripts/ci-workflow-guards-and-timeouts.test.py",
         "scripts/ci-workflow.test.py",
