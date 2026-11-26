@@ -66,29 +66,6 @@ WORKFLOW = workflow_contract_view(RAW_WORKFLOW)
 JOBS = workflow_jobs(WORKFLOW)
 
 
-def portable_cache_host_layout(job, kind):
-    """Check the explicit mixed tool lane; official host cache steps stay exact."""
-    if 'id: portable-cache-image' not in job:
-        return job
-    images = {
-        'browser': 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9',
-        'worker': 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3',
-    }
-    assert f'          image={images[kind]}\n' in job
-    assert 'packages: read' in job and '    container:' not in job
-    assert 'docker --config "$config" pull "$image"' in job
-    assert 'test "$(id -u):$(id -g)" = 1001:1001' in job
-    assert job.index('test "$(git rev-parse HEAD)"') < job.index('docker --config')
-    assert 'actions/setup-python@' not in job and 'rustup toolchain install' not in job
-    assert '--privileged' not in job and 'docker.sock' not in job
-    expected = ('command python3 "$GITHUB_WORKSPACE/scripts/ci-portable-cache-container.py" '
-                f'--kind {kind} -- "$@"')
-    assert job.count(expected) == 1
-    assert 'chmod 600 "$bootstrap"' in job
-    assert 'BASH_ENV=%s' in job and '"$bootstrap" >> "$GITHUB_ENV"' in job
-    return job
-
-
 def validate_custody_tools(node):
     if re.search(r'^    container:', node, re.M):
         if (not re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-build@sha256:[0-9a-f]{64}$',
@@ -179,203 +156,68 @@ class WorkerdFaultCapture(unittest.TestCase):
 
 
 class PortableCacheContainers(unittest.TestCase):
-    def helper(self):
+    def authority(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location('portable_cache_container', ROOT / 'scripts/ci-portable-cache-container.py')
+        spec = importlib.util.spec_from_file_location('portable_workflow_authority', ROOT / 'scripts/ci-workflow.test.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
 
-    def environment(self):
-        return dict(GITHUB_WORKSPACE='/home/runner/work/oasis7/oasis7',
-                    RUNNER_TEMP='/home/runner/work/_temp', RUNNER_OS='Linux', RUNNER_ARCH='X64',
-                    GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust-cache.yml@refs/heads/main',
-                    GITHUB_EVENT_PATH='/home/runner/work/_temp/_github_workflow/event.json',
-                    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER='/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc',
-                    CI_CACHE_REPOSITORY_BUDGET_BYTES='20000000000', RUST_TOOLCHAIN='1.96.0',
-                    GH_TOKEN='original-admission-token', ACTIONS_RUNTIME_TOKEN='must-not-forward',
-                    ACTIONS_ID_TOKEN_REQUEST_TOKEN='must-not-forward', GITHUB_TOKEN='must-not-forward',
-                    INPUT_TOKEN='must-not-forward', NODE_OPTIONS='must-not-forward', PATH=os.environ['PATH'])
-
-    def build(self, kind, arguments, env=None):
-        from types import SimpleNamespace
-        with patch.object(Path, 'mkdir'), patch.object(Path, 'is_symlink', return_value=False), \
-             patch.object(Path, 'stat', return_value=SimpleNamespace(st_dev=7, st_ino=11)):
-            return self.helper().command(kind, arguments, env or self.environment(), uid=1001, gid=1001, nonce='fixture')
-
-    def test_tool_images_keep_original_paths_uid_and_cache_action_on_host(self):
+    def test_both_jobs_use_finite_containers_and_remove_the_mixed_launcher(self):
         jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
+        authority = self.authority()
         for kind, name in (('browser', 'browser-archive-cache'), ('worker', 'worker-build-cache')):
             job = jobs[name]
-            portable_cache_host_layout(job, kind)
-            argv, env, _ = self.build(kind, ['metadata'])
-            self.assertIn(self.helper().IMAGES[kind], argv)
-            self.assertIn('image=' + self.helper().IMAGES[kind] + '\n', job)
-            self.assertIn('1001:1001', argv)
-            self.assertIn('/home/runner/work/oasis7/oasis7', argv)
-            mounts = [argv[i+1] for i, arg in enumerate(argv) if arg == '--mount']
-            self.assertTrue(all('source=' in x and 'target=' in x for x in mounts))
-            self.assertFalse(any('docker.sock' in x or 'source=/home/runner,' in x for x in mounts))
-            if kind == 'worker':
-                self.assertIn('type=bind,source=/opt/oasis7-mold/3.0.0-v1,target=/opt/oasis7-mold/3.0.0-v1,readonly', mounts)
-                self.assertEqual(argv[argv.index('--root')+1], '/home/runner/.cache/oasis7/worker-build/0.7.5')
-            self.assertNotIn('    container:', job)
+            self.assertIn('    container:', job)
+            authority.portable_cache_container_layout(job, kind)
+            self.assertNotIn('BASH_ENV', job)
+            self.assertNotIn('portable-cache-image', job)
+            self.assertNotIn('actions/cache/save@', job)
+            self.assertNotIn('actions/cache/restore@', job)
             self.assertNotIn('env:\n          GITHUB_WORKSPACE:', job)
+        self.assertFalse((ROOT / 'scripts/ci-portable-cache-container.py').exists())
 
-    def test_exact_startup_routes_only_its_tool_and_keeps_real_failure(self):
+    def test_original_admission_output_and_save_guards_are_the_only_writers(self):
         jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
-        for kind, name, helper in (('browser', 'browser-archive-cache', 'ci-browser-deps.py'),
-                                   ('worker', 'worker-build-cache', 'ci-worker-build.py')):
-            expected = ('python3() {\n'
-                        '  case "${1:-}" in\n'
-                        f'    scripts/{helper})\n'
-                        '      shift\n'
-                        f'      command python3 "$GITHUB_WORKSPACE/scripts/ci-portable-cache-container.py" --kind {kind} -- "$@"\n'
-                        '      ;;\n'
-                        '    *) command python3 "$@" ;;\n'
-                        '  esac\n' + '}\n')
-            raw = jobs[name].split('cat > "$bootstrap" <<\'PORTABLE_CACHE_ENV\'\n', 1)[1].split('          PORTABLE_CACHE_ENV', 1)[0]
-            self.assertEqual(textwrap.dedent(raw), expected)
-            with tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary).resolve()
-                startup = root / 'startup'
-                # Execute an independent template after comparing the workflow.
-                startup.write_text(expected)
-                startup.chmod(0o600)
-                stub = root / 'python3'
-                stub.write_text('#!/bin/sh\nprintf "<%s>\\n" "$@"\nexit "${FIXTURE_EXIT:-0}"\n')
-                stub.chmod(0o755)
-                env = dict(os.environ, PATH=str(root) + ':' + os.environ['PATH'],
-                           BASH_ENV=str(startup), GITHUB_WORKSPACE='/frozen-authority')
-                for code in (0, 19):
-                    result = subprocess.run(['bash', '-e', '-c', f'python3 scripts/{helper} metadata; echo reached'],
-                                             env=dict(env, FIXTURE_EXIT=str(code)), text=True, capture_output=True)
-                    self.assertEqual(result.returncode, code, result.stderr)
-                    self.assertIn('</frozen-authority/scripts/ci-portable-cache-container.py>', result.stdout)
-                    self.assertIn('<--kind>\n<' + kind + '>\n<-->\n<metadata>', result.stdout)
-                    self.assertEqual('reached' in result.stdout, code == 0)
-                fallback = subprocess.run(['bash', '-e', '-c', 'python3 -c original'], env=env,
-                                          text=True, capture_output=True, check=True)
-                self.assertEqual(fallback.stdout, '<-c>\n<original>\n')
-
-    def test_only_original_admission_gets_token_and_identity_is_preserved(self):
-        for kind in ('browser', 'worker'):
-            for action in ('metadata', 'admit-save'):
-                argv, env, _ = self.build(kind, [action])
-                self.assertEqual(env.get('GH_TOKEN'), 'original-admission-token' if action == 'admit-save' else None)
-                for secret in ('ACTIONS_RUNTIME_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'GITHUB_TOKEN', 'INPUT_TOKEN', 'NODE_OPTIONS'):
-                    self.assertNotIn(secret, env)
-                    self.assertNotIn('must-not-forward', argv)
-                for key in ('GITHUB_WORKFLOW_REF', 'GITHUB_EVENT_PATH', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'):
-                    self.assertEqual(env[key], self.environment()[key])
-                self.assertNotIn('original-admission-token', argv)
-
-    def test_foreign_platform_paths_root_override_and_missing_admission_fail_closed(self):
-        for changed in ({'RUNNER_OS': 'Windows'}, {'RUNNER_ARCH': 'ARM64'},
-                        {'GITHUB_WORKSPACE': '/tmp/other'}, {'RUNNER_TEMP': '/tmp/other'},
-                        {'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER': '/tmp/other'},
-                        {'DOCKER_HOST': 'tcp://foreign:2375'}):
-            with self.subTest(changed=changed), self.assertRaises(ValueError):
-                self.build('worker', ['metadata'], dict(self.environment(), **changed))
-        for args in (['metadata', '--root=/tmp/other'], ['metadata', '--root', '/tmp/other'],
-                     ['metadata', '--cache-base=/tmp/other'], ['tools']):
-            with self.subTest(args=args), self.assertRaises(ValueError):
-                self.build('worker', args)
-        with self.assertRaises(ValueError):
-            self.build('browser', ['admit-save'], dict(self.environment(), GH_TOKEN=''))
-        with self.assertRaises(ValueError):
-            self.helper().command('browser', ['metadata'], self.environment(), uid=0, gid=0, nonce='fixture')
-
-    def test_symlink_directory_is_rejected(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / 'real').mkdir()
-            (root / 'link').symlink_to(root / 'real', target_is_directory=True)
-            with self.assertRaises(ValueError):
-                self.helper().directory(str(root / 'link' / 'child'))
-
-    def test_original_worker_metadata_and_forced_root_are_identical(self):
-        command = [sys.executable, str(ROOT / 'scripts/ci-worker-build.py'), 'metadata']
-        with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary).resolve()
-            env = dict(os.environ, XDG_CACHE_HOME=str(base))
-            old = subprocess.run(command, cwd=ROOT, env=env, text=True, capture_output=True, check=True)
-            new = subprocess.run(command + ['--root', str(base / 'oasis7/worker-build/0.7.5')],
-                                 cwd=ROOT, env=env, text=True, capture_output=True, check=True)
-            self.assertEqual(json.loads(old.stdout), json.loads(new.stdout))
-
-    def test_real_tar_detects_default_container_break_and_preserves_mixed_host_reader(self):
-        tar = shutil.which('gtar') or shutil.which('tar')
-        if not tar or 'GNU tar' not in subprocess.check_output([tar, '--version'], text=True):
-            self.skipTest('original official cache transport requires GNU tar')
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve()
-            for mode in ('host', 'container-default', 'mixed-host-actions'):
-                layout = root / mode
-                checkout = layout / ('__w/oasis7/oasis7' if mode == 'container-default' else 'home/runner/work/oasis7/oasis7')
-                payload = layout / 'home/runner/.cache/oasis7/worker-build/0.7.5/bin/worker-build'
-                payload.parent.mkdir(parents=True)
-                payload.write_bytes(b'actual-portable-payload')
-                checkout.mkdir(parents=True)
-                archive = root / (mode + '.tar')
-                member = os.path.relpath(payload.parent.parent, checkout)
-                subprocess.run([tar, '--posix', '-cf', str(archive), '-P', '-C', str(checkout), member], check=True)
-                reader = root / (mode + '-reader') / 'home/runner/work/oasis7/oasis7'
-                reader.mkdir(parents=True)
-                subprocess.run([tar, '-xf', str(archive), '-P', '-C', str(reader)], check=True)
-                restored = reader.parents[2] / '.cache/oasis7/worker-build/0.7.5/bin/worker-build'
-                self.assertEqual(restored.is_file(), mode != 'container-default')
-                if restored.is_file():
-                    self.assertEqual(restored.read_bytes(), payload.read_bytes())
-                    self.assertEqual(member, '../../../.cache/oasis7/worker-build/0.7.5')
-
-    def test_container_entry_checks_real_bind_source_before_loading_the_tool(self):
-        import io
-        import runpy
-        helper = self.helper()
-        info = ROOT.stat()
-        source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-        env = dict(GITHUB_WORKSPACE=str(ROOT), GITHUB_SHA=source,
-                   OASIS7_PORTABLE_DEVICE=str(info.st_dev), OASIS7_PORTABLE_INODE=str(info.st_ino),
-                   OASIS7_PORTABLE_IMAGE=helper.IMAGES['browser'])
-        for change, valid in (({}, True), ({'GITHUB_SHA': '0' * 40}, False),
-                              ({'OASIS7_PORTABLE_INODE': str(info.st_ino + 1)}, False),
-                              ({'GITHUB_WORKSPACE': '/wrong-checkout'}, False)):
-            with self.subTest(change=change), patch.dict(os.environ, dict(env, **change)), \
-                 patch.object(os, 'getuid', return_value=1001), patch.object(os, 'getgid', return_value=1001), \
-                 patch.object(sys, 'argv', ['-c', 'scripts/ci-browser-deps.py', 'metadata']), \
-                 patch.object(sys, 'path', list(sys.path)), patch.object(sys, 'stderr', io.StringIO()), \
-                 patch.object(runpy, 'run_path') as load:
-                if valid:
-                    exec(compile(helper.CONTAINER_ENTRY, '<fixed-container-entry>', 'exec'), {})
-                    load.assert_called_once_with('scripts/ci-browser-deps.py', run_name='__main__')
-                else:
-                    with self.assertRaises(AssertionError):
-                        exec(compile(helper.CONTAINER_ENTRY, '<fixed-container-entry>', 'exec'), {})
-                    load.assert_not_called()
-
-    def test_cleanup_keeps_original_tool_exit_and_only_removes_own_container(self):
-        import io
-        helper = self.helper()
-        original = subprocess.CompletedProcess(['docker', 'run'], 29)
-        with patch.object(helper, 'command', return_value=(['docker', 'run'], {}, 'owned-fixture')), \
-             patch.object(helper.subprocess, 'run', side_effect=[original, subprocess.TimeoutExpired('docker', 10)]) as run, \
-             patch.object(sys, 'argv', ['launcher', '--kind', 'browser', '--', 'metadata']), \
-             patch.object(sys, 'stderr', io.StringIO()):
-            self.assertEqual(helper.main(), 29)
-            self.assertEqual(run.call_args_list[1].args[0], ['docker', 'rm', '--force', 'owned-fixture'])
-            self.assertEqual(run.call_args_list[1].kwargs['timeout'], 10)
-
-    def test_launcher_mutations_cannot_hide_wrong_image_role_uid_or_mount(self):
-        jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
+        authority = self.authority()
+        authority.browser_archive_cache_writer(jobs['browser-archive-cache'])
+        authority.worker_tool_cache_writer(jobs['worker-build-cache'])
         for kind, name in (('browser', 'browser-archive-cache'), ('worker', 'worker-build-cache')):
             job = jobs[name]
-            for old, new in ((self.helper().IMAGES[kind], 'foreign:latest'),
-                             ('= 1001:1001', '= 0:0'),
-                             ('--kind ' + kind, '--kind foreign'),
-                             ('docker --config "$config" pull', 'docker --privileged pull')):
-                with self.subTest(kind=kind, old=old), self.assertRaises(AssertionError):
-                    portable_cache_host_layout(job.replace(old, new), kind)
+            for before, after in [('--user 1001:1001', '--user 0:0'),
+                                  ('${{ runner.temp }}:/home/runner/work/_temp', '/:/home/runner/work/_temp'),
+                                  ('operation: restore', 'operation: lookup'),
+                                  ('outputs.upload_bound_bytes', 'outputs.unbounded')]:
+                self.assertIn(before, job)
+                with self.subTest(kind=kind, before=before), self.assertRaises(AssertionError):
+                    authority.portable_cache_container_layout(job.replace(before, after), kind)
+
+    def test_direct_tool_commands_preserve_real_failure_without_startup_interception(self):
+        jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
+        worker = ('if [[ "$TOOL_CACHE_HIT" == true ]]; then\n'
+                  '  python3 scripts/ci-worker-build.py check --root /home/runner/.cache/oasis7/worker-build/0.7.5\n'
+                  'else\n  python3 scripts/ci-worker-build.py ensure --root /home/runner/.cache/oasis7/worker-build/0.7.5\nfi\n')
+        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', jobs['worker-build-cache'], re.M | re.S)
+                    if 'id: prepare-worker' in step)
+        self.assertEqual(textwrap.dedent(step.split('        run: |\n', 1)[1]).strip(), worker.strip())
+        browser = ('python3 scripts/ci-browser-deps.py fetch --component fonts-noto-cjk '
+                   '--cache-base /home/runner/work/_temp/oasis7-browser-archives\n')
+        self.assertIn('        run: ' + browser, jobs['browser-archive-cache'])
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name).resolve()
+            stub = root / 'python3'
+            stub.write_text('#!/bin/sh\nprintf "<%s>\\n" "$@"\nexit "${FIXTURE_EXIT:-0}"\n')
+            stub.chmod(0o755)
+            for template in (worker, browser):
+                for hit in ('true', 'false'):
+                    for code in (0, 19):
+                        env = dict(PATH=str(root) + ':' + os.environ['PATH'], HOME=str(root),
+                                   TOOL_CACHE_HIT=hit, FIXTURE_EXIT=str(code))
+                        result = subprocess.run(['bash', '-e', '-c', template + 'echo reached\n'],
+                                                env=env, capture_output=True, text=True)
+                        self.assertEqual(result.returncode, code, result.stderr)
+                        self.assertEqual('reached' in result.stdout, code == 0)
+
 
 
 class LocalCheckDriverContract(unittest.TestCase):

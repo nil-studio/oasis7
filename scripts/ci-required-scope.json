@@ -1244,6 +1244,8 @@
     ".github/actions/portable-cache-transport/index.cjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/run.mjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/transport.test.cjs": ["workflow_governance"],
+    "scripts/ci-portable-cache-job.py": ["workflow_governance"],
+    "scripts/ci-portable-cache-job.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-archive.py": ["workflow_governance"],
     "scripts/ci-portable-cache-container-contract.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-archive.test.py": ["workflow_governance"],
@@ -1331,7 +1333,6 @@
     "scripts/ci-browser-offline-apt.test.py": ["workflow_governance"],
     "scripts/ci-tool-cache.py": ["workflow_governance"],
     "scripts/ci-tool-cache.test.py": ["workflow_governance"],
-    "scripts/ci-portable-cache-container.py": ["workflow_governance"],
     "scripts/ci-worker-build.py": ["workflow_governance"],
     "scripts/ci-worker-build.test.py": ["workflow_governance"],
     "scripts/ci-hosted-login-package.py": ["workflow_governance", "packaging_contracts"],
@@ -1416,6 +1417,7 @@
     "scripts/plan-rust-required-scope-selection-part3.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-portable-cache-job.test.py",
     "scripts/ci-portable-cache-container-contract.test.py",
     "scripts/ci-portable-cache-archive.test.py",
     "scripts/ci-cache-sdk.test.py",
@@ -1493,6 +1495,8 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-portable-cache-job.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
+    "scripts/ci-portable-cache-job.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
     "scripts/ci-portable-cache-container-contract.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-container-contract.test.py"]},
     "scripts/ci-portable-cache-archive.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-archive.test.py"]},
     "scripts/ci-portable-cache-archive.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-archive.test.py"]},
@@ -1676,10 +1680,6 @@
     "scripts/ci-tool-cache.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-tool-cache.test.py"]
-    },
-    "scripts/ci-portable-cache-container.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci-workflow.test.py"]
     },
     "scripts/ci-worker-build.py": {
       "group": "workflow_governance",

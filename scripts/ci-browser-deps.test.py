@@ -49,6 +49,19 @@ def query(kind='agent', missing=(), overrides=None, code=None):
 
 
 class BrowserDownloads(unittest.TestCase):
+    def test_admission_cli_emits_only_the_real_existing_upload_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index, report in enumerate(({'save': True, 'upload_bound_bytes': 1234}, {'save': False})):
+                output = root / str(index)
+                with patch.object(browser, 'admission', return_value=report), patch('builtins.print'):
+                    browser.main(['admit-save', '--component', 'chrome', '--key', 'fixed',
+                                  '--github-output', str(output)])
+                expected = 'save=' + str(report['save']).lower() + '\n'
+                if 'upload_bound_bytes' in report:
+                    expected += 'upload_bound_bytes=1234\n'
+                self.assertEqual(output.read_text(), expected)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
