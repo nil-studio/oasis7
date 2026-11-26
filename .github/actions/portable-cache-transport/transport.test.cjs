@@ -85,3 +85,10 @@ test('a reported hit without beforeExtract cannot be accepted', async () => {
   await assert.rejects(transport(inputs,environment,{restoreCache:async()=>layout.key},()=>{},layout),/bypassed/);
   assert.deepEqual(await transport(inputs,environment,{restoreCache:async()=>undefined},()=>{},layout),{'cache-hit':false,matchedKey:''});
 });
+test('browser components stay bound to their original writer role', () => {
+  for (const component of ['fonts-noto-cjk','fonts-freefont-ttf','chrome']) {
+    const browser={...inputs,contract:'browser-archive',component};
+    validateTrust({...environment,GITHUB_JOB:'browser-archive-cache'},browser,sha);
+    assert.throws(()=>validateTrust(environment,browser,sha));
+  }
+});
