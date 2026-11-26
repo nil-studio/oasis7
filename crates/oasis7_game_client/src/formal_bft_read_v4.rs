@@ -11,9 +11,8 @@ use oasis7_client_api::{
 };
 use oasis7_formal_protocol::bft::{
     BftProfileTargetV2, BftSuccessorWindowSourceV1, FormalBftCertifiedHeaderPrefixV3,
-    FormalBftExecutionCommitmentV1,
-    VerifiedBftHandoffTargetV2, VerifiedBftHeaderCertificateV3, VerifiedFormalBftHeaderPrefixV3,
-    verify_formal_bft_handoff_v2,
+    FormalBftExecutionCommitmentV1, VerifiedBftHandoffTargetV2, VerifiedBftHeaderCertificateV3,
+    VerifiedFormalBftHeaderPrefixV3, verify_formal_bft_handoff_v2,
 };
 use oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalReadAnchorV1;
 use serde::{Serialize, de::DeserializeOwned};
@@ -273,7 +272,12 @@ impl<T> VerifiedFormalBftHeaderReadPageV4<T> {
         original: &BftSuccessorWindowSourceV1,
         selected: &FormalBftOriginalSuccessorCutPinV1,
     ) -> Result<(), String> {
-        check_untrusted_original_successor_cut(&self.request, &self.response.head, original, selected)
+        check_untrusted_original_successor_cut(
+            &self.request,
+            &self.response.head,
+            original,
+            selected,
+        )
     }
 }
 
