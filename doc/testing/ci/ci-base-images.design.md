@@ -105,3 +105,20 @@ proc 预检必须先等待子进程完成 exec 后发出的显式 ready 字节�
 
 
 dispatch 的 attempt_release_host_reference 默认 false；启用时新增同源、同 run、同完整 bundle 的宿主参考分片，汇总必须额外验证该结果与其 job 成功，未启用时必须 skipped，默认 12 组不变。只增加一次宿主 case，复用原三分区 producer，不另起生产或改写归档身份。镜像冷拉取、预检、原 case 和总耗时分别记录。同源 host/image 对照必须消费各自身份校验通过的完整归档；新 workflow 提交不得冒用旧 source/run 的 bundle。capacity、full-node 与内核故障消费者的迁移仍需各自真实验收，不由本分片通过代签。
+
+
+### Trusted full regression
+
+`rust-full-regression` extends `rust-custody-wasm` with clang, LLVM, and
+the pinned Docker and Buildx clients from `rust-ordinary-builder`. The
+image carries no Docker daemon. Publication uses the existing specialized
+group with the same source, artifact, scan, and ten-minute requirements.
+The candidate smoke verifies the toolchain and clients offline as UID 1001.
+
+The trusted job can adopt the published digest after a Linux witness
+verifies the canonical Provider build, receipt, and checker with the
+original source and Docker workspace path. Adoption preserves
+`ci-tests.sh full-extended` and the 210-minute budget. Verify npm, Trunk,
+wasm-bindgen, and sentinel archive path and version compatibility before
+moving their writers. Candidate full regression retains its current
+runner until its canonical build can use an isolated Docker boundary.

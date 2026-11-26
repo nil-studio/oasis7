@@ -4,8 +4,8 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm|rust-viewer) ;;
-  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm|rust-viewer" >&2; exit 2 ;;
+  runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm|rust-viewer|rust-full-regression) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build|codeql-rust|api-runtime|rust-ordinary-builder|rust-custody-wasm|rust-viewer|rust-full-regression" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
@@ -31,14 +31,14 @@ if [[ "$target" == rust-viewer ]]; then
   cp ../../scripts/ci-browser-tools/{package.json,package-lock.json} "$viewer_context/scripts/ci-browser-tools/"
   options+=(--build-context "viewer-browser=$viewer_context")
 fi
-if [[ "$target" == rust-custody-wasm ]]; then
+if [[ "$target" == rust-custody-wasm || "$target" == rust-full-regression ]]; then
   custody_node_base=node:22-bookworm-slim
   custody_node_digest=$(docker buildx imagetools inspect "$custody_node_base" --format "{{json .Manifest}}" | jq -er .digest)
   [[ "$custody_node_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
   options+=(--build-arg "CUSTODY_NODE_BASE=${custody_node_base}@${custody_node_digest}"
             --label "org.oasis7.ci.custody-node-base.digest=$custody_node_digest")
 fi
-if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm || "$target" == rust-viewer ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm || "$target" == rust-viewer || "$target" == rust-full-regression ]]; then
   workflow=../../.github/workflows/rust.yml
   stable=$(sed -n 's/^  RUST_TOOLCHAIN: //p' "$workflow")
   nightly=$(sed -n 's/^  OASIS7_WASM_TOOLCHAIN: //p' "$workflow")
@@ -53,7 +53,7 @@ elif [[ "$target" == codeql-rust ]]; then
   [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
   options+=(--build-arg "CODEQL_RUST_TOOLCHAIN=$stable")
 fi
-if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm || "$target" == rust-viewer ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build || "$target" == codeql-rust || "$target" == rust-ordinary-builder || "$target" == rust-custody-wasm || "$target" == rust-viewer || "$target" == rust-full-regression ]]; then
   rust_base="rust:${stable}-bookworm"
   rust_digest=$(docker buildx imagetools inspect "$rust_base" --format "{{json .Manifest}}" | jq -er .digest)
   [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
@@ -234,7 +234,7 @@ if [[ "$target" == api-runtime ]]; then
     '
 fi
 
-if [[ "$target" == rust-ordinary-builder ]]; then
+if [[ "$target" == rust-ordinary-builder || "$target" == rust-full-regression ]]; then
   docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
     --env HOME=/tmp "$image" bash -ec '
       test "$(id -u)" = 1001
@@ -254,7 +254,7 @@ if [[ "$target" == rust-ordinary-builder ]]; then
     '
 fi
 
-if [[ "$target" == rust-custody-wasm ]]; then
+if [[ "$target" == rust-custody-wasm || "$target" == rust-full-regression ]]; then
   docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
     --tmpfs /__w:uid=1001,gid=1001,mode=0700 --env HOME=/tmp "$image" bash -ec '
       export PATH=/opt/oasis7-node22/bin:$PATH
@@ -282,6 +282,16 @@ if [[ "$target" == rust-custody-wasm ]]; then
       for toolchain in "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"; do
         rustc +"$toolchain" --target wasm32-unknown-unknown --crate-type lib "$scratch/smoke.rs" -o "$scratch/smoke.rlib"
       done
+    '
+fi
+
+if [[ "$target" == rust-full-regression ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 1001:1001 \
+    --env HOME=/tmp "$image" bash -euo pipefail -c '
+      clang --print-targets | grep -w wasm32
+      llvm-ar --version
+      python3 -m venv /tmp/doc-governance-venv
+      /tmp/doc-governance-venv/bin/python -m pip --version
     '
 fi
 
