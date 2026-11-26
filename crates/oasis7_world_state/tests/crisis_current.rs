@@ -432,3 +432,140 @@ fn current_crisis_reopens_typed_pending_edit_and_deletion() {
     let guard = tx.guard();
     tx.seal(&guard, &live, 1).unwrap();
 }
+#[test]
+fn current_crisis_keeps_stale_input_guard_rejected_and_aborted() {
+    use oasis7_formal_protocol::incremental_execution::ExecutionError;
+    use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
+    use oasis7_world_state::incremental_world_field_key::{
+        WorldFieldKeyV1, WorldFieldRecordKindV1,
+    };
+    let f = fixture();
+    let q = qualify(&f);
+    let mut tx =
+        ExecutionTransaction::begin(parent(&f), [93; 32], &f.pages, &f.memory, limits()).unwrap();
+    let live = tx.parent_fence();
+    let stale = tx.guard();
+    let metadata = WorldFieldKeyV1::new(
+        DiplomacyFieldV1::Crises.descriptor().unwrap(),
+        WorldFieldRecordKindV1::Metadata,
+        None,
+    )
+    .unwrap();
+    tx.read(StateNamespaceV1::Business, metadata.as_bytes())
+        .unwrap();
+    let mut i = io();
+    let mut k = keys();
+    let mut ctx = context(
+        &f,
+        f.roots.state_root(StateNamespaceV1::Business),
+        &mut i,
+        &mut k,
+        || false,
+    );
+    let result = open_current_diplomacy_crisis_record_v1(
+        "outer",
+        &q,
+        &f.roots,
+        &mut tx,
+        &mut ctx,
+        &mut scan(),
+        &mut 100_000,
+        1 << 20,
+        &stale,
+        &live,
+    );
+    assert!(matches!(
+        result,
+        Err(WorldFieldOverlayErrorV1::Execution(
+            ExecutionError::StaleGuard
+        ))
+    ));
+    let guard = tx.guard();
+    assert!(matches!(
+        tx.seal(&guard, &live, 1),
+        Err(ExecutionError::Aborted)
+    ));
+}
+#[test]
+fn current_crisis_cancelled_read_aborts() {
+    use oasis7_formal_protocol::incremental_execution::ExecutionError;
+    use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
+    let f = fixture();
+    let q = qualify(&f);
+    let mut tx =
+        ExecutionTransaction::begin(parent(&f), [94; 32], &f.pages, &f.memory, limits()).unwrap();
+    let live = tx.parent_fence();
+    let guard = tx.guard();
+    let mut i = io();
+    let mut k = keys();
+    let mut ctx = context(
+        &f,
+        f.roots.state_root(StateNamespaceV1::Business),
+        &mut i,
+        &mut k,
+        || true,
+    );
+    let result = open_current_diplomacy_crisis_record_v1(
+        "outer",
+        &q,
+        &f.roots,
+        &mut tx,
+        &mut ctx,
+        &mut scan(),
+        &mut 100_000,
+        1 << 20,
+        &guard,
+        &live,
+    );
+    assert!(matches!(
+        result,
+        Err(WorldFieldOverlayErrorV1::Value(ValueTreeError::Cancelled))
+    ));
+    let guard = tx.guard();
+    assert!(matches!(
+        tx.seal(&guard, &live, 1),
+        Err(ExecutionError::Aborted)
+    ));
+}
+#[test]
+fn current_crisis_foreign_parent_pool_aborts() {
+    use oasis7_formal_protocol::incremental_execution::ExecutionError;
+    use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
+    let foreign = fixture();
+    let q = qualify(&foreign);
+    let f = fixture();
+    let mut tx =
+        ExecutionTransaction::begin(parent(&f), [95; 32], &f.pages, &f.memory, limits()).unwrap();
+    let live = tx.parent_fence();
+    let guard = tx.guard();
+    let mut i = io();
+    let mut k = keys();
+    let mut ctx = context(
+        &f,
+        f.roots.state_root(StateNamespaceV1::Business),
+        &mut i,
+        &mut k,
+        || false,
+    );
+    let result = open_current_diplomacy_crisis_record_v1(
+        "outer",
+        &q,
+        &f.roots,
+        &mut tx,
+        &mut ctx,
+        &mut scan(),
+        &mut 100_000,
+        1 << 20,
+        &guard,
+        &live,
+    );
+    assert!(matches!(
+        result,
+        Err(WorldFieldOverlayErrorV1::Value(ValueTreeError::Invalid(_)))
+    ));
+    let guard = tx.guard();
+    assert!(matches!(
+        tx.seal(&guard, &live, 1),
+        Err(ExecutionError::Aborted)
+    ));
+}
