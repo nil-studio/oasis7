@@ -139,7 +139,7 @@ jobs:
             toolchain="$(mktemp -d "$RUNNER_TEMP/rust-model-toolchains.XXXXXXXX")"
             export RUSTUP_HOME="$toolchain/rustup" CARGO_HOME="$toolchain/cargo"
             mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"
-            timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update --component rustfmt --component clippy
+            timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --no-self-update --profile minimal --component rustfmt --component clippy
             timeout 180 rustup toolchain install 1.98.1 --profile minimal --no-self-update
             printf 'RUSTUP_HOME=%s\nCARGO_HOME=%s\n' "$RUSTUP_HOME" "$CARGO_HOME" >>"$GITHUB_ENV"
           fi

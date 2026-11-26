@@ -700,7 +700,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(job.count('rustup toolchain install'), 2)
         self.assertEqual(installation.count('rustup toolchain install'), 2)
         self.assertIn('mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"', installation)
-        self.assertIn('install "$RUST_TOOLCHAIN" --profile minimal --no-self-update --component rustfmt --component clippy', installation)
+        self.assertIn('install "$RUST_TOOLCHAIN" --no-self-update --profile minimal --component rustfmt --component clippy', installation)
         self.assertIn('install 1.98.1 --profile minimal --no-self-update', installation)
         for test in ('codeql-rust-model-diagnostic.test.py','codeql-rust-refactored-source.test.py'):
             self.assertIn('run python3 ./scripts/security/'+test,(root/'scripts/ci-tests.sh').read_text())
