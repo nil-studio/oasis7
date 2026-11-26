@@ -33,7 +33,9 @@ impl FileFormalEndpoint {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<PaidFormalRequestQueryV1, FormalError> {
         let _guard = self.guard()?;
-        let result = self.store.read_request_bounded(request, memory, work, cancelled);
+        let result = self
+            .store
+            .read_request_bounded(request, memory, work, cancelled);
         if result.is_err() {
             self.poisoned = true;
         }
