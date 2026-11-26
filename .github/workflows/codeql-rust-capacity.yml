@@ -605,16 +605,36 @@ jobs:
             --output "$RUNNER_TEMP/codeql-rust-production-evidence" \
             --sarif "$RUNNER_TEMP/codeql-results/rust.sarif" \
             --analysis-deadline "$RUST_ANALYSIS_DEADLINE" --extraction-outcome "$EXTRACTION_OUTCOME"
-      - name: Persist bounded observation evidence
+      - id: observation_evidence
+        name: Stage the bounded observation evidence
         if: always()
+        run: |
+          python3 -I - <<'PY'
+          import os, shutil, tempfile
+          from itertools import chain
+          from pathlib import Path
+          runner = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+          stage = Path(tempfile.mkdtemp(prefix='fixed-observation-upload-', dir=runner))
+          for name in ('codeql-rust-fixed-source-layout', 'codeql-rust-native',
+                       'codeql-rust-production-evidence', 'codeql-rust-production-budget.json'):
+              source = runner / name
+              paths = chain((source,), source.rglob('*'))
+              if any(path.is_symlink() or (path.exists() and not (path.is_file() or path.is_dir()))
+                     for path in paths):
+                  raise SystemExit('Unsafe observation evidence path: ' + name)
+              if source.is_dir():
+                  shutil.copytree(source, stage / name)
+              elif source.is_file():
+                  shutil.copyfile(source, stage / name)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'path={stage}\n')
+          PY
+      - name: Persist bounded observation evidence
+        if: always() && steps.observation_evidence.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: oasis7-codeql-rust-fixed-source-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/codeql-rust-fixed-source-layout
-            ${{ runner.temp }}/codeql-rust-native
-            ${{ runner.temp }}/codeql-rust-production-evidence
-            ${{ runner.temp }}/codeql-rust-production-budget.json
+          path: ${{ steps.observation_evidence.outputs.path }}
           include-hidden-files: true
           if-no-files-found: error
           overwrite: false

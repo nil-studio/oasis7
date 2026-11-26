@@ -547,7 +547,14 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         artifact = text.split('      - name: Persist bounded observation evidence\n', 1)[1]
         for forbidden in ('codeql_databases', 'codeql-results', 'fixed-source-helper', 'github.workspace', '*.sarif'):
             self.assertNotIn(forbidden, artifact)
-        self.assertIn('codeql-rust-production-evidence', artifact)
+        self.assertIn("if: always() && steps.observation_evidence.outcome == 'success'", artifact)
+        self.assertIn('path: ${{ steps.observation_evidence.outputs.path }}', artifact)
+        staging = self.section(text, '      - id: observation_evidence\n', '      - name: Persist bounded observation evidence\n')
+        self.assertIn('if: always()', staging)
+        self.assertEqual(re.findall(r"'(codeql-rust-[^']+)'", staging),
+                         ['codeql-rust-fixed-source-layout', 'codeql-rust-native',
+                          'codeql-rust-production-evidence', 'codeql-rust-production-budget.json'])
+        self.assertIn("path.is_symlink()", staging)
         scope = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
         self.assertEqual(scope['scoped_control_paths']['.github/workflows/codeql-rust-capacity.yml'], ['workflow_governance'])
 
