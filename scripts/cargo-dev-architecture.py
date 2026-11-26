@@ -31,7 +31,8 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
     version = architecture['build_policy_version']
     if type(version) is not int:
         raise InspectionError('invalid architecture build policy version')
-    if version not in (1, 2):
+    # Version 3 is reserved as the baseline unknown-version fallback sentinel.
+    if version not in (1, 2, 4):
         return False
     if (architecture.get('build_policy') != 'ordinary-targets'
             or type(architecture.get('version')) is not int or architecture['version'] != 1
@@ -44,6 +45,11 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
         spec.loader.exec_module(artifacts)
         artifacts.ROOT = root
         selected = artifacts.fast_plan(plan)
+        required_empty = (
+            ('fast_plan_exceptions', 'formal_suites', 'oasis7_required_wasm_packages')
+            if version in (1, 2)
+            else ('fast_plan_exceptions', 'formal_suites')
+        )
         if (selected is None
                 or selected.get('scope') != 'targeted'
                 or selected.get('execution_profile') not in ('pr-fast', 'main-fast')
@@ -51,8 +57,7 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
                 or len(selected['groups']) != len(set(selected['groups']))
                 or selected.get('test_policy_changed') is not False
                 or 'ordinary_full_fast_targets' in selected
-                or any(selected.get(key) != [] for key in
-                       ('fast_plan_exceptions', 'formal_suites', 'oasis7_required_wasm_packages'))):
+                or any(selected.get(key) != [] for key in required_empty)):
             raise ValueError('ordinary-targets requires the complete bounded fast plan without extra matrices')
         for key in ('source', 'tested'):
             value = selected.get(key + '_sha')
@@ -100,12 +105,30 @@ def ordinary_target_build_policy(root, plan, architecture, packages, members, *,
                 sorted(set(policy_required).intersection(tested_required)),
             )
             covered_owners = set(required_list)
+            if version == 4:
+                wasm_packages = selected.get('oasis7_required_wasm_packages')
+                policy_wasm = policy_config.get('oasis7_required_wasm_packages')
+                if (not isinstance(wasm_packages, list)
+                        or any(not isinstance(pkg, str) or not pkg for pkg in wasm_packages)
+                        or wasm_packages != sorted(set(wasm_packages))
+                        or not isinstance(policy_wasm, list)
+                        or any(not isinstance(pkg, str) or not pkg for pkg in policy_wasm)
+                        or not set(wasm_packages) <= set(policy_wasm).intersection(artifacts.PORTABLE_REQUIRED_PACKAGES)):
+                    raise ValueError('ordinary-targets v4 requires trusted portable WASM package coverage')
         if not set(inputs) <= covered_owners:
             raise ValueError('ordinary fast target owners do not cover every direct architecture input')
         extra_groups = set(selected['groups']) - {'baseline', 'rust_baseline', 'oasis7_required'}
+        allowed_extra = (
+            {'consensus', 'distfs', 'net', 'node'}
+            if version in (1, 2)
+            else {'consensus', 'distfs', 'net', 'node', 'workspace_support', 'viewer_js_required',
+                  'launcher_web', 'pixel_world_bridge', 'fleet_health'}
+        )
+        if version == 4 and not selected['oasis7_required_wasm_packages'] and extra_groups <= {'consensus', 'distfs', 'net', 'node'}:
+            raise ValueError('ordinary-targets v4 requires portable WASM or extended consumer groups')
         consumers = architecture.get('consumer_groups', {})
         if (not isinstance(consumers, dict) or set(consumers) != extra_groups
-                or not extra_groups <= {'consensus', 'distfs', 'net', 'node'}):
+                or not extra_groups <= allowed_extra):
             raise ValueError('extra native groups require exact reverse-consumer evidence')
         if extra_groups:
             affected = selected.get('affected_packages')

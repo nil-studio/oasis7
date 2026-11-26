@@ -5234,10 +5234,26 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                       if group in config['package_groups'].get(package, ()))
         for group in sorted(actual_extra_groups)
     }
+    artifact_consumer_extra_groups = {
+        'consensus', 'distfs', 'net', 'node',
+        'workspace_support', 'viewer_js_required',
+        'launcher_web', 'pixel_world_bridge', 'fleet_health',
+    }
     actual_native_consumers = (
         actual_extra_groups <= {'consensus', 'distfs', 'net', 'node'}
         and all(actual_consumer_groups.values())
         and not any(actual_extra_groups.intersection(groups) for groups in path_rules.values())
+    )
+    actual_artifact_consumers = (
+        actual_extra_groups <= artifact_consumer_extra_groups
+        and all(actual_consumer_groups.values())
+        and not any(actual_extra_groups.intersection(groups) for groups in path_rules.values())
+    )
+    wasm_packages = plan.get('oasis7_required_wasm_packages')
+    portable_wasm_covered = (
+        isinstance(wasm_packages, list)
+        and wasm_packages == sorted(set(wasm_packages))
+        and set(wasm_packages) <= set(config.get('oasis7_required_wasm_packages', ()))
     )
     if (config.get('architecture_artifact_build_policy_version') == ARCHITECTURE_ARTIFACT_BUILD_POLICY_VERSION
             and 'build_policy' not in architecture and 'build_policy_version' not in architecture
@@ -5252,9 +5268,9 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             and architecture['mode'] == 'targeted'
             and paths and not additions and not conservative
             and not scoped_production_cfg and not member_manifest_paths
-            and required_groups.issubset(plan['groups']) and actual_native_consumers
+            and required_groups.issubset(plan['groups']) and actual_artifact_consumers
             and not plan['test_policy_changed'] and not plan['fast_plan_exceptions']
-            and not plan['formal_suites'] and not plan['oasis7_required_wasm_packages']
+            and not plan['formal_suites'] and portable_wasm_covered
             and not any(path in ('Cargo.toml', 'Cargo.lock', 'build.rs')
                         or path.endswith(('/Cargo.toml', '/Cargo.lock', '/build.rs')) for path in paths)
             and not any(fnmatch.fnmatchcase(path, pattern) for path in paths for pattern in CONTROL)
@@ -5264,7 +5280,9 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             and inputs and inputs.issubset(set(plan.get('oasis7_required_packages', ())))
             and tested_source_supports_capability(plan, 'architecture_artifact_build_policy_version',
                                                   ARCHITECTURE_ARTIFACT_BUILD_POLICY_VERSION)):
-        architecture.update(build_policy_version=2, build_policy='ordinary-targets')
+        # Version 3 is reserved as the baseline unknown-version fallback sentinel.
+        policy_version = 2 if (actual_native_consumers and not wasm_packages) else 4
+        architecture.update(build_policy_version=policy_version, build_policy='ordinary-targets')
         if actual_consumer_groups:
             architecture['consumer_groups'] = actual_consumer_groups
         plan['reasons'].append('all architecture inputs have mandatory ordinary artifact and strict Clippy coverage; '
