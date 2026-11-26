@@ -147,22 +147,32 @@ impl FullSyncRevocationInventoryV1 {
             ));
         }
         if self.original_fences.len() > self.leases.len() {
-            return Err(FormalError::Rollback("original fence inventory exceeded signed leases".into()));
+            return Err(FormalError::Rollback(
+                "original fence inventory exceeded signed leases".into(),
+            ));
         }
         for (original, fence) in &self.original_fences {
             if fence.body.original_lease.as_ref() != Some(original) {
-                return Err(FormalError::Rollback("original fence map key changed".into()));
+                return Err(FormalError::Rollback(
+                    "original fence map key changed".into(),
+                ));
             }
             fence.verify_for_inventory(
-                self, state.anchor().revision, &state.policy().body().witness_public_key,
+                self,
+                state.anchor().revision,
+                &state.policy().body().witness_public_key,
             )?;
         }
         if let Some(gate) = &self.target_gate_fence {
             if gate.body.original_lease.is_some() {
-                return Err(FormalError::Rollback("target gate witness has an original lease".into()));
+                return Err(FormalError::Rollback(
+                    "target gate witness has an original lease".into(),
+                ));
             }
             gate.verify_for_inventory(
-                self, state.anchor().revision, &state.policy().body().witness_public_key,
+                self,
+                state.anchor().revision,
+                &state.policy().body().witness_public_key,
             )?;
         }
         if let Some(observation) = &self.observed_signed_expiry {
