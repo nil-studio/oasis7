@@ -203,7 +203,7 @@ await runChecked("env", ["-u", "RUSTC_WRAPPER", "cargo", "build", ...cargoLockAr
 const gameProtocolDir = resolve(viewerDistDir, "browser-game-client");
 await mkdir(gameProtocolDir, { recursive: true });
 await runChecked(await resolveWasmBindgenCommand(), ["--target", "web", "--out-dir", gameProtocolDir, "--out-name", "oasis7_browser_game_client", resolve(workspaceRoot, "target", "wasm32-unknown-unknown", "release", "oasis7_browser_game_client.wasm")]);
-if (visualTest || buildPaths.local) await Promise.all(["viewer_base.css", "viewer_base_tokens.css", "viewer_terminal_shell.css", "favicon.ico", "viewer_first_agent_claim_evidence.html"].map(name => copyFile(resolve(viewerRoot, name), resolve(viewerDistDir, name))));
+if (visualTest || buildPaths.local) await Promise.all(["viewer_base.css", "viewer_base_tokens.css", "viewer_base_layout.css", "viewer_terminal_shell.css", "favicon.ico", "viewer_first_agent_claim_evidence.html"].map(name => copyFile(resolve(viewerRoot, name), resolve(viewerDistDir, name))));
 if (!visualTest && !buildPaths.local) await Promise.all([
   rm(staleRootCompatHtmlPath, { force: true }),
   rm(staleRootCompatBundlePath, { force: true }),
