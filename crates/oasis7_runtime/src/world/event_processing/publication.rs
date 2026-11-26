@@ -18,6 +18,7 @@ mod staged_institutions;
 mod staged_institutions_governance;
 use staged_industrial::StagedIndustrialPublication;
 use staged_institutions::StagedInstitutionsPublication;
+use staged_institutions_governance::StagedInstitutionsGovernanceTransition;
 
 struct PreparedEventPublication {
     event: WorldEvent,
@@ -126,6 +127,9 @@ impl World {
         }
         if let Some(transition) = StagedInstitutionsPublication::from_body(&body) {
             return self.append_staged_institutions_event(transition, caused_by);
+        }
+        if let Some(transition) = StagedInstitutionsGovernanceTransition::from_body(&body) {
+            return self.append_staged_institutions_governance_event(transition, caused_by);
         }
         let state_delta = match &body {
             WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { world_binding, .. }) => {

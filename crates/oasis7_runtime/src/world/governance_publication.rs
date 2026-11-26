@@ -17,6 +17,7 @@ use super::super::{
     WorldEvent, WorldEventBody, WorldEventId,
 };
 use super::World;
+use super::transition::RootInstallContext;
 
 use oasis7_world_state::codec::StateRootProjection;
 
@@ -358,11 +359,12 @@ impl PreparedGovernanceProposalApply {
             None
         };
         self.install(world)?;
-        instance.install_infallible(&mut world.state);
+        let mut ctx = RootInstallContext::new(world);
+        instance.install_infallible(ctx.state_mut());
         if let Some(release) = release {
-            release.install_routed(&mut world.state);
+            release.install_routed(ctx.state_mut());
         } else {
-            world.state.route_domain_event(&event);
+            ctx.state_mut().route_domain_event(&event);
         }
         Ok(())
     }
@@ -385,22 +387,25 @@ impl PreparedGovernanceProposalApply {
         } = self;
 
         world.install_prepared_tick_consensus_record(consensus_record)?;
-        world.manifest = manifest;
-        world.module_registry = module_registry;
-        world.module_artifacts = module_artifacts;
-        world.module_tick_schedule = module_tick_schedule;
-        world.proposals.insert(proposal_id, proposal);
-        world.next_event_id = next_event_id;
-        world.next_event_id_era = next_event_id_era;
-        world.journal.events = journal_events;
-        world.runtime_backpressure_stats.journal_events_evicted = world
-            .runtime_backpressure_stats
-            .journal_events_evicted
-            .saturating_add(journal_events_evicted);
+        let mut ctx = RootInstallContext::new(world);
+        {
+            let world = ctx.world_mut();
+            world.manifest = manifest;
+            world.module_registry = module_registry;
+            world.module_artifacts = module_artifacts;
+            world.module_tick_schedule = module_tick_schedule;
+            world.proposals.insert(proposal_id, proposal);
+        }
+        ctx.install_journal_tail(
+            next_event_id,
+            next_event_id_era,
+            journal_events,
+            journal_events_evicted,
+        );
 
         for record_key in cache_invalidations {
             let prefix = format!("{record_key}|");
-            world
+            ctx.world_mut()
                 .prepared_subscription_cache
                 .retain(|key, _| !key.starts_with(prefix.as_str()));
         }
