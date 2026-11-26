@@ -10,6 +10,7 @@
 2. **粗粒度连带触发与高倍率跨平台矩阵陪跑**：规划器硬编码连带选择（如改普通运维脚本无条件追加 `windows_rollout` + `fleet_health`），或多平台宿主将正交子契约绑死在三端全矩阵冷编译。按 GitHub Actions 计费倍率（Linux `1×`、Windows `2×`、macOS `10×`），单次 `3.4m` `macos-15` + `4.0m` `windows-2022` 即产生 **41.7 折算计费分钟**。
 3. **前置门禁漏挂重编译宿主导致低级错误空跑**：极速前置门禁（如 `fast-preflight` 浅克隆 `cargo fmt`）若未完整覆盖所有重编译宿主（含承载合并组的宿主），一旦格式失败，漏挂宿主仍会空跑数分钟并在修复重推时被大面积取消。
 4. **上下游同源检查重复执行**：前置门禁已对同一 `tested_sha`、同一容器镜像和同一工具链验证过的检查（如 `cargo fmt --all -- --check`），在下游重型基线 Job 中再次无条件重跑。
+5. **非 `chain_runtime` 多套件包或 `test_policy_changed=true` 单分片漏网回退**：若 `ordinary_artifact_partition_version=2` 仅门控 `'oasis7_chain_runtime' in oasis7_required_packages` 且 `test_policy_changed == false`，触达 `oasis7_runtime`（37 个 harness）、`oasis7_world_state`（30 个 harness）等无 `chain_runtime` 的多套件 PR 以及测试分层迁移 PR 会跌落宿主 `oasis7-required (all)` 单分片（额外承受 `4–5m` 工具链冷装与 `15–22m` 串行跑测）；通过 `ordinary_universal_sharding_version=1` 将具备 `>=4` 个已登记普通 harness 成本项的非 `chain_runtime` 计划及 `test_policy_changed=true` 计划统一纳入 `ci-rust-build` 容器分片（`native-0..1` / `native-0..3`），消除单分片宿主回退。
 
 ## 2. 关键文件与职责接缝
 
