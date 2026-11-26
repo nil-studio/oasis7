@@ -214,6 +214,53 @@ impl Store {
     pub fn checkpoint_bytes(&self) -> Result<Vec<u8>, FormalError> {
         read(&self.path.join(HOT))
     }
+    /// Paid data-only original lookup; typed decode and authenticated index
+    /// traversal have their own admission obligations.
+    pub(super) fn raw_object_bounded(
+        &self,
+        id: &str,
+        max: usize,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &super::FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<super::FormalArchiveReadOwnerV1>, FormalError> {
+        // The helper charges path growth and validates original bytes. Reuse
+        // the Store path rather than constructing an unmetered File adapter.
+        let path_bytes = self
+            .path
+            .as_os_str()
+            .as_encoded_bytes()
+            .len()
+            .checked_add("formal-objects-v1".len() + 1)
+            .and_then(|n| n.checked_add(std::mem::size_of::<std::path::PathBuf>()))
+            .ok_or_else(|| invalid("bounded Store path layout"))?;
+        let _path_fee = memory
+            .reserve(
+                path_bytes,
+                oasis7_proto::memory_budget::MemoryClass::Ordinary,
+            )
+            .map_err(|_| invalid("bounded Store path admission"))?;
+        let capacity = path_bytes - std::mem::size_of::<std::path::PathBuf>();
+        let mut directory = std::path::PathBuf::with_capacity(capacity);
+        if directory.capacity() > capacity {
+            return Err(invalid("bounded Store path capacity"));
+        }
+        directory.push(&self.path);
+        directory.push("formal-objects-v1");
+        if let Some(owner) = super::archive_bounded_read::read_local_archive_bounded_v1(
+            &directory, id, max, memory, work, cancelled,
+        )? {
+            return Ok(Some(owner));
+        }
+        super::archive_bounded_read::read_archive_sources_bounded_v1(
+            &self.sources,
+            id,
+            max,
+            memory,
+            work,
+            cancelled,
+        )
+    }
     pub fn raw_object(&self, id: &str) -> Result<Option<Vec<u8>>, FormalError> {
         hash_hex(id)?;
         let path = self.path.join("formal-objects-v1").join(id);
@@ -678,3 +725,38 @@ impl Store {
         })
     }
 }
+
+#[path = "endpoint_store_bounded_index.rs"]
+mod bounded_index;
+impl Store {
+    /// Typed data lookup with paid originals and the existing Index codec.
+    /// The returned reference grants no entry or publication authority.
+    pub(super) fn lookup_bounded(
+        &self,
+        request: &str,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &super::FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<oasis7_proto::memory_budget::ReservedValue<String>>, FormalError> {
+        bounded_index::lookup_bounded_v1(self, request, memory, work, cancelled)
+    }
+}
+
+#[path = "endpoint_store_paid_read.rs"]
+mod paid_read;
+
+#[path = "endpoint_store_bounded_request.rs"]
+pub(super) mod bounded_request;
+pub(super) use bounded_request::PaidRequestStateV1;
+impl Store {
+    pub(super) fn read_request_bounded(
+        &self,
+        request: &str,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &super::FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<PaidRequestStateV1>, FormalError> {
+        bounded_request::read_request_bounded_v1(self, request, memory, work, cancelled)
+    }
+}
+

@@ -1134,3 +1134,7 @@ mod native_environment;
 #[path = "endpoint_archive_bounded_read.rs"]
 mod archive_bounded_read;
 pub use archive_bounded_read::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};
+
+#[path = "endpoint_bounded_query.rs"]
+mod bounded_query;
+pub use bounded_query::PaidFormalRequestQueryV1;
