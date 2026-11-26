@@ -195,3 +195,23 @@ jobs:
                    '--deadline', str(__import__('time').time() + 30)]
           assert subprocess.run(check, env=env, capture_output=True, timeout=15).returncode != 0
           PYTHON
+      - name: Mark probe-only transport samples
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/codeql-rust-production-evidence"
+          printf '%s\n' '{"diagnostic_only":true,"analysis_executed":false}' >"$RUNNER_TEMP/codeql-rust-production-evidence/probe-only.json"
+          printf '%s\n' '{"diagnostic_only":true,"budget_allocated":false}' >"$RUNNER_TEMP/codeql-rust-production-budget.json"
+      - name: Persist bounded probe transport evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: draft-probe-codeql-fixed-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/codeql-rust-fixed-source-layout
+            ${{ runner.temp }}/codeql-rust-native
+            ${{ runner.temp }}/codeql-rust-production-evidence
+            ${{ runner.temp }}/codeql-rust-production-budget.json
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
