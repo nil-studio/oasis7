@@ -480,9 +480,17 @@ class WorkflowCorePart3(unittest.TestCase):
                 validate_candidate_graph(WORKFLOW.replace(job, damaged), CONFIG)
 
     def test_cache_maintenance_jobs_use_readonly_published_runtime_environment(self):
-        for name in ('cache-bootstrap-maintenance', 'cache-maintenance'):
+        release = workflow_jobs((ROOT / '.github/workflows/release-packages.yml').read_text())
+        ecs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
+        maintenance_jobs = (
+            ('rust/bootstrap', JOBS['cache-bootstrap-maintenance']),
+            ('rust/maintenance', JOBS['cache-maintenance']),
+            ('release/bootstrap', release['cache-bootstrap-maintenance']),
+            ('release/maintenance', release['cache-maintenance']),
+            ('ecs/maintenance', ecs['cache-maintenance']),
+        )
+        for name, job in maintenance_jobs:
             with self.subTest(job=name):
-                job = JOBS[name]
                 self.assertIn('image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9', job)
                 self.assertIn('options: --user 1001:1001 --init', job)
                 self.assertIn('packages: read', job)
