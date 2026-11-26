@@ -163,7 +163,9 @@ if(role==='npm'){
 if(role==='cargo'){
  if (args[0]!=='build') throw Error('expected Cargo build');
  if (!args.includes('--locked')) fs.appendFileSync(path.join(root,'Cargo.lock'),'# unlocked Cargo changed the input\\n');
- const p=args[args.indexOf('-p')+1], target=path.join(root,'target/wasm32-unknown-unknown/release');fs.mkdirSync(target,{recursive:true});fs.writeFileSync(path.join(target,p+'.wasm'),'fixture-cargo-wasm');process.exit(0);
+ const target=path.join(root,'target/wasm32-unknown-unknown/release');fs.mkdirSync(target,{recursive:true});
+ for(let i=0;i<args.length;i++){if(args[i]==='-p'&&args[i+1])fs.writeFileSync(path.join(target,args[i+1]+'.wasm'),'fixture-cargo-wasm');}
+ process.exit(0);
 }
 if(role==='wasm-bindgen'){
  const out=args[args.indexOf('--out-dir')+1], name=args[args.indexOf('--out-name')+1];fs.mkdirSync(out,{recursive:true});
@@ -196,10 +198,11 @@ test("the real finalizer and copy consumer publish fresh isolated outputs withou
   }
   const commands = readFileSync(join(f.root, 'commands.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(commands.filter(x => x.role === 'npm').length, 2, 'a local run cannot reuse an earlier dist as its real build');
-  assert.equal(commands.filter(x => x.role === 'cargo').length, 4);
+  assert.equal(commands.filter(x => x.role === 'cargo').length, 2);
   for (const command of commands.filter(x => x.role === 'cargo')) {
     assert.equal(command.offline, 'true');
     assert.ok(command.args.includes('--locked'));
+    assert.ok(command.args.includes('profile.release.lto="off"'));
     assert.equal(command.args.includes('--target-dir'), false);
   }
 });
@@ -213,7 +216,9 @@ test("the CI artifact build preserves Cargo.lock without changing the developer 
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const commands = readFileSync(join(f.root, "commands.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
     const cargoBuilds = commands.filter(x => x.role === "cargo");
-    assert.deepEqual(cargoBuilds.map(x => x.args[x.args.indexOf("-p") + 1]), [
+    assert.equal(cargoBuilds.length, 1);
+    const selectedPackages = cargoBuilds[0].args.flatMap((arg, idx, arr) => arg === "-p" ? [arr[idx + 1]] : []);
+    assert.deepEqual(selectedPackages, [
       "oasis7_browser_game_client",
       "pixel_world_bridge",
     ]);
