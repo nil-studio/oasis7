@@ -240,7 +240,7 @@ impl World {
     }
 }
 
-fn m4_default_material_profiles() -> Vec<MaterialProfileV1> {
+pub(crate) fn m4_default_material_profiles() -> Vec<MaterialProfileV1> {
     vec![
         material_profile(
             "iron_ore",
@@ -420,7 +420,7 @@ fn material_profile(
     }
 }
 
-pub(super) fn m4_default_product_profiles() -> Vec<ProductProfileV1> {
+pub(crate) fn m4_default_product_profiles() -> Vec<ProductProfileV1> {
     vec![
         product_profile("iron_ingot", "scale", true, "bootstrap"),
         product_profile_with_sink(
@@ -500,7 +500,7 @@ fn product_profile_with_sink(
     }
 }
 
-fn m4_default_recipe_profiles() -> Vec<RecipeProfileV1> {
+pub(crate) fn m4_default_recipe_profiles() -> Vec<RecipeProfileV1> {
     vec![
         recipe_profile(
             "recipe.smelter.iron_ingot",

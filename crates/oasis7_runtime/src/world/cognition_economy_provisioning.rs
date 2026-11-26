@@ -321,6 +321,17 @@ impl CognitionEconomyStateV1 {
         Ok(receipt)
     }
 
+    pub(crate) fn provision_staged(
+        &mut self,
+        request: CognitionProvisioningRequestV1,
+        tick: u64,
+    ) -> Result<CognitionProvisioningReceiptV1, CognitionEconomyError> {
+        request.validate()?;
+        let receipt = self.provision_inner(request, tick)?;
+        self.validate()?;
+        Ok(receipt)
+    }
+
     fn provision_inner(
         &mut self,
         request: CognitionProvisioningRequestV1,

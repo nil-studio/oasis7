@@ -27,7 +27,7 @@ pub use agent_intent::{AgentIntentProviderFailureDisposition, AgentIntentRecordO
 mod audit;
 mod base_layer;
 mod body;
-mod bootstrap_economy;
+pub(crate) mod bootstrap_economy;
 mod bootstrap_gameplay;
 mod bootstrap_power;
 #[path = "../domains/industrial/mod.rs"]
@@ -68,7 +68,7 @@ mod effect_publication;
 #[cfg(test)]
 mod effect_publication_transaction_regressions;
 mod effects;
-mod event_processing;
+pub(crate) mod event_processing;
 mod formal_execution_tick;
 mod formal_retention;
 mod formal_tick_consensus;
