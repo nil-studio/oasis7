@@ -31,13 +31,13 @@ jobs:
       run:
         shell: bash
     env:
-      CODE_SHA: 23534bced4845c75e780b2de772305940f137ef4
+      CODE_SHA: 7353c261e5952f2f6bf66a715a93dff1e893b6cf
       CONTROLLER_SHA: ${{ github.event.pull_request.head.sha }}
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 23534bced4845c75e780b2de772305940f137ef4
+          ref: 7353c261e5952f2f6bf66a715a93dff1e893b6cf
           fetch-depth: 0
           persist-credentials: false
       - name: Verify fixed diagnostic source and original Linux tool context
@@ -47,7 +47,7 @@ jobs:
           [[ "$CONTROLLER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$CODE_SHA"
           test "$(git diff --name-only "$CODE_SHA" "$CONTROLLER_SHA")" = .github/workflows/portable-cache-finite-linux-fixture.yml
-          git diff --check b65bacd40ffea365804a2a06d7119a94c760add3 "$CODE_SHA"
+          git diff --check efb337329058a2ad687f999de4c7377aa480a741 "$CODE_SHA"
           python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
           node --version
           tar --version | head -1
