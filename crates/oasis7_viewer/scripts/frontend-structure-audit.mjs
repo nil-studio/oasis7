@@ -27,12 +27,6 @@ const knownLineDebt = new Map(Object.entries({
     reason: "security frontend extraction moves the shared application to viewer_app.jsx and removes visual fixture data and installers from the release entry",
     nextTrigger: "the next shared application UI change must extract an adjacent surface; the fixture assembly is already separate",
   },
-  "crates/oasis7_viewer/software_safe_src/main.test.jsx": {
-    maxLines: 3446,
-    owner: "viewer_engineer",
-    reason: "task_f3ba918435b24b8eadef002fed2b966a verifies failure disposition precedence and the registered visual fixture in the existing shared Viewer harness",
-    nextTrigger: "the next factory failure or industrial gameplay UI test must move this behavior into a narrower adjacent test file with shared harness helpers",
-  },
 }));
 
 function repoRelative(path) {
