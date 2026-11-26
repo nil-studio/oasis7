@@ -706,9 +706,11 @@ mod tests {
         };
         use std::collections::BTreeMap;
 
+        type TickScriptEntry = (Option<Vec<u8>>, ModuleTickLifecycleDirective);
+
         struct ScriptedTickSandbox {
             // (module_id, world_time) -> (new_state, directive)
-            script: BTreeMap<(String, u64), (Option<Vec<u8>>, ModuleTickLifecycleDirective)>,
+            script: BTreeMap<(String, u64), TickScriptEntry>,
             calls: Vec<(String, String)>,
         }
 
