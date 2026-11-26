@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::continuous_agent_harness::{CognitionError, Digest32, MemoryWriteIntentV1};
+use super::continuous_agent_harness::{CognitionError, Digest32};
 
 pub use oasis7_agent_api::{GoalSnapshotV1, MemoryContextEntryV1, MemoryContextSnapshotV1};
 

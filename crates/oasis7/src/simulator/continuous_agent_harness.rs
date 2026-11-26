@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
 
 pub use oasis7_agent_api::{
@@ -36,8 +36,6 @@ pub const COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN: &str =
 const MAX_FEEDBACK_REPLAY_ENTRIES: usize = 8;
 
 pub use oasis7_agent_harness::FinalityBindingV1;
-
-pub use oasis7_agent_harness::BudgetContractV1;
 
 pub use oasis7_agent_api::{
     ContinuousAgentRequestContextV1, FeedbackEnvelopeV1, MemoryWriteIntentV1,
