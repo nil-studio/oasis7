@@ -1,5 +1,4 @@
-use crate::simulator::unsupported_runtime_perf_snapshot;
-use crate::simulator::RuntimePerfSnapshot;
+use oasis7_simulator::{RuntimePerfSnapshot, unsupported_runtime_perf_snapshot};
 
 impl LiveScript {
     fn new(kernel: &WorldKernel) -> Self {
@@ -955,7 +954,7 @@ impl ViewerLiveSession {
                 self.playing = false;
                 self.next_play_step_at = None;
                 // P2P live mode is monotonic and does not support rewind/seek semantics.
-                crate::observability::emit_stderr_or_event(
+                oasis7_observability::emit_stderr_or_event(
                     tracing::Level::INFO,
                     format!("viewer live: ignore seek control in live mode (target_tick={tick})")
                         .as_str(),

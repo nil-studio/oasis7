@@ -254,7 +254,7 @@ DevLocal policy 由显式启用的本地 operator 管理来源授权，使用独
 
 **生产与权限。** WorldService 为经认证且具有该 Agent 资格读取权限的主体产生最小 eligibility 投影，不把 `main_token_balances` 全账本加入公共 allowlist。该投影只需表达“liquid 是否为正”和“starter 领取记录是否存在”的已知/未知事实、适用范围及 blocker/刷新线索，不要求公开金额、其他账号记录或原始目标文本。Agent 只能消费其已获准的同范围投影；public 或仅有执行权限的读者不能由此取得 owner 私有读权，缺读权返回 unavailable。
 
-**未领取时的窄读权。** 现有 [owner_public_key](../../../crates/oasis7_world_service/src/agent_authority.rs) 从唯一匹配的 `starter_oc_claims.public_key` 解析 owner；现有 authenticated owner View 因而不能作为“无领取记录”资格分支的唯一入口。后继实现选定独立的 `starter_eligibility` 读取用途：以 6.1.1 已提交的账号/world/Agent/identity generation/公钥绑定和原注册结果为权威基础，服务校验调用者对完整读取请求的原始签名、用途、主体/Agent/世界/branch、当前绑定及可信 commit；请求摘要与响应事实沿版本化签名读取协议绑定。绑定/公钥来源必须可从同世界合法历史验证，Hosted 登录、客户端自报字段或旧 sidecar 单独不足以建立此读权。缺证明、旧公钥已失效、错主体或未知版本均返回 unavailable。
+**未领取时的窄读权。** 现有 [owner_public_key](../../../crates/oasis7_runtime/src/service_admission/agent_authority.rs) 从唯一匹配的 `starter_oc_claims.public_key` 解析 owner；现有 authenticated owner View 因而不能作为“无领取记录”资格分支的唯一入口。后继实现选定独立的 `starter_eligibility` 读取用途：以 6.1.1 已提交的账号/world/Agent/identity generation/公钥绑定和原注册结果为权威基础，服务校验调用者对完整读取请求的原始签名、用途、主体/Agent/世界/branch、当前绑定及可信 commit；请求摘要与响应事实沿版本化签名读取协议绑定。绑定/公钥来源必须可从同世界合法历史验证，Hosted 登录、客户端自报字段或旧 sidecar 单独不足以建立此读权。缺证明、旧公钥已失效、错主体或未知版本均返回 unavailable。
 
 该窄用途只返回本节 eligibility；它不调用依赖先有 starter claim 的 owner metadata 路径，也不读取私有目标、建立经济 claim、修改控制 grant 或扩大执行/委托权限。canonical owner goal 继续保留原有独立 owner/claim 验证；即使正余额使 OC gate 通过，其他 owner 前提未满足仍应明确受阻。普通 owner 私有读取的原验证不因该窄入口而放宽。未领取读权与注册绑定的可验证持久记录须随后继实现一同交付，否则保留 unavailable，不能以本地完整 WorldState 代签 service 无记录分支。
 

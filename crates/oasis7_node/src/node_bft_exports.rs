@@ -45,7 +45,15 @@ pub use crate::execution_hook::{
     NodeBftBuildContextV3, NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3,
     NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3,
 };
-pub use crate::node_bft_v3_runtime::{NodeBftObservationV1, NodeBftStatusV3};
+pub use crate::node_bft_v3_runtime::{
+    NodeBftObservationV1, NodeBftStatusV3,
+    successor_rotation::{
+        BFT_V3_WINDOW_MAX_COMMITS, BFT_V3_WINDOW_PREPARE_OFFSET,
+        BftAuthenticatedSuccessorInstallV1, BftPendingTransitionWindowPinV1,
+        BftSealedSuccessorWindowV1, BftSuccessorRotationMachineV1, BftWindowCommittedStepV1,
+        BftWindowHeadPinV1, BftWindowRotationPhaseV1, BftWindowSchedulePinV1,
+    },
+};
 
 pub use crate::node_bft_v3_runtime::private_exchange::{
     NodeBftPeerExecutionStateV3, NodeBftPeerExecutionViewV3, NodeBftPrivateCandidateExchangeV3,

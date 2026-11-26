@@ -261,10 +261,42 @@ class BrowserDependencies(unittest.TestCase):
             execute.assert_not_called()
             self.assertFalse(output.exists())
 
+    def test_agent_requires_pinned_native_platform_package_and_node24(self):
+        with tempfile.TemporaryDirectory(dir=Path(tempfile.gettempdir()).resolve()) as temporary:
+            tools = Path(temporary)
+            modules = tools / 'node_modules'
+            for name, version in (('agent-browser', '0.43.0'), ('playwright', '1.62.1'),
+                                  ('playwright-core', '1.62.1')):
+                manifest = modules / name / 'package.json'
+                manifest.parent.mkdir(parents=True)
+                manifest.write_text(json.dumps({'version': version}))
+            package = modules / '@agent-browser/cli-linux-x64-gnu'
+            binary = package / 'bin' / 'agent-browser'
+            manifest = package / 'package.json'
+            binary.parent.mkdir(parents=True)
+            with patch.object(browser, 'TOOLS', tools), \
+                    patch.object(browser.subprocess, 'check_output', return_value='v24.14.1') as node:
+                with self.assertRaisesRegex(browser.BrowserError, 'missing or linked'):
+                    browser.check_tools('agent')
+                binary.write_text('fixture')
+                manifest.write_text(json.dumps({'name': package.name, 'version': '0.43.0'}))
+                with self.assertRaisesRegex(browser.BrowserError, 'identity mismatch'):
+                    browser.check_tools('agent')
+                manifest.write_text(json.dumps({'name': '@agent-browser/cli-linux-x64-gnu',
+                                                'version': '0.43.0'}))
+                self.assertEqual(browser.check_tools('agent'), binary)
+                binary.rename(tools / 'ambient-agent')
+                binary.symlink_to(tools / 'ambient-agent')
+                with self.assertRaisesRegex(browser.BrowserError, 'missing or linked'):
+                    browser.check_tools('agent')
+                node.return_value = 'v22.23.5'
+                with self.assertRaisesRegex(browser.BrowserError, 'Node 24'):
+                    browser.check_tools('agent')
+
     def test_agent_version_or_launch_failure_cannot_export_runtime_environment(self):
         for outputs in (['agent-browser wrong'],
-                        ['agent-browser 0.37.1', 'Google Chrome for Testing wrong'],
-                        ['agent-browser 0.37.1', 'Google Chrome for Testing 158.0.8127.36', '<body>wrong</body>']):
+                        ['agent-browser 0.43.0', 'Google Chrome for Testing wrong'],
+                        ['agent-browser 0.43.0', 'Google Chrome for Testing 158.0.8127.36', '<body>wrong</body>']):
             with self.subTest(outputs=outputs), tempfile.TemporaryDirectory() as temporary:
                 work = Path(temporary)
                 agent = work / 'agent'
@@ -275,6 +307,30 @@ class BrowserDependencies(unittest.TestCase):
                         patch.object(browser, 'checked_command', side_effect=outputs), self.assertRaises(browser.BrowserError):
                     browser.activate('agent', work, output)
                 self.assertFalse(output.exists())
+
+    def test_prebuilt_agent_uses_image_chrome_without_mutating_installed_binary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            image = root / 'installed-viewer'
+            work = root / 'job'
+            tools = image / 'scripts/ci-browser-tools'
+            binary = root / 'read-only-agent'
+            binary.touch(mode=0o555)
+            with patch.object(browser, 'VIEWER_IMAGE', image), patch.object(browser, 'require_platform'), \
+                    patch.object(browser, 'missing_packages', return_value=[]), \
+                    patch.object(browser, 'check_tools', return_value=binary) as check_tools, \
+                    patch.object(browser, 'checked_command', side_effect=[
+                        f'agent-browser {browser.AGENT_VERSION}',
+                        f'Google Chrome for Testing {browser.CHROME_VERSION}',
+                        '<body>oasis7-ci-browser-ready</body>',
+                    ]) as execute:
+                values = browser.activate('agent', work, prebuilt=True)
+            check_tools.assert_called_once_with('agent', tools)
+            chrome = image / 'chrome/chrome-linux64/chrome'
+            self.assertEqual(execute.call_args_list[1].args[0], [str(chrome), '--version'])
+            self.assertEqual(values['AGENT_BROWSER_EXECUTABLE_PATH'], str(chrome))
+            self.assertEqual(values['OASIS7_PLAYWRIGHT_MODULE'], str(tools / 'node_modules/playwright'))
+            self.assertEqual(binary.stat().st_mode & 0o777, 0o555)
 
     def test_playwright_preserves_shell_installer_and_private_runtime_path(self):
         with tempfile.TemporaryDirectory() as temporary:

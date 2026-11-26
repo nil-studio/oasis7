@@ -3,15 +3,18 @@
 import argparse
 from datetime import datetime, timezone
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import errno
 import gzip
 import hashlib
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -102,6 +105,16 @@ class ProviderArtifact:
 
 
     @staticmethod
+    def _clean_nested_target(root, manifest_relative, existed_before):
+        if existed_before:
+            return
+        nested_target = root / Path(manifest_relative).parent / 'target'
+        if nested_target.is_symlink():
+            nested_target.unlink()
+        elif nested_target.exists():
+            shutil.rmtree(nested_target)
+
+    @staticmethod
     def build(root, bundle, expected):
         directory = bundle / ProviderArtifact.DIRECTORY
         directory.mkdir(parents=True, exist_ok=False)
@@ -109,12 +122,17 @@ class ProviderArtifact:
         if any(before[key] != expected[key] for key in ('tested_sha', 'source_sha')):
             raise ValueError('provider producer source differs from native identity')
         (root / 'target').mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix='ci-preview-provider-', dir=root / 'target') as temporary:
-            subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
-                            '--manifest-path', ProviderArtifact.MANIFEST, '--out-dir', temporary,
-                            '--module-id', ProviderArtifact.MODULE, '--profile', 'release'], cwd=root, check=True)
-            for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
-                shutil.copy2(Path(temporary) / (ProviderArtifact.MODULE + suffix), directory / (ProviderArtifact.MODULE + suffix))
+        provider_target = root / Path(ProviderArtifact.MANIFEST).parent / 'target'
+        nested_existed = provider_target.exists() or provider_target.is_symlink()
+        try:
+            with tempfile.TemporaryDirectory(prefix='ci-preview-provider-', dir=root / 'target') as temporary:
+                subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
+                                '--manifest-path', ProviderArtifact.MANIFEST, '--out-dir', temporary,
+                                '--module-id', ProviderArtifact.MODULE, '--profile', 'release'], cwd=root, check=True)
+                for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
+                    shutil.copy2(Path(temporary) / (ProviderArtifact.MODULE + suffix), directory / (ProviderArtifact.MODULE + suffix))
+        finally:
+            ProviderArtifact._clean_nested_target(root, ProviderArtifact.MANIFEST, nested_existed)
         files = {kind: f'{ProviderArtifact.DIRECTORY}/{ProviderArtifact.MODULE}{suffix}' for kind, suffix in
                  (('wasm', '.wasm'), ('metadata', '.metadata.json'), ('receipt', '.build-receipt.json'))}
         checker_files, libraries = ProviderArtifact.build_checker(root, bundle, ProviderArtifact.DIRECTORY)
@@ -169,6 +187,7 @@ class BuiltinTestArtifact(ProviderArtifact):
     def required(manifest):
         included = manifest.get('included_binaries', manifest.get('binaries', {}))
         return any(name in included and binary.get('package') == 'oasis7_runtime' and binary.get('test')
+                   and binary.get('target_kind', ['lib']) == ['lib']
                    and {'wasmtime', 'test_tier_full'} <= set(binary.get('features', []))
                    for name, binary in manifest.get('binaries', {}).items())
 
@@ -186,13 +205,19 @@ class BuiltinTestArtifact(ProviderArtifact):
                                    for key, name in checker_files.items()}, libraries=libraries)
         (root / 'target').mkdir(exist_ok=True)
         for module, crate in BuiltinTestArtifact.MODULES.items():
-            with tempfile.TemporaryDirectory(prefix='ci-builtin-resources-', dir=root / 'target') as temporary:
-                subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
-                                '--manifest-path', f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml',
-                                '--out-dir', temporary, '--module-id', module, '--profile', 'release'],
-                               cwd=root, check=True)
-                for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
-                    shutil.copy2(Path(temporary) / (module + suffix), directory / (module + suffix))
+            manifest_rel = f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+            module_target = root / Path(manifest_rel).parent / 'target'
+            nested_existed = module_target.exists() or module_target.is_symlink()
+            try:
+                with tempfile.TemporaryDirectory(prefix='ci-builtin-resources-', dir=root / 'target') as temporary:
+                    subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
+                                    '--manifest-path', manifest_rel,
+                                    '--out-dir', temporary, '--module-id', module, '--profile', 'release'],
+                                   cwd=root, check=True)
+                    for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
+                        shutil.copy2(Path(temporary) / (module + suffix), directory / (module + suffix))
+            finally:
+                ProviderArtifact._clean_nested_target(root, manifest_rel, nested_existed)
             records[module] = {kind: {'path': f'{BuiltinTestArtifact.DIRECTORY}/{module}{suffix}',
                                      'sha256': ProviderArtifact.digest(directory / (module + suffix))}
                                for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
@@ -281,6 +306,7 @@ def preview_provider_required(manifest):
 
 
 ROOT = Path(__file__).resolve().parent.parent
+ORDINARY_HOST_CHECKOUT = Path('/home/runner/work/oasis7/oasis7')
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 FORMAL_AUTHORITY = None
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
@@ -316,13 +342,14 @@ UNIT_TEST_CONTRACT_FIELDS = frozenset((
 ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1', 'native-2', 'native-3')
 COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1')
-COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 300000
+COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 60000
 
 
 def targeted_ordinary_artifact_partitions(plan):
     if (isinstance(plan, dict)
             and plan.get('ordinary_dynamic_partition_version') == 1
             and plan.get('scope') == 'targeted'
+            and plan.get('test_policy_changed') is False
             and isinstance(plan.get('ordinary_harness_costs'), dict)
             and isinstance(plan.get('oasis7_required_packages'), list)):
         selected = set(plan['oasis7_required_packages'])
@@ -400,8 +427,8 @@ def fast_plan(plan):
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions',
          'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
-         'ordinary_dynamic_partition_version', 'ordinary_controls_in_rust_baseline_version',
-         'ordinary_wasm_group'}.intersection(plan))
+         'ordinary_dynamic_partition_version', 'ordinary_universal_sharding_version',
+         'ordinary_controls_in_rust_baseline_version', 'ordinary_wasm_group'}.intersection(plan))
     if (isinstance(plan, dict) and 'ordinary_clippy_group' in plan
             and 'fast_execution_version' not in plan
             and 'ordinary_controls_in_rust_baseline_version' not in plan):
@@ -561,6 +588,17 @@ def validate_distfs_clippy_handoff(plan):
         raise ValueError('invalid complete native DistFS Clippy handoff')
 
 
+def _ordinary_packages_support_universal_v2(plan):
+    packages = plan.get('oasis7_required_packages')
+    if not isinstance(packages, list) or not packages:
+        return False
+    selected = set(packages)
+    if 'oasis7_chain_runtime' in selected:
+        return True
+    harnesses = plan.get('ordinary_harness_costs', {}).get('harnesses', ())
+    return sum(1 for row in harnesses if row['package'] in selected) >= 4
+
+
 def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
     # Match the trusted planner's bounded v1 policy-migration layout without
@@ -595,6 +633,19 @@ def validate_ordinary_partitions(plan):
                 or plan.get('ordinary_artifact_partition_version') != 2
                 or 'ordinary_harness_costs' not in plan):
             raise ValueError('invalid ordinary dynamic partition capability')
+    universal_v2 = False
+    if 'ordinary_universal_sharding_version' in plan:
+        if (type(plan['ordinary_universal_sharding_version']) is not int
+                or plan['ordinary_universal_sharding_version'] != 1
+                or plan.get('ordinary_artifact_partition_version') != 2
+                or plan.get('ordinary_artifact_delivery_version') != 2
+                or 'ordinary_harness_costs' not in plan
+                or plan.get('scope') != 'targeted'
+                or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                or type(plan.get('test_policy_changed')) is not bool
+                or not _ordinary_packages_support_universal_v2(plan)):
+            raise ValueError('invalid ordinary universal sharding capability')
+        universal_v2 = True
     if 'ordinary_artifact_delivery_version' in plan:
         if (type(plan['ordinary_artifact_delivery_version']) is not int
                 or plan['ordinary_artifact_delivery_version'] not in (1, 2)
@@ -618,10 +669,10 @@ def validate_ordinary_partitions(plan):
                     (plan.get('scope') != 'targeted' and not (
                         plan.get('scope') == 'full' and plan.get('ordinary_artifact_delivery_version') == 2))
                     or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
-                    or plan.get('test_policy_changed') is not False
+                    or (plan.get('test_policy_changed') is not False and not universal_v2)
                     or 'ordinary_fast_targets' in plan or 'ordinary_full_fast_targets' in plan
                     or not isinstance(plan.get('oasis7_required_packages'), list)
-                    or 'oasis7_chain_runtime' not in plan.get('oasis7_required_packages', [])))):
+                    or ('oasis7_chain_runtime' not in plan.get('oasis7_required_packages', []) and not universal_v2)))):
             raise ValueError('invalid complete ordinary artifact partitions')
         return
     targets = plan.get('ordinary_fast_targets')
@@ -1207,12 +1258,38 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def _digest_pairs(items):
+    entries = list(items)
+    if not entries:
+        return {}
+    workers = (1 if os.environ.get('OASIS7_LOCAL_CHECK') == '1' or len(entries) <= 8
+               else min(4, max(1, os.cpu_count() or 1), len(entries)))
+    if workers <= 1:
+        return {key: digest(path) for key, path in entries}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {key: pool.submit(digest, path) for key, path in entries}
+        return {key: future.result() for key, future in futures.items()}
+
+
 def inventory(path, ignored=False, env=None):
     command = [str(path), '--list', '--format', 'terse']
     if ignored:
         command.append('--ignored')
     text = subprocess.check_output(command, text=True, env=env, timeout=120)
     return sorted(line[:-6] for line in text.splitlines() if line.endswith(': test'))
+
+
+def inventory_pairs(items, env=None):
+    entries = list(items)
+    if not entries:
+        return {}
+    workers = 1 if os.environ.get('OASIS7_LOCAL_CHECK') == '1' else min(4, max(1, os.cpu_count() or 1), len(entries))
+    if workers <= 1:
+        return {key: (inventory(path, env=env), inventory(path, True, env=env)) for key, path in entries}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {key: pool.submit(lambda p=path: (inventory(p, env=env), inventory(p, True, env=env)))
+                   for key, path in entries}
+        return {key: future.result() for key, future in futures.items()}
 
 
 def resolve_suites(config, binaries):
@@ -1281,16 +1358,28 @@ STORAGE_COMPONENTS = {
 BUILD_COMPONENTS = (*FORMAL_COMPONENTS, *STORAGE_COMPONENTS)
 
 
+def load_oasis7_required_packages(scope_config=None):
+    config_path = Path(scope_config) if scope_config is not None else Path(__file__).resolve().parent / 'ci-required-scope.json'
+    data = json.loads(config_path.read_text(encoding='utf-8'))
+    packages = data.get('oasis7_required_packages')
+    if (not isinstance(packages, list) or not packages
+            or any(not isinstance(pkg, str) or not pkg or any(ch.isspace() for ch in pkg) for pkg in packages)
+            or len(packages) != len(set(packages))):
+        raise ValueError('invalid oasis7_required_packages in ' + str(config_path))
+    return list(packages)
+
+
 def build_variants(scope, plan=None, ordinary_partition=None):
     if ordinary_partition is not None and scope != 'ordinary':
         raise ValueError('ordinary partition requires ordinary build scope')
     if scope == 'all' and ordinary_risk_targets(plan):
         raise ValueError('ordinary risk contracts require ordinary build scope')
     required_features = ['test_tier_required']
+    required_package_args = [arg for package in load_oasis7_required_packages() for arg in ('-p', package)]
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
         ('viewer', ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live', '--features', 'test_tier_required'], required_features),
-        ('required', ['test', '-p', 'oasis7', '-p', 'oasis7_simulator', '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '-p', 'scenario_test_runner', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_executable_image', '-p', 'oasis7_client_cli', '-p', 'oasis7_protocol_tools', '-p', 'oasis7_launcher_backend', '-p', 'oasis7_newapi_bridge_service', '-p', 'oasis7_ops_tools', '-p', 'oasis7_provider_local_bridge', '-p', 'oasis7_provider_tools', '-p', 'oasis7_viewer_runtime', '-p', 'oasis7_viewer_codec', '-p', 'oasis7_observability', '-p', 'oasis7_hosted_access', '-p', 'oasis7_letai_credit_adapter', '-p', 'oasis7_launcher_config', '-p', 'oasis7_wasm_materializer', '-p', 'oasis7_game_client', '-p', 'oasis7_browser_game_client', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--tests', '--features', 'test_tier_required', '--no-run'], required_features),
+        ('required', ['test', *required_package_args, '--tests', '--features', 'test_tier_required', '--no-run'], required_features),
         ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime', '--features', 'test_tier_required'], required_features),
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
@@ -1660,6 +1749,19 @@ def coalesce_build_invocations(variants):
     return invocations
 
 
+def strip_staged_elf_unneeded(path):
+    """Drop non-alloc symbol/string/DWARF sections from staged Linux ELF copies while keeping target/ intact."""
+    if sys.platform != 'linux':
+        return
+    with path.open('rb') as stream:
+        if stream.read(4) != b'\x7fELF':
+            return
+    strip_bin = shutil.which('strip')
+    if strip_bin is None:
+        return
+    subprocess.run([strip_bin, '--strip-unneeded', str(path)], check=True)
+
+
 def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
     image = storage_build_image() if scope in STORAGE_COMPONENTS else None
@@ -1774,6 +1876,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 source = Path(executable)
                 destination = bundle / 'bin' / logical
                 shutil.copy2(source, destination)
+                if scope == 'ordinary':
+                    strip_staged_elf_unneeded(destination)
                 # Cargo uses the package directory as test cwd, and exposes its binaries.
                 binaries[logical] = dict(path=str(destination.relative_to(bundle)), sha256=digest(destination),
                     profile=artifact['profile'], features=artifact['features'], requested_features=features,
@@ -1811,6 +1915,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
         runner_image=os.environ.get('ImageOS', sys.platform), checkout=str(ROOT), binaries=binaries,
         config_sha256=digest(CONFIG), build_timings=timings)
+    if scope == 'ordinary' and os.environ.get('ORDINARY_BUILD_IMAGE'):
+        manifest['image'] = ordinary_build_image()
     if fast_plan(plan) is not None:
         manifest['execution_plan'] = plan
     if ordinary_partition is not None:
@@ -1818,11 +1924,14 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     if FORMAL_AUTHORITY is not None:
         manifest['formal_authority_sha256'] = formal_authority_digest()
     list_env = dict(env, LD_LIBRARY_PATH=str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', ''))
-    for logical, binary in binaries.items():
-        if binary['test']:
-            binary['tests'] = inventory(bundle / binary['path'], env=list_env)
-            binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
-            binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
+    listed = inventory_pairs(
+        [(logical, bundle / binary['path']) for logical, binary in binaries.items() if binary['test']],
+        env=list_env,
+    )
+    for logical, (tests, ignored_tests) in listed.items():
+        binaries[logical]['tests'] = tests
+        binaries[logical]['ignored_tests'] = ignored_tests
+        binaries[logical]['test_list_sha256'] = hashlib.sha256(json.dumps(tests).encode()).hexdigest()
     if shared_units is not None:
         names = {name: binary['sha256'] for name, binary in binaries.items()
                  if binary['variant'] == 'required' and binary['target_kind'] == ['test']
@@ -1847,13 +1956,28 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
-    if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
+    provider_required = scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'}))
+    builtin_required = BuiltinTestArtifact.required(manifest)
+    if os.environ.get('OASIS7_FORBID_ORDINARY_DOCKER_WASM') == '1' and (provider_required or builtin_required):
+        raise ValueError('candidate ordinary image forbids canonical Docker WASM builds')
+    if cache_state is not None and not cache_state.get('error'):
+        material_manifests = ([ProviderArtifact.MANIFEST] if provider_required else [])
+        if builtin_required:
+            material_manifests += [f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+                                   for crate in BuiltinTestArtifact.MODULES.values()]
+        try:
+            cache_register_canonical_targets(cache_state, material_manifests)
+        except (OSError, ValueError) as error:
+            cache_state['error'] = str(error)
+    if provider_required:
         manifest['preview_provider'] = provider_artifact.build(ROOT, bundle, manifest)
-    if BuiltinTestArtifact.required(manifest):
+    if builtin_required:
         manifest['builtin_test_resources'] = BuiltinTestArtifact.build(ROOT, bundle, manifest)
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
+        if scope == 'ordinary':
+            _warm_ordinary_targeted_cache(cache_state, env, variants)
         try:
             if not cache_state.get('error'):
                 cache_finish(cache_state)
@@ -1864,6 +1988,70 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
             cache_state_path.write_text(json.dumps(cache_state, sort_keys=True) + '\n')
         except OSError as error:
             print('formal_workspace_cache=' + json.dumps(dict(save=False, reason=str(error))), flush=True)
+
+
+def _warm_ordinary_targeted_cache(cache_state, env, variants):
+    """Warm narrow targeted feature units alongside full 28-package builds on trusted main."""
+    if (cache_state is None or cache_state.get('error')
+            or cache_state.get('selection') != 'libraries'
+            or os.environ.get('GITHUB_ACTIONS') != 'true'
+            or os.environ.get('GITHUB_REF') != 'refs/heads/main'
+            or os.environ.get('GITHUB_JOB') != 'oasis7-test-build-trusted'):
+        return
+    chain_manifest = ROOT / 'crates/oasis7_chain_runtime/Cargo.toml'
+    if not chain_manifest.is_file():
+        return
+    try:
+        parsed = tomllib.loads(chain_manifest.read_text())
+    except (OSError, ValueError):
+        return
+    if 'test_tier_required' not in parsed.get('features', {}):
+        return
+    if any(variant == 'required' and args == [
+            'test', '-p', 'oasis7_chain_runtime', '--tests',
+            '--features', 'oasis7_chain_runtime/test_tier_required', '--no-run']
+           for variant, args, _ in variants):
+        return
+    lightest_test = ROOT / 'crates/oasis7_chain_runtime/tests/incremental_cognition_history_original.rs'
+    selector = (['--test', 'incremental_cognition_history_original']
+                if lightest_test.is_file() else ['--tests'])
+    command = ['cargo', 'test', '-p', 'oasis7_chain_runtime', *selector,
+               '--features', 'oasis7_chain_runtime/test_tier_required',
+               '--no-run', '--locked', '--message-format=json-render-diagnostics']
+    started = time.monotonic()
+    local_units = local_fresh = dependency_units = dependency_fresh = 0
+    print('+ ' + ' '.join(command), flush=True)
+    try:
+        with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
+            for line in process.stdout:
+                try:
+                    artifact = json.loads(line)
+                except ValueError:
+                    continue
+                if artifact.get('reason') == 'compiler-message':
+                    print(artifact['message'].get('rendered', ''), end='', flush=True)
+                if not cache_state.get('error'):
+                    try:
+                        cache_record(cache_state, artifact, ordinary_baseline=True)
+                    except (OSError, ValueError, KeyError, TypeError) as error:
+                        cache_state['error'] = str(error)
+                if artifact.get('reason') == 'compiler-artifact':
+                    if Path(artifact['manifest_path']).is_relative_to(ROOT):
+                        local_units += 1
+                        local_fresh += bool(artifact['fresh'])
+                    else:
+                        dependency_units += 1
+                        dependency_fresh += bool(artifact['fresh'])
+            if process.wait() != 0:
+                cache_state['error'] = 'ordinary targeted cache warmup failed'
+    except (OSError, subprocess.SubprocessError) as error:
+        cache_state['error'] = str(error)
+    print('ordinary_cache_warmup=' + json.dumps(dict(
+        elapsed_seconds=round(time.monotonic() - started, 3),
+        local_units=local_units, local_fresh=local_fresh, local_rebuilt=local_units - local_fresh,
+        dependency_units=dependency_units, dependency_fresh=dependency_fresh,
+        dependency_rebuilt=dependency_units - dependency_fresh,
+        error=cache_state.get('error'))), flush=True)
 
 
 def complete_bundle_scope(manifest):
@@ -1917,6 +2105,144 @@ def formal_component_targets(scope):
     if not expected:
         raise ValueError('Formal component has no selected Cargo targets')
     return expected
+
+
+def ordinary_image_preflight():
+    """Keep compiled-in ordinary paths identical to the existing host consumers."""
+    checkout = ORDINARY_HOST_CHECKOUT
+    workspace = Path(os.environ.get('GITHUB_WORKSPACE', ''))
+    if (os.environ.get('ORDINARY_ARTIFACT_CHECKOUT') != str(checkout)
+            or ROOT != checkout or Path.cwd() != checkout):
+        raise ValueError('ordinary image requires the actual canonical host checkout')
+    if (not workspace.is_absolute() or workspace.resolve() != workspace
+            or checkout.resolve() != checkout):
+        raise ValueError('ordinary image checkout paths must not be symlinks')
+    original, alias = workspace.stat(), checkout.stat()
+    if (not stat.S_ISDIR(original.st_mode) or not stat.S_ISDIR(alias.st_mode)
+            or (original.st_dev, original.st_ino) != (alias.st_dev, alias.st_ino)):
+        raise ValueError('ordinary image alias must bind the same runner workspace directory')
+    release = platform.freedesktop_os_release()
+    if (os.environ.get('ImageOS') != 'ubuntu24' or release.get('ID') != 'ubuntu'
+            or release.get('VERSION_ID') != '24.04'):
+        raise ValueError('ordinary image requires the verified Ubuntu 24.04 runner identity')
+    return dict(image=ordinary_build_image(), checkout=str(checkout), workspace=str(workspace),
+                device=alias.st_dev, inode=alias.st_ino, same_directory=True,
+                runner_image='ubuntu24', os_release={key: release[key] for key in ('ID', 'VERSION_ID')})
+
+
+def ordinary_docker_preflight():
+    """Check the runner's existing local daemon before compiling native units."""
+    if (os.environ.get('DOCKER_HOST', '') not in ('', 'unix:///var/run/docker.sock')
+            or os.environ.get('DOCKER_CONTEXT', '') not in ('', 'default')
+            or os.environ.get('BUILDX_BUILDER', '') not in ('', 'default')):
+        raise ValueError('ordinary canonical WASM requires the default local Docker context and builder')
+    if not Path('/var/run/docker.sock').is_socket():
+        raise ValueError('ordinary canonical WASM requires the runner-provided Docker socket')
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(('ACTIONS_', 'INPUT_'))
+                   and key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'NODE_OPTIONS')}
+
+    def checked(label, *arguments):
+        try:
+            return subprocess.check_output(['docker', *arguments], env=environment,
+                text=True, stderr=subprocess.STDOUT, timeout=15).strip()
+        except FileNotFoundError:
+            raise ValueError('ordinary canonical WASM requires the Docker CLI') from None
+        except (OSError, subprocess.SubprocessError):
+            raise ValueError('ordinary canonical WASM Docker preflight failed: ' + label) from None
+
+    server = checked('daemon info', 'info', '--format', '{{json .ServerVersion}}')
+    try:
+        server = json.loads(server)
+    except ValueError:
+        raise ValueError('ordinary Docker daemon version is invalid') from None
+    if not isinstance(server, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*', server):
+        raise ValueError('ordinary Docker daemon version is invalid')
+    versions = checked('client/server API', 'version', '--format', '{{.Client.Version}} {{.Server.APIVersion}}').split()
+    if (len(versions) != 2 or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*', versions[0])
+            or not re.fullmatch(r'[0-9]+\.[0-9]+', versions[1])):
+        raise ValueError('ordinary Docker client/server API output is invalid')
+    buildx = checked('Buildx client', 'buildx', 'version')
+    match = re.match(r'github\.com/docker/buildx (v[0-9]+\.[0-9]+\.[0-9]+[-+.a-zA-Z0-9]*)(?:\s|$)', buildx)
+    if match is None:
+        raise ValueError('ordinary Docker Buildx version is invalid')
+    if checked('default context', 'context', 'show') != 'default':
+        raise ValueError('ordinary canonical WASM requires the default Docker context')
+    # Pinned Buildx 0.29.1 has no inspect --format. Its normal output can also
+    # report a node Error while returning zero, so validate both header and node.
+    inspection = checked('default builder', 'buildx', 'inspect')
+    header, separator, nodes = inspection.partition('\nNodes:\n')
+    if (not separator or re.search(r'^\s*Error:', inspection, re.M)
+            or re.findall(r'^Name:\s*(\S+)\s*$', header, re.M) != ['default']
+            or re.findall(r'^Driver:\s*(\S+)\s*$', header, re.M) != ['docker']
+            or re.findall(r'^\s*Status:\s*(\S+)\s*$', nodes, re.M) != ['running']):
+        raise ValueError('ordinary canonical WASM requires the default docker builder driver')
+    return dict(client_version=versions[0], server_version=server, server_api=versions[1],
+                buildx_version=match[1], context='default', builder='default', driver='docker',
+                builder_status='running')
+
+
+def ordinary_candidate_image_eligible(plan):
+    """Allow the non-root candidate image only when no Docker WASM build can be requested."""
+    if (not isinstance(plan, dict)
+            or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+            or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+            or plan.get('test_policy_changed') is not False
+            or 'ordinary_full_fast_targets' in plan):
+        return False
+    risk_targets = plan.get('ordinary_risk_targets')
+    if risk_targets is None:
+        return True
+    if not isinstance(risk_targets, list):
+        return False
+    return all(
+        isinstance(target, dict)
+        and target.get('target_kind') == 'test'
+        and (target.get('package') != 'oasis7_chain_runtime'
+             or plan.get('scope') not in ('full', 'explicit-full'))
+        for target in risk_targets
+    )
+
+
+def ordinary_candidate_isolation_preflight(socket_path=Path('/var/run/docker.sock')):
+    """Verify non-root UID/GID 1001 and kernel-enforced Docker socket denial."""
+    ids = (os.getuid(), os.getgid(), os.geteuid(), os.getegid())
+    groups = set(os.getgroups())
+    if ids != (1001, 1001, 1001, 1001) or not groups <= {1001}:
+        raise ValueError('candidate ordinary image requires unprivileged 1001:1001 identity without extra groups')
+    if os.environ.get('DOCKER_HOST', '') != '':
+        raise ValueError('candidate ordinary image forbids DOCKER_HOST')
+    if os.access(socket_path, os.R_OK) or os.access(socket_path, os.W_OK):
+        raise ValueError('candidate ordinary image must not access the Docker socket')
+    exists = False
+    try:
+        socket_path.lstat()
+        exists = True
+    except FileNotFoundError:
+        socket_state = 'absent'
+    except PermissionError:
+        socket_state = 'permission_denied'
+    if exists:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(2)
+            try:
+                client.connect(str(socket_path))
+            except PermissionError:
+                socket_state = 'permission_denied'
+            except FileNotFoundError:
+                socket_state = 'absent'
+            except OSError as error:
+                raise ValueError('unexpected candidate Docker socket error: ' + type(error).__name__) from None
+            else:
+                raise ValueError('candidate ordinary image must not connect to the Docker socket')
+    return dict(uid=1001, gid=1001, groups=sorted(groups), docker_socket=socket_state)
+
+
+def ordinary_build_image():
+    image = os.environ.get('ORDINARY_BUILD_IMAGE', '')
+    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/(?:ci-rust-build|ci-rust-ordinary-builder)@sha256:[0-9a-f]{64}', image):
+        raise ValueError('ordinary build requires a fixed Rust image digest')
+    return image
 
 
 def storage_build_image():
@@ -2029,10 +2355,14 @@ def merge_components(sources, bundle, output_scope, plan=None):
     resolve_shards(configuration, suites)
     for scope, source in sources.items():
         env = dict(os.environ, LD_LIBRARY_PATH=str(Path(source) / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', ''))
-        for logical in component_names[scope]:
+        listed = inventory_pairs(
+            [(logical, inputs[binaries[logical]['path']][0])
+             for logical in component_names[scope] if binaries[logical]['test']],
+            env=env,
+        )
+        for logical, (tests, ignored_tests) in listed.items():
             entry = binaries[logical]
-            if entry['test'] and (inventory(inputs[entry['path']][0], env=env) != entry['tests']
-                    or inventory(inputs[entry['path']][0], True, env) != entry['ignored_tests']):
+            if tests != entry['tests'] or ignored_tests != entry['ignored_tests']:
                 raise ValueError('Formal component actual test inventory mismatch')
     manifest = dict(identity, scope=output_scope, producer_attempt=current_attempt,
         components=components, binaries=binaries, libraries=libraries,
@@ -2260,7 +2590,13 @@ def ordinary_delivery_layout(manifest, plan, diagnostic=False):
             manifest['binaries'][name].get('package'), manifest['binaries'][name].get('target'),
             manifest['binaries'][name].get('target_kind'), manifest['binaries'][name].get('variant')) == (
                 'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')}
-        if len(runtime) != 1 or shared != runtime or any(ownership[name] != set(owners) for name in shared):
+        if plan.get('ordinary_universal_sharding_version') == 1 and not runtime:
+            if len(shared) > 1 or any(ownership[name] != set(owners) for name in shared):
+                raise ValueError('universal ordinary delivery may share at most one complete batch target across all owners')
+            for name in shared:
+                if manifest['binaries'][name].get('ordinary') is not True:
+                    raise ValueError('universal ordinary delivery shared binary must be an ordinary test target')
+        elif len(runtime) != 1 or shared != runtime or any(ownership[name] != set(owners) for name in shared):
             raise ValueError('ordinary delivery may share only the complete required runtime')
 
         def coverage(items):
@@ -2479,7 +2815,7 @@ def _cache_path(root, name):
     return current
 
 
-def _cache_walk(root, excluded=()):
+def _cache_walk(root, excluded=(), excluded_paths=()):
     files, directories = {}, {}
     if root.is_symlink() or not root.is_dir():
         raise ValueError('cache tree must be an existing directory, not a symlink')
@@ -2490,6 +2826,12 @@ def _cache_walk(root, excluded=()):
         if relative == Path('.'):
             names[:] = [name for name in names if name not in excluded]
             entries = [name for name in entries if name not in excluded]
+        for name in tuple(names):
+            if (relative / name).as_posix() in excluded_paths:
+                info = (Path(directory) / name).lstat()
+                if not stat.S_ISDIR(info.st_mode):
+                    raise ValueError('managed Cargo output must be a real directory')
+                names.remove(name)
         for name in sorted(names + entries):
             path = Path(directory) / name
             info = path.lstat()
@@ -2509,11 +2851,14 @@ def _cache_file(path, info=None):
                 mtime_ns=info.st_mtime_ns, sha256=digest(path))
 
 
-def _cache_inputs(root):
+def _cache_inputs(root, generated_targets=()):
     # Include ignored/untracked build inputs too. Never traverse Git internals
     # or the separately managed Cargo target (which may be a prepared symlink).
-    files, _ = _cache_walk(root, excluded=('.git', 'target'))
-    return {name: _cache_file(root / name, info) for name, info in files.items()}
+    files, _ = _cache_walk(root, excluded=('.git', 'target'), excluded_paths=generated_targets)
+    digests = _digest_pairs((name, root / name) for name in files)
+    return {name: dict(bytes=info.st_size, mode=stat.S_IMODE(info.st_mode),
+                       mtime_ns=info.st_mtime_ns, sha256=digests[name])
+            for name, info in files.items()}
 
 
 def cache_begin(root, selection='all'):
@@ -2523,6 +2868,68 @@ def cache_begin(root, selection='all'):
     return dict(schema_version=CACHE_SCHEMA, checkout=str(root),
                 target=str((root / 'target').resolve()), inputs=_cache_inputs(root),
                 selection=selection, packages={}, input_owners={}, files=[], directories=[], complete=False)
+
+
+def _cache_canonical_manifests():
+    return {ProviderArtifact.MANIFEST, *(
+        f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml'
+        for crate in BuiltinTestArtifact.MODULES.values())}
+
+
+def _cache_generated_targets(state, *, fresh=False):
+    """Validate only outputs born after the complete native input snapshot."""
+    records = state.get('generated_cargo_targets', {})
+    if not isinstance(records, dict) or not records.keys() <= _cache_canonical_manifests():
+        raise ValueError('unknown canonical Cargo output declaration')
+    root, result = Path(state['checkout']), set()
+    for manifest, relative in records.items():
+        if not isinstance(relative, str) or relative != (Path(manifest).parent / 'target').as_posix():
+            raise ValueError('canonical Cargo output differs from its manifest')
+        path = _cache_path(root, relative)
+        source = _cache_path(root, manifest)
+        if manifest not in state['inputs'] or not source.is_file():
+            raise ValueError('canonical Cargo manifest was not captured')
+        if path.exists() and not path.is_dir():
+            raise ValueError('managed Cargo output must be a real directory')
+        if any(Path(name).is_relative_to(relative) for name in state['inputs']):
+            raise ValueError('canonical Cargo output contains a captured source input')
+        if fresh and path.exists():
+            raise ValueError('canonical Cargo output existed before registration')
+        result.add(relative)
+    return result
+
+
+def cache_register_canonical_targets(state, manifests):
+    """Keep the original material builders' separate Cargo outputs out of source inputs."""
+    if not manifests:
+        return
+    if not set(manifests) <= _cache_canonical_manifests():
+        raise ValueError('unknown canonical Cargo output declaration')
+    if 'CARGO_TARGET_DIR' in os.environ:
+        raise ValueError('canonical Cargo output requires the original default target')
+    root = Path(state['checkout'])
+    _cache_generated_targets(state)
+    records = dict(state.get('generated_cargo_targets', {}))
+    for manifest in manifests:
+        records[manifest] = (Path(manifest).parent / 'target').as_posix()
+    proposed = dict(state, generated_cargo_targets=records)
+    _cache_generated_targets(proposed, fresh=True)
+    for manifest in manifests:
+        source = _cache_path(root, manifest)
+        try:
+            metadata = json.loads(subprocess.run(
+                ['cargo', 'metadata', '--locked', '--offline', '--no-deps', '--format-version=1',
+                 '--manifest-path', str(source)], cwd=root, check=True, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+                env={key: value for key, value in os.environ.items() if key != 'RUSTC_WRAPPER'}).stdout)
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            raise ValueError('cannot verify canonical Cargo target metadata') from error
+        expected = source.parent / 'target'
+        if (not isinstance(metadata, dict) or metadata.get('workspace_root') != str(source.parent)
+                or metadata.get('target_directory') != str(expected)):
+            raise ValueError('canonical Cargo metadata has an unsupported output layout')
+    _cache_generated_targets(proposed, fresh=True)
+    state['generated_cargo_targets'] = records
 
 
 def _cache_relative(state, path):
@@ -2731,7 +3138,7 @@ def cache_record(state, message, *, ordinary_baseline=False):
 
 def cache_finish(state):
     state['complete'] = False
-    if _cache_inputs(Path(state['checkout'])) != state['inputs']:
+    if _cache_inputs(Path(state['checkout']), _cache_generated_targets(state)) != state['inputs']:
         raise ValueError('source inputs changed during the build')
     _cache_finish_unhashed_libraries(state)
     state['files'] = sorted(set(state['files']))
@@ -2757,7 +3164,7 @@ def _cache_sizes(files):
                 bytes_by_category=dict(sorted(categories.items())))
 
 
-def _cache_copy(source, destination, files, directories):
+def _cache_copy(source, destination, files, directories, *, consume_source=False):
     """Copy complete units, preserving internal hard links and exact timestamps."""
     written, inodes = [], {}
     try:
@@ -2773,7 +3180,15 @@ def _cache_copy(source, destination, files, directories):
             if inode in inodes:
                 os.link(inodes[inode], copied)
             else:
-                shutil.copy2(original, copied)
+                if consume_source:
+                    try:
+                        os.replace(original, copied)
+                    except OSError as error:
+                        if error.errno != errno.EXDEV:
+                            raise
+                        shutil.copy2(original, copied)
+                else:
+                    shutil.copy2(original, copied)
                 inodes[inode] = copied
             copied.chmod(metadata['mode'])
             os.utime(copied, ns=(metadata['mtime_ns'], metadata['mtime_ns']))
@@ -2815,7 +3230,8 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
         report.update({'target_' + key: value for key, value in target_sizes.items()})
         if state['schema_version'] != CACHE_SCHEMA or not state.get('complete'):
             raise ValueError(state.get('error', 'incomplete Cargo cache state'))
-        if not measure_only and _cache_inputs(root) != state['inputs']:
+        generated_targets = _cache_generated_targets(state)
+        if not measure_only and _cache_inputs(root, generated_targets) != state['inputs']:
             raise ValueError('source inputs changed since the build')
         selected = set(state['files'])
         directories = {}
@@ -2838,14 +3254,18 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
         if not report['eligible']:
             report['reason'] = 'workspace selection exceeds budget or is empty'
             return report
-        files = {name: _cache_file(_cache_path(target, name), all_files[name]) for name in sorted(selected)}
+        selected_names = sorted(selected)
+        staged_digests = _digest_pairs((name, _cache_path(target, name)) for name in selected_names)
+        files = {name: dict(bytes=all_files[name].st_size, mode=stat.S_IMODE(all_files[name].st_mode),
+                            mtime_ns=all_files[name].st_mtime_ns, sha256=staged_digests[name])
+                 for name in selected_names}
         if max(item['mtime_ns'] for item in [*files.values(), *directories.values(), *state['inputs'].values()]) >= time.time_ns():
             raise ValueError('future cache timestamp')
         if cache.exists():
             shutil.rmtree(cache)
         cache.mkdir(parents=True)
         _cache_copy(target, cache / 'target', files, directories)
-        if _cache_inputs(root) != state['inputs']:
+        if _cache_inputs(root, _cache_generated_targets(state)) != state['inputs']:
             raise ValueError('source inputs changed while staging')
         manifest = dict(schema_version=CACHE_SCHEMA, checkout=str(root), target=str(target),
                         inputs=state['inputs'], files=files, directories=directories,
@@ -2922,7 +3342,7 @@ def _cache_input_refresh(root, inputs, current, owners, report):
     return refresh, directories
 
 
-def cache_restore(root, cache, maximum=8 * 1024 ** 3):
+def cache_restore(root, cache, maximum=8 * 1024 ** 3, *, consume_source=False):
     started = time.monotonic()
     report = dict(restored=False)
     written = False
@@ -2954,11 +3374,16 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
             root, inputs, current, manifest.get('input_owners'), report)
         if not 0 < sum(item['bytes'] for item in files.values()) <= maximum:
             raise ValueError('cache payload exceeds budget or is empty')
+        source_paths = {}
         for name, metadata in files.items():
             path = _cache_path(cache / 'target', name)
             info = path.stat()
-            if (info.st_size != metadata['bytes'] or stat.S_IMODE(info.st_mode) != metadata['mode']
-                    or digest(path) != metadata['sha256']):
+            if info.st_size != metadata['bytes'] or stat.S_IMODE(info.st_mode) != metadata['mode']:
+                raise ValueError('cache payload checksum, size or mode mismatch: ' + name)
+            source_paths[name] = path
+        payload_digests = _digest_pairs(source_paths.items())
+        for name, metadata in files.items():
+            if payload_digests[name] != metadata['sha256']:
                 raise ValueError('cache payload checksum, size or mode mismatch: ' + name)
             destination = _cache_path(target, name)
             if destination.exists() and (not destination.is_file() or digest(destination) != metadata['sha256']):
@@ -2972,7 +3397,7 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
                 existing, _ = _cache_walk(destination)
                 if any((Path(name) / child).as_posix() not in files for child in existing):
                     raise ValueError('cache overlaps an incomplete existing Cargo unit')
-        _cache_copy(cache / 'target', target, files, directories)
+        _cache_copy(cache / 'target', target, files, directories, consume_source=consume_source)
         written = True
         changed = matched = refreshed = 0
         # Validation rejects future metadata; this stamp is strictly newer than
@@ -3105,10 +3530,13 @@ def load(bundle, suite=None, shard=None, plan=None, ordinary_partition=None,
         if logical in selected:
             env[variable] = str(bundle / selected[logical]['path'])
     # Validate actual downloaded harnesses; the manifest alone is not coverage proof.
-    for binary in selected.values():
-        if binary['test']:
-            if inventory(bundle / binary['path'], env=env) != binary['tests'] or inventory(bundle / binary['path'], True, env) != binary['ignored_tests']:
-                raise ValueError('downloaded test inventory mismatch')
+    listed = inventory_pairs(
+        [(logical, bundle / binary['path']) for logical, binary in selected.items() if binary['test']],
+        env=env,
+    )
+    for logical, (tests, ignored_tests) in listed.items():
+        if tests != selected[logical]['tests'] or ignored_tests != selected[logical]['ignored_tests']:
+            raise ValueError('downloaded test inventory mismatch')
     config = formal_configuration()
     if manifest.get('scope') != 'ordinary' and resolve_suites(config, manifest['binaries']) != manifest['suites']:
         raise ValueError('suite inventory mismatch')
@@ -3407,48 +3835,14 @@ def expand_ordinary_batches(entries, binaries):
 
 
 def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
-    """Partition real runtime cases, retaining every other complete harness."""
+    """Partition real runtime cases or multi-harness packages, retaining every complete harness."""
     effective_plan = manifest.get('execution_plan') if plan is None else plan
+    universal_sharding = (isinstance(effective_plan, dict)
+                          and effective_plan.get('ordinary_universal_sharding_version') == 1)
     owners = tuple(native_ordinary_partitions(effective_plan))
     if owners not in (COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:], TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]):
         raise ValueError('unsupported targeted ordinary native owners')
     entries = expand_ordinary_batches(ordinary_entries(manifest), manifest['binaries'])
-    runtime = [entry for entry in entries if entry.get('batch') and (
-        manifest['binaries'][entry['binary']].get('package'),
-        manifest['binaries'][entry['binary']].get('target'),
-        manifest['binaries'][entry['binary']].get('target_kind'),
-        manifest['binaries'][entry['binary']].get('variant')) == (
-            'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')]
-    if len(runtime) != 1:
-        raise ValueError('targeted ordinary partitions require one complete runtime library')
-    parent = runtime[0]
-    binary = manifest['binaries'][parent['binary']]
-    if len(binary['tests']) != len(set(binary['tests'])):
-        raise ValueError('duplicate runtime case inventory')
-    skipped = set(parent.get('skip', ())) | set(parent.get('skip_exact', ()))
-    cases = set(binary['tests']) - set(binary['ignored_tests']) - skipped
-    if len(cases) < len(owners):
-        raise ValueError('targeted ordinary runtime partitions must each execute behavior tests')
-    # No per-case duration history exists yet. Hash ordering avoids clustering
-    # names from one module, then round-robin balances counts deterministically.
-    ordered = sorted(cases, key=lambda name: (hashlib.sha256(name.encode()).digest(), name))
-    selected = {owner: set(ordered[index::len(owners)]) for index, owner in enumerate(owners)}
-    if (set.union(*selected.values()) != cases
-            or sum(map(len, selected.values())) != len(cases)
-            or any(not names for names in selected.values())):
-        raise ValueError('incomplete or overlapping runtime case partitions')
-    profile = manifest.get('execution_plan', {}).get('ordinary_harness_costs')
-    costs = {}
-    if profile is not None:
-        validate_ordinary_harness_costs(profile)
-        costs = {tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector')):
-                 row['elapsed_ms'] for row in profile['harnesses']}
-    buckets, loads, counts = {}, {}, {}
-    for owner, names in selected.items():
-        buckets[owner] = [dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - names)),
-                               count=len(names))]
-        loads[owner] = 0 if profile is not None else len(names)
-        counts[owner] = len(names)
 
     def behavior_count(entry):
         target = manifest['binaries'][entry['binary']]
@@ -3459,6 +3853,73 @@ def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
             return sum(entry['filter'] in name for name in tests)
         return 1
 
+    runtime = [entry for entry in entries if entry.get('batch') and (
+        manifest['binaries'][entry['binary']].get('package'),
+        manifest['binaries'][entry['binary']].get('target'),
+        manifest['binaries'][entry['binary']].get('target_kind'),
+        manifest['binaries'][entry['binary']].get('variant')) == (
+            'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')]
+    parent = None
+    if len(runtime) == 1:
+        parent = runtime[0]
+    elif len(runtime) > 1 or not universal_sharding:
+        raise ValueError('targeted ordinary partitions require one complete runtime library')
+    elif len(entries) < len(owners):
+        batch_candidates = [entry for entry in entries if entry.get('batch')]
+        if not batch_candidates:
+            raise ValueError('targeted ordinary partitions have fewer harnesses than shards and no batch target')
+        parent = max(batch_candidates, key=lambda item: (behavior_count(item), item['binary']))
+
+    profile = (effective_plan or {}).get('ordinary_harness_costs')
+    if profile is None:
+        profile = manifest.get('execution_plan', {}).get('ordinary_harness_costs')
+    costs = {}
+    if profile is not None:
+        validate_ordinary_harness_costs(profile)
+        costs = {tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector')):
+                 row['elapsed_ms'] for row in profile['harnesses']}
+
+    if parent is not None:
+        binary = manifest['binaries'][parent['binary']]
+        if len(binary['tests']) != len(set(binary['tests'])):
+            raise ValueError('duplicate runtime case inventory')
+        skipped = set(parent.get('skip', ())) | set(parent.get('skip_exact', ()))
+        cases = set(binary['tests']) - set(binary['ignored_tests']) - skipped
+        if len(cases) < len(owners):
+            raise ValueError('targeted ordinary runtime partitions must each execute behavior tests')
+        # No per-case duration history exists yet. Hash ordering avoids clustering
+        # names from one module, then round-robin balances counts deterministically.
+        ordered = sorted(cases, key=lambda name: (hashlib.sha256(name.encode()).digest(), name))
+        selected = {owner: set(ordered[index::len(owners)]) for index, owner in enumerate(owners)}
+        if (set.union(*selected.values()) != cases
+                or sum(map(len, selected.values())) != len(cases)
+                or any(not names for names in selected.values())):
+            raise ValueError('incomplete or overlapping runtime case partitions')
+        sub_batch = universal_sharding and len(cases) >= 2 * len(owners)
+        buckets, loads, counts = {}, {}, {}
+        for index, owner in enumerate(owners):
+            names = selected[owner]
+            if sub_batch:
+                owner_ordered = ordered[index::len(owners)]
+                halves = (set(owner_ordered[0::2]), set(owner_ordered[1::2]))
+                buckets[owner] = [
+                    dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - half)),
+                         count=len(half), batch_label=f"{parent['binary']}[{sub_index}/2]")
+                    for sub_index, half in enumerate(halves)
+                ]
+            else:
+                buckets[owner] = [dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - names)),
+                                       count=len(names))]
+            loads[owner] = 0 if profile is not None else len(names)
+            counts[owner] = len(names)
+    else:
+        cases = set()
+        selected = {owner: set() for owner in owners}
+        buckets = {owner: [] for owner in owners}
+        loads = {owner: 0 for owner in owners}
+        counts = {owner: 0 for owner in owners}
+
+    sliced_counts = {owner: len(buckets[owner]) for owner in owners}
     remaining = [entry for entry in entries if entry is not parent]
     identities = [(entry['binary'], entry.get('filter'), entry.get('name')) for entry in remaining]
     if len(identities) != len(set(identities)):
@@ -3484,27 +3945,51 @@ def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
         buckets[owner].append(entry)
         loads[owner] += weight(entry)
         counts[owner] += count
-    if sum(len(items) - 1 for items in buckets.values()) != len(remaining):
+    if sum(len(buckets[owner]) - sliced_counts[owner] for owner in owners) != len(remaining):
         raise ValueError('incomplete ordinary harness partition inventory')
+    if any(not buckets[owner] for owner in owners):
+        raise ValueError('targeted ordinary partitions must each execute behavior tests')
     if partition == 'controls':
         return []
     if partition not in buckets:
         raise ValueError('unknown targeted ordinary artifact partition')
+    complete_slice = buckets[partition][sliced_counts[partition]:]
     estimate = {} if profile is None else dict(
         harness_estimated_ms=loads[partition], cost_evidence=profile['evidence'],
-        cost_matched=sum(cost_identity(entry) in costs for entry in buckets[partition][1:]),
-        cost_fallback=sum(cost_identity(entry) not in costs for entry in buckets[partition][1:]))
+        cost_matched=sum(cost_identity(entry) in costs for entry in complete_slice),
+        cost_fallback=sum(cost_identity(entry) not in costs for entry in complete_slice))
     print('ordinary_partition_inventory=' + json.dumps(dict(
-        partition=partition, runtime_binary=parent['binary'], runtime_count=len(selected[partition]),
-        runtime_total=len(cases), runtime_inventory_sha256=hashlib.sha256(
-            '\n'.join(sorted(cases)).encode()).hexdigest(),
+        partition=partition, runtime_binary=parent['binary'] if parent is not None else None,
+        runtime_count=len(selected[partition]), runtime_total=len(cases),
+        runtime_inventory_sha256=hashlib.sha256('\n'.join(sorted(cases)).encode()).hexdigest(),
         runtime_selected_sha256=hashlib.sha256('\n'.join(sorted(selected[partition])).encode()).hexdigest(),
-        complete_harnesses=[entry['binary'] for entry in buckets[partition][1:]],
+        complete_harnesses=[entry['binary'] for entry in complete_slice],
         expected_count=counts[partition], **estimate)), flush=True)
     return buckets[partition]
 
 
-def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None):
+def _ordinary_bundle_cost_lookup(plan, manifest):
+    source = plan if isinstance(plan, dict) else manifest.get('execution_plan')
+    profile = source.get('ordinary_harness_costs') if isinstance(source, dict) else None
+    if profile is None:
+        scope_file = ROOT / 'scripts/ci-required-scope.json'
+        if scope_file.is_file():
+            try:
+                loaded = json.loads(scope_file.read_text())
+                profile = loaded.get('ordinary_harness_costs') if isinstance(loaded, dict) else None
+            except (OSError, ValueError, TypeError):
+                profile = None
+    if profile is None:
+        return {}
+    try:
+        validate_ordinary_harness_costs(profile)
+    except ValueError:
+        return {}
+    return {tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector')):
+            row['elapsed_ms'] for row in profile['harnesses']}
+
+
+def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None, *, parallel_ordinary=False):
     from ci_process_runner import run
     # An omitted partition retains the local full-bundle execution path.
     # Explicit hosted consumers still require a known native partition.
@@ -3553,7 +4038,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
         else:
             binary = manifest['binaries'][entry['binary']]
             command = [str(bundle / binary['path'])]
-            name = entry.get('name', entry['binary'])
+            name = entry.get('batch_label', entry.get('name', entry['binary']))
             if entry.get('batch'):
                 excluded = sorted(set(entry.get('skip', [])) | set(entry.get('skip_exact', [])))
                 count = len(set(binary['tests']) - set(binary['ignored_tests']) - set(excluded))
@@ -3575,28 +4060,71 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
             if logical_suite != 'ordinary':
                 command += ['--test-threads=1', '--nocapture']
             elif entry.get('exclusive'):
-                command.append('--test-threads=1')
+                command += ['--test-threads=1']
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
         job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
-                   name=name, count=count, binary=entry.get('binary'))
+                   name=name, count=count, binary=entry.get('binary'), _entry=entry)
         if entry.get('exclusive'):
             job['exclusive'] = True
         if (entry.get('binary'), name) in resources:
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)
+    parallel_bundle_ordinary = bool(
+        parallel_ordinary and suite == 'ordinary' and not shard
+        and not artifact_partition and not inline
+        and os.environ.get('OASIS7_LOCAL_CHECK') != '1'
+        and all('script' not in entry for entry in entries)
+    )
     parallel_artifact_partition = artifact_partition and (
         plan.get('ordinary_artifact_partition_version') == 2
         or ordinary_partition in ('component-libs', 'integrations-0', 'integrations-1')
     )
-    if parallel_artifact_partition and plan.get('ordinary_artifact_partition_version') == 1:
-        # Start the largest libraries/suites first so long-running crates do not
-        # trail behind short targets at the end of a v1 partition.
-        jobs.sort(key=lambda item: -(item['count'] or 0))
-    if formal or inline or parallel_artifact_partition:
+    if parallel_bundle_ordinary:
+        costs = _ordinary_bundle_cost_lookup(plan, manifest)
+        def _job_sort_key(item):
+            entry = item['_entry']
+            binary = manifest['binaries'][entry['binary']]
+            kinds = binary.get('target_kind') or ()
+            identity = (binary.get('package'), '-'.join(kinds), binary.get('target'), binary.get('variant'),
+                        'batch' if entry.get('batch') else 'filter' if 'filter' in entry else 'exact',
+                        '' if entry.get('batch') else entry.get('filter', entry.get('name', '')))
+            return (-costs.get(identity, 0), -(item['count'] or 0), item['name'])
+        jobs.sort(key=_job_sort_key)
+    elif parallel_artifact_partition and plan.get('ordinary_artifact_partition_version') in (1, 2):
+        if plan.get('ordinary_universal_sharding_version') == 1:
+            costs = _ordinary_bundle_cost_lookup(plan, manifest)
+            def _v2_job_sort_key(item):
+                entry = item['_entry']
+                binary = manifest['binaries'][entry['binary']]
+                kinds = binary.get('target_kind') or ()
+                identity = (binary.get('package'), '-'.join(kinds), binary.get('target'), binary.get('variant'),
+                            'batch' if entry.get('batch') else 'filter' if 'filter' in entry else 'exact',
+                            '' if entry.get('batch') else entry.get('filter', entry.get('name', '')))
+                runtime_slice_ms = (
+                    (item['count'] or 0) * 800
+                    if entry.get('batch') and (
+                        binary.get('package'), binary.get('target'), kinds, binary.get('variant')) == (
+                            'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')
+                    else 0
+                )
+                return (
+                    bool(item.get('exclusive')),
+                    -max(costs.get(identity, 0), runtime_slice_ms),
+                    -(item['count'] or 0),
+                    item['name'],
+                )
+            jobs.sort(key=_v2_job_sort_key)
+        else:
+            # Start the largest libraries/suites first so long-running crates do not
+            # trail behind short targets at the end of a v1 partition.
+            jobs.sort(key=lambda item: -(item['count'] or 0))
+    for item in jobs:
+        item.pop('_entry', None)
+    if formal or inline or parallel_artifact_partition or parallel_bundle_ordinary:
         execute_inline_jobs(jobs, results, formal=formal, shard=shard,
                             ordinary_partition=manifest.get('ordinary_partition'),
-                            artifact_partition=parallel_artifact_partition)
+                            artifact_partition=(parallel_artifact_partition or parallel_bundle_ordinary))
         return
     failed = False
     for job in jobs:
@@ -3624,7 +4152,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
 def main():
     global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare-provider', 'build', 'merge-formal', 'run', 'pack',
+    parser.add_argument('action', choices=['ordinary-image-preflight', 'prepare-provider', 'build', 'merge-formal', 'run', 'pack',
                         'unpack-ordinary', 'shards', 'required-args',
                         'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
@@ -3649,6 +4177,9 @@ def main():
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--ordinary-partition', help='exact execution owner declared by the complete trusted plan')
+    parser.add_argument('--parallel-ordinary', action='store_true', help='run prebuilt ordinary bundle harnesses with bounded pool')
+    parser.add_argument('--forbid-docker', action='store_true', help='verify non-root 1001:1001 isolation and Docker socket denial')
+    parser.add_argument('--expected-selection-sha256', help='expected SHA-256 of --plan for candidate image preflight')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
     parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'wasm-group', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'partition'], default='native')
     args = parser.parse_args()
@@ -3656,6 +4187,28 @@ def main():
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
     FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
     plan = json.loads(args.plan.read_text()) if args.plan else None
+    if args.parallel_ordinary and (args.action != 'run' or args.suite != 'ordinary' or args.shard is not None):
+        parser.error('--parallel-ordinary requires run --suite ordinary without --shard')
+    if (args.forbid_docker or args.expected_selection_sha256 is not None) and args.action != 'ordinary-image-preflight':
+        parser.error('--forbid-docker and --expected-selection-sha256 require ordinary-image-preflight')
+    if args.expected_selection_sha256 is not None and not args.forbid_docker:
+        parser.error('--expected-selection-sha256 requires --forbid-docker')
+    if args.action == 'ordinary-image-preflight':
+        report = ordinary_image_preflight()
+        if args.forbid_docker:
+            if args.plan is None or not args.expected_selection_sha256:
+                raise ValueError('candidate ordinary image preflight requires --plan and --expected-selection-sha256')
+            if (not re.fullmatch('[0-9a-f]{64}', args.expected_selection_sha256)
+                    or hashlib.sha256(args.plan.read_bytes()).hexdigest() != args.expected_selection_sha256):
+                raise ValueError('candidate ordinary selection digest mismatch')
+            validate_plan_identity(plan)
+            if not ordinary_candidate_image_eligible(plan):
+                raise ValueError('candidate ordinary plan is not eligible for Docker-less image execution')
+            report['candidate_isolation'] = ordinary_candidate_isolation_preflight()
+        else:
+            report['docker'] = ordinary_docker_preflight()
+        print(json.dumps(report, sort_keys=True))
+        return
     if (args.ordinary_partition is not None and args.action not in ('build', 'run', 'unpack-ordinary')
             and not (args.action == 'required-args' and args.phase == 'partition')):
         parser.error('--ordinary-partition requires build, run, or partition validation')
@@ -3745,7 +4298,7 @@ def main():
                                  args.ordinary_partition)
     else:
         execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl',
-                args.shard, plan, args.ordinary_partition)
+                args.shard, plan, args.ordinary_partition, parallel_ordinary=args.parallel_ordinary)
 
 
 if __name__ == '__main__':

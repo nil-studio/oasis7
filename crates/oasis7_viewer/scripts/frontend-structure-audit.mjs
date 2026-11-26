@@ -9,6 +9,8 @@ import {
 const viewerRoot = resolve(new URL("..", import.meta.url).pathname);
 const repoRoot = resolve(viewerRoot, "..", "..");
 const sourceDir = resolve(viewerRoot, "software_safe_src");
+const viewerScriptsDir = resolve(viewerRoot, "scripts");
+const siteAssetsDir = resolve(repoRoot, "site", "assets");
 const canonicalHtmlPath = resolve(viewerRoot, "viewer.html");
 const canonicalClaimEvidencePath = resolve(viewerRoot, "viewer_first_agent_claim_evidence.html");
 const viewerDistDir = resolve(viewerRoot, "dist");
@@ -18,40 +20,9 @@ const canonicalBundlePath = resolve(viewerRoot, "viewer.js");
 const canonicalBundleBanner = "// Generated canonical Viewer bundle; source truth lives in ./software_safe_src/.\n";
 
 const PRODUCTION_SOURCE_LINE_LIMIT = 1200;
-const TEST_SOURCE_LINE_LIMIT = 1600;
+const TEST_SOURCE_LINE_LIMIT = 1200;
 
-const knownLineDebt = new Map(Object.entries({
-  "crates/oasis7_viewer/viewer.html": {
-    maxLines: 2842,
-    owner: "viewer_engineer",
-    reason: "task_4b9393c487e244e4bf5f2811eb5ef95c adds one bounded Next Step hierarchy treatment while preserving the canonical and compat HTML contract; extracting unrelated shell styles would broaden the visual-polish task",
-    nextTrigger: "the next Viewer inline-style or document-shell behavior change must extract a coherent style/token boundary or record a narrower owner-tagged exemption",
-  },
-  "crates/oasis7_viewer/software_safe_src/legacy_core.js": {
-    maxLines: 4445,
-    owner: "viewer_engineer",
-    reason: "task_ab6268a777e246d59cb45fb07c179f5c (#5387) adds the bounded test-only connection-generation probe and store-proxy prompt feedback publish point required by the browser timing matrix; prompt protocol rendering and test-api facade stay outside legacy_core",
-    nextTrigger: "next legacy_core behavior change must extract the remaining prompt-control test-api/connection observation facade",
-  },
-  "crates/oasis7_viewer/software_safe_src/viewer_app.jsx": {
-    maxLines: 3978,
-    owner: "viewer_engineer",
-    reason: "security frontend extraction moves the shared application to viewer_app.jsx and removes visual fixture data and installers from the release entry",
-    nextTrigger: "the next shared application UI change must extract an adjacent surface; the fixture assembly is already separate",
-  },
-  "crates/oasis7_viewer/software_safe_src/main.test.jsx": {
-    maxLines: 3446,
-    owner: "viewer_engineer",
-    reason: "task_f3ba918435b24b8eadef002fed2b966a verifies failure disposition precedence and the registered visual fixture in the existing shared Viewer harness",
-    nextTrigger: "the next factory failure or industrial gameplay UI test must move this behavior into a narrower adjacent test file with shared harness helpers",
-  },
-  "crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx": {
-    maxLines: 1680,
-    owner: "viewer_engineer",
-    reason: "Pixel World host keeps runtime bridge composition and visual overlay surfaces; test-only snapshot fixture data now lives in pixel_world_visual_fixture_data.js",
-    nextTrigger: "next Pixel World UI/runtime host behavior change should extract a named widget or service boundary",
-  },
-}));
+const knownLineDebt = new Map();
 
 function repoRelative(path) {
   return relative(repoRoot, path).replaceAll("\\", "/");
@@ -64,20 +35,29 @@ function countLines(text) {
   return text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length;
 }
 
-async function listSourceFiles(dirPath) {
+async function listMatchingFiles(dirPath, pattern, { recursive = false } = {}) {
+  if (!await fileExists(dirPath)) {
+    return [];
+  }
   const entries = await readdir(dirPath, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     const entryPath = join(dirPath, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await listSourceFiles(entryPath));
+      if (recursive) {
+        files.push(...await listMatchingFiles(entryPath, pattern, { recursive }));
+      }
       continue;
     }
-    if (entry.isFile() && /\.(js|jsx|html)$/.test(entry.name)) {
+    if (entry.isFile() && pattern.test(entry.name)) {
       files.push(entryPath);
     }
   }
   return files;
+}
+
+async function listSourceFiles(dirPath) {
+  return listMatchingFiles(dirPath, /\.(js|jsx|html)$/, { recursive: true });
 }
 
 function validateDebtRecord(filePath, lineCount, limit, failures) {
@@ -103,11 +83,17 @@ function validateDebtRecord(filePath, lineCount, limit, failures) {
 async function validateLineThresholds() {
   const failures = [];
   const debtFindings = [];
-  const files = [canonicalHtmlPath, ...await listSourceFiles(sourceDir)];
+  const files = [
+    canonicalHtmlPath,
+    ...await listSourceFiles(sourceDir),
+    ...await listMatchingFiles(viewerRoot, /\.css$/),
+    ...await listMatchingFiles(viewerScriptsDir, /\.mjs$/),
+    ...await listMatchingFiles(siteAssetsDir, /\.(css|js)$/),
+  ];
   for (const filePath of files) {
     const source = await readFile(filePath, "utf8");
     const relPath = repoRelative(filePath);
-    const limit = /\.test\.(js|jsx|html)$/.test(basename(filePath))
+    const limit = /\.test\.(js|jsx|mjs|html)$/.test(basename(filePath))
       ? TEST_SOURCE_LINE_LIMIT
       : PRODUCTION_SOURCE_LINE_LIMIT;
     const finding = validateDebtRecord(filePath, countLines(source), limit, failures);
@@ -129,8 +115,9 @@ async function validateLineThresholds() {
 
 async function validateCanonicalCompatContracts() {
   const failures = [];
-  const [canonicalHtml, canonicalBundle, canonicalClaimEvidence] = await Promise.all([
+  const [canonicalHtml, canonicalBaseCss, canonicalBundle, canonicalClaimEvidence] = await Promise.all([
     readFile(canonicalHtmlPath, "utf8"),
+    readFile(resolve(viewerRoot, "viewer_base.css"), "utf8"),
     readFile(canonicalBundlePath, "utf8"),
     readFile(canonicalClaimEvidencePath, "utf8"),
   ]);
@@ -138,7 +125,13 @@ async function validateCanonicalCompatContracts() {
   if (!canonicalHtml.includes('<script type="module" src="./viewer.js"></script>')) {
     failures.push("viewer.html must reference canonical viewer.js bundle");
   }
-  const diagnosticStripRule = canonicalHtml.match(/\.command-surface__diagnostic-strip \.badge\s*\{([^}]*)\}/);
+  if (!canonicalHtml.includes('<link rel="stylesheet" href="./viewer_base.css" />')) {
+    failures.push("viewer.html must reference canonical viewer_base.css stylesheet");
+  }
+  if (/<style\b/i.test(canonicalHtml)) {
+    failures.push("viewer.html must not contain inline <style> blocks; keep base styles in viewer_base.css");
+  }
+  const diagnosticStripRule = canonicalBaseCss.match(/\.command-surface__diagnostic-strip \.badge\s*\{([^}]*)\}/);
   if (!diagnosticStripRule || /(?:^|[;\s])color\s*:/.test(diagnosticStripRule[1])) {
     failures.push("diagnostic strip base styling must preserve badge status colors");
   }

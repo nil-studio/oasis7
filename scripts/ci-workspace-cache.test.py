@@ -46,6 +46,7 @@ def api(entries=()):
 
 
 def fixture(directory, scope='ordinary'):
+    import time
     root = directory / 'checkout'
     (root / 'src').mkdir(parents=True)
     (root / 'Cargo.toml').write_text('[package]\nname="tiny"\nversion="0.1.0"\n')
@@ -57,6 +58,10 @@ def fixture(directory, scope='ordinary'):
     library = target / 'debug/deps/libtiny-1234567890abcdef.rlib'
     library.parent.mkdir(parents=True)
     library.write_bytes(b'complete library unit\n' * 100)
+    past = time.time_ns() - 1_000_000_000
+    for item in (root / 'Cargo.toml', root / 'src/lib.rs', root / 'src',
+                 fingerprint / 'lib-tiny', fingerprint, library):
+        os.utime(item, ns=(past, past))
     state = cache.units.cache_begin(root, selection='libraries' if scope == 'ordinary' else 'all')
     state.update(packages={'tiny': str(root / 'Cargo.toml')},
         files=[library.relative_to(target).as_posix()],
@@ -112,6 +117,17 @@ class Workspace(unittest.TestCase):
                  patch.dict(os.environ, {'OASIS7_WASM_TOOLCHAIN': 'nightly-2025-12-11'}, clear=True):
                 original = cache.identity('ordinary')
                 self.assertTrue(cache.current_key('ordinary', original['key']))
+                image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + 'a' * 64
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=image):
+                    image_key = cache.identity('ordinary')['prefix']
+                    self.assertNotEqual(image_key, original['prefix'])
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE=image[:-1] + 'b'):
+                    self.assertNotEqual(cache.identity('ordinary')['prefix'], image_key)
+                with patch.dict(os.environ, ORDINARY_BUILD_IMAGE='rust-build:latest'):
+                    with self.assertRaisesRegex(ValueError, 'fixed Rust image'):
+                        cache.identity('ordinary')
+                self.assertEqual(cache.identity('ordinary')['prefix'], original['prefix'])
+
                 self.assertNotEqual(cache.identity('formal')['prefix'], original['prefix'])
                 source[0] = 'c' * 40
                 (root / 'src/lib.rs').write_text('modified source')
@@ -146,17 +162,45 @@ class Workspace(unittest.TestCase):
                                      'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER'):
                         with self.subTest(scope=scope, variable=variable), patch.dict(os.environ, {variable: 'changed'}):
                             self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
+                    ordinary_stable = (
+                        ('Cargo.lock',
+                         'scripts/ci-test-artifacts.py',
+                         'scripts/ci-formal-process-suites.json',
+                         'crates/leaf/Cargo.toml')
+                        if getattr(cache, 'ORDINARY_STABLE_IDENTITY', False)
+                        else ()
+                    )
                     for name in (*inputs, *operational):
                         path = root / name
                         before = path.read_text()
                         path.write_text(before + ' changed')
+                        expected_unchanged = name in operational or (scope == 'ordinary' and name in ordinary_stable)
                         with self.subTest(scope=scope, path=name):
-                            self.assertEqual(cache.identity(scope)['prefix'] == baseline, name in operational)
+                            self.assertEqual(cache.identity(scope)['prefix'] == baseline, expected_unchanged)
                         path.write_text(before)
+                    if getattr(cache, 'ORDINARY_STABLE_IDENTITY', False):
+                        with patch.object(cache.units, 'CACHE_SCHEMA', cache.units.CACHE_SCHEMA + 1):
+                            self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
                     with patch.dict(os.environ, CI_CACHE_REPOSITORY_BUDGET_BYTES='20000000000'):
                         self.assertEqual(cache.identity(scope)['prefix'], baseline)
                     with patch.object(cache.units, 'build_variants', return_value=[('different', ['build'], [])]):
                         self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
+                if getattr(cache, 'ORDINARY_STABLE_IDENTITY', False):
+                    # Adding a new workspace member manifest path still rotates ordinary prefix.
+                    extra_manifest = root / 'crates/extra/Cargo.toml'
+                    extra_manifest.parent.mkdir(parents=True, exist_ok=True)
+                    extra_manifest.write_text('extra')
+
+                    def output_with_extra(command, **kwargs):
+                        if command[:2] == ['cargo', 'metadata']:
+                            return json.dumps({'packages': [
+                                {'manifest_path': str(root / 'crates/leaf/Cargo.toml')},
+                                {'manifest_path': str(extra_manifest)},
+                            ]})
+                        return output(command, **kwargs)
+
+                    with patch.object(cache.subprocess, 'check_output', side_effect=output_with_extra):
+                        self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'])
                 with patch.object(cache.platform, 'machine', return_value='different-architecture'):
                     self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'])
                 (root / 'Cargo.toml').unlink()
@@ -363,9 +407,12 @@ class Workspace(unittest.TestCase):
 
 class BoundedWorkspace(unittest.TestCase):
     def make_state(self, directory, sizes=(600, 500, 400)):
+        import time
+        base_ns = time.time_ns() - 1_000_000_000
         root = directory / 'checkout'
         root.mkdir()
         (root / 'Cargo.toml').write_text('[workspace]\n')
+        os.utime(root / 'Cargo.toml', ns=(base_ns, base_ns))
         target = root / 'target'
         state = cache.units.cache_begin(root, selection='libraries')
         for index, size in enumerate(sizes):
@@ -383,6 +430,7 @@ class BoundedWorkspace(unittest.TestCase):
                 os.utime(file, ns=(1_000_000_000 + index, 1_000_000_000 + index))
                 state['files'].append(output)
             os.utime(path / ('lib-' + name), ns=(1_000_000_000 + index, 1_000_000_000 + index))
+            os.utime(path, ns=(base_ns + index, base_ns + index))
             state['directories'].append(fingerprint)
             state['packages'][name] = name
         cache.units.cache_finish(state)
@@ -420,6 +468,7 @@ class BoundedWorkspace(unittest.TestCase):
                 os.link(target / f'debug/deps/libunit{index}-{unit}.rlib', public)
                 dep_info = public.with_suffix('.d')
                 dep_info.write_bytes(b'dep-info')
+                os.utime(dep_info, ns=(1_000_000_000 + index, 1_000_000_000 + index))
                 state['files'].extend([public.relative_to(target).as_posix(),
                                        dep_info.relative_to(target).as_posix()])
             chosen = cache.bounded_library_state(state, 1900, {})
@@ -831,6 +880,34 @@ class RealCargoCompact(unittest.TestCase):
                                             or (scope == 'ordinary' and 'bin' in unit['target']['kind']))
                             self.assertEqual(unit['fresh'], expected, unit)
 
+                    if scope == 'ordinary':
+                        # Dropping the internal dependency edge updates both leaf/Cargo.toml and Cargo.lock;
+                        # ordinary prefix stays compatible and cache_restore refreshes mtimes so Cargo
+                        # keeps compact_base fresh while rebuilding compact_leaf cleanly.
+                        shutil.rmtree(root / 'target')
+                        for name in (*sources, 'Cargo.lock'):
+                            os.utime(root / name, None)
+                        leaf_manifest = root / 'leaf/Cargo.toml'
+                        leaf_source = root / 'leaf/src/lib.rs'
+                        lock_file = root / 'Cargo.lock'
+                        leaf_manifest.write_text('[package]\nname="compact_leaf"\nversion="0.1.0"\nedition="2021"\n')
+                        leaf_source.write_text('pub fn value() -> u32 { 42 }\n')
+                        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, env=env,
+                                       check=True, capture_output=True)
+                        for modified, rel in ((leaf_manifest, 'leaf/Cargo.toml'),
+                                              (leaf_source, 'leaf/src/lib.rs'),
+                                              (lock_file, 'Cargo.lock')):
+                            old_ns = state['inputs'][rel]['mtime_ns']
+                            os.utime(modified, ns=(old_ns, old_ns))
+                        restored = {}
+                        cache.restore_cache(args, restored)
+                        self.assertTrue(restored['restored'], restored)
+                        self.assertEqual(restored['changed_inputs'], 3)
+                        lock_units, value = build()
+                        self.assertEqual(value, '42')
+                        self.assertTrue(all(u['fresh'] for u in lock_units if u['target']['name'] == 'compact_base'))
+                        self.assertTrue(all(not u['fresh'] for u in lock_units if u['target']['name'] == 'compact_leaf'))
+
 
     def test_bounded_subset_rebuilds_omitted_units_and_changed_retained_source(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -891,6 +968,131 @@ class RealCargoCompact(unittest.TestCase):
                     self.assertEqual(item['fresh'], item['target']['name'] == kept and not changed, item)
                 value = subprocess.check_output([str(root / 'target/debug/trim_app')], text=True).strip()
                 self.assertEqual(value, '16' if changed else '15')
+
+    def test_consume_source_restore_moves_same_device_inodes_and_falls_back_on_exdev(self):
+        import errno
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, state_path, library = fixture(base)
+            alias = root / 'target/debug/deps/libtiny-alias-1234567890abcdef.rlib'
+            os.link(library, alias)
+            state = json.loads(state_path.read_text())
+            state['files'] = sorted({*state['files'], alias.relative_to(root / 'target').as_posix()})
+            state['complete'] = True
+            staged_dir = base / 'staged'
+            staged = cache.units.cache_stage(state, staged_dir)
+            self.assertTrue(staged['save'], staged)
+            rel_lib = library.relative_to(root / 'target').as_posix()
+            rel_alias = alias.relative_to(root / 'target').as_posix()
+            staged_inode = (staged_dir / 'target' / rel_lib).stat().st_ino
+            self.assertEqual((staged_dir / 'target' / rel_alias).stat().st_ino, staged_inode)
+
+            shutil.rmtree(root / 'target')
+            restored = cache.units.cache_restore(root, staged_dir, consume_source=True)
+            self.assertTrue(restored['restored'], restored)
+            self.assertEqual((root / 'target' / rel_lib).stat().st_ino, staged_inode)
+            self.assertEqual((root / 'target' / rel_alias).stat().st_ino, staged_inode)
+
+            # Re-stage and verify cross-device EXDEV cleanly falls back to copy2.
+            staged_exdev = base / 'staged-exdev'
+            self.assertTrue(cache.units.cache_stage(state, staged_exdev)['save'])
+            shutil.rmtree(root / 'target')
+            with patch.object(cache.units.os, 'replace', side_effect=OSError(errno.EXDEV, 'Cross-device link')):
+                fallback = cache.units.cache_restore(root, staged_exdev, consume_source=True)
+            self.assertTrue(fallback['restored'], fallback)
+            self.assertEqual((root / 'target' / rel_lib).read_bytes(), b'complete library unit\n' * 100)
+            self.assertEqual((root / 'target' / rel_lib).stat().st_ino,
+                             (root / 'target' / rel_alias).stat().st_ino)
+
+    def test_parallel_digest_pairs_matches_sequential_and_respects_local_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            pairs = []
+            expected = {}
+            for index in range(12):
+                path = base / f'unit-{index}.bin'
+                payload = f'payload-{index}\n'.encode() * (index + 1)
+                path.write_bytes(payload)
+                pairs.append((f'k-{index}', path))
+                expected[f'k-{index}'] = cache.units.digest(path)
+            with patch.dict(os.environ, {'OASIS7_LOCAL_CHECK': '0'}):
+                self.assertEqual(cache.units._digest_pairs(pairs), expected)
+            with patch.dict(os.environ, {'OASIS7_LOCAL_CHECK': '1'}), \
+                 patch.object(cache.units, 'ThreadPoolExecutor') as executor:
+                self.assertEqual(cache.units._digest_pairs(pairs), expected)
+                executor.assert_not_called()
+
+    def test_trusted_main_ordinary_targeted_warmup_records_baseline_units_only_on_main_writer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / 'checkout'
+            chain_dir = root / 'crates/oasis7_chain_runtime'
+            (chain_dir / 'src').mkdir(parents=True)
+            (chain_dir / 'tests').mkdir(parents=True)
+            (root / 'Cargo.toml').write_text('[workspace]\nmembers=["crates/oasis7_chain_runtime"]\n')
+            (chain_dir / 'Cargo.toml').write_text(
+                '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\n'
+                '[features]\ntest_tier_required = []\n'
+            )
+            (chain_dir / 'src/lib.rs').write_text('pub fn chain() {}\n')
+            (chain_dir / 'tests/incremental_cognition_history_original.rs').write_text('#[test] fn smoke() {}\n')
+            deps = root / 'target/debug/deps'
+            fp = root / 'target/debug/.fingerprint/oasis7_chain_runtime-fedcba9876543210'
+            deps.mkdir(parents=True)
+            fp.mkdir(parents=True)
+            rlib = deps / 'liboasis7_chain_runtime-fedcba9876543210.rlib'
+            rlib.write_bytes(b'narrow-feature-rlib')
+            (fp / 'lib-oasis7_chain_runtime').write_bytes(b'fp')
+            state = cache.units.cache_begin(root, selection='libraries')
+            artifact_line = json.dumps({
+                'reason': 'compiler-artifact',
+                'package_id': 'path+file:///oasis7_chain_runtime#0.1.0',
+                'manifest_path': str(chain_dir / 'Cargo.toml'),
+                'target': {'kind': ['lib'], 'name': 'oasis7_chain_runtime', 'src_path': str(chain_dir / 'src/lib.rs')},
+                'profile': {'test': False},
+                'features': ['test_tier_required'],
+                'filenames': [str(rlib)],
+                'executable': None,
+                'fresh': False,
+            }) + '\n'
+
+            class FakeProcess:
+                def __init__(self, command, **kwargs):
+                    calls.append(command)
+                    self.stdout = [artifact_line]
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+                def wait(self):
+                    return 0
+
+            calls = []
+            full_variants = [('required', ['test', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_launcher_backend',
+                                           '--tests', '--features', 'test_tier_required', '--no-run'], ['test_tier_required'])]
+            narrow_variants = [('required', ['test', '-p', 'oasis7_chain_runtime', '--tests',
+                                             '--features', 'oasis7_chain_runtime/test_tier_required', '--no-run'],
+                                ['oasis7_chain_runtime/test_tier_required'])]
+            with patch.object(cache.units, 'ROOT', root), \
+                 patch.object(cache.units.subprocess, 'Popen', side_effect=FakeProcess):
+                # Candidate / PR lanes never run warmup.
+                with patch.dict(os.environ, environment('ordinary', GITHUB_JOB='oasis7-test-build-candidate'), clear=True):
+                    cache.units._warm_ordinary_targeted_cache(state, {}, full_variants)
+                self.assertEqual(calls, [])
+                # Already-narrow single-package variant skips redundant warmup.
+                with patch.dict(os.environ, environment('ordinary'), clear=True):
+                    cache.units._warm_ordinary_targeted_cache(state, {}, narrow_variants)
+                self.assertEqual(calls, [])
+                # Trusted main full build runs narrow integration-target warmup and records baseline unit.
+                with patch.dict(os.environ, environment('ordinary'), clear=True):
+                    cache.units._warm_ordinary_targeted_cache(state, {}, full_variants)
+                self.assertEqual(len(calls), 1)
+                self.assertIn('--test', calls[0])
+                self.assertIn('incremental_cognition_history_original', calls[0])
+                self.assertIn('debug/.fingerprint/oasis7_chain_runtime-fedcba9876543210',
+                              state.get('ordinary_baseline_units', ()))
 
 
 if __name__ == '__main__':

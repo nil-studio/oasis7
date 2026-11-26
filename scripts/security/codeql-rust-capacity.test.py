@@ -29,6 +29,82 @@ def workflow_steps():
     return steps,by_id
 
 class Capacity(unittest.TestCase):
+
+    def test_preinstalled_native_checks_only_original_package_and_module_inventory(self):
+        image = 'ghcr.io/nil-studio/oasis7/ci-codeql-rust@sha256:' + 'a' * 64
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory).resolve()
+            with patch.object(m.runtime, 'run') as run:
+                m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, image, maximum_seconds=360)
+            self.assertEqual(run.call_count, 2)
+            packages, modules = [call.args for call in run.call_args_list]
+            self.assertEqual(packages[0][:2], ['dpkg-query', '-W'])
+            self.assertEqual(packages[0][3:], list(m.native.NATIVE_PACKAGES))
+            self.assertEqual(modules[0], ['pkg-config', '--print-errors', '--modversion', *m.native.NATIVE_MODULES])
+            self.assertTrue(all(0 < command[4] <= 10 for command in (packages, modules)))
+            receipt = json.loads((out / 'native-budget.json').read_text())
+            self.assertEqual((receipt['image'], receipt['source_profile'], receipt['maximum_seconds']),
+                             (image, 'preinstalled-image', 360))
+            self.assertEqual([step['phase'] for step in receipt['allocations']], ['native-packages', 'native-modules'])
+            with patch.object(m.runtime, 'run') as run:
+                with self.assertRaisesRegex(ValueError, 'fixed by digest'):
+                    m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, 'ci-codeql-rust:latest',
+                                                 maximum_seconds=180)
+                with self.assertRaisesRegex(ValueError, 'unsupported native preparation budget'):
+                    m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, image, maximum_seconds=181)
+                with self.assertRaisesRegex(RuntimeError, 'insufficient native observation budget'):
+                    m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 80, {}, image, maximum_seconds=180)
+                run.assert_not_called()
+            with patch.object(m.runtime, 'run', side_effect=RuntimeError('native package unavailable')) as run:
+                with self.assertRaisesRegex(RuntimeError, 'native package unavailable'):
+                    m.native.verify_preinstalled_native(ROOT, out, time.monotonic() + 120, {}, image, maximum_seconds=180)
+                self.assertEqual(run.call_count, 1)
+
+    def test_capacity_image_layout_is_derived_from_the_physical_business_checkout(self):
+        workflows = P.parents[2] / '.github/workflows'
+        for basename, kinds in (('codeql-rust-capacity.yml', ('capacity', 'observation')),
+                                ('codeql-rust-cfg-diagnostic.yml', ('cfg', 'cfg'))):
+            text = (workflows / basename).read_text()
+            writers = re.findall(r"python3 -I - <<'PYTHON'\n(.*?)\n          PYTHON", text, re.S)
+            self.assertEqual(len(writers), len(kinds))
+            for kind, writer in zip(kinds, writers, strict=True):
+                script = textwrap.dedent(writer)
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory).resolve()
+                    source = root / 'work'
+                    temporary = root / 'runner'
+                    templates = source / 'crates/oasis7_builtin_wasm_modules/_templates'
+                    templates.mkdir(parents=True)
+                    temporary.mkdir()
+                    output, env = root / 'outputs', root / 'env'
+                    settings = dict(os.environ, GITHUB_WORKSPACE=str(source), RUNNER_TEMP=str(temporary),
+                                    GITHUB_OUTPUT=str(output), GITHUB_ENV=str(env))
+                    result = subprocess.run([sys.executable, '-I', '-c', script], check=False,
+                                            env=settings, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(env.read_text().split('=', 1)[1]), [str(templates)])
+                    if kind == 'observation':
+                        expected = {'source_root': str(source),
+                                    'db_location': str(temporary / 'codeql_databases'),
+                                    'sarif_output': str(temporary / 'codeql-results')}
+                    else:
+                        expected = {'source_root': str(source),
+                                    'db_location': str(temporary / 'rust-capacity-databases'),
+                                    'bundle': str(temporary / 'rust-capacity-tools/bundle.tar.zst')}
+                    if kind == 'capacity':
+                        hook = temporary / 'rust-capacity-helper/codeql-rust-action-deadline.cjs'
+                        expected['node_options'] = '--require=' + str(hook)
+                    self.assertEqual(dict(line.split('=', 1) for line in output.read_text().splitlines()), expected)
+                    templates.rmdir()
+                    templates.symlink_to(temporary)
+                    env.unlink()
+                    output.unlink()
+                    result = subprocess.run([sys.executable, '-I', '-c', script], check=False,
+                                            env=settings, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                    self.assertFalse(env.exists())
+
     def test_source_pin_cli_defaults_and_allowed_exclusion_candidate(self):
         for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.PROFILE_SOURCE,m.CALLEE_SOURCE,m.PREVIOUS_CAPACITY_SOURCE,m.CAPACITY_SOURCE):
             with tempfile.TemporaryDirectory() as tmp:
@@ -838,8 +914,11 @@ assert value['found_manifests']==[]
         self.assertLess(steps.index(by_id['snapshot']),checkouts[1][0])
         self.assertLess(checkouts[1][0],steps.index(by_id['layout']))
         self.assertLess(steps.index(by_id['layout']),steps.index(by_id['init']))
-        self.assertIn('          source-root: ${{ github.workspace }}',by_id['init'])
-        self.assertIn('          checkout_path: ${{ github.workspace }}',by_id['analyze'])
+        self.assertIn('          source-root: ${{ steps.tools.outputs.source_root }}',by_id['init'])
+        self.assertIn('          checkout_path: ${{ steps.tools.outputs.source_root }}',by_id['analyze'])
+        self.assertIn("NODE_OPTIONS: ${{ inputs.mode == 'candidate-workload-research' && steps.tools.outputs.node_options || env.NODE_OPTIONS }}",
+                      by_id['analyze'])
+
         for phase in ('prepare','capture','finish'):
             self.assertIn('"$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" '+phase,by_id[phase])
             self.assertIn('--source "$GITHUB_WORKSPACE"',by_id[phase])
@@ -908,8 +987,8 @@ assert value['found_manifests']==[]
         self.assertIn('default: false',text);self.assertIn('inputs.execute == true',text)
         self.assertNotIn('pull_request:',text);self.assertNotIn('schedule:',text)
         self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || inputs.mode == 'qualifier-research' && 150 || 90 }}",text)
-        self.assertIn('source-root: ${{ github.workspace }}',text)
-        self.assertIn('checkout_path: ${{ github.workspace }}',text)
+        self.assertIn('source-root: ${{ steps.tools.outputs.source_root }}',text)
+        self.assertIn('checkout_path: ${{ steps.tools.outputs.source_root }}',text)
         self.assertNotIn('/capacity-source',text)
         self.assertIn('upload: never',text);self.assertIn('upload-database: false',text)
         self.assertIn('trap-caching: false',text);self.assertIn('CODEQL_OVERLAY_DATABASE_MODE: none',text)

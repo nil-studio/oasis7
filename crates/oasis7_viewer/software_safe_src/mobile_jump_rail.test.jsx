@@ -1,3 +1,4 @@
+import { readExpandedCss } from "./test_support/read_expanded_css.js";
 import { fireEvent, screen, within } from "@solidjs/testing-library";
 import { readFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,8 +60,8 @@ describe("mobile jump rail", () => {
   });
 
   it("wraps rather than horizontally scrolling its quiet secondary links", async () => {
-    const viewerHtml = await readFile("viewer.html", "utf8");
-    expect(viewerHtml).toMatch(/\.mobile-rail\s*\{[\s\S]*?position: sticky;[\s\S]*?top: 10px;[\s\S]*?flex-wrap: wrap; overflow: visible;/);
+    const baseCss = await readExpandedCss("viewer_base.css");
+    expect(baseCss).toMatch(/\.mobile-rail\s*\{[\s\S]*?position: sticky;[\s\S]*?top: 10px;[\s\S]*?flex-wrap: wrap; overflow: visible;/);
   });
 
   it("keeps World, Targets, and Command as primary links and excludes secondary peers", () => {
@@ -192,7 +193,7 @@ describe("mobile jump rail", () => {
   });
 
   it("defines a stage-first single-column shell and on-demand drawer CSS without horizontal overflow", async () => {
-    const css = await readFile("viewer_terminal_shell.css", "utf8");
+    const css = await readExpandedCss("viewer_terminal_shell.css");
 
     expect(css).toMatch(/\.shell\s*\{[^}]*display:\s*grid/s);
     expect(css).toMatch(/\.shell\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
@@ -208,7 +209,7 @@ describe("mobile jump rail", () => {
   });
 
   it("protects primary and secondary rail links from bounded long-label overflow", async () => {
-    const css = await readFile("viewer_terminal_shell.css", "utf8");
+    const css = await readExpandedCss("viewer_terminal_shell.css");
     for (const selector of ["mobile-rail__link", "secondary-viewer-nav__link"]) {
       expect(css).toMatch(new RegExp(
         `\\.${selector}[^{}]*\\{[\\s\\S]*?min-width:\\s*0;[\\s\\S]*?(?:overflow-wrap:\\s*anywhere|word-break:\\s*break-word)`,

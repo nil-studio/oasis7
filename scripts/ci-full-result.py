@@ -25,9 +25,22 @@ import zipfile
 
 SCHEMA = "oasis7.ci-full-result/v1"
 ADMISSION_SCHEMA = "oasis7.ci-periodic-admission/v1"
+MAIN_FAST_ADMISSION_SCHEMA = "oasis7.ci-main-fast-admission/v1"
 WORKFLOW = ".github/workflows/rust.yml"
 MAX_BYTES = 2 * 1024 * 1024
 CADENCE_SECONDS = 4 * 3600
+MAIN_FAST_COOLDOWN_SECONDS = 2 * 3600
+MAIN_FAST_DEFERRED_ARTIFACT_PREFIX = "ci-main-fast-deferred-"
+MAIN_FAST_CACHE_ROTATION_FILES = frozenset({
+    "Cargo.lock",
+    "Cargo.toml",
+    "rust-toolchain",
+    "rust-toolchain.toml",
+    "scripts/ci-workspace-cache.py",
+    "scripts/ci-cache-archive.py",
+    "scripts/ci-rust-cache-toolchains.py",
+})
+MAIN_FAST_CACHE_ROTATION_PREFIXES = (".cargo/",)
 API_BUDGET_SECONDS = 120
 MAX_API_REQUESTS = 800
 API_RETRY_DELAYS = (0.5, 1.0)
@@ -102,32 +115,36 @@ def definition_digest(root, revision):
             raise ValueError("invalid trusted custody_node_shards_version definition")
     for capability in ("main_fast_range_recovery_version", "main_fast_coalesce_concurrency_version",
                        "draft_pr_heavy_ci_skip_version",
-                       "ordinary_dynamic_partition_version", "ordinary_scope_config_slice_version",
+                       "ordinary_dynamic_partition_version",
                        "standalone_cargo_manifest_scope_version",
                        "ordinary_controls_in_rust_baseline_version",
                        "scoped_production_cfg_version",
-                       "auxiliary_workflow_consolidation_version"):
+                       "auxiliary_workflow_consolidation_version",
+                       "command_center_offline_version"):
         if capability in config and (type(config[capability]) is not int or config[capability] != 1):
             raise ValueError(f"invalid trusted {capability} definition")
-    if "workspace_member_cargo_manifest_scope_version" in config:
-        if (type(config["workspace_member_cargo_manifest_scope_version"]) is not int
-                or config["workspace_member_cargo_manifest_scope_version"] not in (1, 2)):
-            raise ValueError("invalid trusted workspace_member_cargo_manifest_scope_version definition")
+    if "command_center_offline_version" in config:
+        if config.get("group_jobs", {}).get("command_center") != "baseline":
+            raise ValueError("invalid trusted command_center_offline_version definition")
+    for capability in ("ordinary_scope_config_slice_version",
+                       "workspace_member_cargo_manifest_scope_version"):
+        if capability in config and (type(config[capability]) is not int or config[capability] not in (1, 2)):
+            raise ValueError(f"invalid trusted {capability} definition")
     if "workspace_support_direct_gate_version" in config:
         if (type(config["workspace_support_direct_gate_version"]) is not int
-                or config["workspace_support_direct_gate_version"] != 1
+                or config["workspace_support_direct_gate_version"] not in (1, 2)
                 or type(config.get("workspace_support_partition_version")) is not int
                 or config["workspace_support_partition_version"] != 1):
             raise ValueError("invalid trusted workspace_support_direct_gate_version definition")
     if "contract_job_consolidation_version" in config:
         if (type(config["contract_job_consolidation_version"]) is not int
-                or config["contract_job_consolidation_version"] not in (1, 2, 3, 4)):
+                or config["contract_job_consolidation_version"] not in (1, 2, 3, 4, 5)):
             raise ValueError("invalid trusted contract_job_consolidation_version definition")
     if "group_jobs" in config or "contract_job_consolidation_version" in config:
         overrides = config.get("group_jobs")
         groups = config.get("groups")
         if (type(config.get("contract_job_consolidation_version")) is not int
-                or config.get("contract_job_consolidation_version") not in (1, 2, 3, 4)
+                or config.get("contract_job_consolidation_version") not in (1, 2, 3, 4, 5)
                 or not isinstance(groups, list) or not isinstance(overrides, dict) or not overrides):
             raise ValueError("invalid trusted contract job consolidation definition")
         default_jobs = {group.replace("_", "-") for group in groups if isinstance(group, str)}
@@ -998,6 +1015,155 @@ def periodic_health(api, now):
     return health(full, now, observations=observations, control_failures=failures)
 
 
+def _run_is_main_fast_deferred(api, run_id, cache):
+    if run_id in cache:
+        return cache[run_id]
+    payload = api.get(f"actions/runs/{run_id}/artifacts?per_page=100")
+    artifacts = payload.get("artifacts") if isinstance(payload, dict) else None
+    if not isinstance(artifacts, list):
+        raise ValueError("invalid Actions run artifacts payload")
+    deferred = any(
+        isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and item["name"].startswith(MAIN_FAST_DEFERRED_ARTIFACT_PREFIX)
+        for item in artifacts
+    )
+    cache[run_id] = deferred
+    return deferred
+
+
+def _main_fast_cache_rotation_files(repo_root, base_sha, head_sha):
+    if repo_root is None or not base_sha or not head_sha or base_sha == head_sha:
+        return []
+    try:
+        base = commit(base_sha)
+        head = commit(head_sha)
+    except ValueError:
+        return []
+    root = Path(repo_root).resolve()
+    for rev in (base, head):
+        check = subprocess.run(
+            ["git", "-c", "safe.directory=*", "-C", str(root), "cat-file", "-e", f"{rev}^{{commit}}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if check.returncode != 0:
+            return []
+    diff = subprocess.run(
+        ["git", "-c", "safe.directory=*", "-C", str(root), "diff", "--name-only", f"{base}..{head}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if diff.returncode != 0:
+        return []
+    changed = [line.strip() for line in diff.stdout.splitlines() if line.strip()]
+    return sorted(
+        path for path in changed
+        if path in MAIN_FAST_CACHE_ROTATION_FILES
+        or path.startswith(MAIN_FAST_CACHE_ROTATION_PREFIXES)
+    )
+
+
+def admit_main_fast(api, now, *, current_run_id=None, cooldown_seconds=MAIN_FAST_COOLDOWN_SECONDS,
+                    repo_root=None, head_sha=None):
+    if type(cooldown_seconds) is not int or cooldown_seconds < 0 or cooldown_seconds > 24 * 3600:
+        raise ValueError("cooldown_seconds must be an integer between 0 and 86400")
+    workflow_id = api.get("actions/workflows/rust.yml").get("id")
+    if type(workflow_id) is not int or workflow_id < 1:
+        raise ValueError("unknown canonical Rust workflow")
+    runs = []
+    for page in (1, 2):
+        query = urllib.parse.urlencode({"event": "push", "branch": "main", "per_page": 100, "page": page})
+        payload = api.get(f"actions/workflows/{workflow_id}/runs?{query}")
+        batch = payload.get("workflow_runs") if isinstance(payload, dict) else None
+        if not isinstance(batch, list):
+            raise ValueError("invalid Actions push workflow_runs payload")
+        for run in batch:
+            if not isinstance(run, dict) or type(run.get("id")) is not int or run["id"] < 1:
+                raise ValueError("invalid Actions push run record")
+            if current_run_id is not None and run["id"] == current_run_id:
+                continue
+            if (run.get("workflow_id") != workflow_id or run.get("path") != WORKFLOW
+                    or run.get("event") != "push" or run.get("head_branch") != "main"):
+                continue
+            runs.append(run)
+        total = payload.get("total_count")
+        if len(batch) < 100 or (type(total) is int and page * 100 >= total):
+            break
+    runs.sort(
+        key=lambda item: (
+            timestamp(item["updated_at"]) if isinstance(item.get("updated_at"), str)
+            else datetime.min.replace(tzinfo=timezone.utc),
+            item["id"],
+        ),
+        reverse=True,
+    )
+    deferred_cache = {}
+    base = {
+        "schema": MAIN_FAST_ADMISSION_SCHEMA,
+        "evaluated_at": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "cooldown_seconds": cooldown_seconds,
+    }
+    for run in runs:
+        if run.get("status") != "completed":
+            continue
+        conclusion = run.get("conclusion")
+        if conclusion in (None, "cancelled", "skipped"):
+            continue
+        if conclusion == "success" and _run_is_main_fast_deferred(api, run["id"], deferred_cache):
+            continue
+        if conclusion != "success":
+            return dict(
+                base,
+                run_main_fast=True,
+                reason="recover_after_non_success",
+                last_executed_run_id=run["id"],
+                last_executed_conclusion=conclusion,
+                last_executed_sha=run.get("head_sha"),
+            )
+        completed_raw = run.get("updated_at") or run.get("run_started_at") or run.get("created_at")
+        completed_at = timestamp(completed_raw)
+        elapsed = (now.astimezone(timezone.utc) - completed_at).total_seconds()
+        if elapsed < cooldown_seconds:
+            cache_rotation_files = _main_fast_cache_rotation_files(
+                repo_root, run.get("head_sha"), head_sha,
+            )
+            if cache_rotation_files:
+                return dict(
+                    base,
+                    run_main_fast=True,
+                    reason="cache_rotation_bypass",
+                    last_verified_run_id=run["id"],
+                    last_verified_sha=run.get("head_sha"),
+                    last_verified_completed_at=completed_at.isoformat().replace("+00:00", "Z"),
+                    elapsed_seconds=max(0, int(elapsed)),
+                    remaining_seconds=max(0, int(cooldown_seconds - elapsed)),
+                    cache_rotation_files=cache_rotation_files,
+                )
+            return dict(
+                base,
+                run_main_fast=False,
+                reason="cooldown_active",
+                last_verified_run_id=run["id"],
+                last_verified_sha=run.get("head_sha"),
+                last_verified_completed_at=completed_at.isoformat().replace("+00:00", "Z"),
+                elapsed_seconds=max(0, int(elapsed)),
+                remaining_seconds=max(0, int(cooldown_seconds - elapsed)),
+            )
+        return dict(
+            base,
+            run_main_fast=True,
+            reason="cooldown_elapsed",
+            last_verified_run_id=run["id"],
+            last_verified_sha=run.get("head_sha"),
+            last_verified_completed_at=completed_at.isoformat().replace("+00:00", "Z"),
+            elapsed_seconds=max(0, int(elapsed)),
+        )
+    return dict(base, run_main_fast=True, reason="no_recent_executed_main_fast")
+
+
 def resolve_main_fast_base(api, root, before_sha, head_sha, *, current_run_id=None, max_commits=160):
     before, head = commit(before_sha), commit(head_sha)
     if type(max_commits) is not int or max_commits < 1 or max_commits > 256:
@@ -1046,10 +1212,16 @@ def resolve_main_fast_base(api, root, before_sha, head_sha, *, current_run_id=No
         total = payload.get("total_count")
         if len(batch) < 100 or (type(total) is int and page * 100 >= total):
             break
+    deferred_cache = {}
     widened = before
     for index, sha in enumerate(ancestors):
         sha_runs = runs_by_sha.get(sha, ())
-        if any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in sha_runs):
+        if any(
+            run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+            and not _run_is_main_fast_deferred(api, run["id"], deferred_cache)
+            for run in sha_runs
+        ):
             widened = sha
             break
         if sha_runs:
@@ -1081,6 +1253,12 @@ def main():
     admission = commands.add_parser("admit-periodic")
     admission.add_argument("--output", type=Path, required=True)
     admission.add_argument("--github-output", type=Path, required=True)
+    admit_mf = commands.add_parser("admit-main-fast")
+    admit_mf.add_argument("--repo-root", type=Path)
+    admit_mf.add_argument("--head")
+    admit_mf.add_argument("--output", type=Path, required=True)
+    admit_mf.add_argument("--github-output", type=Path, required=True)
+    admit_mf.add_argument("--cooldown-seconds", type=int, default=MAIN_FAST_COOLDOWN_SECONDS)
     main_fast = commands.add_parser("resolve-main-fast-base")
     main_fast.add_argument("--repo-root", type=Path)
     main_fast.add_argument("--before", required=True)
@@ -1102,6 +1280,23 @@ def main():
         receipt = make_receipt(plan, needs, config, context, digest)
         args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
         print(f"Complete CI result recorded for {plan['source_sha']}.")
+        return
+    if args.command == "admit-main-fast":
+        token = (os.environ.get("MAIN_FAST_BASE_TOKEN")
+                 or os.environ.get("GH_TOKEN")
+                 or os.environ.get("GITHUB_TOKEN"))
+        api = GitHub(os.environ["GITHUB_REPOSITORY"], token)
+        run_id_raw = os.environ.get("GITHUB_RUN_ID", "")
+        current_run_id = int(run_id_raw) if run_id_raw.isdigit() and int(run_id_raw) > 0 else None
+        receipt = admit_main_fast(
+            api, datetime.now(timezone.utc),
+            current_run_id=current_run_id, cooldown_seconds=args.cooldown_seconds,
+            repo_root=root if args.head else None, head_sha=args.head,
+        )
+        args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+        with args.github_output.open("a") as output:
+            output.write(f"run_main_fast={str(receipt['run_main_fast']).lower()}\n")
+        print(json.dumps(receipt, sort_keys=True))
         return
     if args.command == "resolve-main-fast-base":
         token = (os.environ.get("MAIN_FAST_BASE_TOKEN")

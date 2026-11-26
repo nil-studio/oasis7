@@ -61,7 +61,7 @@
 |---|---|---|---|
 | 宣战强度 `intensity` | `1..=10` | 强度提高进攻评分与结算变化幅度，也增加宣战资源成本、冲突时长及 m5 模块疲劳 | `crates/oasis7_runtime/src/world/event_processing.rs`、`crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs` |
 | 宣战动员成本 | 电力 `12 + 4 * intensity`；数据 `8 + 3 * intensity` | 由进攻方在宣战时支付，形成随强度增长的前置投入 | `crates/oasis7_runtime/src/world/event_processing.rs` |
-| 战争持续时长 | `6 + 2 * intensity` ticks | 形成显式投入成本（占用冲突窗口） | `crates/oasis7_runtime/src/state.rs`、`crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs` |
+| 战争持续时长 | `6 + 2 * intensity` ticks | 形成显式投入成本（占用冲突窗口） | `crates/oasis7_world_state/src/state.rs`、`crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs` |
 | 战争结算评分 | core fallback：`members*10 + reputation/10`，进攻方再加 `intensity`；m5 模块再减 `fatigue/4` | 推荐强度必须使用当前激活结算路径的完整评分项，不能只看成员数 | `crates/oasis7_runtime/src/world/gameplay_loop.rs`、`crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs` |
 | 胜负判定 | `aggressor_score >= defender_score` 时进攻方胜 | 平分时进攻方胜，鼓励主动冲突但保留成员规模价值 | `crates/oasis7_runtime/src/world/gameplay_loop.rs` |
 | 同对联盟重入 | 同一联盟对在 active 期间不可重复宣战 | 作为首轮“冲突冷却”约束，避免刷宣战事件 | `crates/oasis7_runtime/src/world/event_processing.rs` |
@@ -132,7 +132,7 @@ Non-goal: 本预览不重平衡战争强度、评分公式、持续时长或胜�
 | 通过阈值 `pass_threshold_bps` | `5000..=10000` | 阈值越高，提案稳定性越高，但通过成本更高 | `crates/oasis7_runtime/src/world/event_processing.rs` |
 | 法定人数 `quorum_weight` | `> 0` | 避免“零参与通过”，保证最小治理成本 | `crates/oasis7_runtime/src/world/event_processing.rs` |
 | 选项数 | 至少 2 个唯一选项 | 防止伪提案，确保存在真实选择 | `crates/oasis7_runtime/src/world/event_processing.rs` |
-| 重投规则 | 同一投票者可重投，后票覆盖前票 | 允许策略更新，但保持单人单权重口径 | `crates/oasis7_runtime/src/state.rs`、`crates/oasis7_builtin_wasm_modules/m5_gameplay_governance_council/src/lib.rs` |
+| 重投规则 | 同一投票者可重投，后票覆盖前票 | 允许策略更新，但保持单人单权重口径 | `crates/oasis7_world_state/src/state.rs`、`crates/oasis7_builtin_wasm_modules/m5_gameplay_governance_council/src/lib.rs` |
 | 过期处理 | `now > closes_at` 的投票拒绝；到期自动结算 | 显式治理冷却边界，避免无限拖延 | `crates/oasis7_runtime/src/world/event_processing.rs`、`crates/oasis7_runtime/src/world/gameplay_loop.rs` |
 
 ### 2.1 政治推荐参数模板（首轮）

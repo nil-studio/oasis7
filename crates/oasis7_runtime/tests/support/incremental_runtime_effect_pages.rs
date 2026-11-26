@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_proto::memory_budget::ReservedValue;
 use std::sync::atomic::AtomicBool;
@@ -289,6 +290,7 @@ impl<R: ValueNodeReader> ValueNodeReader for Missing<'_, R> {
         self.source.read_node(id, max, memory, class)
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn missing_child_real_copy_failure_and_final_flush_cancel_return_no_complete_transfer() {
     let directory = Directory::new();

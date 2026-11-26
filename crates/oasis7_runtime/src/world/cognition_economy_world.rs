@@ -6,6 +6,8 @@ use super::cognition_economy::{
     CognitionEconomyError, CognitionEconomyStateV1, CognitionLeaseRequestV1, CognitionLeaseV1,
     CognitionProvisioningReceiptV1, CognitionProvisioningRequestV1, CognitionReceiptV1,
 };
+use super::transition::{RootInstallContext, SubsystemDelta};
+use crate::domains::monetary::{CognitionEconomyOutput, StagedCognitionEconomyOp};
 
 fn world_economy_error(error: CognitionEconomyError) -> WorldError {
     WorldError::DistributedValidationFailed {
@@ -14,6 +16,38 @@ fn world_economy_error(error: CognitionEconomyError) -> WorldError {
 }
 
 impl World {
+    pub(crate) fn install_cognition_economy_projection(&mut self, projection: serde_json::Value) {
+        self.cognition["cognition_economy"] = projection;
+    }
+
+    fn execute_staged_cognition_economy(
+        &mut self,
+        op: StagedCognitionEconomyOp<'_>,
+    ) -> Result<CognitionEconomyOutput, WorldError> {
+        let (output, delta) = op.prepare_on_world(self, self.state.time)?;
+        if self.persistence_dir.borrow().is_some() {
+            let previous_cognition = self.cognition.clone();
+            delta.apply_infallible(&mut RootInstallContext::new(self));
+            if let Err(err) = self.persist_runtime_transaction_if_configured() {
+                self.cognition = previous_cognition;
+                return Err(err);
+            }
+        } else {
+            delta.apply_infallible(&mut RootInstallContext::new(self));
+        }
+        Ok(output)
+    }
+
+    fn execute_staged_cognition_receipt(
+        &mut self,
+        op: StagedCognitionEconomyOp<'_>,
+    ) -> Result<CognitionReceiptV1, WorldError> {
+        match self.execute_staged_cognition_economy(op)? {
+            CognitionEconomyOutput::Receipt(receipt) => Ok(receipt),
+            _ => unreachable!("lease receipt operation produces Receipt output"),
+        }
+    }
+
     /// Read back and validate the Runtime-owned cognition economy projection.
     pub fn cognition_economy(&self) -> Result<CognitionEconomyStateV1, WorldError> {
         let value = self
@@ -35,16 +69,13 @@ impl World {
         resource: impl Into<String>,
         available: u64,
     ) -> Result<(), WorldError> {
-        let mut transaction = self.clone();
-        let mut economy = transaction.cognition_economy()?;
-        economy
-            .set_resource_balance(account_id, resource, available)
-            .map_err(world_economy_error)?;
-        transaction.cognition["cognition_economy"] =
-            economy.snapshot_json().map_err(world_economy_error)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(())
+        let (account_id, resource) = (account_id.into(), resource.into());
+        self.execute_staged_cognition_economy(StagedCognitionEconomyOp::SetBalance(
+            &account_id,
+            &resource,
+            available,
+        ))
+        .map(|_| ())
     }
 
     /// Install one Runtime-authorized cognition allowance for a live Agent's
@@ -58,18 +89,38 @@ impl World {
         authority_context: impl Into<String>,
         allowance: u64,
     ) -> Result<CognitionProvisioningReceiptV1, WorldError> {
+        let (provision_id, authority_context) = (provision_id.into(), authority_context.into());
+        match self.execute_staged_cognition_economy(StagedCognitionEconomyOp::ProvisionForAgent(
+            agent_id,
+            &provision_id,
+            &authority_context,
+            allowance,
+        ))? {
+            CognitionEconomyOutput::ProvisionReceipt(receipt) => Ok(receipt),
+            _ => unreachable!("ProvisionForAgent produces ProvisionReceipt output"),
+        }
+    }
+
+    pub(crate) fn build_cognition_provisioning_request(
+        &self,
+        agent_id: &str,
+        provision_id: &str,
+        authority_context: &str,
+        allowance: u64,
+    ) -> Result<CognitionProvisioningRequestV1, WorldError> {
         if !self.state.agents.contains_key(agent_id) {
             return Err(WorldError::DistributedValidationFailed {
                 reason: "cognition provisioning requires a live agent".to_string(),
             });
         }
-        let identity = self.current_agent_identity(agent_id)
+        let identity = self
+            .current_agent_identity(agent_id)
             .ok_or_else(|| WorldError::DistributedValidationFailed {
                 reason: "cognition provisioning requires a live capability identity".to_string(),
             })?
             .clone();
         let binding = self.current_cognition_runtime_binding()?;
-        let request = CognitionProvisioningRequestV1::new(
+        Ok(CognitionProvisioningRequestV1::new(
             provision_id,
             identity.owner_binding.clone(),
             identity.owner_binding,
@@ -79,44 +130,22 @@ impl World {
             binding.reorg_epoch,
             allowance,
             authority_context,
-        );
-        let mut transaction = self.clone();
-        let mut economy = transaction.cognition_economy()?;
-        let receipt = economy
-            .provision(request, transaction.state.time)
-            .map_err(world_economy_error)?;
-        transaction.cognition["cognition_economy"] =
-            economy.snapshot_json().map_err(world_economy_error)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(receipt)
+        ))
     }
 
     pub fn reserve_cognition_lease(
         &mut self,
         request: CognitionLeaseRequestV1,
     ) -> Result<CognitionLeaseV1, WorldError> {
-        let mut transaction = self.clone();
-        let mut economy = transaction.cognition_economy()?;
-        let lease = if let Some(binding_key) =
-            transaction.cognition_provisioning_binding_for_request(&request, &economy)?
+        match self
+            .execute_staged_cognition_economy(StagedCognitionEconomyOp::ReserveLease(&request))?
         {
-            economy
-                .reserve_for_binding(request, binding_key, transaction.state.time)
-                .map_err(world_economy_error)?
-        } else {
-            economy
-                .reserve(request, transaction.state.time)
-                .map_err(world_economy_error)?
-        };
-        transaction.cognition["cognition_economy"] =
-            economy.snapshot_json().map_err(world_economy_error)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(lease)
+            CognitionEconomyOutput::Lease(lease) => Ok(lease),
+            _ => unreachable!("ReserveLease produces Lease output"),
+        }
     }
 
-    fn cognition_provisioning_binding_for_request(
+    pub(crate) fn cognition_provisioning_binding_for_request(
         &self,
         request: &CognitionLeaseRequestV1,
         economy: &CognitionEconomyStateV1,
@@ -129,7 +158,8 @@ impl World {
             return Ok(None);
         }
         let binding = self.current_cognition_runtime_binding()?;
-        let identity = self.current_agent_identity(request.agent_id.as_str())
+        let identity = self
+            .current_agent_identity(request.agent_id.as_str())
             .ok_or_else(|| {
                 world_economy_error(CognitionEconomyError::InvalidState(
                     "cognition_provisioning_identity_missing",
@@ -162,64 +192,31 @@ impl World {
         lease_id: &str,
         consumed_amount: u64,
     ) -> Result<CognitionReceiptV1, WorldError> {
-        let mut transaction = self.clone();
-        let mut economy = transaction.cognition_economy()?;
-        let receipt = economy
-            .settle(lease_id, consumed_amount, transaction.state.time)
-            .map_err(world_economy_error)?;
-        transaction.cognition["cognition_economy"] =
-            economy.snapshot_json().map_err(world_economy_error)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(receipt)
+        self.execute_staged_cognition_receipt(StagedCognitionEconomyOp::SettleLease(
+            lease_id,
+            consumed_amount,
+        ))
     }
 
     pub fn release_cognition_lease(
         &mut self,
         lease_id: &str,
     ) -> Result<CognitionReceiptV1, WorldError> {
-        let mut transaction = self.clone();
-        let mut economy = transaction.cognition_economy()?;
-        let receipt = economy
-            .release(lease_id, transaction.state.time)
-            .map_err(world_economy_error)?;
-        transaction.cognition["cognition_economy"] =
-            economy.snapshot_json().map_err(world_economy_error)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(receipt)
+        self.execute_staged_cognition_receipt(StagedCognitionEconomyOp::ReleaseLease(lease_id))
     }
 
     pub fn expire_cognition_lease(
         &mut self,
         lease_id: &str,
     ) -> Result<CognitionReceiptV1, WorldError> {
-        let mut transaction = self.clone();
-        let mut economy = transaction.cognition_economy()?;
-        let receipt = economy
-            .expire(lease_id, transaction.state.time)
-            .map_err(world_economy_error)?;
-        transaction.cognition["cognition_economy"] =
-            economy.snapshot_json().map_err(world_economy_error)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(receipt)
+        self.execute_staged_cognition_receipt(StagedCognitionEconomyOp::ExpireLease(lease_id))
     }
 
     pub fn refund_cognition_lease(
         &mut self,
         lease_id: &str,
     ) -> Result<CognitionReceiptV1, WorldError> {
-        let mut transaction = self.clone();
-        let mut economy = transaction.cognition_economy()?;
-        let receipt = economy
-            .refund(lease_id, transaction.state.time)
-            .map_err(world_economy_error)?;
-        transaction.cognition["cognition_economy"] =
-            economy.snapshot_json().map_err(world_economy_error)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(receipt)
+        self.execute_staged_cognition_receipt(StagedCognitionEconomyOp::RefundLease(lease_id))
     }
 
     pub fn refund_settled_cognition_lease(
@@ -229,21 +226,11 @@ impl World {
         parent_receipt_id: &str,
         reason: &str,
     ) -> Result<CognitionReceiptV1, WorldError> {
-        let mut transaction = self.clone();
-        let mut economy = transaction.cognition_economy()?;
-        let receipt = economy
-            .refund_settled(
-                lease_id,
-                refunded_amount,
-                parent_receipt_id,
-                reason,
-                transaction.state.time,
-            )
-            .map_err(world_economy_error)?;
-        transaction.cognition["cognition_economy"] =
-            economy.snapshot_json().map_err(world_economy_error)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(receipt)
+        self.execute_staged_cognition_receipt(StagedCognitionEconomyOp::RefundSettledLease(
+            lease_id,
+            refunded_amount,
+            parent_receipt_id,
+            reason,
+        ))
     }
 }

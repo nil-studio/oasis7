@@ -89,14 +89,7 @@ fn hosted_passkey_virtual_authenticator_fixture() {
         root.join("viewer_account_email_recovery.js"),
     )
     .unwrap();
-    let viewer_html = std::fs::read_to_string(source.join("../viewer.html")).unwrap();
-    let style = viewer_html
-        .split_once("<style>")
-        .unwrap()
-        .1
-        .split_once("</style>")
-        .unwrap()
-        .0;
+    let style = read_expanded_css(&source.join("../viewer_base.css"));
     std::fs::write(root.join("fixture.css"), style).unwrap();
     std::fs::write(root.join("index.html"),"<!doctype html><meta charset=utf-8><link rel=stylesheet href=/fixture.css><main style=\"padding:16px;max-width:640px;margin:auto\"><div id=account class=stack></div></main><script type=module>import {mountPasskeyAccount} from '/viewer_passkey_account_module.js';mountPasskeyAccount(document.querySelector('#account'));</script>").unwrap();
     let issuer = Arc::new(Mutex::new(
@@ -132,4 +125,25 @@ fn hosted_passkey_virtual_authenticator_fixture() {
             Err(e) => panic!("{e}"),
         }
     }
+}
+
+fn read_expanded_css(path: &std::path::Path) -> String {
+    let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let raw = std::fs::read_to_string(path).unwrap();
+    let mut out = String::with_capacity(raw.len());
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("@import ") {
+            let spec = rest.trim().trim_end_matches(';').trim();
+            let quoted = spec.trim_matches('"').trim_matches('\'');
+            if quoted.starts_with("./") && quoted.ends_with(".css") {
+                out.push_str(&read_expanded_css(&dir.join(quoted)));
+                out.push('\n');
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }

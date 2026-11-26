@@ -15,7 +15,6 @@ h2 { font-size: 1.5rem; font-weight: 600; }
 h3 { font-size: 1.125rem; }
 a { color: #80c8ed; }
 header { min-height: 4.25rem; border-bottom: 0.0625rem solid #293143; padding: 0.875rem 1.5rem; display: flex; align-items: center; gap: 1.5rem; }
-.brand { color: #69dcb4; letter-spacing: 0.125rem; font-size: 0.8125rem; }
 .header-context { flex: 1; }
 .muted { color: #90a0b7; }
 .small { font-size: 0.8125rem; }
@@ -24,7 +23,6 @@ aside { border-right: 0.0625rem solid #293143; padding: 1.5rem 0.875rem; backgro
 nav { display: grid; gap: 0.375rem; }
 nav button { text-align: left; padding: 0.6875rem 0.75rem; background: transparent; border-color: transparent; }
 nav button[aria-current=page] { color: #76e0bd; background: #1c3637; border-color: #31514c; }
-.nav-index { color: #73849c; display: inline-block; width: 1.5rem; font-size: 0.8125rem; }
 .side-caption { padding: 1.375rem 0.75rem 0.5rem; font-size: 0.8125rem; letter-spacing: 0.0625rem; color: #71839b; }
 .source-status { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.4375rem 0.75rem; }
 .tag { display: inline-block; font-size: 0.8125rem; padding: 0.0625rem 0.375rem; color: #b0bed0; background: #243045; border: 0.0625rem solid #344057; border-radius: 0.25rem; white-space: nowrap; }
@@ -113,11 +111,10 @@ button, input:not([type=checkbox]), select { min-height:2.5rem; }
 button { white-space:normal; overflow-wrap:anywhere; }
 h4 { font-size:1rem; margin:1.25rem 0 0.5rem; }
 .muted, .metadata, .side-caption, footer { color:var(--text-muted); }
-.small,.metadata,.tag,.brand,.eyebrow,.nav-index,footer,.side-caption { font-size:0.8125rem; }
+.small,.metadata,.tag,.eyebrow,footer,.side-caption { font-size:0.8125rem; }
 .shell { grid-template-columns:12.5rem minmax(0,1fr); }
 .shell > aside { padding:1.5rem 0.75rem; }
 nav button { min-height:3rem; padding:0.625rem 0.5rem; }
-.nav-index { width:1.5rem; }
 main { padding:1.5rem 2rem; container: reader / inline-size; }
 .panel { border-radius:0.5rem; margin-bottom:1.5rem; }
 .panel-title { padding:1rem 1.5rem; flex-wrap:wrap; }
@@ -154,7 +151,6 @@ main { padding:1.5rem 2rem; container: reader / inline-size; }
  .shell > aside { padding:0.5rem 0.75rem; border-right:0; border-bottom:0.0625rem solid #293143; }
  .shell > aside nav { display:flex; flex-wrap:wrap; gap:0.25rem; }
  .shell > aside nav button { font-size:0.8125rem; min-height:2.5rem; padding:0.375rem 0.5rem; }
- .nav-index { display:none; }
  .shell > aside .side-caption,.shell > aside .source-status,.shell > aside > .panel-body { display:none; }
  main { padding:1.25rem 1rem; }
  .source-inspector { inset:1rem; }
@@ -210,7 +206,6 @@ button svg{vertical-align:middle;flex-shrink:0}
 .project-entry .display-settings{margin-bottom:16px;flex-wrap:wrap}
 @container app (max-width:47.5rem){
  header{min-height:0;padding:8px 12px;gap:12px;justify-content:space-between}
- header .brand{display:none}
  header h1{font-size:1rem}
  .shell>aside{padding:4px 12px}
  .navigation-toggle{padding:6px 10px;min-height:36px}

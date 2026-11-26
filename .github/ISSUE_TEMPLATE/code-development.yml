@@ -8,7 +8,9 @@ body:
       value: |
         先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。
         拆出的开发任务须创建或复用本类 Issue，并在 GitHub 建立真实 parent/sub-issue 关系后领取；正文链接或 checkbox 不代替原生关系。见[子任务跟踪规则](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。
-        每个可独立交付代码任务尽量不超过 30 个代码文件，同任务跨 PR 累计观察，并在建单/拆单时预先划定[预计 PR 边界与批次](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#planned-pr-scope)（建议规模内默认单 PR 收口，确需多 PR 时预先列出各批次范围，偶发较大原子 PR 或极小解阻/修复 PR 简述原因）。见[任务规模建议](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-file-limit)，文件与 PR 数量不作为任务准入硬门禁。
+        每个可独立交付代码任务尽量不超过 30 个代码文件，同任务跨 PR 累计观察。当前及近期拟执行任务按[预计 PR 边界与批次](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#planned-pr-scope)写明预计 PR 总数（`N`）及有序范围；父项引用子项计划，后续范围保留目标、前置和下一动作。N 可按事实调整，文件数和 PR 数不作为自动拆单门槛；适用的 Crate、相邻环、行数与活跃路径边界及类型例外见[切片规范](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/pr-slicing-and-circuit-breaker.md)。
+        基线能力与剩余范围按[前置事实与剩余承接](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#decomposition-evidence-and-remainder)核对，在下方既有来源、依赖和交付字段填写或引用当前有效安排。
+        已定义的当前/近期执行范围在原 Issue 正文维护一份[PR 实施 checklist](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#planned-pr-checklist)。开发、评审及未合入项保持 `[ ]`，仅实际合入且本片验收满足才标 `[x]`；局部交付先对齐本项实际范围并保留剩余接续项。关闭未合入或替代时保留有效范围的去向；经有效决定取消的范围转为带原因和来源的历史说明，不继续列为待办或标为交付。父项引用子项清单，远期未细化范围保留目标、前置和下一动作，无需批量预建 PR。
         描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
   - type: dropdown
     id: issue_type
@@ -29,12 +31,16 @@ body:
     id: sources_scope
     attributes:
       label: "来源与范围"
-      description: "公开来源与固定版本；本次范围、非目标、实际消费者与接口边界。估算变更的代码文件或可核对目录范围及数量（尽量不超过 30 个，含测试、脚本、配置和生成代码；父项引用执行子项估算），并按 #planned-pr-scope 预先写明预计 PR 划分与批次边界（默认预计 1 个完整 PR 收口，内部步骤在单分支用本地 commit 连续完成，复杂实现可按需列步骤清单；满足解阻前置、超规模、分步契约或共享入口隔离需拆多 PR 时，预先列出各批次大致目录/范围与依据，不留待实施期临场拆分；强耦合较大单 PR 或独立极小 PR 直接说明原因）。明确 profile、入口、版本或预算，或引用固定来源；未定部分写明补齐动作及影响。子任务核对父 Issue 和原生关系。勿上传凭据或敏感日志。"
+      description: "公开来源与固定版本；实际目标分支和基线提交（默认 main）、已核对实现与真实消费者、本次范围和非目标。当前及近期执行任务估算代码文件范围与数量，并写明预计 PR 总数（N）及有序范围：PR k/N、Slice-Type、Allowed-Crates、预计非锁行数/文件数、交付物与消费者、验收入口、前置及 Non-Goals。按切片规范核对每片最多 3 个 Crate、2 个相邻 L0..L3 环及对应类型的行数/活跃路径边界；保留 Bugfix、Docs、Chore 的适用规则，Chore 不承接新业务/宿主实现或跨层切流。父项引用子项计划，不要求远期全局 N；未定 profile、入口、版本或预算注明补齐动作与影响。子任务核对原生父子关系，勿上传凭据或敏感日志。"
       placeholder: |
-        公开来源与版本：
-        本次范围 / 非目标 / 消费者与接口边界：
+        公开来源 / 实际目标分支与基线提交 / 已核对源码和消费者：
+        本次范围 / 非目标（Non-Goals） / 消费者与接口边界：
         预计变更目录与代码文件数：
-        预计 PR 划分与批次边界（默认单 PR 收口；拆多 PR 时预列各批范围与依据；例外大/小单 PR 简述原因）：
+        当前/近期执行任务的预计 PR 总数（N；父项引用子项计划）：
+        有序切片（PR k/N | Slice-Type | Allowed-Crates [L0..L3 环] | 预计非锁行数/文件数 | 交付物与消费者 | 验收入口 | 前置 | Active-Path-Impact / Non-Goals）：
+        PR 实施 checklist（每个已定义切片一项；父项引用子项清单）：
+
+        - [ ] PR k/N：范围/结果 <本片结果或计划行>；类型/允许范围 <Slice-Type、Allowed-Crates 或计划行>；验收/前置 <预期结果、入口及依赖>；实际 PR：待创建后补链接
     validations:
       required: true
   - type: textarea
@@ -55,24 +61,25 @@ body:
     id: dependencies
     attributes:
       label: "依赖"
-      description: "实际依赖的 Issue/PR/提交、接口、环境、测试数据、权限或 owner 决定，区分已具备和待满足条件；缺少的验收入口/夹具写清先行工作及负责人，环境阻塞写明解除条件。没有依赖写“无”。"
+      description: "按前置事实与剩余承接规则核对实际依赖：区分目标分支已具备、固定未合入前置、只读提取来源、待实现缺口，未核实部分注明未知及核实动作。引用对应 Issue/PR/提交、实现和消费者；未合入前置注明固定输入、验证范围及目标分支，旧 PR 的实现或测试不代表 main 已具备。缺少的接口、验收入口、夹具、环境、权限或 owner 决定写明产出、责任人或待承接状态及解除条件。没有依赖写“无”。"
     validations:
       required: true
   - type: textarea
     id: delivery
     attributes:
       label: "交付终点"
-      description: "本项完整合同及验收成立后的交付终点、下一责任人或待承接。等待后继结果或父项组合时，核对必要性与实际拆分收益，保留本行为必需验收；合入、部署和付费按实际授权。本项所需开发 PR 均实际合入且仍有复杂测试时，才沿用原 Issue 转测试，保留合入版本、开发测试证据、剩余验证与接收状态；无此剩余且全部原义务满足时直接结项。"
+      description: "本项完整合同及验收成立后的交付终点、下一责任人或待承接。阶段 PR 合入、收窄范围或原承接退出时，对回实际完成范围，将未完成验收定位到现有承接 Issue、当前/近期计划批次或前置与下一动作；尚未启动批次无需预建 PR。更新待实施计划时保留已完成 checklist 条目及证据，不以重写计划抹去交付历史。等待后继结果或父项组合时保留本行为必需验收；合入、部署和付费按实际授权。本项所需开发 PR 均实际合入且仍有复杂测试时，才沿用原 Issue 转测试，保留合入版本、开发测试证据、剩余验证与接收状态；全部原义务满足且无剩余时结项。"
     validations:
       required: true
   - type: textarea
     id: parallel_plan
     attributes:
       label: "项目拆解与当前批次（复杂任务适用）"
-      description: "先组织可用模块增量和关键依赖，再细化当前/近期批次；后续范围保留目标与前置。独立派发须有解除阻塞、独立容量、风险隔离或提前交付的收益，不能仅因可测试继续细拆；触达同一 Cargo 依赖闭包、高扇出共享 crate 或共享 CI 控制路径的同类改动在 30 个代码文件建议内优先归并批次。拆出子 Issue 时同步锚定每项的预计 PR 边界与批次（建议规模内默认单 PR 收口，确需多批时预先划定每批范围；每个子任务同一时刻原则上只保持一个在途开放 PR，解阻前置除外）。复用原生代码 sub-issue，派发前回读关系；模块分组不强制另建 Issue，内部步骤留清单。引用已有范围与验收，区分待承接、就绪和实际认领。"
+      description: "先组织可用模块增量和关键依赖，再细化当前/近期批次的预计 N 与有序范围；后续范围保留目标、前置和下一动作。独立派发须有解阻、独立容量、风险隔离或提前交付的收益，同一 CI 受影响范围内的同类改动优先归并；30 文件是建议，不因切片数量自动拆单。每个子任务原则上只保持一个在途开放 PR，确需独立前置解阻时沿既有例外处理；适用契约锁边界的切片仅为当前 PR k/N 先建 Draft，普通 PR 沿开发规范 §4.2。复用原生子 Issue 并回读关系，内部步骤留清单；区分待承接、就绪和实际认领，将剩余验收逐项对应到现有安排。"
       placeholder: |
         父目标及最终集成验收 / 整体负责人：
         可用模块增量 / 当前批次 / 后续范围及关键前置：
-        原生子 Issue 与对应结果 / 预计代码文件数与预计 PR 批次边界 / 关系核对 / 拆分或同 CI 范围归并依据：
-        已验证结果 / 待集成或待验收成果 / 当前唯一在途开放 PR / 下一步：
+        原生子 Issue 及其 checklist / 对应验收 / 当前及近期任务的预计文件数、N 与有序范围 / 关系核对 / 拆分或归并依据：
+        已交付范围及证据 / 未完成验收 → 承接 Issue → 计划批次或前置与下一动作：
+        已验证结果 / 待集成或待验收成果 / 当前在途 PR 及计划关联（k/N） / 下一步：
         共享接口与高扇出文件写入负责人 / 当前验收准备与待承接责任：

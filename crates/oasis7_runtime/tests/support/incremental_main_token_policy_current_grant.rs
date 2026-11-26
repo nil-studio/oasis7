@@ -7,7 +7,12 @@ use oasis7_runtime::incremental_field_overlay::{
 
 #[test]
 fn current_grant_reads_all_original_fields_and_rejects_stale_guard() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store = IncrementalPageStore::create(
@@ -18,9 +23,12 @@ fn current_grant_reads_all_original_fields_and_rejects_stale_guard() {
         .unwrap();
         let original = source();
         let roots = seed(&store, &memory, &original);
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let values = store.value_session(physical());
         let family = qualify_main_token_policy_family_v1(
             &roots,

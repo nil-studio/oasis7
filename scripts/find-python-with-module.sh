@@ -49,17 +49,6 @@ for generic_name in python python3; do
   fi
 done
 
-# Legacy Codex bundled Python remains an optional compatibility candidate, not a prerequisite.
-codex_runtime_root="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python"
-for codex_runtime_python in \
-  "$codex_runtime_root/python.exe" \
-  "$codex_runtime_root/bin/python3" \
-  "$codex_runtime_root/bin/python"; do
-  if [[ -x "$codex_runtime_python" ]]; then
-    emit_if_supported "$codex_runtime_python"
-  fi
-done
-
 while IFS= read -r path_dir; do
   [[ -n "$path_dir" ]] || path_dir="."
   for candidate in "$path_dir"/python*; do
@@ -68,5 +57,5 @@ while IFS= read -r path_dir; do
   done
 done < <(printf '%s' "$PATH" | tr ':' '\n')
 
-echo "find-python-with-module: no Python interpreter on PATH can import ${MODULE}" >&2
+echo "find-python-with-module: no Python interpreter on PATH can import ${MODULE}; set OASIS7_PYTHON_BIN to an explicit interpreter path" >&2
 exit 1

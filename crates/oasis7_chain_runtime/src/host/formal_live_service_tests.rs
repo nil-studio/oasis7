@@ -900,8 +900,24 @@ fn poisoned_state_signed_http_recovery(admission_poisoned: bool) {
         assert_eq!(verified["api_version"], "oasis7.formal-live-status-observation/v1");
         assert_eq!(verified["host_reports_ready"], true);
         assert_eq!(verified["authority_qualification"], "unknown");
+        let receipt = verified["authenticated_status_receipt_sha256"]
+            .as_str()
+            .unwrap();
+        assert_eq!(receipt.len(), 64);
+        assert!(receipt.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert!(verified["authenticated_status_verified_at_unix_ms"].is_u64());
+        assert!(verified.get("signature_hex").is_none());
+
+        let original_node_id = pins.expected_node_id.clone();
         pins.expected_node_id = "wrong-node".into();
         assert!(observe(&pins).is_err());
+        pins.expected_node_id = original_node_id;
+        let recovered = serde_json::to_value(observe(&pins).unwrap()).unwrap();
+        assert_eq!(recovered["authority_qualification"], "unknown");
+        assert_ne!(
+            recovered["authenticated_status_receipt_sha256"],
+            verified["authenticated_status_receipt_sha256"]
+        );
 
         let invalid: FormalServiceErrorV1 = exchange(
             address,

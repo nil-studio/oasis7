@@ -1,14 +1,11 @@
 //! Versioned formal-profile contracts and verification foundation. This module
 //! does not activate a runtime, assert physical fault domains or open writes.
-mod activation;
-mod crypto;
-mod frozen;
 mod maintenance_encoding;
-mod proof;
-mod record;
-mod recovery;
-mod types;
 pub use super::fencing;
+use oasis7_formal_protocol::controlled_authority::formal::{
+    activation, crypto, durable_set_activation, durable_set_bootstrap, durable_set_install,
+    durable_set_transition, frozen, proof, record, recovery, types,
+};
 pub mod coordinator;
 pub mod endpoint;
 pub mod full_sync_issuer;
@@ -22,30 +19,30 @@ pub use record::*;
 pub use recovery::*;
 pub use types::*;
 #[cfg(test)]
-mod tests;
+mod tests {
+    pub(crate) use oasis7_formal_protocol::controlled_authority::formal::test_fixtures::{
+        alternate_recovery_fixture, recovery_fixture,
+    };
+}
 
-pub mod business_index;
+pub use oasis7_formal_protocol::controlled_authority::formal::{
+    business_history, business_index, recovery_bootstrap,
+};
 pub mod business_material;
 mod business_pack;
 mod physical;
 pub use business_material::*;
 pub use physical::FormalPhysicalReclaimReport;
 
-pub mod business_history;
 pub use business_history::*;
 
-pub mod recovery_bootstrap;
 pub use recovery_bootstrap::*;
 
-mod durable_set_activation;
-mod durable_set_transition;
 pub use durable_set_activation::*;
 pub use durable_set_transition::*;
 
-mod durable_set_install;
 pub use durable_set_install::*;
 
-mod durable_set_bootstrap;
 pub use durable_set_bootstrap::*;
 
 mod storage_shadow;

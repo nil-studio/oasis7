@@ -2,7 +2,12 @@ use super::*;
 use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
 #[test]
 fn scheduler_controls_same_transaction_and_changed_receiver() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
         let store =
@@ -18,9 +23,12 @@ fn scheduler_controls_same_transaction_and_changed_receiver() {
             },
         };
         let live = parent.fence().unwrap();
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(256, 1 << 20).unwrap();
+        }
         let values = store.value_session(physical());
         let mut io = logical();
         let mut keys = SemanticKeyBudget {

@@ -1,9 +1,12 @@
+import { readExpandedCssSync } from "./test_support/read_expanded_css.js";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("mobile gameplay action card clearance", () => {
+  const readCombinedStyles = () => readExpandedCssSync("viewer_base.css");
+
   it("keeps targeted action cards below the sticky mobile jump rail", () => {
-    const viewerHtml = readFileSync("viewer.html", "utf8");
+    const viewerHtml = readCombinedStyles();
 
     for (const html of [viewerHtml]) {
       expect(html).toMatch(
@@ -16,7 +19,7 @@ describe("mobile gameplay action card clearance", () => {
   });
 
   it("removes nonessential interactive motion when players prefer reduced motion", () => {
-    const viewerHtml = readFileSync("viewer.html", "utf8");
+    const viewerHtml = readCombinedStyles();
 
     for (const html of [viewerHtml]) {
       const reducedMotionStart = html.lastIndexOf("@media (prefers-reduced-motion: reduce)");

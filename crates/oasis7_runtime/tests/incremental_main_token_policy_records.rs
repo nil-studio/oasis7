@@ -139,7 +139,12 @@ fn all_original_policy_fields_cold_recover_without_source() {
     use MainTokenPolicyColumnV1 as C;
     use MainTokenPolicyKeyV1 as K;
     use MainTokenPolicyValueV1 as V;
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+    let compressions: &[PageCompression] = if cfg!(feature = "test_tier_full") {
+        &[PageCompression::Raw, PageCompression::Zstd]
+    } else {
+        &[PageCompression::Raw]
+    };
+    for &compression in compressions {
         let directory = Directory::new();
         let path = directory.0.join("cold");
         let roots = {
@@ -151,9 +156,12 @@ fn all_original_policy_fields_cold_recover_without_source() {
         let store =
             IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Recovery)
                 .unwrap();
-        let state = store
+        let mut state = store
             .state_session(physical(), MemoryClass::Recovery)
             .unwrap();
+        if !cfg!(feature = "test_tier_full") {
+            state = state.with_read_memo(128, 512 << 10).unwrap();
+        }
         let values = store.value_session(physical());
         let mut io = logical();
         let mut keys = SemanticKeyBudget {
@@ -299,11 +307,19 @@ fn all_original_policy_fields_cold_recover_without_source() {
                     ));
                 }
             }
+            if !cfg!(feature = "test_tier_full") && cells.len() > 4 {
+                let tail = cells.pop().unwrap();
+                cells.truncate(3);
+                cells.push(tail);
+            }
             for (cell, expected, text) in cells {
                 let mut output = Vec::new();
-                let point_state = store
+                let mut point_state = store
                     .state_session(physical(), MemoryClass::Recovery)
                     .unwrap();
+                if !cfg!(feature = "test_tier_full") {
+                    point_state = point_state.with_read_memo(128, 512 << 10).unwrap();
+                }
                 let point_values = store.value_session(physical());
                 let mut point_io = logical();
                 let mut point_keys = SemanticKeyBudget {
@@ -363,6 +379,7 @@ mod faults;
 #[path = "support/incremental_main_token_policy_scaling.rs"]
 mod scaling;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/incremental_main_token_policy_pages.rs"]
 mod pages;
 

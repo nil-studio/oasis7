@@ -7,7 +7,7 @@ use feedback_diagnostics::{
 use super::super::decision_trace::{is_budget_exhausted_wait, is_trace_only_overflow};
 use super::*;
 use crate::runtime::{RuntimeFeedbackProjectionV1, RuntimeFeedbackRequestV1};
-use crate::simulator::AgentDecision;
+use oasis7_simulator::AgentDecision;
 
 #[cfg(test)]
 #[path = "provider_action_service_tests.rs"]

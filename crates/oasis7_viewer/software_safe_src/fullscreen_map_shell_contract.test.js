@@ -1,3 +1,4 @@
+import { readExpandedCss } from "./test_support/read_expanded_css.js";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
@@ -29,11 +30,12 @@ function findRule(source, selectorPattern) {
 }
 
 async function readViewerHtml() {
-  const [viewerHtml, terminalShellCss] = await Promise.all([
+  const [viewerHtml, baseCss, terminalShellCss] = await Promise.all([
     readFile("viewer.html", "utf8"),
-    readFile("viewer_terminal_shell.css", "utf8"),
+    readExpandedCss("viewer_base.css"),
+    readExpandedCss("viewer_terminal_shell.css"),
   ]);
-  return { viewerHtml, terminalShellCss };
+  return { viewerHtml: `${baseCss}\n${viewerHtml}`, terminalShellCss };
 }
 
 describe("fullscreen map shell contract", () => {
@@ -292,7 +294,7 @@ describe("fullscreen map shell contract", () => {
   it("keeps an independent Cinematic View entry visible in the fullscreen Player shell", async () => {
     const [hostSource, terminalShellCss] = await Promise.all([
       readFile("software_safe_src/pixel_world_host.jsx", "utf8"),
-      readFile("viewer_terminal_shell.css", "utf8"),
+      readExpandedCss("viewer_terminal_shell.css"),
     ]);
     expect(hostSource).toContain('data-viewer-overlay="cinematic-entry"');
     const entryRule = findRule(
@@ -412,10 +414,12 @@ describe("fullscreen map shell contract", () => {
   });
 
   it("keeps the Command route chrome and truthful context available at scroll bottom", async () => {
-    const [{ terminalShellCss }, mainSource] = await Promise.all([
+    const [{ terminalShellCss }, appSource, interactionSource] = await Promise.all([
       readViewerHtml(),
       readFile("software_safe_src/viewer_app.jsx", "utf8"),
+      readFile("software_safe_src/viewer_interaction_panel.jsx", "utf8"),
     ]);
+    const mainSource = `${appSource}\n${interactionSource}`;
     expect(mainSource).toMatch(
       /id="viewer-details-panel"[\s\S]*?class="panel__header panel__header--stack command-route-chrome"[\s\S]*?href="#viewer-stage-panel"/i,
     );
@@ -453,7 +457,7 @@ describe("fullscreen map shell contract", () => {
   it("keeps Hosted prompt rollback reachable in the true phone-width Command drawer", async () => {
     const [{ terminalShellCss }, mainSource] = await Promise.all([
       readViewerHtml(),
-      readFile("software_safe_src/viewer_app.jsx", "utf8"),
+      readFile("software_safe_src/viewer_interaction_advanced_panels.jsx", "utf8"),
     ]);
     expect(mainSource).toMatch(/class="command-surface__prompt-panel"/);
     expect(mainSource).toMatch(/class="toolbar command-surface__rollback-actions"/);
@@ -500,7 +504,7 @@ describe("fullscreen map shell contract", () => {
   it("keeps a mobile More route for secondary Diagnostics without a narrow-screen hide rule", async () => {
     const [navigationSource, terminalShellCss] = await Promise.all([
       readFile("software_safe_src/viewer_navigation.jsx", "utf8"),
-      readFile("viewer_terminal_shell.css", "utf8"),
+      readExpandedCss("viewer_terminal_shell.css"),
     ]);
     expect(navigationSource).toMatch(/More/);
     expect(navigationSource).toMatch(/Diagnostics/);
@@ -567,7 +571,7 @@ describe("hotspot overlay contract", () => {
     const [hotspotSource, hostSource, terminalShellCss] = await Promise.all([
       readFile("software_safe_src/pixel_world_hotspot.jsx", "utf8"),
       readFile("software_safe_src/pixel_world_host.jsx", "utf8"),
-      readFile("viewer_terminal_shell.css", "utf8"),
+      readExpandedCss("viewer_terminal_shell.css"),
     ]);
     expect(hostSource).toMatch(/PixelWorldHotspotTooltip/);
     expect(hotspotSource).toMatch(/<Portal>/);

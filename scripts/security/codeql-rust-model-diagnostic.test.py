@@ -310,19 +310,19 @@ class Runtime(unittest.TestCase):
                 program = '''import os, signal, sys, time
 from pathlib import Path
 ready, release = map(Path, sys.argv[1:3])
-def terminate(*_):
-    while not release.exists():
-        time.sleep(.001)
-    if sys.argv[3] == 'signal':
-        os.kill(os.getpid(), signal.SIGKILL)
-    os._exit(23)
-signal.signal(signal.SIGTERM, terminate)
+# This fixture controls exit from the first poll, regardless of when the
+# supervisor's separate TERM delivery reaches the child.
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
 ready.touch()
-while True:
-    signal.pause()
+while not release.exists():
+    time.sleep(.001)
+if sys.argv[3] == 'signal':
+    os.kill(os.getpid(), signal.SIGKILL)
+os._exit(23)
 '''
                 actual_popen = r.subprocess.Popen
                 observed = []
+                first_poll = True
 
                 def synchronized_popen(*args, **kwargs):
                     process = actual_popen(*args, **kwargs)
@@ -334,8 +334,10 @@ while True:
                         actual_poll = process.poll
 
                         def poll_before_exit():
+                            nonlocal first_poll
                             value = actual_poll()
-                            if not observed:
+                            if first_poll:
+                                first_poll = False
                                 self.assertIsNone(value)
                                 release.touch()
                                 # Observe a real exit without reaping it. The immediately
@@ -365,6 +367,7 @@ while True:
                 receipt = caught.exception.result
                 self.assertEqual(len(observed), 1)
                 self.assertEqual(observed[0].si_pid, receipt['pid'])
+                self.assertEqual(observed[0].si_code, os.CLD_EXITED if mode == 'exit' else os.CLD_KILLED)
                 self.assertEqual(observed[0].si_status, abs(expected))
                 self.assertEqual(receipt['failure_kind'], 'timeout', receipt)
                 self.assertEqual(receipt['error'], 'TIMEOUT')
@@ -669,15 +672,19 @@ class Workflow(unittest.TestCase):
         for mode, expected in (('codeql_rust_model_diagnostic', False), ('full', True)):
             expression=condition
             values={'always()':True, 'cancelled()':False, 'github.event_name':'workflow_dispatch',
-                    'inputs.run_mode':mode, 'needs.periodic-admission.result':'skipped',
-                    'needs.periodic-admission.outputs.run_full':''}
+                    'github.ref':'refs/heads/main', 'inputs.run_mode':mode,
+                    'needs.periodic-admission.result':'skipped',
+                    'needs.periodic-admission.outputs.run_full':'',
+                    'needs.main-fast-admission.result':'skipped',
+                    'needs.main-fast-admission.outputs.run_main_fast':''}
             for token, value in values.items(): expression=expression.replace(token, repr(value))
             expression=re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
             with self.subTest(mode=mode):
                 self.assertEqual(bool(eval(' '.join(expression.split()), {'__builtins__':{}}, {})), expected)
         self.assertIn(
             "if: >-\n"
-            "      always() && (github.event_name == 'push' ||\n"
+            "      always() && ((github.event_name == 'push' &&\n"
+            "        (github.ref != 'refs/heads/main' || needs.select.result != 'skipped')) ||\n"
             "      (github.event_name == 'pull_request' &&\n"
             "       (github.event.action != 'labeled' ||\n"
             "        (github.event.label.name == 'ci-priority' &&\n"
@@ -688,6 +695,16 @@ class Workflow(unittest.TestCase):
         self.assertEqual(m.MODEL_BUNDLE_VERSIONS,('2.27.2','2.27.3'))
         for version in m.MODEL_BUNDLE_VERSIONS:self.assertIn(version,job);self.assertIn(m.BUNDLES[version]['sha256'],job)
         self.assertIn(' + 1080 ',job);self.assertIn('64 * 1024**2',job)
+        self.assertRegex(job, r'(?m)^      image: ghcr\.io/nil-studio/oasis7/ci-codeql-rust@sha256:[a-f0-9]{64}$')
+        self.assertIn('options: --user 1001:1001 --init --read-only', job)
+        self.assertIn('packages: read', job)
+        self.assertLess(job.index('TMPDIR=%s'), job.index('Configure mold for Linux host linking'))
+        installation = job.split('if [ "$MODEL_PROBE" != trait-scope-plan ]; then',1)[1].split('          fi',1)[0]
+        self.assertEqual(job.count('rustup toolchain install'), 2)
+        self.assertEqual(installation.count('rustup toolchain install'), 2)
+        self.assertIn('mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"', installation)
+        self.assertIn('install "$RUST_TOOLCHAIN" --no-self-update --profile minimal --component rustfmt --component clippy', installation)
+        self.assertIn('install 1.98.1 --profile minimal --no-self-update', installation)
         for test in ('codeql-rust-model-diagnostic.test.py','codeql-rust-refactored-source.test.py'):
             self.assertIn('run python3 ./scripts/security/'+test,(root/'scripts/ci-tests.sh').read_text())
 

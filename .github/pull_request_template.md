@@ -1,21 +1,37 @@
-<!-- 按 [PR 描述要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#pr-description)填写实际内容。简单变更可合并相邻栏目；删除无关的可选栏目。 -->
+<!-- 按 [PR 描述要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#pr-description)与[切片及熔断规范](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/pr-slicing-and-circuit-breaker.md)填写实际内容。简单变更可合并相邻栏目；删除无关的可选栏目。 -->
 
-## 问题与目的
+## Boundary Metadata (Machine-Checked)
+
+- Slice-Type: <!-- Dark | Adapter | Cutover | Bugfix | Docs | Chore -->
+- Allowed-Crates: <!-- comma-separated crate names locked at Draft PR creation, e.g. oasis7_simulator, oasis7_world_state (use 'none' for docs/scripts) -->
+- Active-Path-Impact: <!-- None (Unwired / Additive Only) OR list exact entrypoints/routes changed -->
+- Related-Issue: <!-- #issue_number -->
+
+## 问题与目的（Scope Contract & Summary）
 
 <!-- 简短说明原来的问题或能力缺口、影响及本次目标。按需关联 Issue。 -->
+- **In-Scope:**
+- **Out-of-Scope (Non-Goals):**
 
 ## 本次改动与结果
 
 <!-- 按行为、能力或规则说明具体变化及改后结果。文档 PR 写清确定了什么设计或方法、实现处于什么状态；文件清单不能代替说明。 -->
-<!-- 涉及代码时，按[小而完整的 PR](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#small-complete-pr)、[预计 PR 边界](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#planned-pr-scope)与[任务规模建议](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-file-limit)结合 diff 和关联批次说明任务范围：默认对齐关联代码 Issue 预定的 PR 边界（30 个代码文件建议内的独立任务默认单 PR 收口）；超过 30 个时简述保留完整改动的原因，拆成多个 PR 或实做调整原定 PR 批次时说明解阻前置、超规模、分步契约、共享入口隔离或实际耦合依据，偶发大/小 PR 不按数量单独阻断交付。多任务分别判断，纯文档变更无需填写。 -->
+<!-- 涉及代码时，按[预计 PR 边界](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#planned-pr-scope)及[切片规范](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/pr-slicing-and-circuit-breaker.md)将实际 diff 对回适用的 PR k/N 计划、交付物与验收归属。调整预计 N 或范围时，先更新受影响安排和原因；计划调整不扩大当前 PR 已锁定的 Allowed-Crates。30 文件仍是任务规模建议，各类型硬边界照常核对；独立简单 PR 可直接说明本项范围，多任务分别判断。 -->
 
-## 验证结果
+- Planned-Slice: <!-- 人工计划关联；有对应计划时填 PR k/N 及原 Issue 的 checklist 条目，未建单独立 PR 填 N/A。此字段不由边界脚本校验。 -->
 
-<!-- 对照本次行为说明受测版本、可复跑命令/操作与输入、预期和实际结果，以及重要未覆盖项；按需链接证据。区分局部自测、实际组合与部署/实玩/持续观测，剩余验收注明承接方或待承接。详细输出与历史过程放评论或折叠附录。 -->
+<!-- 按[PR 实施 checklist](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#planned-pr-checklist)回链本片范围和验收；本 PR 未合入时保持未勾选，实际合入且本片验收满足后再更新。局部交付先对齐本项实际范围并保留未勾选接续项或明确后继任务，再核对是否可勾选；调整计划保留已完成项与证据。 -->
+
+## 验证结果（`testing-manual.md`）
+
+<!-- 对照本次行为与切片分级验证映射说明受测版本、可复跑命令/操作与输入、预期和实际结果，以及重要未覆盖项；按需链接证据。区分局部自测、实际组合与部署/实玩/持续观测，剩余验收注明承接方或待承接。详细输出与历史过程放评论或折叠附录。 -->
+- [ ] `./scripts/check-pr-boundaries.sh` passed locally
+- Commands executed & results:
+  - ``
 
 ## 重要风险与剩余事项（适用时）
 
-<!-- 仅保留影响审阅、使用或交付判断的事项，包括有效暂停和必要的未验证范围；无适用内容时删除本节。 -->
+<!-- 仅保留影响审阅、使用或交付判断的事项。按[前置事实与剩余承接](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#decomposition-evidence-and-remainder)说明当前 PR 实际完成范围、有效暂停与未验证范围；局部交付、范围收窄或原承接退出时，引用原 Issue 当前安排中的未完成验收、承接 Issue、后续计划批次或前置与下一动作。未启动批次无需预建 PR；无适用内容时删除本节。 -->
 
 ## Requirement trace (when applicable)
 

@@ -328,9 +328,9 @@ ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 # contract for the checked-in block-style env declarations, not a YAML parser.
 repository_budget = '20000000000'
 budget_entries = {
-    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
+    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
     'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 4),
-    'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 1),
+    'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'testnet-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'hosted-login-linux-build.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
@@ -478,8 +478,24 @@ assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
 for workflow, names in ((release, ("release_gate_web",)), (mainnet, ("release_gate_web",)),
                         (rust, ("viewer-js-required", "viewer-performance-report"))):
     for name in names:
-        assert cache_identity(workflow, name) == web_identity, (name, "Web cache inputs differ")
-        assert "save-if: false" in job_body(workflow, name)
+        identity = cache_identity(workflow, name)
+        body = job_body(workflow, name)
+        header = body.split("    steps:", 1)[0]
+        if name in ("viewer-js-required", "viewer-performance-report") and "    container:\n" in header:
+            image = re.search(
+                r"(?m)^      image: \$\{\{ needs\.select\.outputs\.viewer_image_compatible == 'true' && "
+                r"'ghcr\.io/nil-studio/oasis7/ci-rust-viewer@sha256:([0-9a-f]{64})' \|\| '' \}\}$", header)
+            assert image, (name, "Viewer image and historical host fallback must share the compatibility decision")
+            assert "      VIEWER_IMAGE_COMPATIBLE: ${{ needs.select.outputs.viewer_image_compatible }}\n" in header
+            assert identity["shared-key"] == (
+                "${{ env.VIEWER_IMAGE_COMPATIBLE == 'true' && 'ci-rust-viewer-" + image[1]
+                + "' || 'release-packages-web-wasm-trusted-v3' }}"
+            ), (name, "Viewer image cache must use only its digest namespace")
+            assert "cache-mode: write" not in header and "\ncache-mode: read\n" in workflow
+            assert "actions/cache/save@" not in body and "OASIS7_DEPENDENCY_CACHE_" not in body
+            identity["shared-key"] = web_identity["shared-key"]
+        assert identity == web_identity, (name, "Web cache inputs differ")
+        assert "save-if: false" in body
 package_readers = [cache_identity(workflow, "build-web-dist") for workflow in (release, mainnet)]
 assert all(reader["image"] for reader in package_readers)
 assert len({reader["image"] for reader in package_readers}) == 1
@@ -633,6 +649,17 @@ for workflow, names in ((release, (*native_gates, "release_gate_web", "build-web
         body = job_body(workflow, name)
         steps = re.findall(r"^      - (.*?)(?=^      - |\Z)", body, re.M | re.S)
         guarded = [step for step in steps if normalizer in step or "Swatinem/rust-cache@" in step]
+        if workflow == ecs and name == "native":
+            assert len(guarded) == 3, "ECS shared native steps require one normalizer and two exclusive cache paths"
+            normal, host, image = guarded
+            assert f"if: hashFiles('{normalizer}') != ''" in normal
+            assert "if [[ \"$GITHUB_JOB\" == 'native-trusted' ]]; then" in normal
+            assert 'toolchains+=("$OASIS7_WASM_TOOLCHAIN")' in normal
+            assert f"if: github.job == 'native' && hashFiles('{normalizer}') != ''" in host
+            assert "shared-key: oasis7-ecs-native-linux-ecs-v2" in host and "save-if: false" in host
+            assert f"if: github.job == 'native-trusted' && hashFiles('{normalizer}') != '' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'" in image
+            assert "NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}" in image
+            continue
         assert len(guarded) == 2, (name, "one normalizer and one cache expected")
         for step in guarded:
             guard = f"if: hashFiles('{normalizer}') != ''"

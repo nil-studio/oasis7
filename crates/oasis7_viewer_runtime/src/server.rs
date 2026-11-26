@@ -13,12 +13,14 @@ use crate::viewer::{
     ViewerControlProfile, ViewerEventKind, ViewerRequest, ViewerResponse, ViewerStream,
     viewer_event_kind_matches,
 };
-#[cfg(test)]
-use oasis7::simulator::RuntimePerfHealth;
-use oasis7::simulator::unsupported_runtime_perf_snapshot;
-use oasis7::simulator::{RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot};
 use oasis7_observability::emit_stderr_or_event;
-use oasis7_simulator::{PersistError, RunnerMetrics, WorldTime};
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+use oasis7_runtime_host::simulator_archive::persist::{WorldJournal, WorldSnapshot};
+#[cfg(test)]
+use oasis7_simulator::RuntimePerfHealth;
+use oasis7_simulator::{
+    PersistError, RunnerMetrics, RuntimePerfSnapshot, WorldTime, unsupported_runtime_perf_snapshot,
+};
 
 #[derive(Debug, Clone)]
 pub struct ViewerServerConfig {
@@ -800,7 +802,7 @@ fn unsupported_viewer_runtime_perf_snapshot() -> RuntimePerfSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::simulator::WorldKernel;
+    use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
     use oasis7_simulator::{RejectReason, WorldEventKind};
     use std::io::{BufRead, BufReader, BufWriter};
     use std::net::{TcpListener, TcpStream};

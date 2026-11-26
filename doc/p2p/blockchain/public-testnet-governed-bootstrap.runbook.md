@@ -226,12 +226,16 @@ validator-quorum finality or a replacement for `WorldHeadProofV1`.
 
 必须是 Linux package truth，不允许用本机 macOS binary 直接替代 ECS runtime。
 
-最少校验项：
+使用当前 Linux runtime 工件和本次新核实的部署输入（包括 sequencer/storage 的 finality signer 公钥，不是 libp2p 身份公钥），按 [deployment-stage 入口](../../../scripts/p2p-public-testnet-build-deployment-stage.sh) 生成当前受治理候选。沿用原已批准的 signer/provenance 参数与发布验收，不把此本地校验当作部署授权。
+
+在下列步骤统一使用该阶段输出的 bundle。`PUBLIC_TESTNET_STAGE_DIR` 是本次已生成的 stage 根目录。保留文件名中的日期后缀是现有 stage 文件命名约定，不是从仓库取用 2026-06-06 的历史回执。
 
 ```bash
-./scripts/release-candidate-bundle.sh validate \
-  --bundle doc/testing/evidence/public-testnet-governed-bootstrap-bundle-2026-06-06.json
+CANDIDATE_BUNDLE="${PUBLIC_TESTNET_STAGE_DIR:?set the current deployment stage directory}/config/public-testnet-governed-bootstrap-bundle-2026-06-06.json"
+./scripts/release-candidate-bundle.sh validate --bundle "$CANDIDATE_BUNDLE"
 ```
+
+不要在现行检验命令中使用开头列出的历史 bundle。更换 checkout 时，只有带原仓库相对引用的工件可按相同布局迁移，并须在新 checkout 再经原哈希校验；外部绝对工件按显式位置提供，不搜索同名文件。
 
 ### 5.3 Host access
 
@@ -316,7 +320,7 @@ jq '{node_id:.proof.signer_id,
   .tmp/public-testnet-sequencer-204-rebuild-proof.json \
   > .tmp/public-testnet-sequencer-204-capture.json
 ./scripts/p2p-public-testnet-capture-truth.sh \
-  --bundle doc/testing/evidence/public-testnet-governed-bootstrap-bundle-2026-06-06.json \
+  --bundle "${CANDIDATE_BUNDLE:?set the validated current bundle from section 5.2}" \
   --sequencer-status-json .tmp/public-testnet-sequencer-204-capture.json \
   --storage-status-url http://39.104.205.67:6632/v1/chain/status \
   --sequencer-ssh-host root@39.104.204.172 \
@@ -328,7 +332,7 @@ jq '{node_id:.proof.signer_id,
 
 ```bash
 ./scripts/release-candidate-bundle.sh validate \
-  --bundle doc/testing/evidence/public-testnet-governed-bootstrap-bundle-2026-06-06.json
+  --bundle "${CANDIDATE_BUNDLE:?set the current bundle from section 5.2}"
 ```
 
 3. 记录当前 ECS host key material 是否已存在：

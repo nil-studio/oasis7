@@ -464,10 +464,9 @@ fn zero_compute_fee_preserves_present_zero_and_absent_treasury() {
     assert_eq!(ctx.resource(ResourceKind::Electricity).unwrap(), Some(1));
     assert_body(&mut ctx, 12);
 }
-#[test]
-fn ordinary_fee_scope_does_not_read_unmodified_body_kind_at_three_sizes() {
+fn exercise_unmodified_body_kind(sizes: &[usize]) {
     let mut expected = None;
-    for length in [64usize, 1 << 20, 32 << 20] {
+    for &length in sizes {
         let memory = MemoryBudget::new(128 << 20, 8 << 20).unwrap();
         let _fixture = memory.reserve(16 << 20, MemoryClass::Ordinary).unwrap();
         let input_memory = MemoryBudget::new(64 << 20, 0).unwrap();
@@ -563,4 +562,18 @@ fn ordinary_fee_scope_does_not_read_unmodified_body_kind_at_three_sizes() {
         let guard = tx.guard();
         tx.seal(&guard, &live, 0).unwrap();
     }
+}
+
+#[test]
+fn ordinary_fee_scope_does_not_read_unmodified_body_kind_across_value_chunks() {
+    exercise_unmodified_body_kind(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn ordinary_fee_scope_does_not_read_unmodified_body_kind_at_three_sizes() {
+    exercise_unmodified_body_kind(&[64, 1 << 20, 32 << 20]);
 }
