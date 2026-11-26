@@ -58,28 +58,43 @@ pub(crate) struct StagedRuleFeeSettlement<'a> {
     pub disposition: RuleActionDisposition,
 }
 
-impl StagedRuleFeeSettlement<'_> {
+impl<'a> StagedRuleFeeSettlement<'a> {
+    pub(crate) fn selected_delta(&self) -> &'a ResourceDelta {
+        AuthoritativeDebit
+            .quote(RuleSettlementInput {
+                general: self.general,
+                with_distance: self.with_distance,
+                disposition: self.disposition,
+            })
+            .selected
+    }
+
     /// The existing live Runtime consumer and the Stage 1 root share the same
     /// selected original cost, with no fee clone, re-encoding or second owner.
     pub(crate) fn plan_checked(
         &self,
         balances: &BTreeMap<ResourceKind, i64>,
     ) -> Result<Vec<(ResourceKind, i64)>, WorldError> {
-        let quote = AuthoritativeDebit.quote(RuleSettlementInput {
-            general: self.general,
-            with_distance: self.with_distance,
-            disposition: self.disposition,
-        });
+        let selected = self.selected_delta();
         // The live consumer and Stage 1 must reject the very same selected
         // debit before planning any balance assignments. In particular an
         // unpriced rejected movement must not require distance-only funds.
-        let deficits = quote.selected.deficits(balances);
+        let deficits = selected.deficits(balances);
         if !deficits.is_empty() {
             return Err(WorldError::ResourceBalanceInvalid {
                 reason: format!("staged rule fee insufficient resources: {deficits:?}"),
             });
         }
-        plan_resource_delta(balances, quote.selected)
+        plan_resource_delta(balances, selected)
+    }
+
+    pub(crate) fn prepare_delta(
+        &self,
+        balances: &BTreeMap<ResourceKind, i64>,
+    ) -> Result<PreparedRuleFeeDelta, WorldError> {
+        Ok(PreparedRuleFeeDelta {
+            planned: self.plan_checked(balances)?,
+        })
     }
 
     #[cfg_attr(not(test), expect(dead_code, reason = "composed by #6150 root tick"))]

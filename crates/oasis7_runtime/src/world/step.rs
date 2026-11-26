@@ -683,7 +683,7 @@ impl World {
                     }
                 }
 
-                let (mut decision, movement_rejection_cost) =
+                let (decision, movement_rejection_cost) =
                     self.evaluate_rule_decisions(&action_envelope, sandbox)?;
                 if decision.verdict == RuleVerdict::Modify
                     && let Some(override_action) = decision.override_action.clone()
@@ -709,27 +709,7 @@ impl World {
                 let movement_outcome = if decision.verdict != RuleVerdict::Deny
                     && matches!(action_envelope.action, Action::MoveAgent { .. })
                 {
-                    let outcome = self.action_to_event(&action_envelope)?;
-                    if matches!(
-                        outcome,
-                        WorldEventBody::Domain(DomainEvent::ActionRejected { .. })
-                    ) && let Some(rejection_cost) = movement_rejection_cost
-                    {
-                        // Select the already-verified general rule result, not
-                        // distance pricing for an action that did not move.
-                        // Actual debit remains in the one existing Runtime
-                        // publication path below; never charge twice.
-                        let quote = oasis7_domain_types::rule_settlement::RuleSettlementPolicy::quote(
-                            &oasis7_domain_types::rule_settlement::AuthoritativeDebit,
-                            oasis7_domain_types::rule_settlement::RuleSettlementInput {
-                                general: &rejection_cost,
-                                with_distance: &decision.cost,
-                                disposition: oasis7_domain_types::rule_settlement::RuleActionDisposition::RejectedMovement,
-                            },
-                        );
-                        decision.cost = quote.selected.clone();
-                    }
-                    Some(outcome)
+                    Some(self.action_to_event(&action_envelope)?)
                 } else {
                     None
                 };
@@ -747,7 +727,30 @@ impl World {
                     )?;
                     post_action_result_event = self.journal.events.last().cloned();
                 } else {
-                    let deficits = decision.cost.deficits(&self.state.resources);
+                    let (general_cost, fee_disposition) = match (
+                        &movement_outcome,
+                        movement_rejection_cost.as_ref(),
+                    ) {
+                        (
+                            Some(WorldEventBody::Domain(DomainEvent::ActionRejected { .. })),
+                            Some(rejection_cost),
+                        ) => (
+                            rejection_cost,
+                            oasis7_domain_types::rule_settlement::RuleActionDisposition::RejectedMovement,
+                        ),
+                        _ => (
+                            &decision.cost,
+                            oasis7_domain_types::rule_settlement::RuleActionDisposition::Accepted,
+                        ),
+                    };
+                    let fee_settlement = crate::domains::monetary::StagedRuleFeeSettlement {
+                        general: general_cost,
+                        with_distance: &decision.cost,
+                        disposition: fee_disposition,
+                    };
+                    let deficits = fee_settlement
+                        .selected_delta()
+                        .deficits(&self.state.resources);
                     if !deficits.is_empty() {
                         self.append_action_accepted_event(&envelope)?;
                         self.append_event(
@@ -759,7 +762,7 @@ impl World {
                         )?;
                         post_action_result_event = self.journal.events.last().cloned();
                     } else {
-                        match self.apply_resource_delta(&decision.cost) {
+                        match self.apply_rule_fee_settlement(&fee_settlement) {
                             Ok(()) => {
                                 if !self.try_apply_runtime_module_action(&action_envelope)? {
                                     let followup_context =
