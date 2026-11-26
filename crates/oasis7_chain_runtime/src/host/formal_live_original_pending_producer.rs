@@ -249,6 +249,11 @@ pub(super) fn cold_read_exact_frozen(
     if checked.handoff().requests.len() != frozen.count {
         return Err("original pending frozen count differs from original".into());
     }
+    // A durable terminal marker is not sufficient if the source preparation
+    // disappeared or changed after an uncertain Node Frozen boundary.
+    // Both same-owner original copies must be present and byte-identical.
+    let exact_bytes = serde_cbor::to_vec(checked.handoff()).map_err(|err| err.to_string())?;
+    ensure_exact_file(owner_directory, PREPARED_FILE, &exact_bytes)?;
     Ok(checked.handoff().clone())
 }
 
@@ -272,7 +277,7 @@ fn read_exact_file(directory: &Path, leaf: &str, limit: u64) -> Result<Vec<u8>, 
     {
         return Err("original pending owned file invalid/oversized".into());
     }
-    let file = File::open(&path).map_err(|err| err.to_string())?
+    let file = File::open(&path).map_err(|err| err.to_string())?;
     let mut bytes = Vec::new();
     file.take(limit + 1)
         .read_to_end(&mut bytes)
@@ -449,6 +454,30 @@ mod tests {
         assert!(!producer.is_frozen());
         assert!(producer.finish_node_freeze(&scratch.0).is_ok());
         assert!(producer.note_accepted_enqueue(identity("new"), vec![1]).is_err());
+    }
+
+    #[test]
+    fn missing_prepared_original_fails_cold_read_even_with_matching_frozen_marker() {
+        let scratch = Scratch::new();
+        let mut producer = OriginalPendingProducerV1::open(&scratch.0, owner()).unwrap();
+        producer
+            .note_accepted_enqueue(identity("a"), vec![0, 255, 7])
+            .unwrap();
+        let pin = producer.begin_freeze(&scratch.0).unwrap();
+        producer.finish_node_freeze(&scratch.0).unwrap();
+        fs::remove_file(scratch.0.join(PREPARED_FILE)).unwrap();
+        assert!(cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, pin.count).is_err());
+    }
+
+    #[test]
+    fn oversized_original_rejected_before_freeze_and_not_retained() {
+        let scratch = Scratch::new();
+        let mut producer = OriginalPendingProducerV1::open(&scratch.0, owner()).unwrap();
+        assert!(producer
+            .note_accepted_enqueue(identity("oversized"), vec![7; 16 * 1024 * 1024])
+            .is_err());
+        let pin = producer.begin_freeze(&scratch.0).unwrap();
+        assert_eq!(pin.count, 0);
     }
 
     #[test]
