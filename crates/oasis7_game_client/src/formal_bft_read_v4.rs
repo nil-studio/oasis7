@@ -403,4 +403,109 @@ mod tests {
         assert!(!debug.contains("private-wire4-secret-canary"));
         assert!(!debug.contains(&config.trusted_service_public_key));
     }
+
+    #[test]
+    fn original_successor_cut_binding_rejects_foreign_h_and_changed_head() {
+        use oasis7_proto::distributed_bft::v2::BftScopeV2;
+        let hash = |n: u8| format!("{n:02x}").repeat(32);
+        let original = BftSuccessorWindowSourceV1 {
+            scope: BftScopeV2 {
+                world_id: "world".into(),
+                chain_id: "chain".into(),
+                genesis_hash: hash(1),
+            },
+            binding_digest: hash(2),
+            handoff_position: 100,
+            handoff_record_id: hash(3),
+            handoff_snapshot_root: hash(4),
+            target_digest: hash(5),
+            activation_digest: hash(6),
+            material_identity: hash(7),
+        };
+        let request = FormalBftHeaderReadRequestV4 {
+            schema_version: 4,
+            contract_version: 4,
+            world: WorldIdentity {
+                world_id: "world".into(),
+                genesis_digest: hash(1),
+            },
+            scope_id: "public".into(),
+            observation_nonce: hash(8),
+            handoff_anchor: FormalReadAnchorRefV1 {
+                position: 100,
+                record_id: hash(3),
+                active_authority_id: hash(9),
+            },
+            target_config_digest: hash(5),
+            activation_digest: hash(6),
+            exact_target: FormalBftHeaderReadTargetV4 {
+                height: 101,
+                header_id: hash(10),
+            },
+        };
+        let head = oasis7_client_api::world_service::FormalBftHeaderReadHeadV4 {
+            height: 101,
+            header_id: hash(10),
+            execution_commitment_hash: hash(11),
+            state_root: hash(12),
+            post_manifest_hash: hash(13),
+            projection_root: hash(14),
+            logical_tick: 101,
+        };
+        let selected = FormalBftOriginalSuccessorCutPinV1 {
+            source_origin_digest: original.origin_digest().unwrap(),
+            height: 101,
+            header_id: hash(10),
+            execution_commitment_digest: hash(11),
+            semantic_state_root: hash(12),
+            post_manifest_hash: hash(13),
+        };
+        let check = |request: &FormalBftHeaderReadRequestV4,
+                     head: &oasis7_client_api::world_service::FormalBftHeaderReadHeadV4,
+                     original: &BftSuccessorWindowSourceV1,
+                     selected: &FormalBftOriginalSuccessorCutPinV1| {
+            check_untrusted_original_successor_cut(request, head, original, selected)
+        };
+        assert!(check(&request, &head, &original, &selected).is_ok());
+
+        let mut foreign = original.clone();
+        foreign.scope.world_id = "other-world".into();
+        assert!(check(&request, &head, &foreign, &selected).is_err());
+        foreign = original.clone();
+        foreign.scope.chain_id = "other-chain".into();
+        assert!(check(&request, &head, &foreign, &selected).is_err());
+        foreign = original.clone();
+        foreign.handoff_record_id = hash(22);
+        assert!(check(&request, &head, &foreign, &selected).is_err());
+
+        let mut changed = request.clone();
+        changed.activation_digest = hash(23);
+        assert!(check(&changed, &head, &original, &selected).is_err());
+        changed = request.clone();
+        changed.handoff_anchor.position = 99;
+        assert!(check(&changed, &head, &original, &selected).is_err());
+        changed = request.clone();
+        changed.exact_target.height = 165;
+        assert!(check(&changed, &head, &original, &selected).is_err());
+
+        let mut changed_head = head.clone();
+        changed_head.state_root = hash(24);
+        assert!(check(&request, &changed_head, &original, &selected).is_err());
+        changed_head = head.clone();
+        changed_head.execution_commitment_hash = hash(25);
+        assert!(check(&request, &changed_head, &original, &selected).is_err());
+        changed_head = head.clone();
+        changed_head.post_manifest_hash = hash(26);
+        assert!(check(&request, &changed_head, &original, &selected).is_err());
+
+        let mut changed_pin = selected.clone();
+        changed_pin.header_id = hash(27);
+        assert!(check(&request, &head, &original, &changed_pin).is_err());
+        changed_pin = selected.clone();
+        changed_pin.source_origin_digest = hash(28);
+        assert!(check(&request, &head, &original, &changed_pin).is_err());
+        changed_pin = selected.clone();
+        changed_pin.source_origin_digest = "AA".repeat(32);
+        assert!(check(&request, &head, &original, &changed_pin).is_err());
+    }
 }
