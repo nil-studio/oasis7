@@ -62,11 +62,12 @@ class Capacity(unittest.TestCase):
 
     def test_capacity_image_layout_is_derived_from_the_physical_business_checkout(self):
         workflows = P.parents[2] / '.github/workflows'
-        for basename, occurrences in (('codeql-rust-capacity.yml', 1), ('codeql-rust-cfg-diagnostic.yml', 2)):
+        for basename, kinds in (('codeql-rust-capacity.yml', ('capacity', 'observation')),
+                                ('codeql-rust-cfg-diagnostic.yml', ('cfg', 'cfg'))):
             text = (workflows / basename).read_text()
             writers = re.findall(r"python3 -I - <<'PYTHON'\n(.*?)\n          PYTHON", text, re.S)
-            self.assertEqual(len(writers), occurrences)
-            for writer in writers:
+            self.assertEqual(len(writers), len(kinds))
+            for kind, writer in zip(kinds, writers, strict=True):
                 script = textwrap.dedent(writer)
                 with tempfile.TemporaryDirectory() as directory:
                     root = Path(directory).resolve()
@@ -82,10 +83,15 @@ class Capacity(unittest.TestCase):
                                             env=settings, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(json.loads(env.read_text().split('=', 1)[1]), [str(templates)])
-                    expected = {'source_root': str(source),
-                                'db_location': str(temporary / 'rust-capacity-databases'),
-                                'bundle': str(temporary / 'rust-capacity-tools/bundle.tar.zst')}
-                    if basename == 'codeql-rust-capacity.yml':
+                    if kind == 'observation':
+                        expected = {'source_root': str(source),
+                                    'db_location': str(temporary / 'codeql_databases'),
+                                    'sarif_output': str(temporary / 'codeql-results')}
+                    else:
+                        expected = {'source_root': str(source),
+                                    'db_location': str(temporary / 'rust-capacity-databases'),
+                                    'bundle': str(temporary / 'rust-capacity-tools/bundle.tar.zst')}
+                    if kind == 'capacity':
                         hook = temporary / 'rust-capacity-helper/codeql-rust-action-deadline.cjs'
                         expected['node_options'] = '--require=' + str(hook)
                     self.assertEqual(dict(line.split('=', 1) for line in output.read_text().splitlines()), expected)
