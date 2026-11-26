@@ -35,6 +35,8 @@ pub struct FullSyncRevocationInventoryV1 {
     pub leases: BTreeMap<FullSyncIssuerTargetLeaseV3, FullSyncRevocationLeaseV1>,
     pub phase: FullSyncRevocationPhaseV1,
     pub observed_signed_expiry: Option<SignedFullSyncIssuerObservationV3>,
+    pub original_fences: BTreeMap<FullSyncIssuerTargetLeaseV3, SignedFullSyncRevocationFenceV1>,
+    pub target_gate_fence: Option<SignedFullSyncRevocationFenceV1>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +124,8 @@ impl FullSyncRevocationInventoryV1 {
             leases,
             phase: FullSyncRevocationPhaseV1::Committed,
             observed_signed_expiry: None,
+            original_fences: BTreeMap::new(),
+            target_gate_fence: None,
         })
     }
 
@@ -141,6 +145,25 @@ impl FullSyncRevocationInventoryV1 {
             return Err(FormalError::Rollback(
                 "V3 cached revocation inventory differs from witness".into(),
             ));
+        }
+        if self.original_fences.len() > self.leases.len() {
+            return Err(FormalError::Rollback("original fence inventory exceeded signed leases".into()));
+        }
+        for (original, fence) in &self.original_fences {
+            if fence.body.original_lease.as_ref() != Some(original) {
+                return Err(FormalError::Rollback("original fence map key changed".into()));
+            }
+            fence.verify_for_inventory(
+                self, state.anchor().revision, &state.policy().body().witness_public_key,
+            )?;
+        }
+        if let Some(gate) = &self.target_gate_fence {
+            if gate.body.original_lease.is_some() {
+                return Err(FormalError::Rollback("target gate witness has an original lease".into()));
+            }
+            gate.verify_for_inventory(
+                self, state.anchor().revision, &state.policy().body().witness_public_key,
+            )?;
         }
         if let Some(observation) = &self.observed_signed_expiry {
             self.validate_expiry_observation(state, observation)?;

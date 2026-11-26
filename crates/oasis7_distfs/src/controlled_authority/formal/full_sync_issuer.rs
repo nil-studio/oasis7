@@ -631,7 +631,11 @@ pub use durable_v3::{
 
 #[path = "full_sync_revocation_v3.rs"]
 mod revocation_v3;
+#[path = "full_sync_revocation_fence_v3.rs"]
+mod revocation_fence_v3;
 pub use revocation_v3::{
     FullSyncRevocationInventoryV1, FullSyncRevocationLeaseV1, FullSyncRevocationPhaseV1,
     FullSyncRevocationSummaryV1, FullSyncV3RequiredFloorV1,
 };
+
+pub use revocation_fence_v3::{FullSyncFenceKindV1, FullSyncRevocationFenceBodyV1, SignedFullSyncRevocationFenceV1};
