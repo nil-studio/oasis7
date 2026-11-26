@@ -19,9 +19,6 @@ impl AsRef<[u8]> for Node {
     }
 }
 impl Pages {
-    pub(crate) fn new(memory: &MemoryBudget) -> Self {
-        Self::with_limit(memory, 16_384)
-    }
     pub(crate) fn with_limit(memory: &MemoryBudget, max_pages: usize) -> Self {
         let bytes = max_pages
             .checked_mul(256)
@@ -35,12 +32,6 @@ impl Pages {
                 .reserve(bytes, MemoryClass::Ordinary)
                 .expect("fixture metadata quota"),
         }
-    }
-    pub(crate) fn remove(&self, id: &[u8; 32]) {
-        self.nodes.borrow_mut().remove(id);
-    }
-    pub(crate) fn len(&self) -> usize {
-        self.nodes.borrow().len()
     }
 }
 impl Pages {
