@@ -1,3 +1,4 @@
+import { readExpandedCssSync } from "./test_support/read_expanded_css.js";
 import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -429,7 +430,7 @@ describe("pixel world host focus and cinematic mode", () => {
     expect(unselectedAgent).toHaveAttribute("data-selected", "false");
     expect(unselectedLocation).toHaveAttribute("data-selected", "false");
 
-    const html = readFileSync("viewer_base.css", "utf8");
+    const html = readExpandedCssSync("viewer_base.css");
     expect(html).toMatch(/\.pixel-world-entity\[data-selected="true"\]\s*\{[^}]*min-width:\s*42px;[^}]*min-height:\s*42px;/s);
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 

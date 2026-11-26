@@ -1,10 +1,11 @@
+import { readExpandedCss } from "./test_support/read_expanded_css.js";
 import { describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { pixelWorldMarkerClearance } from './pixel_world_marker_clearance.js';
 
 describe('actionable marker overlay clearance', () => {
   it('gives unselected desktop entities the same 44px minimum hit area', async () => {
-    const css = await readFile('viewer_terminal_shell.css', 'utf8');
+    const css = await readExpandedCss('viewer_terminal_shell.css');
     const globalMarkerRule = css.slice(css.indexOf('/* Markers stay terse;')).match(/\.pixel-world-entity\s*\{([^}]+)\}/)?.[1];
     expect(globalMarkerRule).toMatch(/min-width:\s*44px/);
     expect(globalMarkerRule).toMatch(/min-height:\s*44px/);
