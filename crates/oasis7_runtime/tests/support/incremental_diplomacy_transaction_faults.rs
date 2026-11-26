@@ -420,7 +420,6 @@ fn fault_cases(point: bool, option: bool) {
     }
 }
 
-
 #[test]
 fn current_crisis_reads_real_physical_overlay_after_scalar_update() {
     // This is a real physical page-store consumer of the Current opener.
