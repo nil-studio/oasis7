@@ -16,7 +16,7 @@ import {
 } from "./pixel_world_host_test_support.jsx";
 describe("pixel world host", () => {
   it("keeps world focus stage resets scoped away from nested command panels", () => {
-    const html = `${readFileSync("viewer_base.css", "utf8")}\n${readFileSync("viewer.html", "utf8")}`;
+    const html = readFileSync("viewer_base.css", "utf8");
 
     expect(html).toContain("body.pixel-world-focus-active .panel--stage > .panel__body");
     expect(html).toContain(".panel--stage > .panel__body");
@@ -1423,7 +1423,7 @@ describe("pixel world host", () => {
     expect(unselectedAgent).toHaveAttribute("data-selected", "false");
     expect(unselectedLocation).toHaveAttribute("data-selected", "false");
 
-    const html = `${readFileSync("viewer_base.css", "utf8")}\n${readFileSync("viewer.html", "utf8")}`;
+    const html = readFileSync("viewer_base.css", "utf8");
     expect(html).toMatch(/\.pixel-world-entity\[data-selected="true"\]\s*\{[^}]*min-width:\s*42px;[^}]*min-height:\s*42px;/s);
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 

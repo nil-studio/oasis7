@@ -127,8 +127,13 @@ async function validateCanonicalCompatContracts() {
   if (!canonicalHtml.includes('<script type="module" src="./viewer.js"></script>')) {
     failures.push("viewer.html must reference canonical viewer.js bundle");
   }
-  const combinedBaseStyles = `${canonicalBaseCss}\n${canonicalHtml}`;
-  const diagnosticStripRule = combinedBaseStyles.match(/\.command-surface__diagnostic-strip \.badge\s*\{([^}]*)\}/);
+  if (!canonicalHtml.includes('<link rel="stylesheet" href="./viewer_base.css" />')) {
+    failures.push("viewer.html must reference canonical viewer_base.css stylesheet");
+  }
+  if (/<style\b/i.test(canonicalHtml)) {
+    failures.push("viewer.html must not contain inline <style> blocks; keep base styles in viewer_base.css");
+  }
+  const diagnosticStripRule = canonicalBaseCss.match(/\.command-surface__diagnostic-strip \.badge\s*\{([^}]*)\}/);
   if (!diagnosticStripRule || /(?:^|[;\s])color\s*:/.test(diagnosticStripRule[1])) {
     failures.push("diagnostic strip base styling must preserve badge status colors");
   }

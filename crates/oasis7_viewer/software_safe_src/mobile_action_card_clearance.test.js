@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("mobile gameplay action card clearance", () => {
-  const readCombinedStyles = () => `${readFileSync("viewer_base.css", "utf8")}\n${readFileSync("viewer.html", "utf8")}`;
+  const readCombinedStyles = () => readFileSync("viewer_base.css", "utf8");
 
   it("keeps targeted action cards below the sticky mobile jump rail", () => {
     const viewerHtml = readCombinedStyles();

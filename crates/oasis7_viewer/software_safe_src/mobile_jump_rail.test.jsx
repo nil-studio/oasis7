@@ -59,8 +59,8 @@ describe("mobile jump rail", () => {
   });
 
   it("wraps rather than horizontally scrolling its quiet secondary links", async () => {
-    const viewerHtml = `${await readFile("viewer_base.css", "utf8")}\n${await readFile("viewer.html", "utf8")}`;
-    expect(viewerHtml).toMatch(/\.mobile-rail\s*\{[\s\S]*?position: sticky;[\s\S]*?top: 10px;[\s\S]*?flex-wrap: wrap; overflow: visible;/);
+    const baseCss = await readFile("viewer_base.css", "utf8");
+    expect(baseCss).toMatch(/\.mobile-rail\s*\{[\s\S]*?position: sticky;[\s\S]*?top: 10px;[\s\S]*?flex-wrap: wrap; overflow: visible;/);
   });
 
   it("keeps World, Targets, and Command as primary links and excludes secondary peers", () => {
