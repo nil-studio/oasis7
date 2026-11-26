@@ -1,0 +1,194 @@
+name: Replay the Storage Acceptance summary from genuine historical artifacts
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/storage-summary-proof-base]
+    paths: [.github/workflows/storage-summary-image-proof.yml]
+permissions:
+  contents: read
+  packages: read
+  actions: read
+cache-mode: none
+jobs:
+  replay:
+    name: Frozen summary (${{ matrix.lane }})
+    if: github.repository == 'nil-studio/oasis7' && github.base_ref == 'codex/storage-summary-proof-base' && github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/storage-summary-proof'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: host
+            image: ''
+            options: ''
+          - lane: image
+            image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+            options: --user 1001:1001
+    container:
+      image: ${{ matrix.image }}
+      options: ${{ matrix.options }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      FROZEN_TOOL: 2e2906e20c333b1b51ca860739ff1480dead99e8
+      HISTORICAL_SOURCE: 6543ea9ea2ef6ff430591a0163b6eeeef6582bca
+      HISTORICAL_RUN: '45132476144'
+      HISTORICAL_ATTEMPT: '1'
+      SCALE: '10'
+      FULL_NODE_SCALE: '10'
+      HOST_REFERENCE: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 2e2906e20c333b1b51ca860739ff1480dead99e8
+          persist-credentials: false
+      - if: matrix.lane == 'host'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Verify frozen implementation and runtime
+        env:
+          LANE: ${{ matrix.lane }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$FROZEN_TOOL"
+          test -z "$(git status --porcelain)"
+          if [ "$LANE" = image ]; then test "$(id -u):$(id -g)" = 1001:1001; fi
+          python3 -I -c 'import sys; print(sys.version); assert sys.version_info[:2] == (3, 12)'
+      - name: Verify and restore exact historical input ZIPs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I - <<'PY'
+          import concurrent.futures, hashlib, io, json, os, stat
+          from pathlib import Path, PurePosixPath
+          from urllib.error import HTTPError
+          from urllib.parse import urlparse
+          from urllib.request import Request, HTTPRedirectHandler, build_opener
+          from zipfile import ZipFile
+
+          expected = [
+              ('storage-acceptance-summary-1', 14805248416, '2e0bdb2c07eda46fa287a1db6ab3fc05d92fc59e3858bacbe1176b12dc3a4e9c'),
+              ('storage-result-attempt-release-1', 14804626049, 'fe0abf6f544be5cdc0fb16f6c9f4feca18797cf5ec52d15088dbb299285d0953'),
+              ('storage-result-attempt-release-host-1', 14803199294, '669f1bb13719c78f1946f245b8b8e341aac9b903c294db5091360903fd010f4e'),
+              ('storage-result-capacity-10-1', 14804883927, 'ee798c92c40f19c70a7df1ca5ee9a405b105e7c54e6b34b288161d1ffdfdf33b'),
+              ('storage-result-disk-full-1', 14806142373, 'cc2939bab7388bd5419bba07dbc10a67182d1f607b5a25dfeb76e22b35212ea4'),
+              ('storage-result-full-node-10-1', 14803613941, '700e67342fff96ac148bbdbc5d5adf2aada0b3309d02b8acf2e1205fe13b5e2a'),
+              ('storage-result-healthy-set-1', 14804494777, '396856c7de432f5803b083d17f506cbfbf2187f2a7bd7d5a6e2c86e9ad04e867'),
+              ('storage-result-lifecycle-cli-1', 14804844244, 'f30d84a9fa46796626f2210cf0edae626fc56a8df397ad75a19cb0c2a813031f'),
+              ('storage-result-network-delay-1', 14806395547, 'a4bd388717da4ca78197fd690600d80031bb9c3ac980291b845c18cb61141496'),
+              ('storage-result-network-loss-1', 14806585661, '31bbf65c757a779be446d1985ebf29f9151a0d2ede692ee8935af6fc631c503f'),
+              ('storage-result-runtime-protocol-1', 14805316791, 'efa3e6fd83d7df8998a1b1101b1ba07195b9ecce00a3be29e9e4bf0e3e38e194'),
+              ('storage-result-storage-recovery-1', 14805916166, '93f0d83492b495ecc70e53f13baf263b04ae1c9d500213cdccf3e13df435e623'),
+              ('storage-result-units-1', 14804749711, '270b2e6e07508187ecd8da501b778c1a0d9d61b638492ff8a63b122daf762f46'),
+              ('storage-result-world-history-1', 14805511051, '6d475bbf4bc8eed1d5b9694d02de12d8f3b3e402116387e65ce6e3d10bc91675'),
+          ]
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, msg, headers, url):
+                  return None
+          api = build_opener(NoRedirect())
+          headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'}
+          base = 'https://api.github.com/repos/nil-studio/oasis7/actions'
+          def request(url):
+              return api.open(Request(url, headers=headers), timeout=20)
+          run = os.environ['HISTORICAL_RUN']
+          source = os.environ['HISTORICAL_SOURCE']
+          attempt = os.environ['HISTORICAL_ATTEMPT']
+          with request(base + '/runs/' + run) as result:
+              run_metadata = json.load(result)
+          assert (str(run_metadata['id']), str(run_metadata['run_attempt']), run_metadata['head_sha'], run_metadata['conclusion']) == (run, attempt, source, 'success')
+
+          def download(entry):
+              name, ident, sha = entry
+              url = base + '/artifacts/' + str(ident)
+              with request(url) as result:
+                  metadata = json.load(result)
+              assert (metadata['id'], metadata['name'], metadata['digest'], metadata['expired']) == (ident, name, 'sha256:' + sha, False)
+              assert str(metadata['workflow_run']['id']) == run and metadata['workflow_run']['head_sha'] == source
+              try:
+                  with request(url + '/zip'):
+                      raise AssertionError('historical zip API must return a byte-object redirect')
+              except HTTPError as response:
+                  assert response.code == 302
+                  redirect = response.headers['Location']
+              dest = urlparse(redirect)
+              assert dest.scheme == 'https' and dest.hostname and not dest.username and not dest.password
+              with api.open(redirect, timeout=30) as result:
+                  zipped = result.read(8 * 1024**2 + 1)
+              assert len(zipped) <= 8 * 1024**2 and hashlib.sha256(zipped).hexdigest() == sha
+              with ZipFile(io.BytesIO(zipped)) as archive:
+                  assert len(archive.namelist()) == len(set(archive.namelist()))
+                  assert sum(item.file_size for item in archive.infolist()) <= 150 * 1024**2
+                  if name == 'storage-acceptance-summary-' + attempt:
+                      report = archive.read('summary.json')
+                      assert hashlib.sha256(report).hexdigest() == '3375d1449c593d2fd6150fcdc4feeb704778ec46628fd3417544c6b1638ac8b6'
+                      Path(os.environ['RUNNER_TEMP'], 'historical-summary.json').write_bytes(report)
+                      needs = json.loads(archive.read('needs.json'))
+                      assert set(needs) == {'build', 'verify', 'capacity-long', 'full-node-long', 'attempt-release-reference'}
+                      with open(os.environ['GITHUB_ENV'], 'a') as output:
+                          output.write('NEEDS_JSON=' + json.dumps(needs, separators=(',', ':')) + '\n')
+                  else:
+                      assert name.startswith('storage-result-') and name.endswith('-'+attempt)
+                      target = Path('output/collected', name)
+                      for item in archive.infolist():
+                          path = PurePosixPath(item.filename)
+                          assert path.parts and not path.is_absolute() and '..' not in path.parts and not stat.S_ISLNK(item.external_attr >> 16)
+                          file = target.joinpath(*path.parts)
+                          if item.is_dir():
+                              file.mkdir(parents=True, exist_ok=True)
+                          else:
+                              file.parent.mkdir(parents=True, exist_ok=True)
+                              file.write_bytes(archive.read(item))
+                      summaries = list(target.rglob('summary.json'))
+                      assert len(summaries) == 1
+                      report = json.loads(summaries[0].read_bytes())
+                      assert report['label'] == name.removeprefix('storage-result-').removesuffix('-'+attempt)
+                      assert (report['source_sha'], report['tested_sha'], report['producer_run_id'], str(report['producer_attempt'])) == (source, source, run, attempt)
+              print(f'verified {ident} {name} {sha}', flush=True)
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+              list(pool.map(download, expected))
+          PY
+      - name: Run the exact summary shell
+        run: |
+          mkdir -p output
+          printf '%s\n' "$NEEDS_JSON" > output/needs.json
+          args=()
+          for label in units runtime-protocol world-history healthy-set storage-recovery lifecycle-cli capacity-10 full-node-10 attempt-release disk-full network-delay network-loss; do
+            args+=(--expected "$label")
+          done
+          if [[ "$HOST_REFERENCE" == true ]]; then args+=(--expected attempt-release-host); fi
+          if [[ "$SCALE" != 10 ]]; then args+=(--expected "capacity-$SCALE"); fi
+          if [[ "$FULL_NODE_SCALE" != 10 ]]; then args+=(--expected "full-node-$FULL_NODE_SCALE"); fi
+          python3 scripts/ci-storage-acceptance.py summarize --results-dir output/collected "${args[@]}" --needs-json output/needs.json --output output/summary.json
+      - name: Compare the genuine summary and exercise failure propagation
+        run: |
+          cmp "$RUNNER_TEMP/historical-summary.json" output/summary.json
+          sha256sum output/summary.json
+          python3 -I - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          expected = json.loads(Path('output/summary.json').read_text())
+          assert expected['passed'] is True and len(expected['groups']) == 13
+          base = ['python3', 'scripts/ci-storage-acceptance.py', 'summarize', '--results-dir', 'output/collected']
+          for group in expected['groups']:
+              base += ['--expected', group]
+          bad = Path('output/negative-needs.json')
+          needs = json.loads(Path('output/needs.json').read_text())
+          needs['verify']['result'] = 'failure'
+          bad.write_text(json.dumps(needs))
+          denied = subprocess.run(base + ['--needs-json', str(bad)], capture_output=True, text=True)
+          assert denied.returncode != 0 and 'required acceptance job failed, skipped, cancelled or missing' in denied.stderr
+          missing = Path('output/collected/storage-result-storage-recovery-1')
+          outside = Path('output/removed-shard')
+          missing.rename(outside)
+          try:
+              denied = subprocess.run(base + ['--needs-json', 'output/needs.json'], capture_output=True, text=True)
+              assert denied.returncode != 0 and 'missing, duplicate or unexpected acceptance result' in denied.stderr
+          finally:
+              outside.rename(missing)
+          PY
