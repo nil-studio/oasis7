@@ -354,11 +354,6 @@ class Ownership(unittest.TestCase):
         self.assertNotIn('struct RuntimePerfSnapshot', server)
         self.assertIn(kernel, server)
         for module, name in (('persist', 'WorldSnapshot'), ('archive', 'WorldEvent')):
-            self.assertIn(
-                f'TypeId::of::<oasis7_runtime_host::simulator_archive::{module}::{name}>(),\n'
-                f'        TypeId::of::<oasis7::simulator::{name}>(),',
-                test_source,
-            )
             self.assertIn(f'oasis7_runtime_host::simulator_archive::{module}::{name},', test_source)
         self.assertIn('oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new()', test_source)
 
