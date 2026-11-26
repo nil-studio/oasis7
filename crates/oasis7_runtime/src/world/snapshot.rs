@@ -739,7 +739,7 @@ mod tests {
         }
 
         let mut control = World::new();
-        control.set_policy(PolicySet::allow_all());
+        control.set_policy(crate::PolicySet::allow_all());
         for (id, x) in [("alice", 0), ("bob", 1)] {
             control.submit_action(Action::RegisterAgent {
                 agent_id: id.into(),
@@ -760,7 +760,7 @@ mod tests {
             .register_module_artifact(wasm_hash.clone(), wasm_bytes)
             .expect("register artifact");
 
-        let make_manifest = |module_id: &str, kind: ModuleKind| crate::ModuleManifest {
+        let make_manifest = |module_id: &str, kind: crate::ModuleKind| crate::ModuleManifest {
             module_id: module_id.to_string(),
             name: module_id.to_string(),
             version: "0.1.0".to_string(),
@@ -783,8 +783,8 @@ mod tests {
             limits: crate::ModuleLimits::unbounded(),
         };
 
-        let wake_manifest = make_manifest("m.tick.wake", ModuleKind::Pure);
-        let clear_manifest = make_manifest("m.tick.clear", ModuleKind::Reducer);
+        let wake_manifest = make_manifest("m.tick.wake", crate::ModuleKind::Pure);
+        let clear_manifest = make_manifest("m.tick.clear", crate::ModuleKind::Reducer);
         let changes = crate::ModuleChangeSet {
             register: vec![wake_manifest.clone(), clear_manifest.clone()],
             activate: vec![
