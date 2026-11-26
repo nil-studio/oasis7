@@ -54,7 +54,7 @@ fn response(request: &ReadWorldViewRequest) -> ReadWorldViewResponse<WorldServic
         oasis7_runtime::AgentCell::new(
             oasis7_runtime::agent_state::AgentState::new(
                 "a",
-                oasis7::geometry::GeoPos::new(0, 0, 0),
+                oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
             ),
             u64::MAX,
         ),

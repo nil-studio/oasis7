@@ -18,11 +18,11 @@ fn canonical_decision_trace_types_preserve_original_viewer_identity() {
 
     assert_eq!(
         TypeId::of::<AgentDecision>(),
-        TypeId::of::<oasis7::simulator::AgentDecision>()
+        TypeId::of::<oasis7_simulator::AgentDecision>()
     );
     assert_eq!(
         TypeId::of::<AgentDecisionTrace>(),
-        TypeId::of::<oasis7::simulator::AgentDecisionTrace>()
+        TypeId::of::<oasis7_simulator::AgentDecisionTrace>()
     );
 }
 #[path = "tests/agent_memory_correction_control.rs"]

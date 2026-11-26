@@ -5,13 +5,16 @@ use crate::viewer::{
     install_provider_original_material_owner,
 };
 use oasis7::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
-    ProviderMaterialAuthority, ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1,
-    ProviderPendingAttemptPhaseV1, ProviderPendingRootsCursorV1, cognition_response_digest,
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ProviderMaterialAuthority,
+    cognition_response_digest,
 };
 use oasis7_distfs::incremental_page_store::PageCompression;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime_host::provider_material_capture::{
+    ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
+    ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
+    ProviderPendingRootsCursorV1,
+};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
