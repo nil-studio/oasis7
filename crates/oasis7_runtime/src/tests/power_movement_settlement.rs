@@ -165,6 +165,7 @@ fn movement_settlement_storage_activation_rejects_unmigrated_historical_state_wi
     assert_eq!(restored.snapshot(), before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn movement_settlement_insufficient_world_movement_resources_preserve_battery_harvest_and_origin() {
     let (mut world, mut sandbox) = movement_world();
@@ -255,6 +256,7 @@ impl ModuleSandbox for MovementDirectiveSandbox {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn movement_settlement_another_rule_deny_preserves_harvest_and_modified_move_prices_final_target_once()
  {
@@ -297,6 +299,7 @@ fn movement_settlement_another_rule_deny_preserves_harvest_and_modified_move_pri
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn movement_settlement_zero_distance_has_no_settlement_but_preserves_one_harvest() {
     let (mut world, mut sandbox) = movement_world();
@@ -313,6 +316,7 @@ fn movement_settlement_zero_distance_has_no_settlement_but_preserves_one_harvest
     assert_eq!(world.resource_balance(ResourceKind::Electricity), initial);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn movement_settlement_nonmovement_override_keeps_its_existing_domain_contract_without_distance_debit()
  {
@@ -339,6 +343,7 @@ fn movement_settlement_nonmovement_override_keeps_its_existing_domain_contract_w
     assert_eq!(world.resource_balance(ResourceKind::Electricity), initial);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn movement_settlement_adding_only_format_marker_does_not_repair_historical_position_drift() {
     let (world, _) = movement_world();
@@ -354,6 +359,7 @@ fn movement_settlement_adding_only_format_marker_does_not_repair_historical_posi
     assert_eq!(restored.snapshot(), before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn movement_settlement_domain_rejection_discards_distance_cost_but_retains_general_attempt_cost() {
     let (mut world, inner) = movement_world();
@@ -425,6 +431,7 @@ fn movement_settlement_domain_rejection_discards_distance_cost_but_retains_gener
     assert_eq!(battery(&recovered), battery(&world));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn movement_settlement_legacy_release_entry_cannot_be_relabelled_as_storage_v2() {
     let mut world = World::new();
@@ -458,6 +465,7 @@ fn movement_settlement_legacy_release_entry_cannot_be_relabelled_as_storage_v2()
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn movement_settlement_insufficient_general_attempt_fee_does_not_charge_distance_or_move() {
     let (mut world, inner) = movement_world();

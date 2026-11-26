@@ -1,4 +1,5 @@
 //! RED fixtures for the World-owned cognition authority/remediation seam.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 
 use super::super::*;
 use crate::cognition::world_state_binding_digest_v1;
@@ -406,6 +407,7 @@ fn world_commit_prepare_finalize_is_bound_and_receipt_is_world_derived() {
     assert!(world.verify_runtime_receipt_lineage(&lineage).is_ok());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn continuous_commit_api_derives_world_authority_and_reads_back_lineage() {
     let mut world = World::new();
@@ -470,6 +472,7 @@ fn continuous_commit_api_derives_world_authority_and_reads_back_lineage() {
         .expect("typed response artifact replays only with its marker binding");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn continuous_commit_api_rejects_response_outer_lineage_mismatch() {
     let mut world = World::new();
@@ -499,6 +502,7 @@ fn continuous_commit_api_rejects_response_outer_lineage_mismatch() {
     assert_eq!(world.cognition(), &cognition_before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn continuous_commit_rejects_a_stale_captured_world_head() {
     let mut world = World::new();
@@ -562,6 +566,7 @@ fn continuous_commit_rejects_a_stale_captured_world_head() {
     assert_eq!(world.cognition(), &cognition_after_first);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cognition_commit_error_classifier_is_typed_and_preserves_stable_code() {
     let stale = WorldError::DistributedValidationFailed {
@@ -590,6 +595,7 @@ fn cognition_commit_error_classifier_is_typed_and_preserves_stable_code() {
     assert_eq!(classify_cognition_commit_error(&unrelated), None);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn stale_delayed_response_is_durable_rejection_and_idempotent_replay() {
     let mut world = World::new();
@@ -677,6 +683,7 @@ fn stale_delayed_response_is_durable_rejection_and_idempotent_replay() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn scheduler_persists_selected_wake_identity_and_releases_it_on_cancel() {
     let mut world = World::new()
@@ -745,6 +752,7 @@ fn scheduler_persists_selected_wake_identity_and_releases_it_on_cancel() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn event_receipt_and_state_only_continuations_admit_without_a_forced_tick() {
     let mut world = World::new()
@@ -839,6 +847,7 @@ fn event_receipt_and_state_only_continuations_admit_without_a_forced_tick() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cognition_finalize_linearizes_the_world_action_before_publishing_receipt() {
     let mut world = World::new();
@@ -860,6 +869,7 @@ fn cognition_finalize_linearizes_the_world_action_before_publishing_receipt() {
     assert!(world.state().agents.contains_key(AGENT_ID));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn restore_rejects_tampered_canonical_response_artifact() {
     let mut world = World::new();
@@ -886,6 +896,7 @@ fn restore_rejects_tampered_canonical_response_artifact() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn continuation_admission_recomputes_digest_binds_authority_and_enqueues_wake() {
     let mut world = World::new()
@@ -913,6 +924,7 @@ fn continuation_admission_recomputes_digest_binds_authority_and_enqueues_wake() 
     assert!(world.admit_cognition_continuation(forged).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn scheduler_constructor_is_fallible_and_foreign_wake_is_rejected() {
     let invalid = SchedulerPolicyV1 {
@@ -959,6 +971,7 @@ fn scheduler_constructor_is_fallible_and_foreign_wake_is_rejected() {
     assert!(world.enqueue_cognition_wake(wake).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn response_replay_rejects_missing_or_mismatched_journal_head() {
     let mut world = World::new();
@@ -984,6 +997,7 @@ fn response_replay_rejects_missing_or_mismatched_journal_head() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn generic_prepare_rejects_an_unbound_response_artifact() {
     let mut world = World::new();
@@ -1000,6 +1014,7 @@ fn generic_prepare_rejects_an_unbound_response_artifact() {
     assert_eq!(world.cognition(), &cognition_before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn restore_rejects_consistently_tampered_commit_digest() {
     let mut world = World::new();
@@ -1030,6 +1045,7 @@ fn restore_rejects_consistently_tampered_commit_digest() {
     let _ = committed;
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn restore_rejects_noncanonical_response_digest() {
     let mut world = World::new();
@@ -1056,6 +1072,7 @@ fn restore_rejects_noncanonical_response_digest() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_reconciles_every_committed_marker_not_only_the_latest() {
     let mut world = World::new();
@@ -1130,6 +1147,7 @@ fn recovery_reconciles_every_committed_marker_not_only_the_latest() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn exact_committed_replay_returns_original_receipt_without_terminal_delta() {
     let mut world = World::new();
@@ -1155,6 +1173,7 @@ fn exact_committed_replay_returns_original_receipt_without_terminal_delta() {
     assert_eq!(world.cognition(), &cognition);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn committed_cognition_turn_is_closed_after_receipt_link() {
     let mut world = World::new();

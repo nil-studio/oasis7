@@ -407,15 +407,19 @@ fn point_and_receiver_skip_unchanged_symbol_across_value_chunks() {
 }
 
 // Consolidated sibling integration suites (4-shard LPT balanced).
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_agent_subtree.rs"]
 mod incremental_agent_subtree;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_installed_module_targets.rs"]
 mod incremental_installed_module_targets;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_runtime_artifact_resources.rs"]
 mod incremental_runtime_artifact_resources;
+#[cfg(feature = "test_tier_full")]
 #[allow(clippy::duplicate_mod)]
 #[path = "suites/incremental_runtime_effect_records.rs"]
 mod incremental_runtime_effect_records;
