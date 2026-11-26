@@ -229,6 +229,9 @@ pub(crate) struct FormalNodeHook<W: FormalNodeWriter> {
     publication_sink: Option<Arc<dyn FormalPublicationSink>>,
     durable_set_arm: Option<Arc<super::formal_durable_set_arm::FormalDurableSetArmControlV1>>,
     admission_gate: Option<Arc<Mutex<()>>>,
+    // Same opt-in original pending owner as FormalLiveService, never a second
+    // queue or authority. Installed by the explicit Host adapter.
+    original_pending: Option<Arc<Mutex<crate::formal_live_original_pending_producer::OriginalPendingProducerV1>>>,
 }
 
 struct ConsumedTerminal {
@@ -253,6 +256,7 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
             publication_sink: None,
             durable_set_arm: None,
             admission_gate: None,
+            original_pending: None,
         };
         // Refuse unsupported initial anchors and zero-height pending recovery at
         // construction. A zero-height InitialActivation must pass the distinct
@@ -298,6 +302,43 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
         self.durable_set_arm = Some(arm);
         self.admission_gate = Some(admission_gate);
         Ok(self)
+    }
+
+    pub(crate) fn with_original_pending_producer(
+        mut self,
+        producer: Arc<Mutex<crate::formal_live_original_pending_producer::OriginalPendingProducerV1>>,
+    ) -> Self {
+        self.original_pending = Some(producer);
+        self
+    }
+
+    fn require_original_pending_open(&self) -> Result<(), String> {
+        if let Some(producer) = &self.original_pending {
+            producer
+                .lock()
+                .map_err(|_| "original pending owner lock poisoned".to_string())?
+                .ensure_unfrozen_admission()?;
+        }
+        Ok(())
+    }
+
+    fn note_successful_frozen(
+        &self,
+        continuation: &NodeLocalExecutionContinuation,
+    ) -> Result<(), String> {
+        if let Some(producer) = &self.original_pending {
+            let actual: Vec<&[u8]> = continuation
+                .context
+                .committed_actions
+                .iter()
+                .map(|action| action.payload_cbor.as_slice())
+                .collect();
+            producer
+                .lock()
+                .map_err(|_| "original pending owner lock poisoned".to_string())?
+                .note_successful_frozen_actions(&actual)?;
+        }
+        Ok(())
     }
 
     fn mark_pending_open(&self, open: bool) -> Result<(), String> {
@@ -710,6 +751,9 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
                 &consumed.formal_record_id,
                 transition.as_ref(),
             );
+            if prepared.is_ok() {
+                self.note_successful_frozen(continuation)?;
+            }
             let pending_open = self.writer.pending_continuation()?.is_some();
             self.mark_pending_open(pending_open)?;
             prepared?;
@@ -728,10 +772,14 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
             let prepared = self
                 .writer
                 .prepare_with_durable_set_transition(continuation, None);
+            if prepared.is_ok() {
+                self.note_successful_frozen(continuation)?;
+            }
             let pending_open = self.writer.pending_continuation()?.is_some();
             self.mark_pending_open(pending_open)?;
             return prepared;
         }
+        self.require_original_pending_open()?;
         let bootstrap = if continuation.predecessor_committed_height == 0 {
             self.genesis_bootstrap()?
                 .ok_or("formal zero-height continuation lacks qualified genesis")?
@@ -748,6 +796,9 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
         let prepared = self
             .writer
             .prepare_with_durable_set_transition(continuation, transition.as_ref());
+        if prepared.is_ok() {
+            self.note_successful_frozen(continuation)?;
+        }
         let pending_open = self.writer.pending_continuation()?.is_some();
         self.mark_pending_open(pending_open)?;
         prepared

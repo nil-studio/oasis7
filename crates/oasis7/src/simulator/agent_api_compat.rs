@@ -5,14 +5,15 @@
 //! durable receipt derivation, and world-readback verification stay in their
 //! existing Oasis7-owned paths.
 
-use crate::simulator::{DecisionRequest, DecisionResponse};
+use crate::simulator::DecisionRequest;
+#[cfg(test)]
+use crate::simulator::DecisionResponse;
+#[cfg(test)]
 use oasis7_simulator::{Action, AgentQuery};
 
+use super::continuous_agent_harness::{ContinuousAgentRequestContextV1, FeedbackEnvelopeV1};
 #[cfg(test)]
-use super::continuous_agent_harness::MemoryWriteIntentV1;
-use super::continuous_agent_harness::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, FeedbackEnvelopeV1,
-};
+use super::continuous_agent_harness::{ContinuousAgentResponseContextV1, MemoryWriteIntentV1};
 
 pub fn request_context_to_api(
     context: &ContinuousAgentRequestContextV1,
@@ -68,6 +69,7 @@ pub(crate) fn request_context_from_api(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn response_context_to_api(
     context: &ContinuousAgentResponseContextV1,
 ) -> oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery> {
@@ -178,6 +180,7 @@ fn decision_request_from_api(request: oasis7_agent_api::DecisionRequest) -> Deci
     }
 }
 
+#[cfg(test)]
 pub(crate) fn decision_response_to_api(
     response: &DecisionResponse,
 ) -> oasis7_agent_api::DecisionResponse<Action, AgentQuery> {

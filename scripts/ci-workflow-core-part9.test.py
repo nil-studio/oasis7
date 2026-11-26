@@ -462,11 +462,19 @@ class WorkflowCorePart9(unittest.TestCase):
         self.assertLess(net.index(compiler_step), net.index('Execute selected group'))
         self.assertLess(net.index('llvm-ar --version'), net.index('Execute selected group'))
         writer = JOBS['full-regression']
-        self.assertIn('            clang \\', writer)
-        self.assertIn('            llvm \\', writer)
         self.assertIn('rustup target add wasm32-unknown-unknown', writer)
-        for tool in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
-            self.assertLess(writer.index(tool), writer.index('Run full test tier'))
+        if 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in writer:
+            launcher = (ROOT / 'scripts/ci-trusted-full-regression.py').read_text()
+            dockerfile = (ROOT / 'docker/ci-base/Dockerfile').read_text()
+            self.assertIn('FROM rust-custody-wasm AS rust-full-regression\n', dockerfile)
+            self.assertIn('apt-get install -y --no-install-recommends clang llvm', dockerfile)
+            for tool in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
+                self.assertLess(launcher.index(tool), launcher.index("['./scripts/ci-tests.sh', 'full-extended']"))
+        else:
+            self.assertIn('            clang \\', writer)
+            self.assertIn('            llvm \\', writer)
+            for tool in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
+                self.assertLess(writer.index(tool), writer.index('Run full test tier'))
 
 
 if __name__ == '__main__':

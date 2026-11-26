@@ -349,6 +349,88 @@ fn terminal_pending_bootstraps_from_original_predecessor_not_published_result() 
     assert_eq!(bootstrap.execution_block_hash, "execution-h7");
 }
 
+#[cfg(unix)]
+#[test]
+fn original_pending_is_retired_only_for_real_successful_frozen_actions() {
+    use crate::formal_live_original_pending_producer::{
+        OriginalPendingOwnerV1, OriginalPendingProducerV1,
+    };
+    use oasis7_distfs::controlled_authority::LocalRequestIdentity;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::{Arc, Mutex};
+
+    let root = std::env::temp_dir().join(format!(
+        "o7-frozen-hook-{}-{}",
+        std::process::id(),
+        blake3::hash(format!("{:?}", std::thread::current().id()).as_bytes())
+            .to_hex()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let owner = OriginalPendingOwnerV1 {
+        authority_id: "frozen-test-authority".into(),
+        operation_id: "original-operation".into(),
+        request_digest: "original-request".into(),
+        config_digest: "original-config".into(),
+        incarnation: "owner-incarnation".into(),
+    };
+    let tracker = Arc::new(Mutex::new(
+        OriginalPendingProducerV1::open(&root, owner).unwrap(),
+    ));
+    let identity = |id: &str| LocalRequestIdentity {
+        verified_subject: "verified-owner".into(),
+        operation_domain: "signed-world-submit".into(),
+        nonce_scope: "signed-original-nonce".into(),
+        request_id: id.into(),
+    };
+    {
+        let mut pending = tracker.lock().unwrap();
+        pending
+            .note_enqueued_with_action(identity("a"), vec![5, 7], vec![12, 13])
+            .unwrap();
+        pending
+            .note_enqueued_with_action(identity("b"), vec![9, 11], vec![14, 15])
+            .unwrap();
+    }
+
+    let world = oasis7_runtime_host::world::new();
+    let predecessor_root = context(5, "node-h5").action_root;
+    let head = execution_evidence(
+        &world,
+        5,
+        "node-h5",
+        "execution-h5",
+        "formal-record-5",
+        Some("node-h4"),
+        &predecessor_root,
+        EXECUTION_BRIDGE_RECORD_SCHEMA_V3,
+    );
+    let mut hook = FormalNodeHook::new(writer(world.clone(), head, None))
+        .unwrap()
+        .with_original_pending_producer(Arc::clone(&tracker));
+    let mut c = continuation(&world, 5, "node-h5", "execution-h5");
+    let admitted = oasis7_node::NodeConsensusAction::from_payload(
+        8,
+        "verified-owner",
+        vec![12, 13],
+    )
+    .unwrap();
+    c.context.committed_actions.push(admitted);
+    c.context.action_root =
+        oasis7_node::compute_consensus_action_root(&c.context.committed_actions).unwrap();
+    c.reserved_action_bytes = 2;
+    hook.prepare_local_continuation(&c)
+        .expect("actual writer prepared and froze original continuation");
+    assert_eq!(hook.writer.prepared, 1);
+    assert_eq!(hook.writer.resumed, 0);
+    // Only the exact Node payload retires from the original handoff. This
+    // deliberately is a fake-writer unit, NOT independent P/R fault evidence.
+    let pin = tracker.lock().unwrap().begin_freeze(&root).unwrap();
+    assert_eq!(pin.count, 1);
+    assert!(hook.prepare_local_continuation(&c).is_err());
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 #[test]
 fn prepare_is_durable_before_execution_and_successor_cannot_replace_pending() {
     let world = oasis7_runtime_host::world::new();

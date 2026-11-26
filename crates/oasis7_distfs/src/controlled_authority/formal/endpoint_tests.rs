@@ -1128,3 +1128,11 @@ pub(super) fn with_store_for_bounded_index_fixture<T>(
     let mut endpoint = fixture.endpoint(EndpointRole::Primary);
     run(&mut endpoint.store, &fixture.pdir)
 }
+
+#[cfg(unix)]
+#[path = "endpoint_bounded_request_fixture.rs"]
+mod bounded_request_fixture;
+#[cfg(unix)]
+pub(super) use bounded_request_fixture::{
+    with_fresh_endpoint_for_bounded_request_fixture, with_signed_request_states_fixture,
+};

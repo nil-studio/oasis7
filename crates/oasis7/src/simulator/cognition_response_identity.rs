@@ -1,6 +1,4 @@
-use super::continuous_agent_harness::{
-    CognitionError, ContinuousAgentResponseContextV1, Digest32, ResponseArtifactIdentityV1,
-};
+use super::continuous_agent_harness::Digest32;
 use super::decision_provider::DecisionResponse;
 
 pub use oasis7_agent_harness::{
@@ -19,38 +17,4 @@ pub fn classify_cognition_response_digest(
     digest: &Digest32,
 ) -> CognitionResponseDigestDisposition {
     oasis7_agent_harness::classify_cognition_response_digest(response, digest)
-}
-
-impl ContinuousAgentResponseContextV1 {
-    pub fn validate_response_artifact_identity(
-        &self,
-        identity: &ResponseArtifactIdentityV1,
-    ) -> Result<(), CognitionError> {
-        match classify_cognition_response_digest(
-            &self.base_decision_response,
-            &self.response_digest,
-        ) {
-            CognitionResponseDigestDisposition::Current => {}
-            CognitionResponseDigestDisposition::Legacy => {
-                return Err(CognitionError::new(
-                    "legacy_response_digest_unsupported",
-                    "legacy full-response digest requires an explicit compatibility migration",
-                ));
-            }
-            CognitionResponseDigestDisposition::Mismatch => {
-                return Err(CognitionError::new(
-                    "response_digest_mismatch",
-                    "provider response digest does not match its content",
-                ));
-            }
-        }
-        identity.validate()?;
-        if identity != &self.response_artifact_identity() {
-            return Err(CognitionError::new(
-                "response_artifact_identity_mismatch",
-                "response artifact identity does not match the response context",
-            ));
-        }
-        Ok(())
-    }
 }

@@ -1178,7 +1178,7 @@ fn legacy_feedback_without_committed_receipt_is_ambiguous() {
         "emitted_events": [],
         "world_delta_summary": "legacy response"
     });
-    let error = FeedbackEnvelopeV1::from_legacy_value(legacy)
+    let error = crate::simulator::continuous_agent_harness::feedback_v1_from_legacy_value(legacy)
         .expect_err("legacy success without committed receipt is ambiguous");
     assert_eq!(error.code(), "legacy_feedback_ambiguous");
 }
