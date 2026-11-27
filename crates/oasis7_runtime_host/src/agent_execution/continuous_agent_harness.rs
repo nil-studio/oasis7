@@ -18,7 +18,6 @@ pub use oasis7_agent_api::{
 
 use crate::decision_provider::FeedbackEnvelope;
 
-#[cfg(test)]
 #[path = "continuous_agent_feedback_recovery.rs"]
 mod continuous_agent_feedback_recovery;
 
