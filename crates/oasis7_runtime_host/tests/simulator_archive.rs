@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 use oasis7_agent_api::world_resource::ChainResourceDelta;
 use oasis7_runtime::{Action, World, WorldState};
 use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
