@@ -154,6 +154,7 @@ fn world_module_command_catalog_is_empty_without_active_modules() {
     assert!(world.module_command_catalog().is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn apply_module_changes_registers_and_activates() {
     let mut world = World::new();
@@ -276,6 +277,7 @@ fn apply_module_changes_registers_and_activates() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_cache_loads_and_evicts() {
     let mut world = World::new();
@@ -306,6 +308,7 @@ fn module_cache_loads_and_evicts() {
     assert_eq!(world.module_cache_len(), 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_output_limits_reject_excess() {
     let world = World::new();
@@ -334,6 +337,7 @@ fn module_output_limits_reject_excess() {
     assert!(matches!(err, WorldError::ModuleChangeInvalid { .. }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_call_queues_effects_and_emits() {
     let mut world = World::new();
@@ -426,6 +430,7 @@ fn module_call_queues_effects_and_emits() {
     assert!(has_emit);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_call_resolves_effect_cap_from_cap_slot() {
     let mut world = World::new();
@@ -520,6 +525,7 @@ fn module_call_resolves_effect_cap_from_cap_slot() {
     assert_eq!(queued.cap_ref, "cap.weather");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_call_rejects_effect_with_unbound_cap_slot() {
     let mut world = World::new();
@@ -622,6 +628,7 @@ fn module_call_rejects_effect_with_unbound_cap_slot() {
     assert!(failed.detail.contains("cap_slot not bound"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_call_policy_denied_records_failure() {
     let mut world = World::new();
@@ -808,6 +815,7 @@ fn module_manifest_hash(manifest: &ModuleManifest) -> String {
     util::hash_json(manifest).expect("hash module manifest")
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn step_with_modules_routes_post_action_rejection_event() {
     let mut world = World::new();

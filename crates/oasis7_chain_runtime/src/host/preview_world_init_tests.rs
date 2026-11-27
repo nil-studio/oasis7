@@ -1,4 +1,5 @@
 //! Owned real Runtime/NodeRuntime tests; no fixture capabilities or provider calls.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -152,6 +153,7 @@ fn ordinary_starter_preview_publishes_finite_bound_pool_and_never_replenishes() 
     options.ordinary_starter = false;
     assert!(initialize(&options).is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn arguments_require_explicit_exact_private_preview_inputs() {
     assert!(parse(["--world-id", "world"].into_iter()).is_err());
@@ -182,6 +184,7 @@ fn arguments_require_explicit_exact_private_preview_inputs() {
     wrong[5] = "world with space";
     assert!(parse(wrong.into_iter()).is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn genuine_commit_cas_publication_and_restart_keep_initial_receipt() {
     let root = Directory::new();
@@ -319,6 +322,7 @@ fn find_cas_object(path: &Path, hash: &str) -> Option<PathBuf> {
     None
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn missing_or_tampered_initial_publication_archive_requires_verified_backup() {
     let root = Directory::new();
@@ -349,6 +353,7 @@ fn missing_or_tampered_initial_publication_archive_requires_verified_backup() {
     assert_eq!(receipt.world.world_id, o.world_id);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn legacy_receipt_without_archive_fails_closed_without_rewriting_world() {
     let root = Directory::new();
@@ -401,6 +406,7 @@ fn legacy_receipt_without_archive_fails_closed_without_rewriting_world() {
     assert_eq!(fs::read(&receipt_path).unwrap(), legacy_receipt);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn preview_origin_requires_independent_pin_signature_and_original_artifact() {
     let root = Directory::new();
@@ -437,6 +443,7 @@ fn preview_origin_requires_independent_pin_signature_and_original_artifact() {
         receipt.world
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn partial_existing_root_and_mismatched_receipt_are_never_repaired() {
     let root = Directory::new();
@@ -456,6 +463,7 @@ fn partial_existing_root_and_mismatched_receipt_are_never_repaired() {
         original
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn original_cas_genesis_and_private_consumer_corruption_fail_closed() {
     let root = Directory::new();
@@ -512,6 +520,7 @@ fn original_cas_genesis_and_private_consumer_corruption_fail_closed() {
     fs::write(object, b"corrupt").unwrap();
     assert!(initialize(&o).is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn concurrent_initializers_publish_only_one_complete_root() {
     let root = Directory::new();
@@ -536,6 +545,7 @@ fn concurrent_initializers_publish_only_one_complete_root() {
     assert_eq!(fs::read_dir(&root.0).unwrap().count(), 2);
 }
 #[cfg(unix)]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn kernel_exclusive_publish_preserves_out_of_band_empty_dir_and_symlink() {
     let root = Directory::new();
@@ -560,6 +570,7 @@ fn kernel_exclusive_publish_preserves_out_of_band_empty_dir_and_symlink() {
     assert_eq!(fs::read(victim).unwrap(), b"keep");
 }
 #[cfg(unix)]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn weak_identity_and_private_reader_permissions_or_symlinks_rejected() {
     let root = Directory::new();
@@ -581,6 +592,7 @@ fn weak_identity_and_private_reader_permissions_or_symlinks_rejected() {
     assert!(initialize(&o).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn stored_receipt_source_schema_and_signature_mismatch_fail_closed() {
     let root = Directory::new();
@@ -606,6 +618,7 @@ fn stored_receipt_source_schema_and_signature_mismatch_fail_closed() {
     initialize(&o).unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn initial_commit_validator_binding_uses_provisioned_node_identity() {
     let root = Directory::new();
@@ -644,6 +657,7 @@ fn initial_commit_validator_binding_uses_provisioned_node_identity() {
     verify_signed_initial_commit(&o, height, &record, &envelope_bytes).unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn tampered_archived_initial_consensus_signature_fails_closed_before_rerun() {
     let root = Directory::new();
@@ -663,6 +677,7 @@ fn tampered_archived_initial_consensus_signature_fails_closed_before_rerun() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn valid_same_signer_commit_from_other_initialization_cannot_replace_pin() {
     let root = Directory::new();

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::{
     incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
@@ -274,6 +275,7 @@ fn ordinary_scalars_preserve_same_transaction_optional_members_and_original_grou
     assert_eq!(accepted.agent_count(), 2);
     assert_eq!(accepted.mailbox_reference_count(), 0);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn public_getter_n_then_noop_n_plus_one_cancellation_poison_successful_prefix() {
     for write_channel in [false, true] {
@@ -417,6 +419,7 @@ fn public_getter_n_then_noop_n_plus_one_cancellation_poison_successful_prefix() 
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn receiver_requires_option_flag_and_complete_original_group_delta() {
     for removed in [0usize, 1, 7] {
@@ -513,6 +516,7 @@ fn receiver_requires_option_flag_and_complete_original_group_delta() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn explicit_optional_replacement_supports_same_transaction_remove_create_and_scalar_followup() {
     let memory = MemoryBudget::new(96 << 20, 8 << 20).unwrap();
@@ -662,6 +666,7 @@ fn explicit_optional_replacement_supports_same_transaction_remove_create_and_sca
     accepted.validate_binding(&sealed.record.after).unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn receiver_checks_row_peer_presence_count_and_monotonic_allocation() {
     for member_count in [0usize, 3, 4] {
@@ -766,6 +771,7 @@ fn receiver_checks_row_peer_presence_count_and_monotonic_allocation() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn normal_rows_preserve_burned_ordinals_duplicate_ids_and_cargo_holes() {
     let memory = MemoryBudget::new(96 << 20, 8 << 20).unwrap();
@@ -960,6 +966,7 @@ mod mailbox_tests;
 #[path = "incremental_agent_subtree_source_tests.rs"]
 mod source_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_structure_cannot_mint_ordinary_balance_access() {
     let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();

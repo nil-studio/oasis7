@@ -1,3 +1,4 @@
+#![cfg(feature = "test_tier_full")]
 #![expect(clippy::field_reassign_with_default)]
 
 use super::build_chain_status_payload;

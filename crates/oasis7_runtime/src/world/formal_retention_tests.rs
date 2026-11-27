@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::AgentIntentV2;
 use oasis7_formal_protocol::controlled_authority::formal::business_index::{
@@ -118,6 +119,7 @@ fn formal_history_initialization_rejects_existing_archive_obligations() {
     assert!(world.state.retained_history_root.is_none());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_history_initialization_preserves_an_already_published_tick() {
     let mut world = World::new();
@@ -134,6 +136,7 @@ fn formal_history_initialization_preserves_an_already_published_tick() {
     World::from_snapshot(world.snapshot(), world.journal().clone()).unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn staged_empty_history_proves_absence_but_cannot_plan_or_restore_qualified_lineage() {
     let mut world = World::new();
@@ -156,6 +159,7 @@ fn staged_empty_history_proves_absence_but_cannot_plan_or_restore_qualified_line
     assert!(restored.inherit_formal_history_reader(&world).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn retained_reads_fail_closed_without_cas_and_inherit_only_matching_view() {
     let correlation_key = format!("blake3:{}", "a".repeat(64));
@@ -202,6 +206,7 @@ fn retained_reads_fail_closed_without_cas_and_inherit_only_matching_view() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn immutable_archive_keys_cannot_be_rewritten_with_different_data() {
     let parent = empty_parent();
@@ -242,6 +247,7 @@ fn immutable_archive_keys_cannot_be_rewritten_with_different_data() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn secondary_indexes_keep_two_distinct_refs_to_preserve_ambiguity() {
     let mut refs = Vec::new();
@@ -302,6 +308,7 @@ fn intent(intent_id: &str, status: &str, effect_intent_id: Option<&str>) -> Agen
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn only_unreferenced_terminal_intents_are_candidates() {
     let mut world = World::new();
@@ -338,6 +345,7 @@ fn only_unreferenced_terminal_intents_are_candidates() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn terminal_status_allowlist_excludes_blocked_and_unknown_states() {
     assert!(is_terminal_agent_intent("completed"));
@@ -424,6 +432,7 @@ fn retained_invocation_context() -> Vec<RetainedCapabilityInvocationContextV1> {
     vec![RetainedCapabilityInvocationContextV1 { map_key, context }]
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn retention_pruning_refreshes_authorization_root_and_restores_snapshot() {
     let mut world = World::new();
@@ -503,6 +512,7 @@ fn retention_pruning_refreshes_authorization_root_and_restores_snapshot() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn capability_nonce_candidates_require_receipt_and_effect_closure() {
     let nonce_key = "a".repeat(64);
@@ -574,6 +584,7 @@ fn capability_nonce_candidates_require_receipt_and_effect_closure() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn archived_nonce_preserves_exact_and_legacy_invocation_context_keys() {
     let nonce_key = "a".repeat(64);
@@ -612,6 +623,7 @@ fn archived_nonce_preserves_exact_and_legacy_invocation_context_keys() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_state_serializes_retained_root_only_when_present() {
     let mut state = crate::WorldState::default();
@@ -626,6 +638,7 @@ fn world_state_serializes_retained_root_only_when_present() {
     assert!(encoded.get("retained_history_root").is_some());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn journal_archive_is_exact_repeatable_and_fails_closed_on_missing_or_corrupt_cas() {
     let mut world = World::new();
@@ -694,6 +707,7 @@ fn journal_archive_is_exact_repeatable_and_fails_closed_on_missing_or_corrupt_ca
     assert!(restored_corrupt.read_retained_journal_event(0, 1).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_journal_cursor_derives_rollover_era_and_rejects_saturation() {
     let mut world = World::new();
@@ -714,6 +728,7 @@ fn formal_journal_cursor_derives_rollover_era_and_rejects_saturation() {
     assert!(world.formal_journal_event_cursors().is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_journal_planner_enforces_canonical_hot_byte_budget() {
     let mut world = World::new();

@@ -34,7 +34,7 @@ impl LiveConsensusBridge {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     pub(super) fn reset_pending(&mut self) {
         self.inflight_action_ids.clear();
         self.committed_actions.clear();

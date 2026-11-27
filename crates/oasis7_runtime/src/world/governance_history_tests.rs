@@ -1,5 +1,6 @@
 //! Synthetic tokens test projection validation, not cryptographic qualification.
 //! Host tests independently exercise cryptographically qualified history.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::super::*;
 use crate::{Action, GovernanceEvent, GovernanceThresholdSignerPolicy, WorldEventBody};
 use oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader;
@@ -186,6 +187,7 @@ fn governance_history_revalidates_signed_submission_against_original_parent() {
     attach(&mut same_position_wrong_policy, 1000);
     assert!(verify(&same_position_wrong_policy, &next).is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_rejects_silent_snapshot_projection_and_binding_changes() {
     let (parent, next) = pair();
@@ -236,6 +238,7 @@ fn governance_history_rejects_silent_snapshot_projection_and_binding_changes() {
             .contains("mapping mismatch")
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_zero_event_successor_checks_projection_and_exact_snapshot() {
     let parent = world();
@@ -259,6 +262,7 @@ fn governance_history_zero_event_successor_checks_projection_and_exact_snapshot(
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_rejects_rotation_map_insertion_deletion_and_rewrite_without_events() {
     use oasis7_agent_api::world_action::{
@@ -359,6 +363,7 @@ fn governance_history_rejects_rotation_map_insertion_deletion_and_rewrite_withou
             .contains("projection mismatch")
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_rejects_missing_out_of_order_and_bad_time_events() {
     let (parent, next) = pair();
@@ -387,6 +392,7 @@ fn governance_history_rejects_missing_out_of_order_and_bad_time_events() {
             .contains("time mismatch")
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_enforces_event_byte_and_external_deadline_budgets() {
     let parent = world();
@@ -438,6 +444,7 @@ fn governance_history_enforces_event_byte_and_external_deadline_budgets() {
     let mut budget = super::ByteBudget(3, false);
     assert!(serde_cbor::to_writer(&mut budget, &"large event").is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_rejects_actual_event_over_the_full_byte_budget() {
     let parent = world();
@@ -486,6 +493,7 @@ fn governance_history_rejects_actual_event_over_the_full_byte_budget() {
     assert_eq!(parent.snapshot(), before);
     assert_eq!(next.snapshot(), after);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_signed_effect_tampering_cannot_hide_behind_matching_snapshot() {
     let (parent, mut next) = pair();
@@ -503,6 +511,7 @@ fn governance_history_signed_effect_tampering_cannot_hide_behind_matching_snapsh
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_rechecks_each_admission_transition_and_rejects_unsigned_suffix() {
     let (parent, submitted) = pair();
@@ -551,6 +560,7 @@ fn governance_history_rechecks_each_admission_transition_and_rejects_unsigned_su
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_preserves_legacy_unsigned_prefix_and_cursor_rollover() {
     let (parent, mut legacy) = pair();
@@ -601,6 +611,7 @@ impl BusinessIndexNodeReader for CorruptNodes {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_reads_real_cold_archive_and_rejects_corrupt_cas_without_mutation() {
     let (parent, mut next) = pair();
@@ -676,6 +687,7 @@ fn governance_history_reads_real_cold_archive_and_rejects_corrupt_cas_without_mu
     assert_eq!(*nodes.0.lock().unwrap(), nodes_before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_projection_preserves_full_restore_policy_rejection() {
     let base = world();
@@ -733,6 +745,7 @@ fn governance_history_projection_preserves_full_restore_policy_rejection() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn governance_history_projection_rejects_missing_admission_bindings_and_allocator_normalization() {
     let base = successor(&world(), command());

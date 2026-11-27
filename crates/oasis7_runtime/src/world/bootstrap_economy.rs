@@ -218,29 +218,23 @@ impl World {
     }
 
     fn install_m4_profile_catalog_defaults(&mut self) -> Result<(), WorldError> {
-        for profile in m4_default_material_profiles() {
-            let key = profile.kind.clone();
-            if self.material_profile(key.as_str()).is_none() {
-                self.upsert_material_profile(profile)?;
-            }
-        }
-        for profile in m4_default_product_profiles() {
-            let key = profile.product_id.clone();
-            if self.product_profile(key.as_str()).is_none() {
-                self.upsert_product_profile(profile)?;
-            }
-        }
-        for profile in m4_default_recipe_profiles() {
-            let key = profile.recipe_id.clone();
-            if self.recipe_profile(key.as_str()).is_none() {
-                self.upsert_recipe_profile(profile)?;
-            }
-        }
-        Ok(())
+        use super::transition::{
+            BorrowedWorldView, DurableCommitConfirmation, StagedTransition, TransitionContext,
+            TransitionReject,
+        };
+        let commit = {
+            let view = BorrowedWorldView::new(self)?;
+            crate::domains::monetary::StagedBootstrapCatalogDefaults
+                .prepare(&view, &TransitionContext::new(self.state.time, None))
+                .map_err(TransitionReject::into_world_error)?
+        };
+        commit
+            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
+            .map_err(TransitionReject::into_world_error)
     }
 }
 
-fn m4_default_material_profiles() -> Vec<MaterialProfileV1> {
+pub(crate) fn m4_default_material_profiles() -> Vec<MaterialProfileV1> {
     vec![
         material_profile(
             "iron_ore",
@@ -420,7 +414,7 @@ fn material_profile(
     }
 }
 
-pub(super) fn m4_default_product_profiles() -> Vec<ProductProfileV1> {
+pub(crate) fn m4_default_product_profiles() -> Vec<ProductProfileV1> {
     vec![
         product_profile("iron_ingot", "scale", true, "bootstrap"),
         product_profile_with_sink(
@@ -500,7 +494,7 @@ fn product_profile_with_sink(
     }
 }
 
-fn m4_default_recipe_profiles() -> Vec<RecipeProfileV1> {
+pub(crate) fn m4_default_recipe_profiles() -> Vec<RecipeProfileV1> {
     vec![
         recipe_profile(
             "recipe.smelter.iron_ingot",

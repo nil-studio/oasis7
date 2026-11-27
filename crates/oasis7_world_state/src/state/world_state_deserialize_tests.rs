@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::{FIELDS, WorldState};
 use serde_cbor::Value as CborValue;
 use serde_json::{Map, Value, json};
@@ -208,6 +209,7 @@ fn full_sequence_for_oracle() -> Value {
     )
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn preserves_map_order_duplicate_and_unknown_field_behavior() {
     assert_eq!(
@@ -240,6 +242,7 @@ fn preserves_map_order_duplicate_and_unknown_field_behavior() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn every_numeric_key_adapter_preserves_missing_null_and_nonempty_behavior() {
     let oracle = legacy_oracle();
@@ -277,6 +280,7 @@ fn every_numeric_key_adapter_preserves_missing_null_and_nonempty_behavior() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn preserves_numeric_key_failures_normalization_and_packed_cbor_fields() {
     let base = full_default_map();
@@ -329,6 +333,7 @@ fn preserves_numeric_key_failures_normalization_and_packed_cbor_fields() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn enriched_legacy_map_json_sequence_and_cbor_sequence_match_old_derive() {
     let oracle: Value = serde_json::from_str(include_str!(

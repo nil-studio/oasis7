@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::test_support::prepare_module_test_factory_build;
 use super::*;
 use crate::tests::signed_test_artifact_identity;
@@ -252,6 +253,7 @@ fn schedule_recipe_with_module_rejection_emits_production_blocker_and_resets_can
 #[path = "economy_module_validation/identity_guard.rs"]
 mod identity_guard;
 #[path = "economy_module_validation/product_validation.rs"]
+#[cfg(feature = "test_tier_full")]
 mod product_validation;
 #[test]
 fn validate_product_with_module_rejects_unknown_requester_before_module_call() {
@@ -288,6 +290,7 @@ fn validate_product_with_module_rejects_unknown_requester_before_module_call() {
     }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn schedule_recipe_with_module_blocks_atomic_commit_when_byproduct_validation_fails() {
     let mut world = logistics_drone_module_recipe_world("factory.recipe.byproduct-reject");
@@ -440,6 +443,7 @@ fn schedule_recipe_with_module_blocks_atomic_commit_when_byproduct_validation_fa
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn industrial_integrity_schedule_recipe_with_module_rejects_plan_over_requested_batches_before_sink()
  {
@@ -537,6 +541,7 @@ fn industrial_integrity_schedule_recipe_with_module_rejects_plan_over_requested_
     }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn validate_product_with_module_uses_module_decision() {
     let mut world = World::new();
@@ -609,6 +614,7 @@ fn validate_product_with_module_uses_module_decision() {
     assert!(preview_source.tradable);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn validate_product_with_module_rejects_when_module_denies() {
     let mut world = World::new();
@@ -664,6 +670,7 @@ fn validate_product_with_module_rejects_when_module_denies() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_quote_previews_eligible_product_without_mutating_world() {
     let mut world = World::new();
@@ -707,6 +714,7 @@ fn product_validation_quote_previews_eligible_product_without_mutating_world() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn schedule_recipe_marks_factory_blocked_and_resumes_after_inputs_recover() {
     let mut world = World::new();
@@ -840,6 +848,7 @@ fn schedule_recipe_marks_factory_blocked_and_resumes_after_inputs_recover() {
     assert_eq!(completed_factory.production.completed_jobs, 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn schedule_recipe_does_not_fallback_to_world_when_site_input_ledger_is_empty() {
     let mut world = World::new();
@@ -938,6 +947,7 @@ fn schedule_recipe_does_not_fallback_to_world_when_site_input_ledger_is_empty() 
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn schedule_recipe_post_action_uses_primary_result_event_before_followup() {
     let mut world = World::new();
@@ -1079,6 +1089,7 @@ fn schedule_recipe_post_action_uses_primary_result_event_before_followup() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn non_owner_schedule_recipe_with_module_rejects_before_module_plan_or_sink() {
     let mut world = World::new();

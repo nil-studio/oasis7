@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::cli::TrafficProfile;
 use super::cli::parse_validator_signer_public_key_spec;
 use super::status_server_support::status_http_request_is_complete;
@@ -360,6 +361,7 @@ fn sequencer_requires_execution_commit_but_all_runtime_roles_materialize_executi
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_options_reads_replication_network_addresses() {
     let options = parse_options(
@@ -401,6 +403,7 @@ fn parse_options_reads_replication_network_addresses() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_options_reads_replication_fetch_requester_public_keys() {
     let options = parse_options(
@@ -420,6 +423,7 @@ fn parse_options_reads_replication_fetch_requester_public_keys() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_options_rejects_proposal_tick_phase_out_of_range() {
     let err = parse_options(
@@ -435,6 +439,7 @@ fn parse_options_rejects_proposal_tick_phase_out_of_range() {
     assert!(err.contains("--pos-proposal-tick-phase"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_options_rejects_unknown_storage_profile() {
     let err = parse_options(["--storage-profile", "unknown"].into_iter())
@@ -443,6 +448,7 @@ fn parse_options_rejects_unknown_storage_profile() {
     assert!(err.contains("soak_forensics"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_options_rejects_unknown_traffic_profile() {
     let err = parse_options(["--traffic-profile", "burst_mode"].into_iter())
@@ -450,12 +456,14 @@ fn parse_options_rejects_unknown_traffic_profile() {
     assert!(err.contains("triad_low_traffic"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_validator_spec_rejects_zero_stake() {
     let err = parse_validator_spec("node-a:0").expect_err("should reject");
     assert!(err.contains("positive integer"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn balances_payload_reports_empty_world_without_error() {
     let world = oasis7_runtime_host::world::new();
@@ -472,6 +480,7 @@ fn balances_payload_reports_empty_world_without_error() {
     assert!(payload.recent_reward_mint_records.is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_options_rejects_unknown_option() {
     let err = parse_options(["--unknown"].into_iter()).expect_err("should fail");
@@ -583,6 +592,7 @@ fn parse_options_rejects_hosted_local_mock_funding_without_authority_setup() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn default_runtime_paths_depend_on_node_id() {
     let options = CliOptions {
@@ -610,6 +620,7 @@ fn default_runtime_paths_depend_on_node_id() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn custom_runtime_root_overrides_default_runtime_paths() {
     let options = CliOptions {
@@ -629,6 +640,7 @@ fn custom_runtime_root_overrides_default_runtime_paths() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn custom_replication_root_overrides_default_runtime_path() {
     let options = CliOptions {
@@ -640,6 +652,7 @@ fn custom_replication_root_overrides_default_runtime_path() {
     assert_eq!(paths.replication_root, Path::new("custom/replication"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn default_replication_network_config_uses_loopback_ephemeral_listen() {
     let signing_key = SigningKey::from_bytes(&[9_u8; 32]);
@@ -680,6 +693,7 @@ fn default_replication_network_config_uses_loopback_ephemeral_listen() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn default_replication_network_config_uses_explicit_topology_addrs() {
     let signing_key = SigningKey::from_bytes(&[10_u8; 32]);
@@ -724,6 +738,7 @@ fn default_replication_network_config_uses_explicit_topology_addrs() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn triad_low_traffic_replication_network_config_slows_control_plane_churn() {
     let signing_key = SigningKey::from_bytes(&[12_u8; 32]);
@@ -753,6 +768,7 @@ fn triad_low_traffic_replication_network_config_slows_control_plane_churn() {
     assert!(!config.enable_autonat);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn replication_network_config_applies_ipv4_subnet_active_peer_limit() {
     let signing_key = SigningKey::from_bytes(&[13_u8; 32]);
@@ -780,6 +796,7 @@ fn replication_network_config_applies_ipv4_subnet_active_peer_limit() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn triad_low_traffic_node_profile_reduces_gossip_and_feedback_budgets() {
     let options = parse_options(
@@ -806,6 +823,7 @@ fn triad_low_traffic_node_profile_reduces_gossip_and_feedback_budgets() {
     assert_eq!(feedback.max_outgoing_announces_per_tick, 8);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_default_peer_record_tracks_runtime_identity_boundary() {
     let options = CliOptions {
@@ -825,6 +843,7 @@ fn build_default_peer_record_tracks_runtime_identity_boundary() {
     assert_eq!(record.reachability_class, PeerReachabilityClass::Private);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_options_reads_explicit_p2p_policy_overrides() {
     let options = parse_options(
@@ -844,6 +863,7 @@ fn parse_options_reads_explicit_p2p_policy_overrides() {
     assert_eq!(options.p2p_node_role, PeerNodeRole::Relay);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_options_reads_user_mode_detection_hints() {
     let options = parse_options(
@@ -882,6 +902,7 @@ fn parse_options_reads_user_mode_detection_hints() {
     assert!(options.p2p_detected_probe_stable_explicit);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_reachability_snapshot_upgrades_detection_when_cli_hints_are_absent() {
     let options = parse_options(["--node-role", "observer"].into_iter()).expect("parse");
@@ -919,6 +940,7 @@ fn live_reachability_snapshot_upgrades_detection_when_cli_hints_are_absent() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn relay_reservation_without_active_relay_path_does_not_claim_relay_only_reachability() {
     let options = parse_options(["--node-role", "observer"].into_iter()).expect("parse");
@@ -941,6 +963,7 @@ fn relay_reservation_without_active_relay_path_does_not_claim_relay_only_reachab
     assert!(detection.probe_stable);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn direct_and_relay_active_paths_do_not_auto_promote_to_public_entry() {
     let options = parse_options(["--node-role", "observer"].into_iter()).expect("parse");
@@ -974,6 +997,7 @@ fn direct_and_relay_active_paths_do_not_auto_promote_to_public_entry() {
     assert!(detection.probe_stable);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn failed_hole_punch_snapshot_does_not_force_blocked_viability() {
     let options = parse_options(["--node-role", "observer"].into_iter()).expect("parse");
@@ -998,6 +1022,7 @@ fn failed_hole_punch_snapshot_does_not_force_blocked_viability() {
     assert!(!detection.probe_stable);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn explicit_cli_detection_hints_override_live_snapshot() {
     let options = parse_options(
@@ -1040,6 +1065,7 @@ fn explicit_cli_detection_hints_override_live_snapshot() {
     assert!(!detection.probe_stable);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn node_network_policy_rejects_incompatible_runtime_role_combo() {
     let err = NodeConfig::new("node-a", "world-a", NodeRole::Observer)
@@ -1054,6 +1080,7 @@ fn node_network_policy_rejects_incompatible_runtime_role_combo() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_node_replication_config_uses_storage_profile_budget() {
     let mut private_key_bytes = [0_u8; 32];
@@ -1082,6 +1109,7 @@ fn build_node_replication_config_uses_storage_profile_budget() {
     assert_eq!(config.root_dir, Path::new("custom/replication"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_reachability_snapshot_promotes_public_entry_from_autonat_probe() {
     let options = parse_options(["--node-role", "observer"].into_iter()).expect("parse");
@@ -1113,6 +1141,7 @@ fn live_reachability_snapshot_promotes_public_entry_from_autonat_probe() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_replication_remote_writer_allowlist_uses_only_validator_keys() {
     let validator_signers = ["bbbb".to_string(), "aaaa".to_string(), "bbbb".to_string()];
@@ -1122,6 +1151,7 @@ fn build_replication_remote_writer_allowlist_uses_only_validator_keys() {
     assert_eq!(allowlist, vec!["aaaa".to_string(), "bbbb".to_string()]);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn build_replication_fetch_requester_allowlist_combines_validator_and_explicit_keys() {
     let validator_signers = ["bbbb".to_string(), "aaaa".to_string(), "bbbb".to_string()];
@@ -1142,6 +1172,7 @@ mod network_tests;
 #[path = "cli_contract_tests.rs"]
 mod cli_contract_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn engineering_parser_rejects_deployment_authority_and_malformed_signer_keys() {
     let error =
@@ -1162,3 +1193,4 @@ fn engineering_parser_rejects_deployment_authority_and_malformed_signer_keys() {
 
 #[path = "resource_budget_tests.rs"]
 mod resource_budget_tests;
+const _: () = { let _ = super::feedback_p2p_config_for_role; };

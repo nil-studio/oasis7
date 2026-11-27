@@ -196,7 +196,11 @@ class WorkflowCorePart7(unittest.TestCase):
         self.assertIn('--results output/formal-process/results.jsonl', matrix)
         self.assertIn('needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]', JOBS['formal-process'])
         for name in ['full-regression', 'candidate-full-regression']:
-            self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[name])
+            if name == 'full-regression' and 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in JOBS[name]:
+                self.assertIn("['./scripts/ci-tests.sh', 'full-extended']",
+                              (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
+            else:
+                self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[name])
             self.assertIn('needs: select', JOBS[name])
             self.assertNotIn('oasis7-test-build', JOBS[name])
         self.assertNotIn('oasis7-test-build', JOBS)

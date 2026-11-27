@@ -478,3 +478,21 @@ fn recovery_diplomacy_qualifications_require_ordinary_readmission() {
     );
     assert_eq!(output, b"internal-alliance");
 }
+
+// Consolidated sibling integration suites (4-shard LPT balanced).
+#[cfg(feature = "test_tier_full")]
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_agent_event.rs"]
+mod incremental_agent_event;
+#[cfg(feature = "test_tier_full")]
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_cognition_records.rs"]
+mod incremental_cognition_records;
+#[cfg(feature = "test_tier_full")]
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_governance_records.rs"]
+mod incremental_governance_records;
+#[cfg(feature = "test_tier_full")]
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_runtime_capability_records.rs"]
+mod incremental_runtime_capability_records;

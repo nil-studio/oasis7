@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
+
 use super::{
     ChainGameplaySubmitResponse, maybe_handle_gameplay_submit_request,
     parse_gameplay_submit_request, reset_gameplay_submit_state_for_tests,
@@ -262,6 +264,9 @@ fn wait_for_committed_action(calls: &Arc<Mutex<Vec<NodeExecutionCommitContext>>>
     panic!("timed out waiting for committed action, observed {committed_action_count}");
 }
 
+const _: () = { let _ = (parse_gameplay_submit_request, reset_gameplay_submit_state_for_tests); };
+
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn parse_gameplay_submit_request_round_trips_viewer_payload() {
     let _guard = gameplay_submit_test_guard();
@@ -276,6 +281,7 @@ fn parse_gameplay_submit_request_round_trips_viewer_payload() {
     assert_eq!(parsed.auth, request.auth);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn gameplay_submit_handler_rejects_missing_auth_proof() {
     let _guard = gameplay_submit_test_guard();
@@ -327,6 +333,7 @@ fn gameplay_submit_handler_rejects_missing_auth_proof() {
     assert_eq!(response.error_code.as_deref(), Some("invalid_auth"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn gameplay_submit_handler_preserves_signed_action_errors_without_consuming_nonce() {
     let _guard = gameplay_submit_test_guard();
@@ -393,6 +400,7 @@ fn gameplay_submit_handler_preserves_signed_action_errors_without_consuming_nonc
     assert_eq!(response.action_id, Some(1));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn gameplay_submit_handler_rejects_tampering_before_action_validation() {
     let _guard = gameplay_submit_test_guard();
@@ -423,6 +431,7 @@ fn gameplay_submit_handler_rejects_tampering_before_action_validation() {
     assert_eq!(response.action_id, Some(1));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn gameplay_submit_handler_accepts_valid_payload_and_commits_to_runtime() {
     let _guard = gameplay_submit_test_guard();
@@ -488,6 +497,7 @@ fn gameplay_submit_handler_accepts_valid_payload_and_commits_to_runtime() {
         .expect("stop node runtime");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_service_lost_response_recovers_signed_gameplay_by_original_request() {
     let _guard = gameplay_submit_test_guard();
@@ -598,6 +608,7 @@ fn world_service_lost_response_recovers_signed_gameplay_by_original_request() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn gameplay_submit_handler_persists_strictly_increasing_nonce_across_reload() {
     let _guard = gameplay_submit_test_guard();
@@ -663,6 +674,7 @@ fn gameplay_submit_handler_persists_strictly_increasing_nonce_across_reload() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn collect_data_submit_derives_bound_collector_and_commits_exact_action() {
     let _guard = gameplay_submit_test_guard();
@@ -751,6 +763,7 @@ fn collect_data_submit_derives_bound_collector_and_commits_exact_action() {
     let _ = std::fs::remove_dir_all(world_dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn collect_data_submit_rejects_missing_authoritative_player_key_binding() {
     let _guard = gameplay_submit_test_guard();
@@ -792,6 +805,7 @@ fn collect_data_submit_rejects_missing_authoritative_player_key_binding() {
     let _ = std::fs::remove_dir_all(world_dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn collect_data_submit_rejects_cost_tampering() {
     let _guard = gameplay_submit_test_guard();
@@ -855,6 +869,7 @@ fn collect_data_submit_rejects_cost_tampering() {
     let _ = std::fs::remove_dir_all(world_dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn committed_recipe_origin_ack_hash_matches_actual_nonce_bound_payload() {
     let _guard = gameplay_submit_test_guard();

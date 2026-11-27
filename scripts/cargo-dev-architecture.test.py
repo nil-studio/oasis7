@@ -939,6 +939,114 @@ class OrdinaryTargetBuildPolicy(unittest.TestCase):
         self.assertEqual(build['status'], 'not_required')
         self.assertEqual(report['timings']['graph_profiles'], 6)
 
+    def test_artifact_mode_v4_covers_portable_wasm_and_extended_consumer_groups(self):
+        self.write(
+            'Cargo.toml',
+            '[workspace]\nresolver="2"\nmembers=["root","middle","forbidden","other","leaf_wasm"]\n'
+            '[workspace.dependencies]\nrenamed={package="forbidden",path="forbidden"}\n',
+        )
+        self.write(
+            'other/Cargo.toml',
+            '[package]\nname="oasis7_viewer_runtime"\nversion="0.1.0"\nedition="2024"\n'
+            '[dependencies]\nruntime={package="oasis7_runtime",path="../middle"}\n',
+        )
+        self.write('other/src/lib.rs', '')
+        self.write(
+            'leaf_wasm/Cargo.toml',
+            '[package]\nname="oasis7_agent_api"\nversion="0.1.0"\nedition="2024"\n',
+        )
+        self.write('leaf_wasm/src/lib.rs', '')
+        self.write('scripts/ci-required-scope.json', json.dumps({
+            'architecture_artifact_build_policy_version': 1,
+            'oasis7_required_packages': [
+                'oasis7_agent_api', 'oasis7_runtime', 'oasis7_chain_runtime', 'oasis7_viewer_runtime',
+            ],
+            'oasis7_required_wasm_packages': [
+                'oasis7_agent_api', 'oasis7_viewer_codec', 'oasis7_viewer_runtime',
+            ],
+            'package_groups': {'root': ['node', 'pixel_world_bridge', 'viewer_js_required']},
+        }))
+        self.command('git', 'add', 'scripts/ci-required-scope.json', 'leaf_wasm')
+        self.write('root/src/lib.rs', 'compile_error!("upper consumer deferred in v4");\n')
+        self.commit()
+        v4 = dict(
+            fast_plan_version=1,
+            execution_profile='pr-fast',
+            scope='targeted',
+            ordinary_artifact_partition_version=2,
+            ordinary_artifact_delivery_version=2,
+            ordinary_controls_in_rust_baseline_version=1,
+            ordinary_clippy_group='rust_baseline',
+            ordinary_wasm_group='rust_baseline',
+            ordinary_partitions=['native-0', 'native-1', 'native-2', 'native-3'],
+            groups=['baseline', 'rust_baseline', 'oasis7_required', 'node', 'pixel_world_bridge', 'viewer_js_required'],
+            affected_packages=['oasis7_runtime', 'oasis7_viewer_runtime', 'root'],
+            source_sha=self.sha,
+            tested_sha=self.sha,
+            policy_sha=self.sha,
+            test_policy_changed=False,
+            fast_plan_exceptions=[],
+            formal_suites=[],
+            oasis7_required_wasm_packages=['oasis7_viewer_runtime'],
+            oasis7_required_packages=[
+                'oasis7_agent_api', 'oasis7_runtime', 'oasis7_chain_runtime', 'oasis7_viewer_runtime',
+            ],
+            architecture=dict(
+                version=1,
+                mode='targeted',
+                packages=['oasis7_runtime'],
+                base=self.sha,
+                source=self.sha,
+                tested=self.sha,
+                build_policy_version=4,
+                build_policy='ordinary-targets',
+                consumer_groups={
+                    'node': ['root'],
+                    'pixel_world_bridge': ['root'],
+                    'viewer_js_required': ['root'],
+                },
+            ),
+        )
+        report = self.inspect(v4)
+        self.assertEqual(report['timings']['graph_profiles'], 5)
+        self.assertEqual(report['timings']['build_profiles'], 0)
+        self.assertEqual(report['timings']['deferred_build_profiles'], 5)
+        self.assertEqual(self.cli(v4).returncode, 0)
+
+        for bad in (
+            {'oasis7_required_wasm_packages': []},
+            {'oasis7_required_wasm_packages': [], 'affected_packages': ['oasis7_runtime', 'root']},
+            {
+                'oasis7_required_wasm_packages': ['oasis7_agent_api'],
+                'affected_packages': ['oasis7_agent_api', 'oasis7_runtime', 'root'],
+            },
+            {'oasis7_required_wasm_packages': ['oasis7_runtime']},
+            {'oasis7_required_wasm_packages': ['oasis7_viewer_runtime', 'oasis7_viewer_codec']},
+            {'ordinary_wasm_group': 'oasis7_required'},
+            {
+                'oasis7_required_wasm_packages': [],
+                'affected_packages': ['oasis7_runtime', 'root'],
+                'groups': ['baseline', 'rust_baseline', 'oasis7_required', 'node'],
+                'architecture': dict(v4['architecture'], consumer_groups={'node': ['root']}),
+            },
+            {
+                'groups': [*v4['groups'], 'workspace_support'],
+                'architecture': dict(
+                    v4['architecture'],
+                    consumer_groups=v4['architecture']['consumer_groups'] | {'workspace_support': ['root']},
+                ),
+            },
+            {
+                'groups': [*v4['groups'], 'operational_contracts'],
+                'architecture': dict(
+                    v4['architecture'],
+                    consumer_groups=v4['architecture']['consumer_groups'] | {'operational_contracts': ['root']},
+                ),
+            },
+        ):
+            with self.subTest(bad=bad), self.assertRaises(checker.InspectionError):
+                self.inspect(v4 | bad)
+
 
 if __name__ == '__main__':
     unittest.main()

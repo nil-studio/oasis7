@@ -185,3 +185,7 @@ pub(super) fn lookup_bounded_v1(
     work.consume_steps(1, cancelled)?;
     Ok(None)
 }
+
+#[cfg(all(test, unix))]
+#[path = "endpoint_store_bounded_index_tests.rs"]
+mod tests;

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_world_service::{
     authority::{self, sign_read_request, verify_service_response},
@@ -414,6 +415,87 @@ fn valid_submit(owner: &SigningKey) -> SubmitIntentRequest<WorldServicePayloadV1
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
+    use super::super::formal_live_original_pending_producer::{
+        OriginalPendingOwnerV1, OriginalPendingProducerV1,
+    };
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::atomic::AtomicU64;
+    static N: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "o7-submit-pending-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let owner_id = OriginalPendingOwnerV1 {
+        authority_id: "authenticated-owner".into(),
+        operation_id: "original".into(),
+        request_digest: "original-digest".into(),
+        config_digest: "verified-config".into(),
+        incarnation: "original-incarnation".into(),
+    };
+    let tracker = Arc::new(Mutex::new(
+        OriginalPendingProducerV1::open(&path, owner_id).unwrap(),
+    ));
+    let (base_world, trust, anchor) = fixture_trust();
+    let (world, owner) = world_with_owner();
+    let node = live_node(&anchor.head().record().world.world_id);
+    let published = Arc::new(PublishedReadState {
+        current: Mutex::new(Some(PublishedReadCut {
+            world: world.clone(),
+            anchor: anchor.clone(),
+        })),
+        ..PublishedReadState::default()
+    });
+    let resolver = Arc::new(CurrentOnlyResolver::new(base_world, anchor.clone()));
+    let (service, _, _) = live_service(
+        world,
+        anchor,
+        trust,
+        resolver,
+        Arc::clone(&node),
+        published,
+    );
+    let service = service.with_original_pending_producer(Arc::clone(&tracker));
+    let request = valid_submit(&owner);
+    let bytes = serde_json::to_vec(&request).unwrap();
+    let received = service.handle("POST", SUBMIT_PATH, &bytes);
+    assert_eq!(received.status, 200);
+    assert_eq!(
+        node.lock().unwrap().snapshot().consensus.pending_consensus_actions
+            .submit_buffer_action_count,
+        1,
+    );
+    let prepared = tracker.lock().unwrap().begin_freeze(&path).unwrap();
+    assert_eq!(prepared.count, 1);
+    // No actual Node Frozen has occurred yet: the record is only prepared,
+    // and the independent cold reader MUST continue to reject it.
+    assert!(super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
+        &path,
+        &OriginalPendingOwnerV1 {
+            authority_id: "authenticated-owner".into(),
+            operation_id: "original".into(),
+            request_digest: "original-digest".into(),
+            config_digest: "verified-config".into(),
+            incarnation: "original-incarnation".into(),
+        },
+        &prepared.root,
+        1,
+    ).is_err());
+    let declined = service.handle("POST", SUBMIT_PATH, &bytes);
+    assert_eq!(declined.status, 503);
+    assert_eq!(
+        node.lock().unwrap().snapshot().consensus.pending_consensus_actions
+            .submit_buffer_action_count,
+        1,
+    );
+    std::fs::remove_dir_all(&path).unwrap();
+}
+
 #[test]
 fn signed_submit_queues_real_node_action_without_mutating_world_and_lookup_fails_closed() {
     let (base_world, trust, anchor) = fixture_trust();
@@ -577,6 +659,7 @@ fn strict_json_rejects_unknown_fields_and_formal_reads_reject_private_scopes() {
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn loopback_status_uses_the_running_node_and_server_shutdown_is_bounded() {
     let (world, trust, anchor) = fixture_trust();
@@ -622,6 +705,7 @@ fn loopback_status_uses_the_running_node_and_server_shutdown_is_bounded() {
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn http_parser_enforces_an_absolute_partial_request_deadline() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -635,6 +719,7 @@ fn http_parser_enforces_an_absolute_partial_request_deadline() {
     drop(client);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_http_fragmented_body_on_nonblocking_accepted_stream_reaches_grant_rejection() {
     use oasis7_client_api::world_service_full_sync::{
@@ -732,6 +817,7 @@ fn formal_http_fragmented_body_on_nonblocking_accepted_stream_reaches_grant_reje
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signature_drift() {
     use oasis7_world_service::wire::FormalAuthenticatedLookupV1;
@@ -795,11 +881,13 @@ fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signatu
 #[path = "formal_live_read_error_tests.rs"]
 mod read_error_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
     poisoned_state_signed_http_recovery(false);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn poisoned_admission_gate_blocks_signed_http_status_until_explicit_repair() {
     poisoned_state_signed_http_recovery(true);

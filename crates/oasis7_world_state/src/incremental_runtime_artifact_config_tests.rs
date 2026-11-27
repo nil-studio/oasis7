@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 
 pub(super) fn module_fixture() -> ModuleManifest {
@@ -112,6 +113,7 @@ fn borrowed_projection_retains_duplicate_nested_ordinals_and_options() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn callback_failure_stops_before_next_source_field() {
     let mut calls = 0;
@@ -123,6 +125,7 @@ fn callback_failure_stops_before_next_source_field() {
     assert_eq!(calls, 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn closed_columns_reject_wrong_width_enum_and_address_shape() {
     let address = ArtifactConfigAddressV1 {
@@ -191,6 +194,7 @@ fn closed_columns_reject_wrong_width_enum_and_address_shape() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn relative_key_probe_preserves_both_ordinals_and_streams_original_members() {
     use crate::incremental_semantic_key::write_semantic_key_v1;

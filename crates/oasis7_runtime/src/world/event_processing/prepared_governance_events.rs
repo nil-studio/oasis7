@@ -7,17 +7,19 @@ use super::super::World;
 use super::PreparedEventStateDelta;
 
 pub(crate) struct PreparedGovernanceApprovalPublication {
-    proposal_id: ProposalId,
-    proposal: Proposal,
-    events: Vec<WorldEvent>,
-    next_event_id: WorldEventId,
-    next_event_id_era: u64,
-    journal_events: Vec<WorldEvent>,
-    journal_events_evicted: u64,
-    consensus_record: TickConsensusRecord,
+    pub(in crate::world::event_processing) proposal_id: ProposalId,
+    pub(in crate::world::event_processing) proposal: Proposal,
+    pub(in crate::world::event_processing) events: Vec<WorldEvent>,
+    pub(in crate::world::event_processing) next_event_id: WorldEventId,
+    pub(in crate::world::event_processing) next_event_id_era: u64,
+    pub(in crate::world::event_processing) journal_events: Vec<WorldEvent>,
+    pub(in crate::world::event_processing) journal_events_evicted: u64,
+    pub(in crate::world::event_processing) consensus_record: TickConsensusRecord,
 }
 
 impl PreparedGovernanceApprovalPublication {
+    // legacy: superseded by StagedGovernanceApproval (#6141)
+    #[allow(dead_code)]
     fn install(self, world: &mut World) -> Result<(), WorldError> {
         let PreparedGovernanceApprovalPublication {
             proposal_id,
@@ -424,22 +426,7 @@ impl World {
         Ok(proposal)
     }
 
-    pub(crate) fn append_prepared_governance_approval(
-        &mut self,
-        approved_event: GovernanceEvent,
-        queued_event: Option<GovernanceEvent>,
-    ) -> Result<(), WorldError> {
-        let prepared = self.prepare_governance_approval(approved_event, queued_event)?;
-        if self.take_fail_next_append_after_publication_prepare_for_test() {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: "injected append_event failure after publication preparation".to_string(),
-            });
-        }
-        prepared.install(self)?;
-        Ok(())
-    }
-
-    fn prepare_governance_approval(
+    pub(in crate::world::event_processing) fn prepare_governance_approval(
         &self,
         approved_event: GovernanceEvent,
         queued_event: Option<GovernanceEvent>,

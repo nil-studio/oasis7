@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::incremental_semantic_key::write_semantic_key_v1;
 use oasis7_formal_protocol::{
@@ -422,6 +423,7 @@ fn absent_closed_record_families_remain_explicitly_unsupported() {
     assert!(report.unsupported_fields().contains(&"world_rules"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn present_record_families_are_qualified_as_root_bound_closed_units() {
     let fixture = super::fixture_with_issue(true, Some(FixtureIssue::RecordFamilies));
@@ -477,6 +479,7 @@ fn present_record_families_are_qualified_as_root_bound_closed_units() {
     assert!(report.unsupported_fields().contains(&"world_rules"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn a_partial_marked_record_family_fails_closed() {
     let fixture =

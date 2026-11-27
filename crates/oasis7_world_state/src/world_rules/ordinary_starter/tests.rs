@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::agent_state::AgentState;
 use crate::state::{WorldStateProjection, industry_transition::PreparedIndustryEvent};
@@ -215,6 +216,7 @@ fn ordinary_starter_canonical_package_includes_both_full_maintenance_obligations
     assert!(overflow.ordinary_starter_package().is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_claim_debits_finite_source_and_atomically_assigns_real_site() {
     let (mut state, offer) = fixture(2);
@@ -297,6 +299,7 @@ fn ordinary_starter_claim_debits_finite_source_and_atomically_assigns_real_site(
     assert_eq!(public["starter-v1"].supplier_electricity, 26);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_retry_is_stable_and_new_request_or_generation_cannot_claim_twice() {
     let (mut state, offer) = fixture(2);
@@ -334,6 +337,7 @@ fn ordinary_starter_retry_is_stable_and_new_request_or_generation_cannot_claim_t
     assert_eq!(restored, state);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_last_slot_is_exclusive_and_never_refilled_by_request() {
     let (mut state, offer) = fixture(1);
@@ -372,6 +376,7 @@ fn ordinary_starter_last_slot_is_exclusive_and_never_refilled_by_request() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_rejects_stale_or_insufficient_claim_without_partial_effects() {
     let (mut base, offer) = fixture(1);
@@ -525,6 +530,7 @@ fn completion_fixture_for_batches(batches: u32) -> (WorldState, DomainEvent) {
     (state, completed)
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_personal_first_production_is_real_atomic_and_owner_isolated() {
     let (mut state, completed) = completion_fixture();
@@ -583,6 +589,7 @@ fn ordinary_starter_personal_first_production_is_real_atomic_and_owner_isolated(
     assert_eq!(restored.world_rules, state.world_rules);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_first_real_production_also_recognizes_multiple_paid_batches() {
     let (mut state, event) = completion_fixture_for_batches(2);
@@ -601,6 +608,7 @@ fn ordinary_starter_first_real_production_also_recognizes_multiple_paid_batches(
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_failed_or_mismatched_completion_never_sets_milestone() {
     let (mut state, mut completed) = completion_fixture();
@@ -622,6 +630,7 @@ fn ordinary_starter_failed_or_mismatched_completion_never_sets_milestone() {
     assert_eq!(state, before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_empty_state_preserves_legacy_serialized_shape() {
     let value = serde_json::to_value(WorldRulesStateV1::default()).unwrap();
@@ -630,6 +639,7 @@ fn ordinary_starter_empty_state_preserves_legacy_serialized_shape() {
     assert_eq!(restored.ordinary_starter, OrdinaryStarterStateV1::default());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_supplier_rejects_both_raw_personal_acquisition_reducers() {
     let (mut state, offer) = fixture(1);
@@ -674,6 +684,7 @@ fn ordinary_starter_supplier_rejects_both_raw_personal_acquisition_reducers() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn ordinary_starter_cannot_publish_an_already_personally_owned_supplier() {
     let (mut state, offer) = fixture(1);

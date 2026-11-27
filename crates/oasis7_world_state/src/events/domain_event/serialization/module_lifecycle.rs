@@ -204,6 +204,14 @@ struct ModuleArtifactSaleCompletedPayload<'a> {
     bid_order_id: &'a Option<u64>,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename = "ModuleTickScheduleUpdated")]
+struct ModuleTickScheduleUpdatedPayload<'a> {
+    instance_id: &'a String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_tick: &'a Option<WorldTime>,
+}
+
 pub(super) fn serialize<S: serde::Serializer>(
     event: &DomainEvent,
     serializer: S,
@@ -554,6 +562,17 @@ pub(super) fn serialize<S: serde::Serializer>(
                 sale_id,
                 listing_order_id,
                 bid_order_id,
+            },
+        ),
+        DomainEvent::ModuleTickScheduleUpdated {
+            instance_id,
+            next_tick,
+        } => serialize_adjacent(
+            serializer,
+            Tag::MODULE_TICK_SCHEDULE_UPDATED,
+            &ModuleTickScheduleUpdatedPayload {
+                instance_id,
+                next_tick,
             },
         ),
         _ => unreachable!("DomainEvent serializer group mismatch"),

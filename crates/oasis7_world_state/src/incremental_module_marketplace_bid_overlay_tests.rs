@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use std::collections::BTreeSet;
 
@@ -538,6 +539,7 @@ fn four_bid_primary_two_child_delete_matches_vec_and_node_oracles() {
     assert_eq!(result.state_reads, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn four_bid_membership_two_child_delete_matches_vec_and_node_oracles() {
     let result = measure_grouped_middle_bid_delete(4, true);
@@ -707,6 +709,7 @@ fn marketplace_bid_index_rotations_match_independent_vec_and_node_oracles() {
     .unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn marketplace_bid_overlay_keeps_vec_order_and_removes_duplicate_matches_one_at_a_time() {
     let memory = MemoryBudget::new(128 << 20, 4 << 20).unwrap();
@@ -986,6 +989,7 @@ fn marketplace_bid_overlay_keeps_vec_order_and_removes_duplicate_matches_one_at_
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn marketplace_bid_overlay_expected_mismatch_poisoned_after_prior_prefix() {
     let memory = MemoryBudget::new(128 << 20, 4 << 20).unwrap();

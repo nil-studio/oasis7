@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::super::node_lifecycle::{
     actions, local_io as io,
     tests::{operation_fixture, operation_fixture_with_stop_signal},
@@ -183,6 +184,7 @@ fn operation_store_real_stop_readback_cas_identity_and_reserved_resources() {
     changed.request_digest = io::digest(&changed.request).unwrap();
     assert!(reopened.admit(changed).is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_prepared_cancel_has_no_process_effect() {
     let (_fixture, config, handle, current) = operation_fixture();
@@ -216,6 +218,7 @@ fn operation_prepared_cancel_has_no_process_effect() {
     handle.join().unwrap().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_cli_tail_help_and_strict_options() {
     assert!(super::run(["plan", "--help"].into_iter()).is_ok());
@@ -223,6 +226,7 @@ fn operation_cli_tail_help_and_strict_options() {
     assert!(super::run(["validator-replace"].into_iter()).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_store_opens_pre_result_v1_records_without_rewriting_their_identity() {
     let (_fixture, config, handle, current) = operation_fixture();
@@ -272,6 +276,7 @@ fn operation_store_opens_pre_result_v1_records_without_rewriting_their_identity(
     handle.join().unwrap().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_cancel_after_dispatch_intent_queries_real_absence_before_cancel() {
     let (_fixture, config, handle, current) = operation_fixture();
@@ -308,6 +313,7 @@ fn operation_cancel_after_dispatch_intent_queries_real_absence_before_cancel() {
     handle.join().unwrap().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_timeout_cancel_reconciles_original_effect_then_forward_completes() {
     let (_fixture, config, handle, current) =
@@ -351,6 +357,7 @@ fn operation_timeout_cancel_reconciles_original_effect_then_forward_completes() 
     assert_eq!(completed.results[0].target.incarnation, current.incarnation);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_lost_ledger_query_only_recovery_keeps_original_goal_and_old_instance() {
     // Exec before acquiring lifetime FDs so unrelated harness forks cannot
@@ -422,6 +429,7 @@ fn operation_lost_ledger_query_only_recovery_keeps_original_goal_and_old_instanc
     .unwrap();
     replacement.join().unwrap().unwrap();
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_lost_ledger_missing_native_receipt_remains_unknown_without_signal() {
     use super::super::node_lifecycle::management;
@@ -486,6 +494,7 @@ fn operation_lost_ledger_missing_native_receipt_remains_unknown_without_signal()
     handle.join().unwrap().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_binding_cannot_race_or_retroactively_adopt_native_admission() {
     use super::super::node_lifecycle::management;
@@ -549,6 +558,7 @@ fn operation_binding_cannot_race_or_retroactively_adopt_native_admission() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_result_collector_keeps_status_separate_from_protocol_and_runtime_application() {
     use super::result::{OperationOutcomeV1, OperationResultV1};
@@ -596,6 +606,7 @@ fn operation_result_collector_keeps_status_separate_from_protocol_and_runtime_ap
     let _ = OperationResultV1::collect(&stopped).unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn critical_replica_removal_is_refused_before_any_operation_is_admitted() {
     let (_fixture, config, handle, current) = operation_fixture();
@@ -636,6 +647,7 @@ fn critical_replica_removal_is_refused_before_any_operation_is_admitted() {
     handle.join().unwrap().unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn data_directory_migration_preserves_identity_and_retries_only_from_receipt() {
     let (_fixture, config, handle, current) = operation_fixture();
@@ -699,6 +711,7 @@ fn data_directory_migration_preserves_identity_and_retries_only_from_receipt() {
     assert!(unknown.contains("ORIGINAL_OUTCOME_UNKNOWN"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn migration_dispatch_without_source_intent_stays_query_only() {
     let (_fixture, config, handle, current) = operation_fixture();
@@ -749,6 +762,7 @@ fn migration_dispatch_without_source_intent_stays_query_only() {
     assert!(super::recover::reconstruct(request).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn package_plan_rejects_non_symlink_current_before_operation_admission() {
     use super::super::node_lifecycle::package::{
@@ -821,6 +835,7 @@ fn package_plan_rejects_non_symlink_current_before_operation_admission() {
     assert!(!node_root.join("package-upgrade-operations").exists());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn operation_result_binds_verified_formal_read_to_exact_operation_and_instance() {
     use crate::formal_read_fixtures as fixtures;
@@ -1076,6 +1091,7 @@ fn operation_result_binds_verified_formal_read_to_exact_operation_and_instance()
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn protected_handoff_admission_persists_exact_plan_in_shared_result() {
     use super::super::formal_live_runtime::FormalRuntimeInstanceV1;

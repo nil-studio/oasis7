@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 use super::super::util::{hash_json, to_canonical_cbor};
-use super::super::{ModuleKind, ModuleManifest, ModuleRegistry, WorldError};
+use super::super::{
+    DomainEvent, ModuleKind, ModuleManifest, ModuleRegistry, WorldError, WorldEventBody,
+};
 use super::World;
 use super::capability_authorization_command_stage::TrustedCommandStage;
 use super::module_runtime_labels::{
@@ -149,6 +151,22 @@ impl World {
 
     pub(super) fn remove_tick_schedule(&mut self, module_id: &str) {
         self.module_tick_schedule.remove(module_id);
+    }
+
+    pub(super) fn apply_module_tick_schedule_update(
+        &mut self,
+        instance_id: &str,
+        next_tick: Option<u64>,
+    ) {
+        match next_tick {
+            Some(wake) => {
+                self.module_tick_schedule
+                    .insert(instance_id.to_string(), wake);
+            }
+            None => {
+                self.module_tick_schedule.remove(instance_id);
+            }
+        }
     }
 
     pub fn route_tick_to_modules(
@@ -324,9 +342,16 @@ impl World {
             )?;
             invoked += 1;
 
-            if let Some(wake) = wake_after_directive(now, output.tick_lifecycle.as_ref()) {
-                staged.schedule_tick(instance_id, wake);
+            let next_tick = wake_after_directive(now, output.tick_lifecycle.as_ref());
+            if let Some(wake) = next_tick {
+                staged.schedule_tick(instance_id.clone(), wake);
             }
+            staged.append_event(WorldEventBody::Domain(
+                DomainEvent::ModuleTickScheduleUpdated {
+                    instance_id,
+                    next_tick,
+                },
+            ))?;
         }
         staged.record_tick_routing_metrics(
             schedule_len,

@@ -1,5 +1,6 @@
 //! Consumer acceptance: original signed HTTP bytes, native ownership, real
 //! World retention, interrupted installation, and bounded periodic rollover.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::super::super::super::{local_io, model, process};
 use super::super::super::{operation_snapshot, operation_status, operation_worker};
 use super::*;
@@ -678,6 +679,7 @@ fn budgeted_consumer_retains_world_and_rotates_seventeen_complete_cycles() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn budgeted_original_installation_recovers_after_both_real_publication_boundaries() {
     for phase in ["intent_durable", "pins_durable"] {
@@ -698,6 +700,7 @@ fn budgeted_original_installation_recovers_after_both_real_publication_boundarie
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn budgeted_bad_original_intent_cannot_replace_pins_before_rejection() {
     let fixture = BudgetFixture::new(false, |_| {}, None);
@@ -721,6 +724,7 @@ fn budgeted_bad_original_intent_cannot_replace_pins_before_rejection() {
     assert_eq!(fs::read(fixture.ledger_path()).unwrap(), bad_bytes);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn budgeted_missing_original_material_uses_new_attempt_without_new_target_or_view() {
     let fixture = BudgetFixture::new(false, |_| {}, None);
@@ -746,6 +750,7 @@ fn budgeted_missing_original_material_uses_new_attempt_without_new_target_or_vie
     fixture.require_wire_accounting(&after);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn budgeted_missing_original_with_no_attempt_cannot_download_or_change_pins() {
     let fixture = BudgetFixture::new(
@@ -778,6 +783,7 @@ fn budgeted_missing_original_with_no_attempt_cannot_download_or_change_pins() {
     assert_eq!(live.base["blocker"], "operation_budget_exhausted");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn budgeted_bad_material_and_missing_history_cannot_authorize_original_repair() {
     for failure in ["material_hash", "history_page"] {
@@ -852,6 +858,7 @@ fn budgeted_same_native_owner_retries_original_after_real_view_error() {
     fixture.require_wire_accounting(&completed);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn budgeted_signed_remote_diagnostics_cannot_choose_local_blocker() {
     for route in [
@@ -942,6 +949,7 @@ fn budgeted_repeated_poll_cannot_reset_exhausted_operation_or_attempts() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn budgeted_real_deadline_stops_failover_without_refreshing_attempt() {
     let fixture = BudgetFixture::new(

@@ -408,6 +408,7 @@ fn reward_asset_settlement_rejects_zero_points_per_credit() {
     assert!(matches!(err, WorldError::ResourceBalanceInvalid { .. }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_settlement_rejects_empty_signer_node_id() {
     let mut world = World::new();
@@ -419,6 +420,7 @@ fn reward_asset_settlement_rejects_empty_signer_node_id() {
     assert!(matches!(err, WorldError::ResourceBalanceInvalid { .. }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_settlement_rejects_unbound_signer_node_id() {
     let mut world = World::new();
@@ -436,6 +438,7 @@ fn reward_asset_settlement_rejects_unbound_signer_node_id() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_settlement_rejects_unbound_settlement_node() {
     let mut world = World::new();
@@ -453,6 +456,7 @@ fn reward_asset_settlement_rejects_unbound_settlement_node() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_snapshot_roundtrip_persists_mint_records() {
     let mut world = World::new();
@@ -478,6 +482,7 @@ fn reward_asset_snapshot_roundtrip_persists_mint_records() {
     assert_eq!(record.minted_power_credits, 3);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_snapshot_roundtrip_persists_node_identity_bindings() {
     let mut world = World::new();
@@ -571,6 +576,7 @@ fn reward_asset_settlement_mint_budget_remainder_prefers_higher_points() {
     assert_eq!(world.node_power_credit_balance("node-b"), 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_snapshot_roundtrip_persists_system_order_pool_budget() {
     let mut world = World::new();
@@ -658,6 +664,7 @@ fn reward_asset_redeem_power_signed_action_succeeds_when_policy_requires_signatu
     assert_eq!(world.protocol_power_reserve().redeemed_power_units, 2);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_redeem_power_signed_rejects_signer_node_mismatch_when_policy_requires_match() {
     let mut world = World::new();
@@ -722,6 +729,7 @@ fn reward_asset_redeem_power_signed_rejects_signer_node_mismatch_when_policy_req
     assert_eq!(world.protocol_power_reserve().redeemed_power_units, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_redeem_power_rejects_unsigned_when_policy_requires_signature() {
     let mut world = World::new();
@@ -762,6 +770,7 @@ fn reward_asset_redeem_power_rejects_unsigned_when_policy_requires_signature() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_redeem_power_signed_rejects_invalid_signature() {
     let mut world = World::new();
@@ -819,6 +828,7 @@ fn reward_asset_redeem_power_signed_rejects_invalid_signature() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn reward_asset_redeem_power_rejects_unbound_node_identity() {
     let mut world = World::new();

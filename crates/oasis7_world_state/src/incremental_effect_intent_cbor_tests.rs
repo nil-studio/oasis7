@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use serde_json::json;
 use std::cell::Cell;
@@ -73,6 +74,7 @@ impl Write for Oracle {
         Ok(())
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn borrowed_32m_and_64m_text_hash_with_small_operation_budget() {
     for length in [32 << 20, 64 << 20] {
@@ -127,6 +129,7 @@ impl Write for Short {
         Ok(())
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn partial_interrupted_and_final_cancel_are_precise_and_poisoned() {
     let source = intent(json!({"x":["payload",null]}));
@@ -179,6 +182,7 @@ fn partial_interrupted_and_final_cancel_are_precise_and_poisoned() {
         Err(ValueTreeError::Invalid(_))
     ));
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn finite_node_byte_depth_and_memory_admission_poison() {
     let source = intent(json!([[["x"]]]));
@@ -211,6 +215,7 @@ fn finite_node_byte_depth_and_memory_admission_poison() {
     hash_effect_intent_payload_v1(&source, &mut recovery).unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn sink_zero_overreport_and_io_preserve_exact_error_and_context_poison() {
     struct Bad(u8);
@@ -255,6 +260,7 @@ fn sink_zero_overreport_and_io_preserve_exact_error_and_context_poison() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn interrupted_sink_attempts_exhaust_finite_work_before_hard_io() {
     struct Retry {

@@ -1,4 +1,5 @@
 //! Follow-up recovery, replay, and production lease regressions.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 
 use super::super::*;
 use super::agent_cognition_runtime_hardening::{
@@ -10,6 +11,7 @@ use crate::cognition_recovery::cognition_digest_v1;
 use serde_json::json;
 use std::fs;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_repairs_a_missing_committed_turn_completion() {
     let mut world = World::new();
@@ -65,6 +67,7 @@ fn runtime_binding_rejects_noncanonical_verified_finality_hash() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_quarantines_visible_root_mismatch_but_preserves_trusted_head() {
     let mut world = World::new();
@@ -109,6 +112,7 @@ fn recovery_quarantines_visible_root_mismatch_but_preserves_trusted_head() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_repairs_a_committed_marker_with_missing_projection() {
     let mut world = World::new();
@@ -342,6 +346,7 @@ fn runtime_resume_admits_new_request_digest_with_stable_origin_lineage() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_rejects_a_tampered_trailing_cognition_event() {
     let mut world = World::new();
@@ -368,6 +373,7 @@ fn recovery_rejects_a_tampered_trailing_cognition_event() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_rejects_a_missing_middle_cognition_event() {
     let mut world = World::new();
@@ -508,6 +514,7 @@ fn committed_replay_rejects_an_alternate_action_for_the_same_request() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn direct_response_replay_rejects_a_tampered_trailing_event() {
     let mut world = World::new();
@@ -535,6 +542,7 @@ fn direct_response_replay_rejects_a_tampered_trailing_event() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn saved_world_persists_cognition_commit_before_the_api_returns() {
     let mut world = World::new();
@@ -884,6 +892,7 @@ fn in_flight_expiry_is_serviced_even_when_no_ready_queue_entry_remains() {
     assert_eq!(world.cognition()["continuations"][0]["status"], "expired");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recovery_rejects_a_rehashed_out_of_order_lifecycle_event() {
     let mut world = World::new();
@@ -944,6 +953,7 @@ fn recovery_rejects_a_rehashed_out_of_order_lifecycle_event() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn committed_marker_remains_recoverable_after_reorg_rebind_as_history() {
     let mut world = World::new()

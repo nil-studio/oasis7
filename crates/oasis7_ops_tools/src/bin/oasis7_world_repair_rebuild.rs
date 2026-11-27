@@ -1,13 +1,12 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use oasis7::geometry::GeoPos;
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_runtime::{
     Action as RuntimeAction, ChainResourceDerivationContext, Journal, World, WorldError, blake3_hex,
 };
 use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
-use oasis7_simulator::{WorldConfig, WorldModel};
+use oasis7_simulator::{GeoPos, WorldConfig, WorldModel};
 
 struct CliOptions {
     source_world_dir: Option<PathBuf>,

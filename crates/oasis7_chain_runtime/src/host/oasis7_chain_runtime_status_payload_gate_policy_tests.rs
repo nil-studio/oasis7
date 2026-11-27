@@ -1,3 +1,5 @@
+#![cfg(feature = "test_tier_full")]
+
 use std::collections::BTreeMap;
 
 use oasis7_client_api::network_tier_manifest::{

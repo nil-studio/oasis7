@@ -76,7 +76,7 @@ impl WorldKernel {
     pub(super) fn record_effect_intent(
         &mut self,
         agent_id: AgentId,
-        intent: super::LlmEffectIntentTrace,
+        intent: oasis7_simulator::LlmEffectIntentTrace,
     ) {
         self.kernel.record_effect_intent(agent_id, intent);
         self.assert_journal_sidecar();
@@ -84,7 +84,7 @@ impl WorldKernel {
     pub(super) fn record_effect_receipt(
         &mut self,
         agent_id: AgentId,
-        receipt: super::LlmEffectReceiptTrace,
+        receipt: oasis7_simulator::LlmEffectReceiptTrace,
     ) {
         self.kernel.record_effect_receipt(agent_id, receipt);
         self.assert_journal_sidecar();

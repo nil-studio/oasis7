@@ -10,16 +10,22 @@
 //! - `runner`: AgentRunner, quota, rate limiting, metrics
 //! - `power`: Power system (M4 social system)
 
-mod agent;
-pub(crate) mod agent_api_compat;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::agent;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
 mod async_agent_pilot;
 #[cfg(not(target_arch = "wasm32"))]
 mod async_agent_runner;
-mod cognition_policy;
-mod cognition_response_identity;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_agent_harness as cognition_response_identity;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::cognition_policy;
+#[cfg(not(target_arch = "wasm32"))]
 mod continuous_agent_harness;
-mod decision_provider;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::decision_provider;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod llm_agent;
@@ -30,12 +36,17 @@ pub(crate) mod persist;
 #[path = "persist_host_facade.rs"]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod provider_json_admission;
+pub use oasis7_runtime_host::provider_json_admission;
 #[cfg(not(target_arch = "wasm32"))]
-mod provider_loopback_adapter;
+pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
-mod provider_loopback_http;
-mod provider_material_capture;
+pub(crate) use oasis7_runtime_host::provider_loopback_http;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::provider_material_capture;
+#[cfg(any())]
+#[path = "provider_json_admission.rs"]
+mod retired_provider_json_admission;
+#[cfg(not(target_arch = "wasm32"))]
 mod runner;
 #[cfg(not(target_arch = "wasm32"))]
 mod turn_engine;
@@ -67,10 +78,29 @@ mod canonical_contract_owner_tests {
             DEFAULT_LLM_SYSTEM_PROMPT,
             oasis7_agent_harness::llm_defaults::DEFAULT_LLM_SYSTEM_PROMPT
         );
+        assert_eq!(
+            std::any::TypeId::of::<ContinuousAgentRequestContextV1>(),
+            std::any::TypeId::of::<oasis7_agent_api::ContinuousAgentRequestContextV1>()
+        );
+        assert_eq!(
+            std::any::TypeId::of::<ContinuousAgentResponseContextV1>(),
+            std::any::TypeId::of::<
+                oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>,
+            >()
+        );
+        assert_eq!(
+            std::any::TypeId::of::<FeedbackEnvelopeV1>(),
+            std::any::TypeId::of::<oasis7_agent_api::FeedbackEnvelopeV1>()
+        );
+        assert_eq!(
+            std::any::TypeId::of::<MemoryWriteIntentV1>(),
+            std::any::TypeId::of::<oasis7_agent_api::MemoryWriteIntentV1>()
+        );
     }
 }
 
 // Re-export all public types
+#[cfg(not(target_arch = "wasm32"))]
 pub use agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionExplanationV1, AgentDecisionTrace,
     AgentQuery, AgentQueryResult, LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics,
@@ -89,6 +119,7 @@ pub use async_agent_runner::{
     AsyncTurnLifecycle, AsyncWorldEffect, AsyncWorldProgress, RuntimeReceiptReadbackHandleV1,
     RuntimeReceiptReadbackVerifier,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use cognition_policy::{
     ContinuationAuthorityContextV1, ContinuationBudgetProgressV1, ContinuationBudgetV1,
     ContinuationCurrentContextV1, ContinuationHandle, ContinuationHarness,
@@ -99,11 +130,13 @@ pub use cognition_policy::{
     NormalizedMemoryWriteIntentV1, RuntimeContinuationStatusV1, WakeConditionSubjectV1,
     WakeConditionV1,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use cognition_response_identity::{
     COGNITION_LEGACY_RESPONSE_DIGEST_DOMAIN, COGNITION_RESPONSE_DIGEST_DOMAIN,
     CognitionResponseDigestDisposition, classify_cognition_response_digest,
     cognition_legacy_response_digest, cognition_response_digest,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use continuous_agent_harness::{
     AgentCognitionStore, COGNITION_CAPABILITY_CATALOG_DOMAIN,
     COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, COGNITION_PROVIDER_INVOCATION_DOMAIN,
@@ -113,6 +146,7 @@ pub use continuous_agent_harness::{
     ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1, FinalityBindingV1,
     MemoryWriteIntentV1, ResponseArtifactIdentityV1, RuntimeBindingV1, h_v1,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use decision_provider::{
     ActionCatalogEntry, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION,
     DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION, DecisionProvider, DecisionProviderError,
@@ -148,6 +182,7 @@ pub use oasis7_simulator::{
     FragmentCompoundKind, FragmentPhysicalProfile, GridPosCm, MIN_BLOCK_EDGE_CM, infer_element_ppm,
     mass_grams_from_volume_density, synthesize_fragment_budget, synthesize_fragment_profile,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use provider_material_capture::{
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
     ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
@@ -245,6 +280,7 @@ pub use provider_loopback_http::{
     provider_agent_chat_log_key, provider_phase1_required_actions,
     provider_phase1_required_capabilities, validate_provider_http_base_url,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use runner::{
     AgentQuota, AgentRunner, AgentStats, AgentTickResult, RateLimitPolicy, RateLimitState,
     RegisteredAgent, RunnerLogEntry, RunnerLogKind, RunnerMetrics, SkippedReason,

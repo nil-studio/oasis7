@@ -308,6 +308,7 @@ impl CognitionEconomyStateV1 {
     /// Install one explicit allowance for a capability owner. Replaying the
     /// exact authority request returns its original receipt without changing
     /// the balance or appending another journal event.
+    #[cfg(test)]
     pub fn provision(
         &mut self,
         request: CognitionProvisioningRequestV1,
@@ -318,6 +319,17 @@ impl CognitionEconomyStateV1 {
         let receipt = next.provision_inner(request, tick)?;
         next.validate()?;
         *self = next;
+        Ok(receipt)
+    }
+
+    pub(crate) fn provision_staged(
+        &mut self,
+        request: CognitionProvisioningRequestV1,
+        tick: u64,
+    ) -> Result<CognitionProvisioningReceiptV1, CognitionEconomyError> {
+        request.validate()?;
+        let receipt = self.provision_inner(request, tick)?;
+        self.validate()?;
         Ok(receipt)
     }
 

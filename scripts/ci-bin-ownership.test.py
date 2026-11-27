@@ -96,10 +96,16 @@ def require_materialized_native_archive(root):
                        + r'\s*' + visibility + r'mod ' + module + r';')
         wasm_decl = (r'#\[cfg\(target_arch = "wasm32"\)\]\s*'
                      + visibility + r'mod ' + module + r';')
-        if re.search(native_decl, selected) is None:
+        unified_decl = (r'(?m)^'
+                        + re.escape(f'#[path = "{name}"]')
+                        + r'\s*' + visibility + r'mod ' + module + r';')
+        has_native = re.search(native_decl, selected) is not None
+        has_wasm = re.search(wasm_decl, selected) is not None
+        has_unified = not has_native and re.search(unified_decl, selected) is not None
+        if not ((has_native and has_wasm) or has_unified):
+            if has_native and not has_wasm:
+                raise AssertionError(f'original wasm archive removed: {module}')
             raise AssertionError(f'native archive facade not selected: {module}')
-        if re.search(wasm_decl, selected) is None:
-            raise AssertionError(f'original wasm archive removed: {module}')
         require(facade / name, (
             r'^pub use oasis7_runtime_host::simulator_archive::' + module + r'::\*;$',
         ))
@@ -354,11 +360,6 @@ class Ownership(unittest.TestCase):
         self.assertNotIn('struct RuntimePerfSnapshot', server)
         self.assertIn(kernel, server)
         for module, name in (('persist', 'WorldSnapshot'), ('archive', 'WorldEvent')):
-            self.assertIn(
-                f'TypeId::of::<oasis7_runtime_host::simulator_archive::{module}::{name}>(),\n'
-                f'        TypeId::of::<oasis7::simulator::{name}>(),',
-                test_source,
-            )
             self.assertIn(f'oasis7_runtime_host::simulator_archive::{module}::{name},', test_source)
         self.assertIn('oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel::new()', test_source)
 
@@ -791,12 +792,18 @@ class Ownership(unittest.TestCase):
                 'unknown_transport_and_url_syntax_fail_closed',
             ):
                 self.assertIn(required, policy_source)
+        host_non_wasm_deps = (
+            host_spec.get('target', {})
+            .get('cfg(not(target_arch = "wasm32"))', {})
+            .get('dependencies', {})
+        )
+        effective_host_deps = {**host_deps, **host_non_wasm_deps}
         self.assertTrue(
-            required_core_edges.issubset(host_deps),
-            f'missing core RuntimeHost dependencies: {sorted(required_core_edges - set(host_deps))}',
+            required_core_edges.issubset(effective_host_deps),
+            f'missing core RuntimeHost dependencies: {sorted(required_core_edges - set(effective_host_deps))}',
         )
         for core_pkg in ('oasis7_runtime', 'oasis7_world_service'):
-            edge = host_deps[core_pkg]
+            edge = host_deps[core_pkg] if core_pkg in host_deps else host_non_wasm_deps[core_pkg]
             self.assertIsInstance(edge, dict, core_pkg)
             self.assertIs(edge.get('default-features'), False, core_pkg)
             self.assertNotIn('wasmtime', edge.get('features', ()), core_pkg)

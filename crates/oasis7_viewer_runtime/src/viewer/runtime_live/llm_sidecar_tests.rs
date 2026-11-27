@@ -1,17 +1,23 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "llm_sidecar_legacy_wake_tests.rs"]
 mod legacy_wake_tests;
+#[cfg(feature = "test_tier_full")]
 #[path = "llm_sidecar_lineage_http_tests.rs"]
 mod lineage_http_tests;
 #[path = "llm_sidecar_lineage_tests.rs"]
 mod lineage_tests;
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[path = "llm_sidecar_provider_material_capture_tests.rs"]
 mod provider_material_capture_tests;
 #[cfg(all(unix, not(target_arch = "wasm32")))]
+#[cfg(feature = "test_tier_full")]
 #[path = "llm_sidecar_provider_original_store_lifecycle_tests.rs"]
 mod provider_original_store_lifecycle_tests;
+#[cfg(feature = "test_tier_full")]
 #[path = "llm_sidecar_recovery_tests.rs"]
 mod recovery_tests;
 
@@ -260,6 +266,7 @@ fn sync_shadow_kernel_accepts_empty_synthetic_runtime_snapshot() {
     assert!(shadow.journal().is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn sync_shadow_kernel_preserves_generated_seed_locations() {
     let seed_pos = GeoPos::new(7, 8, 9);
@@ -285,6 +292,7 @@ fn sync_shadow_kernel_preserves_generated_seed_locations() {
             .contains_key("frag-shadow")
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn recipe_completion_before_runner_registration_is_durable_and_deduplicated() {
     let path = std::env::temp_dir().join(format!(
@@ -307,6 +315,7 @@ fn recipe_completion_before_runner_registration_is_durable_and_deduplicated() {
     let _ = std::fs::remove_file(path);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn queued_recipe_completion_from_replaced_runtime_head_is_quarantined() {
     let (runtime_event, mapped_event) = test_recipe_completion_event("agent-0", 112);
@@ -327,6 +336,7 @@ fn queued_recipe_completion_from_replaced_runtime_head_is_quarantined() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn provider_world_event_for_missing_actor_is_quarantined_once() {
     let (runtime_event, mapped_event) = test_recipe_completion_event("agent-missing", 113);
@@ -347,6 +357,7 @@ fn provider_world_event_for_missing_actor_is_quarantined_once() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn provider_feedback_compatibility_cursor_is_partitioned_by_session() {
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
@@ -376,6 +387,7 @@ fn provider_feedback_compatibility_cursor_is_partitioned_by_session() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn provider_world_event_mailbox_full_remains_durable_for_retry() {
     let path = std::env::temp_dir().join(format!(
@@ -456,6 +468,7 @@ fn provider_world_event_mailbox_full_remains_durable_for_retry() {
     let _ = std::fs::remove_file(path);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn stale_provider_replans_stop_at_the_bounded_budget() {
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
@@ -475,6 +488,7 @@ fn stale_provider_replans_stop_at_the_bounded_budget() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn hosted_local_mock_seeded_agent_builds_runtime_bound_capability_context() {
     let _env_guard = crate::viewer::runtime_live::canonical_runtime_provider_env_lock()
@@ -656,6 +670,7 @@ fn hosted_local_mock_lane_enabled_for_url(provider_url: &str) -> bool {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn hosted_local_mock_lane_rejects_provider_url_userinfo_host_spoof() {
     assert!(!hosted_local_mock_lane_enabled_for_url(
@@ -664,6 +679,7 @@ fn hosted_local_mock_lane_rejects_provider_url_userinfo_host_spoof() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn hosted_local_mock_lane_rejects_provider_url_malformed_port() {
     assert!(!hosted_local_mock_lane_enabled_for_url(
@@ -672,6 +688,7 @@ fn hosted_local_mock_lane_rejects_provider_url_malformed_port() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn hosted_local_mock_lane_rejects_provider_url_malformed_authority_path() {
     assert!(!hosted_local_mock_lane_enabled_for_url(
@@ -680,6 +697,7 @@ fn hosted_local_mock_lane_rejects_provider_url_malformed_authority_path() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn hosted_local_mock_lane_accepts_valid_loopback_provider_url_path() {
     assert!(hosted_local_mock_lane_enabled_for_url(
@@ -687,6 +705,7 @@ fn hosted_local_mock_lane_accepts_valid_loopback_provider_url_path() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn production_provider_backed_lane_keeps_prompt_control_disabled() {
     let _env_guard = crate::viewer::runtime_live::canonical_runtime_provider_env_lock()
@@ -725,3 +744,39 @@ fn production_provider_backed_lane_keeps_prompt_control_disabled() {
         "production provider_backed must not inherit the test-only Hosted local-mock capability"
     );
 }
+
+const _: () = {
+    let _ = (
+        RuntimeLlmSidecar::pending_actions_empty,
+        RuntimeLlmSidecar::provider_contexts_empty,
+        RuntimeLlmSidecar::provider_has_terminal_status,
+        RuntimeLlmSidecar::cut_terminal_checkpoint_for_test,
+        RuntimeLlmSidecar::notify_recipe_completion_if_needed,
+        RuntimeLlmSidecar::test_retain_hosted_outcome,
+        RuntimeLlmSidecar::test_orphan_phase,
+        RuntimeLlmSidecar::test_orphan_lookup_at,
+        RuntimeLlmSidecar::test_validate_orphan_terminal_identity,
+        RuntimeLlmSidecar::test_original_orphan_dispatch,
+        RuntimeLlmSidecar::test_orphan_settled_readback,
+        super::lineage_persistence::validate_test_provider_lineage_checkpoint,
+    );
+};
+
+#[cfg(not(target_arch = "wasm32"))]
+const _: () = {
+    let _ = (
+        RuntimeLlmSidecar::replace_builtin_runner_for_test,
+        RuntimeLlmSidecar::replace_provider_backed_runner_for_test,
+        RuntimeLlmSidecar::prepare_provider_backed_test_context,
+        RuntimeLlmSidecar::refresh_provider_backed_test_context,
+        RuntimeLlmSidecar::provider_test_goal_summary,
+        RuntimeLlmSidecar::provider_test_context_binding,
+        RuntimeLlmSidecar::set_provider_test_binding,
+        RuntimeLlmSidecar::provider_test_binding,
+    );
+};
+
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+const _: () = {
+    let _ = super::super::provider_original_store::ProviderOriginalMaterialOwnerV1::diagnostic_head_state;
+};

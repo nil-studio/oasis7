@@ -821,6 +821,52 @@ def viewer_cache_kind(job):
 
 
 class Workflow(unittest.TestCase):
+    def test_trusted_regression_image_refuses_candidate_sources_and_foreign_docker(self):
+        import runpy
+        Launcher = runpy.run_path(str(ROOT / 'scripts/ci-trusted-full-regression.py'))
+        source = 'a' * 40
+        trusted = {
+            'GITHUB_REPOSITORY': 'nil-studio/oasis7', 'GITHUB_REF': 'refs/heads/main',
+            'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+            'GITHUB_SHA': source, 'GITHUB_WORKFLOW_SHA': source, 'GITHUB_JOB': 'full-regression',
+            'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
+            'RUNNER_OS': 'Linux', 'RUNNER_ARCH': 'X64', 'GITHUB_EVENT_NAME': 'schedule',
+            'GITHUB_WORKSPACE': '/home/runner/work/oasis7/oasis7', 'RUNNER_TEMP': '/home/runner/work/_temp',
+        }
+        with patch('os.getuid', return_value=1001), patch('os.getgid', return_value=1001):
+            Launcher['trusted_main'](trusted, source)
+            for key, value in (
+                    ('GITHUB_REF', 'refs/heads/candidate'), ('GITHUB_SHA', 'b' * 40),
+                    ('GITHUB_WORKFLOW_SHA', 'b' * 40), ('GITHUB_JOB', 'candidate-full-regression'),
+                    ('GITHUB_REPOSITORY', 'foreign/oasis7'), ('GITHUB_EVENT_NAME', 'pull_request'),
+                    ('DOCKER_HOST', 'tcp://remote.example:2375')):
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'exact hosted main|unexpected trusted full trigger'):
+                    Launcher['trusted_main'](dict(trusted, **{key: value}), source)
+
+    def test_trusted_regression_image_prepares_owned_cargo_bind_points(self):
+        import runpy
+        launcher = runpy.run_path(str(ROOT / 'scripts/ci-trusted-full-regression.py'))
+        command = launcher['image_command']
+        revision = 'a' * 40
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            paths = {name: root / name for name in ('scratch', 'workspace', 'mold', 'cargo')}
+            for path in paths.values():
+                path.mkdir()
+            with patch.dict(command.__globals__, {'ROOT': paths['workspace'], 'MOLD': paths['mold'],
+                                                   'HOST_CARGO': paths['cargo'], 'head': lambda _: revision}), \
+                    patch('shutil.which', return_value=None):
+                argv = command('governance', revision, paths['scratch'], 'owned-full-regression',
+                               {'OASIS7_PRODUCT_DOC_HEAD': revision, 'OASIS7_PRODUCT_DOC_BASE': 'b' * 40})
+            for relative in ('cargo', 'cargo/registry', 'cargo/git'):
+                target = paths['scratch'] / relative
+                self.assertEqual(target.stat().st_uid, os.getuid())
+                self.assertEqual(target.stat().st_mode & 0o777, 0o700)
+            for name in ('registry', 'git'):
+                self.assertIn(f'type=bind,source={paths["cargo"] / name},target={paths["scratch"] / "cargo" / name}', argv)
+            self.assertNotIn('--group-add', argv)
+            self.assertNotIn('/var/run/docker.sock', ' '.join(argv))
+
     def shared_cache_workflow(self):
         path = ROOT / '.github/workflows/rust-cache.yml'
         self.assertTrue(path.is_file(), 'dependency warming must have an independent workflow')
@@ -1521,7 +1567,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node'}:
             self.assertIn('cache: npm',JOBS[name])
             self.assertIn('cache-dependency-path: crates/oasis7_viewer/package-lock.json',JOBS[name])
-            self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
+            if name == 'full-regression' and 'scripts/ci-trusted-full-regression.py npm' in JOBS[name]:
+                self.assertIn("['npm', 'ci', '--prefix', 'crates/oasis7_viewer']",
+                              (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
+            else:
+                self.assertIn('npm ci --prefix crates/oasis7_viewer', JOBS[name])
         for name,job in JOBS.items():
             if 'Swatinem/rust-cache@' in job and name in {g.replace('_', '-') for g in CONFIG['groups']}:
                 if name in ('viewer-js-required', 'viewer-performance-report'):

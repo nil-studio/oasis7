@@ -1,7 +1,10 @@
 //! Runtime-owned signed delegation identity, lifecycle and read-only retries.
+use super::agent_delegation::AgentDelegationDelta;
+use super::transition::{BorrowedWorldView, PreparedStagedCommit, StagedTransition, TransitionContext, TransitionReject};
 use super::{OwnerControlHostAuthority, World};
 use crate::{AgentDelegationAuthorizationV1, AgentDelegationGrantV1, WorldError};
 use oasis7_proto::agency_control::{AgencyControlOperation, AgencyControlRequest};
+use std::cell::RefCell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DelegationControlOperation {
@@ -350,5 +353,65 @@ impl World {
             disposition: DelegationControlDisposition::Applied,
             authorization,
         })
+    }
+
+    #[allow(dead_code)] // adapter: #6142
+    pub(crate) fn prepare_authenticated_delegation_control_staged(&self, agent_id: &str, command: &AgencyControlOperation, grant: Option<AgentDelegationGrantV1>) -> Result<(DelegationControlOutcome, Option<AgentDelegationDelta>), DelegationControlError> {
+        use DelegationControlStage as Stage;
+        let operation = match command {
+            AgencyControlOperation::InstallDelegation { .. } => DelegationControlOperation::Install,
+            AgencyControlOperation::RevokeDelegation { .. } => DelegationControlOperation::Revoke,
+            _ => return Err(DelegationControlError::denied(Stage::Scope, "delegation control operation required")),
+        };
+        if let Some(g) = &grant && (g.grant_id.trim().is_empty() || g.object_id.trim().is_empty() || g.period_id.trim().is_empty()
+            || g.action_kinds.is_empty() || g.action_kinds.iter().any(|k| !matches!(k.as_str(), "MoveAgent" | "TransferMaterial" | "BuildFactory" | "ScheduleRecipe" | "WorldRule"))
+            || g.action_kinds.iter().collect::<std::collections::BTreeSet<_>>().len() != g.action_kinds.len())
+        { return Err(DelegationControlError::denied(Stage::Scope, "grant_scope_invalid")); }
+        let rows = self.agent_delegation_authorizations(agent_id).map_err(|e| DelegationControlError::at(Stage::Read, e))?;
+        match history_match(command, grant.as_ref(), &rows) {
+            DelegationReplayMatch::ExactReplay(auth) => return Ok((DelegationControlOutcome { operation, disposition: DelegationControlDisposition::ExactReplay, authorization: *auth }, None)),
+            DelegationReplayMatch::IdentityConflict => return Err(DelegationControlError::denied(Stage::Identity, "grant_identity_conflict")),
+            DelegationReplayMatch::NoMatch => {}
+        }
+        let grant = match grant {
+            Some(g) => {
+                if rows.iter().any(|r| r.grant.source_id == g.source_id && !r.grant.revoked && r.grant.object_id == g.object_id && r.grant.action_kinds.iter().any(|k| g.action_kinds.contains(k))) {
+                    return Err(DelegationControlError::denied(Stage::Reservation, "grant_scope_already_reserved"));
+                }
+                g
+            }
+            None => {
+                let AgencyControlOperation::RevokeDelegation { grant_id, expected_revision } = command else { unreachable!() };
+                let mut cur = rows.into_iter().find(|r| r.grant.grant_id == *grant_id).ok_or_else(|| DelegationControlError::denied(Stage::NotFound, "grant_not_found"))?.grant;
+                if cur.revision != *expected_revision || cur.revoked { return Err(DelegationControlError::denied(Stage::Revision, "grant_revision_stale")); }
+                cur.revision = cur.revision.saturating_add(1);
+                cur.revoked = true;
+                cur
+            }
+        };
+        let (delta, authorization) = self.prepare_agent_delegation_grant_delta(&grant).map_err(|e| DelegationControlError::at(Stage::Apply, e))?;
+        Ok((DelegationControlOutcome { operation, disposition: DelegationControlDisposition::Applied, authorization }, Some(delta)))
+    }
+}
+
+#[allow(dead_code)] // adapter: #6142
+pub(crate) struct StagedOwnerDelegationControl<'a> {
+    pub(crate) request: &'a AgencyControlRequest,
+    pub(crate) host: &'a dyn OwnerControlHostAuthority,
+    pub(crate) outcome: RefCell<Option<DelegationControlOutcome>>,
+}
+#[allow(dead_code)] // adapter: #6142
+impl<'a> StagedOwnerDelegationControl<'a> {
+    pub(crate) fn new(request: &'a AgencyControlRequest, host: &'a dyn OwnerControlHostAuthority) -> Self { Self { request, host, outcome: RefCell::new(None) } }
+    pub(crate) fn take_outcome(&self) -> Option<DelegationControlOutcome> { self.outcome.borrow_mut().take() }
+}
+impl StagedTransition for StagedOwnerDelegationControl<'_> {
+    type Delta = Option<AgentDelegationDelta>;
+    fn prepare(&self, view: &BorrowedWorldView<'_>, _ctx: &TransitionContext) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
+        let world = view.world();
+        let grant = world.delegation_request_grant(self.request, self.host).map_err(|e| TransitionReject::World(e.source))?;
+        let (outcome, delta) = world.prepare_authenticated_delegation_control_staged(&self.request.agent_id, &self.request.command, grant).map_err(|e| TransitionReject::World(e.source))?;
+        *self.outcome.borrow_mut() = Some(outcome);
+        Ok(PreparedStagedCommit::new(view.base_head().clone(), None, delta))
     }
 }

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::{
     CliOptions, DEFAULT_WORLD_ID, build_default_replication_network_config,
     create_default_replication_network, node_keypair_config, parse_options,
@@ -84,6 +85,7 @@ fn nonlegacy_receiver_policy_is_rejected_by_formal_and_guarded_host_validation()
     assert!(guarded_error.contains("requires the standard development host runtime"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn v2_only_receiver_requires_v2_publisher_for_start_but_allows_receiver_only_init() {
     let normal_start = parse_options(["--p2p-peer-record-reception", "v2_only"].into_iter())
@@ -106,6 +108,7 @@ fn v2_only_receiver_requires_v2_publisher_for_start_but_allows_receiver_only_ini
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[cfg(unix)]
 fn v2_only_receiver_initializer_runs_with_legacy_publisher_without_starting_world() {
@@ -165,6 +168,7 @@ fn v2_only_receiver_initializer_runs_with_legacy_publisher_without_starting_worl
     std::fs::remove_dir_all(&scratch).expect("remove isolated receiver initializer fixture");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn host_network_keeps_receiver_policy_independent_and_uses_stable_runtime_path() {
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&[9_u8; 32]);
@@ -209,6 +213,7 @@ fn host_network_keeps_receiver_policy_independent_and_uses_stable_runtime_path()
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[cfg(unix)]
 fn host_receiver_bootstrap_is_one_time_and_normal_open_fails_closed() {
@@ -339,6 +344,7 @@ fn host_receiver_bootstrap_is_one_time_and_normal_open_fails_closed() {
     std::fs::remove_dir_all(&scratch).expect("remove isolated receiver test files");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[cfg(not(unix))]
 fn durable_receiver_initialization_rejects_unsupported_platforms() {
@@ -356,6 +362,7 @@ fn durable_receiver_initialization_rejects_unsupported_platforms() {
     assert!(error.contains("requires Unix filesystem guarantees"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn compatible_receiver_policy_remains_independent_from_legacy_publisher() {
     let options = parse_options(
@@ -379,6 +386,7 @@ fn compatible_receiver_policy_remains_independent_from_legacy_publisher() {
     assert_eq!(options.world_id, DEFAULT_WORLD_ID);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[cfg(unix)]
 fn host_explicit_receiver_upgrade_preserves_state_and_is_not_runtime_config() {
@@ -470,6 +478,7 @@ fn host_explicit_receiver_upgrade_preserves_state_and_is_not_runtime_config() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn prune_receiver_cli_validates_required_reception_mode_and_trusted_time() {
     // Missing reception mode (defaults to legacy)

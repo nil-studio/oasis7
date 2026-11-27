@@ -367,7 +367,7 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialOwner {
     fn mark_rejected(
         &self,
         _attempt: &ProviderMaterialAttemptV1,
-        _evidence: oasis7::simulator::ProviderDispositionEvidenceV1,
+        _evidence: oasis7_runtime_host::provider_material_capture::ProviderDispositionEvidenceV1,
     ) -> Result<(), String> {
         Err("test owner does not support rejection evidence".into())
     }

@@ -1,5 +1,5 @@
 #[cfg(test)]
-#[path = "../../oasis7/src/world_service/formal_read_fixtures.rs"]
+#[path = "host/formal_read_fixtures.rs"]
 mod formal_read_fixtures;
 
 use std::collections::BTreeMap;
@@ -113,6 +113,10 @@ mod formal_live_reconcile;
 #[allow(dead_code)] // Compatible preparation, not yet wired into an active recovery owner.
 #[path = "host/formal_live_recovery_original_adapter.rs"]
 mod formal_live_recovery_original_adapter;
+#[cfg(unix)]
+#[allow(dead_code)] // Awaiting exact real owner enqueue/Frozen adapter slice.
+#[path = "host/formal_live_original_pending_producer.rs"]
+mod formal_live_original_pending_producer;
 #[cfg(test)]
 #[path = "host/formal_live_recovery_test_support.rs"]
 mod formal_live_recovery_test_support;

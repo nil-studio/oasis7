@@ -571,7 +571,7 @@ impl World {
                 timelock_ticks,
             }
         });
-        self.append_prepared_governance_approval(event, queued_event)?;
+        self.append_staged_governance_approval(&event, queued_event.as_ref())?;
         Ok(())
     }
 
