@@ -76,7 +76,6 @@ scope = [
     "crates/oasis7_proto/Cargo.toml",
     "crates/oasis7_proto/src",
     "crates/oasis7_viewer/viewer.html",
-    "crates/oasis7_viewer/viewer.js",
     "crates/oasis7_viewer/viewer_first_agent_claim_evidence.html",
     "crates/oasis7_viewer/package.json",
     "crates/oasis7_viewer/package-lock.json",
