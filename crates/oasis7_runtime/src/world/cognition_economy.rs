@@ -419,7 +419,7 @@ impl CognitionEconomyStateV1 {
     /// Reserve against one exact Runtime provisioning binding. The binding is
     /// supplied by `World`, which derives it from the current capability
     /// identity and runtime world/reorg tuple.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     pub(crate) fn reserve_for_binding(
         &mut self,
         request: CognitionLeaseRequestV1,
