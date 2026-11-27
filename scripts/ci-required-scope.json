@@ -2929,6 +2929,15 @@
     },
     {
       "match": [
+        "scripts/rust-full-tier-trunk-prerequisite-contract.test.sh"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "full_tier_trunk_prerequisite_contract"
+    },
+    {
+      "match": [
         "scripts/install-ci-trunk.sh",
         "scripts/install-ci-trunk.test.sh"
       ],
