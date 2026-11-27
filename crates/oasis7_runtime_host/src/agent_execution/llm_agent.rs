@@ -15,7 +15,6 @@ use crate::agent::{
     LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics, LlmEffectIntentTrace,
     LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace,
 };
-use oasis7_agent_harness::llm_defaults::DEFAULT_LLM_MODEL;
 use oasis7_agent_harness::llm_prompt_assembly as prompt_assembly;
 use oasis7_simulator::{
     Action, CM_PER_KM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY, ModuleInstallTarget, ResourceKind,
@@ -482,11 +481,9 @@ impl fmt::Display for LlmConfigError {
 
 impl Error for LlmConfigError {}
 
-#[cfg(any(test, feature = "test_tier_required"))]
-pub use oasis7_model_provider::LlmCompletionResult;
 pub use oasis7_model_provider::{
-    LlmClientError, LlmCompletionClient, LlmCompletionRequest, LlmCompletionTurn,
-    OpenAiChatCompletionClient,
+    LlmClientError, LlmCompletionClient, LlmCompletionRequest, LlmCompletionResult,
+    LlmCompletionTurn, OpenAiChatCompletionClient,
 };
 impl oasis7_model_provider::CompletionClientConfig for LlmAgentConfig {
     fn base_url(&self) -> &str {
