@@ -1,9 +1,9 @@
-use crate::simulator::WorldKernel;
+use super::kernel_host::WorldKernel;
 
 #[test]
 fn restored_snapshot_keeps_external_cut_exactly_through_no_journal_mutations() {
     let mut snapshot = WorldKernel::new().snapshot();
-    snapshot.runtime_snapshot = Some(super::tests::runtime_fixture().snapshot());
+    snapshot.runtime_snapshot = Some(super::archive_tests::runtime_fixture().snapshot());
     snapshot.player_gameplay = Some(serde_json::from_value(serde_json::json!({
         "stage_id":"first_session_loop", "stage_status":"active", "execution_state":"accepted",
         "goal_id":"retained-goal", "goal_kind":"create_first_world_feedback", "goal_title":"Goal",
@@ -42,7 +42,7 @@ fn default_chain_evidence_refreshes_after_restore_and_replay() {
     original.submit_action(oasis7_simulator::Action::RegisterLocation {
         location_id: "new-location".into(),
         name: "New location".into(),
-        pos: crate::GeoPos::new(0, 0, 0),
+        pos: oasis7_simulator::GeoPos::new(0, 0, 0),
         profile: Default::default(),
     });
     original.step().unwrap();
@@ -61,12 +61,12 @@ fn default_chain_evidence_refreshes_after_restore_and_replay() {
 
 #[test]
 fn journal_view_borrows_native_payload_and_survives_sidecar_tail_append() {
-    let original = super::tests::runtime_fixture();
+    let original = super::archive_tests::runtime_fixture();
     let mut host = WorldKernel::new();
     host.submit_action(oasis7_simulator::Action::RegisterLocation {
         location_id: "origin".into(),
         name: "Origin".into(),
-        pos: crate::GeoPos::new(0, 0, 0),
+        pos: oasis7_simulator::GeoPos::new(0, 0, 0),
         profile: Default::default(),
     });
     host.step().unwrap();
@@ -129,7 +129,7 @@ fn invalid_journal_version_precedes_short_prefix_error_in_restore_and_replay() {
         WorldKernel::replay_from_snapshot(snapshot.clone(), journal.clone()),
     ] {
         assert!(
-            matches!(result, Err(crate::simulator::PersistError::UnsupportedVersion { kind, version: u32::MAX, .. }) if kind == "journal")
+            matches!(result, Err(super::persist::PersistError::UnsupportedVersion { kind, version: u32::MAX, .. }) if kind == "journal")
         );
     }
 }

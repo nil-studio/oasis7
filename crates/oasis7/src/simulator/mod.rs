@@ -43,13 +43,9 @@ pub(crate) use oasis7_runtime_host::provider_material_capture;
 #[cfg(any())]
 #[path = "."]
 mod retired_legacy {
-    mod archive;
     mod kernel_host;
     mod persist;
 }
-#[cfg(any())]
-#[path = "provider_json_admission.rs"]
-mod retired_provider_json_admission;
 #[cfg(not(target_arch = "wasm32"))]
 mod runner;
 #[cfg(not(target_arch = "wasm32"))]

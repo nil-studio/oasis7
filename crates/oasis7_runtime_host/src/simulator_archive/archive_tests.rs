@@ -1,11 +1,12 @@
-use super::*;
-use crate::GeoPos;
-use crate::runtime::{Action, World, WorldState};
-use crate::simulator::WorldKernel;
-use oasis7_simulator::WorldEventKind;
+use super::archive::WorldEvent;
+use super::kernel_host::WorldKernel;
+use super::persist::{WorldJournal, WorldSnapshot};
+use oasis7_agent_api::world_resource::ChainResourceDelta;
+use oasis7_runtime::{Action, World, WorldState};
+use oasis7_simulator::{GeoPos, WorldEventKind};
 
 pub(super) fn runtime_fixture() -> World {
-    let mut world = crate::runtime_host::world::new_with_state(WorldState::default());
+    let mut world = crate::world::new_with_state(WorldState::default());
     world.submit_action(Action::RegisterAgent {
         agent_id: "archive-agent".into(),
         pos: GeoPos::new(10, 20, 30),
@@ -104,7 +105,7 @@ fn native_exports_match_the_kernel_portion_of_the_legacy_archive() {
 fn native_replay_keeps_original_host_event_bytes_on_archive_rewrite() {
     let world = runtime_fixture();
     let snapshot = WorldKernel::new().snapshot();
-    let journal = crate::simulator::WorldJournal {
+    let journal = WorldJournal {
         version: oasis7_simulator::JOURNAL_VERSION,
         events: vec![WorldEvent {
             id: 0,
@@ -148,7 +149,7 @@ fn host_archive_extensions_survive_pending_actions_and_pre_action_hooks() {
     snapshot.chain_resource_manifest.refresh_hashes();
     snapshot.latest_chain_resource_delta.commit_block_hash = Some("original-block".into());
     let expected_extensions = snapshot.clone().into_kernel_parts().1;
-    let journal = crate::simulator::WorldJournal {
+    let journal = WorldJournal {
         version: oasis7_simulator::JOURNAL_VERSION,
         events: vec![WorldEvent {
             id: 0,
