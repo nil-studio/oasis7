@@ -14,7 +14,7 @@ jobs:
       github.head_ref == 'task/engineering-release-web-business-probe' &&
       github.base_ref == 'codex/engineering-web-cache-image-batch' &&
       github.event.pull_request.draft == true &&
-      github.event.pull_request.title == 'Release Web image business proof 0875-once'
+      github.event.pull_request.title == 'Release Web image business proof 0875-path-once'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     cache-mode: read
@@ -81,7 +81,8 @@ jobs:
           set -euo pipefail
           npm ci --prefix crates/oasis7_viewer
           bash scripts/install-ci-trunk.sh "$RUNNER_TEMP/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz" "$RUNNER_TEMP/ci-tools/bin"
-          trunk --version | grep -Fqx "trunk ${TRUNK_VERSION}"
+      - name: Verify installed Trunk in the next official PATH step
+        run: trunk --version | grep -Fqx "trunk ${TRUNK_VERSION}"
       - name: Compile original signed fixture once and verify exact inventory
         run: |
           set -euo pipefail
