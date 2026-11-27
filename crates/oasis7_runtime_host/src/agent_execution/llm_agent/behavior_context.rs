@@ -1,11 +1,13 @@
 use super::*;
 
-use super::super::continuous_agent_harness::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1,
-};
-use super::super::decision_provider::ProviderDecision;
+use crate::decision_provider::ProviderDecision;
+use oasis7_agent_api::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
+type ContinuousAgentResponseContextV1 = oasis7_agent_api::ContinuousAgentResponseContextV1<
+    oasis7_simulator::Action,
+    crate::agent::AgentQuery,
+>;
 
-pub(super) use oasis7_runtime_host::llm_request_budget::{
+pub(super) use crate::llm_request_budget::{
     BudgetExhausted as CognitionBudgetExhausted, BudgetSnapshot as CognitionBudgetSnapshot,
     RequestBudgetLedger as CognitionBudgetLedger,
 };
@@ -175,13 +177,13 @@ pub(super) fn builtin_provider_decision(decision: &AgentDecision) -> ProviderDec
 #[cfg(test)]
 mod budget_owner_tests {
     use super::*;
-    use oasis7_runtime_host::llm_request_budget::RequestBudgetLedger;
+    use crate::llm_request_budget::RequestBudgetLedger;
 
     #[test]
     fn live_context_uses_canonical_request_budget_ledger() {
         let mut context = ContinuousAgentContext::default();
         let ledger: &mut RequestBudgetLedger = &mut context.budget_ledger;
-        let budget = super::super::super::continuous_agent_harness::BudgetContractV1 {
+        let budget = oasis7_agent_harness::BudgetContractV1 {
             max_latency_ms: 5_000,
             max_repair_attempts: 1,
             max_model_calls: 1,

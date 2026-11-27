@@ -28,7 +28,7 @@ mod continuous_agent_harness;
 pub(crate) use oasis7_runtime_host::decision_provider;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod llm_agent;
+pub(crate) use oasis7_runtime_host::agent_execution::llm_agent;
 mod memory;
 #[path = "persist_host_facade.rs"]
 pub(crate) mod persist;

@@ -1,6 +1,6 @@
 //! LLM-powered agent behavior and OpenAI-compatible completion client.
 
-use super::archive::WorldEvent;
+use crate::simulator_archive::archive::WorldEvent;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -8,14 +8,13 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 
-use crate::runtime::{DomainEvent as RuntimeDomainEvent, WorldEventBody as RuntimeWorldEventBody};
+use oasis7_runtime::{DomainEvent as RuntimeDomainEvent, WorldEventBody as RuntimeWorldEventBody};
 
-use super::agent::{
+use crate::agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery, AgentQueryResult,
     LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics, LlmEffectIntentTrace,
     LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace,
 };
-use oasis7_agent_harness::llm_defaults::DEFAULT_LLM_MODEL;
 use oasis7_agent_harness::llm_prompt_assembly as prompt_assembly;
 use oasis7_simulator::{
     Action, CM_PER_KM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY, ModuleInstallTarget, ResourceKind,
@@ -72,7 +71,7 @@ use oasis7_model_provider::openai_stream_diagnostics::format_stream_transport_di
 
 pub use oasis7_model_provider::config_constants::*;
 
-pub use oasis7_runtime_host::llm_prompt_profile::{DEFAULT_LLM_PROMPT_PROFILE, LlmPromptProfile};
+pub use crate::llm_prompt_profile::{DEFAULT_LLM_PROMPT_PROFILE, LlmPromptProfile};
 
 // One real owner for all portable prompt, goal and execution-budget defaults.
 // Legacy LlmAgentConfig consumers retain the original identical symbols.
@@ -482,11 +481,9 @@ impl fmt::Display for LlmConfigError {
 
 impl Error for LlmConfigError {}
 
-#[cfg(any(test, feature = "test_tier_required"))]
-pub use oasis7_model_provider::LlmCompletionResult;
 pub use oasis7_model_provider::{
-    LlmClientError, LlmCompletionClient, LlmCompletionRequest, LlmCompletionTurn,
-    OpenAiChatCompletionClient,
+    LlmClientError, LlmCompletionClient, LlmCompletionRequest, LlmCompletionResult,
+    LlmCompletionTurn, OpenAiChatCompletionClient,
 };
 impl oasis7_model_provider::CompletionClientConfig for LlmAgentConfig {
     fn base_url(&self) -> &str {

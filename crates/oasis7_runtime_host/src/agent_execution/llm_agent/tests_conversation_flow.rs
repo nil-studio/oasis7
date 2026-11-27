@@ -2,8 +2,9 @@ fn provider_env_lock() -> &'static std::sync::Mutex<()> {
     oasis7_hosted_access::process_env::process_env_lock()
 }
 use super::*;
-use crate::geometry::GeoPos;
-use crate::simulator::{LlmChatRole, WorldEvent};
+use crate::agent::LlmChatRole;
+use crate::simulator_archive::archive::WorldEvent;
+use oasis7_simulator::GeoPos;
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_agent_api::world_resource::ResourceStock;
 use oasis7_simulator::{

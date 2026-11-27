@@ -17,14 +17,20 @@ serde_json = "1"
 url = "2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oasis7_model_provider = { path = "../oasis7_model_provider" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_world_service = { path = "../oasis7_world_service", default-features = false }
 blake3 = "1"
+hex = "0.4"
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
+toml = "0.9.12"
 
 [dev-dependencies]
 oasis7_hosted_access = { path = "../oasis7_hosted_access", features = ["test-support"] }
 serde_cbor = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+async-openai = { version = "0.43.0", default-features = false, features = ["responses", "rustls"] }
 
 [features]
 default = []
