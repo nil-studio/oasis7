@@ -48,8 +48,14 @@ assert 'sha256sum "${files[@]}" > SHA256SUMS' in buildinfo or \
     'shasum -a 256 "${files[@]}" > SHA256SUMS' in buildinfo, (
     "Linux bundle must generate an internal SHA256SUMS before packaging"
 )
-assert 'shasum -a 256 -c SHA256SUMS' in buildinfo, (
-    "Linux bundle metadata must be self-verified before packaging"
+installer = workflow.split("  package-installers:\n", 1)[1]
+if "name: Verify the Linux packaging runtime" in installer:
+    verifier = 'sha256sum -c SHA256SUMS >/dev/null'
+else:
+    verifier = 'shasum -a 256 -c SHA256SUMS >/dev/null'
+assert verifier in buildinfo, "Linux bundle metadata must be self-verified before packaging"
+assert buildinfo.index(verifier) > buildinfo.index(" > SHA256SUMS"), (
+    "Linux bundle must verify the completed manifest"
 )
 assert "ops package" in workflow.lower(), "Linux workflow must publish a separate ops package"
 assert "oasis7-${{ matrix.platform }}-ops-tools.tar.gz" in workflow, (

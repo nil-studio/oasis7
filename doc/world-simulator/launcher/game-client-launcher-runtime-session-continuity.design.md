@@ -2,7 +2,7 @@
 
 ## 1. 问题、目标与非目标
 
-Launcher 构造参数并托管子进程；chain runtime 保持执行与持久化权威。本设计防止停止、启动失败和恢复后继续呈现旧会话证据。进程存在、请求受理、页面可见和配置保存不证明世界健康、可玩或行动成功；不承诺无损恢复、自动迁移或发行就绪。
+无头 Launcher 后端（`oasis7_launcher_backend`）构造参数并托管子进程；chain runtime 保持执行与持久化权威。本设计防止停止、启动失败和恢复后继续呈现旧会话证据。进程存在、请求受理、页面可见和配置保存不证明世界健康、可玩或行动成功；不承诺无损恢复、自动迁移或发行就绪。
 
 ## 2. 上游约束与相关角色
 
@@ -89,7 +89,7 @@ ServiceState 串行控制托管子进程和探测，快照字段在同一次状�
 
 设置阶段消费设置 authority；Web 错误表现消费控制面设计；公开 claim 仍须同候选跨层证据，局部进程与单元测试不能成立发行结论。
 
-实现接点：oasis7_web_launcher/control_plane.rs、control_plane/chain_status_probe.rs、oasis7_client_launcher 的 native/Web 状态消费。canonical 局部命令：env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_web_launcher；文档检查使用 scripts/doc-governance-check.sh。实际结果记录在 PR，不在长期设计预写通过。
+活跃实现接点：`oasis7_web_launcher/control_plane.rs`、`control_plane/chain_status_probe.rs`。canonical 局部命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_web_launcher`；文档检查使用 `scripts/doc-governance-check.sh`。实际结果记录在 PR，不在长期设计预写通过。
 
 ## 12. 决策、长期风险与未决问题
 

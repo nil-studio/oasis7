@@ -21,7 +21,7 @@ Out of scope: runtime/economy/auth/chain rules, WASM ABI, large art packs, unrel
 
 Durable sources are the terminal-shell PRD (Player/Director, command discovery, current-versus-target), page/module design, brand system (tokens/assets/status vocabulary), semantic positioning (independent coordinate and relation authority), player-readable rendering (HUD/causality), [world-stage product design](../../product/agents-world-simulation/player-readable-world-stage.design.md) and [visual-review SOP](../../testing/manual/model-visual-review-sop-2026-05-29.manual.md).
 
-Retired Viewer redesign and 2D/EGUI topics contribute historical intent only. They do not restore a second Viewer, independent JS world renderer, 3D mode or old map controls. Runtime, QA, security and release authority remains with those domains.
+Retired Viewer redesign and legacy 2D panel topics contribute historical intent only. They do not restore a second Viewer, independent JS world renderer, 3D mode or old map controls. Runtime, QA, security and release authority remains with those domains.
 
 ## 4. Product Visual North Star
 

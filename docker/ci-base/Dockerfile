@@ -134,3 +134,14 @@ COPY --from=rust-ordinary-builder /usr/local/libexec/docker/cli-plugins/docker-b
 RUN apt-get update \
     && apt-get install -y --no-install-recommends clang llvm \
     && rm -rf /var/lib/apt/lists/*
+
+# Release Web keeps its original Node22 and headed Xvfb gate. Node24 remains
+# the inherited action runtime; consumers explicitly select the Node22 CLI.
+FROM rust-viewer AS rust-release-web
+COPY --from=custody-node-tools /usr/local/bin/node /opt/oasis7-node22/bin/node
+COPY --from=custody-node-tools /usr/local/lib/node_modules/npm /opt/oasis7-node22/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /opt/oasis7-node22/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /opt/oasis7-node22/bin/npx \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends netcat-openbsd xvfb xauth \
+    && rm -rf /var/lib/apt/lists/*

@@ -83,11 +83,11 @@ PY
 4. **署名与依赖。** 对照实际交付中的适用 notice、字体／图像／生成输入和原引用；根 LICENSE 不吞并未核第三方材料，外包声明不自动证明内部引用均有来源。
 5. **消费结果。** 有来源材料仍需核该候选实际使用的文件；来源核对通过不证明字形、音频／视觉品质或部署通过。
 
-当前字体必须至少分开检查三条加载链：
+当前字体必须至少分开检查三条加载链（仓库严禁引入或随包分发无开源再分发授权的商业字体）：
 
 | 输入 | 可执行的源核查 | 必须保留的未证范围 |
 | --- | --- | --- |
-| Launcher 的 ms-yahei.ttf | 读 [main.rs](../../../crates/oasis7_client_launcher/src/main.rs) 的 `EGUI_CJK_FONT_BYTES`、`configure_egui_fonts` 和环境变量覆盖；固定所选文件 hash；查看原字体 name 表与实际取得材料 | name 表中的 family／version／manufacturer／license 文字只是文件材料。相邻目录缺少本项目取得或分发依据时，不用元数据或嵌入标志给出权利结论；覆盖字体也须独立核查。 |
+| 随包开源 CJK 字体 | 读 [Noto Sans SC 资产说明](../../../crates/pixel_world_bridge/assets/fonts/noto-sans-sc/README.md) 的固定上游 commit、SHA-256、OFL 1.1 全文及 `native_font_notices()` 输出 | 仅证明该固定资产及声明范围；新增或替换任何随包字体均须重新核查开源再分发许可、固定 hash 与 notice 保留，不得回退使用商业系统字体原件。 |
 | Bevy 默认字体 | 读 [Cargo.toml](../../../crates/pixel_world_bridge/Cargo.toml) 的 `default_font` 和 Cargo.lock 固定版本；从该版本真实依赖包／供应商原入口取得字体原件及 notice，再追实际打包 | 没有取得固定依赖资源就保留未知，不从记忆中的字体名称或另一版 Bevy 推定。 |
 | 系统／远程字体 | 对比 Viewer CSS 字体栈、Site CSS 的 `@import` 和传播包请求；真实环境记录解析／返回与 fallback；若本地打包，核其新增文件来源 | 系统名称不等于随包文件，远程服务地址不等于固定字体版本；静态源码不证明用户环境或远程响应可用。 |
 
@@ -113,7 +113,7 @@ PY
 用本次实际变更，或明确标为纸面的代表样例，依次列出原源／规格、被影响的导出、直接消费者、关联内容和应失效的旧证据。静态审读分别推演以下两例，不必实际改资源：
 
 - `water_ice` 外观变化：组成事实保持原权威；复核 palette、unknown 对照、LOD、bridge 产物、实际加载和可读性证据。只换预览 PNG 不能更新运行图形。
-- Launcher 字体替换：原加载路径、所选字体 hash／许可／notice、环境变量覆盖、CJK／拉丁混排、目标平台和包内容一起核对。一个 SVG 换了字体名不等于二进制内嵌资源已替换；旧截图不能代签新字体。
+- 随包字体替换：原加载路径、所选开源字体 hash／许可／notice、CJK／拉丁混排、目标平台和包内容一起核对。一个 SVG 换了字体名不等于内嵌或随包资源已替换；旧截图不能代签新字体。
 
 涉及配方／初态则另用[工业 IC-CHANGE](industrial-native-content-delivery.manual.md#ic-change)，保留已有行动和账本的原兼容义务。涉及页面则沿原 Site 纠正方法核正文、派生摘要和历史引用。
 

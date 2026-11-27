@@ -177,3 +177,9 @@ pub use crisis_current::open_current_diplomacy_crisis_record_v1;
 #[path = "incremental_diplomacy_crisis_state.rs"]
 mod crisis_state;
 pub use crisis_state::read_current_diplomacy_crisis_state_v1;
+#[path = "incremental_diplomacy_crisis_rule.rs"]
+mod crisis_rule;
+pub use crisis_rule::{
+    CrisisResolutionDataOutcomeV1, CrisisResolutionDataRejectionV1, CrisisResolutionDataV1,
+    decide_current_crisis_resolution_data_v1,
+};

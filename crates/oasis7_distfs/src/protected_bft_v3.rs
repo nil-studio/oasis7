@@ -20,6 +20,7 @@ mod membership;
 mod private_retention_alternatives;
 mod private_retention_input;
 mod private_retention_input_authorization;
+mod private_retention_operation;
 mod rotation;
 mod service;
 mod state;
@@ -83,6 +84,9 @@ pub use successor_manifest::{
 };
 
 pub use private_retention_alternatives::BftOriginalAlternativesInventoryV1;
+pub use private_retention_operation::{
+    BftOriginalRetentionTxnSnapshotV1, BftRetainedOriginalOperationV1,
+};
 
 pub use admission_input_stream::BftAdmissionInputV2StreamStage;
 pub use admission_input_transfer_plan::{

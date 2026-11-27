@@ -6,7 +6,7 @@
 审计轮次: 5
 
 ## 1. Executive Summary
-- 当前 canonical 实现位于 `crates/oasis7_viewer/software_safe_src/legacy_core.js`；本文件保留测试专用 API 合同，不把历史 Bevy/EGUI automation 实现当作当前 source truth。
+- 当前 canonical 实现位于 `crates/oasis7_viewer/software_safe_src/legacy_core.js`；本文件保留测试专用 API 合同，不把历史旧版 Bevy automation 实现当作当前 source truth。
 - 本节其余 round-1 至 round-4 叙述保留为历史迁移记录；当前 API 的可调用控制和状态字段以“当前实现合同”为准。
 - 为 Web 端 `oasis7_viewer` 注入一套稳定的语义化测试 API，降低 agent-browser 对像素坐标点击的依赖。
 - 复用现有 `viewer_automation` 步骤执行器，统一测试动作语义（`mode/focus/select/zoom/orbit/wait`）。
@@ -24,7 +24,7 @@
 
 - `window.__AW_TEST__` 仅在测试模式启用。当前 control-action surface 是 `sendControl("play"|"pause"|"step", payload?)`、`runSteps(payload?)` 与 `getState()`；其他测试 helper 不扩大 live 控制集合，`seek`/`seek_event` 不得在 live profile 作为可提交动作出现。
 - `sendControl("step", payload?)` 的 count grammar 为：缺省/`null` 为 1；有限 number `>= 1` 取 `Math.floor`；string 为空、`step`、有限数字或 `step:<n>`/`step=<n>`；object 读取有限 `count >= 1` 并取整。目标合同要求其余 payload 返回 rejected feedback，不抛出浏览器异常，也不发送控制请求；当前 parser 差距见下段。
-- `runSteps(payload?)` 使用同一 count grammar 并委派为一次 step；它不再是历史 panel/layout/timeline DSL 的通用执行器。历史 DSL、Bevy command queue、2D/3D camera automation 和 EGUI module actions 已退役，不得据此编写当前 Web 回归。
+- `runSteps(payload?)` 使用同一 count grammar 并委派为一次 step；它不再是历史 panel/layout/timeline DSL 的通用执行器。历史 DSL、Bevy command queue、2D/3D camera automation 和旧面板模块动作已退役，不得据此编写当前 Web 回归。
 - `getState()` 至少用于读取 `connectionStatus`、`logicalTime`、`eventSeq`、兼容 `tick`、`controlProfile`、`lastError` 和 `lastControlFeedback`。`tick === logicalTime` 是兼容 alias；时间和事件序号仅来自 runtime 消息，空结果不得被客户端合成为进展。
 - control feedback 必须区分 rejected、blocked、queued、发送失败以及后续观察到的 completed/no-progress；queued 不是 completion。live seek 的 unsupported-action、WebSocket 断链和 runtime 无增量均必须保留为不同可诊断状态。
 
@@ -50,7 +50,7 @@ object 路径直接读取 `payload.count` 并执行 `Number` 转换，getter、S
 
 ### Historical Bevy API record (retired; not current contract)
 
-The following scope, command queue, state snapshot, roadmap, and decision-log records preserve the completed Bevy/EGUI implementation history. They do not override the current implementation contract above.
+The following scope, command queue, state snapshot, roadmap, and decision-log records preserve the completed legacy Bevy implementation history. They do not override the current implementation contract above.
 
 #### In Scope
 - 新增 `window.__AW_TEST__` 最小 API：
@@ -147,7 +147,7 @@ The following scope, command queue, state snapshot, roadmap, and decision-log re
 
 ### 历史实现处置
 
-- 下列段落记录已完成的 Bevy/EGUI round-1 至 round-4 迁移，仅作历史追溯；其中的 `viewer_automation`、命令队列、camera、panel/module、timeline DSL 和 `sendControl.seek` 不定义当前 SolidJS API。
+- 下列段落记录已完成的早期旧版 Viewer round-1 至 round-4 迁移，仅作历史追溯；其中的 `viewer_automation`、命令队列、camera、panel/module、timeline DSL 和 `sendControl.seek` 不定义当前 SolidJS API。
 
 #### Risks & Roadmap
 - WTA-0：设计/GitHub Issue/Project task truth建档。

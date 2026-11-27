@@ -1,21 +1,20 @@
 # 客户端启动器引导配置与可用性（当前 authority）
 
-> 本文是 launcher 的语言/配置清晰度、事实性状态反馈和响应式自引导可用性的当前需求 authority。它吸收四组 2026-03 日期化专题中仍可由当前实现支持的表现层合同；活跃入口已迁移至本三件套，历史 source triplet 删除后仅通过 Git 与 GitHub task issue evidence 追溯。
+> **职责与承接边界**：玩家唯一图形界面为 SolidJS Web `viewer`；本文承载配置草稿/确认态/运行态分离、真实 `blocked`/`observer` 表达与恢复语义，供无头控制面（`oasis7_launcher_backend`）及适用入口消费，不维护独立桌面客户端启动器窗口。
 
 - 对应设计: `doc/world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md`
 - 历史迁移、验证与 task 状态：GitHub task issue evidence。
 
 ## 目标
 
-- 让操作者在既有 launcher 表面理解当前语言、配置问题、可执行动作和受阻原因，而不是从灰色控件或原始日志猜测状态。
+- 让操作者在受支持控制面或入口理解当前配置问题、可执行动作和受阻原因，而不是从原始日志猜测状态。
 - 以当前事实呈现 blocked、未就绪或 observer 等状态；状态可见不等同于游戏、网络、公开加入或发布 readiness。
-- 用响应式、可跳过的既有引导把配置修复和下一步提示放在当前操作面，但不创造新的玩家权能或世界规则。
+- 把配置修复和下一步提示限定在已有受支持动作内，不创造新的玩家权能或世界规则。
 
 ## 范围
 
-- 当前 launcher 的中英文界面选择、启动前配置检查、问题列表、可达配置入口和已有高频/高级配置分层。
-- 当前 native/Web 表面中的状态、禁用原因、既有下一步提示、响应式信息可读性与自引导组件。
-- 本文只记录 launcher 表现和控制边界；不收敛 runtime、chain execution-world、stale-world recovery、数据持久化或网络语义。
+- 受支持本地启动与控制面入口的启动前配置检查、问题分类、草稿/已接受/运行态区分以及真实受阻提示。
+- 本文只记录配置与请求结果边界；不收敛 runtime、chain execution-world、stale-world recovery、数据持久化或网络语义。
 
 ## 当前合同
 
