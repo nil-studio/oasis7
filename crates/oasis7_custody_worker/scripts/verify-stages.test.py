@@ -138,6 +138,19 @@ class VerifyStagesTests(unittest.TestCase):
     def assert_success(self, result):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_real_world_fixture_build_uses_full_case_feature(self):
+        builder = self.scripts / "build-world-fixture.sh"
+        shutil.copyfile(Path(__file__).with_name(builder.name), builder)
+        subprocess.run(["bash", str(builder)], cwd=self.root,
+                       env=self.environment, check=True)
+        cargo, parser = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual(cargo, [
+            "cargo", "test", "-p", "oasis7_chain_runtime", "--lib", "--features", "test_tier_full",
+            "--no-run", "--locked", "--message-format=json",
+        ])
+        self.assertEqual(parser[:3], ["node", "--input-type=module", "-"])
+        self.assertEqual(len(parser), 4)
+
     def test_unknown_or_incomplete_stage_fails_before_any_command(self):
         for arguments in (
             ("--stage",),
