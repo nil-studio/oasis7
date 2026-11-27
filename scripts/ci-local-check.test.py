@@ -324,30 +324,34 @@ print(f'test result: ok. {count} passed; 0 failed; 0 ignored; 0 measured; 1 filt
             cargo.chmod(0o755)
             env = dict(os.environ, PATH=f"{root}{os.pathsep}{os.environ['PATH']}",
                        OASIS7_FORCE_RAW_CARGO='1', CARGO_FIXTURE_RECORD=str(record))
-            selectors = ('tests::main_token::', 'tests::reward_asset_settlement_action::')
-            legacy_required = [('test_tier_required', selector) for selector in selectors]
-            full_required = [('test_tier_full', selector) for selector in selectors]
-            full_only = [('test_tier_full', 'tests::reward_asset::')]
-
-            def invoke(tier):
+            required = [
+                ('test_tier_full', 'tests::main_token::'),
+                ('test_tier_full', 'tests::reward_asset_settlement_action::'),
+            ]
+            for tier, expected in (
+                ('required', required),
+                ('full', required + [
+                    ('test_tier_full', 'tests::reward_asset::'),
+                ]),
+            ):
                 record.write_text('')
                 result = subprocess.run(['bash', str(HERE / 'main-token-regression.sh'), tier],
                                         env=dict(env, CARGO_FIXTURE_MODE='valid'), capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                return [tuple(json.loads(line)[5:7]) for line in record.read_text().splitlines()]
-
-            # Trusted main runs this test against the candidate's script. Validate
-            # both exact layouts while switching the two modules to full-only.
-            required = invoke('required')
-            self.assertIn(required, (legacy_required, full_required))
-            expected_full = (legacy_required if required == legacy_required else []) + full_required + full_only
-            self.assertEqual(invoke('full'), expected_full)
+                self.assertEqual([tuple(json.loads(line)[5:7]) for line in record.read_text().splitlines()], expected)
             for mode, code in [('zero', 1), ('failed', 7)]:
                 record.write_text('')
                 result = subprocess.run(['bash', str(HERE / 'main-token-regression.sh'), 'full'],
                                         env=dict(env, CARGO_FIXTURE_MODE=mode), capture_output=True, text=True)
                 self.assertEqual(result.returncode, code, result.stderr)
                 self.assertEqual([tuple(json.loads(line)[5:7]) for line in record.read_text().splitlines()], required)
+
+            record.write_text('')
+            result = subprocess.run(['bash', str(HERE / 'main-token-regression.sh'), 'invalid'],
+                                    env=dict(env, CARGO_FIXTURE_MODE='valid'), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn('Usage:', result.stdout)
+            self.assertEqual(record.read_text(), '')
 
     def test_module_release_dry_run_shows_chain_and_runtime_targets_without_cargo(self):
         bash_version = subprocess.check_output(['bash', '-c', 'echo "${BASH_VERSINFO[0]}"'], text=True)
