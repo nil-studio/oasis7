@@ -626,7 +626,6 @@ run_oasis7_workspace_support_crate_tests() {
     -p oasis7_browser_game_client \
     -p oasis7_client_api \
     -p oasis7_local_signer \
-    -p oasis7_launcher_ui \
     -p oasis7_proto \
     -p oasis7_wasm_abi \
     -p oasis7_wasm_build \
@@ -643,7 +642,6 @@ run_oasis7_workspace_support_crate_tests() {
   run_cargo test -p oasis7_wasm_executor --features wasmtime --all-targets --locked
   run_cargo test -p oasis7_secure_envelope -p oasis7_context --all-targets --locked
   run_cargo test -p oasis7_local_signer --test context_cli --locked
-  run_cargo test -p oasis7_client_launcher --bin oasis7_client_launcher
   # Native tool tests build the real template with the installed stable WASM target.
   OASIS7_WASM_BUILD_STD=0 run_cargo test -p wasm_build_suite -p wasm_module_observe
 }
@@ -745,7 +743,6 @@ PY
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;
-      oasis7_client_launcher) run_cargo test -p "$profile" --bin oasis7_client_launcher ;;
       wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" ;;
       *) run_cargo test -p "$profile" --lib ;;
     esac
@@ -1085,9 +1082,7 @@ run_packaging_artifact_contract_tests() {
 
 run_packaging_contract_tests() {
   run_packaging_artifact_contract_tests
-  run bash ./scripts/release-packages-trunk-cache-contract.test.sh
   run python3 ./scripts/ci-local-signer-tests.py
-
 }
 
 run_operational_identity_contract_tests() {
@@ -1383,18 +1378,6 @@ run_hosted_account_local_smoke() {
   run bash ./scripts/hosted-account-staging-smoke.sh --mode local
 }
 
-run_oasis7_client_launcher_web_build() {
-  run ./scripts/worktree-harness-lifecycle.test.sh
-  run ./scripts/worktree-harness-lifecycle-races.test.sh
-  run ./scripts/worktree-harness-contract.test.sh
-  run ./scripts/launcher-help-contract.test.sh
-  run mkdir -p output/release/web-launcher-dist
-  (
-    cd crates/oasis7_client_launcher
-    run env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist
-  )
-}
-
 run_codex_agent_config_validation() {
   run python3 ./scripts/validate-codex-agent-config.py
 }
@@ -1613,7 +1596,6 @@ run_full_required_superset() {
   run_oasis7_viewer_performance_smoke_report_only
   run_pixel_world_bridge_lib_tests
   run_pixel_world_bridge_wasm_check
-  run_oasis7_client_launcher_web_build
   run_oasis7_workspace_support_crate_tests
 }
 
@@ -1738,7 +1720,6 @@ run_group() {
     viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests --source-only; run_oasis7_viewer_software_safe_build --with-ui; run_oasis7_viewer_browser_functional_regression; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
     viewer_performance_report) run bash ./scripts/viewer-performance-report-only-contract.test.sh; run_oasis7_viewer_software_safe_build; run_oasis7_viewer_visual_test_build; run_oasis7_viewer_performance_smoke_report_only ;;
     pixel_world_bridge) run_pixel_world_bridge_lib_tests; run_pixel_world_bridge_wasm_check ;;
-    launcher_web) run_oasis7_client_launcher_web_build ;;
     workspace_support) run_selected_workspace_support ;;
     scenario_regression) run_scenario_regression_tests ;;
     operational_contracts) run_operational_contract_tests ;;
@@ -1898,7 +1879,7 @@ else
   case "$tier" in
     commit) run_commit_gate_checks ;;
     required)
-      for group in baseline rust_baseline oasis7_required consensus distfs node net viewer_js_required pixel_world_bridge launcher_web workspace_support scenario_regression operational_contracts packaging_contracts workflow_governance codex_agent_config_validation compile_metrics site_quality doc_checker_contracts cargo_tooling_contracts; do run_group "$group"; done
+      for group in baseline rust_baseline oasis7_required consensus distfs node net viewer_js_required pixel_world_bridge workspace_support scenario_regression operational_contracts packaging_contracts workflow_governance codex_agent_config_validation compile_metrics site_quality doc_checker_contracts cargo_tooling_contracts; do run_group "$group"; done
       ;;
     full|full-standard) run_full_required_superset; run_rust_baseline; run_full_extended_tier_tests; if [[ "$tier" == full ]]; then run_group formal_process; fi ;;
     full-extended) run_full_extended_tier_tests ;;

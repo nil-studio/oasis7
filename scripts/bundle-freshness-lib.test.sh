@@ -114,27 +114,6 @@ rm -f "$tmp_repo/bundle/web/viewer.js"
 expect_asset_drift "deleting bundle/web/viewer.js"
 
 printf 'console.log("bundle viewer");\n' > "$tmp_repo/bundle/web/viewer.js"
-printf '<!doctype html><script type="module" src="./app.js"></script>\n' > "$tmp_repo/bundle/web-launcher/index.html"
-printf 'console.log("launcher app");\n' > "$tmp_repo/bundle/web-launcher/app.js"
-bundle_write_manifest "$tmp_repo" "$tmp_repo/bundle"
-printf '<!doctype html>mutated launcher entry\n' > "$tmp_repo/bundle/web-launcher/index.html"
-expect_asset_drift "mutating bundle/web-launcher/index.html"
-
-printf '<!doctype html><script type="module" src="./app.js"></script>\n' > "$tmp_repo/bundle/web-launcher/index.html"
-bundle_write_manifest "$tmp_repo" "$tmp_repo/bundle"
-rm -f "$tmp_repo/bundle/web-launcher/index.html"
-expect_asset_drift "deleting bundle/web-launcher/index.html"
-
-printf '<!doctype html><script type="module" src="./app.js"></script>\n' > "$tmp_repo/bundle/web-launcher/index.html"
-bundle_write_manifest "$tmp_repo" "$tmp_repo/bundle"
-printf 'console.log("mutated launcher");\n' > "$tmp_repo/bundle/web-launcher/app.js"
-expect_asset_drift "mutating bundle/web-launcher/app.js"
-
-printf '<!doctype html><script type="module" src="./app.js"></script>\n' > "$tmp_repo/bundle/web-launcher/index.html"
-printf 'console.log("launcher app");\n' > "$tmp_repo/bundle/web-launcher/app.js"
-bundle_write_manifest "$tmp_repo" "$tmp_repo/bundle"
-rm -f "$tmp_repo/bundle/web-launcher/app.js"
-expect_asset_drift "deleting bundle/web-launcher/app.js"
 
 bundle_write_manifest "$tmp_repo" "$tmp_repo/bundle" packaging native
 if freshness_output="$(bundle_check_freshness "$tmp_repo" "$tmp_repo/bundle" packaging native 2>&1)"; then

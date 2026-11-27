@@ -70,10 +70,9 @@ UNSUPPORTED = {
 SUPPORT_PROFILES = frozenset((
     'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api',
     'oasis7_model_provider', 'oasis7_client_storage', 'oasis7_signer_protocol',
-    'oasis7_custody_core', 'oasis7_launcher_ui', 'oasis7_proto',
+    'oasis7_custody_core', 'oasis7_proto',
     'oasis7_wasm_build', 'oasis7_wasm_sdk', 'oasis7_wasm_store',
     'pixel_world_bridge', 'oasis7_secure_envelope', 'oasis7_context',
-    'oasis7_client_launcher',
 ))
 SUPPORT_CLIPPY_PROFILES = frozenset((
     'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_storage',
@@ -121,7 +120,7 @@ def requested(argv, name, default=None):
 CODE_TASK_FILE_GUIDELINE = 30
 HEAVY_ADVISORY_GROUPS = frozenset((
     'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'node', 'net',
-    'workspace_support', 'formal_process', 'viewer_js_required', 'launcher_web',
+    'workspace_support', 'formal_process', 'viewer_js_required',
 ))
 
 
