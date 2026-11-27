@@ -284,6 +284,10 @@ fn current_crisis_complete_paid_state_consumes_actual_pages_without_hydrating_wo
     assert_eq!(f.memory.used(), during - paid);
     let guard = tx.guard();
     tx.seal(&guard, &live, 1).unwrap();
+    // No new unregistered test target: the existing required WorldState
+    // harness executes all crisis-specific rule cases on actual pages.
+    check_current_crisis_rule_regressions();
+    check_current_crisis_rule_cancel();
 }
 
 #[test]
@@ -743,7 +747,6 @@ fn current_crisis_exhausted_typed_scan_is_not_a_valid_current_proof() {
     ));
 }
 
-
 fn decide_crisis_case(
     source: CrisisState,
     id: &str,
@@ -800,8 +803,7 @@ fn decide_crisis_case(
     tx.seal(&guard, &live, 1).unwrap();
 }
 
-#[test]
-fn real_current_crisis_rule_matches_legacy_success_failure_boundary_and_rejections() {
+fn check_current_crisis_rule_regressions() {
     use CrisisResolutionDataRejectionV1 as Why;
     // Actual outer map key differs from the embedded crisis_id.
     decide_crisis_case(crisis(), " outer ", "  containment  ", true, 20, Ok(20));
@@ -822,8 +824,7 @@ fn real_current_crisis_rule_matches_legacy_success_failure_boundary_and_rejectio
     decide_crisis_case(timed_out, "outer", "work", false, 20, Err(Why::Inactive));
 }
 
-#[test]
-fn actual_current_crisis_rule_cancel_aborts_same_transaction_without_a_rule_grant() {
+fn check_current_crisis_rule_cancel() {
     use oasis7_formal_protocol::incremental_execution::ExecutionError;
     use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
     let f = fixture();
