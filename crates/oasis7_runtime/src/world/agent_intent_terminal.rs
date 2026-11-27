@@ -5,13 +5,19 @@ use super::super::{
 use super::World;
 use oasis7_agent_api::intent_summary::canonical_agent_intent_summary;
 
+#[cfg(all(test, feature = "test_tier_full"))]
 const STATUS_PROPOSED: &str = "proposed";
+#[cfg(all(test, feature = "test_tier_full"))]
 const STATUS_SUBMITTED: &str = "submitted";
 const STATUS_ACCEPTED: &str = "accepted";
+#[cfg(all(test, feature = "test_tier_full"))]
 const STATUS_BLOCKED: &str = "blocked";
 const STATUS_COMPLETED: &str = "completed";
+#[cfg(all(test, feature = "test_tier_full"))]
 const STATUS_REJECTED: &str = "rejected";
+#[cfg(all(test, feature = "test_tier_full"))]
 const STATUS_EXPIRED: &str = "expired";
+#[cfg(all(test, feature = "test_tier_full"))]
 const STATUS_CANCELLED: &str = "cancelled";
 #[cfg(all(test, feature = "test_tier_full"))]
 const SOURCE_PROVIDER_ADVISORY: &str = "provider_advisory";
@@ -159,6 +165,7 @@ impl World {
             .ok_or_else(|| invalid_intent("provider advisory was not persisted"))
     }
 
+    #[cfg(all(test, feature = "test_tier_full"))]
     fn transition_agent_intent_terminal_exact(
         &mut self,
         agent_id: &str,
