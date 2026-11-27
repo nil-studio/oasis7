@@ -63,17 +63,26 @@ impl RemoteFormalEndpoint {
             .operation_deadline
             .unwrap_or_else(|| Instant::now() + self.timeout);
         let mut stream = wire::connect_and_write_before_deadline(&self.address, &signed, deadline)?;
-        // The complete signed Response is a closed protocol enum. The generic
-        // CBOR shape probe separately charges every reachable map/sequence
-        // and bounded serde Content; overbudget response fails closed.
-        let root = size_of::<ResponseBody>().saturating_add(size_of::<Response>());
+        // Closed Response has one outer body and an optional boxed Query state.
+        // A sequence element or map pair is NOT another full Response: applying
+        // the whole root size to every CBOR child exponentially over-admits
+        // scratch and falsely rejects authentic signed Qualified responses.
+        // Charge the actual closed container/box families plus the shared
+        // decoder's serde Content, allocation growth and nesting allowances.
+        let root = size_of::<ResponseBody>()
+            .saturating_add(size_of::<Response>())
+            .saturating_add(size_of::<FormalQueryOutcomeV1>())
+            .saturating_add(size_of::<FormalRequestStateV1>());
         let layout = CborDataLayoutV1 {
             root,
-            sequence_element: root.max(2048),
-            map_pair: root.max(2048),
-            set_element: 1024,
-            box_pointee: root.max(4096),
-            default_heap_per_value: 512,
+            sequence_element: size_of::<FormalRequestStateV1>()
+                .max(size_of::<String>())
+                .max(size_of::<Vec<u8>>()),
+            map_pair: size_of::<(String, String)>()
+                .max(size_of::<(String, Vec<u8>)>()),
+            set_element: size_of::<String>(),
+            box_pointee: size_of::<FormalRequestStateV1>(),
+            default_heap_per_value: size_of::<String>(),
             symbols_bytes: 0,
             visits: 64,
             missing: None,
