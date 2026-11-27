@@ -681,7 +681,7 @@ class WorkflowCorePart4(unittest.TestCase):
     def test_stable_install_is_minimal_with_required_components(self):
         self.assertNotIn('--profile default', WORKFLOW)
         for name, job in JOBS.items():
-            if 'rustup toolchain install' in job and name != 'newapi-bridge-package':
+            if 'rustup toolchain install' in job:
                 if name in ('formal-test-build', 'formal-test-build-trusted'):
                     # Merge needs the real compiler identity but cannot run
                     # build/lint commands. Existing jobs retain their checks.

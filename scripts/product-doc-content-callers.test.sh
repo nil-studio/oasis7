@@ -153,7 +153,7 @@ grep -Fq "CI requires explicit base/head OIDs" "$tmp_dir/no-event.out"
 
 grep -Fq 'run_system_design_traceability_check()' ./scripts/doc-governance-check.sh
 
-sed -n '/^  full-regression:/,/^  newapi-bridge-package:/p' .github/workflows/rust.yml >"$tmp_dir/full-regression.yml"
+sed -n '/^  full-regression:/,$p' .github/workflows/rust.yml >"$tmp_dir/full-regression.yml"
 grep -Fq 'fetch-depth: 0' "$tmp_dir/full-regression.yml"
 grep -Fq 'name: Resolve product-document gate range' "$tmp_dir/full-regression.yml"
 grep -Fq "git rev-parse --verify 'HEAD^1'" "$tmp_dir/full-regression.yml"

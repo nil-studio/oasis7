@@ -157,7 +157,7 @@ class WorkflowCorePart7(unittest.TestCase):
                         ('workflow_dispatch', 'refs/heads/main', False, True, 'candidate-full', 'full'),
                         ('workflow_dispatch', 'refs/heads/topic', True, True, 'candidate-full', 'full'),
                         ('workflow_dispatch', 'refs/heads/main', True, False, 'candidate-full', 'full'),
-                        ('workflow_dispatch', 'refs/heads/main', True, True, 'candidate-full', 'newapi_bridge_package')):
+                        ('workflow_dispatch', 'refs/heads/main', True, True, 'candidate-full', 'other')):
                     for installation, result in itertools.product(('success', 'failure', 'skipped'),
                                                                   ('success', 'failure', 'cancelled')):
                         values = {'always()': True, 'cancelled()': False, 'needs.select.result': 'success',
@@ -292,7 +292,7 @@ class WorkflowCorePart7(unittest.TestCase):
                             ('workflow_dispatch', 'refs/heads/main', 'full', 'explicit-full', 'full-regression'),
                             ('schedule', 'refs/heads/main', '', 'explicit-full', 'full-regression'),
                             ('workflow_dispatch', 'refs/heads/candidate', 'full', 'explicit-full', 'candidate-full-regression'),
-                            ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', 'explicit-full', None)):
+                            ('workflow_dispatch', 'refs/heads/main', 'other', 'explicit-full', None)):
                         values = {
                             'always()': True, 'cancelled()': cancelled,
                             'needs.fast-preflight.result': 'success',
@@ -392,7 +392,7 @@ class WorkflowCorePart7(unittest.TestCase):
                 ('push', 'refs/heads/main', False, '', 'skipped', '', 'failure', 'true', False),
                 ('push', 'refs/heads/other', False, '', 'skipped', '', 'skipped', '', True),
                 ('workflow_dispatch', 'refs/heads/main', False, 'full', 'skipped', '', 'skipped', '', True),
-                ('workflow_dispatch', 'refs/heads/main', False, 'newapi_bridge_package', 'skipped', '', 'skipped', '', False),
+                ('workflow_dispatch', 'refs/heads/main', False, 'other', 'skipped', '', 'skipped', '', False),
                 ('schedule', 'refs/heads/main', False, '', 'success', 'true', 'skipped', '', True),
                 ('schedule', 'refs/heads/main', False, '', 'success', 'false', 'skipped', '', False),
                 ('schedule', 'refs/heads/main', False, '', 'failure', 'true', 'skipped', '', False),

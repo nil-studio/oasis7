@@ -1264,14 +1264,6 @@ run_provider_bridge_live_gate() {
   run ./scripts/provider-remote-https/provider-bridge-live-gate.sh
 }
 
-run_newapi_bridge_service_accounting_tests() {
-  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
-    run_cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service -- --nocapture
-  else
-    run env -u RUSTC_WRAPPER cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service -- --nocapture
-  fi
-}
-
 run_oasis7_viewer_software_safe_feedback_contract_tests() {
   run ./scripts/viewer-dependency-preflight.test.sh
   run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
@@ -1666,7 +1658,7 @@ run_full_extended_tier_tests() {
 }
 
 run_rust_baseline() {
-  local extra_checks=$'newapi_accounting\nstandalone_tool_lockfiles' check
+  local extra_checks='standalone_tool_lockfiles' check
   if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
     extra_checks=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
       --plan "$required_plan" --phase baseline-checks) || return
@@ -1697,7 +1689,6 @@ run_rust_baseline() {
   run_oasis7_required_clippy_for_group rust_baseline
   while IFS= read -r check; do
     case "$check" in
-      newapi_accounting) run_newapi_bridge_service_accounting_tests ;;
       standalone_tool_lockfiles) run_standalone_tool_lockfiles_checks ;;
       '') ;;
       *) echo "Unknown Rust baseline check: $check" >&2; return 2 ;;

@@ -320,7 +320,7 @@ PORTABLE_REQUIRED_PACKAGES = ('oasis7_agent_api', 'oasis7_simulator', 'oasis7_vi
 VIEWER_REQUIRED_CONSUMERS = frozenset(('oasis7', 'oasis7_simulator', 'oasis7_chain_runtime',
                                      'oasis7_launcher_backend', 'oasis7_viewer_runtime'))
 FAST_PROFILES = frozenset(('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'))
-RUST_BASELINE_CHECKS = ('newapi_accounting', 'standalone_tool_lockfiles')
+RUST_BASELINE_CHECKS = ('standalone_tool_lockfiles',)
 ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
 DISTFS_CLIPPY_TARGETS = frozenset((
     ('oasis7_runtime', 'lib', 'oasis7_runtime'),

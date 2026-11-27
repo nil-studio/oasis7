@@ -564,7 +564,7 @@ class WorkflowCorePart3(unittest.TestCase):
                                     ('push', 'refs/heads/main', '', True, scope == 'rust'),
                                     ('schedule', 'refs/heads/main', '', True, scope == 'rust'),
                                     ('workflow_dispatch', 'refs/heads/main', 'full', True, True),
-                                    ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', True, scope == 'ecs'),
+                                    ('workflow_dispatch', 'refs/heads/main', 'other', True, scope == 'ecs'),
                                     ('pull_request', 'refs/pull/1/merge', '', True, False),
                                     ('push', 'refs/heads/topic', '', True, False),
                                     ('workflow_dispatch', 'refs/heads/main', 'full', False, False)):
@@ -650,7 +650,7 @@ class WorkflowCorePart3(unittest.TestCase):
                                 ('push', 'refs/heads/main', '', True, True),
                                 ('schedule', 'refs/heads/main', '', True, True),
                                 ('workflow_dispatch', 'refs/heads/main', 'full', True, True),
-                                ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', True, False),
+                                ('workflow_dispatch', 'refs/heads/main', 'other', True, False),
                                 ('pull_request', 'refs/pull/1/merge', '', True, False),
                                 ('push', 'refs/heads/topic', '', True, False),
                                 ('workflow_dispatch', 'refs/heads/main', 'full', False, False)):

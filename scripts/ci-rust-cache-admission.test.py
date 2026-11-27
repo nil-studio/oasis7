@@ -432,7 +432,7 @@ class AdmissionTests(unittest.TestCase):
         self.environment.update(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(event))
         self.run['event'] = 'workflow_dispatch'
         self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
-        for payload in ({'inputs': {'run_mode': 'newapi_bridge_package'}},
+        for payload in ({'inputs': {'run_mode': 'other'}},
                         {'inputs': {'run_mode': ''}}, {'inputs': {}}, {}, {'inputs': None}):
             event.write_text(json.dumps(payload))
             with self.subTest(payload=payload):

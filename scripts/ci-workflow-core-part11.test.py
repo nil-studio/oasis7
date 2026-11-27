@@ -570,7 +570,6 @@ print({m0!r})
             'run_cargo() { printf "cargo:%s\\n" "$*"; }\n'
             'run_rustsec_advisory_check() { echo advisories; }\n'
             'run_oasis7_required_clippy_for_group() { echo clippy; }\n'
-            'run_newapi_bridge_service_accounting_tests() { echo newapi; }\n'
             'run_standalone_tool_lockfiles_checks() { echo lockfiles; }\n'
             'run_rust_baseline() {\n' + body + '}\nrun_rust_baseline\n'
         )

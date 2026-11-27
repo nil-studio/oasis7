@@ -613,7 +613,6 @@ class WorkflowCorePart13(unittest.TestCase):
                           (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
         else:
             self.assertIn('./scripts/ci-tests.sh full', JOBS['full-regression'])
-        self.assertIn('package-newapi-bridge-service.sh', JOBS['newapi-bridge-package'])
         report = JOBS['viewer-performance-report']
         self.assertIn('rustup default', report)
         self.assertIn('rustup target add wasm32-unknown-unknown', report)

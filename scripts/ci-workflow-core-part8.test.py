@@ -296,8 +296,6 @@ class WorkflowCorePart8(unittest.TestCase):
             for name, job in jobs.items():
                 if 'uses: ./.github/actions/setup-linux-mold' not in job:
                     continue
-                if filename == 'rust.yml' and name == 'newapi-bridge-package':
-                    continue  # This job always builds the executing github.sha.
                 with self.subTest(workflow=filename, job=name):
                     steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                     setup = next(i for i, step in enumerate(steps)
