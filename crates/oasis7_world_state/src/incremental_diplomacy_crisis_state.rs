@@ -118,8 +118,8 @@ where
     };
     let crisis_id = required_text(get(CrisisScalarV1::CrisisId)?)?;
     let kind = required_text(get(CrisisScalarV1::Kind)?)?;
-    let severity = u32::try_from(required_u64(get(CrisisScalarV1::Severity)?.0)?)
-        .map_err(|_| invalid())?;
+    let severity =
+        u32::try_from(required_u64(get(CrisisScalarV1::Severity)?.0)?).map_err(|_| invalid())?;
     let status = match required_text(get(CrisisScalarV1::Status)?)?.as_str() {
         "active" => CrisisStatus::Active,
         "resolved" => CrisisStatus::Resolved,
@@ -186,7 +186,8 @@ pub fn read_current_diplomacy_crisis_state_v1<
         max_text_bytes,
         guard,
         live,
-    )? else {
+    )?
+    else {
         return Ok(None);
     };
     tx.contribute(|tx| {
