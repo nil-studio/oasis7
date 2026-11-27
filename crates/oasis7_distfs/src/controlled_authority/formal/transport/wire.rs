@@ -177,6 +177,57 @@ pub(super) fn write<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(
         .and_then(|_| stream.write_all(&bytes))
         .map_err(io)
 }
+/// Explicit server-side admission of the original transport *frame* before
+/// allocating the 64 MiB raw body. This deliberately does not certify the
+/// subsequently decoded Request DTO, its signing, or an accepted GEN result.
+///
+/// One server-owned Ordinary pool and one monotonic Work meter are supplied at
+/// process startup, never minted or reset per RPC. The retained frame fee stays
+/// alive while the caller authenticates and signs its response.
+pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
+    stream: &mut TcpStream,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &super::super::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<
+    (
+        T,
+        oasis7_proto::memory_budget::ReservedValue<Vec<u8>>,
+    ),
+    FormalError,
+> {
+    use oasis7_proto::memory_budget::MemoryClass;
+    work.charge(1, 4, cancelled)?;
+    let mut length = [0u8; 4];
+    stream.read_exact(&mut length).map_err(io)?;
+    let length = u32::from_be_bytes(length) as usize;
+    if length == 0 || length > LIMIT {
+        return Err(invalid("formal RPC bounded frame"));
+    }
+    // Charge the full raw allocation before creating it. The allocator
+    // capacity slack and the Vec header are counted independently.
+    let layout = length
+        .checked_add(std::mem::size_of::<Vec<u8>>())
+        .and_then(|n| n.checked_add(4096))
+        .ok_or_else(|| invalid("formal RPC frame heap layout"))?;
+    let fee = memory
+        .reserve(layout, MemoryClass::Ordinary)
+        .map_err(|_| invalid("formal RPC frame heap admission"))?;
+    let mut bytes = vec![0; length];
+    if bytes.capacity() > length + 4096 {
+        return Err(invalid("formal RPC frame allocation capacity"));
+    }
+    for chunk in bytes.chunks_mut(8192) {
+        work.charge(1, chunk.len() as u64, cancelled)?;
+        stream.read_exact(chunk).map_err(io)?;
+    }
+    let paid = fee.retain(bytes);
+    work.consume_steps(1, cancelled)?;
+    let request = serde_cbor::from_slice(paid.as_slice())
+        .map_err(|_| invalid("formal RPC admitted frame decode"))?;
+    Ok((request, paid))
+}
+
 pub(super) fn read<T: serde::de::DeserializeOwned>(
     stream: &mut TcpStream,
 ) -> Result<T, FormalError> {
@@ -330,6 +381,42 @@ mod deadline_tests {
         );
         drop(stream);
         sender.join().unwrap();
+        prepaid_frame_is_charged_before_allocation_and_retained_across_decode();
+    }
+
+    fn prepaid_frame_is_charged_before_allocation_and_retained_across_decode() {
+        use oasis7_proto::memory_budget::MemoryBudget;
+        let wire = serde_cbor::to_vec(&42u64).unwrap();
+        for capacity in [0, 1 << 20] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let bytes = wire.clone();
+            let sender = std::thread::spawn(move || {
+                let (mut peer, _) = listener.accept().unwrap();
+                let _ = peer.write_all(&(bytes.len() as u32).to_be_bytes());
+                let _ = peer.write_all(&bytes);
+            });
+            let mut client = TcpStream::connect(addr).unwrap();
+            configure(&client, Duration::from_secs(2)).unwrap();
+            let memory = MemoryBudget::new(capacity, 0).unwrap();
+            let work = super::super::super::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
+            let original_steps = work.remaining_steps();
+            let result: Result<_, FormalError> =
+                read_prepaid_frame::<u64>(&mut client, &memory, &work, &mut || false);
+            if capacity == 0 {
+                assert!(result.unwrap_err().to_string().contains("heap admission"));
+                assert_eq!(memory.used(), 0);
+            } else {
+                let (value, owner) = result.unwrap();
+                assert_eq!(value, 42);
+                assert!(owner.uses_budget(&memory));
+                assert!(memory.used() > 0);
+                drop(owner);
+                assert_eq!(memory.used(), 0);
+            }
+            assert!(work.remaining_steps() < original_steps);
+            sender.join().unwrap();
+        }
     }
 }
 
