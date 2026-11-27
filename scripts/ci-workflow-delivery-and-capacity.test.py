@@ -232,7 +232,7 @@ class SupportCapacity(unittest.TestCase):
             for label in ('target', 'target/debug/deps'):
                 record = next(r for r in records if r.get('kind') == 'directory' and r['label'] == label)
                 self.assertEqual(record['status'], 'symlink')
-            missing = next(r for r in records if r.get('kind') == 'directory' and r['label'] == 'custody/artifacts')
+            missing = next(r for r in records if r.get('kind') == 'directory' and r['label'] == 'cargo/registry')
             self.assertEqual(missing['status'], 'missing')
 
     def test_failed_directory_measurement_is_explicit_and_does_not_replace_exit_code(self):
@@ -542,7 +542,7 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
                 test -z "${BASH_ENV+x}"
                 cd child
                 bash -c 'test "$PWD" = "$GITHUB_WORKSPACE/child"'
-                """], cwd=root / 'child', env=dict(os.environ, BASH_ENV=str(path)), capture_output=True)
+                """], cwd=root / 'child', env={'PATH': os.environ['PATH'], 'BASH_ENV': str(path)}, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_only_chain_runtime_native_artifact_owners_skip_compiler_preparation(self):

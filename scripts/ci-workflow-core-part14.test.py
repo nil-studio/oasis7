@@ -544,6 +544,8 @@ class WorkflowCorePart14(unittest.TestCase):
                 self.assertIn('retention-days: 7', upload)
         self.assertIn('overwrite: true', node)
         self.assertIn('if: always()', node)
+        legacy_config = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
+                             custody_policy_tests_version=1, custody_node_shards_version=2)
         summary = JOBS['workspace-support']
         for before, after in [
                 ('custody-node]', ']'),
@@ -551,13 +553,13 @@ class WorkflowCorePart14(unittest.TestCase):
                 ('ci-custody-platform.py validate', 'true'),
                 ('pattern: custody-node-${{ github.run_id }}-*', 'pattern: stale-*')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
-                validate_candidate_graph(WORKFLOW.replace(summary, summary.replace(before, after)), CONFIG)
+                validate_candidate_graph(WORKFLOW.replace(summary, summary.replace(before, after)), legacy_config)
         for before, after in [('fail-fast: false', 'fail-fast: true'),
                               ('custody_node_shards', 'unknown_shards'),
                               ('ci-custody-platform.py restore', 'true'),
                               ('npm run test:types', 'true')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
-                validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), CONFIG)
+                validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), legacy_config)
         native = JOBS['custody-native-contracts']
         native_needs = ('    needs: [select, fast-preflight]\n'
                         if '    needs: [select, fast-preflight]\n' in native else '    needs: select\n')
@@ -567,13 +569,13 @@ class WorkflowCorePart14(unittest.TestCase):
                               ('run_worker_wasm_compile_profiles', 'true'),
                               ('    needs: [select, fast-preflight]\n', '    needs: custody-wasm-production\n')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
-                validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), CONFIG)
+                validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), legacy_config)
         for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 2'),
                               ('ci-custody-platform.py policy-tests', 'true'),
                               ('name: ${{ needs.select.outputs.selection_artifact }}', 'name: unrelated'),
                               ('OASIS7_SUPPORT_TESTED_SHA:', 'OMITTED_TESTED_SHA:')]:
             with self.subTest(before=before), self.assertRaisesRegex(ValueError, 'policy'):
-                validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), CONFIG)
+                validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), legacy_config)
 
     def test_custody_bundle_upload_rejects_hidden_file_filtering_or_checkout_upload(self):
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))

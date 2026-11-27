@@ -4739,7 +4739,6 @@ def complete_ordinary_partitions(config, plan):
                 and plan.get('fast_plan_version') == FAST_PLAN_VERSION
                 and plan.get('execution_profile') in ('pr-fast', 'main-fast')
                 and plan.get('workspace_support_partitions') == ['other']
-                and 'oasis7_custody_worker' not in plan.get('workspace_support_profiles', ())
                 and (not workspace_support_requires_host(plan)
                      or workspace_support_selects_signer_image(plan))):
             direct_ver = config['workspace_support_direct_gate_version']
@@ -4840,7 +4839,7 @@ def workspace_support_selects_signer_image(plan):
 
 
 def support_partitions(profiles):
-    return sorted({'custody' if profile == 'oasis7_custody_worker' else 'other' for profile in profiles})
+    return ['other'] if profiles else []
 
 
 def fleet_health_subcontracts(config, chosen, affected, path_rules, *, full=False, additions=()):

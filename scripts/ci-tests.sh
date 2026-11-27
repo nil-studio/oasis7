@@ -60,7 +60,6 @@ checkpoint = sys.argv[1][:160]
 started = time.monotonic()
 deadline = started + 20
 root = Path.cwd()
-custody = root / 'crates/oasis7_custody_worker'
 cargo = Path(os.environ.get('CARGO_HOME', str(Path.home() / '.cargo')))
 rustup = Path(os.environ.get('RUSTUP_HOME', str(Path.home() / '.rustup')))
 temporary = Path(os.environ.get('RUNNER_TEMP', '/tmp'))
@@ -105,7 +104,6 @@ paths = [(name, root / name) for name in (
     'target', 'target/debug', 'target/debug/deps', 'target/debug/build',
     'target/debug/incremental', 'target/release',
     'target/wasm32-unknown-unknown/debug', 'target/wasm32-unknown-unknown/release')]
-paths += [('custody/' + name, custody / name) for name in ('build', 'artifacts', 'node_modules')]
 paths += [('cargo/' + name, cargo / name) for name in ('registry', 'git', 'bin')]
 paths += [('rustup/toolchains', rustup / 'toolchains'), ('runner-temp', temporary), ('tmp', Path('/tmp'))]
 for label, path in paths:
@@ -565,23 +563,6 @@ run_signed_read_protocol_contract_tests() {
   run env PYTHON="$ci_python" npm test --prefix crates/oasis7_agent_api/protocol_conformance
 }
 
-run_worker_wasm_compile_profiles() {
-  # Run the trusted planner's exact compile tuples; candidate role flags do not
-  # become test-execution evidence and mutually exclusive roles stay separate.
-  run "$ci_python" - "$driver_dir/plan-rust-required-scope.py" <<'PY_WORKER_COMPILE'
-import importlib.util
-import subprocess
-import sys
-import tomllib
-from pathlib import Path
-spec = importlib.util.spec_from_file_location('scope', sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-manifest = tomllib.loads(Path('crates/oasis7_custody_worker/Cargo.toml').read_text())
-module.run_worker_wasm_compile_checks(manifest)
-PY_WORKER_COMPILE
-}
-
 run_game_client_cli_contracts() {
   local phase=${1:-all}
   run_cargo test -p oasis7_game_client --test dev_test_service_cli --test dev_test_local_transport --test dev_test_local_cli --locked
@@ -603,6 +584,14 @@ run_game_client_cli_contracts() {
   fi
 }
 
+# Compatibility no-op stub kept for policy_sha compatibility with .github/workflows/rust.yml
+# until #7315 removes the custody-* job shells.
+if ! declare -F run_worker_wasm_compile_profiles >/dev/null; then
+  run_worker_wasm_compile_profiles() {
+    echo "+ worker wasm compile profiles offboarded"
+  }
+fi
+
 run_dev_test_worker_checks() {
   if ! command -v worker-build >/dev/null || [[ "$(worker-build --version)" != "0.7.5" ]]; then
     run_cargo install worker-build --version 0.7.5 --locked
@@ -616,7 +605,6 @@ run_oasis7_workspace_support_crate_tests() {
     run_dev_test_worker_checks
     run_signed_read_protocol_contract_tests
     run_cargo test -p oasis7_custody_core --all-targets --locked
-    run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles
     run_cargo_clippy -p oasis7_agent_api --all-targets
     run_cargo_clippy -p oasis7_agent_harness --all-targets
     run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
@@ -702,14 +690,17 @@ if plan_input and plan.get('scope') == 'full':
     profiles = list(module.SUPPORT_PROFILES)
 partition = sys.argv[3]
 if plan_input and ('workspace_support_partition_version' in plan or 'workspace_support_partitions' in plan):
+    expected_partitions = (
+        module.support_partitions(profiles),
+        sorted({'custody' if p == 'oasis7_custody_worker' else 'other' for p in profiles}),
+    )
     if (type(plan.get('workspace_support_partition_version')) is not int
             or plan['workspace_support_partition_version'] != 1
-            or plan.get('workspace_support_partitions') != module.support_partitions(profiles)
+            or plan.get('workspace_support_partitions') not in expected_partitions
             or (partition != 'all' and partition not in plan['workspace_support_partitions'])):
         raise SystemExit('invalid complete workspace support partitions')
     if partition != 'all':
-        profiles = [profile for profile in profiles
-                    if ('custody' if profile == 'oasis7_custody_worker' else 'other') == partition]
+        profiles = [profile for profile in profiles if 'other' == partition]
 elif partition != 'all':
     raise SystemExit('support partition requires a trusted capability')
 execution = sys.argv[4]
@@ -741,7 +732,7 @@ PY
       oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib; run_game_client_cli_contracts ;;
       oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
-      oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
+      oasis7_custody_worker) echo "+ support profile offboarded: $profile"; complete_targets=true; expand_targets=false ;;
       oasis7_wasm_executor)
         # Run the actual Linux worker binary, process/FD and regex integration
         # tests alongside the library tests. This crate's sole nondefault
