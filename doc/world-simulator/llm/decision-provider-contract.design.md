@@ -360,7 +360,7 @@ provider response validator 或诊断 trace 均只能保持 `partial`。
 `builtin_governance_consistency` 与输入完整性独立判定：
 
 1. 捕获真实组装并序列化的 Responses payload，检查两字段文字范围与 tools minimum/maximum 一致，排除 `1000..=9000`、`8..=256` 及等价旧范围说明；核对生成源与 parser/Runtime 的共享约束。tool schema 正确不能代替正文断言。
-2. 使用其它主体/权限/选项/quorum 均合法的固定输入；分别检查 parser 与 Runtime 的 `5000/10000`、`1/1440` 合法端点及其组合，`4999/10001`、`0/1441` 单字段越界拒绝。保留 [现有工具执行测试](../../../crates/oasis7/src/simulator/llm_agent/tests_tool_execution.rs) 的 `6500` 正例和原有正常校验负例，不以放宽 Runtime 达成提示一致。
+2. 使用其它主体/权限/选项/quorum 均合法的固定输入；分别检查 parser 与 Runtime 的 `5000/10000`、`1/1440` 合法端点及其组合，`4999/10001`、`0/1441` 单字段越界拒绝。保留 [现有工具执行测试](../../../crates/oasis7_runtime_host/src/agent_execution/llm_agent/tests_tool_execution.rs) 的 `6500` 正例和原有正常校验负例，不以放宽 Runtime 达成提示一致。
 
 实现 PR 保存候选 SHA、payload/schema 对账、parser/Runtime/工具路径的边界断言及实际执行记录。该组无需真实模型，不重平衡治理规则，也不证明模型会选择某个参数。
 
