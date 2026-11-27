@@ -1,8 +1,8 @@
-use crate::agent::{ActionResult, AgentDecision};
 use super::decision_flow::{
     ExecuteUntilCondition, ExecuteUntilDirective, ExecuteUntilEventKind,
     summarize_execute_until_conditions,
 };
+use crate::agent::{ActionResult, AgentDecision};
 use oasis7_simulator::Action;
 use oasis7_simulator::{Observation, RejectReason, WorldEventKind};
 

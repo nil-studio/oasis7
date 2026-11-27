@@ -4,8 +4,10 @@ use oasis7_agent_api::{
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
 };
 use oasis7_agent_harness::cognition_response_digest;
-type ContinuousAgentResponseContextV1 =
-    oasis7_agent_api::ContinuousAgentResponseContextV1<oasis7_simulator::Action, crate::agent::AgentQuery>;
+type ContinuousAgentResponseContextV1 = oasis7_agent_api::ContinuousAgentResponseContextV1<
+    oasis7_simulator::Action,
+    crate::agent::AgentQuery,
+>;
 use super::behavior_budget::{BudgetTraceState, budget_diagnostics};
 use super::behavior_context::{CognitionBudgetExhausted, builtin_provider_decision};
 use super::*;

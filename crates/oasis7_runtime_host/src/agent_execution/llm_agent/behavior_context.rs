@@ -1,11 +1,11 @@
 use super::*;
 
 use crate::decision_provider::ProviderDecision;
-use oasis7_agent_api::{
-    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
-};
-type ContinuousAgentResponseContextV1 =
-    oasis7_agent_api::ContinuousAgentResponseContextV1<oasis7_simulator::Action, crate::agent::AgentQuery>;
+use oasis7_agent_api::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
+type ContinuousAgentResponseContextV1 = oasis7_agent_api::ContinuousAgentResponseContextV1<
+    oasis7_simulator::Action,
+    crate::agent::AgentQuery,
+>;
 
 pub(super) use crate::llm_request_budget::{
     BudgetExhausted as CognitionBudgetExhausted, BudgetSnapshot as CognitionBudgetSnapshot,

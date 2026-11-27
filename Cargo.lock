@@ -6744,12 +6744,14 @@ dependencies = [
 name = "oasis7_runtime_host"
 version = "0.1.0"
 dependencies = [
+ "async-openai",
  "blake3",
  "oasis7_agent_api",
  "oasis7_agent_harness",
  "oasis7_client_api",
  "oasis7_formal_protocol",
  "oasis7_hosted_access",
+ "oasis7_model_provider",
  "oasis7_proto",
  "oasis7_runtime",
  "oasis7_simulator",
@@ -6759,6 +6761,7 @@ dependencies = [
  "serde",
  "serde_cbor_2",
  "serde_json",
+ "toml",
  "url",
 ]
 

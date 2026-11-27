@@ -214,8 +214,10 @@ impl<C: LlmCompletionClient> LlmAgentBehavior<C> {
                 continue;
             }
 
-            let candidate_to_target =
-                oasis7_agent_api::world_geometry::space_distance_cm(candidate.pos, target_location.pos);
+            let candidate_to_target = oasis7_agent_api::world_geometry::space_distance_cm(
+                candidate.pos,
+                target_location.pos,
+            );
             if candidate_to_target >= target_location.distance_cm {
                 continue;
             }
