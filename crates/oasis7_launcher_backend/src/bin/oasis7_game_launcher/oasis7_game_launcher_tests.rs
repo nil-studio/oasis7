@@ -25,7 +25,7 @@ use super::{
 };
 use oasis7_agent_api::ProviderExecutionMode;
 use oasis7_client_api::viewer_protocol::{VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse};
-use oasis7_launcher_config::DEFAULT_CHAIN_REPLICATION_BOOTSTRAP_PEERS;
+use oasis7_client_api::DEFAULT_CHAIN_REPLICATION_BOOTSTRAP_PEERS;
 use oasis7_proto::storage_profile::StorageProfile;
 
 #[path = "provider_lineage_tests.rs"]

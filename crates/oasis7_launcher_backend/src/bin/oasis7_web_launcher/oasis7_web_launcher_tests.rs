@@ -17,7 +17,7 @@ use super::{
     snapshot_from_state, stop_chain_process, stop_process, validate_chain_config,
     validate_game_config, validate_game_config_with_launcher_bin,
 };
-use oasis7_launcher_config::default_chain_replication_bootstrap_peers_csv;
+use oasis7_client_api::default_chain_replication_bootstrap_peers_csv;
 use oasis7_proto::storage_profile::StorageProfile;
 
 fn contains_issue(issues: &[String], text: &str) -> bool {
@@ -125,10 +125,6 @@ fn parse_options_accepts_overrides() {
     assert_eq!(options.initial_config.deployment_mode, "hosted_public_join");
     assert_eq!(options.launcher_bin, "/tmp/oasis7_game_launcher");
     assert_eq!(options.chain_runtime_bin, "/tmp/oasis7_chain_runtime");
-    assert_eq!(
-        options.console_static_dir,
-        PathBuf::from("/tmp/web-launcher-dist")
-    );
     assert_eq!(options.initial_config.scenario, "sandbox");
     assert_eq!(options.initial_config.live_bind, "127.0.0.1:6200");
     assert_eq!(options.initial_config.web_bind, "127.0.0.1:6201");
@@ -737,7 +733,6 @@ fn stop_process_noop_preserves_error_state() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         config,
     );
     state.process_state = ProcessState::StartFailed("boot failed".to_string());
@@ -759,7 +754,6 @@ fn stop_chain_process_noop_preserves_error_state() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         config,
     );
     state.chain_runtime_status = ChainRuntimeStatus::Unreachable("probe failed".to_string());
@@ -804,7 +798,6 @@ fn gui_agent_set_chain_network_tier_updates_config_manifest() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         LauncherConfig::default(),
     );
     state.updated_at_unix_ms = 0;
@@ -843,7 +836,6 @@ fn gui_agent_action_rejects_unknown_action_with_invalid_request() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         LauncherConfig::default(),
     );
 
@@ -869,7 +861,6 @@ fn gui_agent_query_chain_disabled_returns_structured_error() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         config,
     );
 
@@ -900,7 +891,6 @@ fn gui_agent_action_response_includes_state_snapshot_fields() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         LauncherConfig::default(),
     );
 
@@ -936,7 +926,6 @@ fn finalize_chain_start_outcome_reports_stale_execution_world() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         LauncherConfig::default(),
     );
     state.chain_runtime_status =
@@ -986,7 +975,6 @@ fn state_snapshot_redacts_agent_provider_auth_token() {
     let state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         config,
     );
 
@@ -1063,7 +1051,6 @@ fn snapshot_from_state_includes_chain_p2p_status() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        PathBuf::from("."),
         LauncherConfig::default(),
     );
     state.chain_runtime_status = ChainRuntimeStatus::Ready;

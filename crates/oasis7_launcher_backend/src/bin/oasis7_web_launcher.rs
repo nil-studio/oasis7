@@ -1,12 +1,10 @@
 use oasis7_client_api::chain_pos_defaults;
-use oasis7_launcher_config::default_chain_replication_bootstrap_peers_csv;
-use oasis7_launcher_ui::launcher_ui_fields_for_web;
+use oasis7_client_api::default_chain_replication_bootstrap_peers_csv;
 use oasis7_observability::init_tracing;
 use oasis7_proto::storage_profile::StorageProfile;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::env;
-use std::path::PathBuf;
 use std::process::{self, Child};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
@@ -26,12 +24,8 @@ mod parse_utils;
 mod runtime_paths;
 #[path = "oasis7_web_launcher/server.rs"]
 mod server;
-#[path = "oasis7_web_launcher/static_files.rs"]
-mod static_files;
 #[path = "oasis7_web_launcher/transfer_query_proxy.rs"]
 mod transfer_query_proxy;
-#[path = "oasis7_web_launcher/viewer_auth_bootstrap.rs"]
-mod viewer_auth_bootstrap;
 
 use control_plane::*;
 use gui_agent_api::{execute_gui_agent_action, gui_agent_capabilities_response};
@@ -43,16 +37,12 @@ use parse_utils::{
 };
 use runtime_paths::{
     normalize_bind_host_for_local_access, now_unix_ms, repo_root_dir,
-    resolve_console_static_dir_path, resolve_oasis7_game_launcher_binary, resolve_static_dir_path,
+    resolve_oasis7_game_launcher_binary, resolve_static_dir_path,
 };
 #[cfg(test)]
 use server::remap_transfer_runtime_target;
 use server::run_server;
-use static_files::{StaticAsset, load_console_static_asset};
 use transfer_query_proxy::query_chain_transfer_json;
-use viewer_auth_bootstrap::{
-    inject_viewer_auth_bootstrap_if_html, resolve_optional_viewer_auth_bootstrap,
-};
 
 const DEFAULT_LISTEN_BIND: &str = "0.0.0.0:5410";
 const DEFAULT_SCENARIO: &str = "";
@@ -72,19 +62,6 @@ const PUBLIC_TESTNET_NETWORK_TIER_MANIFEST: &str =
 const MAINNET_NETWORK_TIER_MANIFEST: &str =
     "doc/testing/templates/network-tier-mainnet.example.json";
 const DEFAULT_CHAIN_NODE_TICK_MS: u64 = 200;
-#[cfg(test)]
-const LAUNCHER_AGENT_PROVIDER_FIELD_IDS: &[&str] = &[
-    "agent_decision_source",
-    "agent_provider_backend",
-    "agent_provider_contract",
-    "agent_provider_transport",
-    "agent_provider_url",
-    "agent_provider_auth_token",
-    "provider_auto_discover",
-    "agent_provider_connect_timeout_ms",
-    "agent_execution_lane",
-    "agent_provider_profile",
-];
 const AGENT_DECISION_SOURCE_BUILTIN_LLM: &str = "builtin_llm";
 const AGENT_DECISION_SOURCE_PROVIDER_BACKED: &str = "provider_backed";
 const AGENT_PROVIDER_BACKEND_LOCAL_BRIDGE: &str = "provider_local_bridge";
@@ -226,7 +203,6 @@ struct CliOptions {
     listen_bind: String,
     launcher_bin: String,
     chain_runtime_bin: String,
-    console_static_dir: PathBuf,
     initial_config: LauncherConfig,
 }
 
@@ -240,7 +216,6 @@ impl Default for CliOptions {
             chain_runtime_bin: runtime_paths::resolve_oasis7_chain_runtime_binary()
                 .to_string_lossy()
                 .to_string(),
-            console_static_dir: resolve_console_static_dir_path(),
             initial_config: LauncherConfig::default(),
         }
     }
@@ -421,7 +396,6 @@ impl ChainRuntimeStatus {
 struct ServiceState {
     launcher_bin: String,
     chain_runtime_bin: String,
-    console_static_dir: PathBuf,
     config: LauncherConfig,
     process_state: ProcessState,
     running: Option<RunningProcess>,
@@ -442,7 +416,6 @@ impl ServiceState {
     fn new(
         launcher_bin: String,
         chain_runtime_bin: String,
-        console_static_dir: PathBuf,
         config: LauncherConfig,
     ) -> Self {
         let chain_runtime_status = if config.chain_enabled {
@@ -453,7 +426,6 @@ impl ServiceState {
         Self {
             launcher_bin,
             chain_runtime_bin,
-            console_static_dir,
             config,
             process_state: ProcessState::Idle,
             running: None,
@@ -646,7 +618,6 @@ fn main() {
         listen_bind = %options.listen_bind,
         launcher_bin = %options.launcher_bin,
         chain_runtime_bin = %options.chain_runtime_bin,
-        console_static_dir = %options.console_static_dir.display(),
         deployment_mode = %options.initial_config.deployment_mode,
         scenario = %options.initial_config.scenario,
         "starting web launcher"
@@ -666,7 +637,6 @@ Options:\n\
   --deployment-mode <mode>        hosted_public_join\n\
   --launcher-bin <path>           oasis7_game_launcher binary path\n\
   --chain-runtime-bin <path>      oasis7_chain_runtime binary path\n\
-  --console-static-dir <path>     launcher web static directory (default: ../web-launcher)\n\
   --scenario <name>               default scenario for web form\n\
   --live-bind <host:port>         default --live-bind for oasis7_game_launcher\n\
   --web-bind <host:port>          default --web-bind for oasis7_game_launcher\n\
@@ -740,8 +710,7 @@ where
                 options.chain_runtime_bin = next_value(&mut iter, "--chain-runtime-bin")?;
             }
             "--console-static-dir" => {
-                options.console_static_dir =
-                    PathBuf::from(next_value(&mut iter, "--console-static-dir")?);
+                let _ = next_value(&mut iter, "--console-static-dir")?;
             }
             "--scenario" => {
                 options.initial_config.scenario = next_value(&mut iter, "--scenario")?;
@@ -950,9 +919,6 @@ where
     }
     if options.chain_runtime_bin.trim().is_empty() {
         return Err("--chain-runtime-bin must not be empty".to_string());
-    }
-    if options.console_static_dir.as_os_str().is_empty() {
-        return Err("--console-static-dir must not be empty".to_string());
     }
 
     Ok(options)
