@@ -107,7 +107,7 @@ for name in ("mainnet-packages", "testnet-packages", "release-packages"):
     if name != "release-packages":
         assert "cache-mode: read" in workflow
         for cache in re.findall(r"uses: Swatinem/rust-cache@[^\n]+\n(.*?)(?=      - |\Z)", workflow, re.S):
-            image_cache = re.search(r"shared-key: testnet-package-native-\$\{\{ inputs\.build_profile \}\}-image-([0-9a-f]{64})", cache)
+            image_cache = re.search(r"shared-key: oasis7-package-native-linux-x64-\$\{\{ inputs\.build_profile \}\}-image-([0-9a-f]{64})", cache)
             if name == "testnet-packages" and image_cache:
                 image = "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:" + image_cache[1]
                 assert f"RUST_PACKAGE_NATIVE_IMAGE: {image}" in cache
@@ -118,7 +118,7 @@ for name in ("mainnet-packages", "testnet-packages", "release-packages"):
                 assert "save-if: ${{ job.status == 'success' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}" in cache
             else:
                 assert "save-if: false" in cache
-for workflow in ("release", "testnet"):
+for workflow in ("release", "testnet", "mainnet"):
     native_yaml = (repo / ".github/workflows" / (workflow + "-packages.yml")).read_text()
     native = re.search(r"(?ms)^  package-native:\n.*?(?=^  [a-z][a-z0-9_-]+:|\Z)", native_yaml)[0]
     image = re.search(r"ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})", native)
@@ -129,12 +129,14 @@ for workflow in ("release", "testnet"):
         assert "sudo apt-get " not in native and "        volumes:" not in native
         assert "name: Install pinned Rust toolchain\n        if: runner.os != 'Linux'" in native
         assert "RUST_PACKAGE_NATIVE_IMAGE: " + image[0] in native
-        assert "INPUT_SHARED-KEY" not in native and "steps.dependency-cache-tools.outputs.guard_ready" in native
+        assert "INPUT_SHARED-KEY" not in native
+        if workflow != "mainnet":
+            assert "steps.dependency-cache-tools.outputs.guard_ready" in native
         if workflow == "release":
-            assert f"shared-key: release-package-native-image-{image[1]}" in native
+            assert f"shared-key: oasis7-package-native-linux-x64-packaging-image-{image[1]}" in native
             assert "OASIS7_DEPENDENCY_CACHE_FAMILY: release-linux-image" in native
             assert "dpkg-deb --version" in native
-        else:
+        elif workflow == "testnet":
             assert "container: &testnet-native-container" in native
             trusted = re.search(r"(?ms)^  package-native-trusted:\n.*?(?=^  [a-z][a-z0-9_-]+:|\Z)", native_yaml)[0]
             assert "container: *testnet-native-container" in trusted
@@ -257,3 +259,25 @@ for platform, asset in (("linux-x64", "oasis7-linux-x64.deb"),
             (checksum_root / sourceplan).write_text("tampered")
             assert subprocess.run(["shasum", "-a", "256", "-c", platform + "-SHA256SUMS"], cwd=checksum_root, capture_output=True).returncode != 0
 print("ok: Testnet SOURCEPLAN final upload selection, missing-file rejection and checksum integrity on all native platforms")
+
+# The Mainnet Linux image provides GNU coreutils. Execute the workflow's exact
+# checksum shell and compare bytes with the legacy Perl verifier.
+mainnet = (repo / ".github/workflows/mainnet-packages.yml").read_text()
+if "name: Verify the fixed Linux package toolchain" in mainnet:
+    block = mainnet.split("      - name: Write BUILDINFO\n", 1)[1].split("      - name:", 1)[0]
+    checksum_run = block.split('            cd "${bundle}"\n', 1)[1].rsplit("          fi", 1)[0]
+    with tempfile.TemporaryDirectory() as temporary:
+        bundle = Path(temporary)
+        (bundle / "bin").mkdir()
+        payloads = ("BUILDINFO", "bin/launcher with spaces", "bin/runtime")
+        for name in payloads:
+            (bundle / name).write_text(f"fixture for {name}\n")
+        expected = subprocess.check_output(["shasum", "-a", "256", *payloads], cwd=bundle)
+        subprocess.run([workflow_bash, "-e", "-o", "pipefail", "-c", checksum_run], cwd=bundle, check=True)
+        assert (bundle / "SHA256SUMS").read_bytes() == expected
+        subprocess.run(["shasum", "-a", "256", "-c", "SHA256SUMS"], cwd=bundle, check=True,
+                       capture_output=True)
+        (bundle / "bin/runtime").write_text("tampered\n")
+        assert subprocess.run(["sha256sum", "-c", "SHA256SUMS"], cwd=bundle,
+                              capture_output=True).returncode != 0
+    print("ok: Mainnet Linux checksum shell preserves bytes and rejects tampered payload")

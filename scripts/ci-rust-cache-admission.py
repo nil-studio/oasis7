@@ -57,7 +57,7 @@ FAMILIES = {
                   '.github/workflows/ecs-packages.yml', 'native-trusted'),
     'release-web': ('release-packages-web-wasm-trusted-v3', '.github/workflows/rust-cache.yml', 'web-wasm-cache'),
     'release-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
-    'release-linux-image': ('release-package-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
+    'release-linux-image': ('oasis7-package-native-linux-x64-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
                             '.github/workflows/release-packages.yml', 'package-native'),
     'release-windows': ('release-packages-package-native-Windows-native-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'release-macos': ('release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
@@ -65,7 +65,7 @@ FAMILIES = {
         'hosted-login-linux-x86-64-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb',
         '.github/workflows/hosted-login-linux-build.yml', 'warm-linux-release-deps'),
     'testnet-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
-    'testnet-linux-image': ('testnet-package-native-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
+    'testnet-linux-image': ('oasis7-package-native-linux-x64-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
                             '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
 }
 COMPONENT_IMAGE_FAMILIES = frozenset(('rust-image-components', 'rust-image-net',

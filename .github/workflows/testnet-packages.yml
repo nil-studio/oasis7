@@ -380,7 +380,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}
-          shared-key: testnet-package-native-${{ inputs.build_profile }}-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+          shared-key: oasis7-package-native-linux-x64-${{ inputs.build_profile }}-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
           cache-provider: github
           cache-on-failure: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2

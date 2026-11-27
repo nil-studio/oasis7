@@ -860,7 +860,7 @@ jobs:
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
         with:
-          shared-key: release-package-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+          shared-key: oasis7-package-native-linux-x64-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
           cache-on-failure: false
           cache-provider: github
           save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && steps.linux-package-cache-write.outputs.save == 'true' && needs.plan.outputs.checkoutSha == github.sha }}

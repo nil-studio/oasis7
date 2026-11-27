@@ -383,7 +383,7 @@ producer 沿用四小时 schedule 或 `run_mode=full` 手动事件，只接受�
 
 ECS 原生独立迁移到 `oasis7-ecs-native-linux-ecs-v2`，仍只允许既有 main 可信 lane 成功保存。计划源码缺少新工具链 helper 的历史包跳过这一 Rust 缓存路径，继续原冷构建；不能把缺失 helper 的空指纹作为新族写入。
 
-Linux 原生发行包仍按工具链、target 和 profile 共享 `oasis7-package-native-…-trusted-v2`；Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业。其他分支、tag、旧 SHA 或 workflow/source 不同版本均只读，两条路径互斥，不重复编译。
+Release、Mainnet 和 Testnet 的 Linux 原生发行包按 Rust 镜像摘要、linux-x64 和 profile 共享 `oasis7-package-native-linux-x64-<profile>-image-<digest>`。Mainnet 只读，Release 和 Testnet 保留各自原有的可信 writer 条件与最终归档 20 GB 准入。Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业；其余入口只读，两条路径互斥。缺少历史 Rust pin 时用 job 私有 Rustup 目录按原源码选择版本并走冷构建。旧宿主归档保持独立维护和保护，镜像不跨环境恢复该族。
 
 非 Linux 原生包仅在 OS、target 和 profile 匹配时读取对应 Release 原生包缓存；Storage / Compile 的独立边界不扩展。core/support 的文档 gate 使用计划提交父子范围和完整历史；必要命令通过 `tee` 输出日志时启用 Bash `pipefail`，上游失败必须使 gate 失败。
 
