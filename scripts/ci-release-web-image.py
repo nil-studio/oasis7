@@ -77,6 +77,8 @@ def preflight(root, source):
             or not SHA.fullmatch(source or "")
             or root != Path(os.environ["GITHUB_WORKSPACE"]).resolve(strict=True)):
         raise ValueError("unexpected release Web image/source context")
+    if os.access("/var/run/docker.sock", os.W_OK):
+        raise ValueError("release Web image must not have Docker daemon access")
     release = Path("/etc/os-release").read_text()
     if not re.search(r'(?m)^ID=ubuntu$', release) or not re.search(r'(?m)^VERSION_ID="24[.]04"$', release):
         raise ValueError("release Web image requires Ubuntu24.04")

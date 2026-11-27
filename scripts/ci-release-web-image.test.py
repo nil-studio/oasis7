@@ -108,6 +108,18 @@ class WorkflowRouting(unittest.TestCase):
             text = (self.ROOT / '.github/workflows' / filename).read_text()
             job = self.job(text, 'release_gate_web')
             with self.subTest(filename=filename):
+                if self.IMAGE not in job:
+                    header = job.split("    steps:", 1)[0]
+                    self.assertNotIn('container:', header)
+                    self.assertNotIn('RUST_RELEASE_WEB_IMAGE', job)
+                    self.assertNotIn(self.KEY, job)
+                    self.assertIn('timeout-minutes: 25\n', header)
+                    self.assertIn('shared-key: release-packages-web-wasm-trusted-v3\n', job)
+                    self.assertIn('rustup toolchain install', job)
+                    self.assertIn('sudo apt-get update', job)
+                    self.assertIn('xvfb-run -a ./scripts/release-gate.sh', job)
+                    self.assertIn('--web-headed', job)
+                    continue
                 self.reader_contract(job)
                 for bad in (job.replace("save-if: false", "save-if: true"),
                             job.replace("env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'", "always()"),
@@ -120,7 +132,17 @@ class WorkflowRouting(unittest.TestCase):
         text = (self.ROOT / '.github/workflows/rust-cache.yml').read_text()
         job = self.job(text, 'web-wasm-cache')
         self.assertIn('timeout-minutes: 22\n', job)
+        if self.IMAGE not in job:
+            self.assertNotIn('container:', job.split('    steps:', 1)[0])
+            self.assertNotIn('release-web-image', job)
+            self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: release-web\n', job)
+            self.assertIn('shared-key: release-packages-web-wasm-trusted-v3\n', job)
+            self.assertIn('rustup toolchain install', job)
+            self.assertIn('ci-rust-cache-toolchains.py', job)
+            self.assertIn('uses: ./.github/actions/setup-linux-mold', job)
+            return
         self.assertIn('image: ' + self.IMAGE, job)
+        self.assertIn('RUST_RELEASE_WEB_IMAGE: ' + self.IMAGE, job)
         self.assertIn("github.ref == 'refs/heads/main' && github.workflow_sha == github.sha", job)
         self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: release-web-image', job)
         self.assertIn('shared-key: ' + self.KEY, job)
