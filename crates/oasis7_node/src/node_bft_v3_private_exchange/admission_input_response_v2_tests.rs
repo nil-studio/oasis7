@@ -103,6 +103,32 @@ fn original_manifest_and_two_batch_frames_roundtrip_into_exact_staging() {
     OriginalAdmissionBatchResponseV2::decode_and_stage(&bytes2, &next, &mut stage).unwrap();
     assert_eq!(stage.next_index(), 2);
     assert_eq!(stage.finish().unwrap(), original);
+
+    // Even if every authenticated RPC already returned, digest verification
+    // and the sink's final flush remain inside the SAME attempt deadline.
+    // A deterministic clock proves expiry immediately after successful finish
+    // without a flaky 120-second timeout or a fresh retry/grant.
+    let mut late =
+        BftAdmissionInputV2StreamStage::new(&manifest.read.reference, Vec::new()).unwrap();
+    OriginalAdmissionBatchResponseV2::decode_and_stage(&bytes1, &first, &mut late).unwrap();
+    OriginalAdmissionBatchResponseV2::decode_and_stage(&bytes2, &next, &mut late).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let checked = std::cell::Cell::new(0);
+    let result = super::super::admission_input_client_v2::finish_before_attempt_deadline(
+        late,
+        deadline,
+        || {
+            let previous = checked.get();
+            checked.set(previous + 1);
+            if previous == 0 {
+                deadline - std::time::Duration::from_millis(1)
+            } else {
+                deadline
+            }
+        },
+    );
+    assert!(result.unwrap_err().contains("deadline exhausted"));
+    assert_eq!(checked.get(), 2);
 }
 
 #[test]
