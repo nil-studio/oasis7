@@ -45,7 +45,8 @@ impl SubsystemDelta for AgentOwnerControlDelta {
             if world.cognition.is_null() { world.cognition = crate::cognition_recovery::default_cognition_persistence_projection(); }
             world.cognition["agent_delegation"] = encoded;
         }
-        if let Some((prepared, next_id, next_era, journal, evicted)) = self.intent_transition {
+        if let Some((mut prepared, next_id, next_era, journal, evicted)) = self.intent_transition {
+            prepared.agent.mailbox.push_back(prepared.event.clone());
             prepared.install_infallible(ctx.state_mut());
             ctx.install_journal_tail(next_id, next_era, journal, evicted);
         }
