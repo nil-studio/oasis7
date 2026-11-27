@@ -15,7 +15,7 @@
 - 想执行 formal `public_testnet` readiness 或从 deployment truth 重建 validator pair：分别进入 `doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.runbook.md` 与 `doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`；两者都是专业 operator authority，不升级 public-launch 或 mainnet claim。
 - 想先看“没有公网 IP 也要成为正式节点”的主链级覆盖网络目标态：`doc/p2p/network/mainnet-private-reachability-architecture.prd.md`
 - 想先看 P2P/DistFS/consensus/execution/observer 如何作为“链上大世界状态底座”单模块自闭环测试：`testing-manual.md#s9a链上大世界状态底座自闭环`
-- 想先看 Token 分配、治理签名、理想化交易模型或 `OC -> LetAI Run OpenAPI quota` bridge：先读 `doc/p2p/token/README.md`；生产 signer 外部化再进入 `doc/p2p/blockchain/README.md`。
+- 想先看 Token 分配、治理签名或理想化交易模型：先读 `doc/p2p/token/README.md`；生产 signer 外部化再进入 `doc/p2p/blockchain/README.md`。
 - 当前链上代币的正式产品名固定为“绿洲币 / Oasis Coin”；当前 runtime symbol/ticker 为 `OC`，公钥派生账户前缀为 `oc:pk:`；当前创世 `initial_supply` 已冻结为 `10,000,000,000 OC`。
 - 想按子域或文件名继续下钻，而不是从长表里逐行找：`doc/p2p/prd.index.md`
 
@@ -52,7 +52,7 @@
 - `node/`：节点能力、奖励、身份与复制链路；默认先读 `node/README.md`。
 - `observer/`：观察者同步模式与可观测性；默认先读 `observer/README.md`。
 - `blockchain/`：主链安全、network tier、hosted player identity 与 P2PFS 硬化；默认先读 `blockchain/README.md`。
-- `token/`：主链 token 分配、正式命名、创世分桶、低流通、治理分发与 `OC -> LetAI Run OpenAPI` 服务额度桥接方案；默认先读 `token/README.md`。
+- `token/`：主链 token 分配、正式命名、创世分桶、低流通与治理分发；默认先读 `token/README.md`。
 - `viewer-live/`：已完成的 Viewer LLM 默认值与显式 observer/debug 回退变更；默认先读 `viewer-live/README.md`。
 - `consensus/`：共识相关专题；默认先读 `consensus/README.md`。
 - `distributed/`：分布式运行时专题；默认先读 `distributed/README.md`。

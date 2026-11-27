@@ -1,8 +1,7 @@
 # Remote HTTPS Provider Bridge Operator Runbook
 
 - 适用范围: `agent_provider_transport=remote_https` 的 repo-owned 参考装配。
-- 当前参考实现: `oasis7_provider_local_bridge` + `scripts/provider-remote-https/letai_provider_cli.py` + `nginx` HTTPS 反向代理。
-- 本 runbook 不覆盖 `oasis7_newapi_bridge_service`；后者是 `OC -> LetAI quota/token_key` 额度桥，不是 runtime decision provider。
+- 当前参考实现: `oasis7_provider_local_bridge` + `nginx` HTTPS 反向代理。
 
 ## 目标端点
 
@@ -22,23 +21,10 @@ bare 路由不承载 `ContinuousAgentRequestContextV1`、`ContinuousAgentRespons
 `FeedbackEnvelopeV1`，不得作为 target cognition、receipt 或 production async 证明。当前
 HTTP body 没有 `compatibility_lane` 字段；路由/adapter 配置是 lane 选择依据。
 
-repo-owned 参考装配中，这些端点由 `oasis7_provider_local_bridge` 提供，公网 `https://` 入口由 `nginx` 代理到本机 `127.0.0.1:5841`。参考 nginx 模板已包含按 IP 与 `Authorization` 的限流，以及连接数限制，用来降低单个 bearer 快速打空 LetAI quota 的风险。
-
-<a id="当前环境矩阵"></a>
-## 历史环境观察（2026-06-04）
-
-本矩阵保留 2026-06-04 的 remote provider bridge 观察，不代表当前部署配置或认证边界已复核；NewAPI bridge 自身是额度/token state 服务。
-
-| Lane | Host | Provider bridge | 对外入口 | State 来源 | 历史 live gate |
-| --- | --- | --- | --- | --- | --- |
-| 测试环境 | `39.104.204.172` | `oasis7-remote-provider-bridge.service`，监听 `127.0.0.1:5841` | 暂无公网域名；本机/内网验证优先 | 本机 `/etc/oasis7/newapi-bridge/bridge-state.json` | 2026-06-04 live gate: state realigned to the same NewAPI project/token as 205; bare legacy decision smoke passes with `provider_version=letai/gpt-5.4` |
-| 正式环境 | `39.104.205.67` | `oasis7-remote-provider-bridge.service`，监听 `127.0.0.1:5841` | `https://t2t.oasis7.tech` | 本机 `/etc/oasis7/newapi-bridge/bridge-state.json` | 2026-06-04 live gate: bare legacy decision smoke passes with `provider_version=letai/gpt-5.4`; current Codex control host to public TLS is reset before nginx, while 204-to-205 public TLS/HTTP succeeds; this is not target cognition proof |
-
-该历史窗口记录两套 provider bridge 启用自动映射模式：client 传 `newapi_user_ref:<user_ref>` 或 `bridge_user_id:<id>`，provider bridge 从本机 NewAPI bridge state 解析对应 `token_key`。`GET /v1/provider/health` 可能因上游 health URL 返回 `HTTP 401` 而显示 `degraded`；是否能调用模型以 target `/v1/world-simulator/decision-context` smoke 为准。若使用仓库现有的 bare-route contract smoke，结果只能证明 legacy compatibility 路径可达，不能替代 target cognition 验证。
+repo-owned 参考装配中，这些端点由 `oasis7_provider_local_bridge` 提供，公网 `https://` 入口由 `nginx` 代理到本机 `127.0.0.1:5841`。参考 nginx 模板已包含按 IP 与 `Authorization` 的限流，以及连接数限制，用来降低单个 bearer 快速耗尽上游配额的风险。
 
 ## 仓库资产
 
-- Wrapper: `scripts/provider-remote-https/letai_provider_cli.py`
 - Per-user route manager: `scripts/provider-remote-https/manage-user-route.py`
 - Bridge 启动脚本: `scripts/provider-remote-https/start-remote-provider-bridge.sh`
 - 环境变量模板: `scripts/provider-remote-https/remote-provider-bridge.env.example`
@@ -123,33 +109,6 @@ OASIS7_REMOTE_LLM_ROUTES_PATH=/etc/oasis7/remote-provider-llm-routes.json
 `OASIS7_PROVIDER_BRIDGE_AUTH_TOKEN` 的比较。配置该全局 token 不能被当作自动映射
 的第二层认证；state 中的 active binding / token_key 也只证明路由可用。
 
-部署 owner 必须先核实：入口已独立认证调用主体并约束其可选 selector，或整个入口
-严格隔离于仅获准操作这些用户额度的可信调用方。仅监听 loopback 不足以证明经反向
-代理后的入口仍满足该前提。未核实前不得把下面的自动映射示例作为公网安全配置。
-本节不宣称任何现网已暴露、发生费用损失或完成安全修复；实现、部署变更及真实调用
-另行验证和授权。格式解析与认证授权分别验收，禁止裸格式也不能替代授权检查。
-
-满足上述安全前提，且 `oasis7_newapi_bridge_service` 已在持久化 state 里维护 `newapi_user_ref -> bridge_user_id -> token_key` 后，自动映射配置示例为:
-
-```bash
-OASIS7_PROVIDER_AUTH_ROUTE_FROM_BEARER=true
-OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH=/path/to/newapi-bridge/bridge-state.json
-```
-
-此时:
-
-- Client 传 `--agent-provider-auth-token newapi_user_ref:<user_ref>`，bridge 会自动按 `newapi_user_ref` 找 `token_key`
-- 或传 `--agent-provider-auth-token bridge_user_id:<id>`，bridge 会按 `bridge_user_id` 查找
-- 不再需要 `/etc/oasis7/remote-provider-auth-routes.json`
-- 不再需要 `/etc/oasis7/remote-provider-llm-routes.json`
-
-适用前提:
-
-- `oasis7_newapi_bridge_service` 的 state 文件能被 remote provider bridge 读取
-- state 内对应 binding 为 `active`
-- 对应 `project_bindings` 已写入真实 `token_key`
-- 对于全链路测试用户，`newapi_user_ref` 推荐使用链上公钥 fingerprint，例如 `pk_<public-key-fingerprint>`；client bearer 使用 `newapi_user_ref:pk_<public-key-fingerprint>`。测试邮箱只作为 QA / hosted-login persona 标签，不作为 provider bearer 主选择器。
-
 推荐不要手改 JSON，直接用脚本给用户签发 bridge token:
 
 ```bash
@@ -157,7 +116,7 @@ python3 scripts/provider-remote-https/manage-user-route.py upsert-user \
   --auth-routes /etc/oasis7/remote-provider-auth-routes.json \
   --llm-routes /etc/oasis7/remote-provider-llm-routes.json \
   --user alice \
-  --api-key <alice-letai-token-key> \
+  --api-key <alice-provider-api-key> \
   --model gpt-5.4
 ```
 
@@ -170,12 +129,9 @@ python3 scripts/provider-remote-https/manage-user-route.py upsert-user \
 
 ## 本机验证
 
-在 ECS 上准备好环境变量文件后，至少执行:
+在 ECS 上准备好环境变量文件后，启动 remote provider bridge:
 
 ```bash
-python3 /opt/oasis7/remote-provider-bridge/current/scripts/provider-remote-https/letai_provider_cli.py \
-  agent --agent letai --message '{"decision":"wait"}' --timeout 15 --json
-
 /opt/oasis7/remote-provider-bridge/current/scripts/provider-remote-https/start-remote-provider-bridge.sh
 ```
 
@@ -196,7 +152,7 @@ python3 /opt/oasis7/remote-provider-bridge/current/scripts/provider-remote-https
   --auth-routes /etc/oasis7/remote-provider-auth-routes.json \
   --llm-routes /etc/oasis7/remote-provider-llm-routes.json \
   --user alice \
-  --api-key <alice-letai-token-key> \
+  --api-key <alice-provider-api-key> \
   --model gpt-5.4
 
 curl -sS -H "Authorization: Bearer <alice-bridge-token>" \
@@ -205,10 +161,7 @@ curl -sS -H "Authorization: Bearer <alice-bridge-token>" \
 
 ## nginx 验证
 
-真实环境门禁优先使用 live gate。该脚本会通过 SSH 读取 204/205 真实
-`/etc/oasis7/newapi-bridge/bridge-state.json`，派生 active
-`newapi_user_ref:<ref>` selector，然后分别打真实 ECS loopback provider 和 205
-公网 nginx ingress。它不打印 raw `token_key`、密码或私钥。
+真实环境门禁优先使用 live gate（不打印 raw key、密码或私钥）。
 
 ```bash
 ./scripts/provider-remote-https/provider-bridge-live-gate.sh \
@@ -293,7 +246,7 @@ target POST 都成功。若需要把 health 也作为硬门禁，追加 `--requi
   --min-successes 1
 ```
 
-若 LetAI 上游对默认 `oasis7-letai-provider-cli/1.0` User-Agent 做了额外拦截，可在 env 里显式覆写:
+若上游对默认 User-Agent 做了额外拦截，可在 env 里显式覆写:
 
 ```bash
 OASIS7_REMOTE_LLM_USER_AGENT=curl/8.5.0
@@ -319,10 +272,5 @@ env -u RUSTC_WRAPPER cargo run -p oasis7_launcher_backend --bin oasis7_game_laun
 ## 当前已知边界
 
 - 该参考装配复用 `oasis7_provider_local_bridge` 的 provider contract 和 prompt/decision parser，因此 `provider_id` 仍会表现为 `provider_local_bridge`。
-- `provider_health` 默认通过 `OASIS7_REMOTE_LLM_HEALTH_URL` 做 upstream 探针；若 LetAI/兼容服务不支持该路径，需要显式改成可用的健康检查地址。
-- 在未提供真实 LetAI `api_key/model` 前，ECS 端只能部署模板和二进制，不能完成最终 smoke。
-- 自动映射示例使用显式 `newapi_user_ref:<user_ref>` / `bridge_user_id:<id>`。当前
-  `auth_support.rs::parse_newapi_bridge_bearer_selector` 仍兼容不含冒号且长度至少
-  `MIN_BRIDGE_AUTH_TOKEN_LEN`（24 字节）的裸值，并将其同时作为两类标识候选查找；
-  显式前缀要求非空值，未知前缀不接受。解析成功不等于 binding 存在或已授权。
-  这描述当前格式兼容行为，不推荐把裸值当作认证凭据；若要移除兼容，须另行修改实现与回归。
+- `provider_health` 默认通过 `OASIS7_REMOTE_LLM_HEALTH_URL` 做 upstream 探针；若上游兼容服务不支持该路径，需要显式改成可用的健康检查地址。
+- 在未提供真实上游 `api_key/model` 前，ECS 端只能部署模板和二进制，不能完成最终 smoke。

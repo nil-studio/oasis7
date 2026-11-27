@@ -104,7 +104,7 @@ npm --prefix crates/oasis7_viewer run test:ui -- \
 <a id="fs-content-candidate"></a>
 ## 4. 实际候选准备与证据定位
 
-运行时复用 [S6 浏览器闭环手册](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md)，按实际任务选择已经具备条件的 execution lane。需要本地普通 starter 路径时，可遵循其 [W3 DevLocal Builtin LLM](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md#w3devlocal-builtin-llm-免邮箱启动)原步骤和就绪检查；不得把该 lane 改称 ProviderBacked 或 public_testnet。缺 WASM/metadata、有效授权、端口、构建或允许启动条件时记录 blocker。LetAI 专属开发 hold 仍按 [Viewer 原手册](viewer-manual.manual.md#本地真实-llm-游戏测试)执行，本文不恢复其排期。
+运行时复用 [S6 浏览器闭环手册](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md)，按实际任务选择已经具备条件的 execution lane。需要本地普通 starter 路径时，可遵循其 [W3 DevLocal Builtin LLM](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md#w3devlocal-builtin-llm-免邮箱启动)原步骤和就绪检查；不得把该 lane 改称 ProviderBacked 或 public_testnet。缺 WASM/metadata、有效授权、端口、构建或允许启动条件时记录 blocker。
 
 1. 在原 PR/运行记录固定 source/tested tree、实际 bundle/资源身份、profile/revision、world/branch/window、主体与权限、场景/有效生成输入、语言、viewport 和 lane。外部内容另留可取得的固定版本；`session.meta`/`GAME_URL` 及资源加载记录保留原位置。
 2. 按 [S6 页面采样](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md#3-打开页面并采样)建立独立浏览器会话，使用本次真实 `GAME_URL`，在桌面与窄屏保存状态、console/error 和截图；使用其 cleanup，只关闭自己的会话。正式输入从可见页面执行，`__AW_TEST__` 只读取状态/诊断。

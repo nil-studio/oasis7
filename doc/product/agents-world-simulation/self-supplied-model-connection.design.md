@@ -37,7 +37,7 @@ Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；承接 [REQ-BYOK-001](
 | 信息/控件 | 默认行为 | 玩家可见约束 |
 | --- | --- | --- |
 | 供应商 | 玩家明确选择 DeepSeek 官方或 OpenRouter | 不是改游戏模式，不自动改执行方或升级授权 |
-| API Key | 密码输入，不自动读取剪贴板、不回显已提交值 | 只接受推理用途；不索取供应商管理 Key、世界 signer 或 LetAI 平台凭证 |
+| API Key | 密码输入，不自动读取剪贴板、不回显已提交值 | 只接受推理用途；不索取供应商管理 Key、世界 signer 或第三方聚合平台凭证 |
 | 模型 | 本部署当前验证的预设；显示完整模型身份 | 允许改选已支持模型；未覆盖项标注不可用，不默选“目录第一个” |
 | 执行/费用说明 | Key 输入前展示供应商接收方、浏览器执行、本地持久保存和付费账户来源 | 说明本站同源脚本可读取 localStorage；Key 不上传 Oasis7 后端 |
 | 测试连接 | 显式操作，按钮防重复提交 | 提示有限调用费用；只做非世界写入检查 |
@@ -103,7 +103,7 @@ Trace refs: O7-REQ-e0ae0d80-31ca-488b-8ba2-a728bfb9ce8d；承接 [REQ-BYOK-005](
 
 | 体验要求 | 配对验收 | 反证信号 |
 | --- | --- | --- |
-| [REQ-BYOK-001](self-supplied-model-connection.prd.md#req-byok-001) | [AC-BYOK-001](self-supplied-model-connection.prd.md#ac-byok-001) | 仍需要脚本、LetAI 注册或猜端口 |
+| [REQ-BYOK-001](self-supplied-model-connection.prd.md#req-byok-001) | [AC-BYOK-001](self-supplied-model-connection.prd.md#ac-byok-001) | 仍需要脚本、第三方聚合注册或猜端口 |
 | [REQ-BYOK-002](self-supplied-model-connection.prd.md#req-byok-002) | [AC-BYOK-002](self-supplied-model-connection.prd.md#ac-byok-002) | 玩家误以为 Key 不发给供应商或被安全隔离于同源脚本，或误以为估算是硬封顶 |
 | [REQ-BYOK-003](self-supplied-model-connection.prd.md#req-byok-003) | [AC-BYOK-003](self-supplied-model-connection.prd.md#ac-byok-003) | 连接成功被误读为已授权、关页仍永久运行 |
 | [REQ-BYOK-004](self-supplied-model-connection.prd.md#req-byok-004) | [AC-BYOK-004](self-supplied-model-connection.prd.md#ac-byok-004) | 切换/重连重复动作，断开被误读为上游 Key 已撤销 |

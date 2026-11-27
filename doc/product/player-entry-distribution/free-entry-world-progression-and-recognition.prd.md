@@ -95,13 +95,13 @@ Trace ID: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898
 - 功能点：[REQ-ENTRY-FREE-001](#req-entry-free-001)；验收 [AC-ENTRY-FREE-001](#ac-entry-free-001)。
 - 适用范围：免费基础进入、可选 hosting/storage/support 的权力隔离及中断恢复；沿用本条原有阶段和前置条件。
 - 系统设计状态：已覆盖
-- 系统设计依据：[具体服务消费者与状态政策](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-profile-policy)分别承接附加 Hosted 入口、独立便利存储副本、反馈支持及 LetAI 存量义务；[同身份正常接续](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-continuation)、[原请求材料与恢复](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-request-recovery)和[独立入口消费](../../world-simulator/llm/external-agent-game-api.design.md#api-independent-entry-continuation)规定原身份、当前授权、正常读写、权威结果及重入链。降级、到期、取消、续费失败和重购/换商只改变便利交付；基础对象不随服务窗口失效，旧责任保留，故障停止不代正常独立路径。
+- 系统设计依据：[具体服务消费者与状态政策](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-profile-policy)分别承接附加 Hosted 入口、独立便利存储副本、反馈支持及已退役额度桥存量义务；[同身份正常接续](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-continuation)、[原请求材料与恢复](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-request-recovery)和[独立入口消费](../../world-simulator/llm/external-agent-game-api.design.md#api-independent-entry-continuation)规定原身份、当前授权、正常读写、权威结果及重入链。降级、到期、取消、续费失败和重购/换商只改变便利交付；基础对象不随服务窗口失效，旧责任保留，故障停止不代正常独立路径。
 - 设计验证方法：[Hosted HI01–HI05](../../testing/manual/hosted-passkey-account.manual.md#hosted-independent-continuation-validation)、[API AI01–AI07](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-independent-entry-validation)与[服务 profile EX14/EX17/EX21–EX24](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-profile-policy)组合核同身份合法读→写→权威结果→重入、未知原请求只查核、当前权限与服务状态隔离；原有限技术表面方法继续有效。设计条款与静态判据已接收，实际入口执行、真实服务及玩家理解未验证。
 - 本次设计核对：2026-11-05；已合基线 `4912e079baca375637fdd4eff36be58edec32c42` 与本次专业设计及方法接收；具体目标与主要失败/恢复已有承接，不以尚无真实运营事件否定目标设计，也不将新政策倒填为历史采用或实现通过。
 - 实现状态：未核实
 - 实现与验证依据：新追到共享 hosted contract 的实际范围是[deployment合同边界](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_hosted_access/src/lib.rs#L138-L172)和[当前公开路由](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_hosted_access/src/lib.rs#L296-L340)，它表达 deployment、session、action auth 与账户/世界会话路由；[session refresh](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_player_session.rs#L332-L340)及[session slot释放](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_player_session.rs#L853-L875)处理 refresh、token/slot释放，未形成 hosting/storage/support 购买、到期、取消、续费失败或换商迁移消费者。这些已读路径不能直接证明免费/付费隔离，也不能由路径未出现商业字段推定全仓未实现。 本轮为静态实现认定，不记同候选运行 PASS。
 - 核对日期与基线：2026-10-18；需求、设计映射与源码固定 main `bca169a97393da6cb9b8c0a28246a4efc6d813db`；逐 Git blob 与有效行号核验，仅静态文本审读。未运行安装、模型、Runtime、浏览器或业务/测试验收；测试定义、历史记录及其他候选 CI 不代签本候选。系统设计轴及原阶段、前置条件保持不变。
-- 剩余范围：目标设计已接收；实际采用须固定提供者、服务/用户范围、采用条款及既有未结对象，并核对便利状态的真实消费者。仍须逐实际入口核清免费基础身份/原入口、正常世界行动、原请求材料、权威结果与重入历史的实现，并取得同候选证据，核原 P0 Passkey 和可选 native 凭据各自前置；新 issuer、DevLocal、GET-only 或故障安全停止均不代正例。所选 Hosted profile 不接收缺少用户原客户端受保护原件路径的 remote executor 组合；这不缩减任何已接受的旧义务。独立副本、支持及 LetAI 各按原专业能力验证；普通 session 操作不证明商业取消，原实现未核实及历史证据保持。
+- 剩余范围：目标设计已接收；实际采用须固定提供者、服务/用户范围、采用条款及既有未结对象，并核对便利状态的真实消费者。仍须逐实际入口核清免费基础身份/原入口、正常世界行动、原请求材料、权威结果与重入历史的实现，并取得同候选证据，核原 P0 Passkey 和可选 native 凭据各自前置；新 issuer、DevLocal、GET-only 或故障安全停止均不代正例。所选 Hosted profile 不接收缺少用户原客户端受保护原件路径的 remote executor 组合；这不缩减任何已接受的旧义务。独立副本、支持及已退役额度桥存量义务各按原专业能力验证；普通 session 操作不证明商业取消，原实现未核实及历史证据保持。
 
 - 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
@@ -159,7 +159,7 @@ Trace ID: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f
 - 实现状态：未核实
 - 实现与验证依据：本条不声明可选服务已销售或上线，也不把 DevLocal 身份核查工具当作玩家自助导出。尚未取得实际服务清单、退出条款和完整执行证据。
 - 核对日期与基线：2026-11-04；固定文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；仅设计审读，未停止服务、通知用户或处理真实数据。
-- 剩余范围：目标方案与验收方法已接收；真实提供者采用、受影响服务/用户、已公布条款和旧义务仍须按实际对象核实，新政策不追认历史 SLA。提供服务前及实际缩减/结束时，须验证通知送达、原权限读取/完整交接、未结责任承接、账务/数据处置、联系可达性、人员和成本，并记录真实执行结果；缺少能力或接手者时原责任不消失。LetAI 开发暂停与原订单/款项责任保持，不授权新开发、付款、退款或迁移；文档设计不证明世界恢复、完整独立运行或正式全服务结束。
+- 剩余范围：目标方案与验收方法已接收；真实提供者采用、受影响服务/用户、已公布条款和旧义务仍须按实际对象核实，新政策不追认历史 SLA。提供服务前及实际缩减/结束时，须验证通知送达、原权限读取/完整交接、未结责任承接、账务/数据处置、联系可达性、人员和成本，并记录真实执行结果；缺少能力或接手者时原责任不消失。已退役额度桥的原订单/款项责任保持，不授权新开发、付款、退款或迁移；文档设计不证明世界恢复、完整独立运行或正式全服务结束。
 - 验收：[AC-ENTRY-SERVICE-EXIT-001](#ac-entry-service-exit-001)。
 
 <a id="ac-entry-service-exit-001"></a>
