@@ -27,19 +27,17 @@ run() (
 )
 
 case "${TIER}" in
-  required)
-    run test_tier_required tests::main_token::
-    run test_tier_required tests::reward_asset_settlement_action::
-    ;;
-  full)
-    run test_tier_required tests::main_token::
-    run test_tier_required tests::reward_asset_settlement_action::
-    run test_tier_full tests::main_token::
-    run test_tier_full tests::reward_asset_settlement_action::
-    run test_tier_full tests::reward_asset::
-    ;;
+  required|full) ;;
   *)
     usage
     exit 1
     ;;
 esac
+
+# The selectors define the focused coverage; both modules now compile only
+# with test_tier_full, which already includes test_tier_required.
+run test_tier_full tests::main_token::
+run test_tier_full tests::reward_asset_settlement_action::
+if [[ "$TIER" == full ]]; then
+  run test_tier_full tests::reward_asset::
+fi

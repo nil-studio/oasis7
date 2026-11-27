@@ -325,14 +325,12 @@ print(f'test result: ok. {count} passed; 0 failed; 0 ignored; 0 measured; 1 filt
             env = dict(os.environ, PATH=f"{root}{os.pathsep}{os.environ['PATH']}",
                        OASIS7_FORCE_RAW_CARGO='1', CARGO_FIXTURE_RECORD=str(record))
             required = [
-                ('test_tier_required', 'tests::main_token::'),
-                ('test_tier_required', 'tests::reward_asset_settlement_action::'),
+                ('test_tier_full', 'tests::main_token::'),
+                ('test_tier_full', 'tests::reward_asset_settlement_action::'),
             ]
             for tier, expected in (
                 ('required', required),
                 ('full', required + [
-                    ('test_tier_full', 'tests::main_token::'),
-                    ('test_tier_full', 'tests::reward_asset_settlement_action::'),
                     ('test_tier_full', 'tests::reward_asset::'),
                 ]),
             ):
@@ -347,6 +345,13 @@ print(f'test result: ok. {count} passed; 0 failed; 0 ignored; 0 measured; 1 filt
                                         env=dict(env, CARGO_FIXTURE_MODE=mode), capture_output=True, text=True)
                 self.assertEqual(result.returncode, code, result.stderr)
                 self.assertEqual([tuple(json.loads(line)[5:7]) for line in record.read_text().splitlines()], required)
+
+            record.write_text('')
+            result = subprocess.run(['bash', str(HERE / 'main-token-regression.sh'), 'invalid'],
+                                    env=dict(env, CARGO_FIXTURE_MODE='valid'), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn('Usage:', result.stdout)
+            self.assertEqual(record.read_text(), '')
 
     def test_module_release_dry_run_shows_chain_and_runtime_targets_without_cargo(self):
         bash_version = subprocess.check_output(['bash', '-c', 'echo "${BASH_VERSINFO[0]}"'], text=True)
