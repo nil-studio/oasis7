@@ -50,9 +50,6 @@ mod retired_provider_json_admission;
 #[path = "provider_loopback_adapter.rs"]
 mod retired_provider_loopback_adapter;
 #[cfg(any())]
-#[path = "provider_loopback_http.rs"]
-mod retired_provider_loopback_http;
-#[cfg(any())]
 #[path = "provider_material_capture.rs"]
 mod retired_provider_material_capture;
 #[cfg(not(target_arch = "wasm32"))]

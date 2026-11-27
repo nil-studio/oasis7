@@ -1,7 +1,14 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use super::*;
+mod common;
+
+use oasis7_agent_api::cognition_response_digest;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime_host::decision_provider::*;
+use oasis7_runtime_host::decision_provider::{DecisionResponse, FeedbackEnvelope};
+use oasis7_runtime_host::provider_loopback_adapter::*;
+use oasis7_runtime_host::provider_loopback_http::*;
+use oasis7_runtime_host::provider_material_capture::*;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -604,7 +611,7 @@ fn captured_http_failure_is_nonretryable_and_retains_the_attempt() {
     let error = adapter
         .decide_with_continuous_request_context(
             &request.base_decision_request,
-            &super::agent_cognition_identity::production_turn_context(&request),
+            &common::production_turn_context(&request),
             &request,
         )
         .expect_err("captured 503 remains pending and fails closed");
@@ -755,9 +762,9 @@ fn invalid_captured_response_is_persisted_before_decode_and_stays_unconsumed() {
 }
 
 fn captured_provider_request() -> ContinuousAgentRequestContextV1 {
-    let mut fixture = super::agent_cognition_identity::production_request_fixture(1, 5_000);
+    let mut fixture = common::production_request_fixture(1, 5_000);
     fixture["retry_seq"] = serde_json::json!(1);
-    super::agent_cognition_identity::request_from_value(fixture)
+    common::request_from_value(fixture)
 }
 
 fn captured_provider_response(
