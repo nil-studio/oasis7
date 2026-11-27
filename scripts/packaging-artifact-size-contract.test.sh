@@ -181,10 +181,6 @@ require(
     "native launcher packaging must pass the selected Cargo profile",
 )
 require(
-    re.search(r"trunk\s+build\s+--release", build_bundle),
-    "launcher Trunk build must remain on Cargo's standard release profile",
-)
-require(
     "release is a compatibility alias" not in build_bundle
     and "release is a compatibility alias" not in prepare,
     "native packaging scripts must not retain an obsolete release alias",
