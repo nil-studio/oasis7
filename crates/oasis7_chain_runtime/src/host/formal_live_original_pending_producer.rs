@@ -17,7 +17,7 @@ use std::{
     collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::Path,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -371,7 +371,22 @@ fn read_exact_file(directory: &Path, leaf: &str, limit: u64) -> Result<Vec<u8>, 
     {
         return Err("original pending owned file invalid/oversized".into());
     }
-    let file = File::open(&path).map_err(|err| err.to_string())?;
+    // A prior lstat is insufficient: an old owner could replace this path
+    // with a symlink between metadata validation and the actual open.
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&path)
+        .map_err(|err| err.to_string())?;
+    let opened = file.metadata().map_err(|err| err.to_string())?;
+    if !opened.file_type().is_file()
+        || opened.dev() != meta.dev()
+        || opened.ino() != meta.ino()
+        || opened.len() != meta.len()
+        || opened.permissions().mode() & 0o077 != 0
+    {
+        return Err("original pending file identity changed during open".into());
+    }
     let mut bytes = Vec::new();
     file.take(limit + 1)
         .read_to_end(&mut bytes)
@@ -611,5 +626,28 @@ mod tests {
         producer.finish_node_freeze(&scratch.0).unwrap();
         fs::write(scratch.0.join(ORIGINAL_FILE), b"wrong bytes").unwrap();
         assert!(cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, 1).is_err());
+        check_alias_does_not_replace_frozen_original();
+    }
+
+    // Reuse the existing selected native regression instead of adding a new
+    // cfg/test entrypoint. A byte-identical alias is still not the original
+    // private-directory object and must never be followed on cold reopen.
+    fn check_alias_does_not_replace_frozen_original() {
+        use std::os::unix::fs::symlink;
+        let scratch = Scratch::new();
+        let mut producer = OriginalPendingProducerV1::open(&scratch.0, owner()).unwrap();
+        producer
+            .note_accepted_enqueue(identity("alias"), vec![0x31, 0x00, 0xff, 0x42])
+            .unwrap();
+        let pin = producer.begin_freeze(&scratch.0).unwrap();
+        producer.finish_node_freeze(&scratch.0).unwrap();
+        assert!(cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, 1).is_ok());
+        let original_prepared = scratch.0.join(PREPARED_FILE);
+        let alias = scratch.0.join("identical-bytes.cbor");
+        fs::copy(&original_prepared, &alias).unwrap();
+        fs::remove_file(&original_prepared).unwrap();
+        symlink(&alias, &original_prepared).unwrap();
+        assert!(cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, 1).is_err());
+        assert!(read_exact_file(&scratch.0, PREPARED_FILE, RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1 as u64).is_err());
     }
 }
