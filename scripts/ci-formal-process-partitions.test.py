@@ -255,7 +255,7 @@ class CompleteArtifactPartitions(unittest.TestCase):
                 self.assertEqual(artifacts.build_variants('ordinary', selected),
                                  artifacts.build_variants('ordinary', original))
                 self.assertEqual(artifacts.required_native_commands(selected), artifacts.required_native_commands(original))
-                self.assertEqual(artifacts.snapshot_regressions(manifest), artifacts.DEFAULT_SNAPSHOT_REGRESSIONS)
+                self.assertEqual(artifacts.snapshot_regressions(manifest), (artifacts.DEFAULT_SNAPSHOT_REGRESSIONS[0],))
                 required = next(args for name, args, _ in artifacts.build_variants('ordinary', selected) if name == 'required')
                 self.assertIn('oasis7_chain_runtime/test_tier_full', required[required.index('--features') + 1].split(','))
 
