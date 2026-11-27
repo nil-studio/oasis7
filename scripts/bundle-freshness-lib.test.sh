@@ -27,7 +27,6 @@ printf '\0asm\n' > "$tmp_repo/bundle/web/browser-game-client/oasis7_browser_game
 printf 'pub fn protocol() {}\n' > "$tmp_repo/crates/oasis7_browser_game_client/src/lib.rs"
 printf 'pub const VIEWER_PROTOCOL_VERSION: u32 = 7;\n' > "$tmp_repo/crates/oasis7_proto/src/viewer.rs"
 printf '<!doctype html>viewer\n' > "$tmp_repo/crates/oasis7_viewer/viewer.html"
-printf 'console.log("viewer");\n' > "$tmp_repo/crates/oasis7_viewer/viewer.js"
 printf '<!doctype html>canonical claim evidence\n' > "$tmp_repo/crates/oasis7_viewer/viewer_first_agent_claim_evidence.html"
 printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$tmp_repo/scripts/copy-viewer-web-dist.sh"
 printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$tmp_repo/scripts/viewer-web-dist-contract.sh"
@@ -56,6 +55,7 @@ for entry in "${required_scope_entries[@]}"; do
 done
 
 for retired_root_alias in \
+  "crates/oasis7_viewer/viewer.js" \
   "crates/oasis7_viewer/software_safe.html" \
   "crates/oasis7_viewer/software_safe.js" \
   "crates/oasis7_viewer/software_safe_first_agent_claim_evidence.html"; do

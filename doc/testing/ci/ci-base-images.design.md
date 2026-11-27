@@ -156,3 +156,15 @@ release-web独立publish分组仍10分钟，避免给现app-wasm组合追加串�
 使其越原预算。此片只发布工具，不切换writer/readers或改变其资格/缓存；
 正式digest发布后再同批接入三个job，消费PR继续承担22/25/25分钟、历史
 tag工具兼容、独立digest缓存族及原20GB/保存准入验收。
+
+The trusted full-regression job uses the image for npm dependency
+installation, the original `full-extended` command, and the governance
+report. GitHub cache actions remain on the host for npm, Trunk,
+wasm-bindgen, and the sentinel, retaining their original keys, roots,
+and permissions. Host Rust setup remains for the existing cache action
+and tool preparation. Native Cargo restore uses the separate read-only
+image identity, so the prior host target cache cannot enter the image.
+The runner mounts only the workspace and selected tool data. The
+original local Docker socket is bound for the trusted test command
+alone after checking the trusted execution identity. Candidate full
+regression continues through the original runner.

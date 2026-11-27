@@ -14,6 +14,8 @@ workflow_path = Path(sys.argv[1])
 job_header = re.compile(r"^  (?P<name>[A-Za-z0-9_-]+):\s*$")
 run_key = re.compile(r"^(?P<indent>\s*)(?:-\s+)?run:\s*(?P<body>.*)$")
 target = "CI_VERBOSE=1 ./scripts/ci-tests.sh full"
+mixed_target = 'python3 scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"'
+launcher = (workflow_path.parents[2] / 'scripts/ci-trusted-full-regression.py').read_text()
 trunk_install = 'bash scripts/install-ci-trunk.sh "$RUNNER_TEMP/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz" "$RUNNER_TEMP/ci-tools/bin"'
 trunk_verify = 'trunk --version | grep -Fqx "trunk ${TRUNK_VERSION}"'
 helper = (workflow_path.parents[2] / 'scripts/install-ci-trunk.sh').read_text()
@@ -104,13 +106,23 @@ def validate_workflow(path, required_jobs):
         invocation_lines = [
             (line_number, command)
             for line_number, command in commands
-            if target in command and "--command" not in command
+            if ((target in command and "--command" not in command)
+                or (job_name == "full-regression" and command == mixed_target))
         ]
         if not invocation_lines:
             continue
 
         full_jobs.append(job_name)
         invocation_line = invocation_lines[0][0]
+        if any(command == mixed_target for _, command in invocation_lines):
+            expected_bind = "bind(argv, canonical(TEMP / 'ci-tools/bin/trunk'), readonly=True)"
+            expected_verify = f'test "$(trunk --version)" = "trunk {expected_trunk_version}"'
+            expected_run = "subprocess.run(['./scripts/ci-tests.sh', 'full-extended']"
+            bind_at = launcher.find(expected_bind)
+            verify_at = launcher.find(expected_verify)
+            run_at = launcher.find(expected_run)
+            if len(invocation_lines) != 1 or not 0 <= bind_at < verify_at < run_at:
+                failures.append(f"{job_name}: mixed caller lacks the read-only, version-checked Trunk path")
         if top_level_version != expected_trunk_version:
             failures.append(
                 f"{job_name}: top-level TRUNK_VERSION is "
@@ -140,7 +152,7 @@ def validate_workflow(path, required_jobs):
     return full_jobs, failures
 
 
-def fixture_workflow(step_lines):
+def fixture_workflow(step_lines, job_name="full-caller"):
     return "\n".join(
         [
             "name: trunk prerequisite fixture",
@@ -149,7 +161,7 @@ def fixture_workflow(step_lines):
             "env:",
             f"  TRUNK_VERSION: {expected_trunk_version}",
             "jobs:",
-            "  full-caller:",
+            f"  {job_name}:",
             "    runs-on: ubuntu-24.04",
             "    steps:",
             *step_lines,
@@ -158,11 +170,11 @@ def fixture_workflow(step_lines):
     )
 
 
-def check_fixture(name, contents, expected_pass):
+def check_fixture(name, contents, expected_pass, required_jobs=frozenset({"full-caller"})):
     with tempfile.TemporaryDirectory(prefix="rust-full-tier-trunk-") as temp_dir:
         path = Path(temp_dir) / "rust.yml"
         path.write_text(contents, encoding="utf-8")
-        _, fixture_failures = validate_workflow(path, {"full-caller"})
+        _, fixture_failures = validate_workflow(path, required_jobs)
     if expected_pass and fixture_failures:
         return [f"{name}: expected pass, got {fixture_failures}"]
     if expected_pass:
@@ -230,6 +242,15 @@ fixture_failures.extend(
         expected_pass=True,
     )
 )
+for commands, expected_pass in (
+    ([f"      - run: {trunk_install}", f"      - run: {mixed_target}"], True),
+    ([f"      - run: {mixed_target}", f"      - run: {trunk_install}"], False),
+    ([f"      - run: {trunk_install}", '      - run: python3 scripts/ci-trusted-full-regression.py governance "$SOURCE_SHA"'], False),
+):
+    fixture_failures.extend(check_fixture(
+        "mixed Trunk prerequisite", fixture_workflow(commands, "full-regression"),
+        expected_pass=expected_pass, required_jobs={"full-regression"},
+    ))
 failures.extend(fixture_failures)
 
 for fixture_result in fixture_results:
