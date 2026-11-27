@@ -104,7 +104,7 @@ require_file() {
 
 viewer_source_path() {
   local source_rel="$1"
-  if [[ -n "$GENERATED_DIST_DIR" && ("$source_rel" == viewer.js || "$source_rel" == dist/*) ]]; then
+  if [[ -n "$GENERATED_DIST_DIR" && "$source_rel" == dist/* ]]; then
     printf '%s\n' "$GENERATED_DIST_DIR/${source_rel#dist/}"
   else
     printf '%s\n' "$VIEWER_ROOT/$source_rel"
@@ -113,7 +113,7 @@ viewer_source_path() {
 
 generated_dist_dir="${GENERATED_DIST_DIR:-$VIEWER_ROOT/dist}"
 viewer_html="$VIEWER_ROOT/viewer.html"
-viewer_js="$(viewer_source_path viewer.js)"
+viewer_js="$(viewer_source_path dist/viewer.js)"
 compat_html="$generated_dist_dir/software_safe.html"
 compat_js="$generated_dist_dir/software_safe.js"
 compat_claim_evidence="$generated_dist_dir/software_safe_first_agent_claim_evidence.html"
