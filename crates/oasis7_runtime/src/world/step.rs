@@ -392,11 +392,12 @@ impl World {
     // ---------------------------------------------------------------------
 
     pub fn step(&mut self) -> Result<(), WorldError> {
-        self.reject_ordinary_step_during_formal_execution()?;
-        let mut staged = self.clone();
-        staged.step_inner()?;
-        *self = staged;
-        Ok(())
+        super::step_staged_driver::execute_staged_tick(
+            self,
+            super::step_staged_driver::StagedTickEntrypoint::Ordinary,
+            super::transition::DurableCommitConfirmation::Confirmed,
+        )
+        .map_err(super::transition::TransitionReject::into_world_error)
     }
 
     pub(super) fn step_inner(&mut self) -> Result<(), WorldError> {
@@ -454,12 +455,12 @@ impl World {
     }
 
     pub fn step_with_modules(&mut self, sandbox: &mut dyn ModuleSandbox) -> Result<(), WorldError> {
-        self.reject_ordinary_step_during_formal_execution()?;
-        let mut staged = self.clone();
-        let mut no_product_validation_checkpoint = |_world: &World| Ok(());
-        staged.step_with_modules_inner(sandbox, &mut no_product_validation_checkpoint)?;
-        *self = staged;
-        Ok(())
+        super::step_staged_driver::execute_staged_tick(
+            self,
+            super::step_staged_driver::StagedTickEntrypoint::WithModules { sandbox },
+            super::transition::DurableCommitConfirmation::Confirmed,
+        )
+        .map_err(super::transition::TransitionReject::into_world_error)
     }
 
     pub(super) fn step_with_modules_inner(
@@ -514,15 +515,16 @@ impl World {
     where
         F: FnMut(&World) -> Result<(), WorldError>,
     {
-        let mut staged = self.clone();
-        staged.step_with_modules_for_committed_context_inner(
-            sandbox,
-            context,
-            false,
-            product_validation_checkpoint,
-        )?;
-        *self = staged;
-        Ok(())
+        super::step_staged_driver::execute_staged_tick(
+            self,
+            super::step_staged_driver::StagedTickEntrypoint::CommittedContext {
+                sandbox,
+                context,
+                product_validation_checkpoint,
+            },
+            super::transition::DurableCommitConfirmation::Confirmed,
+        )
+        .map_err(super::transition::TransitionReject::into_world_error)
     }
 
     /// Resume a committed tick from a host-published product-validation
@@ -534,16 +536,15 @@ impl World {
         sandbox: &mut dyn ModuleSandbox,
         context: &RuntimeCommittedTickContext,
     ) -> Result<(), WorldError> {
-        let mut no_product_validation_checkpoint = |_world: &World| Ok(());
-        let mut staged = self.clone();
-        staged.step_with_modules_for_committed_context_inner(
-            sandbox,
-            context,
-            true,
-            &mut no_product_validation_checkpoint,
-        )?;
-        *self = staged;
-        Ok(())
+        super::step_staged_driver::execute_staged_tick(
+            self,
+            super::step_staged_driver::StagedTickEntrypoint::ProductValidationResume {
+                sandbox,
+                context,
+            },
+            super::transition::DurableCommitConfirmation::Confirmed,
+        )
+        .map_err(super::transition::TransitionReject::into_world_error)
     }
 
     pub(super) fn step_with_modules_for_committed_context_inner(

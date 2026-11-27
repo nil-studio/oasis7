@@ -7,8 +7,6 @@
 //! (`apply_infallible` via `RootInstallContext`) contract and verifying
 //! event-by-event equivalence plus five-domain fault/replay semantics.
 
-#![cfg_attr(not(test), allow(dead_code))]
-
 use super::step_staged_clock::{NextTickClock, TickClockDelta};
 use super::transition::{
     DurableCommitConfirmation, PreparedStagedCommit, RootInstallContext, StagedRootTransaction,
