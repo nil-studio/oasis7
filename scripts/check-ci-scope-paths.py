@@ -407,6 +407,79 @@ def check_ci_fast_path_health(
                 f"production_cfg={prod_cfg}, ignored_risk={ignored_risk}"
             )
 
+    # 4. Same-tree package_capabilities alignment and 5 end-to-end routing probes.
+    if "package_capabilities" in data:
+        engine = selector._load_sibling_ci_engine()
+        root_manifest = repo_root / "Cargo.toml"
+        if engine is not None and root_manifest.is_file():
+            try:
+                root_toml = tomllib.loads(root_manifest.read_text(encoding="utf-8"))
+                ws_members = {}
+                for member in (root_toml.get("workspace") or {}).get("members", ()):
+                    mp = repo_root / member / "Cargo.toml"
+                    if mp.is_file():
+                        parsed = tomllib.loads(mp.read_text(encoding="utf-8"))
+                        pkg_name = (parsed.get("package") or {}).get("name")
+                        if pkg_name:
+                            ws_members[pkg_name] = set((parsed.get("features") or {}).keys())
+                engine.validate_package_capabilities_against_workspace(
+                    data["package_capabilities"], set(ws_members),
+                    package_groups=data.get("package_groups"), known_groups=set(data.get("groups", ())),
+                    package_features=ws_members,
+                )
+            except (OSError, ValueError, KeyError, UnicodeError) as exc:
+                errors.append(f"package_capabilities workspace alignment failed: {exc}")
+        probes = [
+            ("single-pkg-inline", {
+                "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False, "ordinary_execution": "inline",
+                "ordinary_partitions": ["all"], "ordinary_fast_targets": [{"package": "oasis7_runtime"}],
+                "oasis7_required_packages": ["oasis7_runtime"], "oasis7_required_wasm_packages": [],
+                "workspace_support_profiles": [],
+            }, lambda c: c["mode"] == "inline" and c["partitions"] == ["all"] and c["candidate_container_eligible"] is True),
+            ("dual-pkg-inline", {
+                "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False, "ordinary_execution": "inline",
+                "ordinary_partitions": ["oasis7_runtime", "oasis7_world_state"],
+                "ordinary_fast_targets": [{"package": "oasis7_runtime"}, {"package": "oasis7_world_state"}],
+                "oasis7_required_packages": ["oasis7_runtime", "oasis7_world_state"], "oasis7_required_wasm_packages": [],
+                "workspace_support_profiles": [],
+            }, lambda c: c["mode"] == "inline" and c["partitions"] == ["oasis7_runtime", "oasis7_world_state"]),
+            ("heavy-lib-split", {
+                "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False, "ordinary_artifact_partition_version": 2,
+                "ordinary_universal_sharding_version": 1,
+                "oasis7_required_packages": ["oasis7_runtime", "oasis7_world_state"],
+                "oasis7_required_wasm_packages": [], "workspace_support_profiles": [],
+            }, lambda c: c["mode"] == "artifact-v2" and c["supports_universal_v2"] is True
+                         and "runtime-tests:even" in c["artifact_partitions"] and "runtime-tests:odd" in c["artifact_partitions"]),
+            ("host-docker-risk-fallback", {
+                "scope": "full", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False,
+                "ordinary_risk_targets": [{"package": "oasis7_chain_runtime", "target_kind": "test"}],
+                "oasis7_required_packages": ["oasis7_chain_runtime", "oasis7_runtime"],
+                "oasis7_required_wasm_packages": [], "workspace_support_profiles": [],
+            }, lambda c: c["candidate_container_eligible"] is False
+                         and "builtin_test_modules" in c["required_host_docker_wasm_fixtures"]
+                         and "provider_preview_wasm" in c["required_host_docker_wasm_fixtures"]),
+            ("strict-clippy-delegation", {
+                "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False, "ordinary_execution": "inline",
+                "ordinary_partitions": ["oasis7_runtime", "oasis7_world_state"],
+                "ordinary_fast_targets": [{"package": "oasis7_runtime"}, {"package": "oasis7_world_state"}],
+                "distfs_clippy_group": "rust_baseline",
+                "oasis7_required_packages": ["oasis7_runtime", "oasis7_world_state"],
+                "oasis7_required_wasm_packages": [], "workspace_support_profiles": [],
+            }, lambda c: len(c["delegated_clippy"]) == len(selector.DISTFS_CLIPPY_TARGETS) and bool(c["delegated_clippy"])),
+        ]
+        for label, sample_plan, predicate in probes:
+            try:
+                out = selector.materialize_execution_contracts(data, dict(sample_plan))
+                if not predicate(out["ordinary_execution_contract"]):
+                    errors.append(f"routing probe {label!r} failed contract assertion")
+            except Exception as exc:
+                errors.append(f"routing probe {label!r} raised error: {exc}")
+
     return errors
 
 

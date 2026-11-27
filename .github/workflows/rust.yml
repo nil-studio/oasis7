@@ -614,26 +614,30 @@ jobs:
                   ['oasis7_context', 'oasis7_local_signer', 'oasis7_signer_protocol'],
               )
               output.write('workspace_support_signer_protocol=' + str(signer_protocol).lower() + '\n')
-              risk_targets = plan.get('ordinary_risk_targets')
-              ordinary_candidate_image = (
-                  type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
-                  and plan.get('execution_profile') in ('pr-fast', 'main-fast')
-                  and plan.get('test_policy_changed') is False
-                  and 'ordinary_full_fast_targets' not in plan
-                  and (
-                      risk_targets is None
-                      or (
-                          isinstance(risk_targets, list)
-                          and all(
-                              isinstance(target, dict)
-                              and target.get('target_kind') == 'test'
-                              and (target.get('package') != 'oasis7_chain_runtime'
-                                   or plan.get('scope') not in ('full', 'explicit-full'))
-                              for target in risk_targets
+              contract = plan.get('ordinary_execution_contract')
+              if isinstance(contract, dict) and type(contract.get('candidate_container_eligible')) is bool:
+                  ordinary_candidate_image = contract['candidate_container_eligible']
+              else:
+                  risk_targets = plan.get('ordinary_risk_targets')
+                  ordinary_candidate_image = (
+                      type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+                      and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                      and plan.get('test_policy_changed') is False
+                      and 'ordinary_full_fast_targets' not in plan
+                      and (
+                          risk_targets is None
+                          or (
+                              isinstance(risk_targets, list)
+                              and all(
+                                  isinstance(target, dict)
+                                  and target.get('target_kind') == 'test'
+                                  and (target.get('package') != 'oasis7_chain_runtime'
+                                       or plan.get('scope') not in ('full', 'explicit-full'))
+                                  for target in risk_targets
+                              )
                           )
                       )
                   )
-              )
               output.write('ordinary_candidate_image=' + str(ordinary_candidate_image).lower() + '\n')
           PY
       - id: formal-select
