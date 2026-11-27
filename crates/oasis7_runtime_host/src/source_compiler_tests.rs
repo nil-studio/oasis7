@@ -2,7 +2,7 @@
     dead_code,
     reason = "Shared module release fixture helpers preserve existing compiler integration cases"
 )]
-use crate::runtime::*;
+use oasis7_runtime::*;
 fn pos(x: i64, y: i64) -> oasis7_agent_api::world_action::GeoPos {
     oasis7_agent_api::world_action::GeoPos::new(x, y, 0)
 }
@@ -404,7 +404,7 @@ fn compile_module_artifact_from_source_registers_compiled_artifact() {
         oasis7_hosted_access::process_env::remove_var(removed_old_brand_compiler.as_str());
     }
 
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     register_agent(&mut world, "publisher-1");
 
     world.submit_action(Action::CompileModuleArtifactFromSource {
@@ -470,7 +470,7 @@ fn compile_module_artifact_from_source_rejects_removed_old_brand_compiler_env() 
         );
     }
 
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     register_agent(&mut world, "publisher-1");
 
     world.submit_action(Action::CompileModuleArtifactFromSource {
@@ -520,7 +520,7 @@ fn compile_module_artifact_from_source_rejects_in_production_release_policy() {
         oasis7_hosted_access::process_env::remove_var(removed_old_brand_compiler.as_str());
     }
 
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     world.enable_production_release_policy();
     register_agent(&mut world, "publisher-1");
 
@@ -544,7 +544,7 @@ fn compile_module_artifact_from_source_rejects_in_production_release_policy() {
 
 #[test]
 fn compile_module_artifact_from_source_rejects_when_manifest_path_missing_in_files() {
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     register_agent(&mut world, "publisher-1");
 
     let action_id = world.submit_action(Action::CompileModuleArtifactFromSource {
@@ -580,7 +580,7 @@ fn compile_module_artifact_from_source_rejects_when_file_count_exceeds_limit() {
         oasis7_hosted_access::process_env::remove_var(removed_old_brand_max_files.as_str());
     }
 
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     register_agent(&mut world, "publisher-1");
 
     let action_id = world.submit_action(Action::CompileModuleArtifactFromSource {
@@ -627,7 +627,7 @@ fn compile_module_artifact_from_source_rejects_when_compiler_times_out() {
         oasis7_hosted_access::process_env::set_var(SOURCE_COMPILE_TIMEOUT_MS_ENV, "20");
     }
 
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     register_agent(&mut world, "publisher-1");
 
     let action_id = world.submit_action(Action::CompileModuleArtifactFromSource {
@@ -678,7 +678,7 @@ fn compile_module_artifact_from_source_sanitizes_env_and_isolates_tmpdir() {
         oasis7_hosted_access::process_env::set_var(SOURCE_SANDBOX_SECRET_ENV, "must-not-leak");
     }
 
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     register_agent(&mut world, "publisher-1");
 
     world.submit_action(Action::CompileModuleArtifactFromSource {
@@ -717,14 +717,14 @@ fn compiler_capability_requires_host_assembly_after_snapshot_and_serde() {
         world.step().unwrap();
         assert_last_rejection_note(&world, action, "manifest_path is empty");
     }
-    let host = crate::runtime_host::world::new();
+    let host = crate::world::new();
     assert_host_installed(host.clone());
     assert_host_installed(
-        crate::runtime_host::world::from_snapshot(host.snapshot(), host.journal().clone()).unwrap(),
+        crate::world::from_snapshot(host.snapshot(), host.journal().clone()).unwrap(),
     );
     let encoded = serde_json::to_vec(&host).unwrap();
     let decoded: World = serde_json::from_slice(&encoded).unwrap();
-    let decoded = crate::runtime_host::install_runtime_capabilities(decoded);
+    let decoded = crate::install_runtime_capabilities(decoded);
     assert_eq!(encoded, serde_json::to_vec(&decoded).unwrap());
     assert_host_installed(decoded);
 }

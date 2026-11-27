@@ -1,8 +1,8 @@
-use crate::runtime::{
+use oasis7_runtime::{
     Action, World, WorldState,
     service_admission::{game_task::*, *},
 };
-use crate::world_service::projection;
+use oasis7_world_service::projection;
 use oasis7_agent_api::game::*;
 use oasis7_agent_api::game::{
     GAME_EXECUTOR_CONTROL_DOMAIN, GameExecutorControlV1, GameExecutorOperationV1, GameTaskFenceV1,
@@ -113,15 +113,15 @@ fn fixture_with_formal_history(_formal: bool) -> (World, String) {
         .subject_public_key;
     let mut world = World::new_with_state(WorldState::default())
         .try_with_cognition_scheduler(
-            crate::runtime::SchedulerPolicyV1 {
-                schema_version: crate::runtime::SchedulerPolicyV1::SCHEMA_VERSION.into(),
+            oasis7_runtime::SchedulerPolicyV1 {
+                schema_version: oasis7_runtime::SchedulerPolicyV1::SCHEMA_VERSION.into(),
                 max_total_wakes_per_tick: 1,
                 max_wakes_per_agent_per_tick: 1,
                 aging_after_ticks: 1,
                 max_starvation_ticks: 1,
                 initial_priority: 0,
-                comparator: crate::runtime::SchedulerPolicyV1::COMPARATOR.into(),
-                service_order: crate::runtime::SchedulerPolicyV1::SERVICE_ORDER.into(),
+                comparator: oasis7_runtime::SchedulerPolicyV1::COMPARATOR.into(),
+                service_order: oasis7_runtime::SchedulerPolicyV1::SERVICE_ORDER.into(),
             },
             1,
         )
@@ -240,9 +240,9 @@ fn goal_result(
         rejected: None,
     }
 }
-fn goal_snapshot(world: &World) -> crate::runtime::Snapshot {
+fn goal_snapshot(world: &World) -> oasis7_runtime::Snapshot {
     world.snapshot_with_chain_resource_context(
-        crate::runtime::ChainResourceDerivationContext {
+        oasis7_runtime::ChainResourceDerivationContext {
             world_id: "world",
             chain_id: "fixture-chain",
             genesis_ref: None,

@@ -6313,6 +6313,7 @@ version = "0.1.0"
 dependencies = [
  "async-openai",
  "blake3",
+ "ed25519-dalek",
  "hex",
  "oasis7_agent_api",
  "oasis7_agent_harness",
@@ -6329,6 +6330,7 @@ dependencies = [
  "serde",
  "serde_cbor_2",
  "serde_json",
+ "sha2 0.11.0",
  "toml",
  "tracing",
  "url",

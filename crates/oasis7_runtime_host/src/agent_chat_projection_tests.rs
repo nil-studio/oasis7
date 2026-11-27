@@ -1,9 +1,9 @@
-use crate::runtime::{Action, WorldState};
-use crate::runtime::{
+use oasis7_runtime::{Action, WorldState};
+use oasis7_runtime::{
     World,
     service_admission::{agent_chat::*, *},
 };
-use crate::world_service::projection;
+use oasis7_world_service::projection;
 use oasis7_client_api::world_service::sign_read_request;
 use oasis7_proto::player_auth::sign_agent_chat_auth_proof;
 use oasis7_proto::viewer::AgentChatRequest;
@@ -90,7 +90,7 @@ fn canonical_owner_goal_survives_journal_restore_and_is_private_to_authorized_vi
     assert_eq!(serde_json::to_value(world.snapshot()).unwrap(), before);
     let receipt = apply(&mut world, request);
     let snapshot = world.snapshot_with_chain_resource_context(
-        crate::runtime::ChainResourceDerivationContext {
+        oasis7_runtime::ChainResourceDerivationContext {
             world_id: "world",
             chain_id: "fixture-chain",
             genesis_ref: None,
@@ -125,7 +125,7 @@ fn canonical_owner_goal_survives_journal_restore_and_is_private_to_authorized_vi
                 .journal()
                 .events
                 .iter()
-                .filter(|event| matches!(event.body, crate::runtime::WorldEventBody::Domain(_)))
+                .filter(|event| matches!(event.body, oasis7_runtime::WorldEventBody::Domain(_)))
                 .collect::<Vec<_>>()
         )
         .unwrap()
