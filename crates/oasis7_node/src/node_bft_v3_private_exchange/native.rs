@@ -47,6 +47,8 @@ pub trait NodeBftCommittedReadCredentialsV3: Send + Sync {
     fn sign_request(&self, canonical_payload: &[u8]) -> Result<String, String>;
 }
 
+#[path = "admission_input_client_v2.rs"]
+pub mod admission_input_client_v2;
 #[path = "admission_input_live_v2.rs"]
 pub mod admission_input_live_v2;
 #[path = "admission_input_request_v2.rs"]

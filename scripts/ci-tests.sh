@@ -4,7 +4,7 @@
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image] [--full-support-phase before-cross-uid|after-cross-uid]
 
   commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -583,6 +583,7 @@ PY_WORKER_COMPILE
 }
 
 run_game_client_cli_contracts() {
+  local phase=${1:-all}
   run_cargo test -p oasis7_game_client --test dev_test_service_cli --test dev_test_local_transport --test dev_test_local_cli --locked
   if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
     if [[ "${RUNNER_OS:-}" != Linux || "${RUNNER_ENVIRONMENT:-}" != github-hosted ]]; then
@@ -590,6 +591,8 @@ run_game_client_cli_contracts() {
       return 2
     fi
     run_cargo build -p oasis7_game_client --bin oasis7_game_client --locked
+    # The release orchestrator runs this one part on the original hosted runner.
+    [[ "$phase" != before-cross-uid ]] || return 0
     # Root timeout owns the entire inherited process group, including the
     # fixture's distinct-UID clients. Failure/cancellation never completes support.
     run sudo -n timeout --signal=TERM --kill-after=5s 60s "$ci_python" \
@@ -608,22 +611,29 @@ run_dev_test_worker_checks() {
 }
 
 run_oasis7_workspace_support_crate_tests() {
-  run_dev_test_worker_checks
-  run_signed_read_protocol_contract_tests
-  run_cargo test -p oasis7_custody_core --all-targets --locked
-  run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles
-  run_cargo_clippy -p oasis7_agent_api --all-targets
-  run_cargo_clippy -p oasis7_agent_harness --all-targets
-  run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
-  run_cargo_clippy -p oasis7_browser_game_client --all-targets
-  run_cargo_clippy -p oasis7_game_client --all-targets
-  run_cargo_clippy -p oasis7_model_provider --all-targets
-  run_cargo test -p oasis7_agent_api
-  run_cargo test -p oasis7_agent_harness --lib
-  run_cargo test -p oasis7_client_storage -p oasis7_signer_protocol --lib
-  run_cargo test -p oasis7_domain_types --lib
-  run_cargo test -p oasis7_game_client --lib
-  run_game_client_cli_contracts
+  local phase=${1:-all}
+  if [[ "$phase" != after-cross-uid ]]; then
+    run_dev_test_worker_checks
+    run_signed_read_protocol_contract_tests
+    run_cargo test -p oasis7_custody_core --all-targets --locked
+    run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles
+    run_cargo_clippy -p oasis7_agent_api --all-targets
+    run_cargo_clippy -p oasis7_agent_harness --all-targets
+    run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
+    run_cargo_clippy -p oasis7_browser_game_client --all-targets
+    run_cargo_clippy -p oasis7_game_client --all-targets
+    run_cargo_clippy -p oasis7_model_provider --all-targets
+    run_cargo test -p oasis7_agent_api
+    run_cargo test -p oasis7_agent_harness --lib
+    run_cargo test -p oasis7_client_storage -p oasis7_signer_protocol --lib
+    run_cargo test -p oasis7_domain_types --lib
+    run_cargo test -p oasis7_game_client --lib
+    if [[ "$phase" == before-cross-uid ]]; then
+      run_game_client_cli_contracts before-cross-uid
+      return
+    fi
+    run_game_client_cli_contracts
+  fi
   run_cargo test -p oasis7_model_provider --all-targets
   run_cargo test \
     -p oasis7_browser_game_client \
@@ -1560,14 +1570,21 @@ run_full_core_tier_tests() {
   run_oasis7_full_tier_tests
 }
 
-run_full_support_tier_tests() {
+run_full_support_leading_checks() {
+  [[ "$1" != after-cross-uid ]] || return 0
   run_all_required_gate_capability_contract_tests
   run_oasis7_consensus_tests
   run_oasis7_distfs_tests
   run_oasis7_node_tests
   run_oasis7_net_tests
   run_oasis7_net_libp2p_tests --skip-native
-  run_oasis7_workspace_support_crate_tests
+}
+
+run_full_support_tier_tests() {
+  local phase=${1:-all}
+  run_full_support_leading_checks "$phase"
+  run_oasis7_workspace_support_crate_tests "$phase"
+  [[ "$phase" != before-cross-uid ]] || return 0
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_viewer_software_safe_feedback_contract_tests
   run_oasis7_viewer_software_safe_build
@@ -1776,6 +1793,7 @@ required_plan=""
 ordinary_partition=""
 support_partition="all"
 support_execution="all"
+full_support_phase="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo-root)
@@ -1818,6 +1836,11 @@ while [[ $# -gt 0 ]]; do
       support_execution="$2"
       shift 2
       ;;
+    --full-support-phase)
+      [[ $# -ge 2 && "$full_support_phase" == all && ( "$2" == before-cross-uid || "$2" == after-cross-uid ) ]] || { usage; exit 2; }
+      full_support_phase="$2"
+      shift 2
+      ;;
     --ordinary-partition)
       [[ $# -ge 2 && -n "$2" && -z "$ordinary_partition" ]] || { usage; exit 2; }
       ordinary_partition="$2"
@@ -1846,6 +1869,12 @@ if [[ "$support_partition" != all && ( "$tier" != required || "$group" != worksp
 fi
 if [[ "$support_execution" != all && ( "$support_partition" != other || ( "$support_execution" != host && "$support_execution" != image ) ) ]]; then
   echo '--support-execution requires --support-partition other and host or image' >&2
+  exit 2
+fi
+if [[ "$full_support_phase" != all &&
+      ( "$tier" != full-support || "${GITHUB_ACTIONS:-}" != true ||
+        "${RUNNER_OS:-}" != Linux || "${RUNNER_ENVIRONMENT:-}" != github-hosted ) ]]; then
+  echo '--full-support-phase requires full-support on GitHub-hosted Linux' >&2
   exit 2
 fi
 if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline && "$group" != distfs ) ) ]]; then
@@ -1884,7 +1913,12 @@ else
     full|full-standard) run_full_required_superset; run_rust_baseline; run_full_extended_tier_tests; if [[ "$tier" == full ]]; then run_group formal_process; fi ;;
     full-extended) run_full_extended_tier_tests ;;
     full-core) run_full_core_tier_tests ;;
-    full-support) run_full_support_tier_tests ;;
+    full-support)
+      case "$full_support_phase" in
+        before-cross-uid) run_full_support_tier_tests before-cross-uid; exit ;;
+        *) run_full_support_tier_tests "$full_support_phase" ;;
+      esac
+      ;;
     cache-native) run_shared_native_cache_builds ;;
   esac
 fi

@@ -217,9 +217,17 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
     let expected_corruption = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let server_expected_corruption = expected_corruption.clone();
     let server_thread = std::thread::spawn(move || {
-        let mut server = super::super::super::transport::FormalEndpointServer::new(
+        use super::super::super::transport::{
+            FormalEndpointServer, FormalRpcFrameAdmissionLimitsV1,
+        };
+        let mut server = FormalEndpointServer::new_with_frame_admission(
             primary,
             Duration::from_secs(3),
+            Some(FormalRpcFrameAdmissionLimitsV1 {
+                ordinary_bytes: 128 << 20,
+                work_steps: 100_000_000,
+                work_bytes: 1 << 34,
+            }),
         )
         .unwrap();
         while !server_stop.load(std::sync::atomic::Ordering::Acquire) {
@@ -248,6 +256,16 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
             .position,
         2
     );
+    assert!(matches!(
+        client
+            .query(&fixture.initial.candidate.record.request_digest)
+            .unwrap(),
+        FormalQueryOutcomeV1::Recorded(entry) if matches!(*entry, FormalRequestStateV1::Qualified {..})
+    ));
+    assert!(matches!(
+        client.query(&h(250)).unwrap(),
+        FormalQueryOutcomeV1::NotRecorded
+    ));
     let restored = client
         .restore_native_current(&fixture.authority, None, None)
         .unwrap();

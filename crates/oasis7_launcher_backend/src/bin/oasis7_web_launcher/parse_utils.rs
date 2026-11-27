@@ -1,4 +1,31 @@
-pub(super) use oasis7_launcher_config::parse_chain_replication_bootstrap_peers;
+use multiaddr::Multiaddr;
+
+const MULTIADDR_EXAMPLE: &str = "/dns4/bootstrap1.oasis7.tech/tcp/5612";
+
+fn parse_chain_replication_bootstrap_peer(raw: &str) -> Result<String, String> {
+    let token = raw.trim();
+    if token.is_empty() {
+        return Err("chain replication bootstrap peer cannot be empty".to_string());
+    }
+    token.parse::<Multiaddr>().map_err(|err| {
+        format!(
+            "chain replication bootstrap peers must use libp2p multiaddr values like {MULTIADDR_EXAMPLE}; invalid `{token}`: {err}"
+        )
+    })?;
+    Ok(token.to_string())
+}
+
+pub(super) fn parse_chain_replication_bootstrap_peers(raw: &str) -> Result<Vec<String>, String> {
+    let mut peers = Vec::new();
+    for token in raw.split([',', ';', ' ', '\n', '\r', '\t']) {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        peers.push(parse_chain_replication_bootstrap_peer(token)?);
+    }
+    Ok(peers)
+}
 
 pub(super) fn next_value<'a, I>(
     iter: &mut std::iter::Peekable<I>,
