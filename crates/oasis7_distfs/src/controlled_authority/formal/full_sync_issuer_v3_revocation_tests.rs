@@ -105,9 +105,24 @@ fn real_witness_history_revocation_inventory_rejects_forks_and_reissued_targets(
     assert_eq!(inventory.summary().pending_lease_count, 1);
     assert!(!inventory.summary_verified(&verified).unwrap().effective);
 
+    // Exercise the actual serving issuer's fresh witness/history sync, not
+    // the cached inventory's status helper or a locally asserted ACK.
+    let pending = issuer
+        .read_revocation_status(&revoke_digest, &inventory, &mut witness)
+        .unwrap();
+    assert_eq!(pending.original_lease_count, 1);
+    assert_eq!(pending.pending_lease_count, 1);
+    assert!(!pending.effective);
+    assert!(issuer
+        .read_revocation_status(&hash(255), &inventory, &mut witness)
+        .is_err());
+
     let mut missing_original = inventory.clone();
     missing_original.leases.clear();
     assert!(missing_original.verify_inventory(&verified).is_err());
+    assert!(issuer
+        .read_revocation_status(&revoke_digest, &missing_original, &mut witness)
+        .is_err());
     let mut forged_phase = inventory.clone();
     forged_phase.phase = FullSyncRevocationPhaseV1::SignedExpiryObserved;
     assert!(forged_phase.verify_inventory(&verified).is_err());
@@ -143,4 +158,7 @@ fn real_witness_history_revocation_inventory_rejects_forks_and_reissued_targets(
     assert!(
         FullSyncRevocationInventoryV1::from_verified_history(&reissued, &revoke_digest,).is_err()
     );
+    assert!(issuer
+        .read_revocation_status(&revoke_digest, &inventory, &mut witness)
+        .is_err());
 }
