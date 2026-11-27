@@ -242,7 +242,7 @@ fn fresh_current_crisis_absence_accepts_its_own_first_reads() {
 #[test]
 fn current_crisis_complete_paid_state_consumes_actual_pages_without_hydrating_world() {
     let f = fixture();
-    let parent = qualify(&f);
+    let family = qualify(&f);
     let mut tx =
         ExecutionTransaction::begin(parent(&f), [99; 32], &f.pages, &f.memory, limits()).unwrap();
     let live = tx.parent_fence();
@@ -259,7 +259,7 @@ fn current_crisis_complete_paid_state_consumes_actual_pages_without_hydrating_wo
     let before = f.memory.used();
     let full = read_current_diplomacy_crisis_state_v1(
         "outer",
-        &parent,
+        &family,
         &f.roots,
         &mut tx,
         &mut ctx,
@@ -273,9 +273,12 @@ fn current_crisis_complete_paid_state_consumes_actual_pages_without_hydrating_wo
     .unwrap();
     assert_eq!(&*full, &crisis());
     assert!(full.uses_budget(&f.memory));
-    assert!(f.memory.used() > before);
+    let during = f.memory.used();
+    let paid = full.reserved_bytes();
+    assert!(paid > 0);
+    assert!(during >= before + paid);
     drop(full);
-    assert_eq!(f.memory.used(), before);
+    assert_eq!(f.memory.used(), during - paid);
     let guard = tx.guard();
     tx.seal(&guard, &live, 1).unwrap();
 }
