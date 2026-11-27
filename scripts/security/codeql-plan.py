@@ -329,8 +329,6 @@ def plan(args):
                       'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt'):
             add('actions-repo', path)
         elif path in ISSUE_METADATA_INPUTS or path in (
-            'scripts/newapi-bridge-service/newapi-bridge-service.env.example',
-            'scripts/newapi-bridge-service/oasis7-newapi-bridge.service',
             'scripts/newapi-bridge-service/pricing-rules.example.env',
         ):
             # GitHub renders these as form data or static service templates, not executable Actions YAML.
