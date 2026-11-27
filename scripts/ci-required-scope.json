@@ -1277,7 +1277,6 @@
     ".github/workflows/hosted-login-linux-build.yml": ["workflow_governance"],
     ".github/workflows/mainnet-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/native-cache-diagnostic.yml": ["workflow_governance"],
-    ".github/workflows/newapi-bridge-service-package.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/pages.yml": ["workflow_governance", "site_quality"],
     ".github/workflows/pr-boundary-gate.yml": ["workflow_governance"],
     ".github/workflows/pr-fast-preview.yml": ["workflow_governance"],
@@ -2627,7 +2626,6 @@
         "scripts/local-letai-provider-bridge.test.sh",
         "scripts/provider-parity-p0.sh",
         "scripts/oasis7-liveops-grant.sh",
-        "scripts/newapi-bridge-service/package-newapi-bridge-service.sh",
         "scripts/run-local-public-testnet-letai-test-environment.sh",
         "scripts/runtime-module-routing-perf-harness.sh"
       ],

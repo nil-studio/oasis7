@@ -1469,7 +1469,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         for event in ('schedule', 'workflow_dispatch', 'push', 'pull_request', 'workflow_run'):
             for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge', 'refs/tags/v1'):
                 for matching in (False, True):
-                    for mode in ('full', 'image-native', '', 'newapi_bridge_package'):
+                    for mode in ('full', 'image-native', ''):
                         values = {'github.event_name': event, 'github.ref': ref,
                                   'github.workflow_sha': 'a' if matching else 'b',
                                   'github.sha': 'a', 'inputs.run_mode': mode}

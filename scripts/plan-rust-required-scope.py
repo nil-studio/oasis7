@@ -5089,8 +5089,6 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         if {'rust_baseline', 'oasis7_required'}.issubset(chosen):
             plan['ordinary_clippy_group'] = 'rust_baseline'
         baseline_checks = []
-        if 'oasis7_newapi_bridge_service' in affected:
-            baseline_checks.append('newapi_accounting')
         if any(path.startswith(('tools/', 'crates/oasis7_builtin_wasm_modules/'))
                or path.startswith('scripts/check-standalone-tool-lockfiles') for path in paths):
             baseline_checks.append('standalone_tool_lockfiles')

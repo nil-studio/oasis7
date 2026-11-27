@@ -421,7 +421,6 @@ jobs:
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --target wasm32-unknown-unknown --lib
-          env -u RUSTC_WRAPPER cargo test --locked -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service --no-run
 
   rust-image-component-cache:
     cache-mode: write

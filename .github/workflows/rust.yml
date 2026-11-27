@@ -15,7 +15,7 @@ on:
         required: true
         default: full
         type: choice
-        options: [full, newapi_bridge_package, codeql_rust_model_diagnostic]
+        options: [full, codeql_rust_model_diagnostic]
       source_ref:
         description: "Optional candidate commit or branch for a full run from main"
         type: string
@@ -30,12 +30,6 @@ on:
         type: choice
         default: "2.27.2"
         options: ["2.27.2", "2.27.3"]
-      newapi_bridge_build_profile:
-        description: "Cargo package profile"
-        required: true
-        default: release
-        type: choice
-        options: [release, dev]
 
 concurrency:
   group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && (github.event.label.name != 'ci-priority' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.draft)) && format('pr-label-noop-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('push-{0}', github.ref) || github.event_name == 'schedule' && format('periodic-observe-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full') && format('candidate-full-{0}-{1}', github.ref, inputs.source_ref || github.sha) || format('run-{0}', github.run_id) }}
@@ -6421,55 +6415,3 @@ jobs:
           path: ${{ runner.temp }}/full-result.json
           if-no-files-found: error
           retention-days: 30
-
-  newapi-bridge-package:
-    env:
-      CARGO_NET_RETRY: 10
-      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-    if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'newapi_bridge_package'
-    name: newapi-bridge-linux-x86-64
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-      - name: Trust the checked-out workspace path in the job container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Verify the preinstalled packaging dependencies
-        run: |
-          rustc +"${RUST_TOOLCHAIN}" -vV
-          pkg-config --exists wayland-client x11 alsa libudev openssl
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          shared-key: newapi-bridge-service-linux-x86-64-ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
-          save-if: ${{ github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
-          cache-on-failure: false
-
-      - name: Build and stage deployable artifact
-        run: |
-          ./scripts/newapi-bridge-service/package-newapi-bridge-service.sh \
-            --profile "${{ inputs.newapi_bridge_build_profile }}" \
-            --archive output/newapi-bridge-service-linux-x86_64.tar.gz
-
-      - name: Upload NewAPI bridge service artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: newapi-bridge-service-linux-x86_64-${{ github.sha }}
-          path: output/newapi-bridge-service-linux-x86_64.tar.gz
-          if-no-files-found: error
