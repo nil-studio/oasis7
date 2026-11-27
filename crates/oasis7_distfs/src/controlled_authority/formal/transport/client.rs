@@ -197,11 +197,8 @@ impl RemoteFormalEndpoint {
             ));
         }
         hash_hex(&body.head.record_id)?;
-        let pending = super::super::endpoint::verify_formal_rpc_checkpoint(
-            body,
-            &self.authority,
-            self.role,
-        )?;
+        let pending =
+            super::super::endpoint::verify_formal_rpc_checkpoint(body, &self.authority, self.role)?;
         fencing::verify_monotonic_checkpoint_evidence(
             &body.provider,
             self.instance(),
