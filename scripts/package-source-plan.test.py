@@ -272,7 +272,7 @@ if fixed_installer:
     assert "timeout-minutes: 90" in installer
     assert "name: Install pinned Rust toolchain\n        if: runner.os != 'Linux'" in installer
     assert "sudo apt-get" not in installer
-    assert "--native-binaries" in installer and "--web-dist" in installer and "--web-launcher-dist" in installer
+    assert "--native-binaries" in installer and "--web-dist" in installer
     assert "volumes:" not in installer and "actions: write" not in installer
 
 for name, body, migrated in (

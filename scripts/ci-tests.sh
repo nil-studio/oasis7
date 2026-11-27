@@ -626,6 +626,7 @@ run_oasis7_workspace_support_crate_tests() {
     -p oasis7_browser_game_client \
     -p oasis7_client_api \
     -p oasis7_local_signer \
+    -p oasis7_launcher_ui \
     -p oasis7_proto \
     -p oasis7_wasm_abi \
     -p oasis7_wasm_build \
@@ -642,6 +643,7 @@ run_oasis7_workspace_support_crate_tests() {
   run_cargo test -p oasis7_wasm_executor --features wasmtime --all-targets --locked
   run_cargo test -p oasis7_secure_envelope -p oasis7_context --all-targets --locked
   run_cargo test -p oasis7_local_signer --test context_cli --locked
+  run_cargo test -p oasis7_client_launcher --bin oasis7_client_launcher
   # Native tool tests build the real template with the installed stable WASM target.
   OASIS7_WASM_BUILD_STD=0 run_cargo test -p wasm_build_suite -p wasm_module_observe
 }
@@ -743,6 +745,7 @@ PY
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;
+      oasis7_client_launcher) run_cargo test -p "$profile" --bin oasis7_client_launcher ;;
       wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" ;;
       *) run_cargo test -p "$profile" --lib ;;
     esac
