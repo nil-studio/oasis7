@@ -119,6 +119,8 @@ fn freeze_reserves_reply_time_and_returns_only_exact_owner_pin() {
     peer.join().unwrap();
     assert_eq!(reply.original_pending_pin, Some(pin));
     std::fs::remove_dir_all(&root).unwrap();
+    // Exercise the lost-reply path inside this already registered native test.
+    check_lost_original_freeze_reply_preserves_exact_frozen_original();
 }
 
 #[test]
@@ -288,8 +290,7 @@ fn expired_stop_sends_no_request_and_never_becomes_a_success() {
 }
 
 
-#[test]
-fn lost_original_freeze_reply_preserves_only_the_exact_frozen_original() {
+fn check_lost_original_freeze_reply_preserves_exact_frozen_original() {
     use oasis7_distfs::controlled_authority::LocalRequestIdentity;
     use super::super::super::formal_live_original_pending_producer::{
         OriginalPendingOwnerV1, OriginalPendingProducerV1, cold_read_exact_frozen,
@@ -362,7 +363,10 @@ fn lost_original_freeze_reply_preserves_only_the_exact_frozen_original() {
         Instant::now() + Duration::from_secs(2),
         client,
     );
-    assert!(lost.is_err(), "lost freeze reply cannot report successful owner control");
+    assert!(
+        lost.is_err(),
+        "lost freeze reply cannot report successful owner control"
+    );
     let frozen = peer.join().unwrap();
     assert!(OriginalPendingProducerV1::open(&root, owner.clone()).is_err());
 
@@ -375,7 +379,9 @@ fn lost_original_freeze_reply_preserves_only_the_exact_frozen_original() {
     assert!(cold_read_exact_frozen(&root, &owner, &frozen.root, 0).is_err());
     let mut wrong = owner.clone();
     wrong.incarnation = "replacement-owner".into();
-    assert!(cold_read_exact_frozen(&root, &wrong, &frozen.root, frozen.count).is_err());
+    assert!(
+        cold_read_exact_frozen(&root, &wrong, &frozen.root, frozen.count).is_err()
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
