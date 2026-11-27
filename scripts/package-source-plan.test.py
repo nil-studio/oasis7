@@ -107,10 +107,40 @@ for name in ("mainnet-packages", "testnet-packages", "release-packages"):
     if name != "release-packages":
         assert "cache-mode: read" in workflow
         for cache in re.findall(r"uses: Swatinem/rust-cache@[^\n]+\n(.*?)(?=      - |\Z)", workflow, re.S):
-            if name == "testnet-packages" and "shared-key: oasis7-package-native-" in cache:
+            image_cache = re.search(r"shared-key: testnet-package-native-\$\{\{ inputs\.build_profile \}\}-image-([0-9a-f]{64})", cache)
+            if name == "testnet-packages" and image_cache:
+                image = "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:" + image_cache[1]
+                assert f"RUST_PACKAGE_NATIVE_IMAGE: {image}" in cache
+                assert "OASIS7_DEPENDENCY_CACHE_FAMILY: testnet-linux-image" in cache
+                assert "NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}" in cache
+                assert "save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}" in cache
+            elif name == "testnet-packages" and "shared-key: oasis7-package-native-" in cache:
                 assert "save-if: ${{ job.status == 'success' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}" in cache
             else:
                 assert "save-if: false" in cache
+for workflow in ("release", "testnet"):
+    native_yaml = (repo / ".github/workflows" / (workflow + "-packages.yml")).read_text()
+    native = re.search(r"(?ms)^  package-native:\n.*?(?=^  [a-z][a-z0-9_-]+:|\Z)", native_yaml)[0]
+    image = re.search(r"ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})", native)
+    if image:
+        assert "image: ${{ matrix.os == 'ubuntu-24.04' && '" + image[0] + "' || '' }}" in native
+        assert native.count("options: --user 1001:1001 --init") == 1
+        assert "packages: read" in native and "timeout-minutes: 180" in native
+        assert "sudo apt-get " not in native and "        volumes:" not in native
+        assert "name: Install pinned Rust toolchain\n        if: runner.os != 'Linux'" in native
+        assert "RUST_PACKAGE_NATIVE_IMAGE: " + image[0] in native
+        assert "INPUT_SHARED-KEY" not in native and "steps.dependency-cache-tools.outputs.guard_ready" in native
+        if workflow == "release":
+            assert f"shared-key: release-package-native-image-{image[1]}" in native
+            assert "OASIS7_DEPENDENCY_CACHE_FAMILY: release-linux-image" in native
+            assert "dpkg-deb --version" in native
+        else:
+            assert "container: &testnet-native-container" in native
+            trusted = re.search(r"(?ms)^  package-native-trusted:\n.*?(?=^  [a-z][a-z0-9_-]+:|\Z)", native_yaml)[0]
+            assert "container: *testnet-native-container" in trusted
+            assert "steps: *testnet-native-steps" in trusted
+            assert "cache-mode: write" in trusted and "timeout-minutes: 180" in trusted
+
 release = (repo / ".github/workflows/release-packages.yml").read_text()
 assert 'test "$object" = "$PLANNED_SHA"' in release
 assert "cache-mode: none" in release

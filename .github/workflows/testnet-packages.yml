@@ -267,11 +267,20 @@ jobs:
       github.ref != 'refs/heads/main' || github.event_name != 'workflow_dispatch' ||
       needs.plan.outputs.checkoutSha != github.sha || github.workflow_sha != github.sha ||
       inputs.package_scope != 'linux_only' || inputs.build_profile != 'packaging'
+    permissions:
+      contents: read
+      packages: read
     strategy: &testnet-native-strategy
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
+    container: &testnet-native-container
+      image: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42' || '' }}
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     steps: &testnet-native-steps
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -284,11 +293,17 @@ jobs:
       - name: Configure mold for Linux host linking
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-testnet-native-mold
       # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
           persist-credentials: false
+      - name: Trust the checked-out Linux workspace path
+        if: runner.os == 'Linux'
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Verify planned source HEAD
         shell: bash
         env:
@@ -313,6 +328,7 @@ jobs:
           fi
           echo "save=${cache_write}" >> "${GITHUB_OUTPUT}"
       - name: Install pinned Rust toolchain
+        if: runner.os != 'Linux'
         shell: bash
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
@@ -320,39 +336,51 @@ jobs:
           if [[ "${{ matrix.target_triple }}" != "native" ]]; then
             rustup target add "${{ matrix.target_triple }}" --toolchain "${RUST_TOOLCHAIN}"
           fi
-      - name: Install Linux system dependencies
+      - name: Verify the fixed Linux package toolchain
+        id: source-toolchain
         if: runner.os == 'Linux'
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libwayland-dev \
-            wayland-protocols \
-            libxkbcommon-dev \
-            libx11-dev \
-            libxi-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxinerama-dev \
-            libasound2-dev \
-            libudev-dev
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -x "${CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER:?verified mold wrapper is required}"
+          RUSTUP_AUTO_INSTALL=0 cargo +"$RUST_TOOLCHAIN" --version
+          pkg-config --exists wayland-client wayland-protocols xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
+          if RUSTUP_AUTO_INSTALL=0 rustup show active-toolchain; then
+            echo "image_toolchain=true" >> "$GITHUB_OUTPUT"
+          else
+            # A historical source pin may be absent from the image.
+            image_rustup_home="$RUSTUP_HOME"
+            RUSTUP_HOME="$(mktemp -d "$RUNNER_TEMP/oasis7-native-rustup.XXXXXX")"
+            export RUSTUP_HOME
+            mkdir "$RUSTUP_HOME/toolchains"
+            cp "$image_rustup_home/settings.toml" "$RUSTUP_HOME/settings.toml"
+            for toolchain in "$image_rustup_home"/toolchains/*; do
+              ln -s "$toolchain" "$RUSTUP_HOME/toolchains/"
+            done
+            rustup toolchain install --no-self-update --no-update --profile default
+            rustup show active-toolchain
+            printf 'RUSTUP_HOME=%s\n' "$RUSTUP_HOME" >> "$GITHUB_ENV"
+          fi
       - name: Install native dependency cache admission
         id: dependency-cache-tools
-        if: runner.os == 'Linux' && hashFiles('scripts/ci-rust-cache-admission.py') != ''
+        if: runner.os == 'Linux' && github.job == 'package-native-trusted' && steps.source-toolchain.outputs.image_toolchain == 'true' && steps.linux-package-cache-write.outputs.save == 'true' && hashFiles('scripts/ci-rust-cache-admission.cjs') != ''
         continue-on-error: true
         shell: bash
-        run: python3 scripts/ci-rust-cache-admission.py install
+        run: /usr/bin/python3 scripts/ci-rust-cache-admission.py install-release
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: runner.os == 'Linux' && steps.dependency-cache-tools.outcome == 'success'
+        if: runner.os == 'Linux' && steps.source-toolchain.outputs.image_toolchain == 'true'
         env:
-          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
-          OASIS7_DEPENDENCY_CACHE_FAMILY: testnet-linux
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: testnet-linux-image
+          RUST_PACKAGE_NATIVE_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
           OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
         with:
-          save-if: ${{ job.status == 'success' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}
-          shared-key: oasis7-package-native-${{ runner.os }}-${{ matrix.target_triple }}-${{ inputs.build_profile }}-trusted-v2
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}
+          shared-key: testnet-package-native-${{ inputs.build_profile }}-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
           cache-provider: github
           cache-on-failure: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -410,6 +438,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     name: compile-trusted-${{ matrix.platform }}
     needs:
       - plan
@@ -420,6 +449,7 @@ jobs:
     strategy: *testnet-native-strategy
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
+    container: *testnet-native-container
     steps: *testnet-native-steps
 
   package-installers:

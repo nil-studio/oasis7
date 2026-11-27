@@ -67,6 +67,10 @@ DEPENDENCY_PLATFORMS = {
     'ci-formal-endpoint-deps-trusted-v1': frozenset({('Linux', 'x64')}),
     'release-packages-web-wasm-trusted-v3': frozenset({('Linux', 'x64')}),
     'oasis7-package-native-Linux-native-packaging-trusted-v2': frozenset({('Linux', 'x64')}),
+    'release-package-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42':
+        frozenset({('Linux', 'x64')}),
+    'testnet-package-native-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42':
+        frozenset({('Linux', 'x64')}),
     'release-packages-package-native-Windows-native-trusted-v2': frozenset({('Windows_NT', 'x64')}),
     'release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2':
         frozenset({('Darwin', 'arm64'), ('Darwin', 'x64')}),
