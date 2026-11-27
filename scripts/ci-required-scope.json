@@ -2929,6 +2929,16 @@
     },
     {
       "match": [
+        "scripts/ci-trusted-full-regression-cache-roles.mjs",
+        "scripts/ci-trusted-full-regression-cache-roles.test.mjs"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "trusted_full_regression_cache_geometry"
+    },
+    {
+      "match": [
         "scripts/rust-full-tier-trunk-prerequisite-contract.test.sh"
       ],
       "groups": [
