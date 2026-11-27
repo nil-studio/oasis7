@@ -1,0 +1,104 @@
+name: Release runtime sync image probe
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-release-runtime-sync-probe-base]
+    paths: [.github/workflows/release-runtime-sync-image-probe.yml]
+
+permissions:
+  contents: read
+  packages: read
+cache-mode: read
+
+jobs:
+  frozen-module:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.base_ref == 'codex/engineering-release-runtime-sync-probe-base' &&
+      github.head_ref == 'codex/engineering-release-runtime-sync-image-probe' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      TOOL_SHA: 828ad9e0f85c05819f09f7966f3717707c73ca2d
+      BASE_SHA: d5319297d754a9c7d4de347a2ce8e1a20ba43591
+      EXPECTED_SHA: 04f2a3048b192ce06681b474a3d90346183d59f5
+      TAG_SHA: a6f9bb785befc9ceb56dd0ee2ce11cfc0e696f32
+      RUST_TOOLCHAIN: 1.96.0
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CARGO_NET_RETRY: 10
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 828ad9e0f85c05819f09f7966f3717707c73ca2d
+          persist-credentials: false
+          sparse-checkout: .github/actions/setup-linux-mold
+      - name: Configure mold using the production checkout action
+        uses: ./.github/actions/setup-linux-mold
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 04f2a3048b192ce06681b474a3d90346183d59f5
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify production selection denies this isolated event
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git show "${TOOL_SHA}:scripts/ci-release-runtime-sync-image.sh" > "$RUNNER_TEMP/oasis7-runtime-sync-image.sh"
+          git show "${TOOL_SHA}:scripts/package-source-plan.py" > "$RUNNER_TEMP/oasis7-package-source-plan.py"
+          test "$(git rev-parse refs/tags/2026-11-26_v1)" = "$TAG_SHA"
+          test "$(git cat-file -t "$TAG_SHA")" = tag
+          TRUSTED_DEFAULT_REF="$BASE_SHA" REQUESTED_REF=refs/tags/2026-11-26_v1 \
+            GITHUB_OUTPUT="$RUNNER_TEMP/oasis7-sync-source-plan" \
+            python3 "$RUNNER_TEMP/oasis7-package-source-plan.py" --release
+          grep -Fx "checkoutSha=$EXPECTED_SHA" "$RUNNER_TEMP/oasis7-sync-source-plan"
+          GITHUB_OUTPUT="$RUNNER_TEMP/oasis7-sync-choice" \
+            bash "$RUNNER_TEMP/oasis7-runtime-sync-image.sh" --select
+          grep -Fx enabled=false "$RUNNER_TEMP/oasis7-sync-choice"
+      - name: Run one actual canonical M5 module through the frozen transport
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          # Exercise the actual launcher independently of the production-event check.
+          # The probe binds a fixed protected tag and issues no release qualification.
+          production="$RUNNER_TEMP/oasis7-runtime-sync-image.sh"
+          transport="$RUNNER_TEMP/oasis7-runtime-sync-transport.sh"
+          test "$(grep -cx eligible_context "$production")" = 1
+          sed '/^eligible_context$/d' "$production" > "$transport"
+          bash "$transport" <<'BASH'
+          ./scripts/build-builtin-wasm-modules.sh \
+            --module-id m5.gameplay.war.core \
+            --out-dir .tmp/runtime-sync-image-probe --profile release
+          BASH
+          unset GHCR_TOKEN
+          module=m5.gameplay.war.core
+          wasm=".tmp/runtime-sync-image-probe/$module.wasm"
+          receipt=".tmp/runtime-sync-image-probe/$module.build-receipt.json"
+          expected=$(awk -v id="$module" '$1 == id { split($2, hash, "="); if (hash[1] == "linux-x86_64") print hash[2] }' \
+            crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.sha256)
+          test "$expected" = cb104a9664952eee1d1f39e687080b0afb6b5624fd3ed3c273ed2eaf998ce7cf
+          printf '%s  %s\n' "$expected" "$wasm" | sha256sum --check
+          jq -e --arg wasm "$expected" --arg module "$module" --argjson bytes "$(stat -c %s "$wasm")" '
+            .module_id == $module and .wasm_hash_sha256 == $wasm and .wasm_size_bytes == $bytes and
+            .profile == "release" and .target == "wasm32-unknown-unknown" and
+            .container_platform == "linux-x86_64" and .wasm_toolchain == "nightly-2025-12-11" and
+            .canonicalizer_version == "strip-custom-sections-v1" and
+            (.builder_image_digest | test("^sha256:[0-9a-f]{64}$")) and
+            (.source_inputs | length > 0) and .purpose == null
+          ' "$receipt"
+          jq '{module_id, builder_image_digest, container_platform, wasm_hash_sha256, wasm_size_bytes, source_hash}' "$receipt"
+          git diff --exit-code
+          git diff --cached --exit-code
