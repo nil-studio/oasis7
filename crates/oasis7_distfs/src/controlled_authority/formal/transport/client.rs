@@ -8,6 +8,9 @@ mod attestation;
 #[path = "client_observation.rs"]
 mod observation;
 pub use observation::VerifiedEndpointObservationV1;
+#[path = "client_paid_query.rs"]
+mod paid_query;
+pub use paid_query::PaidRemoteFormalQueryV1;
 #[path = "client_native.rs"]
 mod native;
 #[path = "client_native_context.rs"]
@@ -123,7 +126,8 @@ impl RemoteFormalEndpoint {
         Ok((body.result?, body.head))
     }
 
-    fn call_verified(&mut self, command: Command) -> Result<(ResponseBody, bool), FormalError> {
+    // The paid and legacy RPC callers sign the exact same request identity.
+    fn signed_request(&self, command: Command) -> Result<(Request, String), FormalError> {
         let body = RequestBody {
             schema_version: 1,
             world: self.authority.definition().world.clone(),
@@ -142,12 +146,31 @@ impl RemoteFormalEndpoint {
             signature: hex::encode(self.key.sign(&bytes(REQUEST_DOMAIN, &body)?).to_bytes()),
             body,
         };
+        Ok((request, digest))
+    }
+
+    fn call_verified(&mut self, command: Command) -> Result<(ResponseBody, bool), FormalError> {
+        let (request, digest) = self.signed_request(command)?;
         let deadline = self
             .operation_deadline
             .unwrap_or_else(|| Instant::now() + self.timeout);
         let mut stream =
             wire::connect_and_write_before_deadline(&self.address, &request, deadline)?;
         let response: Response = wire::read_before_deadline(&mut stream, deadline)?;
+        let pending =
+            self.verify_authenticated_response(&response, &request, &digest, deadline)?;
+        Ok((response.body, pending))
+    }
+
+    // Shared real signature, protected attestation, checkpoint and minimum
+    // verification for ordinary calls and caller-paid Query data.
+    fn verify_authenticated_response(
+        &mut self,
+        response: &Response,
+        request: &Request,
+        digest: &str,
+        deadline: Instant,
+    ) -> Result<bool, FormalError> {
         verify(
             RESPONSE_DOMAIN,
             &hash(
@@ -158,7 +181,7 @@ impl RemoteFormalEndpoint {
             &self.instance().endpoint_public_key,
         )?;
         attestation::verify_response_custody(&response, &self.authority, self.role)?;
-        let body = response.body;
+        let body = &response.body;
         if body.schema_version != 1
             || body.request_digest != digest
             || body.challenge != request.body.challenge
@@ -210,7 +233,7 @@ impl RemoteFormalEndpoint {
         self.last_native_context = Some(native_context);
         self.last_checkpoint = Some(body.checkpoint.clone());
         self.minimum = body.head.clone();
-        Ok((body, pending))
+        Ok(pending)
     }
     fn complete(&mut self, command: Command) -> Result<(), FormalError> {
         match self.call(command)?.0 {
