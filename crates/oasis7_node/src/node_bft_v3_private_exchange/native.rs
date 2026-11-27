@@ -47,19 +47,19 @@ pub trait NodeBftCommittedReadCredentialsV3: Send + Sync {
     fn sign_request(&self, canonical_payload: &[u8]) -> Result<String, String>;
 }
 
+#[path = "admission_input_live_v2.rs"]
+mod admission_input_live_v2;
 #[path = "admission_input_request_v2.rs"]
 mod admission_input_request_v2;
 #[path = "admission_input_response_v2.rs"]
 mod admission_input_response_v2;
-#[path = "admission_input_live_v2.rs"]
-mod admission_input_live_v2;
-pub use admission_input_request_v2::{
-    AdmissionBatchReadV2, AdmissionBatchRequestV2, AdmissionInputBoundContextV2,
-    VerifiedAdmissionBatchSubjectV2,
-};
 pub use admission_input_live_v2::{
     NodeBftOriginalAdmissionNoiseV2, ProtectedOriginalAdmissionAuthorityV2,
     ProtectedOriginalAdmissionContextV2, ProtectedOriginalAdmissionPartsV2,
+};
+pub use admission_input_request_v2::{
+    AdmissionBatchReadV2, AdmissionBatchRequestV2, AdmissionInputBoundContextV2,
+    VerifiedAdmissionBatchSubjectV2,
 };
 #[path = "client.rs"]
 mod client;

@@ -237,24 +237,23 @@ fn real_outer_network_response_charge_can_exceed_inner_64k_limit() {
     real_original_admission_noise_is_bound_and_charged();
 }
 
-
 fn real_original_admission_noise_is_bound_and_charged() {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-    };
-    use std::time::{Duration, Instant};
-    use oasis7_net::{Libp2pNetwork, Libp2pNetworkConfig};
-    use oasis7_distfs::protected_bft_v3::{
-        BftPrivateRetentionAdmissionReadGrantV1, BftSignerErrorV3, BftSigningKeyHandleV3,
-    };
     use super::super::admission_input_live_v2::{
         NodeBftOriginalAdmissionNoiseV2, ProtectedOriginalAdmissionAuthorityV2,
         ProtectedOriginalAdmissionContextV2, ProtectedOriginalAdmissionPartsV2,
     };
     use super::super::admission_input_request_v2::{
-        AdmissionInputBoundContextV2, VerifiedAdmissionBatchSubjectV2, PROTOCOL_V2,
+        AdmissionInputBoundContextV2, PROTOCOL_V2, VerifiedAdmissionBatchSubjectV2,
     };
+    use oasis7_distfs::protected_bft_v3::{
+        BftPrivateRetentionAdmissionReadGrantV1, BftSignerErrorV3, BftSigningKeyHandleV3,
+    };
+    use oasis7_net::{Libp2pNetwork, Libp2pNetworkConfig};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    };
+    use std::time::{Duration, Instant};
 
     struct Issuer(ed25519_dalek::SigningKey);
     impl BftSigningKeyHandleV3 for Issuer {
@@ -291,13 +290,20 @@ fn real_original_admission_noise_is_bound_and_charged() {
             subject: &VerifiedAdmissionBatchSubjectV2,
             _: Instant,
         ) -> Result<ProtectedOriginalAdmissionPartsV2, String> {
-            if subject.read().reference.object.digest != blake3::hash(&self.bytes).to_hex().to_string() {
+            if subject.read().reference.object.digest
+                != blake3::hash(&self.bytes).to_hex().to_string()
+            {
                 return Err("original source mismatch".into());
             }
             self.reads.fetch_add(1, Ordering::SeqCst);
-            let parts = subject.read().ranges()?.iter().map(|r| {
-                self.bytes[r.offset as usize..r.offset as usize + r.length as usize].to_vec()
-            }).collect();
+            let parts = subject
+                .read()
+                .ranges()?
+                .iter()
+                .map(|r| {
+                    self.bytes[r.offset as usize..r.offset as usize + r.length as usize].to_vec()
+                })
+                .collect();
             Ok(ProtectedOriginalAdmissionPartsV2 {
                 parts,
                 transport_hold: Box::new(()), // Test fixture, never production custody.
@@ -308,7 +314,9 @@ fn real_original_admission_noise_is_bound_and_charged() {
             _: &VerifiedAdmissionBatchSubjectV2,
             outer: u64,
         ) -> Result<(), String> {
-            if outer == 0 { return Err("empty outer charge".into()); }
+            if outer == 0 {
+                return Err("empty outer charge".into());
+            }
             self.charges.fetch_add(outer, Ordering::SeqCst);
             Ok(())
         }
@@ -329,14 +337,20 @@ fn real_original_admission_noise_is_bound_and_charged() {
     }));
     wait_connected(|| !server.listening_addrs().is_empty());
     let client = Libp2pNetwork::new(Libp2pNetworkConfig {
-        bootstrap_peers: vec![server.listening_addrs()[0].clone()
-            .with(libp2p::multiaddr::Protocol::P2p(server.peer_id()))],
+        bootstrap_peers: vec![
+            server.listening_addrs()[0]
+                .clone()
+                .with(libp2p::multiaddr::Protocol::P2p(server.peer_id())),
+        ],
         request_response_timeout: Duration::from_secs(3),
         ..Default::default()
     });
     wait_connected(|| client.connected_peers().contains(&server.peer_id()));
     let (mut request, mut bound, subject) = fixture_with_original(
-        AdmissionBatchOperationV2::Batch { offset_bytes: 0, part_count: 3 },
+        AdmissionBatchOperationV2::Batch {
+            offset_bytes: 0,
+            part_count: 3,
+        },
         original.len() as u64,
         blake3::hash(&original).to_hex().to_string(),
     );
@@ -347,9 +361,17 @@ fn real_original_admission_noise_is_bound_and_charged() {
     let mut body = request.authorization.grant.body.clone();
     body.requester_peer_id = request.read.requester_peer_id.clone();
     body.serving_peer_id = request.read.serving_peer_id.clone();
-    request.authorization.grant = BftPrivateRetentionAdmissionReadGrantV1::sign(body, &issuer).unwrap();
+    request.authorization.grant =
+        BftPrivateRetentionAdmissionReadGrantV1::sign(body, &issuer).unwrap();
     request.authorization.signature_hex = hex::encode(
-        subject.sign(&request.read.signing_bytes(&request.authorization.grant).unwrap()).to_bytes(),
+        subject
+            .sign(
+                &request
+                    .read
+                    .signing_bytes(&request.authorization.grant)
+                    .unwrap(),
+            )
+            .to_bytes(),
     );
     bound.authenticated_requester_peer_id = client.peer_id().to_string();
     bound.authenticated_serving_peer_id = server.peer_id().to_string();
@@ -362,35 +384,63 @@ fn real_original_admission_noise_is_bound_and_charged() {
         charges: AtomicU64::new(0),
     });
     let _service = NodeBftOriginalAdmissionNoiseV2::new(
-        server.clone(), vec![client.peer_id().to_string()], authority.clone(),
-    ).unwrap();
-    assert!(client.request_authenticated_to_peer_with_timeout(
-        PROTOCOL_V2, &unbound_request.encode().unwrap(), server.peer_id(),
-        Duration::from_secs(3),
-    ).is_err());
+        server.clone(),
+        vec![client.peer_id().to_string()],
+        authority.clone(),
+    )
+    .unwrap();
+    assert!(
+        client
+            .request_authenticated_to_peer_with_timeout(
+                PROTOCOL_V2,
+                &unbound_request.encode().unwrap(),
+                server.peer_id(),
+                Duration::from_secs(3),
+            )
+            .is_err()
+    );
     assert_eq!(authority.reads.load(Ordering::SeqCst), 0);
-    let answer = client.request_authenticated_to_peer_with_timeout(
-        PROTOCOL_V2, &request.encode().unwrap(), server.peer_id(),
-        Duration::from_secs(3),
-    ).unwrap();
+    let answer = client
+        .request_authenticated_to_peer_with_timeout(
+            PROTOCOL_V2,
+            &request.encode().unwrap(),
+            server.peer_id(),
+            Duration::from_secs(3),
+        )
+        .unwrap();
     let verified = OriginalAdmissionBatchResponseV2::decode_for(&answer, &request).unwrap();
     assert_eq!(verified.parts.len(), 3);
-    assert_eq!(verified.parts[0].bytes.as_slice(), &original[..CHUNK as usize]);
+    assert_eq!(
+        verified.parts[0].bytes.as_slice(),
+        &original[..CHUNK as usize]
+    );
     assert_eq!(authority.reads.load(Ordering::SeqCst), 1);
     assert!(authority.charges.load(Ordering::SeqCst) > answer.len() as u64);
 
     let previous_charge = authority.charges.load(Ordering::SeqCst);
     let mut tampered = request.clone();
     tampered.authorization.signature_hex = "00".repeat(64);
-    assert!(client.request_authenticated_to_peer_with_timeout(
-        PROTOCOL_V2, &tampered.encode().unwrap(), server.peer_id(),
-        Duration::from_secs(3),
-    ).is_err());
+    assert!(
+        client
+            .request_authenticated_to_peer_with_timeout(
+                PROTOCOL_V2,
+                &tampered.encode().unwrap(),
+                server.peer_id(),
+                Duration::from_secs(3),
+            )
+            .is_err()
+    );
     authority.generation.store(8, Ordering::SeqCst);
-    assert!(client.request_authenticated_to_peer_with_timeout(
-        PROTOCOL_V2, &request.encode().unwrap(), server.peer_id(),
-        Duration::from_secs(3),
-    ).is_err());
+    assert!(
+        client
+            .request_authenticated_to_peer_with_timeout(
+                PROTOCOL_V2,
+                &request.encode().unwrap(),
+                server.peer_id(),
+                Duration::from_secs(3),
+            )
+            .is_err()
+    );
     assert_eq!(authority.reads.load(Ordering::SeqCst), 1);
     assert_eq!(authority.charges.load(Ordering::SeqCst), previous_charge);
 }

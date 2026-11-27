@@ -2,6 +2,19 @@
 //! No default registration: only a separately provisioned protected authority
 //! may supply fresh issuer state, exact material, budget and reply fencing.
 //! Subject PoP and transport identity alone never grant original-byte access.
+use super::admission_input_request_v2::{
+    AdmissionBatchOperationV2, AdmissionBatchRequestV2, AdmissionInputBoundContextV2, PROTOCOL_V2,
+    VerifiedAdmissionBatchSubjectV2,
+};
+use super::admission_input_response_v2::{
+    OriginalAdmissionBatchResponseV2, OriginalAdmissionPartBytesV2, OriginalAdmissionPartV2,
+    RESPONSE_DOMAIN,
+};
+use libp2p::request_response::Codec as _;
+use oasis7_net::{
+    AuthenticatedHandlerRegistration, AuthenticatedPeerRequestContext, Libp2pNetwork, WorldError,
+};
+use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 use std::{
     collections::BTreeSet,
     sync::{
@@ -9,19 +22,6 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
-};
-use libp2p::request_response::Codec as _;
-use oasis7_net::{
-    AuthenticatedHandlerRegistration, AuthenticatedPeerRequestContext, Libp2pNetwork, WorldError,
-};
-use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
-use super::admission_input_request_v2::{
-    AdmissionBatchOperationV2, AdmissionBatchRequestV2, AdmissionInputBoundContextV2,
-    VerifiedAdmissionBatchSubjectV2, PROTOCOL_V2,
-};
-use super::admission_input_response_v2::{
-    OriginalAdmissionBatchResponseV2, OriginalAdmissionPartBytesV2, OriginalAdmissionPartV2,
-    RESPONSE_DOMAIN,
 };
 
 /// These fields are supplied from separately verified protected issuer and
@@ -126,10 +126,8 @@ fn rejected() -> WorldError {
 }
 
 fn actual_outer_response_bytes(payload: &[u8]) -> Result<u64, String> {
-    let mut codec = libp2p::request_response::cbor::codec::Codec::<
-        NetworkRequest,
-        NetworkResponse,
-    >::default();
+    let mut codec =
+        libp2p::request_response::cbor::codec::Codec::<NetworkRequest, NetworkResponse>::default();
     let mut writer = futures::io::Cursor::new(Vec::new());
     futures::executor::block_on(codec.write_response(
         &libp2p::StreamProtocol::new(PROTOCOL_V2),
