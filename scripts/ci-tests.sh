@@ -682,9 +682,13 @@ if plan_input and plan.get('scope') == 'full':
     profiles = list(module.SUPPORT_PROFILES)
 partition = sys.argv[3]
 if plan_input and ('workspace_support_partition_version' in plan or 'workspace_support_partitions' in plan):
+    expected_partitions = (
+        module.support_partitions(profiles),
+        sorted({'custody' if p == 'oasis7_custody_worker' else 'other' for p in profiles}),
+    )
     if (type(plan.get('workspace_support_partition_version')) is not int
             or plan['workspace_support_partition_version'] != 1
-            or plan.get('workspace_support_partitions') != module.support_partitions(profiles)
+            or plan.get('workspace_support_partitions') not in expected_partitions
             or (partition != 'all' and partition not in plan['workspace_support_partitions'])):
         raise SystemExit('invalid complete workspace support partitions')
     if partition != 'all':
