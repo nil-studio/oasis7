@@ -435,11 +435,8 @@ mod deadline_tests {
         use oasis7_proto::memory_budget::MemoryBudget;
         let bytes = serde_cbor::to_vec(&77u64).unwrap();
         let memory = MemoryBudget::new(1 << 20, 0).unwrap();
-        let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(
-            100,
-            u64::try_from(bytes.len() + 4).unwrap(),
-        )
-        .unwrap();
+        let work =
+            super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 1024).unwrap();
         for attempt in 0..2 {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let addr = listener.local_addr().unwrap();
@@ -451,17 +448,17 @@ mod deadline_tests {
             });
             let mut stream = TcpStream::connect(addr).unwrap();
             configure(&stream, Duration::from_secs(2)).unwrap();
-            let result = read_prepaid_frame::<u64>(
-                &mut stream,
-                &memory,
-                &work,
-                &mut || false,
-            );
+            let result = read_prepaid_frame::<u64>(&mut stream, &memory, &work, &mut || false);
             if attempt == 0 {
                 let (value, retained) = result.unwrap();
                 assert_eq!(value, 77);
                 assert!(retained.uses_budget(&memory));
                 drop(retained);
+                // Exhaust the *same* original meter after the first successful
+                // frame, independent of physical TCP short-read boundaries.
+                assert!(work.remaining_read_bytes() < 1024);
+                let remaining = work.remaining_read_bytes();
+                work.consume_read_bytes(remaining, &mut || false).unwrap();
             } else {
                 assert!(result.is_err(), "second RPC must not renew work quota");
             }
@@ -470,7 +467,6 @@ mod deadline_tests {
         }
         assert_eq!(work.remaining_read_bytes(), 0);
     }
-
 }
 
 #[cfg(test)]
