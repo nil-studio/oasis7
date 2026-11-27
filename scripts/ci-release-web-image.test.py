@@ -89,6 +89,9 @@ class WorkflowRouting(unittest.TestCase):
         assert "volumes:" not in header and "privileged" not in header
         assert "RUST_RELEASE_WEB_IMAGE:" not in header  # No empty value may poison host fingerprints.
         assert 'ref: ${{ github.workflow_sha }}' in body
+        assert "fetch-depth: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true' && '0' || '1' }}" in body
+        assert "sparse-checkout: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && '.github/actions/setup-linux-mold' || '' }}" in body
+        assert '--preflight --image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591 --source' in body
         assert 'ref: ${{ needs.plan.outputs.checkoutSha }}' in body
         assert 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"' in body
         assert body.index('Verify the fixed Release Web image from trusted workflow tools') < body.index('Configure pinned mold')
@@ -143,6 +146,8 @@ class WorkflowRouting(unittest.TestCase):
             return
         self.assertIn('image: ' + self.IMAGE, job)
         self.assertIn('RUST_RELEASE_WEB_IMAGE: ' + self.IMAGE, job)
+        self.assertIn('fetch-depth: 0', job)
+        self.assertIn('--preflight --image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591 --source', job)
         self.assertIn("github.ref == 'refs/heads/main' && github.workflow_sha == github.sha", job)
         self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: release-web-image', job)
         self.assertIn('shared-key: ' + self.KEY, job)

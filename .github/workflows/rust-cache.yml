@@ -546,9 +546,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify the fixed Release Web image and main source
-        run: python3 scripts/ci-release-web-image.py --preflight --source "$GITHUB_SHA"
+        run: python3 scripts/ci-release-web-image.py --preflight --image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591 --source "$GITHUB_SHA"
       - name: Configure pinned mold without writing the host auxiliary cache
         run: python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/release-web-mold"
       - name: Verify current main cache source

@@ -38,7 +38,7 @@ def compatible(root, image_source, source):
     if not all(SHA.fullmatch(value or "") for value in (image_source, source)):
         return False
     def git(*args):
-        return subprocess.run(["git", "-C", str(root), *args],
+        return subprocess.run(["git", "-c", "safe.directory=" + str(root), "-C", str(root), *args],
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               check=False)
     compiler_inputs = []
@@ -69,7 +69,7 @@ def compatible(root, image_source, source):
                image_source, source, "--", *TOOL_INPUTS).returncode == 0
 
 
-def preflight(root, source):
+def preflight(root, source, image_source):
     """Run only from the executing workflow's staged helper, before builds."""
     root = root.resolve(strict=True)
     if (sys.platform != "linux" or sys.version_info[:2] != (3, 12)
@@ -88,6 +88,8 @@ def preflight(root, source):
     actual = run(["git", "-c", "safe.directory=" + str(root), "rev-parse", "HEAD"])
     if actual != source:
         raise ValueError("release Web source differs from immutable plan")
+    if not compatible(root, image_source, source):
+        raise ValueError("release Web tool inputs differ from the frozen image source")
     run(["git", "config", "--global", "--add", "safe.directory", str(root)])
     version = os.environ["RUST_TOOLCHAIN"]
     if not re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", version):
@@ -131,7 +133,7 @@ def main():
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
     if args.preflight:
-        preflight(args.repo_root, args.source)
+        preflight(args.repo_root, args.source, args.image_source)
         return
     value = "true" if compatible(args.repo_root, args.image_source, args.source) else "false"
     print("release_web_image_compatible=" + value)

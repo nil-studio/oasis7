@@ -373,14 +373,13 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: |
-            .github/actions/setup-linux-mold
-            scripts/ci-release-web-image.py
+          fetch-depth: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true' && '0' || '1' }}
+          sparse-checkout: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && '.github/actions/setup-linux-mold' || '' }}
       - name: Verify the fixed Release Web image from trusted workflow tools
         if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'
         env:
           EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
-        run: python3 scripts/ci-release-web-image.py --preflight --source "$EXPECTED_WORKFLOW_SHA"
+        run: python3 scripts/ci-release-web-image.py --preflight --image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591 --source "$EXPECTED_WORKFLOW_SHA"
       - name: Configure mold for Linux host linking
         if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         uses: ./.github/actions/setup-linux-mold

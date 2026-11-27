@@ -211,3 +211,10 @@ RUST_RELEASE_WEB_IMAGE；host分支不注入哪怕空的新RUST变量，保原v3
 辅助archive；host分支原composite不变。该非业务缓存策略变化需单列cold
 成本，原Web主族、20GB/post-preload及历史v3维护保护不变。有限portable
 adapter仍只承担原四种下载归档，不接受Cargo target。
+
+writer也必须在任何构建/cache之前通过与reader相同的冻结image-source材料
+校验；不能因固定镜像仍可运行就把漂移源码用旧工具写入同family。镜像
+分支first checkout使用完整历史/内容以取得实际发布commit；历史host分支
+继续原depth1+sparse linker checkout。镜像source不匹配直接拒绝，不能静默
+跨ABI保存。当前完整Docker/build文件采用保守整体比对，相关材料变化
+须更新受审镜像/pin；不得用省略工具输入换取命中。
