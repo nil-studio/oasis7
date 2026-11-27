@@ -2833,6 +2833,17 @@
     },
     {
       "match": [
+        "scripts/release-prepare-bundle.sh",
+        "scripts/windows-release-installer.nsi"
+      ],
+      "groups": [
+        "packaging_contracts",
+        "windows_rollout"
+      ],
+      "reason": "release_packaging_scripts"
+    },
+    {
+      "match": [
         "scripts/p2p-public-testnet-fleet-health*",
         "scripts/public-testnet-validator-triad-inventory.v1.json",
         "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md",
