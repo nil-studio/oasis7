@@ -339,7 +339,6 @@ class WorkflowCorePart9(unittest.TestCase):
                 self.assertIn('key: ' + identity, save)
                 self.assertLess(job.index('Save prepared wasm-bindgen'), job.index('Run full test tier'))
         self.assertEqual(len(set(identities)), 1)
-        self.assertNotIn('bindgen-meta', JOBS['launcher-web'])
 
     def test_pr_auxiliary_workflows_scope_triggers_and_skip_drafts(self):
         ci_base = (ROOT / '.github/workflows/ci-base-images.yml').read_text()

@@ -223,7 +223,7 @@ class WorkflowCorePart8(unittest.TestCase):
                 'formal-debug-build', 'formal-debug-build-trusted',
                 'formal-endpoint-build', 'formal-endpoint-build-trusted',
                 'formal-test-build', 'oasis7-required', 'viewer-js-required',
-                'viewer-performance-report', 'launcher-web',
+                'viewer-performance-report',
                 'custody-wasm-production', 'doc-checker-contracts',
             ),
             'rust-cache.yml': ('worker-build-cache', 'shared-native-cache', 'web-wasm-cache',
