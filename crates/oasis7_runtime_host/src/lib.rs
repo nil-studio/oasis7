@@ -13,9 +13,13 @@ pub mod cognition_response_identity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod decision_provider;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod feedback;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gameplay_actions;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gameplay_service;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod harness_authority;
 pub mod llm_prompt_profile;
 pub mod llm_request_budget;
 #[cfg(not(target_arch = "wasm32"))]
@@ -29,7 +33,11 @@ pub mod provider_loopback_http;
 #[path = "agent_execution/provider_material_capture.rs"]
 pub mod provider_material_capture;
 pub mod provider_transport_url;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod runner;
 pub mod simulator_archive;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod world_service_feedback_host;
 
 pub mod agent_execution {
     #[cfg(not(target_arch = "wasm32"))]

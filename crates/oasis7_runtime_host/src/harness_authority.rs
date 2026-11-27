@@ -13,15 +13,19 @@ use oasis7_agent_harness::{
     FeedbackHistoryProjection, MemoryWritePolicyContextV1, RuntimeAuthority,
 };
 
-use crate::runtime::{
+use oasis7_runtime::{
     AgentContinuation, CognitionLeaseStatusV1, CognitionLeaseV1,
     RuntimeCognitionResponseArtifactV1, RuntimeReceiptLineageV1 as RuntimeOwnedReceiptLineageV1,
     World as RuntimeWorld,
 };
-use crate::simulator::{
-    AsyncAgentRunnerError, ContinuousAgentTurnContextV1,
-    FeedbackEnvelopeV1 as OasisFeedbackEnvelopeV1, RuntimeReceiptReadbackHandleV1,
-    RuntimeReceiptReadbackVerifier, agent_api_compat, validated_cognition_lease_consumption_view,
+
+use crate::agent_api_compat;
+use crate::agent_execution::async_agent_runner::{
+    AsyncAgentRunnerError, RuntimeReceiptReadbackHandleV1, RuntimeReceiptReadbackVerifier,
+    validated_cognition_lease_consumption_view,
+};
+use crate::agent_execution::continuous_agent_harness::{
+    ContinuousAgentTurnContextV1, FeedbackEnvelopeV1 as OasisFeedbackEnvelopeV1,
 };
 
 /// Read-only adapter over one actual Runtime World. Runtime owns this value's
@@ -316,31 +320,31 @@ impl RuntimeAuthority for RuntimeWorldAuthority<'_> {
                 .clone()
                 .expect("validate_authoritative requires a Runtime-issued status digest"),
             status: match continuation.status {
-                crate::runtime::ContinuationStatusV1::Scheduled => {
+                oasis7_runtime::ContinuationStatusV1::Scheduled => {
                     ContinuationStatusProjectionV1::Scheduled
                 }
-                crate::runtime::ContinuationStatusV1::Pending => {
+                oasis7_runtime::ContinuationStatusV1::Pending => {
                     ContinuationStatusProjectionV1::Pending
                 }
-                crate::runtime::ContinuationStatusV1::Waking => {
+                oasis7_runtime::ContinuationStatusV1::Waking => {
                     ContinuationStatusProjectionV1::Waking
                 }
-                crate::runtime::ContinuationStatusV1::Consumed => {
+                oasis7_runtime::ContinuationStatusV1::Consumed => {
                     ContinuationStatusProjectionV1::Consumed
                 }
-                crate::runtime::ContinuationStatusV1::Completed => {
+                oasis7_runtime::ContinuationStatusV1::Completed => {
                     ContinuationStatusProjectionV1::Completed
                 }
-                crate::runtime::ContinuationStatusV1::Cancelled => {
+                oasis7_runtime::ContinuationStatusV1::Cancelled => {
                     ContinuationStatusProjectionV1::Cancelled
                 }
-                crate::runtime::ContinuationStatusV1::Invalidated => {
+                oasis7_runtime::ContinuationStatusV1::Invalidated => {
                     ContinuationStatusProjectionV1::Invalidated
                 }
-                crate::runtime::ContinuationStatusV1::Expired => {
+                oasis7_runtime::ContinuationStatusV1::Expired => {
                     ContinuationStatusProjectionV1::Expired
                 }
-                crate::runtime::ContinuationStatusV1::Rejected => {
+                oasis7_runtime::ContinuationStatusV1::Rejected => {
                     ContinuationStatusProjectionV1::Rejected
                 }
             },
@@ -416,14 +420,16 @@ fn cognition_error(code: &str, error: impl std::fmt::Display) -> CognitionError 
 #[cfg(test)]
 mod world_readback_tests {
     use super::*;
-    use crate::geometry::GeoPos;
-    use crate::runtime::{
+    use crate::agent_execution::async_agent_runner::RuntimeReceiptReadbackVerifier;
+    use crate::agent_execution::continuous_agent_harness::{ContinuousAgentTurnContextV1, h_v1};
+    use oasis7_agent_api::world_action::GeoPos;
+    use oasis7_agent_api::{
+        Digest32, FeedbackEnvelopeV1, GoalSnapshotV1, MemoryContextSnapshotV1,
+        ResponseArtifactIdentityV1,
+    };
+    use oasis7_runtime::{
         Action, RuntimeCognitionBaseBindingV1, RuntimeCognitionCommitRequestV1,
         RuntimeCognitionResponseArtifactV1,
-    };
-    use crate::simulator::{
-        ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1, GoalSnapshotV1,
-        MemoryContextSnapshotV1, ResponseArtifactIdentityV1, RuntimeReceiptReadbackVerifier,
     };
 
     fn digest(hex: char) -> String {
@@ -432,7 +438,7 @@ mod world_readback_tests {
 
     #[test]
     fn runtime_world_authority_verifies_durable_receipt_and_response_before_minting_handle() {
-        let mut world = crate::runtime_host::world::new();
+        let mut world = crate::world::new();
         world
             .bind_cognition_runtime("world-readback", "main", 0, None, "pending", 0)
             .expect("bind Runtime World");
@@ -450,16 +456,10 @@ mod world_readback_tests {
             request_digest: digest('a'),
             observation_digest: digest('b'),
             context_digest: digest('c'),
-            capability_snapshot_hash: crate::simulator::h_v1(
-                "oasis7.runtime.manifest.v1",
-                &capability_root,
-            )
-            .to_string(),
-            authority_context_hash: crate::simulator::h_v1(
-                "oasis7.runtime.authority-context.v1",
-                &capability_root,
-            )
-            .to_string(),
+            capability_snapshot_hash: h_v1("oasis7.runtime.manifest.v1", &capability_root)
+                .to_string(),
+            authority_context_hash: h_v1("oasis7.runtime.authority-context.v1", &capability_root)
+                .to_string(),
             captured_base_binding: RuntimeCognitionBaseBindingV1 {
                 world_id: binding.world_id,
                 branch_id: binding.branch_id,
@@ -580,7 +580,7 @@ mod world_readback_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::RuntimeFeedbackOutboxRecordV1;
+    use oasis7_runtime::RuntimeFeedbackOutboxRecordV1;
 
     fn rejected_feedback(agent: &str, session: &str, seq: u64) -> OasisFeedbackEnvelopeV1 {
         OasisFeedbackEnvelopeV1 {
@@ -593,17 +593,15 @@ mod tests {
             candidate_action_id: None,
             runtime_receipt_id: None,
             status: "rejected".to_string(),
-            request_digest: crate::simulator::Digest32(format!("blake3:{}", "a".repeat(64))),
+            request_digest: oasis7_agent_api::Digest32(format!("blake3:{}", "a".repeat(64))),
             reject_reason: Some("stale_base".to_string()),
             provenance: "runtime_authoritative".to_string(),
         }
     }
 
     fn record(feedback: &OasisFeedbackEnvelopeV1, state: &str) -> RuntimeFeedbackOutboxRecordV1 {
-        let mut record = crate::runtime_host::world::new()
-            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
-                feedback,
-            ))
+        let mut record = crate::world::new()
+            .enqueue_runtime_feedback(crate::agent_api_compat::feedback_to_api(feedback))
             .expect("feedback creates a valid outbox record");
         record.state = state.to_string();
         record
@@ -614,18 +612,16 @@ mod tests {
 
     #[test]
     fn runtime_history_projects_ack_state_from_durable_outbox() {
-        let mut world = crate::runtime_host::world::new();
+        let mut world = crate::world::new();
         let acked = rejected_feedback("agent-a", "session-a", 1);
         let pending = rejected_feedback("agent-a", "session-a", 2);
         world
-            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(&acked))
+            .enqueue_runtime_feedback(crate::agent_api_compat::feedback_to_api(&acked))
             .unwrap();
         world.claim_runtime_feedback(&acked.feedback_id).unwrap();
         world.ack_runtime_feedback(&acked.feedback_id).unwrap();
         world
-            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
-                &pending,
-            ))
+            .enqueue_runtime_feedback(crate::agent_api_compat::feedback_to_api(&pending))
             .unwrap();
 
         let authority = RuntimeWorldAuthority::new(&world);
@@ -645,14 +641,12 @@ mod tests {
 
     #[test]
     fn history_rejects_a_forged_durable_envelope_digest() {
-        let mut world = crate::runtime_host::world::new();
+        let mut world = crate::world::new();
         let feedback = rejected_feedback("agent-a", "session-a", 1);
         let mut forged = record(&feedback, "acked");
         forged.envelope_digest = format!("blake3:{}", "b".repeat(64));
         world
-            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
-                &feedback,
-            ))
+            .enqueue_runtime_feedback(crate::agent_api_compat::feedback_to_api(&feedback))
             .expect("Runtime accepts the original payload");
         // The authority reads only the actual World record; a detached record
         // cannot be substituted for that durable history.

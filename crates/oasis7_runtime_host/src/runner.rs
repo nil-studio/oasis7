@@ -2,10 +2,10 @@
 //! The concrete authority borrows the real Runtime World; these calls preserve
 //! receipt readback, exact awaiting-outcome identity, and transactional rollback.
 use super::harness_authority::RuntimeWorldAuthority;
-use crate::runtime::RuntimeReceiptLineageV1;
-use crate::simulator::{
-    AsyncAgentRunner, AsyncAgentRunnerError, FeedbackEnvelopeV1, MemoryWriteStore,
-};
+use crate::agent_execution::async_agent_runner::{AsyncAgentRunner, AsyncAgentRunnerError};
+use crate::agent_execution::continuous_agent_harness::FeedbackEnvelopeV1;
+use crate::cognition_policy::MemoryWriteStore;
+use oasis7_runtime::RuntimeReceiptLineageV1;
 
 pub trait RuntimeRunnerHostExt {
     fn host_restore_feedback_history(
