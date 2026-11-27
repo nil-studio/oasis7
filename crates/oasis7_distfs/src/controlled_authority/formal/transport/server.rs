@@ -190,9 +190,8 @@ impl FormalEndpointServer {
         // Retain the true paid five-state owner and response-copy lease
         // through signing AND the common prepaid physical output writer.
         let mut _paid_query_owner: Option<super::super::endpoint::PaidFormalRequestQueryV1> = None;
-        let mut _paid_query_copy_lease: Option<
-            oasis7_proto::memory_budget::MemoryReservation,
-        > = None;
+        let mut _paid_query_copy_lease: Option<oasis7_proto::memory_budget::MemoryReservation> =
+            None;
         let response = match &body.command {
             Command::Head
             | Command::ArchiveChunk { .. }
@@ -219,9 +218,9 @@ impl FormalEndpointServer {
                                     .map_err(|_| invalid("formal paid Query response admission"))?;
                                 work.consume_steps(1, &mut cancelled)?;
                                 let outcome = match paid.state() {
-                                    Some(state) => FormalQueryOutcomeV1::Recorded(Box::new(
-                                        state.clone(),
-                                    )),
+                                    Some(state) => {
+                                        FormalQueryOutcomeV1::Recorded(Box::new(state.clone()))
+                                    }
                                     None => FormalQueryOutcomeV1::NotRecorded,
                                 };
                                 _paid_query_copy_lease = Some(fee);
