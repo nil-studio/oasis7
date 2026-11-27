@@ -344,6 +344,69 @@ class SelectedCargoMountPaths(_ScopeFixtureBase):
         self.assertEqual(plan['test_policy_paths'], [])
         self.assertEqual(plan['ordinary_execution'], 'inline')
 
+    def test_non_root_main_and_dual_include_mod_inline_literal_path_stay_conservative(self):
+        # 1. `src/lib.rs` mounts `mod main;` where `src/main.rs` has an inline
+        #    `mod outer { #[path = "checks.rs"] mod checks; }`: `cargo test --lib`
+        #    executes `src/main/outer/checks.rs`, NOT the bin root's `src/outer/checks.rs`.
+        self.write('.gitignore', 'target/\nCargo.lock\n')
+        self.write('Cargo.toml', '[workspace]\nresolver="2"\nmembers=["crates/core"]\n')
+        self.write(
+            'crates/core/Cargo.toml',
+            '[package]\nname="core"\nversion="0.1.0"\nedition="2021"\n'
+            '[features]\ndefault=[]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n',
+        )
+        self.write('crates/core/src/lib.rs', 'mod main;\n#[test] fn existing() {}\n')
+        self.write(
+            'crates/core/src/main.rs',
+            'mod outer {\n    #[path = "checks.rs"]\n    mod checks;\n}\npub fn main() {}\n',
+        )
+        self.write('crates/core/src/main/outer/checks.rs', '#[test] fn lib_child() {}\n')
+        decoy = 'crates/core/src/outer/checks.rs'
+        self.write(decoy, '#[test] fn bin_only_test() {}\n')
+        base = self.commit()
+        self.write(decoy, '#[test] fn bin_only_test() { panic!("boom"); }\n#[test] fn new_bin_case() {}\n')
+        head = self.commit()
+
+        config = self.bounded_config((decoy,))
+        config['fast_execution_version'] = 1
+        config['architecture_build_policy_version'] = 1
+        config['ordinary_fast_component_rules'] = [
+            dict(
+                match=['crates/core/src/**'],
+                exclude=['crates/core/src/bin/**'],
+                targets=['core-lib'],
+                reason='complete selected library',
+            )
+        ]
+        config['ordinary_fast_targets']['core-lib'].update(
+            default_features=False,
+            features=['test_tier_required'],
+            cases=['existing'],
+        )
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertIn(decoy, plan['test_policy_paths'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+
+        # 2. A file included via `include!("shared.rs")` in an integration target
+        #    but mounted as `mod shared;` in `src/lib.rs` must not authorize the
+        #    sibling `src/outer/checks.rs` route under `core-lib`.
+        self.write('crates/core/src/lib.rs', 'mod shared;\n#[test] fn existing() {}\n')
+        self.write(
+            'crates/core/src/shared.rs',
+            'mod outer {\n    #[path = "checks.rs"]\n    mod checks;\n}\n',
+        )
+        self.write('crates/core/src/shared/outer/checks.rs', '#[test] fn lib_child() {}\n')
+        self.write('crates/core/tests/other.rs', '#![cfg(feature="test_tier_full")]\ninclude!("../src/shared.rs");\n')
+        self.write(decoy, '#[test] fn integration_only() {}\n')
+        dual_base = self.commit()
+        self.write(decoy, '#[test] fn integration_only() {}\n#[test] fn added_integration_only() {}\n')
+        dual_head = self.commit()
+        dual_plan = selector.select(config, dual_base, dual_head, profile='pr-fast')
+        self.assertTrue(dual_plan['test_policy_changed'])
+        self.assertIn(decoy, dual_plan['test_policy_paths'])
+        self.assertNotIn('ordinary_fast_targets', dual_plan)
+
 
 class WorkspaceMemberCargoAndScopedCfgTests(_ScopeFixtureBase):
     ROOT_TOML = (

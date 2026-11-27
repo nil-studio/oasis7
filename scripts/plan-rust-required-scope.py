@@ -3558,7 +3558,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     integration_targets = {package: integration_test_targets(sources, directories[package], manifest)
                            for package, manifest in source_inputs.get('manifests', {}).items()}
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
-    ordinary_structure_cache, inherited_cache = {}, {}
+    ordinary_structure_cache, inherited_cache, inline_reference_cache = {}, {}, {}
     unit_cargo_roots = {}
 
     def selected_attribute(attribute, native, features):
@@ -3591,11 +3591,12 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             parsed_sources[key] = attributes(text, native, tok)
         return parsed_sources[key]
 
+    comment_or_ws_bytes = rb'(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)'
     non_plain_path_or_include_re = re.compile(
-        rb'#\s*\[\s*cfg_attr\b[^\]]*\bpath\b'
-        rb'|#\s*\[\s*path\b(?!\s*=\s*"[^"\\\r\n]+"\s*\])'
-        rb'|#\s*\[\s*path\b[\s\S]{0,160}?\bmod\s+[A-Za-z0-9_#]+\s*\{'
-        rb'|(?<![A-Za-z0-9_])include(?:\s|/\*|//)*!'
+        rb'#' + comment_or_ws_bytes + rb'*\[\s*(?:r#)?cfg_attr\b[\s\S]*?\bpath\b'
+        rb'|#' + comment_or_ws_bytes + rb'*\[\s*(?:r#)?path\b(?!\s*=\s*"[^"\\\r\n]+"\s*\])'
+        rb'|#' + comment_or_ws_bytes + rb'*\[\s*(?:r#)?path\b[\s\S]*?\bmod' + comment_or_ws_bytes + rb'+[A-Za-z0-9_#]+' + comment_or_ws_bytes + rb'*\{'
+        rb'|(?<![A-Za-z0-9_])include' + comment_or_ws_bytes + rb'*!'
     )
 
     def candidate_parents(path):
@@ -3607,7 +3608,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 else posixpath.basename(path).removesuffix('.rs'))
         stem_bytes = stem.encode()
         mod_decl = re.compile(
-            rb'(?<![A-Za-z0-9_])mod(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)+(?:r#)?'
+            rb'(?<![A-Za-z0-9_])mod' + comment_or_ws_bytes + rb'+(?:r#)?'
             + re.escape(stem_bytes)
             + rb'(?![A-Za-z0-9_])'
         )
@@ -3633,7 +3634,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             return parent_cache[key]
         owners = source_owners(path)
         candidates = candidate_parents(path)
-        references, provenance = [], []
+        references, provenance, inline_flags = [], [], []
         for parent in candidates:
             info = parsed(parent, native)
             annotations, tokens, closing, items, modules, context = info[6:12]
@@ -3682,13 +3683,17 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         if literal_target is not None and not inline and not inherited_path:
                             targets.append(posixpath.normpath(posixpath.join(directory, literal_target)))
                         elif literal_target is not None and not inherited_path:
+                            inline_base_dirs = {module_directory, directory}
+                            if (posixpath.basename(parent) != 'mod.rs'
+                                    and parent not in source_inputs.get('includes', ())
+                                    and (not root_context
+                                         or (selected_root is None and bool(candidate_parents(parent))))):
+                                inline_base_dirs.add(parent.removesuffix('.rs'))
                             inline_candidates = {
                                 posixpath.normpath(posixpath.join(base_dir, *inline, literal_target))
-                                for base_dir in (module_directory, directory)
+                                for base_dir in inline_base_dirs
                             }
-                            present_inline = [candidate for candidate in sorted(inline_candidates)
-                                              if candidate in sources]
-                            targets.extend(present_inline or sorted(inline_candidates))
+                            targets.extend(sorted(inline_candidates))
                             resolved &= len(inline_candidates) == 1
                             known &= len(inline_candidates) == 1
                         else:
@@ -3737,9 +3742,11 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         (selected_attribute(attribute, native, selected_features) if selected_features is not None
                          else ordinary_attribute(attribute, native))
                         for attribute in attributes_here), attributes_here))
+                    inline_flags.append(bool(inline))
                     provenance.append((parent, known, opaque, resolved, tuple(
                         attribute for attribute in attributes_here if attribute[0] in ('cfg', 'cfg_attr'))))
         reference_cache[key] = provenance
+        inline_reference_cache[key] = tuple(inline_flags)
         parent_cache[key] = references
         return references
 
@@ -3901,19 +3908,23 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         result = False
         sibling_directory = (posixpath.basename(path) in ('lib.rs', 'main.rs', 'mod.rs')
                              or path in source_inputs.get('includes', ()))
-        for parent, kind, known, annotations in parents(path, True, features, root):
+        refs = parents(path, True, features, root)
+        inline_flags = inline_reference_cache.get((path, True, features, root), ())
+        for idx, (parent, kind, known, annotations) in enumerate(refs):
+            is_inline = inline_flags[idx] if idx < len(inline_flags) else False
             literal_path = any(attribute[:2] == ('path', '=') and len(attribute) == 3
                                and rust_literal_path(attribute[2]) is not None for attribute in annotations)
             # Proving this file's body needs no inference about its children.
-            # An implicit child also needs the directory assumption to agree
-            # with this mount: #[path]/include use siblings, plain .rs mods use
-            # their stem. Unknown/mixed contexts cannot borrow another route.
+            # An implicit child — or a literal #[path] inside an inline mod —
+            # also needs the directory assumption to agree with this mount:
+            # #[path]/include use siblings, plain .rs mods use their stem.
             directory_matches = (not directory_context
                 or (kind == 'include' and sibling_directory)
                 or (kind == 'mod' and (posixpath.basename(path) == 'mod.rs'
                                       or literal_path == sibling_directory)))
             if (known and directory_matches and selected_source_context(
-                    parent, target, visiting | {path}, directory_context=kind == 'mod' and not literal_path)):
+                    parent, target, visiting | {path},
+                    directory_context=kind == 'mod' and (not literal_path or is_inline))):
                 result = True
                 break
         selected_context_cache[key] = result

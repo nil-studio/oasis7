@@ -190,12 +190,24 @@ class ScopePathsTests(unittest.TestCase):
             errs = scope_paths.check_ci_fast_path_health(root, scope, planner)
             self.assertTrue(any("narrow-unproven #[cfg(...test_tier_full...)]" in e for e in errs), errs)
 
-            # 4. Conditional #[cfg_attr(test, path = ...)] caught
+            # 4. Conditional #[cfg_attr(..., path = ...)] (including bracket inside string literal) caught
             domain_rs.write_text(
-                '#[cfg_attr(test, path = "anchor.rs")]\nmod sub;\npub fn ok() -> usize { 1 }\n',
+                '#[cfg_attr(all(test, doc = "a]b"), path = "anchor.rs")]\nmod sub;\npub fn ok() -> usize { 1 }\n',
                 encoding="utf-8",
             )
             errs = scope_paths.check_ci_fast_path_health(root, scope, planner)
+            self.assertTrue(any("uncertain module path attribute" in e for e in errs), errs)
+
+            # 4b. Comment-separated include_bytes /* c */ ! OUT_DIR & >200-char doc-comment inline #[path] caught
+            domain_rs.write_text(
+                'const X: &[u8] = include_bytes /* c */ !(concat!(env!("OUT_DIR"), "/unregistered.bin"));\n'
+                '# /* c */ [r#path = "sub"]\n'
+                + ("/// " + ("x" * 220) + "\n")
+                + "pub mod inline_mod {}\npub fn ok() -> usize { X.len() }\n",
+                encoding="utf-8",
+            )
+            errs = scope_paths.check_ci_fast_path_health(root, scope, planner)
+            self.assertTrue(any("unregistered OUT_DIR" in e for e in errs), errs)
             self.assertTrue(any("uncertain module path attribute" in e for e in errs), errs)
 
             # 5. Ambiguous foo.rs + foo/mod.rs caught

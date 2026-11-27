@@ -29,13 +29,16 @@ LEGACY_PRODUCTION_FULL_TIER_FILES = frozenset(
         "crates/oasis7_runtime/src/native.rs",
         "crates/oasis7_runtime/src/world/agent_intent_terminal.rs",
         "crates/oasis7_runtime/src/world/bootstrap_power.rs",
+        "crates/oasis7_runtime/src/world/cognition_economy.rs",
         "crates/oasis7_runtime/src/world/mod.rs",
         "crates/oasis7_runtime/src/world_rules.rs",
     }
 )
 
+_RUST_COMMENT_OR_WS = r"(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)"
 _MODULE_OR_INCLUDE_RE = re.compile(
-    r"#\s*\[\s*path\b|#\s*\[\s*cfg_attr\b[^\]]*\bpath\b|\binclude(?:_bytes|_str)?\s*!"
+    rf"#{_RUST_COMMENT_OR_WS}*\[\s*(?:r#)?(?:path|cfg_attr)\b"
+    rf"|\binclude(?:_bytes|_str)?{_RUST_COMMENT_OR_WS}*!"
 )
 
 
@@ -123,6 +126,12 @@ _SIMPLE_LITERAL_PATH_ATTR_RE = re.compile(r'#\s*\[\s*path\s*=\s*"[^"\\\r\n]+"\s*
 _SIMPLE_LITERAL_DATA_INCLUDE_RE = re.compile(
     r'(?<![A-Za-z0-9_:])(?:(?:std|core)::)?include_(?:bytes|str)!\(\s*"[^"\\\r\n]+"\s*,?\s*\)'
 )
+_SIMPLE_NON_PATH_CFG_ATTR_RE = re.compile(
+    r'#\s*\[\s*cfg_attr\((?:(?!\bpath\b)[^"\[\]])*(?:"(?:\\.|[^"\\])*"(?:(?!\bpath\b)[^"\[\]])*)*\)\s*\]'
+)
+_INLINE_PATH_BLOCK_RE = re.compile(
+    rf"#{_RUST_COMMENT_OR_WS}*\[\s*(?:r#)?path\b[\s\S]*?\bmod{_RUST_COMMENT_OR_WS}+[A-Za-z0-9_#]+{_RUST_COMMENT_OR_WS}*\{{",
+)
 
 
 def _needs_full_source_input_scan(text: str) -> bool:
@@ -130,10 +139,14 @@ def _needs_full_source_input_scan(text: str) -> bool:
         return False
     scrubbed = _SIMPLE_LITERAL_PATH_ATTR_RE.sub("", text)
     scrubbed = _SIMPLE_LITERAL_DATA_INCLUDE_RE.sub("", scrubbed)
+    if "path" not in scrubbed:
+        scrubbed = re.sub(rf"#{_RUST_COMMENT_OR_WS}*\[\s*(?:r#)?cfg_attr\b", "", scrubbed)
+    else:
+        scrubbed = _SIMPLE_NON_PATH_CFG_ATTR_RE.sub("", scrubbed)
     if _MODULE_OR_INCLUDE_RE.search(scrubbed):
         return True
-    # Inline `#[path = "..."] mod name {` blocks also make module paths uncertain.
-    return bool(re.search(r'#\s*\[\s*path\b[\s\S]{0,160}?\bmod\s+[A-Za-z0-9_#]+\s*\{', text))
+    # Inline `#[path = "..."] mod name {` blocks (regardless of doc-comment length) make module paths uncertain.
+    return bool(_INLINE_PATH_BLOCK_RE.search(text))
 
 
 def check_ci_fast_path_health(
