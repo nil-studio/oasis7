@@ -720,7 +720,12 @@ for workflow in (release, mainnet):
                 path = fixture / "scripts" / filename
                 path.write_text('#!/bin/sh\n[ "${0##*/}" != "$TEST_FAIL_SCRIPT" ] || exit 23\n')
                 path.chmod(0o755)
-            lanes = ("false", "true") if name == "release_gate_runtime_sync" else ("false",)
+            lanes = ("false", "true") if (
+                name == "release_gate_runtime_sync"
+                or name == "release_gate_runtime_core" and "USE_CORE_IMAGE:" in gate
+            ) else ("false",)
+            (fixture / "oasis7-runtime-core-image.sh").write_text(
+                'test "$1" = --core || exit 24\nexec ./scripts/ci-tests.sh full-core\n')
             launcher = fixture / "oasis7-runtime-sync-image.sh"
             launcher.write_text('exec bash --noprofile --norc -e -o pipefail -s\n')
             for lane in lanes:
@@ -728,7 +733,8 @@ for workflow in (release, mainnet):
                     result = subprocess.run(
                         ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
                         cwd=fixture, env=dict(os.environ, TEST_FAIL_SCRIPT=filename,
-                                              USE_IMAGE=lane, RUNNER_TEMP=str(fixture)),
+                                              USE_IMAGE=lane, USE_CORE_IMAGE=lane,
+                                              EXPECTED_SHA="0" * 40, RUNNER_TEMP=str(fixture)),
                         capture_output=True, text=True)
                     assert result.returncode == 23, (name, lane, filename, result.stdout, result.stderr)
                     report = fixture / ".tmp/release_gate_runtime_sync/runtime-sync-checks.log"
@@ -761,9 +767,9 @@ if any("Select runtime sync image" in workflow for workflow in (release, mainnet
                    RUNNER_ENVIRONMENT="github-hosted", RUNNER_OS="Linux", RUNNER_ARCH="X64",
                    GITHUB_OUTPUT=str(output))
 
-        def select(expected, **overrides):
+        def select(expected, mode="--select", **overrides):
             output.write_text("")
-            subprocess.run(["bash", str(launcher), "--select"], cwd=checkout,
+            subprocess.run(["bash", str(launcher), mode], cwd=checkout,
                            env=env | overrides, check=True)
             assert output.read_text() == f"enabled={expected}\n", overrides
 
@@ -778,6 +784,23 @@ if any("Select runtime sync image" in workflow for workflow in (release, mainnet
         select("false", GITHUB_REF="refs/heads/candidate")
         select("false", GITHUB_EVENT_NAME="pull_request")
         select("false", GITHUB_WORKFLOW_SHA="0" * 40)
+        if any("Select runtime core image" in workflow for workflow in (release, mainnet)):
+            core_job = {"GITHUB_JOB": "release_gate_runtime_core"}
+            select("false", "--select-core", **core_job)
+            select("false", "--select-core")
+            driver = checkout / "scripts/ci-tests.sh"
+            driver.parent.mkdir()
+            driver.write_bytes((root / "scripts/ci-tests.sh").read_bytes())
+            subprocess.run(["git", "add", "scripts/ci-tests.sh"], cwd=checkout, check=True)
+            subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                            "-c", "commit.gpgsign=false", "commit", "-qm", "core driver"],
+                           cwd=checkout, check=True)
+            new = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            current = dict(EXPECTED_SHA=new, GITHUB_SHA=new, GITHUB_WORKFLOW_SHA=new)
+            select("true", "--select-core", **core_job, **current)
+            select("false", "--select-core", **core_job, **(current | {"EXPECTED_SHA": source}))
+            select("false", "--select-core", **core_job, **(current | {"GITHUB_EVENT_NAME": "pull_request"}))
+            select("false", "--select", **core_job, **current)
         toolchain.write_text(toolchain.read_text().replace("1.96.0", "1.92.0"))
         select("false")
 
