@@ -194,7 +194,29 @@ impl World {
         &mut self,
         grant: AgentDelegationGrantV1,
     ) -> Result<(), WorldError> {
-        self.install_agent_delegation_with_authorization(grant)?;
+        let mut ledger = self.delegation_ledger()?;
+        self.stage_agent_delegation_grant_in_ledger(&mut ledger, grant)?;
+        let commit = PreparedStagedCommit::new(
+            super::prepared_base_head::WorldPreparedBaseHead::capture(self)?,
+            None,
+            AgentDelegationDelta {
+                encoded_ledger: serde_json::to_value(&ledger)?,
+            },
+        );
+        let prev_cognition = self
+            .persistence_dir
+            .borrow()
+            .is_some()
+            .then(|| self.cognition.clone());
+        commit
+            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
+            .map_err(TransitionReject::into_world_error)?;
+        if let Err(err) = self.persist_runtime_transaction_if_configured() {
+            if let Some(prev) = prev_cognition {
+                self.cognition = prev;
+            }
+            return Err(err);
+        }
         Ok(())
     }
 
