@@ -308,6 +308,7 @@ impl CognitionEconomyStateV1 {
     /// Install one explicit allowance for a capability owner. Replaying the
     /// exact authority request returns its original receipt without changing
     /// the balance or appending another journal event.
+    #[cfg(test)]
     pub fn provision(
         &mut self,
         request: CognitionProvisioningRequestV1,

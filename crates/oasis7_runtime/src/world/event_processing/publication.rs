@@ -21,6 +21,7 @@ pub(crate) mod staged_monetary;
 use staged_industrial::StagedIndustrialPublication;
 use staged_institutions::StagedInstitutionsPublication;
 use staged_institutions_governance::StagedInstitutionsGovernanceTransition;
+use staged_monetary::StagedMonetaryPublication;
 
 struct PreparedEventPublication {
     event: WorldEvent,
@@ -132,6 +133,9 @@ impl World {
         }
         if let Some(transition) = StagedInstitutionsGovernanceTransition::from_body(&body) {
             return self.append_staged_institutions_governance_event(transition, caused_by);
+        }
+        if let Some(transition) = StagedMonetaryPublication::from_body(&body) {
+            return self.append_staged_monetary_event(transition, caused_by);
         }
         let state_delta = match &body {
             WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { world_binding, .. }) => {
