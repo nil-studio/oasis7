@@ -609,7 +609,7 @@ fn compile_module_artifact_from_source_rejects_when_compiler_times_out() {
     let compiler_script = temp_root.join("compiler-timeout.sh");
     write_executable_script(
         compiler_script.as_path(),
-        "#!/usr/bin/env bash\nset -euo pipefail\nsleep 1\nprintf '%s' 'late-module' > \"$4\"\n",
+        "#!/usr/bin/env bash\nset -euo pipefail\nexec sleep 1\nprintf '%s' 'late-module' > \"$4\"\n",
     );
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
