@@ -6684,7 +6684,6 @@ dependencies = [
  "hex",
  "oasis7_agent_api",
  "oasis7_client_api",
- "oasis7_letai_credit_adapter",
  "oasis7_observability",
  "oasis7_simulator",
  "oasis7_wasm_abi",

@@ -57,9 +57,6 @@ fn default_provider_cli_bin() -> String {
         .unwrap_or_else(|| ["open", "claw"].concat())
 }
 
-#[path = "oasis7_provider_local_bridge/auth_support.rs"]
-mod auth_support;
-use oasis7_letai_credit_adapter as credit_adapter;
 #[path = "oasis7_provider_local_bridge/feedback_state.rs"]
 mod feedback_state;
 #[path = "oasis7_provider_local_bridge/http_bridge_support.rs"]
@@ -74,9 +71,6 @@ mod support;
 #[path = "oasis7_provider_local_bridge/tests.rs"]
 mod tests;
 
-use self::auth_support::{
-    NewapiBridgeStateCache, load_cached_newapi_bridge_state, parse_newapi_bridge_bearer_selector,
-};
 #[path = "oasis7_provider_local_bridge/agent_decision.rs"]
 mod agent_decision;
 #[path = "oasis7_provider_local_bridge/options.rs"]
@@ -96,9 +90,7 @@ pub(crate) use self::invocation::{
 };
 #[cfg(test)]
 use self::letai_direct::{
-    LetaiChatConfig, decode_letai_completion_payload, decode_letai_sse_reader,
-    load_letai_chat_config, maybe_auto_topup_letai_user, quota_from_usd,
-    should_auto_topup_letai_error,
+    decode_letai_completion_payload, decode_letai_sse_reader, load_letai_chat_config,
 };
 use self::letai_direct::{error_diagnostics_json, invoke_rust_direct_letai};
 use self::options::default_gateway_health_url;
@@ -160,7 +152,6 @@ struct ProviderState {
     recent_feedback: Arc<Mutex<BTreeMap<(String, String), FeedbackPartition>>>,
     accepted_requests: Arc<Mutex<BTreeMap<String, AcceptedRequestIdentity>>>,
     feedback_state_path: Option<PathBuf>,
-    newapi_bridge_state_cache: Arc<Mutex<NewapiBridgeStateCache>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -220,7 +211,6 @@ impl ProviderState {
             recent_feedback: Arc::new(Mutex::new(recent_feedback)),
             accepted_requests: Arc::new(Mutex::new(accepted_requests)),
             feedback_state_path,
-            newapi_bridge_state_cache: Arc::new(Mutex::new(NewapiBridgeStateCache::default())),
         })
     }
 
@@ -594,49 +584,6 @@ impl ProviderState {
                 Err(detail)
             }
         }
-    }
-
-    fn resolve_newapi_bridge_route_label(&self, bearer: &str) -> Option<String> {
-        let normalized = bearer.trim();
-        if normalized.is_empty() {
-            return None;
-        }
-        let payload = self.load_newapi_bridge_state()?;
-        let bindings = payload.get("bindings").and_then(Value::as_array)?;
-        let project_bindings = payload.get("project_bindings").and_then(Value::as_array)?;
-        let (by_ref, by_bridge_user_id) = parse_newapi_bridge_bearer_selector(normalized)?;
-        bindings.iter().find_map(|entry| {
-            let object = entry.as_object()?;
-            if object.get("status").and_then(Value::as_str) != Some("active") {
-                return None;
-            }
-            let ref_match = by_ref.is_some_and(|value| {
-                object.get("newapi_user_ref").and_then(Value::as_str) == Some(value)
-            });
-            let user_match = by_bridge_user_id.is_some_and(|value| {
-                object.get("bridge_user_id").and_then(Value::as_str) == Some(value)
-            });
-            let bridge_user_id = object.get("bridge_user_id").and_then(Value::as_str)?;
-            let has_token = project_bindings.iter().any(|project| {
-                let Some(project) = project.as_object() else {
-                    return false;
-                };
-                project.get("bridge_user_id").and_then(Value::as_str) == Some(bridge_user_id)
-                    && project
-                        .get("token_key")
-                        .and_then(Value::as_str)
-                        .is_some_and(|value| !value.trim().is_empty())
-            });
-            if (ref_match || user_match) && has_token {
-                Some(normalized.to_string())
-            } else {
-                None
-            }
-        })
-    }
-
-    fn load_newapi_bridge_state(&self) -> Option<Arc<Value>> {
-        load_cached_newapi_bridge_state(&self.newapi_bridge_state_cache)
     }
 
     fn handle_decision(
