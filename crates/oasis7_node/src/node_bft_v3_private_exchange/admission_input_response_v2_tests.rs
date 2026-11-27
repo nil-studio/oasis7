@@ -103,6 +103,32 @@ fn original_manifest_and_two_batch_frames_roundtrip_into_exact_staging() {
     OriginalAdmissionBatchResponseV2::decode_and_stage(&bytes2, &next, &mut stage).unwrap();
     assert_eq!(stage.next_index(), 2);
     assert_eq!(stage.finish().unwrap(), original);
+
+    // Even if every authenticated RPC already returned, digest verification
+    // and the sink's final flush remain inside the SAME attempt deadline.
+    // A deterministic clock proves expiry immediately after successful finish
+    // without a flaky 120-second timeout or a fresh retry/grant.
+    let mut late =
+        BftAdmissionInputV2StreamStage::new(&manifest.read.reference, Vec::new()).unwrap();
+    OriginalAdmissionBatchResponseV2::decode_and_stage(&bytes1, &first, &mut late).unwrap();
+    OriginalAdmissionBatchResponseV2::decode_and_stage(&bytes2, &next, &mut late).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let checked = std::cell::Cell::new(0);
+    let result = super::super::admission_input_client_v2::finish_before_attempt_deadline(
+        late,
+        deadline,
+        || {
+            let previous = checked.get();
+            checked.set(previous + 1);
+            if previous == 0 {
+                deadline - std::time::Duration::from_millis(1)
+            } else {
+                deadline
+            }
+        },
+    );
+    assert!(result.unwrap_err().contains("deadline exhausted"));
+    assert_eq!(checked.get(), 2);
 }
 
 #[test]
@@ -463,4 +489,37 @@ fn real_original_admission_noise_is_bound_and_charged() {
             .is_err()
     );
     assert_eq!(authority.charges.load(Ordering::SeqCst), previous_charge);
+
+    // The same real two-peer Noise route is now consumed by a bounded client,
+    // not by a manually issued one-off Batch. Keep the *same* issuer grant,
+    // nonce and subject identity for Manifest + both exact original batches.
+    authority.deny_charge.store(false, Ordering::SeqCst);
+    let staged = super::super::admission_input_client_v2::fetch_original_admission_input_v2(
+        &client,
+        server.peer_id(),
+        &request,
+        &authority.bound,
+        |preimage| Ok(hex::encode(subject.sign(preimage).to_bytes())),
+        Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(staged, original);
+    assert!(authority.charges.load(Ordering::SeqCst) > previous_charge);
+    let reads_after_success = authority.reads.load(Ordering::SeqCst);
+
+    // Wrong actual peer and wrong grant cannot initiate any part read.
+    let mut wrong_peer = request.clone();
+    wrong_peer.read.serving_peer_id = libp2p::PeerId::random().to_string();
+    assert!(
+        super::super::admission_input_client_v2::fetch_original_admission_input_v2(
+            &client,
+            server.peer_id(),
+            &wrong_peer,
+            &authority.bound,
+            |preimage| Ok(hex::encode(subject.sign(preimage).to_bytes())),
+            Vec::new(),
+        )
+        .is_err()
+    );
+    assert_eq!(authority.reads.load(Ordering::SeqCst), reads_after_success);
 }

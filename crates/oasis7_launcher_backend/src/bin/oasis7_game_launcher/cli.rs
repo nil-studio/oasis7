@@ -1,7 +1,22 @@
 use super::*;
+use multiaddr::Multiaddr;
 use oasis7_agent_api::world_scenario::is_debug_world_scenario;
-use oasis7_launcher_config::parse_chain_replication_bootstrap_peer;
 use std::net::IpAddr;
+
+const MULTIADDR_EXAMPLE: &str = "/dns4/bootstrap1.oasis7.tech/tcp/5612";
+
+fn parse_chain_replication_bootstrap_peer(raw: &str) -> Result<String, String> {
+    let token = raw.trim();
+    if token.is_empty() {
+        return Err("chain replication bootstrap peer cannot be empty".to_string());
+    }
+    token.parse::<Multiaddr>().map_err(|err| {
+        format!(
+            "chain replication bootstrap peers must use libp2p multiaddr values like {MULTIADDR_EXAMPLE}; invalid `{token}`: {err}"
+        )
+    })?;
+    Ok(token.to_string())
+}
 
 pub(super) fn validate_chain_node_id(id: &str) -> Result<(), String> {
     if id.is_empty()

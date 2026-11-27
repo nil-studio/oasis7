@@ -23,7 +23,6 @@ printf 'console.log("dist viewer old");\n' > "$tmp_repo/crates/oasis7_viewer/dis
 printf 'import "./viewer.js";\n' > "$tmp_repo/crates/oasis7_viewer/dist/software_safe.js"
 printf '<!doctype html>canonical claim evidence old\n' > "$tmp_repo/crates/oasis7_viewer/dist/viewer_first_agent_claim_evidence.html"
 printf '<!doctype html>claim evidence old\n' > "$tmp_repo/crates/oasis7_viewer/dist/software_safe_first_agent_claim_evidence.html"
-printf 'console.log("viewer changed");\n' > "$tmp_repo/crates/oasis7_viewer/viewer.js"
 printf '<!doctype html>viewer\n' > "$tmp_repo/crates/oasis7_viewer/viewer.html"
 cat > "$tmp_repo/crates/oasis7_viewer/viewer_first_agent_claim_evidence.html" <<'HTML'
 <!doctype html>
@@ -68,7 +67,6 @@ touch -d '2026-03-17 00:00:00' \
   "$tmp_repo/crates/oasis7_viewer/dist/pixel-world-bridge/webgl2/pixel_world_bridge_bindgen.js" \
   "$tmp_repo/crates/oasis7_viewer/dist/pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm" \
   "$tmp_repo/crates/oasis7_viewer/dist/favicon.ico" \
-  "$tmp_repo/crates/oasis7_viewer/viewer.js" \
   "$tmp_repo/crates/oasis7_viewer/viewer.html" \
   "$tmp_repo/crates/oasis7_viewer/viewer_first_agent_claim_evidence.html" \
   "$tmp_repo/crates/oasis7_viewer/favicon.ico"
@@ -82,6 +80,8 @@ if [[ "$1" != "--prefix" || "$3" != "run" || "$4" != "build:software-safe" ]]; t
 fi
 printf 'software safe rebuild\n'
 cp crates/oasis7_viewer/viewer.html crates/oasis7_viewer/dist/software_safe.html
+printf '// Generated canonical Viewer bundle; source truth lives in ./software_safe_src/.\nconsole.log("rebuilt dist viewer");\n' \
+  > crates/oasis7_viewer/dist/viewer.js
 printf '// Generated compat alias; canonical bundle truth lives in ./viewer.js.\nimport "./viewer.js";\n' \
   > crates/oasis7_viewer/dist/software_safe.js
 sed \
@@ -109,6 +109,10 @@ if [[ ! -f "$expected_dir/index.html" ]]; then
 fi
 if ! cmp -s "$tmp_repo/crates/oasis7_viewer/viewer.html" "$expected_dir/software_safe.html"; then
   echo "expected rebuilt dist compatibility HTML to come from canonical viewer.html" >&2
+  exit 1
+fi
+if ! cmp -s "$tmp_repo/crates/oasis7_viewer/dist/viewer.js" "$expected_dir/viewer.js"; then
+  echo "expected rebuilt dist viewer.js to come from dist/viewer.js" >&2
   exit 1
 fi
 if ! grep -Fq 'import "./viewer.js";' "$expected_dir/software_safe.js"; then

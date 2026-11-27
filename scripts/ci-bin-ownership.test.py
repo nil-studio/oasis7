@@ -151,7 +151,9 @@ class Ownership(unittest.TestCase):
                           or relative.endswith('canonical_chat_fixture.rs') else 'GeoPos {',
                           source, relative)
         example = (ROOT / 'crates/oasis7_viewer_codec/examples/codec_cost.rs').read_text()
-        self.assertIn('use oasis7::simulator::{WorldEvent, WorldKernel};', example)
+        self.assertIn('use oasis7_runtime_host::simulator_archive::archive::WorldEvent;', example)
+        self.assertIn('use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;', example)
+        self.assertNotIn('oasis7::simulator', example)
         self.assertIn('use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};', example)
         # The composite old archive WorldKernel/WorldSnapshot is intentionally
         # not replaced by the non-equivalent pure Simulator kernel.
@@ -163,30 +165,25 @@ class Ownership(unittest.TestCase):
                 self.assertNotIn('oasis7::world_service::', text, str(source_path))
 
     def require_native_viewer_codec_archive_owner(self, source, manifest_data):
-        """Keep the real native archive on L4 without importing native Host in wasm."""
+        """Keep the real native archive on L4 for both host and wasm32 without oasis7."""
         self.assertIn(
-            '#[cfg(target_arch = "wasm32")]\n'
-            'use oasis7::simulator::{WorldEvent, WorldSnapshot};',
-            source,
-        )
-        self.assertIn(
-            '#[cfg(not(target_arch = "wasm32"))]\n'
             'use oasis7_runtime_host::simulator_archive::archive::WorldEvent;',
             source,
         )
         self.assertIn(
-            '#[cfg(not(target_arch = "wasm32"))]\n'
             'use oasis7_runtime_host::simulator_archive::persist::WorldSnapshot;',
             source,
         )
         self.assertEqual(
-            manifest_data['target']['cfg(not(target_arch = "wasm32"))']['dependencies']['oasis7_runtime_host'],
+            manifest_data['dependencies']['oasis7_runtime_host'],
             {'path': '../oasis7_runtime_host'},
         )
+        self.assertNotIn('oasis7', manifest_data['dependencies'])
+        self.assertNotIn('oasis7::', source)
         self.assertNotIn('use oasis7_simulator::{WorldEvent, WorldSnapshot};', source)
 
     def test_native_viewer_codec_archive_owner_positive_and_negative(self):
-        """Exact actual native owner, original wasm compatibility, and partial-migration rejection."""
+        """Exact actual native owner on host and wasm32, and partial-migration rejection."""
         codec = (ROOT / 'crates/oasis7_viewer_codec/src/lib.rs').read_text()
         manifest_data = manifest('oasis7_viewer_codec')
         self.require_native_viewer_codec_archive_owner(codec, manifest_data)
@@ -200,17 +197,16 @@ class Ownership(unittest.TestCase):
                 'oasis7_simulator::WorldSnapshot',
             ),
             codec.replace(
-                '#[cfg(target_arch = "wasm32")]',
-                '#[cfg(not(target_arch = "wasm32"))]',
-                1,
+                'oasis7_runtime_host::simulator_archive::archive::WorldEvent',
+                'oasis7::simulator::WorldEvent',
             ),
         ):
             with self.assertRaises(AssertionError):
                 self.require_native_viewer_codec_archive_owner(wrong, manifest_data)
         removed = {
             **manifest_data,
-            'target': {
-                'cfg(not(target_arch = "wasm32"))': {'dependencies': {}},
+            'dependencies': {
+                k: v for k, v in manifest_data['dependencies'].items() if k != 'oasis7_runtime_host'
             },
         }
         with self.assertRaises(KeyError):

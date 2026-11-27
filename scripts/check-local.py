@@ -82,7 +82,6 @@ SUPPORT_CLIPPY_PROFILES = frozenset((
 UNSUPPORTED_SUPPORT = {
     'oasis7_agent_api': 'signed-read conformance still installs npm dependencies',
     'oasis7_dev_test_worker': 'Worker verification still installs tools and npm dependencies',
-    'oasis7_custody_worker': 'Worker provisioning and generated outputs need a local adapter',
     'oasis7_game_client': 'cross-UID fixture requires a separate hosted execution contract',
     'wasm_build_suite': 'real WASM cases need a preflight for their installed target',
     'wasm_module_observe': 'real WASM cases need a preflight for their installed target',

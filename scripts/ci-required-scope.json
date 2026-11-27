@@ -3,7 +3,6 @@
   "ordinary_dynamic_partition_version": 1,
   "ordinary_universal_sharding_version": 1,
   "architecture_artifact_build_policy_version": 1,
-  "custody_node_shards_version": 2,
   "contract_job_consolidation_version": 5,
   "ordinary_scope_config_slice_version": 2,
   "standalone_cargo_manifest_scope_version": 1,
@@ -220,9 +219,6 @@
   },
   "ordinary_artifact_delivery_version": 2,
   "workspace_support_partition_version": 1,
-  "custody_execution_version": 1,
-  "custody_compile_proof_version": 1,
-  "custody_policy_tests_version": 1,
   "distfs_clippy_contract_version": 1,
   "architecture_build_policy_version": 1,
   "additive_governance_registration_version": 1,
@@ -242,7 +238,7 @@
       "source": "crates/oasis7_game_client/src/dev_test_service_cli.rs",
       "entry": "run",
       "callers": {
-        "crates/oasis7_game_client/src/commands.rs": "0aba38c4f9e32c35facd42ac443c4eb382f74f8ce949512cf22f4ad7dac0f7dd",
+        "crates/oasis7_game_client/src/commands.rs": "b4a94ea953a4a8bda984ccd260ba67b00c3490f34ff54b6010ce2d71be405d21",
         "crates/oasis7_game_client/src/bin/oasis7_game_client.rs": "f0e672b7b81c4b6259ce3c6286ec2345558b9f7c3b5e1c87e4dd26cc2ed87587"
       },
       "tests": [
@@ -1278,7 +1274,6 @@
     ".github/workflows/codeql-platform-observation.yml": ["workflow_governance"],
     ".github/dependabot.yml": ["workflow_governance"],
     ".github/workflows/ci-base-images.yml": ["workflow_governance", "packaging_contracts"],
-    ".github/workflows/compile-metrics.yml": ["workflow_governance", "compile_metrics"],
     ".github/workflows/daily-github-release.yml": ["workflow_governance"],
     ".github/workflows/ecs-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/hosted-login-linux-build.yml": ["workflow_governance"],
@@ -2461,61 +2456,6 @@
       "scripts/stage-wasm-summary-imports.sh",
       "scripts/wasm-release-evidence-report.sh",
       "scripts/wasm-summary-bundle-smoke.sh"
-    ],
-    "oasis7_custody_worker": [
-      "crates/oasis7_agent_api/src/game/goal.rs",
-      "crates/oasis7_agent_api/src/game/task.rs",
-      "crates/oasis7_agent_api/src/game/goal_prepare.rs",
-      "crates/oasis7_agent_api/src/game/goal_publish.rs",
-      "crates/oasis7_agent_api/src/game/executor.rs",
-      "crates/oasis7_client_api/src/world_service/entry_control.rs",
-      "crates/oasis7_client_api/src/world_service/private_goal_read.rs",
-      "crates/oasis7_client_api/src/world_service/owner_setup_observation.rs",
-      "crates/oasis7_client_api/src/world_service_wire.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/entry_owner_control.rs",
-      "crates/oasis7_chain_runtime/src/host/world_service_private_goal.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry_tests.rs",
-      "crates/oasis7_client_api/src/world_service.rs",
-      "crates/oasis7_client_api/src/world_service/authority.rs",
-      "crates/oasis7_client_api/src/world_service/private_goal.rs",
-      "crates/oasis7_client_api/src/world_service/participant_discovery.rs",
-      "crates/oasis7_client_api/src/world_service/participant_policy_original.rs",
-      "crates/oasis7_client_api/src/world_service_correlation.rs",
-      "crates/oasis7_chain_runtime/src/host/world_service_participant_api.rs",
-      "crates/oasis7_chain_runtime/src/host/world_service_participant_owner_control.rs",
-      "crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_http.rs",
-      "crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_http_fixture.rs",
-      "crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_governance.rs",
-      "crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_transport.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_complete.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_revocation.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_revocation_overflow.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_revocation_tests.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_tests.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_native_http_fixture.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_managed_binding.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_managed_binding_tests.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_owner_pin.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_owner_pin_tests.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_managed_operation.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_managed_operation_tests.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_key.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_key_complete.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/native_key_tests.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/machine_registration.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/machine_registration_tests.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/mod.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/config.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/model.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/model_session.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/model_session_tests.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/webauthn.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/store.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/store/migration.rs",
-      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/store/snapshot.rs"
     ]
   },
   "rules": [
@@ -2536,6 +2476,15 @@
       "groups": [],
       "full": true,
       "reason": "git_checkout_attributes"
+    },
+    {
+      "match": [
+        ".gitmodules"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "git_submodule_manifest"
     },
     {
       "match": [
@@ -2657,16 +2606,6 @@
       "match": ["scripts/cargo-dev-architecture*"],
       "groups": ["rust_baseline", "cargo_tooling_contracts"],
       "reason": "cargo_architecture_boundaries"
-    },
-    {
-      "match": [
-        "tests/libp2p-compat/**",
-        "scripts/libp2p-compat.test.py"
-      ],
-      "groups": [
-        "net"
-      ],
-      "reason": "libp2p_compatibility_protocols"
     },
     {
       "match": [
@@ -2825,6 +2764,17 @@
         "operational_contracts"
       ],
       "reason": "operational"
+    },
+    {
+      "match": [
+        "scripts/release-prepare-bundle.sh",
+        "scripts/windows-release-installer.nsi"
+      ],
+      "groups": [
+        "packaging_contracts",
+        "windows_rollout"
+      ],
+      "reason": "release_packaging_scripts"
     },
     {
       "match": [

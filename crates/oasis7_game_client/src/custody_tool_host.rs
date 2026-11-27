@@ -1,10 +1,4 @@
 //! Control-only Host. No Executor store, Native SID, business tools or raw signer API.
-#[path = "custody_host_bootstrap.rs"]
-mod bootstrap;
-#[path = "custody_host_cli.rs"]
-pub(crate) mod cli;
-#[path = "custody_host_control.rs"]
-mod control;
 #[path = "custody_host_ipc.rs"]
 pub(crate) mod ipc;
 #[path = "custody_host_registry.rs"]
@@ -13,9 +7,6 @@ mod registry;
 mod reply;
 #[path = "custody_host_state.rs"]
 pub(crate) mod state;
-#[cfg(test)]
-#[path = "custody_host_tests.rs"]
-mod tests;
 #[path = "custody_host_vault.rs"]
 pub(crate) mod vault;
 use oasis7_custody_core::{

@@ -25,7 +25,7 @@ printf '.component { display: block; }\n' > "$viewer_root/viewer_base_components
 printf '.shell { grid-template-columns: minmax(0, 1fr); }\n' > "$viewer_root/viewer_terminal_shell.css"
 printf '.shell-base { display: grid; }\n' > "$viewer_root/viewer_terminal_shell_base.css"
 printf '.shell-panels { display: flex; }\n' > "$viewer_root/viewer_terminal_shell_panels.css"
-printf 'console.log("canonical bundle");\n' > "$viewer_root/viewer.js"
+printf 'console.log("canonical bundle");\n' > "$viewer_root/dist/viewer.js"
 cp "$ROOT_DIR/crates/oasis7_viewer/viewer_first_agent_claim_evidence.html" \
   "$viewer_root/viewer_first_agent_claim_evidence.html"
 node "$ROOT_DIR/crates/oasis7_viewer/scripts/viewer-compat-aliases.mjs" "$viewer_root" "$viewer_root/dist"
@@ -52,7 +52,7 @@ expect_cmp() {
 
 expect_cmp "$viewer_root/dist/browser-game-client/oasis7_browser_game_client.js" "$dist_dir/browser-game-client/oasis7_browser_game_client.js"
 expect_cmp "$viewer_root/dist/browser-game-client/oasis7_browser_game_client_bg.wasm" "$dist_dir/browser-game-client/oasis7_browser_game_client_bg.wasm"
-expect_cmp "$viewer_root/viewer.js" "$dist_dir/viewer.js"
+expect_cmp "$viewer_root/dist/viewer.js" "$dist_dir/viewer.js"
 expect_cmp "$viewer_root/dist/software_safe.js" "$dist_dir/software_safe.js"
 expect_cmp "$viewer_root/viewer.html" "$dist_dir/index.html"
 expect_cmp "$viewer_root/viewer.html" "$dist_dir/viewer.html"
@@ -398,7 +398,7 @@ printf 'console.log("current isolated bundle");\n' > "$isolated_generated/viewer
   --generated-dist-dir "$isolated_generated" --dist-dir "$TMPDIR/isolated-delivery"
 expect_cmp "$isolated_generated/viewer.js" "$TMPDIR/isolated-delivery/viewer.js"
 expect_cmp "$viewer_root/viewer.html" "$TMPDIR/isolated-delivery/viewer.html"
-[[ "$(cat "$viewer_root/viewer.js")" == 'console.log("canonical bundle");' ]]
+[[ "$(cat "$viewer_root/dist/viewer.js")" == 'console.log("canonical bundle");' ]]
 "$ROOT_DIR/scripts/copy-viewer-web-dist.sh" --viewer-root "$viewer_root" \
   --generated-dist-dir "$isolated_generated" --dist-dir "$isolated_generated"
 expect_cmp "$isolated_generated/viewer.js" "$TMPDIR/isolated-delivery/viewer.js"

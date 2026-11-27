@@ -28,8 +28,8 @@ impl FormalEndpointServer {
         Self::new_with_frame_admission(endpoint, timeout, None)
     }
     /// Both normal/recovery and healthy activation call this once at startup.
-    /// Optional mode is only frame admission: Request DTO, remote Query
-    /// response and GEN proof cutover remain separate formal contracts.
+    /// Optional mode admits raw request and response frames. Request/response
+    /// DTO construction, signing work and GEN proof cutover remain separate.
     pub fn new_with_frame_admission(
         endpoint: FileFormalEndpoint,
         timeout: Duration,
@@ -133,6 +133,7 @@ impl FormalEndpointServer {
     ) -> Result<(), FormalError> {
         wire::address(peer)?;
         wire::configure(stream, self.timeout)?;
+        let mut cancelled = || false;
         // Hold the original frame fee through signature validation and the
         // signed response write. This is frame admission, not a paid DTO owner.
         let (request, _paid_frame): (
@@ -140,7 +141,8 @@ impl FormalEndpointServer {
             Option<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>>,
         ) = match self.frame_admission.as_ref() {
             Some((memory, work)) => {
-                let (value, owner) = wire::read_prepaid_frame(stream, memory, work, &mut || false)?;
+                let (value, owner) =
+                    wire::read_prepaid_frame(stream, memory, work, &mut cancelled)?;
                 (value, Some(owner))
             }
             None => (wire::read(stream)?, None),
@@ -206,7 +208,12 @@ impl FormalEndpointServer {
                 )?
             }
         };
-        wire::write(stream, &response)
+        match self.frame_admission.as_ref() {
+            Some((memory, work)) => {
+                wire::write_prepaid_frame(stream, &response, memory, work, &mut cancelled)
+            }
+            None => wire::write(stream, &response),
+        }
     }
     fn execute(&mut self, command: Command) -> Result<Value, FormalError> {
         match command {

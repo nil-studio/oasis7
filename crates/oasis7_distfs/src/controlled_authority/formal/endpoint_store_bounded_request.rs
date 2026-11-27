@@ -10,6 +10,9 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 #[derive(Debug)]
 pub(in crate::controlled_authority::formal::endpoint) struct PaidRequestStateV1 {
     value: ReservedValue<FormalRequestStateV1>,
+    // Exact original object-wire length. Used only to conservatively prepay
+    // signed Query response copying; never an authority or work allowance.
+    source_bytes: usize,
 }
 impl PaidRequestStateV1 {
     pub(in crate::controlled_authority::formal::endpoint) fn state(&self) -> &FormalRequestStateV1 {
@@ -20,6 +23,15 @@ impl PaidRequestStateV1 {
         memory: &MemoryBudget,
     ) -> bool {
         self.value.uses_budget(memory)
+    }
+    pub(in crate::controlled_authority::formal::endpoint) fn response_copy_workspace(
+        &self,
+    ) -> Result<usize, FormalError> {
+        // Existing locked wire decoder bounds the *entire* reachable five-state
+        // DTO graph, including container allocations, text and diagnostics.
+        // The same conservative bound covers one additional copy and CBOR
+        // serialization without depending on a post-allocation measurement.
+        decode_workspace(self.source_bytes)
     }
     #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
@@ -295,6 +307,7 @@ pub(in crate::controlled_authority::formal::endpoint) fn decode_request_bytes_bo
     // FormalError's existing String contract is unchanged, not falsely retained.
     Ok(PaidRequestStateV1 {
         value: fee.retain(state),
+        source_bytes: bytes.len(),
     })
 }
 pub(super) fn read_request_bounded_v1(

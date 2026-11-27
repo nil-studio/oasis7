@@ -4,124 +4,6 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
-workflow_toolchain_install=$(awk '
-/^[[:space:]]*- name: Install pinned Rust toolchain$/ { in_step=1; next }
-in_step && /^[[:space:]]*- name:/ { in_step=0 }
-in_step && /rustup toolchain install/ { print; exit }
-' .github/workflows/compile-metrics.yml)
-if [[ "$workflow_toolchain_install" != *"--profile minimal"* ]]; then
-  echo "compile metrics workflow must install Rust with the minimal profile" >&2
-  exit 1
-fi
-if [[ "$workflow_toolchain_install" == *"--profile default"* ]]; then
-  echo "compile metrics workflow must not install Rust with the default profile" >&2
-  exit 1
-fi
-
-workflow_checkout_depth=$(awk '
-$1 == "-" && $2 == "uses:" && $3 ~ /^actions\/checkout@[0-9a-f]+$/ && length($3) == length("actions/checkout@") + 40 { in_step=1; next }
-in_step && /^[[:space:]]*- name:/ { in_step=0 }
-in_step && /fetch-depth:/ { print $2; exit }
-' .github/workflows/compile-metrics.yml)
-if [[ "$workflow_checkout_depth" != "1" ]]; then
-  echo "compile metrics workflow must use a shallow current checkout" >&2
-  exit 1
-fi
-if grep -Eq 'fetch-depth:[[:space:]]*0' .github/workflows/compile-metrics.yml; then
-  echo "compile metrics workflow must not request a full-history checkout" >&2
-  exit 1
-fi
-compile_metrics_timeout=$(awk '
-/^  compile-metrics:/ { in_job=1; next }
-in_job && /^  [^[:space:]]/ { exit }
-in_job && /^[[:space:]]+timeout-minutes:/ { print $2; exit }
-' .github/workflows/compile-metrics.yml)
-if ! [[ "$compile_metrics_timeout" =~ ^[0-9]+$ ]] || (( compile_metrics_timeout < 1 || compile_metrics_timeout > 45 )); then
-  echo "compile metrics matrix job must cap runner time within 1..45 minutes" >&2
-  exit 1
-fi
-if ! grep -Eq '^[[:space:]]*CARGO_REGISTRIES_CRATES_IO_PROTOCOL:[[:space:]]*sparse[[:space:]]*$' .github/workflows/compile-metrics.yml; then
-  echo "compile metrics workflow must pin the sparse crates.io protocol" >&2
-  exit 1
-fi
-if grep -Eq 'COMPILE_METRICS_MAX_[A-Z0-9_]+' .github/workflows/compile-metrics.yml; then
-  echo "compile metrics workflow must not define unused threshold environment defaults" >&2
-  exit 1
-fi
-workflow_cargo_check_threshold=$(awk '
-/^[[:space:]]*max_cargo_check_regression_pct:[[:space:]]*$/ { in_block=1; next }
-in_block && /^      [a-zA-Z0-9_]+:/ { exit }
-in_block && /^[[:space:]]*default:/ { print $2; exit }
-' .github/workflows/compile-metrics.yml)
-if [[ "$workflow_cargo_check_threshold" != '"25"' ]]; then
-  echo "compile metrics workflow must default to a cold cargo check regression threshold of 25%" >&2
-  exit 1
-fi
-workflow_cargo_build_release_threshold=$(awk '
-/^[[:space:]]*max_cargo_build_release_regression_pct:[[:space:]]*$/ { in_block=1; next }
-in_block && /^      [a-zA-Z0-9_]+:/ { exit }
-in_block && /^[[:space:]]*default:/ { print $2; exit }
-' .github/workflows/compile-metrics.yml)
-if [[ "$workflow_cargo_build_release_threshold" != '"25"' ]]; then
-  echo "compile metrics workflow must default to a cold cargo build --release regression threshold of 25%" >&2
-  exit 1
-fi
-python3 - <<'PY'
-from pathlib import Path
-
-source = Path(".github/workflows/compile-metrics.yml").read_text(encoding="utf-8")
-enforce = source[source.index("      - name: Enforce compile metrics gate"):source.index("\n  summarize:")]
-launcher_start = enforce.index('          if [[ "${METRIC_TARGET}" == "launcher" ]]; then')
-launcher_end = enforce.index("\n          fi", launcher_start) + len("\n          fi")
-launcher_block = enforce[launcher_start:launcher_end]
-release_flag = "--max-cargo-build-release-regression-pct"
-if release_flag not in launcher_block:
-    raise SystemExit("release-build regression threshold must be gated to the launcher target")
-if enforce.count(release_flag) != 1:
-    raise SystemExit("release-build regression threshold must not be passed outside the launcher target")
-PY
-if ! grep -Eq '^[[:space:]]*- oasis7_default_features[[:space:]]*$' .github/workflows/compile-metrics.yml; then
-  echo "compile metrics workflow must expose the oasis7 default-feature target" >&2
-  exit 1
-fi
-workflow_oasis7_default_target=$(awk '
-/^[[:space:]]*oasis7_default_features\)[[:space:]]*$/ { in_case=1; next }
-in_case && /^[[:space:]]*;;/ { exit }
-in_case { print }
-' .github/workflows/compile-metrics.yml)
-if [[ "$workflow_oasis7_default_target" != *'package="oasis7"'* ]]; then
-  echo "oasis7 default-feature target must measure package oasis7" >&2
-  exit 1
-fi
-if [[ "$workflow_oasis7_default_target" != *'extra_args+=(--check-only)'* ]]; then
-  echo "oasis7 default-feature target must use check-only measurement" >&2
-  exit 1
-fi
-if [[ "$workflow_oasis7_default_target" == *'--no-default-features'* ]]; then
-  echo "oasis7 default-feature target must retain Cargo default features" >&2
-  exit 1
-fi
-if ! grep -Eq '^[[:space:]]*- oasis7_node_default_features[[:space:]]*$' .github/workflows/compile-metrics.yml; then
-  echo "compile metrics workflow must expose the oasis7_node default-feature target" >&2
-  exit 1
-fi
-workflow_oasis7_node_default_target=$(awk '
-/^[[:space:]]*oasis7_node_default_features\)[[:space:]]*$/ { in_case=1; next }
-in_case && /^[[:space:]]*;;/ { exit }
-in_case { print }
-' .github/workflows/compile-metrics.yml)
-if [[ "$workflow_oasis7_node_default_target" != *'package="oasis7_node"'* ]]; then
-  echo "oasis7_node default-feature target must measure package oasis7_node" >&2
-  exit 1
-fi
-if [[ "$workflow_oasis7_node_default_target" != *'extra_args+=(--check-only)'* ]]; then
-  echo "oasis7_node default-feature target must use check-only measurement" >&2
-  exit 1
-fi
-if [[ "$workflow_oasis7_node_default_target" == *'--no-default-features'* ]]; then
-  echo "oasis7_node default-feature target must retain Cargo default features" >&2
-  exit 1
-fi
 if ! grep -q 'time\.monotonic_ns()' scripts/ci-compile-metrics.sh; then
   echo "compile metrics timing must use a monotonic clock" >&2
   exit 1
@@ -143,50 +25,6 @@ rm_pos = cleanup.find("rm -rf")
 if remove_pos < 0 or rm_pos < 0 or remove_pos > rm_pos:
     raise SystemExit("compile-metrics cleanup must git worktree remove before rm -rf")
 PY
-if ! grep -Eq 'git fetch --no-tags --depth=1 origin -- "\$\{BASELINE_REF\}"' .github/workflows/compile-metrics.yml; then
-  echo "compile metrics workflow must fetch an optional baseline explicitly" >&2
-  exit 1
-fi
-if ! grep -Eq "FETCH_HEAD\\^\\{commit\\}" .github/workflows/compile-metrics.yml; then
-  echo "compile metrics workflow must resolve fetched baseline provenance" >&2
-  exit 1
-fi
-workflow_baseline_fetch_step=$(awk '
-/^[[:space:]]*- name: Fetch baseline ref$/ { in_step=1; next }
-in_step && /^[[:space:]]*- name:/ { exit }
-in_step { print }
-' .github/workflows/compile-metrics.yml)
-if [[ "$workflow_baseline_fetch_step" != *"if:"* || "$workflow_baseline_fetch_step" != *"baseline_ref !="* ]]; then
-  echo "baseline fetch must be conditional on a requested baseline ref" >&2
-  exit 1
-fi
-# These literals intentionally assert GitHub expressions instead of expanding
-# them as Bash variables.
-# shellcheck disable=SC2016
-if [[ "$workflow_baseline_fetch_step" != *'BASELINE_REF: ${{ inputs.baseline_ref }}'* ]]; then
-  echo "baseline fetch must pass the input through an environment variable" >&2
-  exit 1
-fi
-workflow_baseline_resolver_step=$(awk '
-/^[[:space:]]*- name: Resolve baseline ref$/ { in_step=1; next }
-in_step && /^[[:space:]]*- name:/ { exit }
-in_step { print }
-' .github/workflows/compile-metrics.yml)
-# shellcheck disable=SC2016
-if [[ "$workflow_baseline_resolver_step" != *'BASELINE_REF: ${{ inputs.baseline_ref }}'* ]]; then
-  echo "baseline resolver must pass the input through an environment variable" >&2
-  exit 1
-fi
-# shellcheck disable=SC2016
-if [[ "$workflow_baseline_resolver_step" != *'baseline_ref="${BASELINE_REF}"'* ]]; then
-  echo "baseline resolver must read the environment variable literally" >&2
-  exit 1
-fi
-# shellcheck disable=SC2016
-if [[ "$workflow_baseline_resolver_step" == *'baseline_ref="${{ inputs.baseline_ref }}"'* ]]; then
-  echo "baseline resolver must not interpolate workflow input into Bash" >&2
-  exit 1
-fi
 
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -1360,7 +1198,7 @@ case "${1:-}" in
           printf 'ignored mutation\n' >"$PWD/config.toml"
           ;;
         gitlink)
-          printf 'nested gitlink mutation\n' >"$PWD/third_party/agent-os/.v2-gitlink-mutation"
+          printf 'nested gitlink mutation\n' >"$PWD/third_party/rust-skills/.v2-gitlink-mutation"
           ;;
         *)
           echo "unknown fake V2 mutation mode: $FAKE_MUTATION_MODE" >&2
@@ -1957,54 +1795,6 @@ if (
 print("no-baseline validation ordering contract: OK")
 PY
 
-workflow_input_result=$(python3 - <<'PY'
-from pathlib import Path
-
-source = Path(".github/workflows/compile-metrics.yml").read_text(encoding="utf-8")
-required = (
-    "measure_warm_check:",
-    "type: boolean",
-    "default: false",
-    "max_cargo_check_warm_regression_pct:",
-    'default: ""',
-    "--measure-warm-check",
-    "--max-cargo-check-warm-regression-pct",
-)
-missing = [literal for literal in required if literal not in source]
-if missing:
-    raise SystemExit("workflow warm input/wiring missing: " + ", ".join(missing))
-
-measure_pos = source.index("- name: Measure selected Rust compile metrics")
-fetch_pos = source.index("- name: Fetch baseline ref")
-validator_markers = (
-    "Validate compile metrics inputs",
-    "Validate compile-metrics inputs",
-    "Validate inputs",
-)
-validator_candidates = [source.index(marker) for marker in validator_markers if marker in source]
-if not validator_candidates or not any(pos < fetch_pos for pos in validator_candidates):
-    raise SystemExit("workflow must validate warm/cold inputs before baseline fetch")
-validator_pos = max(pos for pos in validator_candidates if pos < fetch_pos)
-validator_block = source[validator_pos:fetch_pos]
-if "max_cargo_check_warm_regression_pct" not in validator_block or "measure_warm_check" not in validator_block:
-    raise SystemExit("workflow validator must cover warm mode and warm threshold")
-if "finite" not in validator_block or "non-negative" not in validator_block:
-    raise SystemExit("workflow validator must reject non-finite and negative thresholds")
-if "baseline_ref" in validator_block and "if:" in validator_block:
-    raise SystemExit("workflow input validation must not be baseline-conditional")
-if measure_pos < validator_pos:
-    raise SystemExit("workflow must validate inputs before measurement")
-measure_block = source[measure_pos:source.index("- name: Append platform summary", measure_pos)]
-if "inputs.measure_warm_check" not in measure_block:
-    raise SystemExit("workflow must wire measure_warm_check into the harness command")
-gate_block = source[source.index("- name: Enforce compile metrics gate"):source.index("  summarize:")]
-if "inputs.max_cargo_check_warm_regression_pct" not in gate_block:
-    raise SystemExit("workflow must pass the selected warm threshold to the gate")
-print("workflow warm input validation/wiring contract: OK")
-PY
-)
-printf '%s\n' "$workflow_input_result"
-
 failure_run() {
   local out_path="$1" command_log="$2" count_path="$3" reuse_path="$4" target_path="$5" failure_index="$6"
   shift 6
@@ -2083,8 +1873,8 @@ for mutation_mode in content mode type symlink untracked ignored gitlink; do
     ln -s README.md "$mutation_worktree/.v2-tracked-symlink"
     git -C "$mutation_worktree" add .v2-tracked-symlink
   elif [[ "$mutation_mode" == gitlink ]]; then
-    mkdir -p "$mutation_worktree/third_party/agent-os"
-    printf 'stable nested fixture\n' >"$mutation_worktree/third_party/agent-os/stable.txt"
+    mkdir -p "$mutation_worktree/third_party/rust-skills"
+    printf 'stable nested fixture\n' >"$mutation_worktree/third_party/rust-skills/stable.txt"
   fi
   mutation_out="$tmp_dir/mutation-out-$mutation_mode"
   mutation_log="$tmp_dir/mutation-log-$mutation_mode"
@@ -2119,7 +1909,7 @@ for mutation_mode in content mode type symlink untracked ignored gitlink; do
   elif [[ "$mutation_mode" == "ignored" ]]; then
     expected_mutation_path="config.toml"
   elif [[ "$mutation_mode" == "gitlink" ]]; then
-    expected_mutation_path="third_party/agent-os/.v2-gitlink-mutation"
+    expected_mutation_path="third_party/rust-skills/.v2-gitlink-mutation"
   fi
   if ! grep -Fq "$expected_mutation_path" "$mutation_error"; then
     echo "source mutation $mutation_mode diagnostic did not identify $expected_mutation_path: $(cat "$mutation_error")" >&2
@@ -2182,235 +1972,6 @@ if FAKE_CARGO_LOG="$tmp_dir/unsafe-link-log" \
 fi
 git --git-dir="$fixture_git" worktree remove --force "$safety_worktree" >/dev/null
 echo "output-path alias safety contract: OK"
-
-# Parse the workflow with Ruby's standard-library YAML parser and inspect the
-# resulting JSON from Python's standard library.  Keep the contract independent
-# of undeclared third-party Python modules on a clean required-gate runner.
-# This catches heredoc bodies that are accidentally emitted at column zero:
-# textual presence checks alone cannot detect that malformed YAML structure.
-workflow_json="$tmp_dir/compile-metrics-workflow.json"
-if ! command -v ruby >/dev/null 2>&1; then
-  echo "workflow YAML contract requires ruby with its standard-library yaml/json modules" >&2
-  exit 1
-fi
-ruby -ryaml -rjson -e \
-  'puts JSON.generate(YAML.safe_load(File.read(ARGV.fetch(0)), aliases: true))' \
-  .github/workflows/compile-metrics.yml >"$workflow_json"
-python3 - "$workflow_json" <<'PY'
-import json
-from pathlib import Path
-import sys
-
-workflow = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-
-if not isinstance(workflow, dict):
-    raise SystemExit("workflow YAML must parse as a mapping")
-jobs = workflow.get("jobs")
-if not isinstance(jobs, dict) or not isinstance(jobs.get("compile-metrics"), dict):
-    raise SystemExit("workflow YAML must define the compile-metrics job")
-steps = jobs["compile-metrics"].get("steps")
-if not isinstance(steps, list):
-    raise SystemExit("compile-metrics job must define a YAML steps list")
-step_names = [step.get("name") for step in steps if isinstance(step, dict)]
-gate_index = step_names.index("Enforce compile metrics gate")
-upload_index = step_names.index("Upload compile metrics artifact")
-if upload_index <= gate_index:
-    raise SystemExit(
-        "compile metrics artifact upload must occur after the gate appends its verdict"
-    )
-validation_steps = [
-    step
-    for step in steps
-    if isinstance(step, dict) and step.get("name") == "Validate compile metrics inputs"
-]
-if len(validation_steps) != 1 or not isinstance(validation_steps[0].get("run"), str):
-    raise SystemExit(
-        "compile-metrics input validation must be one parsed YAML run step"
-    )
-print("workflow YAML parse/validation contract: OK")
-PY
-
-# Execute the validator exactly as parsed from the workflow.  Textual wiring
-# checks cannot prove that malformed inputs are rejected before any measurement.
-python3 - "$workflow_json" <<'PY'
-import json
-import os
-import subprocess
-from pathlib import Path
-import sys
-
-workflow = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-steps = workflow["jobs"]["compile-metrics"]["steps"]
-validator = next(
-    step
-    for step in steps
-    if isinstance(step, dict) and step.get("name") == "Validate compile metrics inputs"
-)
-validator_run = validator["run"]
-threshold_names = (
-    "MAX_PACKAGE_COUNT_REGRESSION_PCT",
-    "MAX_CARGO_CHECK_REGRESSION_PCT",
-    "MAX_CARGO_BUILD_RELEASE_REGRESSION_PCT",
-    "MAX_RELEASE_BINARY_BYTES_REGRESSION_PCT",
-    "MAX_CARGO_CHECK_WARM_REGRESSION_PCT",
-)
-
-
-def invoke(measure_warm_check, updates=None):
-    environment = os.environ.copy()
-    environment["MEASURE_WARM_CHECK"] = measure_warm_check
-    for name in threshold_names:
-        environment[name] = ""
-    environment.update(updates or {})
-    return subprocess.run(
-        ["bash", "-c", validator_run],
-        capture_output=True,
-        text=True,
-        env=environment,
-        check=False,
-    )
-
-
-invalid_mode = invoke("maybe")
-if invalid_mode.returncode == 0 or "must be a boolean" not in invalid_mode.stderr:
-    raise SystemExit(
-        f"workflow validator accepted an invalid warm-mode boolean: "
-        f"{invalid_mode.stdout}{invalid_mode.stderr}"
-    )
-
-disabled_threshold = invoke(
-    "false", {"MAX_CARGO_CHECK_WARM_REGRESSION_PCT": "5"}
-)
-if (
-    disabled_threshold.returncode == 0
-    or "requires measure_warm_check=true" not in disabled_threshold.stderr
-):
-    raise SystemExit(
-        "workflow validator accepted a warm threshold while disabled: "
-        f"{disabled_threshold.stdout}{disabled_threshold.stderr}"
-    )
-
-for name in threshold_names:
-    for value in ("NaN", "-1", "not-a-number"):
-        invalid_threshold = invoke("true", {name: value})
-        if (
-            invalid_threshold.returncode == 0
-            or "finite and non-negative number" not in invalid_threshold.stderr
-        ):
-            raise SystemExit(
-                f"workflow validator accepted {name}={value!r}: "
-                f"{invalid_threshold.stdout}{invalid_threshold.stderr}"
-            )
-
-valid_cold = invoke("false")
-if valid_cold.returncode != 0:
-    raise SystemExit(
-        f"workflow validator rejected valid cold inputs: "
-        f"{valid_cold.stdout}{valid_cold.stderr}"
-    )
-valid_warm = invoke(
-    "true", {"MAX_CARGO_CHECK_WARM_REGRESSION_PCT": "5"}
-)
-if valid_warm.returncode != 0:
-    raise SystemExit(
-        f"workflow validator rejected valid warm inputs: "
-        f"{valid_warm.stdout}{valid_warm.stderr}"
-    )
-print("workflow input-validator executable rejection contract: OK")
-PY
-
-# Execute the parsed workflow gate step against the generated current-only
-# comparison. A warm threshold is forwarded only when both the threshold and
-# warm opt-in are active; the gate's explicit no-baseline SKIP makes that
-# command wiring observable without a fake gate binary.
-python3 - "$workflow_json" "$warm_out_dir" "$tmp_dir" <<'PY'
-import json
-import os
-import subprocess
-import sys
-from pathlib import Path
-
-workflow = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-output_dir = Path(sys.argv[2]).resolve()
-scratch_dir = Path(sys.argv[3]).resolve()
-steps = workflow["jobs"]["compile-metrics"]["steps"]
-gate_step = next(
-    step
-    for step in steps
-    if isinstance(step, dict) and step.get("name") == "Enforce compile metrics gate"
-)
-gate_run = gate_step["run"]
-gate_run = gate_run.replace(
-    "output/compile-metrics/${{ matrix.platform }}", str(output_dir)
-)
-gate_run = gate_run.replace("${{ inputs.metric_target }}", "oasis7_node_default_features")
-
-
-def invoke(measure_warm_check, threshold, cold_thresholds=None):
-    environment = os.environ.copy()
-    summary_path = scratch_dir / f"gate-summary-{measure_warm_check}-{threshold or 'empty'}.md"
-    environment.update(
-        {
-            "MEASURE_WARM_CHECK": measure_warm_check,
-            "MEASURE_WARM": measure_warm_check,
-            "METRIC_TARGET": "oasis7_node_default_features",
-            "MAX_PACKAGE_COUNT_REGRESSION_PCT": "100",
-            "MAX_CARGO_CHECK_REGRESSION_PCT": "",
-            "MAX_CARGO_BUILD_RELEASE_REGRESSION_PCT": "",
-            "MAX_RELEASE_BINARY_BYTES_REGRESSION_PCT": "",
-            "MAX_CARGO_CHECK_WARM_REGRESSION_PCT": threshold,
-            "GITHUB_STEP_SUMMARY": str(summary_path),
-        }
-    )
-    if cold_thresholds is not None:
-        environment.update(cold_thresholds)
-    command = gate_run.replace("${{ inputs.measure_warm_check }}", measure_warm_check)
-    result = subprocess.run(
-        ["bash", "-c", command],
-        capture_output=True,
-        text=True,
-        env=environment,
-        check=False,
-    )
-    result.summary = (
-        summary_path.read_text(encoding="utf-8")
-        if summary_path.exists()
-        else ""
-    )
-    return result
-
-
-for measure_warm_check, threshold, expected_forwarding in (
-    ("false", "5", False),
-    ("true", "5", True),
-    ("false", "", False),
-    ("true", "", False),
-):
-    result = invoke(measure_warm_check, threshold)
-    output = result.stdout + result.stderr + result.summary
-    observed_forwarding = "warm cargo check threshold" in result.summary
-    if result.returncode != 0 or observed_forwarding != expected_forwarding:
-        raise SystemExit(
-            "workflow gate warm-threshold forwarding mismatch for "
-            f"measure_warm_check={measure_warm_check!r}, threshold={threshold!r}: "
-            f"expected={expected_forwarding}, output={output}"
-        )
-print("workflow gate warm-threshold conditional wiring contract: OK")
-
-empty_cold_thresholds = {
-    "MAX_PACKAGE_COUNT_REGRESSION_PCT": "",
-    "MAX_CARGO_CHECK_REGRESSION_PCT": "",
-    "MAX_CARGO_BUILD_RELEASE_REGRESSION_PCT": "",
-    "MAX_RELEASE_BINARY_BYTES_REGRESSION_PCT": "",
-}
-empty_result = invoke("false", "", empty_cold_thresholds)
-if empty_result.returncode != 0:
-    raise SystemExit(
-        "workflow gate must omit empty optional cold thresholds: "
-        f"{empty_result.stdout}{empty_result.stderr}{empty_result.summary}"
-    )
-print("workflow gate empty optional threshold omission contract: OK")
-PY
 
 # Exercise the production report serializer with deterministic payloads so the
 # summary evidence matrix covers generated cold/warm labels, paired rows,

@@ -86,6 +86,9 @@ jobs:
 
   release_gate_runtime_core:
     name: release-gate-runtime-core
+    permissions:
+      contents: read
+      packages: read
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -123,9 +126,20 @@ jobs:
           head_oid="$(git rev-parse --verify 'HEAD^{commit}')"
           printf 'OASIS7_PRODUCT_DOC_BASE=%s\n' "$base_oid" >>"$GITHUB_ENV"
           printf 'OASIS7_PRODUCT_DOC_HEAD=%s\n' "$head_oid" >>"$GITHUB_ENV"
+      - name: Select runtime core image for the verified source
+        id: core-image
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+        run: |
+          launcher="$RUNNER_TEMP/oasis7-runtime-core-image.sh"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-sync-image.sh" >"$launcher"
+          bash "$launcher" --select-core
       - name: Install product-document Markdown parser
+        if: steps.core-image.outputs.enabled == 'false'
         run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
       - name: Install pinned Rust toolchain
+        if: steps.core-image.outputs.enabled == 'false'
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
@@ -133,6 +147,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
+        if: steps.core-image.outputs.enabled == 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -150,11 +165,11 @@ jobs:
             libasound2-dev \
             libudev-dev
       - name: Normalize Rust cache toolchains
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.core-image.outputs.enabled == 'false'
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.core-image.outputs.enabled == 'false'
         with:
           shared-key: ci-shared-native-trusted-v4
           save-if: false
@@ -163,9 +178,18 @@ jobs:
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Run runtime core release gate
         shell: bash
+        env:
+          USE_CORE_IMAGE: ${{ steps.core-image.outputs.enabled }}
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          GHCR_TOKEN: ${{ steps.core-image.outputs.enabled == 'true' && github.token || '' }}
         run: |
           mkdir -p .tmp/release_gate_runtime_core
-          ./scripts/ci-tests.sh full-core | tee .tmp/release_gate_runtime_core/ci-tests-full-core.log
+          if [[ "${USE_CORE_IMAGE:-false}" == true ]]; then
+            bash "$RUNNER_TEMP/oasis7-runtime-core-image.sh" --core |
+              tee .tmp/release_gate_runtime_core/ci-tests-full-core.log
+          else
+            ./scripts/ci-tests.sh full-core | tee .tmp/release_gate_runtime_core/ci-tests-full-core.log
+          fi
       - name: Upload runtime core gate summary
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -176,6 +200,9 @@ jobs:
 
   release_gate_runtime_support:
     name: release-gate-runtime-support
+    permissions:
+      contents: read
+      packages: read
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -213,9 +240,20 @@ jobs:
           head_oid="$(git rev-parse --verify 'HEAD^{commit}')"
           printf 'OASIS7_PRODUCT_DOC_BASE=%s\n' "$base_oid" >>"$GITHUB_ENV"
           printf 'OASIS7_PRODUCT_DOC_HEAD=%s\n' "$head_oid" >>"$GITHUB_ENV"
+      - name: Select runtime support image for the verified source
+        id: support-image
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+        run: |
+          launcher="$RUNNER_TEMP/oasis7-runtime-support-image.py"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-support-image.py" >"$launcher"
+          /usr/bin/python3 "$launcher" select "$EXPECTED_SHA"
       - name: Install product-document Markdown parser
+        if: steps.support-image.outputs.enabled == 'false'
         run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
       - name: Install pinned Rust toolchain
+        if: steps.support-image.outputs.enabled == 'false'
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
@@ -223,6 +261,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
+        if: steps.support-image.outputs.enabled == 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -238,11 +277,11 @@ jobs:
             libasound2-dev \
             libudev-dev
       - name: Normalize Rust cache toolchains
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.support-image.outputs.enabled == 'false'
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.support-image.outputs.enabled == 'false'
         with:
           shared-key: ci-shared-native-trusted-v4
           save-if: false
@@ -251,9 +290,18 @@ jobs:
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Run runtime support release gate
         shell: bash
+        env:
+          USE_SUPPORT_IMAGE: ${{ steps.support-image.outputs.enabled }}
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          GHCR_TOKEN: ${{ steps.support-image.outputs.enabled == 'true' && github.token || '' }}
         run: |
           mkdir -p .tmp/release_gate_runtime_support
-          ./scripts/ci-tests.sh full-support | tee .tmp/release_gate_runtime_support/ci-tests-full-support.log
+          if [[ "${USE_SUPPORT_IMAGE:-false}" == true ]]; then
+            /usr/bin/python3 "$RUNNER_TEMP/oasis7-runtime-support-image.py" run "$EXPECTED_SHA" |
+              tee .tmp/release_gate_runtime_support/ci-tests-full-support.log
+          else
+            ./scripts/ci-tests.sh full-support | tee .tmp/release_gate_runtime_support/ci-tests-full-support.log
+          fi
       - name: Upload runtime support gate summary
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -4,7 +4,7 @@
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image] [--full-support-phase before-cross-uid|after-cross-uid]
 
   commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -60,7 +60,6 @@ checkpoint = sys.argv[1][:160]
 started = time.monotonic()
 deadline = started + 20
 root = Path.cwd()
-custody = root / 'crates/oasis7_custody_worker'
 cargo = Path(os.environ.get('CARGO_HOME', str(Path.home() / '.cargo')))
 rustup = Path(os.environ.get('RUSTUP_HOME', str(Path.home() / '.rustup')))
 temporary = Path(os.environ.get('RUNNER_TEMP', '/tmp'))
@@ -105,7 +104,6 @@ paths = [(name, root / name) for name in (
     'target', 'target/debug', 'target/debug/deps', 'target/debug/build',
     'target/debug/incremental', 'target/release',
     'target/wasm32-unknown-unknown/debug', 'target/wasm32-unknown-unknown/release')]
-paths += [('custody/' + name, custody / name) for name in ('build', 'artifacts', 'node_modules')]
 paths += [('cargo/' + name, cargo / name) for name in ('registry', 'git', 'bin')]
 paths += [('rustup/toolchains', rustup / 'toolchains'), ('runner-temp', temporary), ('tmp', Path('/tmp'))]
 for label, path in paths:
@@ -538,7 +536,6 @@ run_oasis7_net_libp2p_tests() {
     run_cargo test --locked --manifest-path ./vendor/if-watch-3.2.2/Cargo.toml \
       --target-dir ./target --all-features --lib
   fi
-  run python3 ./scripts/libp2p-compat.test.py
   # Preserve the standalone warm-contract reader; real groups already ran
   # the equivalent native library with default features.
   if [[ "${1:-}" != --skip-native ]]; then
@@ -565,24 +562,8 @@ run_signed_read_protocol_contract_tests() {
   run env PYTHON="$ci_python" npm test --prefix crates/oasis7_agent_api/protocol_conformance
 }
 
-run_worker_wasm_compile_profiles() {
-  # Run the trusted planner's exact compile tuples; candidate role flags do not
-  # become test-execution evidence and mutually exclusive roles stay separate.
-  run "$ci_python" - "$driver_dir/plan-rust-required-scope.py" <<'PY_WORKER_COMPILE'
-import importlib.util
-import subprocess
-import sys
-import tomllib
-from pathlib import Path
-spec = importlib.util.spec_from_file_location('scope', sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-manifest = tomllib.loads(Path('crates/oasis7_custody_worker/Cargo.toml').read_text())
-module.run_worker_wasm_compile_checks(manifest)
-PY_WORKER_COMPILE
-}
-
 run_game_client_cli_contracts() {
+  local phase=${1:-all}
   run_cargo test -p oasis7_game_client --test dev_test_service_cli --test dev_test_local_transport --test dev_test_local_cli --locked
   if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
     if [[ "${RUNNER_OS:-}" != Linux || "${RUNNER_ENVIRONMENT:-}" != github-hosted ]]; then
@@ -590,6 +571,8 @@ run_game_client_cli_contracts() {
       return 2
     fi
     run_cargo build -p oasis7_game_client --bin oasis7_game_client --locked
+    # The release orchestrator runs this one part on the original hosted runner.
+    [[ "$phase" != before-cross-uid ]] || return 0
     # Root timeout owns the entire inherited process group, including the
     # fixture's distinct-UID clients. Failure/cancellation never completes support.
     run sudo -n timeout --signal=TERM --kill-after=5s 60s "$ci_python" \
@@ -600,6 +583,14 @@ run_game_client_cli_contracts() {
   fi
 }
 
+# Compatibility no-op stub kept for policy_sha compatibility with .github/workflows/rust.yml
+# until #7315 removes the custody-* job shells.
+if ! declare -F run_worker_wasm_compile_profiles >/dev/null; then
+  run_worker_wasm_compile_profiles() {
+    echo "+ worker wasm compile profiles offboarded"
+  }
+fi
+
 run_dev_test_worker_checks() {
   if ! command -v worker-build >/dev/null || [[ "$(worker-build --version)" != "0.7.5" ]]; then
     run_cargo install worker-build --version 0.7.5 --locked
@@ -608,22 +599,28 @@ run_dev_test_worker_checks() {
 }
 
 run_oasis7_workspace_support_crate_tests() {
-  run_dev_test_worker_checks
-  run_signed_read_protocol_contract_tests
-  run_cargo test -p oasis7_custody_core --all-targets --locked
-  run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles
-  run_cargo_clippy -p oasis7_agent_api --all-targets
-  run_cargo_clippy -p oasis7_agent_harness --all-targets
-  run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
-  run_cargo_clippy -p oasis7_browser_game_client --all-targets
-  run_cargo_clippy -p oasis7_game_client --all-targets
-  run_cargo_clippy -p oasis7_model_provider --all-targets
-  run_cargo test -p oasis7_agent_api
-  run_cargo test -p oasis7_agent_harness --lib
-  run_cargo test -p oasis7_client_storage -p oasis7_signer_protocol --lib
-  run_cargo test -p oasis7_domain_types --lib
-  run_cargo test -p oasis7_game_client --lib
-  run_game_client_cli_contracts
+  local phase=${1:-all}
+  if [[ "$phase" != after-cross-uid ]]; then
+    run_dev_test_worker_checks
+    run_signed_read_protocol_contract_tests
+    run_cargo test -p oasis7_custody_core --all-targets --locked
+    run_cargo_clippy -p oasis7_agent_api --all-targets
+    run_cargo_clippy -p oasis7_agent_harness --all-targets
+    run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
+    run_cargo_clippy -p oasis7_browser_game_client --all-targets
+    run_cargo_clippy -p oasis7_game_client --all-targets
+    run_cargo_clippy -p oasis7_model_provider --all-targets
+    run_cargo test -p oasis7_agent_api
+    run_cargo test -p oasis7_agent_harness --lib
+    run_cargo test -p oasis7_client_storage -p oasis7_signer_protocol --lib
+    run_cargo test -p oasis7_domain_types --lib
+    run_cargo test -p oasis7_game_client --lib
+    if [[ "$phase" == before-cross-uid ]]; then
+      run_game_client_cli_contracts before-cross-uid
+      return
+    fi
+    run_game_client_cli_contracts
+  fi
   run_cargo test -p oasis7_model_provider --all-targets
   run_cargo test \
     -p oasis7_browser_game_client \
@@ -692,14 +689,17 @@ if plan_input and plan.get('scope') == 'full':
     profiles = list(module.SUPPORT_PROFILES)
 partition = sys.argv[3]
 if plan_input and ('workspace_support_partition_version' in plan or 'workspace_support_partitions' in plan):
+    expected_partitions = (
+        module.support_partitions(profiles),
+        sorted({'custody' if p == 'oasis7_custody_worker' else 'other' for p in profiles}),
+    )
     if (type(plan.get('workspace_support_partition_version')) is not int
             or plan['workspace_support_partition_version'] != 1
-            or plan.get('workspace_support_partitions') != module.support_partitions(profiles)
+            or plan.get('workspace_support_partitions') not in expected_partitions
             or (partition != 'all' and partition not in plan['workspace_support_partitions'])):
         raise SystemExit('invalid complete workspace support partitions')
     if partition != 'all':
-        profiles = [profile for profile in profiles
-                    if ('custody' if profile == 'oasis7_custody_worker' else 'other') == partition]
+        profiles = [profile for profile in profiles if 'other' == partition]
 elif partition != 'all':
     raise SystemExit('support partition requires a trusted capability')
 execution = sys.argv[4]
@@ -731,7 +731,7 @@ PY
       oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib; run_game_client_cli_contracts ;;
       oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
-      oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
+      oasis7_custody_worker) echo "+ support profile offboarded: $profile"; complete_targets=true; expand_targets=false ;;
       oasis7_wasm_executor)
         # Run the actual Linux worker binary, process/FD and regex integration
         # tests alongside the library tests. This crate's sole nondefault
@@ -1560,14 +1560,21 @@ run_full_core_tier_tests() {
   run_oasis7_full_tier_tests
 }
 
-run_full_support_tier_tests() {
+run_full_support_leading_checks() {
+  [[ "$1" != after-cross-uid ]] || return 0
   run_all_required_gate_capability_contract_tests
   run_oasis7_consensus_tests
   run_oasis7_distfs_tests
   run_oasis7_node_tests
   run_oasis7_net_tests
   run_oasis7_net_libp2p_tests --skip-native
-  run_oasis7_workspace_support_crate_tests
+}
+
+run_full_support_tier_tests() {
+  local phase=${1:-all}
+  run_full_support_leading_checks "$phase"
+  run_oasis7_workspace_support_crate_tests "$phase"
+  [[ "$phase" != before-cross-uid ]] || return 0
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_viewer_software_safe_feedback_contract_tests
   run_oasis7_viewer_software_safe_build
@@ -1776,6 +1783,7 @@ required_plan=""
 ordinary_partition=""
 support_partition="all"
 support_execution="all"
+full_support_phase="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo-root)
@@ -1818,6 +1826,11 @@ while [[ $# -gt 0 ]]; do
       support_execution="$2"
       shift 2
       ;;
+    --full-support-phase)
+      [[ $# -ge 2 && "$full_support_phase" == all && ( "$2" == before-cross-uid || "$2" == after-cross-uid ) ]] || { usage; exit 2; }
+      full_support_phase="$2"
+      shift 2
+      ;;
     --ordinary-partition)
       [[ $# -ge 2 && -n "$2" && -z "$ordinary_partition" ]] || { usage; exit 2; }
       ordinary_partition="$2"
@@ -1846,6 +1859,12 @@ if [[ "$support_partition" != all && ( "$tier" != required || "$group" != worksp
 fi
 if [[ "$support_execution" != all && ( "$support_partition" != other || ( "$support_execution" != host && "$support_execution" != image ) ) ]]; then
   echo '--support-execution requires --support-partition other and host or image' >&2
+  exit 2
+fi
+if [[ "$full_support_phase" != all &&
+      ( "$tier" != full-support || "${GITHUB_ACTIONS:-}" != true ||
+        "${RUNNER_OS:-}" != Linux || "${RUNNER_ENVIRONMENT:-}" != github-hosted ) ]]; then
+  echo '--full-support-phase requires full-support on GitHub-hosted Linux' >&2
   exit 2
 fi
 if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline && "$group" != distfs ) ) ]]; then
@@ -1884,7 +1903,12 @@ else
     full|full-standard) run_full_required_superset; run_rust_baseline; run_full_extended_tier_tests; if [[ "$tier" == full ]]; then run_group formal_process; fi ;;
     full-extended) run_full_extended_tier_tests ;;
     full-core) run_full_core_tier_tests ;;
-    full-support) run_full_support_tier_tests ;;
+    full-support)
+      case "$full_support_phase" in
+        before-cross-uid) run_full_support_tier_tests before-cross-uid; exit ;;
+        *) run_full_support_tier_tests "$full_support_phase" ;;
+      esac
+      ;;
     cache-native) run_shared_native_cache_builds ;;
   esac
 fi

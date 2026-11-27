@@ -148,7 +148,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 - 唯一上游：[REQ-WR-GCB-005](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-005)；Trace refs: O7-REQ-4b64b7c5-9819-4932-a1ad-3cdb09fa82e5。
 - 状态：源设计 `未核实`；源实现 `部分实现`。这是原状态卡范围，不能从视觉改变实现结论。
 - 角色/条件：当前读权限 audience 可看允许信息；完整写角色不由本设计补造。。
-- 字段：外部 OC 转让事实；事项范围内 lock / snapshot；退出或解除绑定的当前结果；有效窗口内原计票历史；OC → LetAI Run quota 单向服务；token_key 与服务消费（非治理）
+- 字段：外部 OC 转让事实；事项范围内 lock / snapshot；退出或解除绑定的当前结果；有效窗口内原计票历史；OC → 外部服务 quota 单向服务；token_key 与服务消费（非治理）
 - 三轴：当前完整Viewer `not_confirmed; preserve listed narrow consumers`；runtime绑定 `not_verified; no current connection or runtime execution claim`；专业动作合同 `read_boundary_only`。
 - 具体表示：[具体目标稿](assets/ui-ux/full-function/governance-targets/frames/B05-GCB-005.svg)；`normal_frame`；字段区域按 `field-1…field-6`，当前未运行。
 - 动作「查看来源记录」：`target_conditionally_available`；Viewer 不提供链上转账或世界资格兑换；当前图中条件：disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness；启用条件：exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record。
@@ -689,7 +689,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 - 唯一上游：[REQ-WR-GCB-005](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-005)；Trace refs: O7-REQ-4b64b7c5-9819-4932-a1ad-3cdb09fa82e5。
 - 状态：源设计 `未核实`；源实现 `部分实现`。这是原状态卡范围，不能从视觉改变实现结论。
 - 角色/条件：当前读权限 audience 可看允许信息；完整写角色不由本设计补造。。
-- 字段：外部 OC 转让事实；事项范围内 lock / snapshot；退出或解除绑定的当前结果；有效窗口内原计票历史；OC → LetAI Run quota 单向服务；token_key 与服务消费（非治理）
+- 字段：外部 OC 转让事实；事项范围内 lock / snapshot；退出或解除绑定的当前结果；有效窗口内原计票历史；OC → 外部服务 quota 单向服务；token_key 与服务消费（非治理）
 - 三轴：当前完整Viewer `not_confirmed; preserve listed narrow consumers`；runtime绑定 `not_verified; no current connection or runtime execution claim`；专业动作合同 `read_boundary_only`。
 - 具体表示：[具体目标稿](assets/ui-ux/full-function/governance-targets/frames/B05-GCB-005.svg)；`normal_frame`；字段区域按 `field-1…field-6`，当前未运行。
 - 动作「查看来源记录」：`target_conditionally_available`；Viewer 不提供链上转账或世界资格兑换；当前图中条件：disabled because authoritative input/permission/read result unavailable; this is separate from contract completeness；启用条件：exact supported operation/schema + current actor role + scope/authority/versions + fresh prerequisites; read-only controls require current read permission and resolvable original record。

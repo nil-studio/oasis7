@@ -1,6 +1,3 @@
-[submodule "third_party/agent-os"]
-	path = third_party/agent-os
-	url = git@github.com:eng-cc/agent-os.git
 [submodule "third_party/rust-skills"]
 	path = third_party/rust-skills
 	url = git@github.com:actionbook/rust-skills.git

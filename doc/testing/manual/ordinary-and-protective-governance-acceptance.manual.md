@@ -107,7 +107,7 @@
 <a id="gov-07-quota-isolation"></a>
 ## GOV-M07：外部 OC、事项权利和单向 quota 三态
 
-依据：[GAME-019 外部转让](../../game/gameplay/gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md#41-外部转让与游戏内权利分离)、[服务桥边界](../../game/gameplay/gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md#42-单向非治理额度桥)、[原桥恢复](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#bridge-recovery-state)和[Phase 1/Phase 2](../../p2p/token/mainchain-token-ideal-transaction.design.md#itx-phase2-gate)。分别保存 O=原链转账、G=原事项锁定/快照/退出、Q=原服务订单/额度的准确身份及结果；三者不合成一个 success。
+依据：[GAME-019 外部转让](../../game/gameplay/gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md#41-外部转让与游戏内权利分离)、[服务桥边界](../../game/gameplay/gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md#42-单向非治理额度桥)和[Phase 1/Phase 2](../../p2p/token/mainchain-token-ideal-transaction.design.md#itx-phase2-gate)。分别保存 O=原链转账、G=原事项锁定/快照/退出、Q=原服务订单/额度的准确身份及结果；三者不合成一个 success。
 
 1. 由原链入口实际完成一笔合法 OC 转账，核签名 payload、asset、账户、amount、原 nonce、实际余额 delta 和原结果。tracker included/confirmed、当前余额或 last_nonce 单独不证明本笔 World 效果。治理主体、G 的快照/计票/委托和权利没有凭转账自动增加；真正事项权利必须另有其原接受事实。Phase 1 `max_fee` 是 quote metadata，真实其他业务费仍独立核。
 2. 用原支持的 operator/project/route、正确 token 与金额、未过期的稳定外部 order 取得服务额度。独立预期为原 order 的一次 topup 与其实际 quota，治理账户、controller、锁定、权重、快照和投票零自动变化；不新增世界库存、资格或 OC 赎回。`credited`、`reconciled` 和真实服务消费分别取证，不把 token_key 当世界权限。

@@ -218,3 +218,15 @@ writer也必须在任何构建/cache之前通过与reader相同的冻结image-so
 继续原depth1+sparse linker checkout。镜像source不匹配直接拒绝，不能静默
 跨ABI保存。当前完整Docker/build文件采用保守整体比对，相关材料变化
 须更新受审镜像/pin；不得用省略工具输入换取命中。
+
+The trusted full-regression job uses the image for npm dependency
+installation, the original `full-extended` command, and the governance
+report. GitHub cache actions remain on the host for npm, Trunk,
+wasm-bindgen, and the sentinel, retaining their original keys, roots,
+and permissions. Host Rust setup remains for the existing cache action
+and tool preparation. Native Cargo restore uses the separate read-only
+image identity, so the prior host target cache cannot enter the image.
+The runner mounts only the workspace and selected tool data. The
+original local Docker socket is bound for the trusted test command
+alone after checking the trusted execution identity. Candidate full
+regression continues through the original runner.
