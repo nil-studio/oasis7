@@ -19,9 +19,9 @@ mod async_agent_pilot;
 #[cfg(not(target_arch = "wasm32"))]
 mod async_agent_runner;
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use oasis7_runtime_host::cognition_policy;
+pub(crate) use oasis7_agent_harness as cognition_response_identity;
 #[cfg(not(target_arch = "wasm32"))]
-mod cognition_response_identity;
+pub(crate) use oasis7_runtime_host::cognition_policy;
 #[cfg(not(target_arch = "wasm32"))]
 mod continuous_agent_harness;
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,12 +46,6 @@ pub(crate) use oasis7_runtime_host::provider_material_capture;
 #[cfg(any())]
 #[path = "provider_json_admission.rs"]
 mod retired_provider_json_admission;
-#[cfg(any())]
-#[path = "provider_loopback_adapter.rs"]
-mod retired_provider_loopback_adapter;
-#[cfg(any())]
-#[path = "provider_material_capture.rs"]
-mod retired_provider_material_capture;
 #[cfg(not(target_arch = "wasm32"))]
 mod runner;
 #[cfg(not(target_arch = "wasm32"))]
