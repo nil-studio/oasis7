@@ -2,7 +2,7 @@ name: Release runtime sync image probe
 
 on:
   pull_request:
-    types: [opened]
+    types: [synchronize]
     branches: [codex/engineering-release-runtime-sync-probe-base]
     paths: [.github/workflows/release-runtime-sync-image-probe.yml]
 
@@ -81,6 +81,7 @@ jobs:
           bash "$transport" <<'BASH'
           ./scripts/build-builtin-wasm-modules.sh \
             --module-id m5.gameplay.war.core \
+            --module-ids-path crates/oasis7_runtime/src/world/artifacts/m5_builtin_module_ids.txt \
             --out-dir .tmp/runtime-sync-image-probe --profile release
           BASH
           unset GHCR_TOKEN
