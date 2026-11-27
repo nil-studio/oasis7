@@ -5,7 +5,6 @@ use super::{
 };
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::Path;
 use std::time::Duration;
 
 fn read_http_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
@@ -174,7 +173,6 @@ fn submit_chain_transfer_requires_strong_auth_for_hosted_public_join() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        Path::new(".").to_path_buf(),
         LauncherConfig {
             deployment_mode: "hosted_public_join".to_string(),
             chain_enabled: true,
@@ -228,7 +226,6 @@ fn start_chain_process_rejects_hosted_public_join_local_runtime() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        Path::new(".").to_path_buf(),
         LauncherConfig::default(),
     );
     let err = start_chain_process(
@@ -252,7 +249,6 @@ fn start_chain_process_rejects_invalid_deployment_mode_as_most_restrictive() {
     let mut state = ServiceState::new(
         "launcher".to_string(),
         "chain".to_string(),
-        Path::new(".").to_path_buf(),
         LauncherConfig::default(),
     );
     let err = start_chain_process(
@@ -355,7 +351,6 @@ fn state_with_previous_chain_identity() -> ServiceState {
     let mut state = ServiceState::new(
         "launcher".into(),
         "missing-runtime".into(),
-        ".".into(),
         LauncherConfig {
             deployment_mode: "trusted_local_only".into(),
             chain_enabled: true,

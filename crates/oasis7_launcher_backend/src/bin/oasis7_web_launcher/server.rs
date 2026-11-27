@@ -33,7 +33,6 @@ pub(super) fn run_server(options: CliOptions) -> Result<(), String> {
     let state = Arc::new(Mutex::new(ServiceState::new(
         options.launcher_bin,
         options.chain_runtime_bin,
-        options.console_static_dir,
         options.initial_config,
     )));
     let trace_session_id = oasis7_observability::resolve_trace_session_id("oasis7_web_launcher");
@@ -45,16 +44,11 @@ pub(super) fn run_server(options: CliOptions) -> Result<(), String> {
         listen_port
     );
     println!("- listen bind: {listen_host}:{listen_port}");
-    println!(
-        "- console static dir: {}",
-        lock_state(&state).console_static_dir.display()
-    );
     println!("Press Ctrl+C to stop.");
     info!(
         trace_session_id = %trace_session_id,
         listen_host = %listen_host,
         listen_port,
-        console_static_dir = %lock_state(&state).console_static_dir.display(),
         "web launcher control plane server started"
     );
 
@@ -165,10 +159,6 @@ fn handle_connection(
                 request_host.as_deref(),
             );
             write_json_response(&mut stream, 200, &response)
-        }
-        ("GET", "/api/ui/schema") => {
-            let schema: Vec<_> = launcher_ui_fields_for_web().copied().collect();
-            write_json_response(&mut stream, 200, &schema)
         }
         ("POST", "/api/start") => {
             let config = parse_config_request(request.body.as_slice(), "start")?;
@@ -434,9 +424,6 @@ fn handle_connection(
             write_json_response(&mut stream, 200, &response)
         }
         ("OPTIONS", _) => write_http_response(&mut stream, 204, "text/plain", b"", false),
-        ("GET", request_path) if !request_path.starts_with("/api/") => {
-            serve_console_static_request(&mut stream, request_path, &shared_state)
-        }
         (method, "/api/public/state")
         | (method, "/api/state")
         | (method, "/api/gui-agent/capabilities")
@@ -484,50 +471,6 @@ fn handle_connection(
     }
 }
 
-fn serve_console_static_request(
-    stream: &mut TcpStream,
-    request_path: &str,
-    shared_state: &Arc<Mutex<ServiceState>>,
-) -> Result<(), String> {
-    let (console_static_dir, deployment_mode) = {
-        let state = lock_state(shared_state);
-        (
-            state.console_static_dir.clone(),
-            deployment_mode_from_config(&state.config),
-        )
-    };
-    let viewer_auth_bootstrap = if deployment_mode.disables_browser_signer_bootstrap() {
-        None
-    } else {
-        resolve_optional_viewer_auth_bootstrap()
-    };
-
-    match load_console_static_asset(console_static_dir.as_path(), request_path) {
-        StaticAsset::Ok { content_type, body } => {
-            let body = inject_viewer_auth_bootstrap_if_html(
-                body.as_slice(),
-                content_type,
-                viewer_auth_bootstrap.as_ref(),
-            );
-            write_http_response(stream, 200, content_type, body.as_slice(), false)
-        }
-        StaticAsset::NotFound => write_http_response(
-            stream,
-            404,
-            "text/plain; charset=utf-8",
-            b"Not Found",
-            false,
-        ),
-        StaticAsset::InvalidPath => write_http_response(
-            stream,
-            400,
-            "text/plain; charset=utf-8",
-            b"Bad Request",
-            false,
-        ),
-    }
-}
-
 fn private_plane_rejection(
     deployment_mode: DeploymentMode,
     path: &str,
@@ -561,7 +504,6 @@ fn path_requires_private_control_plane(path: &str) -> bool {
             | "/api/gui-agent/capabilities"
             | "/api/gui-agent/state"
             | "/api/gui-agent/action"
-            | "/api/ui/schema"
             | "/api/start"
             | "/api/stop"
             | "/api/chain/start"
@@ -618,7 +560,6 @@ mod tests {
     };
     use super::{is_loopback_peer, path_requires_private_control_plane, private_plane_rejection};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     fn clear_hosted_strong_auth_env() {
@@ -667,7 +608,6 @@ mod tests {
         let state = Arc::new(Mutex::new(ServiceState::new(
             "launcher".to_string(),
             "chain".to_string(),
-            PathBuf::from("."),
             config,
         )));
         let deployment_mode = {
@@ -704,7 +644,6 @@ mod tests {
             "/api/gui-agent/capabilities",
             "/api/gui-agent/state",
             "/api/gui-agent/action",
-            "/api/ui/schema",
             "/api/start",
             "/api/stop",
             "/api/chain/start",
@@ -716,7 +655,6 @@ mod tests {
         let state = Arc::new(Mutex::new(ServiceState::new(
             "launcher".to_string(),
             "chain".to_string(),
-            PathBuf::from("."),
             config,
         )));
         let deployment_mode = {
@@ -765,12 +703,7 @@ mod tests {
 
         let mut config = LauncherConfig::default();
         config.deployment_mode = "hosted_public_join".to_string();
-        let state = ServiceState::new(
-            "launcher".to_string(),
-            "chain".to_string(),
-            PathBuf::from("."),
-            config,
-        );
+        let state = ServiceState::new("launcher".to_string(), "chain".to_string(), config);
         let snapshot = public_snapshot_from_state(&state, Some("127.0.0.1"));
         assert_eq!(snapshot.hosted_access.deployment_mode, "hosted_public_join");
         assert_eq!(
@@ -826,12 +759,7 @@ mod tests {
 
         let mut config = LauncherConfig::default();
         config.deployment_mode = "hosted_public_join".to_string();
-        let state = ServiceState::new(
-            "launcher".to_string(),
-            "chain".to_string(),
-            PathBuf::from("."),
-            config,
-        );
+        let state = ServiceState::new("launcher".to_string(), "chain".to_string(), config);
         let snapshot = public_snapshot_from_state(&state, Some("127.0.0.1"));
         assert!(snapshot.hosted_access.action_matrix.iter().any(|policy| {
             policy.action_id == "prompt_control_apply"
