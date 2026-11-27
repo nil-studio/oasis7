@@ -668,7 +668,7 @@ impl World {
         self.tick_consensus_rejection_audit_events.push(event);
     }
 
-    fn validate_tick_consensus_source_node(
+    pub(super) fn validate_tick_consensus_source_node(
         &self,
         source_node_id: &str,
     ) -> Result<String, WorldError> {
