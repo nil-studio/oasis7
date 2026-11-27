@@ -309,7 +309,7 @@ jobs:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: |
           launcher="$RUNNER_TEMP/oasis7-runtime-sync-image.sh"
-          git show "${GITHUB_WORKFLOW_SHA}:scripts/ci-release-runtime-sync-image.sh" >"$launcher"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-sync-image.sh" >"$launcher"
           bash "$launcher" --select
       - name: Install pinned Rust toolchain
         if: steps.sync-image.outputs.enabled == 'false'

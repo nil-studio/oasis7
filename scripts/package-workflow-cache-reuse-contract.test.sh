@@ -741,7 +741,7 @@ for workflow in (release, mainnet):
             assert "git rev-parse --verify 'HEAD^1'" in body
             assert "git rev-parse --verify 'HEAD^{commit}'" in body
 
-launcher = root / "scripts/ci-release-runtime-sync-image.sh"
+launcher = root / "scripts/package-release-runtime-sync-image.sh"
 if any("Select runtime sync image" in workflow for workflow in (release, mainnet)):
     with tempfile.TemporaryDirectory() as directory:
         checkout = Path(directory)
