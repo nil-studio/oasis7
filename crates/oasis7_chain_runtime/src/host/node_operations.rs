@@ -10,6 +10,9 @@ mod healthy_durable_set;
 #[path = "node_operations/model.rs"]
 mod model;
 #[cfg(unix)]
+#[path = "node_operations/original_pending.rs"]
+mod original_pending;
+#[cfg(unix)]
 #[path = "node_operations/planner.rs"]
 mod planner;
 #[cfg(unix)]
@@ -61,6 +64,9 @@ fn run_unix(args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     let command = &tail[0];
+    if matches!(command.as_str(), "formal-original-freeze" | "formal-original-verify") {
+        return original_pending::run(tail);
+    }
     if command == "agent" {
         if tail.len() != 1 {
             return Err("op agent accepts no command-line arguments".into());

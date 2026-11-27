@@ -190,7 +190,10 @@ pub fn validate_registry(world: &World) -> Result<(), String> {
 }
 
 pub fn namespace_was_authorized(world: &World, namespace: &GameIdentityNamespaceV1) -> bool {
-    let registry = &world.capability_revocation_state().participants;
+    namespace_was_authorized_in_state(world.capability_revocation_state(), namespace)
+}
+pub(crate) fn namespace_was_authorized_in_state(rev: &crate::capability_authorization::CapabilityRevocationState, namespace: &GameIdentityNamespaceV1) -> bool {
+    let registry = &rev.participants;
     registry
         .policy
         .as_ref()
