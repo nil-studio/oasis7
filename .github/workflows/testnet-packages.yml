@@ -463,20 +463,39 @@ jobs:
       !cancelled() && needs.plan.result == 'success' && needs.build-web-dist.result == 'success' &&
       ((needs.package-native.result == 'success' && needs.package-native-trusted.result == 'skipped') ||
        (needs.package-native.result == 'skipped' && needs.package-native-trusted.result == 'success'))
+    permissions:
+      contents: read
+      packages: read
     strategy: *testnet-native-strategy
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    container:
+      image: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9' || '' }}
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
           persist-credentials: false
+      - name: Verify the Linux packaging runtime
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          dpkg-deb --version
+          sha256sum --version
       - name: Verify planned source HEAD
         shell: bash
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Install pinned Rust toolchain
+        if: runner.os != 'Linux'
         shell: bash
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
@@ -484,22 +503,6 @@ jobs:
           if [[ "${{ matrix.target_triple }}" != "native" ]]; then
             rustup target add "${{ matrix.target_triple }}" --toolchain "${RUST_TOOLCHAIN}"
           fi
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libwayland-dev \
-            wayland-protocols \
-            libxkbcommon-dev \
-            libx11-dev \
-            libxi-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxinerama-dev \
-            libasound2-dev \
-            libudev-dev
       - name: Download web dist artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -599,12 +602,8 @@ jobs:
             cd "${bundle}"
             mapfile -t files < <(find . -type f ! -name SHA256SUMS -print | sed 's#^./##' | sort)
             ((${#files[@]} > 0)) || { echo "error: Linux bundle has no files to checksum" >&2; exit 1; }
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum "${files[@]}" > SHA256SUMS
-            else
-              shasum -a 256 "${files[@]}" > SHA256SUMS
-            fi
-            shasum -a 256 -c SHA256SUMS >/dev/null
+            sha256sum "${files[@]}" > SHA256SUMS
+            sha256sum -c SHA256SUMS >/dev/null
           fi
       - name: Package native installer
         shell: bash
