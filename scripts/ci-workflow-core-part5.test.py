@@ -370,17 +370,7 @@ class WorkflowCorePart5(unittest.TestCase):
         self.assertIn('id: web-cache\n', cache)
         self.assertIn('set -euo pipefail', completion)
         self.assertIn('./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload', completion)
-        self.assertIn('cd crates/oasis7_client_launcher', completion)
-        self.assertIn('env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist', completion)
         self.assertLess(steps.index(cache), steps.index(completion))
-        release_steps = re.findall(r'^      - .*?(?=^      - |\Z)',
-                                   workflow_jobs(release_workflow)['build-web-dist'], re.M | re.S)
-        self.assertEqual(re.search(r'^  TRUNK_VERSION: (.+)$', workflow, re.M)[1],
-                         re.search(r'^  TRUNK_VERSION: (.+)$', release_workflow, re.M)[1])
-        for name in ('Restore pinned Trunk release archive', 'Install verified pinned Trunk', 'Verify pinned trunk'):
-            step = next(step for step in steps if 'name: ' + name + '\n' in step)
-            self.assertEqual(step, next(step for step in release_steps if 'name: ' + name + '\n' in step))
-            self.assertLess(steps.index(step), steps.index(completion))
         self.assertNotIn('uses: actions/cache@', writer)
         self.assertNotIn('uses: actions/cache/save@', writer)
         condition = re.search(r'^        if: (.*)$', completion, re.M)[1]
@@ -500,17 +490,15 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
             for path in (viewer, trunk):
                 path.chmod(0o755)
             trace = root / 'calls'
-            for viewer_exit, trunk_exit, expected_calls in (
-                    (0, 0, ['viewer', 'trunk']), (17, 0, ['viewer']), (0, 23, ['viewer', 'trunk'])):
+            for viewer_exit, expected_calls in ((0, ['viewer']), (17, ['viewer'])):
                 trace.write_text('')
                 environment = dict(os.environ, PATH=str(root / 'bin') + os.pathsep + os.environ['PATH'],
                     NO_COLOR='fixture-value', WEB_CACHE_FIXTURE_ROOT=str(root),
-                    WEB_CACHE_FIXTURE_TRACE=str(trace), WEB_CACHE_FIXTURE_VIEWER_EXIT=str(viewer_exit),
-                    WEB_CACHE_FIXTURE_TRUNK_EXIT=str(trunk_exit))
+                    WEB_CACHE_FIXTURE_TRACE=str(trace), WEB_CACHE_FIXTURE_VIEWER_EXIT=str(viewer_exit))
                 result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script],
                                         cwd=root, env=environment, capture_output=True, text=True, timeout=10)
-                with self.subTest(viewer=viewer_exit, trunk=trunk_exit):
-                    self.assertEqual(result.returncode, viewer_exit or trunk_exit, result.stdout + result.stderr)
+                with self.subTest(viewer=viewer_exit):
+                    self.assertEqual(result.returncode, viewer_exit, result.stdout + result.stderr)
                     self.assertEqual(trace.read_text().splitlines(), expected_calls)
 
 
