@@ -522,8 +522,8 @@
         "test_tier_required"
       ],
       "cases": [
-        "industry_types::tests::material_ledger_wire_strings_preserve_validation",
-        "industry_types::tests::starter_settled_outcome_wire_shape_is_platform_neutral"
+        "simulator::tests::persist::material_ledger_wire_strings_preserve_validation",
+        "simulator::tests::persist::starter_settled_outcome_wire_shape_is_platform_neutral"
       ]
     },
     "viewer-codec-lib": {

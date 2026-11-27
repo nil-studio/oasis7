@@ -1,5 +1,6 @@
 //! Stop work must leave time for an authenticated reply within the caller budget.
 use super::*;
+use super::control::send_control_reply;
 use std::io::Read;
 
 fn instance() -> FormalRuntimeInstanceV1 {
@@ -54,6 +55,135 @@ fn stop_reserves_reply_time_without_extending_caller_budget() {
 }
 
 #[test]
+fn freeze_reserves_reply_time_and_returns_only_exact_owner_pin() {
+    use super::super::super::formal_live_original_pending_producer::{
+        OriginalPendingOwnerV1, OriginalPendingProducerV1,
+    };
+    use std::os::unix::fs::PermissionsExt;
+
+    let expected = instance();
+    let owner = OriginalPendingOwnerV1 {
+        authority_id: expected.authority_id.clone(),
+        operation_id: expected.operation_id.clone(),
+        request_digest: expected.request_digest.clone(),
+        config_digest: expected.config_digest.clone(),
+        incarnation: expected.incarnation.clone(),
+    };
+    let root = std::env::temp_dir().join(format!(
+        "o7-owner-freeze-reply-{}-{}",
+        std::process::id(),
+        crate::node_lifecycle::local_io::random_id().unwrap()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut producer = OriginalPendingProducerV1::open(&root, owner).unwrap();
+    let pin = producer.begin_freeze(&root).unwrap();
+    assert_eq!(pin.count, 0);
+
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let peer_instance = expected.clone();
+    let peer_pin = pin.clone();
+    let peer = std::thread::spawn(move || {
+        configure_control_stream(&server).unwrap();
+        let request: ControlRequest = read_message(&mut server).unwrap();
+        validate_control(&request, &peer_instance).unwrap();
+        assert_eq!(request.action, "freeze_original_pending");
+        assert!(request.timeout_ms < 2_000);
+        write_message(
+            &mut server,
+            &ControlReply {
+                api_version: OWNER_API.into(),
+                snapshot: FormalRuntimeOwnerSnapshotV1 {
+                    api_version: OWNER_API.into(),
+                    instance: peer_instance,
+                    state: "stopped".into(),
+                    last_error: None,
+                },
+                durable_set_status: None,
+                prepared_transition: None,
+                original_pending_pin: Some(peer_pin),
+                protected_observation: None,
+                control_error: None,
+            },
+        )
+        .unwrap();
+    });
+    let reply = send_control_reply(
+        &absent_state_path(),
+        &expected,
+        "freeze_original_pending",
+        Instant::now() + Duration::from_secs(2),
+        client,
+    )
+    .unwrap();
+    peer.join().unwrap();
+    assert_eq!(reply.original_pending_pin, Some(pin));
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn freeze_reply_rejects_pin_for_another_original_incarnation() {
+    use super::super::super::formal_live_original_pending_producer::{
+        OriginalPendingOwnerV1, OriginalPendingProducerV1,
+    };
+    use std::os::unix::fs::PermissionsExt;
+
+    let expected = instance();
+    let root = std::env::temp_dir().join(format!(
+        "o7-owner-freeze-wrong-pin-{}-{}",
+        std::process::id(),
+        crate::node_lifecycle::local_io::random_id().unwrap()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let wrong_owner = OriginalPendingOwnerV1 {
+        authority_id: expected.authority_id.clone(),
+        operation_id: expected.operation_id.clone(),
+        request_digest: expected.request_digest.clone(),
+        config_digest: expected.config_digest.clone(),
+        incarnation: "different-incarnation".into(),
+    };
+    let mut producer = OriginalPendingProducerV1::open(&root, wrong_owner).unwrap();
+    let wrong_pin = producer.begin_freeze(&root).unwrap();
+
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let peer_instance = expected.clone();
+    let peer_pin = wrong_pin;
+    let peer = std::thread::spawn(move || {
+        configure_control_stream(&server).unwrap();
+        let _: ControlRequest = read_message(&mut server).unwrap();
+        write_message(
+            &mut server,
+            &ControlReply {
+                api_version: OWNER_API.into(),
+                snapshot: FormalRuntimeOwnerSnapshotV1 {
+                    api_version: OWNER_API.into(),
+                    instance: peer_instance,
+                    state: "stopped".into(),
+                    last_error: None,
+                },
+                durable_set_status: None,
+                prepared_transition: None,
+                original_pending_pin: Some(peer_pin),
+                protected_observation: None,
+                control_error: None,
+            },
+        )
+        .unwrap();
+    });
+    let result = send_control_reply(
+        &absent_state_path(),
+        &expected,
+        "freeze_original_pending",
+        Instant::now() + Duration::from_secs(2),
+        client,
+    );
+    peer.join().unwrap();
+    assert!(result.unwrap_err().contains("original pending pin/owner mismatch"));
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn bounded_stop_receives_pending_after_server_uses_its_work_budget() {
     let expected = instance();
     let peer_instance = expected.clone();
@@ -83,6 +213,7 @@ fn bounded_stop_receives_pending_after_server_uses_its_work_budget() {
                 },
                 durable_set_status: None,
                 prepared_transition: None,
+                original_pending_pin: None,
                 protected_observation: None,
                 control_error: Some(
                     "formal Node stop is still pending; runtime remains owned".into(),
@@ -123,6 +254,7 @@ fn stop_reply_still_rejects_a_different_owner_incarnation() {
                 },
                 durable_set_status: None,
                 prepared_transition: None,
+                original_pending_pin: None,
                 protected_observation: None,
                 control_error: None,
             },
