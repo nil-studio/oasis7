@@ -399,7 +399,7 @@ impl World {
         Ok(())
     }
 
-    fn step_inner(&mut self) -> Result<(), WorldError> {
+    pub(super) fn step_inner(&mut self) -> Result<(), WorldError> {
         self.state.time = self.state.time.saturating_add(1);
         let _ = self.process_factory_depreciation()?;
         while let Some(envelope) = self.pending_actions.pop_front() {
@@ -462,7 +462,7 @@ impl World {
         Ok(())
     }
 
-    fn step_with_modules_inner(
+    pub(super) fn step_with_modules_inner(
         &mut self,
         sandbox: &mut dyn ModuleSandbox,
         product_validation_checkpoint: &mut dyn FnMut(&World) -> Result<(), WorldError>,
@@ -546,7 +546,7 @@ impl World {
         Ok(())
     }
 
-    fn step_with_modules_for_committed_context_inner(
+    pub(super) fn step_with_modules_for_committed_context_inner(
         &mut self,
         sandbox: &mut dyn ModuleSandbox,
         context: &RuntimeCommittedTickContext,
