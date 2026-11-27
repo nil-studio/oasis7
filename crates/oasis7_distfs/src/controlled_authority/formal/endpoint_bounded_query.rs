@@ -13,6 +13,19 @@ impl PaidFormalRequestQueryV1 {
     pub fn state(&self) -> Option<&FormalRequestStateV1> {
         self.state.as_ref().map(store::PaidRequestStateV1::state)
     }
+    /// Reserve before a signed RPC Query may clone a recorded RequestState or
+    /// serialize its response. A data-only Qualified state grants no permit.
+    pub fn response_copy_workspace(&self) -> Result<usize, FormalError> {
+        let data = match &self.state {
+            Some(value) => value.response_copy_workspace()?,
+            None => 0,
+        };
+        // An independent conservative envelope for the original signed
+        // checkpoint, witness, response CBOR and temporary hash/sign buffers.
+        data.checked_mul(2)
+            .and_then(|n| n.checked_add(2 * 1024 * 1024))
+            .ok_or_else(|| invalid("formal RPC Query response workspace overflow"))
+    }
     pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
         self.state
             .as_ref()
