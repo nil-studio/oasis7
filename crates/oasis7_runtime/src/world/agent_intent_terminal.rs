@@ -255,32 +255,6 @@ impl World {
         )
     }
 
-    /// Runtime-owned authority/control terminal boundary. Does not publish an
-    /// effect receipt or modify a prior committed result.
-    #[allow(dead_code)] // #6142: legacy authority terminal helper, remove in 7c
-    pub(super) fn terminate_agent_authority_intent_exact(
-        &mut self,
-        agent_id: &str,
-        intent_id: &str,
-        request_digest: &str,
-        status: &str,
-        reason: &str,
-    ) -> Result<AgentIntentReplayDisposition, WorldError> {
-        if !matches!(status, STATUS_CANCELLED | STATUS_REJECTED | STATUS_BLOCKED) {
-            return Err(invalid_intent("authority disposition is invalid"));
-        }
-        self.transition_agent_intent_terminal_exact(
-            agent_id,
-            intent_id,
-            request_digest,
-            status,
-            Some((
-                reason,
-                "Pending instruction requires replanning before execution.",
-            )),
-        )
-    }
-
     /// Complete an accepted intent only after a committed receipt for its exact effect.
     ///
     /// The receipt event remains in the canonical journal and is bound to the

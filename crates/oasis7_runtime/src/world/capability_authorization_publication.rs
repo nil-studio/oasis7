@@ -351,10 +351,11 @@ impl World {
                 super::participant::project_event(self, capability_revocation_state, event)
             }
             CapabilityAuthorizationEvent::SafeAlternativeCommandRecorded { signed } => {
-                let mut projected = self.clone();
-                projected.capability_revocation_state = capability_revocation_state.clone();
-                let (key, record) = projected
-                    .project_safe_alternative(signed)
+                let (key, record) = self
+                    .project_safe_alternative_with_revocation_state(
+                        capability_revocation_state,
+                        signed,
+                    )
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
                 capability_revocation_state
                     .safe_alternatives
@@ -366,10 +367,12 @@ impl World {
                 action_id,
                 event_id,
             } => {
-                let mut projected = self.clone();
-                projected.capability_revocation_state = capability_revocation_state.clone();
-                let record =
-                    projected.safe_alternative_outcome_projection(key, *action_id, *event_id)?;
+                let record = self.safe_alternative_outcome_projection_with_revocation_state(
+                    capability_revocation_state,
+                    key,
+                    *action_id,
+                    *event_id,
+                )?;
                 capability_revocation_state
                     .safe_alternatives
                     .insert(key.clone(), record);
@@ -382,9 +385,7 @@ impl World {
                 crate::service_admission::correlation::validate_result(key, record)
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
                 super::participant::validate_service_receipt(capability_revocation_state, record)?;
-                let mut projected = self.clone();
-                projected.capability_revocation_state = capability_revocation_state.clone();
-                crate::service_admission::starter::validate_result(&projected, record)
+                crate::service_admission::starter::validate_result(self, record)
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
                 if let Some(existing) = capability_revocation_state.world_service_results.get(key)
                     && existing != record
@@ -399,10 +400,12 @@ impl World {
                 Ok(())
             }
             CapabilityAuthorizationEvent::AgentSignerDelegationInstalled { signed } => {
-                let mut projected = self.clone();
-                projected.capability_revocation_state = capability_revocation_state.clone();
-                crate::service_admission::agent_authority::validate_delegation(&projected, signed)
-                    .map_err(|reason| super::capability_authorization::deny(&reason))?;
+                crate::service_admission::agent_authority::validate_delegation_with_revocation_state(
+                    self,
+                    capability_revocation_state,
+                    signed,
+                )
+                .map_err(|reason| super::capability_authorization::deny(&reason))?;
                 capability_revocation_state
                     .agent_signer_delegations
                     .insert(signed.request.agent_id.clone(), signed.request.clone());
@@ -470,10 +473,9 @@ impl World {
                 )
             }
             CapabilityAuthorizationEvent::GrantRegistered { grant } => {
-                let mut projected = self.clone();
-                projected.capability_revocation_state = capability_revocation_state.clone();
-                super::capability_authorization_events::validate_and_project_registered_grant(
-                    &projected,
+                super::capability_authorization_events::validate_and_project_registered_grant_with_revocation_state(
+                    self,
+                    capability_revocation_state,
                     capability_grants_v2,
                     grant,
                     self.state.time,
