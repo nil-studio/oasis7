@@ -5,7 +5,7 @@ viewer_web_dist_contract_pairs() {
 viewer.html index.html
 viewer.html viewer.html
 dist/software_safe.html software_safe.html
-viewer.js viewer.js
+dist/viewer.js viewer.js
 dist/software_safe.js software_safe.js
 viewer_base.css viewer_base.css
 viewer_base_tokens.css viewer_base_tokens.css
@@ -62,7 +62,6 @@ scope = [
     "Cargo.toml",
     "Cargo.lock",
     "crates/oasis7_viewer/viewer.html",
-    "crates/oasis7_viewer/viewer.js",
     "crates/oasis7_viewer/viewer_base.css",
     "crates/oasis7_viewer/viewer_base_tokens.css",
     "crates/oasis7_viewer/viewer_base_layout.css",

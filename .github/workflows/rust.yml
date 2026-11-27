@@ -6049,6 +6049,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
@@ -6078,8 +6079,19 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
-      - name: Install viewer web dependencies
-        run: npm ci --prefix crates/oasis7_viewer
+      - name: Pull the fixed trusted full regression image
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image=ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+          config=$(mktemp -d "$RUNNER_TEMP/full-regression-docker.XXXXXX")
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s\n' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$image"
+      - name: Install viewer web dependencies in the fixed image
+        run: python3 scripts/ci-trusted-full-regression.py npm "$GITHUB_SHA"
       - name: Install pinned Rust toolchains
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
@@ -6091,32 +6103,12 @@ jobs:
         uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2
         with:
           tool: cargo-deny@0.19.9
-      - name: Install system deps
-        shell: bash
-        timeout-minutes: 11
-        run: |
-          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- \
-            clang \
-            llvm \
-            pkg-config \
-            libwayland-dev \
-            wayland-protocols \
-            libxkbcommon-dev \
-            libx11-dev \
-            libxi-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxinerama-dev \
-            libasound2-dev \
-            libudev-dev
-          clang --print-targets | grep -w wasm32
-          llvm-ar --version
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          shared-key: ci-shared-native-trusted-v4
+          shared-key: ci-rust-full-regression-32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427-native-v1
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           save-if: false
@@ -6171,8 +6163,6 @@ jobs:
       - name: Install verified pinned Trunk
         shell: bash
         run: bash scripts/install-ci-trunk.sh "$RUNNER_TEMP/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz" "$RUNNER_TEMP/ci-tools/bin"
-      - name: Install product-document Markdown parser
-        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
       - name: Prepare trusted cache sentinel
         if: github.ref == 'refs/heads/main'
         run: |
@@ -6188,11 +6178,11 @@ jobs:
       - name: Run full test tier
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
-        run: CI_VERBOSE=1 ./scripts/ci-tests.sh full-extended
+        run: python3 scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"
 
       - name: Run Rust governance report
         if: always()
-        run: ./scripts/ci-rust-governance-report.sh --out-dir output/rust-governance
+        run: python3 scripts/ci-trusted-full-regression.py governance "$GITHUB_SHA"
 
       - name: Append Rust governance summary
         if: always()

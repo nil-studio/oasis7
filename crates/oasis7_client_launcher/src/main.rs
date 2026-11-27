@@ -135,7 +135,6 @@ const DEFAULT_CHAIN_POS_SLOT_CLOCK_GENESIS_UNIX_MS: &str = "";
 const DEFAULT_DEPLOYMENT_MODE: &str = "hosted_public_join";
 const MAX_LOG_LINES: usize = 2000;
 const OASIS7_CJK_FONT_NAME: &str = "oasis7-cjk";
-const EGUI_CJK_FONT_BYTES: &[u8] = include_bytes!("../../../third_party/ms-yahei.ttf");
 const OASIS7_CLIENT_LAUNCHER_FONT_ENV: &str = "OASIS7_CLIENT_LAUNCHER_FONT";
 const OASIS7_CLIENT_LAUNCHER_LANG_ENV: &str = "OASIS7_CLIENT_LAUNCHER_LANG";
 #[cfg(not(target_arch = "wasm32"))]
@@ -291,13 +290,8 @@ fn render_web_boot_failure(document: Option<&Document>, message: &str) {
 
 fn configure_egui_fonts(context: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    match load_font_override_from_env() {
-        Some((font_name, font_data)) => install_cjk_font(&mut fonts, font_name, font_data),
-        None => install_cjk_font(
-            &mut fonts,
-            OASIS7_CJK_FONT_NAME.to_string(),
-            egui::FontData::from_static(EGUI_CJK_FONT_BYTES),
-        ),
+    if let Some((font_name, font_data)) = load_font_override_from_env() {
+        install_cjk_font(&mut fonts, font_name, font_data);
     }
     context.set_fonts(fonts);
 }
@@ -332,7 +326,7 @@ fn load_font_override_from_env() -> Option<(String, egui::FontData)> {
         )),
         Err(err) => {
             eprintln!(
-                "warning: failed to read font from {env_name}={path}: {err}; fallback to embedded CJK font"
+                "warning: failed to read font from {env_name}={path}: {err}; fallback to default egui fonts"
             );
             None
         }

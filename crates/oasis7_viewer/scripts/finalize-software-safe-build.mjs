@@ -22,7 +22,6 @@ const softwareSafeSrcDir = resolve(viewerRoot, "software_safe_src");
 const viewerDistDir = buildPaths.distDir;
 const canonicalHtmlPath = resolve(viewerRoot, "viewer.html");
 const builtBundlePath = resolve(tempOutDir, "viewer.js");
-const finalCanonicalBundlePath = visualTest || buildPaths.local ? null : resolve(viewerRoot, "viewer.js");
 const finalDistBundlePath = resolve(viewerDistDir, "viewer.js");
 const staleRootCompatHtmlPath = resolve(viewerRoot, "software_safe.html");
 const staleRootCompatBundlePath = resolve(viewerRoot, "software_safe.js");
@@ -207,7 +206,6 @@ if (emittedFiles.length !== 1 || emittedFiles[0] !== "viewer.js") {
   throw new Error(`unexpected viewer canonical bundle outputs: ${emittedFiles.join(", ") || "(none)"}`);
 }
 const canonicalBundle = await canonicalBundleContents();
-if (finalCanonicalBundlePath) await writeFile(finalCanonicalBundlePath, canonicalBundle, "utf8");
 await mkdir(viewerDistDir, { recursive: true });
 await copyFile(canonicalHtmlPath, resolve(viewerDistDir, "viewer.html"));
 await writeFile(finalDistBundlePath, canonicalBundle, "utf8");
@@ -237,4 +235,4 @@ console.log(`pixel world projection ABI verified: ${JSON.stringify(projectionRep
 // Local browser checks consume these exact bundles after the real WASM build.
 if (!buildPaths.local) await rm(tempOutDir, { recursive: true, force: true });
 
-console.log(`software_safe build finalized: ${finalCanonicalBundlePath || finalDistBundlePath}`);
+console.log(`software_safe build finalized: ${finalDistBundlePath}`);

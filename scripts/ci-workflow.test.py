@@ -1537,6 +1537,14 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     )
                     self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job, name)
                     continue
+                if name == 'full-regression' and 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in job:
+                    image = re.search(r'(?m)^          image=ghcr[.]io/nil-studio/oasis7/ci-rust-full-regression@sha256:([0-9a-f]{64})$', job)
+                    self.assertIsNotNone(image)
+                    keys = re.findall(r'(?m)^          shared-key: ([^\n]+)$', job)
+                    self.assertEqual(keys, [f'ci-rust-full-regression-{image[1]}-native-v1'])
+                    self.assertIn('save-if: false\n', job)
+                    self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job)
+                    continue
                 component = re.fullmatch(r'formal-(debug|endpoint)-build(?:-trusted)?', name)
                 namespace = f'ci-formal-{component[1]}-deps-trusted-v1' if component else 'ci-shared-native-trusted-v4'
                 self.assertIn('shared-key: ' + (rust_image_cache_namespace(name, job) or namespace) + '\n', job, name)
