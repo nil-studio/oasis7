@@ -61,7 +61,7 @@
 | --- | --- | --- | --- |
 | Viewer `/viewer.html`、`/software_safe.html`、`/` | 有效 `locale` → 有效旧 `language` → 已存偏好 → `en`。三路径共用 `viewer` 存储段；仍读旧路径键并尝试迁移。选语言更新内存、可用的 localStorage、`document.lang` 及 URL；存储/history 失败不抛掉当前选择。 | [locale 模块](../../../crates/oasis7_viewer/software_safe_src/viewer_locale_preferences_module.js)；[归一化及内嵌文字](../../../crates/oasis7_viewer/software_safe_src/legacy_core.js)；[主组件](../../../crates/oasis7_viewer/software_safe_src/viewer_app.jsx) | 当前无浏览器/OS 自动选语言步骤；不得把官网的自动跳转行为写成 Viewer 行为。持久化失败后的下一次打开不能保证沿用本次选择。 |
 | 其他 Viewer pathname | 按当前 pathname 隔离存储段，仍遵循上述 query/存储/默认顺序 | 同一 locale 模块 | 入口映射改变时核 alias 与隔离负例；不擅自扩展共享路径。 |
-| 原生 Launcher | `OASIS7_CLIENT_LAUNCHER_LANG` → `LANG` → `ZhCn`，由 `UiLanguage` 解析；与 Viewer 的英文默认不同 | [main.rs](../../../crates/oasis7_client_launcher/src/main.rs)，`UiLanguage::from_tag` / `detect_from_values` 及现有双语分支 | 本专题只记录边界。Launcher 配置说明仍沿[原配置设计](../launcher/game-client-launcher-guided-configuration-and-usability.design.md)，不被替换成 Viewer 偏好存储。 |
+| 原生 Launcher（按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役） | 历史实现使用 `OASIS7_CLIENT_LAUNCHER_LANG` → `LANG` → `ZhCn`；随 `egui` 客户端启动器下线不再作为活跃入口 | `oasis7_client_launcher` 待按 [#7326](https://github.com/nil-studio/oasis7/issues/7326) 删除 | 客户端 GUI 统一收敛至 Web `viewer`，不再维护独立 `egui` 启动器双语分支。 |
 | 官网配对页面 | 首次语言判断使用浏览器语言并尊重已有手动选择；只沿页面声明的 `data-locale-en` / `data-locale-zh` 同源目标跳转，保留 query/hash | [site/assets/app.js](../../../site/assets/app.js)与实际页面 | 没有真实配对页不制造目标；`/doc/cn/`、`/doc/en/` 不参与自动跳转。中文故事不因此获得英文版本。 |
 | 公开 Viewer 手册 | 仓库手册是内容真源；`cn` / `en` 是静态只读镜像路径 | [viewer-manual.manual.md](viewer-manual.manual.md)、[site 手册入口](../../site/manual/README.md)、[静态镜像设计](../../site/design.md#static-manual-design) | 修改本文不会自动更新公开镜像。实际采用后，涉及用户操作的变更先核仓库手册，再同步对应中英文页面、锚点和导航；页面生成成功不等于部署生效。 |
 
@@ -222,7 +222,7 @@ Neither action revokes the key in your provider account, guarantees refunds for 
 
 帮助可以通过当前可用的键盘与触控路径打开、阅读和关闭，焦点可见，关闭后回到发起处；普通状态刷新不抢焦点。输入法组合期间的 Escape 不应误关帮助或丢失草稿，中文组合结束不误发指令。现有 `InlineHelpTip` 的 ARIA 与 Escape 代码不能单独证明这些组合通过，采用方按手册实测。
 
-Viewer [viewer.html](../../../crates/oasis7_viewer/viewer.html)当前定义 body/display/mono 系统字体栈，如 `IBM Plex Sans`、`Segoe UI`、`Georgia` 与 `Menlo`，再经语义别名消费；[终端样式](../../../crates/oasis7_viewer/viewer_terminal_shell.css)使用这些别名。字体族名不证明目标机器的 CJK 字形可用。原生 Launcher 的 `configure_egui_fonts` 使用现有嵌入 `third_party/ms-yahei.ttf` 或 `OASIS7_CLIENT_LAUNCHER_FONT` 覆盖，是另一条加载链；存在文件与加载代码不等于已经核定全部许可或实际渲染。
+Viewer [viewer.html](../../../crates/oasis7_viewer/viewer.html)当前定义 body/display/mono 系统字体栈，如 `IBM Plex Sans`、`Segoe UI`、`Georgia` 与 `Menlo`，再经语义别名消费；[终端样式](../../../crates/oasis7_viewer/viewer_terminal_shell.css)使用这些别名。字体族名不证明目标机器的 CJK 字形可用。原 `egui` 客户端启动器（`oasis7_client_launcher`）及其编译期嵌入专有商业字体 `third_party/ms-yahei.ttf` 的加载链已按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) / [#7323](https://github.com/nil-studio/oasis7/issues/7323) 退役；仓库不得随包嵌入或再分发缺少开源再分发授权的专有商业字体。
 
 本批不生成、添加或分发字体。采用候选需记录实际字体来源和 fallback，并检查中文标点、数字、拉丁标识、长名字及混排，不把设计 SVG 中的字体名称当作 runtime 已携带字体。
 

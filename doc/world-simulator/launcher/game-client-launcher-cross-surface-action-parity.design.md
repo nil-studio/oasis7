@@ -2,10 +2,11 @@
 
 > 对应需求: `doc/world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md`
 > 历史迁移、验证与 task 状态：GitHub task issue evidence。
+> **退役与承接边界（[#7321](https://github.com/nil-studio/oasis7/issues/7321)）**：原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器窗口（`oasis7_client_launcher`）已决定退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行）。本文保留受控动作的真实输入、接受/失败、配置读回保草稿与当前 action 追踪连续性合同供无头控制面（`oasis7_launcher_backend`）及活跃消费者复用，原针对 `oasis7_client_launcher` 窗口按钮的待修项随该 crate 退役终止。
 
 ## 目标与范围
 
-保持 native/Web 受控动作的真实输入、接受/失败、读回与恢复语义；平台适配可以不同。本文覆盖既有设置与当前 action 结果连续性，不修改 runtime 结算、provider 鉴权或凭据注入合同。
+保持受控动作的真实输入、接受/失败、读回与恢复语义；不将控制面代理或本地存储适配掩盖为结算或授权声明。本文覆盖设置读回与当前 action 结果连续性，不修改 runtime 结算、provider 鉴权或凭据注入合同。
 
 ### 2.1 需求承接与分配表
 

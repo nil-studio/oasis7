@@ -9,7 +9,7 @@
 - Product PRD-ID：`PRD-PRODUCT-004`
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：`2026-08-06`
+- Last reviewed：`2026-11-26`
 - 后继文档：`无`
 - 下层专业域：[`README.md`](../../../README.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/game/prd.md`](../../game/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 
@@ -32,15 +32,15 @@
 
 ## 2. 范围与玩家边界
 
-覆盖产品发现、公开说明、Web 访问、平台安装、Launcher 转移、账号/模式入口和首次验证。玩家可以了解当前阶段并选择受支持入口；不应被未发布功能、内部测试模式、过期下载或历史 go 证据诱导。
+覆盖产品发现、公开说明、Web 访问、适用平台发行资产、无头本地编排（Launcher 后端）、账号/模式入口和首次验证。玩家可以了解当前阶段并选择受支持入口；不应被未发布功能、内部测试模式、已退役入口、过期下载或历史 go 证据诱导。
 
 公开说明中的既有 HTML 路演 deck 由 [SC-11](#sc-entry-011)独立接收，来源为 [PRD-SITE-012](../../site/prd.md#prd-site-012)。这项接收不扩大官网发现专题的首期六项功能或其状态范围，不重做页面。
 
 ### 安装与发行体验边界
 
-每个平台应提供一个推荐下载包和主 CTA；下载前应清楚显示支持边界、版本与 checksum，让玩家无需研究 shell、bundle 内容或多个技术资产的差异即可完成受支持的安装或启动。
+玩家图形界面统一收敛至 Web `viewer`；原 `egui` 桌面/Trunk 客户端启动器 GUI（`oasis7_client_launcher`）及未签名桌面 GUI `Client Launcher` 安装包按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役下线，本地启动与进程编排由无头后端 `oasis7_launcher_backend` 搭配 Web `viewer` 或 `pure_api` CLI 承接。对声明公开分发的受支持平台发行资产，下载前应清楚显示支持边界、版本与 checksum，让用户无需研究多个内部构建产物的差异即可完成受支持校验与启动；无对应平台安装包时明确说明并引导至受支持的 Web/CLI 路径。
 
-当前升级只支持重新下载最新主包并手动覆盖安装/替换；用户须先备份 `config.toml`、`.oasis7_launcher_ux_state.json` 与 `output/chain-runtime/<node_id>/reward-runtime-execution-world/`。这不是应用内更新、自动迁移或跨目录状态保留承诺。Windows codesigning trust chain 与 macOS 签名/notarization 未完成前，不得把技术预览资产、单主 CTA 或手动安装路径表述为普通用户广泛发行已就绪。
+受支持发行资产的升级只支持重新下载最新包并手动覆盖/替换；用户须先备份 `config.toml` 与 `output/chain-runtime/<node_id>/reward-runtime-execution-world/`（原 `egui` 专属 `.oasis7_launcher_ux_state.json` 随客户端启动器退役，不再构成现行升级状态义务）。这不是应用内更新、自动迁移或跨目录状态保留承诺。未完成平台代码签名或公证信任链的预览/工具资产，不得表述为普通桌面用户广泛发行已就绪。
 
 <a id="download-integrity-and-upgrade"></a>
 ### 下载完整性失败边界
@@ -55,7 +55,7 @@
 
 ### 手动升级兼容与安全回退边界
 
-新版本在首次不可逆处理旧配置、Launcher 状态或本地 runtime 数据前，必须形成绑定版本、平台、primary mode 与候选资产的兼容判定，并把结果表达为以下三类之一：
+新版本在首次不可逆处理旧配置、适用本地编排状态或本地 runtime 数据前，必须形成绑定版本、平台、primary mode 与候选资产的兼容判定，并把结果表达为以下三类之一：
 
 - **兼容并可继续**：新版本已经确认所需状态可读取或可安全迁移，玩家可以继续进入声明的模式；成功只覆盖本地升级结果，不自动证明远端世界状态、session authority 或待决行动已经恢复。
 - **失败且确认未改写**：新版本在写入前停止，并能证明原状态未被改写；产品可以指引玩家退出新版本、恢复升级前备份并重新安装先前受支持资产。回退目标必须明确，不能让“下载旧包”代替版本、checksum 与状态来源核对。

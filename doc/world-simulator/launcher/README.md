@@ -1,16 +1,18 @@
 # `world-simulator/launcher` 热点子域入口
 
-更新时间: 2026-11-05
+更新时间: 2026-11-26
+
+> **架构收敛边界（[#7321](https://github.com/nil-studio/oasis7/issues/7321)）**：原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器 GUI（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config`）、专有字体嵌入及未签名桌面 GUI `Client Launcher` 安装包已决定彻底退役下线（代码、CI 与打包清理由 [#7323](https://github.com/nil-studio/oasis7/issues/7323)、[#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行），玩家唯一正式 GUI 收敛至 SolidJS Web `viewer`（`crates/oasis7_viewer`）。本子域现行活跃实现范围收敛为**无头本地编排与 HTTP JSON 控制面**（`crates/oasis7_launcher_backend`：`oasis7_game_launcher`、`oasis7_web_launcher` 控制面、`/api/state`、`/api/start|stop`、`/api/chain/*` 代理与 `/api/gui-agent/*` 机器接口）；下属专题中保留的上游状态/结果语义边界不再要求独立 `egui` 桌面或 Trunk WASM 窗口实现。
 
 ## 从这里开始
 - 想确认普通用户下载、安装和升级体验边界：先读 `../../product/player-entry-distribution/prd.md`；再读 `../prd.md`、[站点 PRD](../../site/prd.md) 与 [站点设计](../../site/design.md) 确认 Pages、Release 资产、专业实现和 blocker
-- 想确认本地 launcher/playtest 如何启动、哪些路径是当前 operator 入口：先读 `../README.md`、本页专题和对应操作手册；活跃任务状态读 GitHub PR、实际 CI 与评审记录（Issue 按需）
+- 想确认本地无头 launcher/playtest 如何启动、哪些路径是当前 operator 入口：先读 `../README.md`、本页专题和对应操作手册；活跃任务状态读 GitHub PR、实际 CI 与评审记录（Issue 按需）
 - 想确认 hosted login、可试玩本地栈、provider preflight 或 trusted-local 启动口径：先读本页相关 PRD/design/manual，再按 PR、实际 CI 与评审记录（Issue 按需）进入最新任务证据
-- 想确认反馈入口、native Ready 后远端失败的本地回落与 Web 代理边界：先读 `game-client-launcher-feedback.prd.md`
-- 想确认 native/Web 配置、设置、反馈与转账的共享语义、平台差异、结果和恢复边界：先读 `game-client-launcher-cross-surface-action-parity.prd.md`；control plane、GUI-agent 机器接口仍读 `game-client-launcher-control-plane-and-machine-interface.prd.md`
-- 想确认 blockchain explorer 的当前只读查询、七视图与状态呈现边界：先读 `game-client-launcher-blockchain-explorer.prd.md`；它不构成 mainnet、readiness、公开服务、结算或 validator 承诺
-- 想确认 launcher 的配置草稿、请求结果、运行状态及响应式引导：先读 [引导配置 PRD](game-client-launcher-guided-configuration-and-usability.prd.md)，再读[具体 UIUX、双语文案与目标稿](game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-hierarchy)和[验收方法](../../testing/manual/launcher-guided-uiux-acceptance.manual.md)；链 observer 不推导玩家观察模式，设计稿不构成运行、network readiness 或发布证据
-- 想确认 launcher 与 chain runtime、execution world、stale session/recovery 或 browser/WASM runtime compatibility 的边界：先读 `game-client-launcher-runtime-session-continuity.prd.md`；native/Web 控制请求、结果和诊断表现再读 control-plane authority
+- 想确认反馈控制面代理（`/api/chain/feedback`）与历史 native 反馈边界：先读 `game-client-launcher-feedback.prd.md`
+- 想确认受控动作（配置、设置、反馈代理与链提交）的结果语义与恢复边界：先读 `game-client-launcher-cross-surface-action-parity.prd.md`；HTTP JSON control plane 与 GUI-agent 机器接口仍读 `game-client-launcher-control-plane-and-machine-interface.prd.md`
+- 想确认 blockchain explorer 只读查询代理（`/api/chain/explorer/*`）与状态语义边界：先读 `game-client-launcher-blockchain-explorer.prd.md`；它不构成 mainnet、readiness、公开服务、结算或 validator 承诺
+- 想确认配置草稿/已接受/运行态区分与受阻恢复语义：先读 [引导配置 PRD](game-client-launcher-guided-configuration-and-usability.prd.md) 与[配对设计](game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-hierarchy)（原 `egui` UI 目标稿随 #7321 停止演进，仅保留上游状态与草稿真值边界）；链 observer 不推导玩家观察模式
+- 想确认无头 launcher 与 chain runtime、execution world、stale session/recovery 的边界：先读 `game-client-launcher-runtime-session-continuity.prd.md`；HTTP 控制请求、结果和诊断表现再读 control-plane authority
 - 想按准确文件名查找 launcher 专题文档：回到 `../prd.index.md`
 
 ## 入口分工

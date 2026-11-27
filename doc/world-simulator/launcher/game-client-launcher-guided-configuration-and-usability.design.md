@@ -1,14 +1,15 @@
 # 客户端启动器引导配置与可用性设计（当前 authority）
 
 > 对应需求：[引导配置与可用性 PRD](game-client-launcher-guided-configuration-and-usability.prd.md)。实现、运行、评审及发行状态由对应 PR 和真实证据维护。
+> **退役与承接边界（[#7321](https://github.com/nil-studio/oasis7/issues/7321)）**：原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器界面（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config`）已决定退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行），仓库唯一 GUI 收敛至 SolidJS Web `viewer`。本文保留各锚点承载的配置草稿/接受态/运行态分离、请求结果代次隔离、真实受阻原因与恢复下一步语义供无头控制面及上游产品要求追溯；下述针对 `egui` 窗口的布局与 SVG 目标稿随客户端启动器退役停止实施。
 
 ## 1. 问题、目标与范围
 
-让玩家在现有 native/Web Launcher 上看清“正在编辑什么、服务接受了什么、当前运行什么、这次请求得到什么结果”，并按真实 blocker 进入已有修复动作。本文在原配置真值与恢复设计上，落实[专业当前合同](game-client-launcher-guided-configuration-and-usability.prd.md#当前合同)委托的信息层级、具体文案、响应式、键盘操作和可编辑交付稿；不另建设置、账户或运行时产品。
+让操作者或玩家在受支持控制面与入口看清“正在编辑什么、服务接受了什么、当前运行什么、这次请求得到什么结果”，并按真实 blocker 进入已有修复动作。本文落实[专业当前合同](game-client-launcher-guided-configuration-and-usability.prd.md#当前合同)的配置真值、状态表达与失败恢复语义边界；不另建独立桌面设置、账户或运行时产品。
 
-Launcher 是 `viewer` / `pure_api` 路径的交付与控制表面。当前源码的“打开游戏页”进入 Web/UI；本文没有新增 pure_api 启动按钮或模式选择器。展示的目标模式须由该入口的已确认契约提供；未知时显示“入口模式待核实”，不能从 provider、链角色、URL 猜出正式可玩性。`observer` 只有在该入口 authority 明确报告受限路径时才适用；链节点的同名角色不等于玩家仅观察模式。
+Launcher 后端是 `viewer` / `pure_api` 路径的本地交付与控制支撑，不新增第三种玩家模式。展示的目标模式须由该入口的已确认契约提供；未知时显示“入口模式待核实”，不能从 provider、链角色、URL 猜出正式可玩性。`observer` 只有在该入口 authority 明确报告受限路径时才适用；链节点的同名角色不等于玩家仅观察模式。
 
-新增正文和两张 SVG 均为**设计目标 / DESIGN TARGET**。图中端口、请求和状态是布局样例；配置真值、结果关联、焦点与尺寸仍需实现和实际验收。本文不改变当前 primary-mode、权限、启动条件、自动启动策略或世界结果。
+下文保留的历史源码审读（基线 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9`）与两张 SVG 目标稿记录退役前的 `egui` 表面状态与设计推演，不再作为待开发的 `egui` 界面目标；本文不改变当前 primary-mode、权限、启动条件、自动启动策略或世界结果。
 
 ### 2.1 需求承接与分配表
 
