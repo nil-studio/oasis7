@@ -141,7 +141,8 @@ impl FormalEndpointServer {
             Option<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>>,
         ) = match self.frame_admission.as_ref() {
             Some((memory, work)) => {
-                let (value, owner) = wire::read_prepaid_frame(stream, memory, work, &mut cancelled)?;
+                let (value, owner) =
+                    wire::read_prepaid_frame(stream, memory, work, &mut cancelled)?;
                 (value, Some(owner))
             }
             None => (wire::read(stream)?, None),
