@@ -815,9 +815,18 @@ def required_packages(plan=None):
     plan = fast_plan(plan)
     if plan is None:
         return inventory
-    selected = plan_list(plan, 'oasis7_required_packages', inventory)
     if 'oasis7_required' not in plan.get('groups', []):
         raise ValueError('ordinary build is not selected by plan')
+    if (plan.get('test_policy_changed')
+            and (plan.get('scope') in ('full', 'explicit-full')
+                 or plan['execution_profile'] in ('periodic-full', 'candidate-full'))):
+        value = plan.get('oasis7_required_packages')
+        if (not isinstance(value, list) or not value
+                or any(not isinstance(item, str) or not item for item in value)
+                or len(value) != len(set(value))):
+            raise ValueError('invalid execution selection: oasis7_required_packages')
+        return inventory
+    selected = plan_list(plan, 'oasis7_required_packages', inventory)
     if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
         return inventory
     return selected

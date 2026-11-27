@@ -250,7 +250,7 @@ Trace ID: O7-REQ-bafbce55-b1f3-414c-98e8-2cb5e70e6d1e
 - 系统设计状态：已覆盖
 - 系统设计依据：[支持入口与结果](../../readme/governance/player-support-and-service-lifecycle.design.md#support-entry-results)承接实际路径、结果文案和说明的采用；Launcher 的传输、门控及回落沿原反馈专业合同。
 - 实现状态：部分实现
-- 实现与验证依据：[native 反馈窗口](../../../crates/oasis7_client_launcher/src/feedback_window.rs)、[native 提交与本地回落](../../../crates/oasis7_client_launcher/src/feedback_entry.rs)、[Web 反馈窗口](../../../crates/oasis7_client_launcher/src/feedback_window_web.rs)已有各自门控与结果消费；这是源码审读，不代表同候选 UI 或网络验收。
+- 实现与验证依据：原 `crates/oasis7_client_launcher/src/feedback_window.rs`（native 反馈窗口）、`crates/oasis7_client_launcher/src/feedback_entry.rs`（native 提交与本地回落）、`crates/oasis7_client_launcher/src/feedback_window_web.rs`（Web 反馈窗口）已有各自门控与结果消费；这是源码审读，不代表同候选 UI 或网络验收。
 - 核对日期与基线：2026-11-03；源码 `d21019414c46d7e8ba61ab2c59b1f217b144ba88`；未执行运行、浏览器或真实反馈提交。
 - 剩余范围：后续活跃候选仅按正式支持入口、Web `viewer` 与受支持控制面代理核验可用性、提交结果与恢复组合；本地文件和远端受理不等于人工已经接收处理。
 - 验收：[AC-ENTRY-PREVIEW-FEEDBACK-001](#ac-entry-preview-feedback-001)。
@@ -300,7 +300,7 @@ Trace ID: O7-REQ-eb290f7e-b49e-42dc-ba88-016ed9c87808
 - 系统设计状态：已覆盖
 - 系统设计依据：[支持数据边界](../../readme/governance/player-support-and-service-lifecycle.design.md#support-data-boundaries)承接最小内容、各路径数据流、公开告知与误传处置；本地诊断和 DistFS 数据合同仍由原专业 authority 拥有。
 - 实现状态：部分实现
-- 实现与验证依据：[缺陷模板](../../../.github/ISSUE_TEMPLATE/defect.yml)提示不上传凭据/敏感日志；[本地反馈处理](../../../crates/oasis7_client_launcher/src/feedback_entry.rs)包含 allowlist 及有界诊断；[反馈公开读取](../../../crates/oasis7_distfs/src/feedback.rs)保留追加历史。上述源码与模板存在不证明所有输入均已脱敏或误传资料可删除。
+- 实现与验证依据：[缺陷模板](../../../.github/ISSUE_TEMPLATE/defect.yml)提示不上传凭据/敏感日志；原 `crates/oasis7_client_launcher/src/feedback_entry.rs`（本地反馈处理）包含 allowlist 及有界诊断；[反馈公开读取](../../../crates/oasis7_distfs/src/feedback.rs)保留追加历史。上述源码与模板存在不证明所有输入均已脱敏或误传资料可删除。
 - 核对日期与基线：2026-11-03；源码 `d21019414c46d7e8ba61ab2c59b1f217b144ba88`；未执行隐私、复制或真实误传处置验证。
 - 剩余范围：本次告知的实际采用、各候选公开内容检查及误传处置仍待验证；统一保留/删除政策与未提供的私密入口不由本条虚构为已具备。
 - 验收：[AC-ENTRY-PREVIEW-FEEDBACK-003](#ac-entry-preview-feedback-003)。

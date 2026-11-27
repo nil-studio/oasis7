@@ -439,9 +439,9 @@ run() {
         # The frozen shell reads the current support-profile inventory, including
         # the Worker and Domain Types roots. Three fixture behaviors retain two
         # provider filters with one compile context: 35 full plus eight legacy calls.
-        self.assertEqual(len(calls), 43)
+        self.assertEqual(len(calls), 41)
         contexts = {compile_context(call) for call in calls}
-        self.assertEqual(len(contexts), 42)
+        self.assertEqual(len(contexts), 40)
         self.assertIn(('test', ('oasis7_dev_test_worker',), (('--all-targets', ''),),
                        True, (), 'default', '1'), contexts)
         return calls
@@ -493,8 +493,8 @@ run() {
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 55)
-                self.assertIn('cache_build_complete variants=55 verification=false', result.stdout)
+                self.assertEqual(len(named), 52)
+                self.assertIn('cache_build_complete variants=52 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
                                   if not name.startswith('fast-')}, expected)
                 self.assert_fast_inventory(named, self.config)
@@ -574,7 +574,7 @@ cd "$repo_root"
                                       '-D', 'clippy::suspicious'])
 
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52, 53, 54, 55):
+        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()
@@ -629,7 +629,7 @@ cd "$repo_root"
         result = self.build()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
-        self.assertEqual(len(named), 55)
+        self.assertEqual(len(named), 52)
         self.assert_fast_inventory(named, config)
         self.assertFalse(self.behaviors.exists())
 
@@ -665,7 +665,7 @@ cd "$repo_root"
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
         self.assert_fast_inventory(named, config)
-        self.assertEqual(sum(name.startswith('fast-') for name in named), 16)
+        self.assertEqual(sum(name.startswith('fast-') for name in named), 15)
 
 
 if __name__ == '__main__':

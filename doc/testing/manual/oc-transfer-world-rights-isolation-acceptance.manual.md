@@ -129,7 +129,7 @@ OC 正常样例重发后仍为 A=30、B=10、nonce=3；同 nonce 改 amount 也�
 
 | 已有接点 | 核对方法及结果层 |
 | --- | --- |
-| Launcher [转账构造/提交](../../../crates/oasis7_client_launcher/src/transfer_entry.rs)、[转账面板](../../../crates/oasis7_client_launcher/src/transfer_window.rs) | 校验输入、签名及 live chain/network 来源；缺 identity 按原 guard 拒绝签名。检查提交、状态、history/accounts 的原关联，不把账户余额或“已提交”显示成 World 资格成功。 |
+| Launcher 原 `crates/oasis7_client_launcher/src/transfer_entry.rs`（转账构造/提交）、`crates/oasis7_client_launcher/src/transfer_window.rs`（转账面板） | 校验输入、签名及 live chain/network 来源；缺 identity 按原 guard 拒绝签名。检查提交、状态、history/accounts 的原关联，不把账户余额或“已提交”显示成 World 资格成功。 |
 | [链 transfer API](../../../crates/oasis7_chain_runtime/src/host/transfer_submit_api.rs) 的 `/v1/chain/transfer/submit`、`status`、`history`、`accounts` | 实际解析/鉴权/preflight 与原 nonce；submit success 只代表交入共识，当前 tracker `confirmed` 来自 committed batch，仍须查原 World 结果。重连/查询不到不能用新 nonce补发原未知转账。 |
 | [Phase 1 原验证定位](../../p2p/token/mainchain-token-ideal-transaction.design.md#itx-validation) | 可复用 expired、非法 asset、签名及 restricted-only balance 等[现有测试源码](../../../crates/oasis7_chain_runtime/src/host/transfer_submit_api_tests.rs)；断言定义、静态阅读和实际运行分别记录。 |
 | Viewer [GR-011 目标读面](../../world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-08-gr-011)与实际世界 consumer | 对照 O/W 各自条件、成本、权限、来源、结果及下一步；目标图稿不证明完整写入口。没有真实 route/producer/原件 lookup 时明确缺项，不造资格兑换或恢复按钮。 |
