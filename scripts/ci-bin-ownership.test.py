@@ -582,12 +582,9 @@ class Ownership(unittest.TestCase):
         archive = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
         original = ROOT / 'crates/oasis7/src/simulator'
         self.assertIn('pub struct WorldEvent {', (archive / 'archive.rs').read_text())
-        for filename, symbol in (
-            ('persist.rs', 'pub struct WorldSnapshot {'),
-            ('kernel_host.rs', 'pub struct WorldKernel {'),
-        ):
-            self.assertIn(symbol, (archive / filename).read_text())
-            self.assertIn(symbol, (original / filename).read_text())
+        self.assertIn('pub struct WorldSnapshot {', (archive / 'persist.rs').read_text())
+        self.assertIn('pub struct WorldSnapshot {', (original / 'persist.rs').read_text())
+        self.assertIn('pub struct WorldKernel {', (archive / 'kernel_host.rs').read_text())
         source = (archive / 'tests.rs').read_text()
         self.assertIn('original_composite_snapshot_extensions_survive_exact_native_split_rejoin', source)
         self.assertIn('native_composite_event_roundtrip_keeps_rejection_and_host_field', source)

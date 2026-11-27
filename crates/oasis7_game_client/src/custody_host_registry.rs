@@ -1,5 +1,16 @@
 //! Fixed root-owned OS routing policy. Not model lifecycle or Skill attestation.
-use super::{ipc::PublicBinding, state::denied};
+use super::state::denied;
+pub(crate) struct PublicBinding {
+    pub api_version: u8,
+    pub transport_profile: String,
+    pub socket_path: String,
+    pub identity_digest: String,
+    pub descriptor_digest: String,
+    pub session_digest: String,
+    pub resource_id: String,
+    pub restricted_runtime_identity: String,
+    pub(super) isolation: super::state::Isolation,
+}
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, MetadataExt, OpenOptionsExt, PermissionsExt};
 use serde::Deserialize;

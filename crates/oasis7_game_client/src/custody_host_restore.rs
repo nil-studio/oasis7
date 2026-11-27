@@ -1,8 +1,17 @@
 use super::*;
+fn secret32(v: &str) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
+    let bytes = zeroize::Zeroizing::new(hex::decode(v).map_err(|_| denied())?);
+    if v.len() != 64 || hex::encode(&*bytes) != v {
+        return Err(denied());
+    }
+    Ok(zeroize::Zeroizing::new(
+        bytes.as_slice().try_into().map_err(|_| denied())?,
+    ))
+}
 impl State {
     pub fn validate(&self) -> Result<(), String> {
         self.identity.validate()?;
-        let raw = super::super::vault::secret32(&self.signing_seed)?;
+        let raw = secret32(&self.signing_seed)?;
         let key = ed25519_dalek::SigningKey::from_bytes(&raw);
         if self.api_version != 1
             || hex::encode(key.verifying_key().to_bytes())
@@ -79,7 +88,7 @@ impl State {
             )?;
             if !self.enrollment.proved
                 || live > 0 && !s.inbox_ready
-                || super::super::vault::secret32(&s.inbox_key).is_err()
+                || secret32(&s.inbox_key).is_err()
                 || s.credentials.len() > 2
                 || s.retired_execution > 4
                 || s.retired_read > 4
