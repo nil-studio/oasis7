@@ -271,18 +271,24 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
     // the same monotonic work meter across consecutive remote calls.
     let query_memory = oasis7_proto::memory_budget::MemoryBudget::new(512 << 20, 0).unwrap();
     let query_work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(
-        100_000_000, 1 << 34,
-    ).unwrap();
+        100_000_000,
+        1 << 34,
+    )
+    .unwrap();
     let query = client.query_data_bounded(
         &fixture.initial.candidate.record.request_digest,
-        &query_memory, &query_work, &mut || false,
+        &query_memory,
+        &query_work,
+        &mut || false,
     ).unwrap();
     assert!(matches!(
         query.outcome(),
         Some(FormalQueryOutcomeV1::Recorded(state))
             if matches!(state.as_ref(), FormalRequestStateV1::Qualified { .. })
     ));
-    query.validate_owner(&query_memory, &query_work, &mut || false).unwrap();
+    query
+        .validate_owner(&query_memory, &query_work, &mut || false)
+        .unwrap();
     assert!(query_memory.used() > 0);
     drop(query);
     assert_eq!(query_memory.used(), 0);

@@ -29,14 +29,14 @@ impl PaidRemoteFormalQueryV1 {
     pub fn validate_owner(
         &self,
         memory: &MemoryBudget,
-        work: &super::super::endpoint::FormalArchiveReadWorkV1,
+        work: &super::super::super::endpoint::FormalArchiveReadWorkV1,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(), FormalError> {
         let mut common = work.bounded_context(memory, cancelled);
         self.response.validate_context(&mut common).map_err(|error| {
             match error {
                 BoundedCborDataErrorV1::Common(source) => source,
-                other => invalid(error.to_string()),
+                other => invalid(other.to_string()),
             }
         })?;
         if !self._raw.uses_budget(memory) {
@@ -54,12 +54,14 @@ impl RemoteFormalEndpoint {
         &mut self,
         request: &str,
         memory: &MemoryBudget,
-        work: &super::super::endpoint::FormalArchiveReadWorkV1,
+        work: &super::super::super::endpoint::FormalArchiveReadWorkV1,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<PaidRemoteFormalQueryV1, FormalError> {
         work.consume_steps(1, cancelled)?;
         let (signed, digest) = self.signed_request(Command::Query(request.to_owned()))?;
-        let deadline = self.operation_deadline.unwrap_or_else(|| Instant::now() + self.timeout);
+        let deadline = self
+            .operation_deadline
+            .unwrap_or_else(|| Instant::now() + self.timeout);
         let mut stream =
             wire::connect_and_write_before_deadline(&self.address, &signed, deadline)?;
         // The complete signed Response is a closed protocol enum. The generic
@@ -78,14 +80,15 @@ impl RemoteFormalEndpoint {
             missing: None,
         };
         let (response, raw): (PaidCborDataV1<Response>, ReservedValue<Vec<u8>>) =
-            wire::read_paid_before_deadline(
-                &mut stream, deadline, memory, work, layout, cancelled,
-            )?;
+            wire::read_paid_before_deadline(&mut stream, deadline, memory, work, layout, cancelled)?;
         let verified: &Response = response.borrow();
         self.verify_authenticated_response(verified, &signed, &digest, deadline)?;
         if !matches!(&verified.body.result, Ok(Value::Query(_)) | Err(_)) {
             return Err(invalid("formal paid Query response type"));
         }
-        Ok(PaidRemoteFormalQueryV1 { response, _raw: raw })
+        Ok(PaidRemoteFormalQueryV1 {
+            response,
+            _raw: raw,
+        })
     }
 }
