@@ -63,8 +63,6 @@ mod feedback_state;
 mod http_bridge_support;
 #[path = "oasis7_provider_local_bridge/invocation.rs"]
 mod invocation;
-#[path = "oasis7_provider_local_bridge/letai_direct.rs"]
-mod letai_direct;
 #[path = "oasis7_provider_local_bridge/support.rs"]
 mod support;
 #[cfg(test)]
@@ -83,12 +81,12 @@ use self::agent_decision::{
 };
 use self::feedback_state::load_feedback_state;
 use self::http_bridge_support::handle_connection;
+#[cfg(test)]
+pub(crate) use self::invocation::error_diagnostics_json;
 pub(crate) use self::invocation::{
     AgentInvocation, AgentInvocationOutput, AgentInvoker, ProviderCliInvoker,
-    RustDirectLetaiInvoker, agent_chat_idempotency_key, build_agent_chat_prompt,
-    provider_error_upstream_trace, short_sha256,
+    agent_chat_idempotency_key, build_agent_chat_prompt, provider_error_upstream_trace,
 };
-use self::letai_direct::{error_diagnostics_json, invoke_rust_direct_letai};
 use self::options::default_gateway_health_url;
 use self::support::{
     agent_output_from_json, legacy_provider_invocation_key, local_session_id_from_session_key,
@@ -117,7 +115,6 @@ enum ProviderMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProviderBackend {
-    RustDirectLetai,
     LegacyCli,
 }
 
@@ -133,7 +130,7 @@ impl Default for CliOptions {
             auth_route_map: BTreeMap::new(),
             auth_route_from_bearer: false,
             mode: ProviderMode::Real,
-            provider_backend: ProviderBackend::RustDirectLetai,
+            provider_backend: ProviderBackend::LegacyCli,
         }
     }
 }
@@ -955,7 +952,6 @@ fn main() {
         options.bind_addr, options.provider_agent_id, options.gateway_health_url
     );
     let invoker: Arc<dyn AgentInvoker> = match options.provider_backend {
-        ProviderBackend::RustDirectLetai => Arc::new(RustDirectLetaiInvoker),
         ProviderBackend::LegacyCli => Arc::new(ProviderCliInvoker),
     };
     for stream in listener.incoming() {
@@ -1050,8 +1046,8 @@ fn print_help() {
     eprintln!(concat!(
         "Usage: oasis7_provider_local_bridge [options]\n\n",
         "  --bind <host:port>            Loopback bind address (default: 127.0.0.1:5841)\n",
-        "  --provider-backend <rust-direct-letai|legacy-cli>\n",
-        "                                provider upstream backend (default: rust-direct-letai)\n",
+        "  --provider-backend <legacy-cli>\n",
+        "                                provider upstream backend (default: legacy-cli)\n",
         "  --provider-cli-bin <path>     legacy provider CLI path; implies --provider-backend legacy-cli\n",
         "  --provider-agent <id>         provider agent id (default: main)\n",
         "  --provider-thinking <level>   provider thinking level (default: off)\n",
@@ -1121,12 +1117,9 @@ fn parse_provider_mode(raw: &str) -> Result<ProviderMode, String> {
 
 fn parse_provider_backend(raw: &str) -> Result<ProviderBackend, String> {
     match raw.trim() {
-        "rust-direct-letai" | "rust_direct_letai" | "direct-letai" | "direct" | "rust" => {
-            Ok(ProviderBackend::RustDirectLetai)
-        }
         "legacy-cli" | "legacy_cli" | "cli" | "provider-cli" => Ok(ProviderBackend::LegacyCli),
         other => Err(format!(
-            "unsupported provider backend `{other}`; expected rust-direct-letai or legacy-cli"
+            "unsupported provider backend `{other}`; expected legacy-cli"
         )),
     }
 }

@@ -7,10 +7,16 @@ use tracing::error;
 
 use super::{
     ProviderAgentChatRequest, TRACE_SESSION_PROCESS_LABEL, agent_output_from_json,
-    build_gateway_agent_params, error_diagnostics_json, invoke_rust_direct_letai,
-    local_session_id_from_session_key, resolve_trace_session_id, route_label_env,
-    should_fallback_to_local_agent, summarize_text,
+    build_gateway_agent_params, local_session_id_from_session_key, resolve_trace_session_id,
+    route_label_env, should_fallback_to_local_agent, summarize_text,
 };
+
+pub(super) fn error_diagnostics_json(error: &str) -> Value {
+    let Some((_, diagnostics)) = error.split_once("diagnostics=") else {
+        return Value::Null;
+    };
+    serde_json::from_str::<Value>(diagnostics.trim()).unwrap_or(Value::Null)
+}
 
 pub(super) fn build_agent_chat_prompt(request: &ProviderAgentChatRequest) -> String {
     let context = json!({
@@ -56,6 +62,7 @@ pub(super) struct AgentInvocation {
     /// inner-request route leaves both outer identity fields absent.
     pub(super) provider_invocation_key: Option<String>,
     pub(super) agent_session_id: Option<String>,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) chat_request_key: Option<String>,
     pub(super) route_label: Option<String>,
 }
@@ -80,9 +87,6 @@ pub(super) trait AgentInvoker: Send + Sync {
 #[derive(Debug, Clone, Default)]
 pub(super) struct ProviderCliInvoker;
 
-#[derive(Debug, Clone, Default)]
-pub(super) struct RustDirectLetaiInvoker;
-
 impl AgentInvoker for ProviderCliInvoker {
     fn invoke(&self, invocation: AgentInvocation) -> Result<AgentInvocationOutput, String> {
         match invoke_gateway_agent(invocation.clone()) {
@@ -92,12 +96,6 @@ impl AgentInvoker for ProviderCliInvoker {
             }
             Err(err) => Err(err),
         }
-    }
-}
-
-impl AgentInvoker for RustDirectLetaiInvoker {
-    fn invoke(&self, invocation: AgentInvocation) -> Result<AgentInvocationOutput, String> {
-        invoke_rust_direct_letai(invocation)
     }
 }
 
