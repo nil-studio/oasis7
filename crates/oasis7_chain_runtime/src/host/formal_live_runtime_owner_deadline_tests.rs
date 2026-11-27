@@ -287,6 +287,98 @@ fn expired_stop_sends_no_request_and_never_becomes_a_success() {
     assert_eq!(server.read(&mut byte).unwrap(), 0);
 }
 
+
+#[test]
+fn lost_original_freeze_reply_preserves_only_the_exact_frozen_original() {
+    use oasis7_distfs::controlled_authority::LocalRequestIdentity;
+    use super::super::super::formal_live_original_pending_producer::{
+        OriginalPendingOwnerV1, OriginalPendingProducerV1, cold_read_exact_frozen,
+    };
+    use std::os::unix::fs::PermissionsExt;
+
+    let expected = instance();
+    let owner = OriginalPendingOwnerV1 {
+        authority_id: expected.authority_id.clone(),
+        operation_id: expected.operation_id.clone(),
+        request_digest: expected.request_digest.clone(),
+        config_digest: expected.config_digest.clone(),
+        incarnation: expected.incarnation.clone(),
+    };
+    let root = std::env::temp_dir().join(format!(
+        "o7-owner-lost-freeze-{}-{}",
+        std::process::id(),
+        crate::node_lifecycle::local_io::random_id().unwrap()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut producer = OriginalPendingProducerV1::open(&root, owner.clone()).unwrap();
+    let original_bytes = vec![0x31, 0x00, 0xff, 0x42];
+    producer
+        .note_enqueued_with_action(
+            LocalRequestIdentity {
+                verified_subject: "subject".into(),
+                operation_domain: "submit".into(),
+                nonce_scope: "nonce".into(),
+                request_id: "signed-submit-1".into(),
+            },
+            original_bytes.clone(),
+            vec![0x02, 0x45],
+        )
+        .unwrap();
+
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let peer_instance = expected.clone();
+    let peer_directory = root.clone();
+    let peer_owner = owner.clone();
+    let peer = std::thread::spawn(move || {
+        configure_control_stream(&server).unwrap();
+        let request: ControlRequest = read_message(&mut server).unwrap();
+        validate_control(&request, &peer_instance).unwrap();
+        assert_eq!(request.action, "freeze_original_pending");
+        let prepared = producer.begin_freeze(&peer_directory).unwrap();
+        assert_eq!(prepared.count, 1);
+        // A durable preparation is never a completed Node Frozen marker.
+        assert!(cold_read_exact_frozen(
+            &peer_directory,
+            &peer_owner,
+            &prepared.root,
+            prepared.count,
+        )
+        .is_err());
+        // This isolated transport test represents the already-observed
+        // Node-stop completion; live Node quiescence is tested separately.
+        let frozen = producer.finish_node_freeze(&peer_directory).unwrap();
+        assert_eq!(frozen, prepared);
+        assert!(producer.is_frozen());
+        // The owner finished the immutable write, then the socket vanished
+        // before the caller could receive any reply.
+        drop(server);
+        frozen
+    });
+    let lost = send_control_reply(
+        &absent_state_path(),
+        &expected,
+        "freeze_original_pending",
+        Instant::now() + Duration::from_secs(2),
+        client,
+    );
+    assert!(lost.is_err(), "lost freeze reply cannot report successful owner control");
+    let frozen = peer.join().unwrap();
+    assert!(OriginalPendingProducerV1::open(&root, owner.clone()).is_err());
+
+    // This is a pinned local data read, NOT independent protected recovery
+    // entitlement. The real process E2E must supply its own root/count.
+    let recovered =
+        cold_read_exact_frozen(&root, &owner, &frozen.root, frozen.count).unwrap();
+    assert_eq!(recovered.requests.len(), 1);
+    assert_eq!(recovered.requests[0].signed_request, original_bytes);
+    assert!(cold_read_exact_frozen(&root, &owner, &frozen.root, 0).is_err());
+    let mut wrong = owner.clone();
+    wrong.incarnation = "replacement-owner".into();
+    assert!(cold_read_exact_frozen(&root, &wrong, &frozen.root, frozen.count).is_err());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn missing_stop_reply_is_an_error_not_a_synthetic_pending_receipt() {
     let (client, _silent_peer) = UnixStream::pair().unwrap();
