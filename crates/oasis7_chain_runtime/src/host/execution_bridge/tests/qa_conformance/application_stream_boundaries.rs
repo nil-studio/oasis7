@@ -449,30 +449,31 @@ fn repeated(shared: Arc<Mutex<ViewerRuntimeLiveServer>>, root: &std::path::Path)
         .send(serde_json::json!({"type":"request_snapshot"}))
         .unwrap();
     let ordered = session.snapshot_ordered(Duration::from_secs(2), true);
-    let mut reader = session.reader;
-    let mut socket = reader.get_ref().try_clone().unwrap();
-    let worker = session.worker;
+    let mut socket = session.reader.get_ref().try_clone().unwrap();
+    let mut reader = std::mem::replace(
+        &mut session.reader,
+        BufReader::new(socket.try_clone().unwrap()),
+    );
     let drain_stop = Arc::new(AtomicBool::new(false));
     let reader_stop = drain_stop.clone();
     let draining = thread::spawn(move || {
-        let mut line = String::new();
-        while !reader_stop.load(Ordering::SeqCst) {
-            match reader.read_line(&mut line) {
-                Ok(0) => return Ok(()),
-                Ok(_) => {
-                    if line.ends_with('\n') {
-                        line.clear();
-                    }
-                }
+        let mut buffer = [0; 8192];
+        let result = loop {
+            if reader_stop.load(Ordering::SeqCst) {
+                break Ok(());
+            }
+            match reader.read(&mut buffer) {
+                Ok(0) => break Ok(()),
+                Ok(_) => {}
                 Err(e)
                     if matches!(
                         e.kind(),
                         std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
                     ) => {}
-                Err(e) => return Err(e.kind()),
+                Err(e) => break Err(e.kind()),
             }
-        }
-        Ok(())
+        };
+        (reader, result)
     });
     let mut completion = application_completion::CompletionWatch::new();
     let mut summary = serde_json::Value::Null;
@@ -522,10 +523,12 @@ fn repeated(shared: Arc<Mutex<ViewerRuntimeLiveServer>>, root: &std::path::Path)
             thread::sleep(Duration::from_millis(2));
         }
     }
-    socket.shutdown(std::net::Shutdown::Both).unwrap();
-    let served = worker.join().unwrap();
+    // Reclaim the active drain reader before closing. Session::close keeps
+    // reading queued responses after writing EOF, then joins the serving worker.
     drain_stop.store(true, Ordering::SeqCst);
-    let drained = draining.join().unwrap();
+    let (reader, drained) = draining.join().unwrap();
+    session.reader = reader;
+    let served = session.close();
     let identities = requests(root);
     assert!(
         !application_completion::has_failure(&summary),
