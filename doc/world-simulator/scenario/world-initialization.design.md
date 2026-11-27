@@ -34,7 +34,7 @@
 <a id="init-state-design"></a>
 ## 4. 约束与边界
 - 初始化顺序需保持确定性。
-- 场景能力只在[主矩阵](scenario-files.prd.md#场景测试覆盖矩阵（2026-02-06）)维护；`twin_region_bootstrap` 与 `asteroid_fragment_bootstrap` 默认设施数为 0，设施正例使用 `power_bootstrap`。
+- 场景能力只在[主矩阵](scenario-files.prd.md)维护；`twin_region_bootstrap` 与 `asteroid_fragment_bootstrap` 默认设施数为 0，设施正例使用 `power_bootstrap`。
 - `initialize_kernel` 保持时间 0；enabled fragment 的已生成 chunk 可追加 `ChunkGenerated(Init)`，不清空合法事件。snapshot 承载全部初始状态，journal 只按[分块生成合同](chunked-fragment-generation.prd.md)承载已声明部分。
 - 初始化产物交给不同消费者时按[入口矩阵](scenario-files.prd.md#场景初始化与消费入口矩阵)验收；named runtime-live 的默认 Agent 与 seed model 投影不能冒充 Simulator 原模型保留。
 - 场景覆盖不得绕过核心一致性校验。
