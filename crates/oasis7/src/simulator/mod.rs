@@ -40,9 +40,6 @@ pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
 pub(crate) use oasis7_runtime_host::provider_loopback_http;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_material_capture;
-#[cfg(any())]
-#[path = "persist.rs"]
-mod retired_persist;
 #[cfg(not(target_arch = "wasm32"))]
 mod runner;
 #[cfg(not(target_arch = "wasm32"))]
