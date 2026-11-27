@@ -5,19 +5,19 @@
 
 ## 目标与权威边界
 
-本专题是 `oasis7_web_launcher`（`crates/oasis7_launcher_backend`）的稳定控制面与机器接口 authority，收敛服务端状态快照、静态资源托管、受控启停操作及 GUI-agent 机器接口合同。原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器 GUI（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config`）按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行），玩家唯一 GUI 收敛至 SolidJS Web `viewer`。本文描述控制面如何提供和受控调用既有进程控制能力；不定义 runtime 世界状态演化、链执行规则或 Agent 决策语义。
+本专题是 `oasis7_web_launcher`（`crates/oasis7_launcher_backend`）的稳定控制面与机器接口 authority，收敛服务端状态快照、静态资源托管、受控启停操作及 GUI-agent 机器接口合同；玩家唯一图形界面为 SolidJS Web `viewer`。本文描述控制面如何提供和受控调用既有进程控制能力；不定义 runtime 世界状态演化、链执行规则或 Agent 决策语义。
 
 HTTP 客户端与机器接口消费同一份服务端状态和动作合同。`oasis7_web_launcher` 可托管 Viewer 静态资源并提供 `/api/state`、游戏/链受控路由及 `/api/gui-agent/*` 接口；实际可用状态、配置约束和错误均以当前响应为准。
 
 ## 范围
 
-覆盖 `oasis7_web_launcher` 控制状态、受控动作生命周期与 operator HTTP-JSON 适配面（原共享 `egui` UI schema 与双端窗口随 #7321 退役）；不覆盖 runtime 世界规则、执行状态演化、transfer 可用性或 Agent 决策。
+覆盖 `oasis7_web_launcher` 控制状态、受控动作生命周期与 operator HTTP-JSON 适配面；不覆盖 runtime 世界规则、执行状态演化、transfer 可用性或 Agent 决策。
 
 ## 人员与使用场景
 
 - 本地运行与运维 operator：通过 HTTP 控制面或无头启动命令观察相同的控制状态，并使用相同语义的受控启动、停止和诊断入口。
 - 自动化 operator：通过 HTTP JSON 机器接口发现当前能力、读取状态、提交一个已声明动作并读取统一结果；它不是世界内 autonomous Agent，也不是 `DecisionProvider`。
-- 控制面开发者：维护 `oasis7_launcher_backend` 控制面路由、子进程生命周期与机器接口映射，不复制 runtime 规则，也不再维护独立 `egui` 客户端启动器。
+- 控制面开发者：维护 `oasis7_launcher_backend` 控制面路由、子进程生命周期与机器接口映射，不复制 runtime 规则。
 
 ## 接口 / 数据
 

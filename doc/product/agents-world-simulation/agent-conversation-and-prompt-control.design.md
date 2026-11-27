@@ -11,7 +11,7 @@
 - Last reviewed：2026-09-13
 - 专业域权威：[`world-simulator` 专业 PRD](../../world-simulator/prd.md)、[`Viewer 手册`](../../world-simulator/viewer/viewer-manual.manual.md)
 
-本文定义跨 surface 的产品交互设计，不冻结历史 EGUI 布局或实现字段。当前可用入口、鉴权、协议和操作步骤以 [`Viewer 手册`](../../world-simulator/viewer/viewer-manual.manual.md) 与 [`world-simulator` 专业 PRD](../../world-simulator/prd.md) 为准。
+本文定义跨 surface 的产品交互设计，不冻结特定前端组件布局或实现字段。当前可用入口、鉴权、协议和操作步骤以 [`Viewer 手册`](../../world-simulator/viewer/viewer-manual.manual.md) 与 [`world-simulator` 专业 PRD](../../world-simulator/prd.md) 为准。
 
 ## 1. 设计原则
 
@@ -67,7 +67,7 @@
 - 内容按“Agent → 类型 → 草稿 → 主动作 → 结果”保持稳定顺序；窄屏可通过分组、渐进披露或内部滚动压缩空间。
 - 主动作和结果不得被滚动区永久遮蔽；高影响应用动作与普通发送在位置、文案或确认反馈上应可辨认。
 - 输入区必须避免 IME、快捷键、换行、焦点和发送动作互相误触。具体快捷键及已验证的输入法行为由当前 surface authority 决定并在手册中说明；未定义快捷键时，正常文本编辑与显式发送动作仍须可用。
-- 响应式布局只需保持目标 Agent、草稿、主动作和结果可达，不冻结“最右侧面板”“记录在上、输入在下”或双面板宽度等历史 EGUI 结构。
+- 响应式布局只需保持目标 Agent、草稿、主动作和结果可达，不冻结“最右侧面板”“记录在上、输入在下”或双面板宽度等早期旧界面结构。
 - 诊断细节按需展开，不能盖过目标 Agent、当前值、主要动作和结果。
 
 - 中文组合态保持为编辑过程，完成后才形成草稿文本；浏览器事件时序差异不得造成重复文字或发送。焦点切换区分编辑对象和世界控制，输入区操作不触发世界快捷键/拾取。
@@ -90,7 +90,7 @@
 ## 6. 设计边界
 
 - 历史“最右 Chat Panel”“Prompt Presets 折叠区”只是设计来源，不是当前布局规范。
-- 历史 Enter 发送、中文 IME bridge、左侧历史栏清理和 EGUI 焦点信号只作为迁移来源，不构成当前 Web 的快捷键、输入法或聚焦保证。
+- 早期旧面板的 Enter 发送、中文输入桥接、左侧历史栏清理和焦点信号只作为迁移来源，不构成当前 Web 的快捷键、输入法或聚焦保证。
 - 本设计不决定 profile schema、默认常量、patch 算法、服务端事件来源或强认证方式。
 - 本设计不要求恢复已退役 Prompt Ops，也不要求所有 surface 暴露 Agent Prompt 修改能力。
 - 技术实现、当前支持范围和验证命令继续由 `world-simulator` 专业文档与证据承载。

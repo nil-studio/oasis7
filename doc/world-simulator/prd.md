@@ -84,24 +84,24 @@
 | runtime live / LLM / provider authority | `PRD-WORLD_SIMULATOR-016-019`, `036-040` | runtime live 是主驱动方向；provider 决策层保持 provider advisory / runtime authoritative。provider 失败产生结构化 trace/error，并可收敛为不提交动作的 `Wait` 或显式 catalog/runtime rejection；不得回退到状态变更的启发式替代动作。runtime event/snapshot mapping 不得静默丢字段，trace/action/result 保持因果关联。AgentChat、PromptControl、profile/override、鉴权与实际应用结果属于本专业域；产品层只组合对话、草稿、持续调整与反馈恢复的玩家语义。 |
 | primary Web viewer | `PRD-WORLD_SIMULATOR-039/041/046` | `viewer` 是低保真但正式可玩的主要 Web 入口；`software_safe` 仅作为兼容 alias；退役第二 Viewer surface 已退出 active delivery。 |
 | first-session goal and control feedback | `PRD-WORLD_SIMULATOR-001/039/041/046` | Viewer 首局面向玩家呈现一个主目标及可收起、可找回且不冲突的次目标；主目标消费权威进度并展示动作、完成条件、阶段预期、剩余条件、blocker 与玩家可选择的恢复动作。首个推荐需解释价值、可达性与首次持续能力关联；完成后交接到可达的后引导目标。Web Test API 以 `describeControls()` / `fillControlExample(action)` 暴露支持动作、payload schema 与示例，`sendControl(action, payload)` 稳定返回 accepted、action、parsedControl、reason、hint，`getState().lastControlFeedback` 保留最近反馈供人工与脚本复核；新增字段不得静默破坏自动化兼容。正式玩家摘要只从 canonical `player_gameplay` / feedback 派生 Player Intent、World Consequence、Recovery Move、Next Move 等解释面，不新增 runtime truth。具体阈值、布局与测试锚点由当前 Viewer 实现和验证证据维护，不进入产品层。 |
-| launcher feedback / transfer / explorer / control plane | `PRD-WORLD_SIMULATOR-020-031`, `033/034/044` | 原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器 GUI（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config`）按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行）；玩家 GUI 统一收敛至 SolidJS Web `viewer`。Launcher 子域保留无头进程编排与 HTTP JSON / `gui-agent` 控制面（`oasis7_launcher_backend`）；受控动作语义仍须区分 executable/blocked/result/recovery，submit acceptance 不等于 settlement，近期历史不等于持久账本，链状态、explorer 只读代理、反馈代理和 stale execution-world 恢复继续由各自专业 authority 维护。 |
+| launcher feedback / transfer / explorer / control plane | `PRD-WORLD_SIMULATOR-020-031`, `033/034/044` | 玩家图形界面统一为 SolidJS Web `viewer`；Launcher 子域承担无头进程编排与 HTTP JSON / `gui-agent` 控制面（`oasis7_launcher_backend`）。受控动作语义须区分 executable/blocked/result/recovery（稳定入口为 `launcher/game-client-launcher-cross-surface-action-parity.prd.md`）；submit acceptance 不等于 settlement，近期历史不等于持久账本，链状态、explorer 只读代理、反馈代理和 stale execution-world 恢复由各自专业 authority 维护。 |
 | slot-1 onboarding | `PRD-WORLD_SIMULATOR-045` | 新账号玩家读取 canonical quote 并显式确认后直接进入 `ClaimAgent`；dedicated pool 足够时自动补足 restricted starter amount，不生成 operator-review 审批状态。 |
-| release asset entrypoints | `PRD-WORLD_SIMULATOR-042/043` | 原技术预览未签名桌面 GUI `Client Launcher` 安装包按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退出公开分发目标（[#7325](https://github.com/nil-studio/oasis7/issues/7325)）；实际声明发布的无头/运维或平台资产必须提供受支持的入口、manifest 与 checksum 验证，未完成平台代码签名/公证信任链的资产不得宣称为普通用户广泛桌面发行就绪。 |
+| release asset entrypoints | `PRD-WORLD_SIMULATOR-042/043` | 实际声明发布的无头/运维或平台资产必须提供受支持的入口、manifest 与 checksum 验证；未完成平台代码签名/公证信任链的资产不得宣称为普通用户广泛桌面发行就绪。 |
 
 ## 用户与模式边界
 - 模拟层开发者需要统一场景与运行语义。
 - Viewer 体验开发者需要明确 Web `viewer` 唯一正式 GUI 入口边界、模式 taxonomy 与验收标准。
 - 发布与测试人员需要可执行的闭环测试、日志/截图/指标与证据产物。
-- 本地运行与运维操作者需要通过无头启动器后端（`oasis7_launcher_backend`）和 HTTP JSON 控制面完成进程编排、链状态探测、explorer 只读代理与反馈转发，不再依赖独立的 `egui` 客户端启动器 GUI。
+- 本地运行与运维操作者需要通过无头启动器后端（`oasis7_launcher_backend`）和 HTTP JSON 控制面完成进程编排、链状态探测、explorer 只读代理与反馈转发。
 - 新账号玩家需要可解释的 `slot-1` direct claim：quote、auto-funding amount、资金缺口、claim result 与 provenance 必须玩家可见。
 
-模式分层按 `PRD-CORE-009` 执行：`viewer` 承接唯一正式可玩的 Web GUI 入口；`software_safe` 仅作为兼容 alias / 历史入口名保留；仓库已退役旧第二 Viewer surface 与 `egui` 客户端启动器 GUI。Local Provider 当前路径使用 `agent_decision_source=provider_backed + agent_provider_backend=provider_local_bridge + agent_provider_contract=worldsim_provider_v1 + agent_provider_transport=loopback_http`；`player_parity` 与 `headless_agent` 是 execution lane，不是新的玩家访问模式。
+模式分层按 `PRD-CORE-009` 执行：`viewer` 承接唯一正式可玩的 Web GUI 入口；`software_safe` 仅作为兼容 alias / 历史入口名保留；仓库不保留第二套图形客户端或独立桌面启动器 GUI。Local Provider 当前路径使用 `agent_decision_source=provider_backed + agent_provider_backend=provider_local_bridge + agent_provider_contract=worldsim_provider_v1 + agent_provider_transport=loopback_http`；`player_parity` 与 `headless_agent` 是 execution lane，不是新的玩家访问模式。
 
 ## Critical Flows
 1. Web-first 闭环：选择场景 -> 启动 Viewer Web -> 执行关键交互 -> 采集日志/截图/指标 -> 产出 `test_tier_required` 结论。
 2. LLM / provider loop：触发 prompt/chat/provider 决策 -> runtime 权威校验 -> 执行动作、traceable Wait 或结构化拒绝 -> 归档 trace 与错误语义；provider failure 不触发启发式替代动作。
 3. Runtime-live bridge：一个可处理 mailbox/event 触发一次 runtime drive -> runtime step/action/event -> viewer 兼容快照/事件 -> DecisionTrace / error context 可被订阅和复核；空 mailbox/零结果不伪造进展，重连/replay 不重复执行已接受动作。
-4. Launcher 控制面与链代理：无头控制面探针确认链状态就绪 -> 经 HTTP JSON / 控制面代理查询 explorer 或提交受控请求 -> 返回结构化状态或 `action_id / tx_hash / structured error`（原 `egui` 双端启动器窗口按 #7321 退役）。
+4. Launcher 控制面与链代理：无头控制面探针确认链状态就绪 -> 经 HTTP JSON / 控制面代理查询 explorer 或提交受控请求 -> 返回结构化状态或 `action_id / tx_hash / structured error`。
 5. Slot-1 direct claim：读取 quote -> 显式确认 -> dedicated pool auto-funding 或 insufficient-funds blocker -> `ClaimAgent` result/provenance 可见。
 6. 3D 暂停路由：新的 3D scene/camera/render/material/light/post-process 需求进入 paused pool；非 3D viewer / launcher / runtime interaction 继续走 active delivery。
 

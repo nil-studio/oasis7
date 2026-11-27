@@ -1,6 +1,6 @@
 # 客户端启动器跨表面受控动作契约
 
-> **退役与承接边界（[#7321](https://github.com/nil-studio/oasis7/issues/7321)）**：原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器双端窗口（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config`）及跨 `egui` 表面对齐已决定退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行），玩家 GUI 统一收敛至 SolidJS Web `viewer`。本文保留受控动作（配置读回、反馈代理、转账提交与状态查询）的 `executable`/`blocked`/`result`/恢复语义、秘密不泄露与结果连续性约束，供无头控制面（`oasis7_launcher_backend`）及活跃消费者遵守；不替代 runtime 业务规则、WASM 平台契约或发行判断。
+> **职责与承接边界**：玩家唯一图形界面为 SolidJS Web `viewer`；本文承载受控动作（配置读回、反馈代理、转账提交与状态查询）的 `executable`/`blocked`/`result`/恢复语义、秘密不泄露与结果连续性约束，供无头控制面（`oasis7_launcher_backend`）及活跃消费者遵守；不替代 runtime 业务规则、WASM 平台契约或发行判断。
 
 - 对应设计: `doc/world-simulator/launcher/game-client-launcher-cross-surface-action-parity.design.md`
 - 历史迁移、验证与 task 状态：GitHub task issue evidence。
@@ -11,7 +11,7 @@
 
 ## 范围
 
-覆盖受控配置/设置读回、反馈代理、转账提交及其近期状态查询的结果语义（原 `egui` Native/Trunk 窗口实现随 #7321 退役）；不定义 runtime 业务规则、WASM ABI、结算或发布门禁。
+覆盖受控配置/设置读回、反馈代理、转账提交及其近期状态查询的结果语义；不定义 runtime 业务规则、WASM ABI、结算或发布门禁。
 
 ## 当前能力边界
 

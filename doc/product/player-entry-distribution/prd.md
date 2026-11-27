@@ -38,9 +38,9 @@
 
 ### 安装与发行体验边界
 
-玩家图形界面统一收敛至 Web `viewer`；原 `egui` 桌面/Trunk 客户端启动器 GUI（`oasis7_client_launcher`）及未签名桌面 GUI `Client Launcher` 安装包按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役下线，本地启动与进程编排由无头后端 `oasis7_launcher_backend` 搭配 Web `viewer` 或 `pure_api` CLI 承接。对声明公开分发的受支持平台发行资产，下载前应清楚显示支持边界、版本与 checksum，让用户无需研究多个内部构建产物的差异即可完成受支持校验与启动；无对应平台安装包时明确说明并引导至受支持的 Web/CLI 路径。
+玩家图形界面统一为 Web `viewer`；本地启动与进程编排由无头后端 `oasis7_launcher_backend` 搭配 Web `viewer` 或 `pure_api` CLI 承接。对声明公开分发的受支持平台发行资产，下载前应清楚显示支持边界、版本与 checksum，让用户无需研究多个内部构建产物的差异即可完成受支持校验与启动；无对应平台安装包时明确说明并引导至受支持的 Web/CLI 路径。
 
-受支持发行资产的升级只支持重新下载最新包并手动覆盖/替换；用户须先备份 `config.toml` 与 `output/chain-runtime/<node_id>/reward-runtime-execution-world/`（原 `egui` 专属 `.oasis7_launcher_ux_state.json` 随客户端启动器退役，不再构成现行升级状态义务）。这不是应用内更新、自动迁移或跨目录状态保留承诺。未完成平台代码签名或公证信任链的预览/工具资产，不得表述为普通桌面用户广泛发行已就绪。
+受支持发行资产的升级只支持重新下载最新包并手动覆盖/替换；用户须先备份 `config.toml` 与 `output/chain-runtime/<node_id>/reward-runtime-execution-world/`。这不是应用内更新、自动迁移或跨目录状态保留承诺。未完成平台代码签名或公证信任链的预览/工具资产，不得表述为普通桌面用户广泛发行已就绪。
 
 <a id="download-integrity-and-upgrade"></a>
 ### 下载完整性失败边界

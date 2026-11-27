@@ -103,8 +103,8 @@
 
 ### 已吸收的旧 Viewer 实现追溯
 
-- EGUI 右侧面板、Chat IME 桥接、Chat Web 锁重入和产业图谱语义缩放共八份旧文档已退役。有效输入要求进入手册、semantic test API 与 Agent 对话/Prompt 产品专题；稳定性进入 Web Build Truth；产业关系与空间层级目标进入 Player-readable World Stage 和 Pixel-world player-readable rendering。
-- 固定历史基线为 `25fbcd7cf590c5e1b1248119d407cc7c34e8e634`（第三轮复审 main，含 PR #4154）。可用 `git show <该OID>:doc/world-simulator/viewer/<旧文件名>` 读取原文：`viewer-egui-right-panel`、`viewer-chat-ime-egui-bridge`、`viewer-chat-web-deadlock-resolution`、`viewer-industry-graph-semantic-zoom`，各含 `.prd.md` 与 `.design.md`；原任务/截图/实施证据从 GitHub task issue evidence 和 [固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl) 追溯。固定基线是历史证据，不声明当前实现或全场景验收通过。
+- 早期右侧面板、输入法桥接、Chat Web 锁重入和产业图谱语义缩放共八份旧文档已退役。有效输入要求进入手册、semantic test API 与 Agent 对话/Prompt 产品专题；稳定性进入 Web Build Truth；产业关系与空间层级目标进入 Player-readable World Stage 和 Pixel-world player-readable rendering。
+- 固定历史基线为 `25fbcd7cf590c5e1b1248119d407cc7c34e8e634`（第三轮复审 main，含 PR #4154）。可用 `git show <该OID>:doc/world-simulator/viewer/` 查阅当时的历史文件目录及 `.prd.md` / `.design.md` 原文；原任务/截图/实施证据从 GitHub task issue evidence 和 [固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl) 追溯。固定基线是历史证据，不声明当前实现或全场景验收通过。
 
 ### 6. release / 体验收口
 - 首读入口:

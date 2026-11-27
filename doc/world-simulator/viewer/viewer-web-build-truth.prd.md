@@ -77,7 +77,7 @@
 ### Chat Web 稳定性验收边界
 
 - 输入和发送不得使页面卡死；pending、失败原因与恢复动作须可见，不误发/重复发送、不静默重放。构建/freshness 通过不证明真实输入无卡死、IME 完整兼容或恢复闭环；这些按 Viewer 手册与 semantic test API 的专项 UI/external headed 验收处理。
-- 旧锁重入及 epaint profile 处置仅为历史实现，不是当前 Viewer 构建要求。`egui`/`eframe` 客户端启动器（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config`）亦已按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行），仓库 GUI 统一收敛至 SolidJS Web `viewer`。
+- 旧锁重入处置仅为历史实现，不是当前 Viewer 构建要求；仓库图形界面统一收敛至 SolidJS Web `viewer`。
 
 ## 接口 / 数据
 - 源码入口：

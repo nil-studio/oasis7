@@ -81,7 +81,7 @@ npm --prefix crates/oasis7_viewer run test:ui -- \
 4. 在受控测试环境拒绝 localStorage 或 history 写入，核当前切换仍可使用；重新打开时只按实际可恢复值断言。不得在个人真实账号中清站点数据来制造样例。
 5. 切语言前后核当前目标、原操作、可安全保留草稿、权限与结果不改变；缺中文/英文时按 LH-FALLBACK 记缺陷，不删除该语言测试。
 
-原 `egui` 客户端启动器（`oasis7_client_launcher`）及其内嵌字体加载链已按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役（代码移除见 [#7323](https://github.com/nil-studio/oasis7/issues/7323)、[#7326](https://github.com/nil-studio/oasis7/issues/7326)），不再作为活跃本地化或字体消费入口。官网变化按 [site-discovery-check.py](../../../scripts/site-discovery-check.py) 和 [site-discovery-browser.test.cjs](../../../scripts/site-discovery-browser.test.cjs) 的配对页/浏览器语言场景；手册 `/doc/` 直接路径与无配对故事页不应被套入 Viewer 默认规则。没有改动或执行的相邻入口只记录源码边界，不声称回归通过。
+官网变化按 [site-discovery-check.py](../../../scripts/site-discovery-check.py) 和 [site-discovery-browser.test.cjs](../../../scripts/site-discovery-browser.test.cjs) 的配对页/浏览器语言场景；手册 `/doc/` 直接路径与无配对故事页不应被套入 Viewer 默认规则。没有改动或执行的相邻入口只记录源码边界，不声称回归通过。
 
 <a id="lh-parameters"></a>
 ## 4. LH-PARAMETERS：插槽、动态原文和格式

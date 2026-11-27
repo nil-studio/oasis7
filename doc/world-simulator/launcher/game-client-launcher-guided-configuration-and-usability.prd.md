@@ -1,6 +1,6 @@
 # 客户端启动器引导配置与可用性（当前 authority）
 
-> **退役与承接边界（[#7321](https://github.com/nil-studio/oasis7/issues/7321)）**：原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器 GUI（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config` 及 `.oasis7_launcher_ux_state.json`）已决定退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行），玩家唯一 GUI 收敛至 SolidJS Web `viewer`。本文保留配置草稿/确认态/运行态分离、真实 `blocked`/`observer` 表达与恢复语义供无头控制面（`oasis7_launcher_backend`）及适用入口消费，不再维护或要求独立 `egui` 启动器界面。
+> **职责与承接边界**：玩家唯一图形界面为 SolidJS Web `viewer`；本文承载配置草稿/确认态/运行态分离、真实 `blocked`/`observer` 表达与恢复语义，供无头控制面（`oasis7_launcher_backend`）及适用入口消费，不维护独立桌面客户端启动器窗口。
 
 - 对应设计: `doc/world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md`
 - 历史迁移、验证与 task 状态：GitHub task issue evidence。
@@ -13,7 +13,7 @@
 
 ## 范围
 
-- 受支持本地启动与控制面入口的启动前配置检查、问题分类、草稿/已接受/运行态区分以及真实受阻提示（原 `egui` Native/Trunk 窗口与自引导 UI 已按 #7321 退役）。
+- 受支持本地启动与控制面入口的启动前配置检查、问题分类、草稿/已接受/运行态区分以及真实受阻提示。
 - 本文只记录配置与请求结果边界；不收敛 runtime、chain execution-world、stale-world recovery、数据持久化或网络语义。
 
 ## 当前合同

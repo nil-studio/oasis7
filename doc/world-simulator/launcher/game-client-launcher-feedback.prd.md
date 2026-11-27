@@ -1,6 +1,6 @@
 # 客户端启动器反馈（当前 authority）
 
-> **退役与承接边界（[#7321](https://github.com/nil-studio/oasis7/issues/7321)）**：原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器反馈窗口（`oasis7_client_launcher::feedback_*`）已决定退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行），玩家反馈与支持入口收敛至正式支持路径与 Web `viewer`。本文保留 `oasis7_web_launcher` `/api/chain/feedback` 代理边界、反馈结果不代签世界成功以及最小诊断脱敏原则；原 `oasis7_client_launcher` 本地反馈文件回落随该客户端退役退出活跃交付。
+> **职责与承接边界**：玩家反馈与支持入口统一收敛至正式支持路径与 Web `viewer`；本文承载 `oasis7_web_launcher` `/api/chain/feedback` 代理边界、反馈结果不代签世界成功以及最小诊断脱敏原则。
 
 - 对应设计: `doc/world-simulator/launcher/game-client-launcher-feedback.design.md`
 - 历史迁移、验证与 task 状态：GitHub task issue evidence。
@@ -13,7 +13,7 @@
 
 ## 范围
 
-- 覆盖 `oasis7_web_launcher` 反馈代理边界、最小诊断保护原则与历史 `egui` 反馈入口退役说明。
+- 覆盖 `oasis7_web_launcher` 反馈代理边界、反馈结果语义与最小诊断保护原则。
 - 不覆盖 feedback 网络的底层规则、反馈检索、附件、世界状态或视觉方案；这些变化需由对应专题和专业角色另行授权。
 
 ## 当前合同

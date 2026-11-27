@@ -67,7 +67,7 @@ Trace refs: O7-REQ-3dae99ae-2b00-4ba4-b5fd-4311965733cf；承接 [REQ-RUST-001](
 
 feature 是叠加关系。共享基线只含所有相关消费者确实共同需要的能力，不取各成员需求并集。对默认 feature 需求不同的消费者，优先采用共享 `default-features = false` 并让原本需要默认能力的成员显式选择；不能依赖仓库固定工具链尚不支持的“根开启、成员关闭”覆盖行为。无法证明同义时保留该成员的显式声明，不通过升级 Rust 或启用额外 feature 消除差异。[Cargo 继承规则](https://doc.rust-lang.org/cargo/reference/workspaces.html#the-dependencies-table)是工具语义来源，实施以仓库固定版本复核。
 
-等价比较对象为：`consumer package × dependency kind × host/target × feature selection → resolved package/source/version + enabled features`。例如 [Model Provider](../../../crates/oasis7_model_provider/Cargo.toml) 的 reqwest 关闭 defaults、[Launcher](../../../crates/oasis7_client_launcher/Cargo.toml) 的 native/wasm eframe 差异、[Net](../../../crates/oasis7_net/Cargo.toml) 的 optional 网络栈及 [WASM SDK](../../../crates/oasis7_wasm_sdk/Cargo.toml) 的可选 `wire` 都必须保留。`Cargo.lock` 不变不能单独证明以上等价。
+等价比较对象为：`consumer package × dependency kind × host/target × feature selection → resolved package/source/version + enabled features`。例如 [Model Provider](../../../crates/oasis7_model_provider/Cargo.toml) 的 reqwest 关闭 defaults、[Net](../../../crates/oasis7_net/Cargo.toml) 的 optional 网络栈及 [WASM SDK](../../../crates/oasis7_wasm_sdk/Cargo.toml) 的可选 `wire` 都必须保留。`Cargo.lock` 不变不能单独证明以上等价。
 
 配置表示也是现有工具的输入。迁移须核对直接读取 manifest 的安全检查、CI 规划、构建和打包消费者；例如 [libp2p 来源检查](../../../scripts/libp2p-security-source.test.py) 当前读取成员的 git/rev。触及这些输入时同步支持显式与继承配置，保留来源锁定、optional/平台条件及原失败断言；不能以 Cargo 图等价为由删除或弱化检查。manifest 变化继续触发现有共享控制覆盖，并可能使相关构建缓存失效，不能将配置去重视为免测或加速证明。
 

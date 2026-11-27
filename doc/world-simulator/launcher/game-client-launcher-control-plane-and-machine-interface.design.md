@@ -39,11 +39,11 @@
 
 ## 目标
 
-`oasis7_web_launcher`（`crates/oasis7_launcher_backend`）承担 Viewer 静态资源托管、控制状态读取、受控进程启停与 operator HTTP-JSON 路由；客户端及自动化调用方不自行重演进程或 runtime 规则，而是消费服务端的当前状态与结构化结果。原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器界面（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config`）已按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行）。
+`oasis7_web_launcher`（`crates/oasis7_launcher_backend`）承担 Viewer 静态资源托管、控制状态读取、受控进程启停与 operator HTTP-JSON 路由；客户端及自动化调用方不自行重演进程或 runtime 规则，而是消费服务端的当前状态与结构化结果。
 
 ## 范围
 
-本设计覆盖 `oasis7_web_launcher` 控制面状态映射、子进程收尾与 operator HTTP-JSON 接口（保留既有锚点供上游追踪，原 `egui` 客户端 UI 适配随 #7321 退役）；不覆盖 runtime 规则、执行语义或 `DecisionProvider`。
+本设计覆盖 `oasis7_web_launcher` 控制面状态映射、子进程收尾与 operator HTTP-JSON 接口；不覆盖 runtime 规则、执行语义或 `DecisionProvider`。
 
 ## 接口 / 数据
 

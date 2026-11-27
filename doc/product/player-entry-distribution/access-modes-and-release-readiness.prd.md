@@ -32,13 +32,13 @@
 
 ### 2.1 Launcher 交付表面边界
 
-Launcher 是已声明 `viewer` / `pure_api` 路径的本地交付、控制与过渡支撑，不是第三种玩家模式、发行等级或独立可玩性证明。原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器 GUI（`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_launcher_config`）按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役下线，玩家图形入口统一收敛至 SolidJS Web `viewer`；现行 Launcher 范围收敛为无头进程编排与 HTTP JSON 控制面（`oasis7_launcher_backend`：`oasis7_game_launcher` 与 `oasis7_web_launcher`）。首次使用适用本地入口时，窄承诺保持为：能够理解当前入口所服务的 primary mode、看到真实的 `blocked` / `observer` 状态，并获得不伪装为成功的可恢复下一步。配置阶段、请求结果、控制面与运行时会话恢复边界由 [`doc/world-simulator/launcher/README.md`](../../world-simulator/launcher/README.md) 及其专业域文档维护。
+Launcher 是已声明 `viewer` / `pure_api` 路径的本地交付、控制与过渡支撑，不是第三种玩家模式、发行等级或独立可玩性证明。玩家图形入口统一为 SolidJS Web `viewer`；Launcher 范围限定为无头进程编排与 HTTP JSON 控制面（`oasis7_launcher_backend`：`oasis7_game_launcher` 与 `oasis7_web_launcher`）。首次使用适用本地入口时，窄承诺保持为：能够理解当前入口所服务的 primary mode、看到真实的 `blocked` / `observer` 状态，并获得不伪装为成功的可恢复下一步。配置阶段、请求结果、控制面与运行时会话恢复边界由 [`doc/world-simulator/launcher/README.md`](../../world-simulator/launcher/README.md) 及其专业域文档维护。
 
 该承诺不声称当前已实现某个引导步骤、自动修复、fallback、配置保存或持续运行结果。控制面可达、完成本地 fallback、探针/console 可用或单次启动成功，都不能反向证明声明的 primary mode 已经可玩，也不能扩大公开发行 claim。
 
 ### 2.2 受控 Launcher 动作
 
-在当前无头控制面与后端专业 authority 支持时，Launcher 控制面或适用入口可对配置、反馈代理或链查询/提交动作返回真实的 `executable`、`blocked`、`result` 与恢复下一步；不再维护独立 `egui` 桌面/Trunk 双端 GUI 窗口对齐（[#7321](https://github.com/nil-studio/oasis7/issues/7321)）。该产品边界要求语义真实：不得把浏览器存储或控制面可达解释为 WASM authority、授权、安全持久化或运行时成功；也不得把 runtime 的 submit acceptance/action ID 解释为 settlement、最终确认、完整持久历史、100% parity、primary-mode playability 或发行就绪。动作结果语义边界见 [跨表面受控动作契约](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md)。
+在当前无头控制面与后端专业 authority 支持时，Launcher 控制面或适用入口可对配置、反馈代理或链查询/提交动作返回真实的 `executable`、`blocked`、`result` 与恢复下一步。该产品边界要求语义真实：不得把浏览器存储或控制面可达解释为 WASM authority、授权、安全持久化或运行时成功；也不得把 runtime 的 submit acceptance/action ID 解释为 settlement、最终确认、完整持久历史、100% parity、primary-mode playability 或发行就绪。动作结果语义边界见 [跨表面受控动作契约](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md)。
 
 ## 3. 入口能力等价
 
@@ -252,7 +252,7 @@ Trace ID: O7-REQ-bafbce55-b1f3-414c-98e8-2cb5e70e6d1e
 - 实现状态：部分实现
 - 实现与验证依据：[native 反馈窗口](../../../crates/oasis7_client_launcher/src/feedback_window.rs)、[native 提交与本地回落](../../../crates/oasis7_client_launcher/src/feedback_entry.rs)、[Web 反馈窗口](../../../crates/oasis7_client_launcher/src/feedback_window_web.rs)已有各自门控与结果消费；这是源码审读，不代表同候选 UI 或网络验收。
 - 核对日期与基线：2026-11-03；源码 `d21019414c46d7e8ba61ab2c59b1f217b144ba88`；未执行运行、浏览器或真实反馈提交。
-- 剩余范围：原 `egui` 客户端启动器（`oasis7_client_launcher`）反馈窗口按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役（代码移除见 [#7326](https://github.com/nil-studio/oasis7/issues/7326)），后续活跃候选仅按正式支持入口、Web `viewer` 与受支持控制面代理核验可用性、提交结果与恢复组合；本地文件和远端受理不等于人工已经接收处理。
+- 剩余范围：后续活跃候选仅按正式支持入口、Web `viewer` 与受支持控制面代理核验可用性、提交结果与恢复组合；本地文件和远端受理不等于人工已经接收处理。
 - 验收：[AC-ENTRY-PREVIEW-FEEDBACK-001](#ac-entry-preview-feedback-001)。
 
 <a id="ac-entry-preview-feedback-001"></a>

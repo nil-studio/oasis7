@@ -1,6 +1,6 @@
 # 客户端启动器区块链浏览器（当前 authority）
 
-> **退役与承接边界（[#7321](https://github.com/nil-studio/oasis7/issues/7321)）**：原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器内嵌的区块链浏览器窗口（`oasis7_client_launcher::explorer_window*`）已决定退役下线（代码清理由 [#7325](https://github.com/nil-studio/oasis7/issues/7325)、[#7326](https://github.com/nil-studio/oasis7/issues/7326) 执行）。本文保留 `oasis7_web_launcher` 控制面 `/api/chain/explorer/*` 只读查询代理及查询一致性合同（H1～H4）供活跃 HTTP 消费者与后端专业合同对齐；原针对 `egui` 窗口逐帧调度的 E1～E3 目标随该客户端退役终止。
+> **职责与承接边界**：本文承载 `oasis7_web_launcher` 控制面 `/api/chain/explorer/*` 只读查询代理及查询一致性合同（H1～H4），供活跃 HTTP 消费者与后端专业合同对齐，不维护独立客户端启动器图形窗口。
 
 - 对应设计: `doc/world-simulator/launcher/game-client-launcher-blockchain-explorer.design.md`
 - 后端专业需求：[链 HTTP 提交与 Explorer 查询合同](../../p2p/blockchain/chain-http-submit-explorer-contract.prd.md)。请求身份、批次处置、索引和交易生命周期由该专题承接。
@@ -8,7 +8,7 @@
 
 ## 目标
 
-- 通过 `oasis7_web_launcher` 只读控制面代理（`/api/chain/explorer/*`）向授权调用方与受支持界面提供当前可得的链概览和结构化查询结果，不再维护独立的 `egui` 桌面/Trunk 浏览器窗口。
+- 通过 `oasis7_web_launcher` 只读控制面代理（`/api/chain/explorer/*`）向授权调用方与受支持界面提供当前可得的链概览和结构化查询结果。
 
 ## 范围
 

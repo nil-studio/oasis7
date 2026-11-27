@@ -11,7 +11,7 @@
 
 配对产品 PRD 的 canonical 路径为 `doc/product/player-entry-distribution/local-launch-session-continuity-and-recovery.prd.md`。
 
-本文定义受支持本地编排/控制面与 Web `viewer` 入口的稳定玩家阅读与恢复顺序（原独立 `egui` Native/Trunk 客户端启动器 GUI 已按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役），不冻结任何进程、目录、配置字段、凭据、时钟或控件实现。
+本文定义受支持本地编排/控制面与 Web `viewer` 入口的稳定玩家阅读与恢复顺序，不冻结任何进程、目录、配置字段、凭据、时钟或控件实现。
 
 ## 0. 设计目标与代表性体验
 

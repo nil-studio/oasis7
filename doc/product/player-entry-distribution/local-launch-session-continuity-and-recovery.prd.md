@@ -11,7 +11,7 @@
 - 公开状态权威：[`README.md`](../../../README.md)
 - 专业域权威：[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`Launcher 子域入口`](../../world-simulator/launcher/README.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 
-本文承载受支持本地 Launcher 路径的会话连续性与恢复产品承诺。原 `egui`/`eframe` Native 与 Trunk `web-launcher` 客户端启动器 GUI（`oasis7_client_launcher`）按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役下线，现行本地 Launcher 路径收敛为无头进程编排与 HTTP JSON 控制面（`oasis7_launcher_backend`）及其服务的 Web `viewer` / `pure_api` 入口。本文补充[访问模式与发行就绪](access-modes-and-release-readiness.prd.md)，不创建第三种玩家访问模式，也不定义启动器、链运行时、持久化或 Web/WASM 的实现合同。
+本文承载受支持本地 Launcher 路径的会话连续性与恢复产品承诺。本地 Launcher 路径由无头进程编排与 HTTP JSON 控制面（`oasis7_launcher_backend`）及其服务的 Web `viewer` / `pure_api` 入口组成。本文补充[访问模式与发行就绪](access-modes-and-release-readiness.prd.md)，不创建第三种玩家访问模式，也不定义启动器、链运行时、持久化或 Web/WASM 的实现合同。
 
 配对产品设计的 canonical 路径为 `doc/product/player-entry-distribution/local-launch-session-continuity-and-recovery.design.md`。
 
@@ -51,7 +51,7 @@
 ### 2.4 Web 表面与跨入口连续性
 
 - 当本地托管的 Web `viewer` 或控制面表面不可初始化、不可轮询或发生致命错误时，玩家得到可理解的失败或恢复状态，而不是无限加载、假连接或假成功。
-- CLI/控制面与浏览器表面可以使用不同的表现、存储和恢复机制（原独立 `egui` Native/Trunk 启动器 GUI 已按 [#7321](https://github.com/nil-studio/oasis7/issues/7321) 退役），且不能因入口不同而把配置编辑、本地 session 或诊断成功表达为不同的 primary-mode 或权威世界结果。
+- CLI/控制面与浏览器表面可以使用不同的表现、存储和恢复机制，且不能因入口不同而把配置编辑、本地 session 或诊断成功表达为不同的 primary-mode 或权威世界结果。
 
 ## 2.5 叶级产品要求与验收
 
