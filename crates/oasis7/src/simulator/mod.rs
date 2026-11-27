@@ -27,7 +27,12 @@ pub(crate) use oasis7_runtime_host::decision_provider;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_execution::llm_agent;
-mod memory;
+pub mod memory {
+    pub use oasis7_simulator::{
+        AgentMemory, LongTermMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind,
+        ShortTermMemory,
+    };
+}
 #[path = "persist_host_facade.rs"]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
@@ -42,9 +47,6 @@ pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
 pub(crate) use oasis7_runtime_host::provider_loopback_http;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_material_capture;
-
-#[cfg(test)]
-mod tests;
 
 // The legacy public API must remain type-identical while the historical
 // one-line compatibility modules are retired in favor of canonical owners.

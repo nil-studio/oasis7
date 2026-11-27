@@ -7,9 +7,9 @@
 //! DTOs.
 
 use super::*;
-use crate::runtime::{AgentCognitionMailbox, AgentDecisionEnvelopeV1};
-use crate::simulator::AsyncAgentRunner;
-use crate::simulator::{
+use oasis7_runtime::{AgentCognitionMailbox, AgentDecisionEnvelopeV1};
+use crate::simulator_tests::AsyncAgentRunner;
+use crate::simulator_tests::{
     ContinuousAgentTurnContextV1, Digest32, GoalSnapshotV1, MemoryContextSnapshotV1,
 };
 use serde_json::json;
@@ -199,21 +199,21 @@ fn mailbox_capacity_is_per_actor_and_does_not_cap_parallel_turns() {
 
 #[derive(Clone)]
 struct RecordingLlmCompletionClient {
-    requests: Arc<Mutex<Vec<crate::simulator::llm_agent::LlmCompletionRequest>>>,
+    requests: Arc<Mutex<Vec<crate::simulator_tests::llm_agent::LlmCompletionRequest>>>,
 }
 
-impl crate::simulator::llm_agent::LlmCompletionClient for RecordingLlmCompletionClient {
+impl crate::simulator_tests::llm_agent::LlmCompletionClient for RecordingLlmCompletionClient {
     fn complete(
         &self,
-        request: &crate::simulator::llm_agent::LlmCompletionRequest,
-    ) -> Result<crate::simulator::llm_agent::LlmCompletionResult, crate::simulator::LlmClientError>
+        request: &crate::simulator_tests::llm_agent::LlmCompletionRequest,
+    ) -> Result<crate::simulator_tests::llm_agent::LlmCompletionResult, crate::simulator_tests::LlmClientError>
     {
         self.requests
             .lock()
             .expect("recording client lock")
             .push(request.clone());
-        Ok(crate::simulator::llm_agent::LlmCompletionResult {
-            turns: vec![crate::simulator::llm_agent::LlmCompletionTurn::Decision {
+        Ok(crate::simulator_tests::llm_agent::LlmCompletionResult {
+            turns: vec![crate::simulator_tests::llm_agent::LlmCompletionTurn::Decision {
                 payload: json!({"decision": "wait"}),
             }],
             output: r#"{"decision":"wait"}"#.to_string(),
@@ -225,8 +225,8 @@ impl crate::simulator::llm_agent::LlmCompletionClient for RecordingLlmCompletion
     }
 }
 
-fn recording_llm_config() -> crate::simulator::LlmAgentConfig {
-    crate::simulator::LlmAgentConfig {
+fn recording_llm_config() -> crate::simulator_tests::LlmAgentConfig {
+    crate::simulator_tests::LlmAgentConfig {
         model: "gpt-agent-consumption-test".to_string(),
         base_url: "https://example.invalid/v1".to_string(),
         api_key: "test-key".to_string(),
@@ -238,7 +238,7 @@ fn recording_llm_config() -> crate::simulator::LlmAgentConfig {
         max_decision_steps: 1,
         max_repair_rounds: 0,
         prompt_max_history_items: 4,
-        prompt_profile: crate::simulator::llm_agent::LlmPromptProfile::Balanced,
+        prompt_profile: crate::simulator_tests::llm_agent::LlmPromptProfile::Balanced,
         force_replan_after_same_action: 0,
         harvest_max_amount_cap: 100,
         execute_until_auto_reenter_ticks: 0,
@@ -249,7 +249,7 @@ fn recording_llm_config() -> crate::simulator::LlmAgentConfig {
 #[test]
 fn native_async_override_is_consumed_by_the_next_recorded_completion_request() {
     let requests = Arc::new(Mutex::new(Vec::new()));
-    let behavior = crate::simulator::LlmAgentBehavior::new(
+    let behavior = crate::simulator_tests::LlmAgentBehavior::new(
         AGENT_ID,
         recording_llm_config(),
         RecordingLlmCompletionClient {
@@ -285,7 +285,7 @@ fn native_async_override_is_consumed_by_the_next_recorded_completion_request() {
     let outcome = outcome.expect("the next native decision must complete within the poll bound");
     assert_eq!(
         outcome.decision,
-        Some(crate::simulator::AgentDecision::Wait)
+        Some(crate::simulator_tests::AgentDecision::Wait)
     );
 
     let request = requests
@@ -357,7 +357,7 @@ fn native_prompt_override_enqueue_reports_mailbox_saturation() {
     assert_eq!(error.code(), "mailbox_full");
     assert!(matches!(
         error,
-        crate::simulator::AsyncAgentRunnerError::MailboxFull
+        crate::simulator_tests::AsyncAgentRunnerError::MailboxFull
     ));
 
     release.store(true, Ordering::Release);

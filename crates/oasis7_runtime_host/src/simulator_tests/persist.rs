@@ -1,5 +1,5 @@
 use super::*;
-use crate::runtime::{
+use oasis7_runtime::{
     FactoryBuildJobState, FactoryModuleSpec, MaterialLedgerId, MaterialStack, World as RuntimeWorld,
 };
 
@@ -1039,7 +1039,7 @@ fn starter_settled_outcome_wire_shape_is_platform_neutral() {
             "produce": [{"kind": "iron_ingot", "amount": 36}]
         }
     });
-    let outcome: crate::simulator::persist::PlayerStarterIndustrialSettledOutcome =
+    let outcome: crate::simulator_tests::persist::PlayerStarterIndustrialSettledOutcome =
         serde_json::from_value(encoded.clone()).unwrap();
     assert_eq!(outcome.output_ledger, MaterialLedgerId::site("s"));
     assert_eq!(

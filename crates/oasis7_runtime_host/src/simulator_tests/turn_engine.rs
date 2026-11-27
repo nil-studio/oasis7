@@ -1,4 +1,4 @@
-use crate::simulator::{
+use crate::simulator_tests::{
     AgentBehavior, AgentDecision, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
     AsyncTurnLifecycle, AsyncWorldEffect, FeedbackEnvelopeV1, MemoryWriteStore, TurnEngine,
     TurnEngineError, TurnEnginePhase, TurnRequest,
@@ -7,11 +7,11 @@ use crate::simulator::{
 use super::agent_cognition_identity::{
     production_observation, production_request_fixture, production_turn_context, request_from_value,
 };
-use crate::runtime::{
+use oasis7_runtime::{
     COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION, COGNITION_RESOURCE_VERSION_V1,
     CognitionLeaseQuoteV1, CognitionLeaseRequestV1,
 };
-use crate::simulator::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
+use crate::simulator_tests::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
 use oasis7_simulator::Observation;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -88,11 +88,11 @@ fn legacy_compatibility_request() -> TurnRequest {
     )
 }
 
-fn runtime_lease(request: &TurnRequest) -> crate::runtime::CognitionLeaseV1 {
+fn runtime_lease(request: &TurnRequest) -> oasis7_runtime::CognitionLeaseV1 {
     const ACCOUNT_ID: &str = "account-agent-1";
     const RESOURCE: &str = "cognition_units";
 
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     world
         .set_cognition_resource_balance(ACCOUNT_ID, RESOURCE, 4)
         .expect("seed Runtime cognition balance");

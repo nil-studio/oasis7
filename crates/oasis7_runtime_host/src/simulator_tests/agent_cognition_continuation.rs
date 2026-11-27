@@ -4,8 +4,8 @@
 //! durable schedule/status projection and finality truth.  These fixtures
 //! intentionally do not cover GoalGraph, belief/preference state or billing.
 
-use crate::runtime::{AgentContinuation, ContinuationBudgetV1, ContinuationStatusV1};
-use crate::simulator::{
+use oasis7_runtime::{AgentContinuation, ContinuationBudgetV1, ContinuationStatusV1};
+use crate::simulator_tests::{
     AsyncAgentRunner, ContinuationAuthorityContextV1, ContinuationCurrentContextV1,
     ContinuationHarness, ContinuationInvalidationReason, ContinuationProposalV1,
     ContinuousAgentTurnContextV1, Digest32, GoalSnapshotV1, MemoryContextSnapshotV1,
@@ -80,7 +80,7 @@ fn current_context() -> ContinuationCurrentContextV1 {
         Observation {
             time: 10,
             agent_id: AGENT_ID.to_string(),
-            pos: crate::geometry::GeoPos::new(0, 0, 0),
+            pos: oasis7_simulator::GeoPos::new(0, 0, 0),
             self_resources: Default::default(),
             visibility_range_cm: 100,
             visible_agents: Vec::new(),
@@ -564,7 +564,7 @@ fn current_context_attestation_rejects_changed_observation_before_admission() {
     let current = current_context();
     let proposal = proposal_for_current_context();
     let mut changed = current.clone();
-    changed.observation.pos = crate::geometry::GeoPos::new(1, 0, 0);
+    changed.observation.pos = oasis7_simulator::GeoPos::new(1, 0, 0);
     let mut runner = AsyncAgentRunner::builtin_fixture(AGENT_ID);
     let error = runner
         .submit_continuation_proposal_with_current_context(AGENT_ID, proposal, &changed)

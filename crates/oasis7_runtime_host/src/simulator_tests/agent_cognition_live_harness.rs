@@ -7,11 +7,11 @@
 //! grant any authority to provider output and do not cover deferred
 //! GoalGraph, shared memory, beliefs, preference correction, or billing.
 
-use crate::runtime::{
+use oasis7_runtime::{
     AgentContinuation, ContinuationBudgetV1, ContinuationStatusV1, RuntimeReceiptLineageV1,
     WakeConditionV1,
 };
-use crate::simulator::{
+use crate::simulator_tests::{
     ActionCatalogEntry, AsyncAgentRunner, AsyncTurnFeedback, AsyncTurnLifecycle, AsyncWorldEffect,
     ContinuationProposalV1, ContinuousAgentTurnContextV1, DecisionProviderError, DecisionResponse,
     FeedbackEnvelopeV1, GoalSnapshotInputV1, GoalSnapshotProjector, MemoryContextEntryV1,
@@ -55,7 +55,7 @@ fn host_memory() -> MemoryContextSnapshotV1 {
     snapshot
 }
 
-fn host_goal() -> crate::simulator::GoalSnapshotV1 {
+fn host_goal() -> crate::simulator_tests::GoalSnapshotV1 {
     GoalSnapshotProjector::project(
         Some(GoalSnapshotInputV1 {
             revision: 11,
@@ -188,7 +188,7 @@ fn provider_backed_runner_with_response(response: DecisionResponse) -> AsyncAgen
 
 fn provider_backed_runner_with_state() -> (
     AsyncAgentRunner,
-    std::sync::Arc<std::sync::Mutex<crate::simulator::MockDecisionProviderState>>,
+    std::sync::Arc<std::sync::Mutex<crate::simulator_tests::MockDecisionProviderState>>,
 ) {
     let provider = MockDecisionProvider::with_scripted_responses(
         "live-harness-provider",
@@ -235,7 +235,7 @@ fn provider_failure_runner() -> AsyncAgentRunner {
     runner
 }
 
-fn completed_turn(runner: &mut AsyncAgentRunner) -> crate::simulator::AsyncAgentTurnOutcome {
+fn completed_turn(runner: &mut AsyncAgentRunner) -> crate::simulator_tests::AsyncAgentTurnOutcome {
     let deadline = Instant::now() + ACTOR_COMPLETION_TIMEOUT;
     loop {
         if let Some(outcome) = runner
@@ -391,7 +391,7 @@ fn provider_trace_is_bounded_redacted_and_non_authoritative() {
     let redaction_outcome = completed_turn(&mut redaction_runner);
     assert_eq!(
         redaction_outcome.decision,
-        Some(crate::simulator::AgentDecision::WaitTicks(3)),
+        Some(crate::simulator_tests::AgentDecision::WaitTicks(3)),
         "non-authority redaction diagnostics must not change the candidate decision"
     );
     let redacted_trace = redaction_outcome
@@ -453,7 +453,7 @@ fn provider_trace_is_bounded_redacted_and_non_authoritative() {
     let overflow_outcome = completed_turn(&mut overflow_runner);
     assert_eq!(
         overflow_outcome.decision,
-        Some(crate::simulator::AgentDecision::WaitTicks(7)),
+        Some(crate::simulator_tests::AgentDecision::WaitTicks(7)),
         "non-authority trace overflow must not change the candidate decision"
     );
     let overflow_trace = overflow_outcome
@@ -598,7 +598,7 @@ fn builtin_and_provider_backed_target_actors_consume_host_goal_not_memory_as_goa
         );
         assert_eq!(
             outcome.world_effect,
-            crate::simulator::AsyncWorldEffect::NoEffect
+            crate::simulator_tests::AsyncWorldEffect::NoEffect
         );
     }
 }

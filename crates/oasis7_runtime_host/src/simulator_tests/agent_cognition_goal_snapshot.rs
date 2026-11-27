@@ -4,7 +4,7 @@
 //! preference correction, player commitments and goal completion authority are
 //! intentionally out of scope.
 
-use crate::simulator::{GoalSnapshotInputV1, GoalSnapshotProjector, GoalSnapshotV1};
+use crate::simulator_tests::{GoalSnapshotInputV1, GoalSnapshotProjector, GoalSnapshotV1};
 use serde_json::{Value, json};
 
 fn host_goal() -> GoalSnapshotInputV1 {

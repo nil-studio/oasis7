@@ -1,4 +1,4 @@
-use crate::simulator::{
+use crate::simulator_tests::{
     BudgetContractV1, Digest32, LlmCompletionClient, LlmCompletionModelProvider,
     LlmCompletionRequest, LlmCompletionResult, LlmCompletionTurn, ModelProvider,
     ModelProviderError, ModelProviderRequest, ModelProviderResponse, ModelProviderTrace,
@@ -87,7 +87,7 @@ impl LlmCompletionClient for LegacyClient {
     fn complete(
         &self,
         request: &LlmCompletionRequest,
-    ) -> Result<LlmCompletionResult, crate::simulator::LlmClientError> {
+    ) -> Result<LlmCompletionResult, crate::simulator_tests::LlmClientError> {
         Ok(LlmCompletionResult {
             turns: vec![LlmCompletionTurn::ModuleCall {
                 module: "agent_tool".to_string(),

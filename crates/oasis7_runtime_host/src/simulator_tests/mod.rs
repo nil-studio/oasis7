@@ -1,12 +1,40 @@
 //! Tests for the simulator module.
 
-use super::*;
-use crate::geometry::GeoPos;
+use crate::agent::*;
+use crate::agent_api_compat;
+use crate::agent_execution::async_agent_runner::{self, *};
+use crate::agent_execution::continuous_agent_harness::{self, *};
+use crate::agent_execution::llm_agent::{self, *};
+use crate::agent_execution::runner::*;
+use crate::agent_execution::turn_engine::*;
+use crate::cognition_policy::*;
+use crate::cognition_response_identity::*;
+use crate::decision_provider::*;
+use crate::provider_loopback_adapter::*;
+use crate::provider_loopback_http::*;
+use crate::provider_material_capture::*;
+use crate::simulator_archive::archive::{self, WorldEvent, WorldSnapshotExtensions};
+use crate::simulator_archive::kernel_host::{
+    WorldEventRef, WorldJournalView, WorldKernel, initialize_kernel,
+};
+use crate::simulator_archive::persist::{self, *};
+use oasis7_agent_api::CapabilityInvocationContext;
+use oasis7_agent_api::intent_summary::*;
+use oasis7_agent_harness::BudgetContractV1;
+use oasis7_agent_harness::llm_defaults::*;
+use oasis7_agent_harness::{
+    ModelProvider, ModelProviderError, ModelProviderRequest, ModelProviderResponse,
+    ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry, ModelProviderTurn,
+    ModelProviderUsage,
+};
+use oasis7_model_provider::legacy_model_adapter::LlmCompletionModelProvider;
+use oasis7_simulator::WorldKernel as NativeKernel;
+use oasis7_simulator::*;
 use std::fs;
 
 fn restore_runner_feedback_history(
-    runner: &mut crate::simulator::AsyncAgentRunner,
-    world: &crate::runtime::World,
+    runner: &mut AsyncAgentRunner,
+    world: &oasis7_runtime::World,
 ) {
     let history = world
         .runtime_feedback_outbox()
@@ -18,9 +46,9 @@ fn restore_runner_feedback_history(
 
 fn provider_backed_runner_with_empty_runtime_history(
     agent_id: &str,
-) -> crate::simulator::AsyncAgentRunner {
-    let mut runner = crate::simulator::AsyncAgentRunner::provider_backed_fixture(agent_id);
-    restore_runner_feedback_history(&mut runner, &crate::runtime::World::new());
+) -> AsyncAgentRunner {
+    let mut runner = AsyncAgentRunner::provider_backed_fixture(agent_id);
+    restore_runner_feedback_history(&mut runner, &oasis7_runtime::World::new());
     runner
 }
 
@@ -82,7 +110,6 @@ mod agent_feedback_recovery;
 mod decision_provider;
 mod fine_grain_persistence;
 mod kernel_wasm_sandbox_bridge;
-mod memory;
 mod micro_depot_measured_supply;
 #[cfg(not(target_arch = "wasm32"))]
 mod model_provider;

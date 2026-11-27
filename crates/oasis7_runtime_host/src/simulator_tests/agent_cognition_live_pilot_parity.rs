@@ -6,7 +6,7 @@
 //! artifact that preserves outcome and diagnostics.  The full Local HTTP
 //! rollout and producer/QA subjective scorecard remain separate gates.
 
-use crate::simulator::AsyncAgentRunner;
+use crate::simulator_tests::AsyncAgentRunner;
 use serde_json::Value;
 
 // This is P2 pilot infrastructure exercising the currently approved P0,
