@@ -33,12 +33,12 @@ impl PaidRemoteFormalQueryV1 {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(), FormalError> {
         let mut common = work.bounded_context(memory, cancelled);
-        self.response.validate_context(&mut common).map_err(|error| {
-            match error {
+        self.response
+            .validate_context(&mut common)
+            .map_err(|error| match error {
                 BoundedCborDataErrorV1::Common(source) => source,
                 other => invalid(other.to_string()),
-            }
-        })?;
+            })?;
         if !self._raw.uses_budget(memory) {
             return Err(invalid("formal RPC paid response original pool"));
         }
@@ -62,8 +62,7 @@ impl RemoteFormalEndpoint {
         let deadline = self
             .operation_deadline
             .unwrap_or_else(|| Instant::now() + self.timeout);
-        let mut stream =
-            wire::connect_and_write_before_deadline(&self.address, &signed, deadline)?;
+        let mut stream = wire::connect_and_write_before_deadline(&self.address, &signed, deadline)?;
         // The complete signed Response is a closed protocol enum. The generic
         // CBOR shape probe separately charges every reachable map/sequence
         // and bounded serde Content; overbudget response fails closed.
@@ -80,7 +79,14 @@ impl RemoteFormalEndpoint {
             missing: None,
         };
         let (response, raw): (PaidCborDataV1<Response>, ReservedValue<Vec<u8>>) =
-            wire::read_paid_before_deadline(&mut stream, deadline, memory, work, layout, cancelled)?;
+            wire::read_paid_before_deadline(
+                &mut stream,
+                deadline,
+                memory,
+                work,
+                layout,
+                cancelled,
+            )?;
         let verified: &Response = response.borrow();
         self.verify_authenticated_response(verified, &signed, &digest, deadline)?;
         if !matches!(&verified.body.result, Ok(Value::Query(_)) | Err(_)) {

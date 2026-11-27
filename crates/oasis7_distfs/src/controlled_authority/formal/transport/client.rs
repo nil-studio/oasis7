@@ -157,8 +157,7 @@ impl RemoteFormalEndpoint {
         let mut stream =
             wire::connect_and_write_before_deadline(&self.address, &request, deadline)?;
         let response: Response = wire::read_before_deadline(&mut stream, deadline)?;
-        let pending =
-            self.verify_authenticated_response(&response, &request, &digest, deadline)?;
+        let pending = self.verify_authenticated_response(&response, &request, &digest, deadline)?;
         Ok((response.body, pending))
     }
 

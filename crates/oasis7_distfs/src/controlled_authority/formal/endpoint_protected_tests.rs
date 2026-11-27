@@ -270,17 +270,16 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
     // raw/decoded response owner; preserve both authenticated hit/miss and
     // the same monotonic work meter across consecutive remote calls.
     let query_memory = oasis7_proto::memory_budget::MemoryBudget::new(512 << 20, 0).unwrap();
-    let query_work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(
-        100_000_000,
-        1 << 34,
-    )
-    .unwrap();
-    let query = client.query_data_bounded(
-        &fixture.initial.candidate.record.request_digest,
-        &query_memory,
-        &query_work,
-        &mut || false,
-    ).unwrap();
+    let query_work =
+        super::super::super::endpoint::FormalArchiveReadWorkV1::new(100_000_000, 1 << 34).unwrap();
+    let query = client
+        .query_data_bounded(
+            &fixture.initial.candidate.record.request_digest,
+            &query_memory,
+            &query_work,
+            &mut || false,
+        )
+        .unwrap();
     assert!(matches!(
         query.outcome(),
         Some(FormalQueryOutcomeV1::Recorded(state))
@@ -292,17 +291,22 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
     assert!(query_memory.used() > 0);
     drop(query);
     assert_eq!(query_memory.used(), 0);
-    let missing = client.query_data_bounded(
-        &h(250), &query_memory, &query_work, &mut || false,
-    ).unwrap();
-    assert!(matches!(missing.outcome(), Some(FormalQueryOutcomeV1::NotRecorded)));
+    let missing = client
+        .query_data_bounded(&h(250), &query_memory, &query_work, &mut || false)
+        .unwrap();
+    assert!(matches!(
+        missing.outcome(),
+        Some(FormalQueryOutcomeV1::NotRecorded)
+    ));
     assert!(query_work.remaining_steps() < 100_000_000);
     assert!(query_memory.used() > 0);
     drop(missing);
     assert_eq!(query_memory.used(), 0);
-    assert!(client.query_data_bounded(
-        &h(250), &query_memory, &query_work, &mut || true,
-    ).is_err());
+    assert!(
+        client
+            .query_data_bounded(&h(250), &query_memory, &query_work, &mut || true,)
+            .is_err()
+    );
     assert_eq!(query_memory.used(), 0);
 
     let restored = client

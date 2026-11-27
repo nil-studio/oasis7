@@ -330,10 +330,13 @@ pub(super) fn read_paid_before_deadline<T: serde::de::DeserializeOwned>(
     work: &super::super::endpoint::FormalArchiveReadWorkV1,
     layout: oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::CborDataLayoutV1,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(
-    oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::PaidCborDataV1<T>,
-    oasis7_proto::memory_budget::ReservedValue<Vec<u8>>,
-), FormalError> {
+) -> Result<
+    (
+        oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::PaidCborDataV1<T>,
+        oasis7_proto::memory_budget::ReservedValue<Vec<u8>>,
+    ),
+    FormalError,
+> {
     use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
         BoundedCborDataErrorV1, CborDataLimitsV1, decode_closed_cbor_data_v1,
     };
