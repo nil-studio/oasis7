@@ -7,11 +7,11 @@ use crate::simulator_tests::{
 use super::agent_cognition_identity::{
     production_observation, production_request_fixture, production_turn_context, request_from_value,
 };
+use crate::simulator_tests::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
 use oasis7_runtime::{
     COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION, COGNITION_RESOURCE_VERSION_V1,
     CognitionLeaseQuoteV1, CognitionLeaseRequestV1,
 };
-use crate::simulator_tests::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
 use oasis7_simulator::Observation;
 use serde_json::json;
 use std::sync::{Arc, Mutex};

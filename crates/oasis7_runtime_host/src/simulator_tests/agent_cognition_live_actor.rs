@@ -7,11 +7,11 @@
 //! DTOs.
 
 use super::*;
-use oasis7_runtime::{AgentCognitionMailbox, AgentDecisionEnvelopeV1};
 use crate::simulator_tests::AsyncAgentRunner;
 use crate::simulator_tests::{
     ContinuousAgentTurnContextV1, Digest32, GoalSnapshotV1, MemoryContextSnapshotV1,
 };
+use oasis7_runtime::{AgentCognitionMailbox, AgentDecisionEnvelopeV1};
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -206,16 +206,20 @@ impl crate::simulator_tests::llm_agent::LlmCompletionClient for RecordingLlmComp
     fn complete(
         &self,
         request: &crate::simulator_tests::llm_agent::LlmCompletionRequest,
-    ) -> Result<crate::simulator_tests::llm_agent::LlmCompletionResult, crate::simulator_tests::LlmClientError>
-    {
+    ) -> Result<
+        crate::simulator_tests::llm_agent::LlmCompletionResult,
+        crate::simulator_tests::LlmClientError,
+    > {
         self.requests
             .lock()
             .expect("recording client lock")
             .push(request.clone());
         Ok(crate::simulator_tests::llm_agent::LlmCompletionResult {
-            turns: vec![crate::simulator_tests::llm_agent::LlmCompletionTurn::Decision {
-                payload: json!({"decision": "wait"}),
-            }],
+            turns: vec![
+                crate::simulator_tests::llm_agent::LlmCompletionTurn::Decision {
+                    payload: json!({"decision": "wait"}),
+                },
+            ],
             output: r#"{"decision":"wait"}"#.to_string(),
             model: Some(request.model.clone()),
             prompt_tokens: Some(1),

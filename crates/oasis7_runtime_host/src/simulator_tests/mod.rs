@@ -32,10 +32,7 @@ use oasis7_simulator::WorldKernel as NativeKernel;
 use oasis7_simulator::*;
 use std::fs;
 
-fn restore_runner_feedback_history(
-    runner: &mut AsyncAgentRunner,
-    world: &oasis7_runtime::World,
-) {
+fn restore_runner_feedback_history(runner: &mut AsyncAgentRunner, world: &oasis7_runtime::World) {
     let history = world
         .runtime_feedback_outbox()
         .expect("read host-validated Runtime feedback history");
@@ -44,9 +41,7 @@ fn restore_runner_feedback_history(
         .expect("restore Runner replay fence from Runtime history");
 }
 
-fn provider_backed_runner_with_empty_runtime_history(
-    agent_id: &str,
-) -> AsyncAgentRunner {
+fn provider_backed_runner_with_empty_runtime_history(agent_id: &str) -> AsyncAgentRunner {
     let mut runner = AsyncAgentRunner::provider_backed_fixture(agent_id);
     restore_runner_feedback_history(&mut runner, &oasis7_runtime::World::new());
     runner

@@ -4,13 +4,13 @@
 //! leave provider execution, Runtime admission, durable receipts, and World
 //! readback authority in their existing Oasis7 owners.
 
-use oasis7_runtime::{CognitionLeaseStatusV1, RuntimeReceiptLineageV1};
 use crate::simulator_tests::{
     BudgetContractV1, CognitionError, ContinuationBudgetV1, ContinuationProposalV1,
     ContinuousAgentResponseContextV1, DecisionResponse, Digest32, FeedbackEnvelopeV1,
     GoalSnapshotV1, MemoryContextSnapshotV1, MemoryWriteIntentV1, NormalizedMemoryWriteIntentV1,
     ProviderExecutionMode, ResponseArtifactIdentityV1, RuntimeBindingV1, WakeConditionV1,
 };
+use oasis7_runtime::{CognitionLeaseStatusV1, RuntimeReceiptLineageV1};
 use serde_json::json;
 
 #[test]
@@ -108,7 +108,8 @@ fn request_wrapper_round_trip_preserves_wire_bytes_and_request_identities() {
 fn response_wrapper_round_trip_preserves_artifact_identity_and_wire_shape() {
     let response = ContinuousAgentResponseContextV1 {
         base_decision_response: DecisionResponse::wait("boundary-fixture-provider"),
-        context_discriminator: crate::simulator_tests::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.into(),
+        context_discriminator: crate::simulator_tests::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR
+            .into(),
         context_version: crate::simulator_tests::CONTINUOUS_AGENT_CONTEXT_VERSION,
         agent_session_id: "session-boundary".into(),
         agent_turn_id: "turn-boundary".into(),

@@ -5,16 +5,16 @@
 //! this file is the immutable behavior contract for the implementation slice.
 
 use super::*;
-use oasis7_runtime::{
-    AgentContinuation, AgentDecisionEnvelopeV1, MvccValidator, WakeConditionV1,
-    WakeConditionValidator,
-};
 use crate::simulator_tests::{
     AgentCognitionStore, AsyncAgentRunner, COGNITION_CAPABILITY_CATALOG_DOMAIN,
     COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, ContinuousAgentRequestContextV1,
     ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1,
     FinalityBindingV1, GoalSnapshotV1, MemoryContextSnapshotV1, MemoryWriteIntentV1,
     RuntimeBindingV1, cognition_response_digest, h_v1,
+};
+use oasis7_runtime::{
+    AgentContinuation, AgentDecisionEnvelopeV1, MvccValidator, WakeConditionV1,
+    WakeConditionValidator,
 };
 use oasis7_wasm_abi::AgentCommandResponse;
 use serde_json::{Value, json};
@@ -1178,8 +1178,9 @@ fn legacy_feedback_without_committed_receipt_is_ambiguous() {
         "emitted_events": [],
         "world_delta_summary": "legacy response"
     });
-    let error = crate::simulator_tests::continuous_agent_harness::feedback_v1_from_legacy_value(legacy)
-        .expect_err("legacy success without committed receipt is ambiguous");
+    let error =
+        crate::simulator_tests::continuous_agent_harness::feedback_v1_from_legacy_value(legacy)
+            .expect_err("legacy success without committed receipt is ambiguous");
     assert_eq!(error.code(), "legacy_feedback_ambiguous");
 }
 

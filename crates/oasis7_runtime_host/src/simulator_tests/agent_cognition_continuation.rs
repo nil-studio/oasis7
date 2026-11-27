@@ -4,13 +4,13 @@
 //! durable schedule/status projection and finality truth.  These fixtures
 //! intentionally do not cover GoalGraph, belief/preference state or billing.
 
-use oasis7_runtime::{AgentContinuation, ContinuationBudgetV1, ContinuationStatusV1};
 use crate::simulator_tests::{
     AsyncAgentRunner, ContinuationAuthorityContextV1, ContinuationCurrentContextV1,
     ContinuationHarness, ContinuationInvalidationReason, ContinuationProposalV1,
     ContinuousAgentTurnContextV1, Digest32, GoalSnapshotV1, MemoryContextSnapshotV1,
     RuntimeContinuationStatusV1,
 };
+use oasis7_runtime::{AgentContinuation, ContinuationBudgetV1, ContinuationStatusV1};
 use oasis7_simulator::Observation;
 use serde_json::{Value, json};
 

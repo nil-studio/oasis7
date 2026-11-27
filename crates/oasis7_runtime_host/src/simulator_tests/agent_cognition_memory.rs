@@ -150,7 +150,8 @@ fn oasis_goal_snapshot_adapter_matches_harness_projection_golden() {
     };
     let harness_input: oasis7_agent_harness::GoalSnapshotInputV1 =
         serde_json::from_value(serde_json::to_value(&oasis_input).unwrap()).unwrap();
-    let oasis = crate::simulator_tests::GoalSnapshotProjector::project(Some(oasis_input), None).unwrap();
+    let oasis =
+        crate::simulator_tests::GoalSnapshotProjector::project(Some(oasis_input), None).unwrap();
     let harness =
         oasis7_agent_harness::GoalSnapshotProjector::project(Some(harness_input), None).unwrap();
     assert_eq!(

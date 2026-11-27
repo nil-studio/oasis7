@@ -65,8 +65,10 @@ fn cognition_budget_wire_rejects_missing_model_or_tool_limits() {
             .expect("budget contract object")
             .remove(field);
         let error =
-            serde_json::from_value::<crate::simulator_tests::ContinuousAgentRequestContextV1>(fixture)
-                .expect_err("missing budget limit must be rejected at wire decode");
+            serde_json::from_value::<crate::simulator_tests::ContinuousAgentRequestContextV1>(
+                fixture,
+            )
+            .expect_err("missing budget limit must be rejected at wire decode");
         assert!(
             error.to_string().contains(field),
             "wire decode error must identify missing field {field}: {error}"
@@ -83,11 +85,10 @@ fn cognition_budget_wire_rejects_unknown_authority_fields() {
     ] {
         let mut fixture = request_fixture(0, 60_000);
         fixture["budget_contract"][field] = value;
-        let wire_error =
-            serde_json::from_value::<crate::simulator_tests::ContinuousAgentRequestContextV1>(
-                fixture.clone(),
-            )
-            .expect_err("V1 must not discard an unknown budget authority field");
+        let wire_error = serde_json::from_value::<
+            crate::simulator_tests::ContinuousAgentRequestContextV1,
+        >(fixture.clone())
+        .expect_err("V1 must not discard an unknown budget authority field");
         assert!(wire_error.to_string().contains(field));
         let context_error =
             crate::simulator_tests::ContinuousAgentRequestContextV1::validate_value(&fixture)
@@ -210,13 +211,17 @@ impl crate::simulator_tests::llm_agent::LlmCompletionClient for RetryCountingLlm
     fn complete(
         &self,
         request: &crate::simulator_tests::llm_agent::LlmCompletionRequest,
-    ) -> Result<crate::simulator_tests::llm_agent::LlmCompletionResult, crate::simulator_tests::LlmClientError>
-    {
+    ) -> Result<
+        crate::simulator_tests::llm_agent::LlmCompletionResult,
+        crate::simulator_tests::LlmClientError,
+    > {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(crate::simulator_tests::llm_agent::LlmCompletionResult {
-            turns: vec![crate::simulator_tests::llm_agent::LlmCompletionTurn::Decision {
-                payload: json!({"decision": "wait"}),
-            }],
+            turns: vec![
+                crate::simulator_tests::llm_agent::LlmCompletionTurn::Decision {
+                    payload: json!({"decision": "wait"}),
+                },
+            ],
             output: "{\"decision\":\"wait\"}".to_string(),
             model: Some(request.model.clone()),
             prompt_tokens: Some(1),
@@ -239,8 +244,10 @@ impl crate::simulator_tests::llm_agent::LlmCompletionClient for ErrorBudgetLlmCl
     fn complete(
         &self,
         _request: &crate::simulator_tests::llm_agent::LlmCompletionRequest,
-    ) -> Result<crate::simulator_tests::llm_agent::LlmCompletionResult, crate::simulator_tests::LlmClientError>
-    {
+    ) -> Result<
+        crate::simulator_tests::llm_agent::LlmCompletionResult,
+        crate::simulator_tests::LlmClientError,
+    > {
         Err(crate::simulator_tests::LlmClientError::Http {
             message: "provider unavailable".to_string(),
         })
@@ -251,8 +258,10 @@ impl crate::simulator_tests::llm_agent::LlmCompletionClient for SequenceBudgetLl
     fn complete(
         &self,
         request: &crate::simulator_tests::llm_agent::LlmCompletionRequest,
-    ) -> Result<crate::simulator_tests::llm_agent::LlmCompletionResult, crate::simulator_tests::LlmClientError>
-    {
+    ) -> Result<
+        crate::simulator_tests::llm_agent::LlmCompletionResult,
+        crate::simulator_tests::LlmClientError,
+    > {
         let index = self.calls.fetch_add(1, Ordering::SeqCst);
         let output = self
             .outputs
@@ -361,12 +370,18 @@ fn transport_retry_keeps_request_model_budget_consumed() {
         retry.lifecycle,
         crate::simulator_tests::AsyncTurnLifecycle::Completed
     );
-    assert_eq!(retry.feedback, crate::simulator_tests::AsyncTurnFeedback::Wait);
+    assert_eq!(
+        retry.feedback,
+        crate::simulator_tests::AsyncTurnFeedback::Wait
+    );
     assert_eq!(
         retry.world_effect,
         crate::simulator_tests::AsyncWorldEffect::NoEffect
     );
-    assert_eq!(retry.decision, Some(crate::simulator_tests::AgentDecision::Wait));
+    assert_eq!(
+        retry.decision,
+        Some(crate::simulator_tests::AgentDecision::Wait)
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(
         retry
