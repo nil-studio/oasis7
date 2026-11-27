@@ -88,10 +88,6 @@ pub(crate) use self::invocation::{
     RustDirectLetaiInvoker, agent_chat_idempotency_key, build_agent_chat_prompt,
     provider_error_upstream_trace, short_sha256,
 };
-#[cfg(test)]
-use self::letai_direct::{
-    decode_letai_completion_payload, decode_letai_sse_reader, load_letai_chat_config,
-};
 use self::letai_direct::{error_diagnostics_json, invoke_rust_direct_letai};
 use self::options::default_gateway_health_url;
 use self::support::{

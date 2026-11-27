@@ -1,6 +1,5 @@
 use super::*;
 use crate::agent_decision::parse_model_decision;
-use crate::letai_direct::is_retryable_letai_error;
 use oasis7_agent_api::{
     ActionCatalogEntry, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION,
     DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION, ObservationEnvelope, ProviderExecutionMode,
@@ -32,7 +31,7 @@ impl AgentInvoker for FakeInvoker {
     }
 }
 
-fn newapi_bridge_state_env_guard() -> MutexGuard<'static, ()> {
+fn bridge_env_guard() -> MutexGuard<'static, ()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
     GUARD
         .get_or_init(|| Mutex::new(()))
@@ -41,11 +40,7 @@ fn newapi_bridge_state_env_guard() -> MutexGuard<'static, ()> {
 }
 
 fn timeout_env_guard() -> MutexGuard<'static, ()> {
-    newapi_bridge_state_env_guard()
-}
-
-fn letai_env_guard() -> MutexGuard<'static, ()> {
-    newapi_bridge_state_env_guard()
+    bridge_env_guard()
 }
 
 #[test]
@@ -560,258 +555,6 @@ fn provider_cli_bin_implies_legacy_backend() {
 }
 
 #[test]
-fn load_letai_chat_config_accepts_system_prompt_env() {
-    let _guard = letai_env_guard();
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_API_KEY", "key-123");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_MODEL", "model-123");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_BASE_URL", "https://api.example/v1/");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_SYSTEM_PROMPT", "system rules");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_STREAM", "true");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_USER_AGENT", "custom-agent/1.0");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var(
-            "OASIS7_REMOTE_LLM_EXTRA_HEADERS_JSON",
-            r#"{"X-Gateway":"gateway-1","X-Number":7}"#,
-        );
-    }
-    let config = load_letai_chat_config(None).expect("config");
-    assert_eq!(config.base_url, "https://api.example/v1");
-    assert_eq!(config.api_key, "key-123");
-    assert_eq!(config.model, "model-123");
-    assert_eq!(config.system_prompt.as_deref(), Some("system rules"));
-    assert!(config.stream);
-    assert_eq!(config.user_agent, "custom-agent/1.0");
-    assert_eq!(
-        config.extra_headers,
-        vec![
-            ("X-Gateway".to_string(), "gateway-1".to_string()),
-            ("X-Number".to_string(), "7".to_string())
-        ]
-    );
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_API_KEY");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_MODEL");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_BASE_URL");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_SYSTEM_PROMPT");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_STREAM");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_USER_AGENT");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_EXTRA_HEADERS_JSON");
-    }
-}
-
-#[test]
-fn load_letai_chat_config_uses_route_json_over_global_env() {
-    let _guard = letai_env_guard();
-    let routes_path =
-        std::env::temp_dir().join(format!("oasis7-letai-routes-{}.json", std::process::id()));
-    fs::write(
-        routes_path.as_path(),
-        serde_json::to_vec(&serde_json::json!({
-            "alice": {
-                "base_url": "https://route.example/v1/chat/completions",
-                "api_key": "route-key",
-                "model": "route-model",
-                "system_prompt": "route system",
-                "max_output_tokens": "77",
-                "temperature": "0.25",
-                "stream": true,
-                "response_format_json_object": true,
-                "retry_count": 4,
-                "retry_delay_ms": 5
-            }
-        }))
-        .expect("encode routes"),
-    )
-    .expect("write routes");
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_ROUTES_PATH", routes_path.as_os_str());
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_API_KEY", "global-key");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_MODEL", "global-model");
-    }
-    let config = load_letai_chat_config(Some("alice")).expect("config");
-    assert_eq!(config.base_url, "https://route.example/v1");
-    assert_eq!(config.api_key, "route-key");
-    assert_eq!(config.model, "route-model");
-    assert_eq!(config.system_prompt.as_deref(), Some("route system"));
-    assert_eq!(config.max_output_tokens, 77);
-    assert_eq!(config.temperature, 0.25);
-    assert!(config.stream);
-    assert!(config.response_format_json_object);
-    assert_eq!(config.retry_count, 4);
-    assert_eq!(config.retry_delay_ms, 5);
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_API_KEY");
-    }
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_MODEL");
-    }
-    let _ = fs::remove_file(routes_path);
-}
-
-#[test]
-fn load_letai_chat_config_rejects_unknown_route_label() {
-    let _guard = letai_env_guard();
-    let routes_path = std::env::temp_dir().join(format!(
-        "oasis7-letai-routes-missing-{}.json",
-        std::process::id()
-    ));
-    fs::write(
-        routes_path.as_path(),
-        br#"{"default":{"api_key":"key","model":"model"}}"#,
-    )
-    .expect("write routes");
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::set_var("OASIS7_REMOTE_LLM_ROUTES_PATH", routes_path.as_os_str());
-    }
-    let err = load_letai_chat_config(Some("missing")).expect_err("missing route");
-    assert!(err.contains("route config `missing` was not found"));
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
-    }
-    let _ = fs::remove_file(routes_path);
-}
-
-#[test]
-fn decode_letai_completion_payload_reads_non_streaming_content_and_usage() {
-    let headers = reqwest::header::HeaderMap::new();
-    let result = decode_letai_completion_payload(
-        r#"{
-          "model": "gpt-5.4",
-          "choices": [{"message": {"content": "{\"decision\":\"wait\"}"}}],
-          "usage": {"prompt_tokens": 3, "completion_tokens": 5, "total_tokens": 8}
-        }"#,
-        Some(200),
-        &headers,
-    )
-    .expect("decode");
-    assert_eq!(result.content, "{\"decision\":\"wait\"}");
-    assert_eq!(result.model, "gpt-5.4");
-    assert_eq!(result.prompt_tokens, Some(3));
-    assert_eq!(result.completion_tokens, Some(5));
-    assert_eq!(result.total_tokens, Some(8));
-}
-
-#[test]
-fn decode_letai_sse_reader_concatenates_delta_content() {
-    let headers = reqwest::header::HeaderMap::new();
-    let payload = concat!(
-        "data: {\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n",
-        "data: {\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"content\":\"{\\\"decision\\\":\"}}]}\n\n",
-        "data: {\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"content\":\"\\\"wait\\\"}\"}}],\"usage\":{\"total_tokens\":9}}\n\n",
-        "data: [DONE]\n\n",
-    );
-    let result = decode_letai_sse_reader(payload.as_bytes(), Some(200), &headers).expect("decode");
-    assert_eq!(result.content, "{\"decision\":\"wait\"}");
-    assert_eq!(result.model, "gpt-5.4");
-    assert_eq!(result.total_tokens, Some(9));
-    assert_eq!(
-        result.upstream_trace.get("mode").and_then(Value::as_str),
-        Some("sse")
-    );
-    assert_eq!(
-        result
-            .upstream_trace
-            .get("status_code")
-            .and_then(Value::as_u64),
-        Some(200)
-    );
-    assert_eq!(
-        result
-            .upstream_trace
-            .get("content_len")
-            .and_then(Value::as_u64),
-        Some("{\"decision\":\"wait\"}".len() as u64)
-    );
-}
-
-#[test]
-fn decode_letai_sse_reader_reports_empty_content_diagnostics() {
-    let headers = reqwest::header::HeaderMap::new();
-    let payload = "data: {\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\ndata: [DONE]\n\n";
-    let err =
-        decode_letai_sse_reader(payload.as_bytes(), Some(200), &headers).expect_err("empty SSE");
-    assert!(err.contains("did not contain assistant content"));
-    assert!(err.contains("data_event_count"));
-    assert!(err.contains("chunk_samples"));
-}
-
-#[test]
-fn decode_letai_sse_reader_rejects_malformed_data_after_content() {
-    let headers = reqwest::header::HeaderMap::new();
-    let payload = concat!(
-        "data: {\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"content\":\"{\\\"decision\\\":\\\"wait\\\"}\"}}]}\n\n",
-        "data: not-json-with-secret-token\n\n",
-        "data: [DONE]\n\n",
-    );
-    let err = decode_letai_sse_reader(payload.as_bytes(), Some(200), &headers)
-        .expect_err("malformed SSE should fail");
-    assert!(err.contains("malformed data events"));
-    assert!(err.contains("parse_error_count"));
-    assert!(!err.contains("secret-token"));
-}
-
-#[test]
 fn error_diagnostics_json_extracts_structured_diagnostics() {
     let diagnostics = error_diagnostics_json(
         r#"upstream SSE response did not contain assistant content; diagnostics={"data_event_count":1,"chunk_samples":[{"choices_len":1}]}"#,
@@ -847,28 +590,6 @@ fn provider_error_upstream_trace_preserves_structured_diagnostics() {
         trace.get("diagnostics_present").and_then(Value::as_bool),
         Some(true)
     );
-}
-
-#[test]
-fn retryable_letai_error_matches_gateway_failures() {
-    assert!(is_retryable_letai_error(
-        "upstream chat completion returned HTTP 502: error code: 502"
-    ));
-    assert!(is_retryable_letai_error(
-        "upstream chat completion returned HTTP 503: service unavailable"
-    ));
-    assert!(is_retryable_letai_error(
-        "upstream chat completion returned HTTP 504: gateway timeout"
-    ));
-    assert!(is_retryable_letai_error(
-        "upstream chat completion request failed: error sending request for url (https://api.letai.run/v1/chat/completions)"
-    ));
-    assert!(is_retryable_letai_error(
-        "upstream chat completion request failed: request failed before receiving a response"
-    ));
-    assert!(!is_retryable_letai_error(
-        "upstream chat completion returned HTTP 400: bad request"
-    ));
 }
 
 #[path = "tests_fixture.rs"]
