@@ -40,10 +40,7 @@ impl FormalEndpointServer {
         }
         let frame_admission = limits
             .map(|limit| {
-                if limit.ordinary_bytes < 4096
-                    || limit.work_steps == 0
-                    || limit.work_bytes == 0
-                {
+                if limit.ordinary_bytes < 4096 || limit.work_steps == 0 || limit.work_bytes == 0 {
                     return Err(invalid("formal RPC frame admission policy"));
                 }
                 let memory = oasis7_proto::memory_budget::MemoryBudget::new(
@@ -145,8 +142,7 @@ impl FormalEndpointServer {
             Option<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>>,
         ) = match self.frame_admission.as_ref() {
             Some((memory, work)) => {
-                let (value, owner) =
-                    wire::read_prepaid_frame(stream, memory, work, &mut || false)?;
+                let (value, owner) = wire::read_prepaid_frame(stream, memory, work, &mut || false)?;
                 (value, Some(owner))
             }
             None => (wire::read(stream)?, None),
