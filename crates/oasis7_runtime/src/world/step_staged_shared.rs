@@ -5,6 +5,8 @@
 //! without modifying any active `World::step*` entrypoint or removing the four outer
 //! `World::clone()` guards yet.
 
+#![cfg_attr(not(test), allow(dead_code))]
+
 use super::step_staged_clock::{NextTickClock, TickClockDelta};
 use super::transition::{
     BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedRootTransaction,
@@ -20,10 +22,6 @@ use std::collections::{BTreeMap, VecDeque};
 
 /// Staged pending-action queue dequeue delta installed only in Stage 3.
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "shared queue delta is staged until tick cutover")
-)]
 pub(crate) struct PendingActionQueueDelta {
     expected_front_ids: Vec<ActionId>,
 }
@@ -39,10 +37,6 @@ impl SubsystemDelta for PendingActionQueueDelta {
 }
 
 /// Non-mutating Stage 1 cursor over `World.pending_actions`.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "staged queue cursor is dormant until cutover")
-)]
 pub(crate) struct StagedPendingActionQueue<'a> {
     base: &'a VecDeque<ActionEnvelope>,
     cursor: usize,
@@ -57,50 +51,28 @@ impl<'a> StagedPendingActionQueue<'a> {
             popped_ids: Vec::new(),
         }
     }
-
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "dormant until adapter/cutover wiring")
-    )]
     pub(crate) fn pop_next(&mut self) -> Option<&'a ActionEnvelope> {
         let envelope = self.base.get(self.cursor)?;
         self.cursor += 1;
         self.popped_ids.push(envelope.id);
         Some(envelope)
     }
-
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "dormant until adapter/cutover wiring")
-    )]
     pub(crate) fn remaining(&self) -> usize {
         self.base.len().saturating_sub(self.cursor)
     }
-
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "dormant until adapter/cutover wiring")
-    )]
     pub(crate) fn drained_count(&self) -> usize {
         self.cursor
     }
 
-    pub(crate) fn into_delta(&self) -> PendingActionQueueDelta {
+    pub(crate) fn into_delta(self) -> PendingActionQueueDelta {
         PendingActionQueueDelta {
-            expected_front_ids: self.popped_ids.clone(),
+            expected_front_ids: self.popped_ids,
         }
     }
 }
 
 /// Staged cognition scheduler & module tick schedule delta installed only in Stage 3.
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "shared schedule delta is staged but not wired until five-domain tick cutover"
-    )
-)]
 pub(crate) struct CognitionScheduleDelta {
     next_cognition: Option<JsonValue>,
     next_scheduler_cursor: Option<Option<String>>,
@@ -108,13 +80,6 @@ pub(crate) struct CognitionScheduleDelta {
 }
 
 impl CognitionScheduleDelta {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "staged schedule prepare is dormant until adapter/cutover wiring"
-        )
-    )]
     pub(crate) fn prepare(
         _view: &BorrowedWorldView<'_>,
         next_cognition: Option<JsonValue>,
@@ -171,13 +136,6 @@ impl SubsystemDelta for CognitionScheduleDelta {
 
 /// Staged journal + event-id allocator delta installed only in Stage 3.
 #[derive(Debug, Clone)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "shared publication delta is staged but not wired until five-domain tick cutover"
-    )
-)]
 pub(crate) struct PublicationJournalDelta {
     next_event_id: WorldEventId,
     next_event_id_era: u64,
@@ -197,13 +155,6 @@ impl SubsystemDelta for PublicationJournalDelta {
 }
 
 /// Non-mutating Stage 1 journal & event-id allocator overlay.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "staged publication journal is dormant until adapter/cutover wiring"
-    )
-)]
 pub(crate) struct StagedPublicationJournal {
     next_event_id: WorldEventId,
     next_event_id_era: u64,
@@ -223,14 +174,6 @@ impl StagedPublicationJournal {
             journal_events_evicted: 0,
         }
     }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "staged event allocation is dormant until adapter/cutover wiring"
-        )
-    )]
     pub(crate) fn allocate_and_append(
         &mut self,
         tick: WorldTime,
@@ -258,14 +201,6 @@ impl StagedPublicationJournal {
         }
         event_id
     }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "staged tick_events projection is dormant until adapter/cutover wiring"
-        )
-    )]
     pub(crate) fn tick_events(&self, tick: WorldTime) -> Vec<WorldEvent> {
         self.journal_events
             .iter()
@@ -286,26 +221,12 @@ impl StagedPublicationJournal {
 
 /// Staged tick consensus record delta validated in Stage 1 and installed in Stage 3.
 #[derive(Debug, Clone)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "shared consensus delta is staged but not wired until five-domain tick cutover"
-    )
-)]
 pub(crate) struct TickConsensusDelta {
     record: TickConsensusRecord,
     formal_execution_tick: Option<(RuntimeCommittedTickContext, bool)>,
 }
 
 impl TickConsensusDelta {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "staged consensus prepare is dormant until adapter/cutover wiring"
-        )
-    )]
     pub(crate) fn prepare(
         view: &BorrowedWorldView<'_>,
         tick: WorldTime,
@@ -354,13 +275,6 @@ impl SubsystemDelta for TickConsensusDelta {
 /// Combined root delta for shared tick control state (`clock`, `queue`, `publication`,
 /// `schedule`, `consensus`).
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "combined shared control delta is dormant until five-domain tick cutover"
-    )
-)]
 pub(crate) struct TickSharedControlDelta {
     clock: Option<TickClockDelta>,
     queue: Option<PendingActionQueueDelta>,
@@ -380,13 +294,6 @@ impl SubsystemDelta for TickSharedControlDelta {
 }
 
 /// Root assembler for shared tick control state over a single `StagedRootTransaction`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "shared tick assembler is dormant until five-domain tick cutover"
-    )
-)]
 pub(crate) struct StagedTickSharedAssembler<'a> {
     tx: StagedRootTransaction<'a, TickSharedControlDelta>,
     queue: StagedPendingActionQueue<'a>,
@@ -468,14 +375,6 @@ impl<'a> StagedTickSharedAssembler<'a> {
         self.consensus = Some(delta);
         Ok(())
     }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "nested savepoint helper is dormant until adapter/cutover wiring"
-        )
-    )]
     pub(crate) fn stage_nested_delta(
         &mut self,
         op: impl FnOnce(

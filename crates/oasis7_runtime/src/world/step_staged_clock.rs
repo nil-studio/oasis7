@@ -4,25 +4,25 @@
 //! the remaining domain, publication, and recovery deltas must join the same
 //! root before the production entrypoints can safely install this delta.
 
-use super::transition::{
-    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition,
-    SubsystemDelta, TransitionContext, TransitionReject,
-};
 use super::WorldError;
+use super::transition::{
+    BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedTransition, SubsystemDelta,
+    TransitionContext, TransitionReject,
+};
 
 /// Stage just the next logical tick; never mutate the World at prepare time.
 #[derive(Debug, Clone, Copy, Default)]
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "root clock is staged but not wired until five-domain tick cutover")
+    expect(
+        dead_code,
+        reason = "root clock is staged but not wired until five-domain tick cutover"
+    )
 )]
 pub(crate) struct NextTickClock;
 
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "typed root install waits for complete staged tick acceptance")
-)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct TickClockDelta {
     next_tick: u64,
 }
@@ -61,8 +61,8 @@ impl StagedTransition for NextTickClock {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::transition::DurableCommitConfirmation;
+    use super::*;
     use crate::world::World;
 
     #[test]
@@ -118,8 +118,7 @@ mod tests {
             .expect("prepare genuine successor clock");
         drop(view);
         world.state.time = next_tick;
-        let stale =
-            prepared.install_confirmed(&mut world, DurableCommitConfirmation::Confirmed);
+        let stale = prepared.install_confirmed(&mut world, DurableCommitConfirmation::Confirmed);
         assert!(matches!(stale, Err(TransitionReject::BaseHeadStale)));
         assert_eq!(world.state().time, next_tick);
     }
