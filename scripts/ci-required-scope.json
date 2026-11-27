@@ -2688,7 +2688,6 @@
         "scripts/public-testnet-faucet/package-public-testnet-faucet.sh",
         "scripts/check-active-llm-provider.sh",
         "scripts/governance-registry-live-drill.sh",
-        "scripts/run-local-letai-provider-bridge.sh",
         "scripts/provider-parity-p0.sh",
         "scripts/oasis7-liveops-grant.sh",
         "scripts/runtime-module-routing-perf-harness.sh"
@@ -2805,7 +2804,7 @@
         "scripts/p2p-*",
         "scripts/provider-remote-https/**",
         "scripts/newapi-bridge-service/*",
-        "scripts/check-letai-chat-completions.sh",
+        "scripts/check-letai-chat-completions*",
         "scripts/ensure-letai-local-token-config*",
         "scripts/with-letai-llm-config*",
         "scripts/local-letai-provider-bridge*",
