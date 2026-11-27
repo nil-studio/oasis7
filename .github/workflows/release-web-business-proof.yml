@@ -11,7 +11,7 @@ jobs:
     if: >-
       github.repository == 'nil-studio/oasis7' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'task/engineering-release-web-business-probe' &&
+      github.head_ref == 'task/engineering-release-web-business-path-probe' &&
       github.base_ref == 'codex/engineering-web-cache-image-batch' &&
       github.event.pull_request.draft == true &&
       github.event.pull_request.title == 'Release Web image business proof 0875-path-once'
