@@ -108,8 +108,8 @@ class SelectionPart2(unittest.TestCase):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         expected = {
             'scripts/module-release-node-acceptance.sh': {'oasis7_required', 'formal_process', 'operational_contracts'},
-            'scripts/release-web-fixture-lib.sh': {'launcher_web', 'operational_contracts'},
-            'scripts/run-launcher-stack.sh': {'launcher_web', 'operational_contracts'},
+            'scripts/release-web-fixture-lib.sh': {'operational_contracts'},
+            'scripts/run-launcher-stack.sh': {'operational_contracts'},
         }
         for path, groups in expected.items():
             with self.subTest(path=path):
@@ -149,7 +149,7 @@ class SelectionPart2(unittest.TestCase):
     def test_existing_manual_and_launcher_audit_inputs_have_exact_owners(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         manual = {'baseline', 'doc_checker_contracts'}
-        launcher = {'baseline', 'launcher_web', 'operational_contracts'}
+        launcher = {'baseline', 'operational_contracts'}
         expected = {
             'scripts/testing-manual-active-contract.test.sh': manual,
             'scripts/run-launcher-stack-hosted-local-mock-funding.test.sh': launcher,
@@ -178,7 +178,8 @@ class SelectionPart2(unittest.TestCase):
         self.write('scripts/hosted-passkey-virtual-authenticator-smoke.mjs', '// changed browser smoke')
         plan = self.plan()
         self.assertEqual(plan['scope'], 'targeted')
-        self.assertTrue({'launcher_web', 'viewer_js_required'}.issubset(plan['groups']))
+        self.assertIn('viewer_js_required', plan['groups'])
+        self.assertNotIn('launcher_web', plan['groups'])
 
     def test_current_scenario_implementation_selects_scenario_regression(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
