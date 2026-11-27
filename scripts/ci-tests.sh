@@ -1570,16 +1570,19 @@ run_full_core_tier_tests() {
   run_oasis7_full_tier_tests
 }
 
+run_full_support_leading_checks() {
+  [[ "$1" != after-cross-uid ]] || return 0
+  run_all_required_gate_capability_contract_tests
+  run_oasis7_consensus_tests
+  run_oasis7_distfs_tests
+  run_oasis7_node_tests
+  run_oasis7_net_tests
+  run_oasis7_net_libp2p_tests --skip-native
+}
+
 run_full_support_tier_tests() {
   local phase=${1:-all}
-  if [[ "$phase" != after-cross-uid ]]; then
-    run_all_required_gate_capability_contract_tests
-    run_oasis7_consensus_tests
-    run_oasis7_distfs_tests
-    run_oasis7_node_tests
-    run_oasis7_net_tests
-    run_oasis7_net_libp2p_tests --skip-native
-  fi
+  run_full_support_leading_checks "$phase"
   run_oasis7_workspace_support_crate_tests "$phase"
   [[ "$phase" != before-cross-uid ]] || return 0
   run_oasis7_llm_baseline_fixture_smoke

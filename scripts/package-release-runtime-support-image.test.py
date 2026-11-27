@@ -87,7 +87,8 @@ class RuntimeSupportImage(unittest.TestCase):
 
     def test_full_support_partitions_preserve_every_command_and_order(self):
         source = (ROOT / SUPPORT.DRIVER).read_text()
-        names = ('run_full_support_tier_tests', 'run_oasis7_workspace_support_crate_tests',
+        names = ('run_full_support_tier_tests', 'run_full_support_leading_checks',
+                 'run_oasis7_workspace_support_crate_tests',
                  'run_game_client_cli_contracts')
         definitions = [re.search(r'^' + name + r'\(\) \{\n.*?^}', source, re.M | re.S).group()
                        for name in names]
