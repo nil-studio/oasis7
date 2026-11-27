@@ -189,7 +189,7 @@ run_cargo() {
         functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
                      for name in names]
         support = functions[0]
-        dependencies = set(re.findall(r'^  (run_[a-z0-9_]+)', support, re.M)) - set(names)
+        dependencies = set(re.findall(r'^ +(?:run )?(run_[a-z0-9_]+)', support, re.M)) - set(names)
         with tempfile.TemporaryDirectory() as temporary:
             viewer = Path(temporary) / 'oasis7_viewer_live'
             viewer.write_text('controlled artifact for runner wiring only')
