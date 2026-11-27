@@ -955,18 +955,21 @@ impl PreparedTrustedCommand {
     }
 
     pub(super) fn install(mut self, world: &mut World) -> Result<(), WorldError> {
-        if WorldPreparedBaseHead::capture(world)? != self.base_head {
-            return Err(WorldPreparedBaseHead::stale_error());
-        }
-        if let Some(consensus_record) = self.consensus_record.take() {
-            world.install_prepared_tick_consensus_record(consensus_record)?;
-        }
-        self.apply_fields_infallible(world);
-        Ok(())
+        let base_head = self.base_head.clone();
+        let consensus_record = self.consensus_record.take();
+        super::transition::PreparedStagedCommit::new(
+            base_head,
+            consensus_record,
+            TrustedCommandDelta(self),
+        )
+        .install_confirmed(
+            world,
+            super::transition::DurableCommitConfirmation::Confirmed,
+        )
+        .map_err(super::transition::TransitionReject::into_world_error)
     }
 }
 
-#[allow(dead_code)] // adapter: #6142
 pub(crate) struct TrustedCommandDelta(pub(crate) PreparedTrustedCommand);
 
 impl SubsystemDelta for TrustedCommandDelta {
