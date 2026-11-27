@@ -167,11 +167,7 @@ where
             &mut sign_subject,
         )?;
         let raw_response = query(network, peer, &request, &mut recent, deadline)?;
-        OriginalAdmissionBatchResponseV2::decode_and_stage(
-            &raw_response,
-            &request,
-            &mut staging,
-        )?;
+        OriginalAdmissionBatchResponseV2::decode_and_stage(&raw_response, &request, &mut staging)?;
     }
     staging.finish().map_err(|error| error.to_string())
 }
