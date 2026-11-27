@@ -1276,7 +1276,6 @@
     ".github/workflows/codeql-platform-observation.yml": ["workflow_governance"],
     ".github/dependabot.yml": ["workflow_governance"],
     ".github/workflows/ci-base-images.yml": ["workflow_governance", "packaging_contracts"],
-    ".github/workflows/compile-metrics.yml": ["workflow_governance", "compile_metrics"],
     ".github/workflows/daily-github-release.yml": ["workflow_governance"],
     ".github/workflows/ecs-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/hosted-login-linux-build.yml": ["workflow_governance"],
