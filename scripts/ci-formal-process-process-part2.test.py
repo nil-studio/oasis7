@@ -404,9 +404,9 @@ class ProcessPart2(unittest.TestCase):
         invocations = artifacts.coalesce_build_invocations(variants)
         self.assertEqual([name for name, _, _, _ in invocations], ['viewer', 'required', 'snapshot-tests'])
         _, args, features, pkg_map = invocations[2]
-        self.assertEqual(args, ['test', '-p', 'oasis7_runtime_host', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'])
+        self.assertEqual(args, ['test', '-p', 'oasis7', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'])
         self.assertEqual(features, [])
-        self.assertEqual(pkg_map, {'oasis7_runtime_host': 'snapshot-tests', 'oasis7_viewer_runtime': 'viewer-snapshot-tests'})
+        self.assertEqual(pkg_map, {'oasis7': 'snapshot-tests', 'oasis7_viewer_runtime': 'viewer-snapshot-tests'})
         single = [v for v in variants if v[0] != 'viewer-snapshot-tests']
         self.assertEqual(
             artifacts.coalesce_build_invocations(single),
