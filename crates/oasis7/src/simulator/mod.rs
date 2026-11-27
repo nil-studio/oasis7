@@ -11,19 +11,17 @@
 //! - `power`: Power system (M4 social system)
 
 #[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_agent_harness as cognition_response_identity;
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
-mod async_agent_pilot;
+pub(crate) use oasis7_runtime_host::agent_execution::async_agent_runner;
 #[cfg(not(target_arch = "wasm32"))]
-mod async_agent_runner;
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) use oasis7_agent_harness as cognition_response_identity;
+pub(crate) use oasis7_runtime_host::agent_execution::continuous_agent_harness;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::cognition_policy;
-#[cfg(not(target_arch = "wasm32"))]
-mod continuous_agent_harness;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::decision_provider;
 
@@ -33,6 +31,10 @@ mod memory;
 #[path = "persist_host_facade.rs"]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::agent_execution::runner;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::agent_execution::turn_engine;
+#[cfg(not(target_arch = "wasm32"))]
 pub use oasis7_runtime_host::provider_json_admission;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
@@ -40,10 +42,6 @@ pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
 pub(crate) use oasis7_runtime_host::provider_loopback_http;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_material_capture;
-#[cfg(not(target_arch = "wasm32"))]
-mod runner;
-#[cfg(not(target_arch = "wasm32"))]
-mod turn_engine;
 
 #[cfg(test)]
 mod tests;

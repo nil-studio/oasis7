@@ -1,8 +1,7 @@
 use super::feedback::RuntimeReceiptReadbackVerifier;
 use super::*;
-#[cfg(test)]
-use crate::runtime::RuntimeFeedbackOutboxRecordV1;
 use oasis7_agent_harness::MemoryWritePolicyContextV1 as HarnessMemoryWritePolicyContextV1;
+use oasis7_runtime::RuntimeFeedbackOutboxRecordV1;
 
 fn runtime_receipt_from_api_projection(
     receipt: &oasis7_agent_api::RuntimeReceiptLineageV1,
@@ -124,7 +123,7 @@ impl AsyncAgentRunner {
     /// Restore only the bounded replay/collision verifier from an Oasis-owned
     /// Runtime authority projection. The Harness receives validated history,
     /// never the Runtime World or authority itself.
-    pub(crate) fn restore_host_validated_feedback_history<H: RuntimeAuthority>(
+    pub fn restore_host_validated_feedback_history<H: RuntimeAuthority>(
         &mut self,
         authority: &H,
     ) -> Result<(), AsyncAgentRunnerError> {
@@ -191,7 +190,7 @@ impl AsyncAgentRunner {
                     .and_then(|lineage| lineage.receipt_lineage.as_ref())
                     .map(runtime_receipt_from_api_projection);
                 self.remember_runtime_feedback_replay(
-                    &super::super::agent_api_compat::feedback_from_api(projection.feedback),
+                    &crate::agent_api_compat::feedback_from_api(projection.feedback),
                     receipt_lineage,
                 );
             }
@@ -206,7 +205,7 @@ impl AsyncAgentRunner {
     ///
     /// The callback receives only an immutable runner view, so it cannot
     /// enqueue a successor provider turn while the release is provisional.
-    pub(crate) fn with_runtime_turn_release_for_continuation<F>(
+    pub fn with_runtime_turn_release_for_continuation<F>(
         &mut self,
         agent_id: &str,
         agent_session_id: &str,
@@ -289,7 +288,7 @@ impl AsyncAgentRunner {
         }
     }
 
-    pub(crate) fn needs_runtime_feedback_recovery(&self) -> bool {
+    pub fn needs_runtime_feedback_recovery(&self) -> bool {
         self.harness.needs_feedback_history_refresh()
     }
 
@@ -297,22 +296,21 @@ impl AsyncAgentRunner {
     /// projection. A loaded projection may still fence individual damaged
     /// Agent/session partitions; that must not be confused with having no
     /// history at all when deciding whether unrelated Agents may dispatch.
-    pub(crate) fn runtime_feedback_history_loaded(&self) -> bool {
+    pub fn runtime_feedback_history_loaded(&self) -> bool {
         self.harness.feedback_recovery_loaded()
     }
 
-    pub(crate) fn feedback_recovery_blocked(&self, agent: &str, session: &str) -> bool {
+    pub fn feedback_recovery_blocked(&self, agent: &str, session: &str) -> bool {
         self.harness.feedback_recovery_blocked(agent, session)
     }
 
-    pub(crate) fn agent_feedback_recovery_blocked(&self, agent: &str) -> bool {
+    pub fn agent_feedback_recovery_blocked(&self, agent: &str) -> bool {
         self.harness.agent_feedback_recovery_blocked(agent)
     }
 
     /// Restore only the bounded replay/collision verifier from Runtime's
     /// durable outbox. Feedback is not consumed again and memory is untouched.
-    #[cfg(test)]
-    pub(crate) fn restore_runtime_feedback_outbox(
+    pub fn restore_runtime_feedback_outbox(
         &mut self,
         records: &[RuntimeFeedbackOutboxRecordV1],
     ) -> Result<(), AsyncAgentRunnerError> {
@@ -337,7 +335,7 @@ impl AsyncAgentRunner {
                     ));
                 }
                 Ok(oasis7_agent_harness::FeedbackHistoryProjection {
-                    feedback: super::super::agent_api_compat::feedback_to_api(&feedback),
+                    feedback: crate::agent_api_compat::feedback_to_api(&feedback),
                     acknowledged: record.state == "acked",
                     lineage: Some(oasis7_agent_harness::FeedbackHistoryLineage {
                         original_envelope_digest: record.envelope_digest.clone(),
@@ -353,7 +351,7 @@ impl AsyncAgentRunner {
     }
 
     /// Caller must have authenticated the Agent-scoped Runtime View.
-    pub(crate) fn restore_preverified_scoped_feedback_history(
+    pub fn restore_preverified_scoped_feedback_history(
         &mut self,
         records: &[oasis7_agent_harness::FeedbackHistoryProjection],
     ) -> Result<(), AsyncAgentRunnerError> {
@@ -364,7 +362,7 @@ impl AsyncAgentRunner {
 
     /// Roll back native verifier/turn ledgers and private memory if the sole
     /// durable consumption checkpoint fails. No actor I/O occurs here.
-    pub(crate) fn with_committed_feedback_memory_transaction<A, F>(
+    pub fn with_committed_feedback_memory_transaction<A, F>(
         &mut self,
         input: CommittedFeedbackMemoryInput<'_>,
         authority_receipt: &A::Receipt,
@@ -412,7 +410,7 @@ impl AsyncAgentRunner {
         let native_before = self.rejected_wait_test_ledger_digests();
         let result = self.harness.accept_feedback_with_persistence_observed(
             harness_turn,
-            super::super::agent_api_compat::feedback_to_api(&feedback),
+            crate::agent_api_compat::feedback_to_api(&feedback),
             |_harness_cognition_digest| {
                 *memory = staged_memory.clone();
                 #[cfg(any(test, feature = "test_tier_required"))]
@@ -482,7 +480,7 @@ impl AsyncAgentRunner {
         readback: Option<&super::feedback::RuntimeReceiptReadbackHandleV1>,
         store: &mut MemoryWriteStore,
     ) -> Result<(), AsyncAgentRunnerError> {
-        let harness_feedback = super::super::agent_api_compat::feedback_to_api(&feedback);
+        let harness_feedback = crate::agent_api_compat::feedback_to_api(&feedback);
         if self
             .harness
             .replay_feedback(&harness_feedback)
@@ -558,7 +556,7 @@ impl AsyncAgentRunner {
             self.harness
                 .accept_feedback_with_persistence(
                     harness_turn,
-                    super::super::agent_api_compat::feedback_to_api(&feedback),
+                    crate::agent_api_compat::feedback_to_api(&feedback),
                     || Ok(()),
                 )
                 .map_err(map_harness_error)?;
@@ -569,7 +567,7 @@ impl AsyncAgentRunner {
             self.harness
                 .accept_compatibility_feedback(
                     harness_turn,
-                    super::super::agent_api_compat::feedback_to_api(&feedback),
+                    crate::agent_api_compat::feedback_to_api(&feedback),
                 )
                 .map_err(map_harness_error)?;
             if let Some(staged) = staged_memory {
@@ -619,7 +617,7 @@ impl AsyncAgentRunner {
         agent_id: &str,
         feedback: FeedbackEnvelopeV1,
         runtime_receipt: &RuntimeReceiptLineageV1,
-        response_identity: &super::super::continuous_agent_harness::ResponseArtifactIdentityV1,
+        response_identity: &crate::agent_execution::continuous_agent_harness::ResponseArtifactIdentityV1,
         verifier: &dyn RuntimeReceiptReadbackVerifier,
         store: &mut MemoryWriteStore,
     ) -> Result<(), AsyncAgentRunnerError> {
@@ -686,7 +684,7 @@ impl AsyncAgentRunner {
     /// Production helper for the Runtime adapter: derive the expected
     /// response identity from the exact still-awaiting actor outcome rather
     /// than accepting a parallel caller-provided identity at the host seam.
-    pub(crate) fn consume_runtime_feedback_with_world_readback_from_outcome(
+    pub fn consume_runtime_feedback_with_world_readback_from_outcome(
         &mut self,
         agent_id: &str,
         feedback: FeedbackEnvelopeV1,

@@ -104,7 +104,7 @@ Simulator 原生 Action、Agent、WorldModel 与 Runtime 模型各自保持现�
 3. 全历史计数需要可恢复的累计基线和其后连续动作结果；仅有 retained journal 时，只能报告可证明的窗口和完整性。恢复使用同范围基线，窗口边缘缺 admission/终态时显示 partial；不靠清空或重扫残缺事件伪造累计。`total_decisions` 与动作计数继续分开，模型决策、Wait、系统事件不自动互相折算。
 4. 数值 wire 的既有形状和 0 默认值按兼容处理。实施须让 Metrics 消费者和验收摘要能够识别窗口、分母与未测/partial；若现有传输无法表达，就同步采用明确兼容扩展，而非修改字段含义却保持“已测”展示。无动作或 0 tick 不产生 NaN/Infinity，兼容 0 不作为通过证据。
 
-待执行验证由同一候选的普通 simulator 与 runtime-live 分别完成：单成功动作含多事件计 1；admission 后拒绝为 0 成功/1 拒绝；系统事件不改变动作率；空样本不误报通过；截断窗口与累计分开；snapshot/replay 不重复累计；实际 Metrics wire 往返保留可用性与范围。优先扩展 [Runner](../../crates/oasis7/src/simulator/runner.rs) 和 [runtime-live 聚合](../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) 的现有测试入口；本次未运行行为测试，不宣称某个 UI 已展示这些字段。
+待执行验证由同一候选的普通 simulator 与 runtime-live 分别完成：单成功动作含多事件计 1；admission 后拒绝为 0 成功/1 拒绝；系统事件不改变动作率；空样本不误报通过；截断窗口与累计分开；snapshot/replay 不重复累计；实际 Metrics wire 往返保留可用性与范围。优先扩展 [Runner](../../crates/oasis7_runtime_host/src/agent_execution/runner.rs) 和 [runtime-live 聚合](../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) 的现有测试入口；本次未运行行为测试，不宣称某个 UI 已展示这些字段。
 ## 设计目标
 
 - 提供 `world-simulator` 模块的总体设计入口。

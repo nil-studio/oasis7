@@ -11,8 +11,8 @@
 //! commit.  This keeps the async boundary useful for both Builtin and
 //! ProviderBacked behaviors without granting an actor authority over the
 //! world.
-use super::WorldKernel;
-use super::archive::WorldEvent;
+use crate::simulator_archive::archive::WorldEvent;
+use crate::simulator_archive::kernel_host::WorldKernel;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -23,23 +23,23 @@ use std::thread;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::runtime::{CognitionLeaseV1, RuntimeReceiptLineageV1};
+use oasis7_runtime::{CognitionLeaseV1, RuntimeReceiptLineageV1};
 
-use self::agent_harness_adapter::{
+use super::agent_harness_adapter;
+use super::agent_harness_adapter::{
     AdapterControl, BehaviorCallback, BehaviorTurnResult, OasisBehaviorProvider,
     production_key_from_context,
-};
-use super::Observation;
-use super::agent::{ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery};
-use super::cognition_policy::{
-    ContinuationHandle, ContinuationHarness, ContinuationInvalidationReason,
-    MemoryWriteIntentPolicyV1, MemoryWritePolicyContextV1, MemoryWriteStore,
 };
 use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
     ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1, MemoryWriteIntentV1, h_v1,
 };
-use super::decision_provider::{
+use crate::agent::{ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery};
+use crate::cognition_policy::{
+    ContinuationHandle, ContinuationHarness, ContinuationInvalidationReason,
+    MemoryWriteIntentPolicyV1, MemoryWritePolicyContextV1, MemoryWriteStore,
+};
+use crate::decision_provider::{
     ActionCatalogEntry, MemoryWriteIntent, MockDecisionProvider, ProviderBackedAgentBehavior,
 };
 
@@ -48,7 +48,7 @@ use oasis7_agent_harness::{
     AsyncAgentTurnOutcome as HarnessTurnOutcome, AsyncTurnId as HarnessTurnId,
     CompatibilityTurnRequest as HarnessCompatibilityTurnRequest, RuntimeAuthority,
 };
-use oasis7_simulator::WorldTime;
+use oasis7_simulator::{Observation, WorldTime};
 
 pub struct CommittedFeedbackMemoryInput<'a> {
     pub agent: &'a str,
@@ -56,43 +56,28 @@ pub struct CommittedFeedbackMemoryInput<'a> {
     pub receipt: &'a RuntimeReceiptLineageV1,
 }
 
-#[path = "agent_harness_adapter.rs"]
-mod agent_harness_adapter;
-
-#[path = "async_agent_runner_feedback.rs"]
 mod feedback;
 pub use self::feedback::{RuntimeReceiptReadbackHandleV1, RuntimeReceiptReadbackVerifier};
 use self::feedback::{validate_feedback, validate_runtime_receipt_lineage};
-#[path = "async_agent_runner_receipt_memory.rs"]
 mod receipt_memory;
 pub use receipt_memory::project_receipt_memory;
-#[path = "async_agent_runner_outcome.rs"]
 mod outcome;
 use self::outcome::{
     compatibility_outcome_from_harness, default_observation, outcome_from_completion,
     validate_cognition_lease_for_request,
 };
-#[path = "async_agent_runner_lease_view.rs"]
 mod lease_view;
-pub(crate) use self::lease_view::validated_cognition_lease_consumption_view;
-#[path = "async_agent_runner_actor_controls.rs"]
+pub use self::lease_view::validated_cognition_lease_consumption_view;
 mod actor_controls;
-#[path = "async_agent_runner_budget.rs"]
 mod budget;
-#[path = "async_agent_runner_continuation.rs"]
 mod continuation;
-#[path = "async_agent_runner_retry.rs"]
 mod retry;
-#[path = "async_agent_runner_runtime_feedback.rs"]
 mod runtime_feedback;
-#[path = "async_agent_runner_terminal_budget.rs"]
 mod terminal_budget;
-#[path = "async_agent_runner_test_support.rs"]
 mod test_support;
 use self::test_support::{BlockingProviderBehavior, BuiltinWaitBehavior};
 
 #[cfg(test)]
-#[path = "async_agent_runner_response_lease_tests.rs"]
 mod response_lease_tests;
 
 const DEFAULT_MAILBOX_CAPACITY: usize = 16;
@@ -158,13 +143,14 @@ pub struct AsyncAgentTurnOutcome {
     /// Original transport identities are carried beside typed cognition, not
     /// added to the provider API response DTO.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
+    pub provider_original_material_refs:
+        Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1>,
     /// Process-local memory admission for the decoded native response. The
     /// provider JSON and material-reference wire formats do not carry leases.
     #[cfg(not(target_arch = "wasm32"))]
     #[serde(skip)]
     pub provider_response_context_lease:
-        Option<super::provider_json_admission::ProviderResponseContextLease>,
+        Option<crate::provider_json_admission::ProviderResponseContextLease>,
     /// Runtime-issued reservation carried through the provider outcome. The
     /// Agent runner may validate and retain this identity, but only Runtime
     /// can settle, release, or refund the lease.
@@ -244,10 +230,11 @@ struct ActorCompletion {
     prepared_context: Option<ContinuousAgentTurnContextV1>,
     prepared_request_context: Option<ContinuousAgentRequestContextV1>,
     prepared_response_context: Option<ContinuousAgentResponseContextV1>,
-    provider_original_material_refs: Option<super::ProviderOriginalMaterialRefsV1>,
+    provider_original_material_refs:
+        Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1>,
     #[cfg(not(target_arch = "wasm32"))]
     provider_response_context_lease:
-        Option<super::provider_json_admission::ProviderResponseContextLease>,
+        Option<crate::provider_json_admission::ProviderResponseContextLease>,
     memory_write_intents: Vec<MemoryWriteIntent>,
     panicked: bool,
 }
@@ -509,7 +496,7 @@ impl AsyncAgentRunner {
     /// admit a Runtime lease, or imply that durable feedback history has been
     /// restored. Committed memory feedback still requires the strict Runtime
     /// readback path.
-    pub(crate) fn start_compatibility_turn_with_context_and_observation(
+    pub fn start_compatibility_turn_with_context_and_observation(
         &mut self,
         agent_id: &str,
         observation: Observation,
@@ -729,7 +716,7 @@ impl AsyncAgentRunner {
                 .map_err(|error| AsyncAgentRunnerError::Cognition(error.to_string()))?;
             match self
                 .harness
-                .start_turn(super::agent_api_compat::request_context_to_api(
+                .start_turn(crate::agent_api_compat::request_context_to_api(
                     request_context,
                 )) {
                 Ok(harness_turn_id) => harness_turn_id,
@@ -826,7 +813,7 @@ impl AsyncAgentRunner {
             };
             self.active_turns = self.active_turns.saturating_sub(1);
             let agent_id = completion.agent_id.clone();
-            let request_context = super::agent_api_compat::request_context_from_api(
+            let request_context = crate::agent_api_compat::request_context_from_api(
                 completion.request_context.clone(),
             );
             let behavior_result = self.actors.get(&agent_id).and_then(|actor| {

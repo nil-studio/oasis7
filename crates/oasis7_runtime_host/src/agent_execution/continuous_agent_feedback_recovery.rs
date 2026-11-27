@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::runtime::RuntimeFeedbackOutboxRecordV1;
+use oasis7_runtime::RuntimeFeedbackOutboxRecordV1;
 
 use super::{
     AgentCognitionStore, CognitionError, FeedbackEnvelopeV1, MAX_FEEDBACK_REPLAY_ENTRIES,
@@ -17,7 +17,7 @@ impl AgentCognitionStore {
     /// Hydrate replay/collision metadata from the complete Runtime outbox.
     /// Invalid durable records fail closed; incomplete or unacknowledged
     /// histories fence only their own `(agent, session)` from fresh admission.
-    pub(crate) fn restore_runtime_feedback_outbox(
+    pub fn restore_runtime_feedback_outbox(
         &mut self,
         records: &[RuntimeFeedbackOutboxRecordV1],
     ) -> Result<(), CognitionError> {

@@ -9,7 +9,6 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-#[cfg(test)]
 use serde_json::Value;
 
 pub use oasis7_agent_api::{
@@ -17,10 +16,8 @@ pub use oasis7_agent_api::{
     RuntimeBindingV1, h_v1,
 };
 
-#[cfg(test)]
-use super::FeedbackEnvelope;
+use crate::decision_provider::FeedbackEnvelope;
 
-#[cfg(test)]
 #[path = "continuous_agent_feedback_recovery.rs"]
 mod continuous_agent_feedback_recovery;
 
@@ -40,13 +37,12 @@ pub use oasis7_agent_harness::FinalityBindingV1;
 pub use oasis7_agent_api::{
     ContinuousAgentRequestContextV1, FeedbackEnvelopeV1, MemoryWriteIntentV1,
 };
-pub type ContinuousAgentResponseContextV1 =
-    oasis7_agent_api::ContinuousAgentResponseContextV1<super::Action, super::AgentQuery>;
+pub type ContinuousAgentResponseContextV1 = oasis7_agent_api::ContinuousAgentResponseContextV1<
+    oasis7_simulator::Action,
+    crate::agent::AgentQuery,
+>;
 
-#[cfg(test)]
-pub(crate) fn feedback_v1_from_legacy_value(
-    value: Value,
-) -> Result<FeedbackEnvelopeV1, CognitionError> {
+pub fn feedback_v1_from_legacy_value(value: Value) -> Result<FeedbackEnvelopeV1, CognitionError> {
     let legacy: FeedbackEnvelope = serde_json::from_value(value)
         .map_err(|error| CognitionError::new("legacy_feedback_invalid", error.to_string()))?;
     let _ = legacy;
@@ -426,9 +422,9 @@ impl AgentCognitionStore {
 }
 
 fn feedback_digest(feedback: &FeedbackEnvelopeV1) -> Digest32 {
-    oasis7_agent_api::feedback_digest(&super::agent_api_compat::feedback_to_api(feedback))
+    oasis7_agent_api::feedback_digest(&crate::agent_api_compat::feedback_to_api(feedback))
 }
 
 fn validate_feedback_contract(feedback: &FeedbackEnvelopeV1) -> Result<(), CognitionError> {
-    super::agent_api_compat::feedback_to_api(feedback).validate()
+    crate::agent_api_compat::feedback_to_api(feedback).validate()
 }

@@ -1,11 +1,11 @@
 //! AgentRunner: multi-agent scheduling, quota, rate limiting, metrics.
-use super::WorldKernel;
-use super::archive::WorldEvent;
+use crate::simulator_archive::archive::WorldEvent;
+use crate::simulator_archive::kernel_host::WorldKernel;
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use super::agent::{
+use crate::agent::{
     ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery, AgentQueryResult,
 };
 use oasis7_simulator::{RuntimePerfCollector, RuntimePerfSnapshot, WorldEventKind, WorldTime};

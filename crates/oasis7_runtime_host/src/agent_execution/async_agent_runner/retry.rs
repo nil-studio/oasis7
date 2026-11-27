@@ -105,7 +105,7 @@ impl AsyncAgentRunner {
             .map_err(|error| AsyncAgentRunnerError::Cognition(error.to_string()))?;
         if let Err(error) = self.harness.retry_awaiting_turn(
             harness_turn_id,
-            &super::super::agent_api_compat::request_context_to_api(&expected_request_context),
+            &crate::agent_api_compat::request_context_to_api(&expected_request_context),
         ) {
             actor.control.clear_production_input(&key);
             return Err(map_harness_error(error).with_agent(agent_id));
