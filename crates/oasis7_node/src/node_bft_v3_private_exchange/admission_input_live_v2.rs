@@ -166,8 +166,14 @@ fn handle(
     {
         return Err("original admission protected attempt is unavailable".into());
     }
+    // The entire original attempt is at most 120 seconds, and each actual
+    // authenticated RPC must finish within a separate 10-second budget.
+    let rpc_deadline = now
+        .checked_add(Duration::from_secs(10))
+        .ok_or("original admission per-RPC deadline overflow")?;
+    let response_deadline = rpc_deadline.min(context.original_attempt_deadline);
     transport
-        .restrict_reply_until(context.original_attempt_deadline)
+        .restrict_reply_until(response_deadline)
         .map_err(|_| "original admission deadline guard rejected")?;
     transport
         .restrict_reply_to_generation(
@@ -178,7 +184,7 @@ fn handle(
     transport
         .restrict_reply_while(context.reply_permitted.clone())
         .map_err(|_| "original admission release guard rejected")?;
-    let original = authority.read_authorized_parts(&verified, context.original_attempt_deadline)?;
+    let original = authority.read_authorized_parts(&verified, response_deadline)?;
     let ranges = request.read.ranges()?;
     if original.parts.len() != ranges.len() {
         return Err("original admission exact material part count invalid".into());
@@ -209,7 +215,7 @@ fn handle(
     // Charge only after the complete verified frame exists, but BEFORE the
     // reply can be released. An unknown/missing backend readback denies it.
     authority.reserve_encoded_response_and_readback(&verified, encoded_outer_bytes)?;
-    if Instant::now() >= context.original_attempt_deadline
+    if Instant::now() >= response_deadline
         || context.current_generation.load(Ordering::Acquire) != context.expected_generation
         || !context.reply_permitted.load(Ordering::Acquire)
     {

@@ -289,8 +289,11 @@ fn real_original_admission_noise_is_bound_and_charged() {
         fn read_authorized_parts(
             &self,
             subject: &VerifiedAdmissionBatchSubjectV2,
-            _: Instant,
+            deadline: Instant,
         ) -> Result<ProtectedOriginalAdmissionPartsV2, String> {
+            if deadline > Instant::now() + Duration::from_secs(10) {
+                return Err("original admission RPC exceeds ten-second limit".into());
+            }
             if subject.read().reference.object.digest
                 != blake3::hash(&self.bytes).to_hex().to_string()
             {
