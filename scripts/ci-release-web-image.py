@@ -19,6 +19,8 @@ TOOL_INPUTS = (
     "docker/ci-base/build-packages.txt",
     "scripts/ci-browser-deps.py",
     "scripts/ci_process_runner.py",
+    "scripts/agent-browser-lib.sh",
+    "scripts/viewer-web-dist-contract.sh",
     "scripts/ci-apt-install.py",
     "scripts/ci-apt-dns.py",
     "scripts/ci-browser-tools/package.json",
