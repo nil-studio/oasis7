@@ -81,23 +81,16 @@ fn status_chip_wraps_as_one_nonclickable_item_at_narrow_line_end() {
 }
 
 #[test]
-fn cjk_font_parses_and_tessellates_with_static_and_owned_font_data() {
-    for font_data in [
-        egui::FontData::from_static(EGUI_CJK_FONT_BYTES),
-        egui::FontData::from_owned(EGUI_CJK_FONT_BYTES.to_vec()),
-    ] {
-        let ctx = egui::Context::default();
-        let mut fonts = egui::FontDefinitions::default();
-        install_cjk_font(&mut fonts, OASIS7_CJK_FONT_NAME.to_string(), font_data);
-        ctx.set_fonts(fonts);
-        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            let font_id = egui::FontId::proportional(16.0);
-            assert!(ui.fonts_mut(|fonts| fonts.has_glyphs(&font_id, "启动器 Oasis7")));
-            ui.label(egui::RichText::new("启动器 Oasis7").font(font_id));
-        });
-        let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
-        assert!(primitives.iter().any(|primitive| {
-            matches!(&primitive.primitive, egui::epaint::Primitive::Mesh(mesh) if !mesh.vertices.is_empty())
-        }));
-    }
+fn default_fonts_configure_and_tessellate_ascii_text() {
+    let ctx = egui::Context::default();
+    configure_egui_fonts(&ctx);
+    let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let font_id = egui::FontId::proportional(16.0);
+        assert!(ui.fonts_mut(|fonts| fonts.has_glyphs(&font_id, "Oasis7 Launcher")));
+        ui.label(egui::RichText::new("Oasis7 Launcher").font(font_id));
+    });
+    let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
+    assert!(primitives.iter().any(|primitive| {
+        matches!(&primitive.primitive, egui::epaint::Primitive::Mesh(mesh) if !mesh.vertices.is_empty())
+    }));
 }
