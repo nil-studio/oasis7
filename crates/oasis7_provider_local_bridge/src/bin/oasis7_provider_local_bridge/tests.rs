@@ -1,6 +1,6 @@
 use super::*;
 use crate::agent_decision::parse_model_decision;
-use crate::letai_direct::{format_auto_topup_retry_failure, is_retryable_letai_error};
+use crate::letai_direct::is_retryable_letai_error;
 use oasis7_agent_api::{
     ActionCatalogEntry, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION,
     DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION, ObservationEnvelope, ProviderExecutionMode,
@@ -11,16 +11,11 @@ use oasis7_agent_api::{
 use oasis7_simulator::Action;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Read, Write};
-use std::net::TcpListener;
 use std::sync::{Mutex, MutexGuard, OnceLock};
-use std::thread;
 #[path = "tests_agent_chat.rs"]
 mod tests_agent_chat;
 #[path = "tests_continuous_identity.rs"]
 mod tests_continuous_identity;
-#[path = "tests_newapi_bridge_state.rs"]
-mod tests_newapi_bridge_state;
 #[path = "tests_options.rs"]
 mod tests_options;
 #[path = "tests_query_parsing.rs"]
@@ -855,22 +850,6 @@ fn provider_error_upstream_trace_preserves_structured_diagnostics() {
 }
 
 #[test]
-fn quota_from_usd_matches_legacy_conversion() {
-    assert_eq!(quota_from_usd("0.1").expect("quota"), Some(50_000));
-    assert_eq!(quota_from_usd("1").expect("quota"), Some(500_000));
-    assert_eq!(quota_from_usd("0").expect("quota"), None);
-}
-
-#[test]
-fn should_auto_topup_letai_error_matches_quota_signals() {
-    assert!(should_auto_topup_letai_error("insufficient_user_quota"));
-    assert!(should_auto_topup_letai_error("账户余额不足"));
-    assert!(!should_auto_topup_letai_error(
-        "upstream SSE response did not contain assistant content"
-    ));
-}
-
-#[test]
 fn retryable_letai_error_matches_gateway_failures() {
     assert!(is_retryable_letai_error(
         "upstream chat completion returned HTTP 502: error code: 502"
@@ -890,220 +869,6 @@ fn retryable_letai_error_matches_gateway_failures() {
     assert!(!is_retryable_letai_error(
         "upstream chat completion returned HTTP 400: bad request"
     ));
-}
-
-#[test]
-fn auto_topup_retry_failure_classifies_transport_error_after_topup() {
-    let failure = format_auto_topup_retry_failure(
-        "upstream chat completion request failed: error sending request for url (https://api.letai.run/v1/chat/completions)",
-        serde_json::json!({
-            "stage": "auto_topup",
-            "status": "triggered",
-            "amount_usd": "0.1",
-            "quota": 50_000,
-        }),
-        3,
-        10,
-        5000,
-    );
-
-    assert!(failure.contains("upstream chat completion failed after auto topup retry"));
-    assert!(!failure.contains("still low quota after auto topup"));
-    assert!(failure.contains("\"stage\":\"auto_topup_transport_retry\""));
-    assert!(failure.contains("\"retry_attempts\":3"));
-}
-
-#[test]
-fn maybe_auto_topup_letai_user_posts_platform_topup() {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock topup server");
-    let base_url = format!("http://{}", listener.local_addr().expect("addr"));
-    let captured_path = Arc::new(Mutex::new(String::new()));
-    let captured_body = Arc::new(Mutex::new(String::new()));
-    let path_sink = Arc::clone(&captured_path);
-    let body_sink = Arc::clone(&captured_body);
-    thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept");
-        let mut request = Vec::new();
-        let mut buf = [0_u8; 4096];
-        let bytes = stream.read(&mut buf).expect("read request");
-        request.extend_from_slice(&buf[..bytes]);
-        let raw = String::from_utf8_lossy(request.as_slice());
-        let request_line = raw.lines().next().unwrap_or_default();
-        let path = request_line
-            .split_whitespace()
-            .nth(1)
-            .unwrap_or_default()
-            .to_string();
-        let body = raw.split("\r\n\r\n").nth(1).unwrap_or_default().to_string();
-        *path_sink.lock().expect("path lock") = path;
-        *body_sink.lock().expect("body lock") = body;
-        let response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}";
-        stream.write_all(response).expect("write response");
-    });
-    let config = LetaiChatConfig {
-        base_url: "https://api.example/v1".to_string(),
-        api_key: "token-key".to_string(),
-        model: "gpt-5.4".to_string(),
-        system_prompt: None,
-        max_output_tokens: 32,
-        temperature: 0.0,
-        stream: true,
-        response_format_json_object: false,
-        user_agent: "test-agent".to_string(),
-        extra_headers: Vec::new(),
-        retry_count: 2,
-        retry_delay_ms: 0,
-        auto_topup_usd: Some("0.1".to_string()),
-        platform_base_url: base_url,
-        platform_key: Some("platform-key".to_string()),
-        platform_user_id: Some("platform-user-1".to_string()),
-        platform_project_id: None,
-        auto_topup_retry_count: 1,
-        auto_topup_retry_delay_ms: 0,
-    };
-    let outcome = maybe_auto_topup_letai_user(&config, "insufficient_user_quota")
-        .expect("topup should succeed");
-    assert!(outcome.triggered);
-    assert_eq!(
-        outcome.trace.get("status").and_then(Value::as_str),
-        Some("triggered")
-    );
-    assert_eq!(
-        outcome.trace.get("quota").and_then(Value::as_u64),
-        Some(50_000)
-    );
-    assert_eq!(
-        outcome
-            .trace
-            .get("platform_diagnostics")
-            .and_then(|value| value.get("project_logs"))
-            .and_then(|value| value.get("status"))
-            .and_then(Value::as_str),
-        Some("skipped")
-    );
-    assert_eq!(
-        captured_path.lock().expect("path lock").as_str(),
-        "/api/platform/open/users/platform-user-1/topups"
-    );
-    let payload: Value =
-        serde_json::from_str(captured_body.lock().expect("body lock").as_str()).expect("json");
-    assert_eq!(payload.get("quota").and_then(Value::as_u64), Some(50_000));
-    assert_eq!(payload.get("amount").and_then(Value::as_str), Some("0.1"));
-    assert_eq!(payload.get("currency").and_then(Value::as_str), Some("USD"));
-}
-
-#[test]
-fn maybe_auto_topup_letai_user_generates_unique_order_ids() {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock topup server");
-    let base_url = format!("http://{}", listener.local_addr().expect("addr"));
-    let captured_order_ids = Arc::new(Mutex::new(Vec::new()));
-    let order_id_sink = Arc::clone(&captured_order_ids);
-    thread::spawn(move || {
-        for _ in 0..2 {
-            let (mut stream, _) = listener.accept().expect("accept");
-            let mut request = Vec::new();
-            let mut buf = [0_u8; 4096];
-            let bytes = stream.read(&mut buf).expect("read request");
-            request.extend_from_slice(&buf[..bytes]);
-            let raw = String::from_utf8_lossy(request.as_slice());
-            let body = raw.split("\r\n\r\n").nth(1).unwrap_or_default();
-            let payload: Value = serde_json::from_str(body).expect("json body");
-            order_id_sink.lock().expect("order ids lock").push(
-                payload["external_order_id"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string(),
-            );
-            let response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}";
-            stream.write_all(response).expect("write response");
-        }
-    });
-    let config = LetaiChatConfig {
-        base_url: "https://api.example/v1".to_string(),
-        api_key: "token-key".to_string(),
-        model: "gpt-5.4".to_string(),
-        system_prompt: None,
-        max_output_tokens: 32,
-        temperature: 0.0,
-        stream: true,
-        response_format_json_object: false,
-        user_agent: "test-agent".to_string(),
-        extra_headers: Vec::new(),
-        retry_count: 2,
-        retry_delay_ms: 0,
-        auto_topup_usd: Some("0.1".to_string()),
-        platform_base_url: base_url,
-        platform_key: Some("platform-key".to_string()),
-        platform_user_id: Some("platform-user-1".to_string()),
-        platform_project_id: None,
-        auto_topup_retry_count: 1,
-        auto_topup_retry_delay_ms: 0,
-    };
-
-    for _ in 0..2 {
-        let outcome = maybe_auto_topup_letai_user(&config, "余额不足").expect("topup");
-        assert!(outcome.triggered);
-    }
-
-    let order_ids = captured_order_ids.lock().expect("order ids lock");
-    assert_eq!(order_ids.len(), 2);
-    assert_ne!(order_ids[0], order_ids[1]);
-    for order_id in order_ids.iter() {
-        assert!(order_id.starts_with("oasis7-local-auto-topup-"));
-    }
-}
-
-#[test]
-fn maybe_auto_topup_letai_user_reports_missing_amount_as_skipped() {
-    let config = LetaiChatConfig {
-        base_url: "https://api.example/v1".to_string(),
-        api_key: "token-key".to_string(),
-        model: "gpt-5.4".to_string(),
-        system_prompt: None,
-        max_output_tokens: 32,
-        temperature: 0.0,
-        stream: true,
-        response_format_json_object: false,
-        user_agent: "test-agent".to_string(),
-        extra_headers: Vec::new(),
-        retry_count: 2,
-        retry_delay_ms: 0,
-        auto_topup_usd: None,
-        platform_base_url: "https://api.example".to_string(),
-        platform_key: Some("platform-key".to_string()),
-        platform_user_id: Some("platform-user-1".to_string()),
-        platform_project_id: None,
-        auto_topup_retry_count: 1,
-        auto_topup_retry_delay_ms: 0,
-    };
-
-    let outcome = maybe_auto_topup_letai_user(&config, "insufficient_user_quota")
-        .expect("topup check should not fail");
-
-    assert!(!outcome.triggered);
-    assert_eq!(
-        outcome.trace.get("status").and_then(Value::as_str),
-        Some("skipped")
-    );
-    assert_eq!(
-        outcome.trace.get("reason").and_then(Value::as_str),
-        Some("auto_topup_usd_missing")
-    );
-}
-
-#[test]
-fn resolve_newapi_bridge_route_label_rejects_unknown_prefix_and_short_bare_value() {
-    let _guard = newapi_bridge_state_env_guard();
-    // SAFETY: This test/setup code mutates process environment in a controlled scope.
-    unsafe {
-        std::env::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
-    }
-    let state = ProviderState::new(CliOptions::default()).expect("provider state");
-    assert_eq!(state.resolve_newapi_bridge_route_label("foo:user-1"), None);
-    assert_eq!(
-        state.resolve_newapi_bridge_route_label("short-user-ref"),
-        None
-    );
 }
 
 #[path = "tests_fixture.rs"]

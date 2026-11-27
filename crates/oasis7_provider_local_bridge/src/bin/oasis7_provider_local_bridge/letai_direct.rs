@@ -6,14 +6,7 @@ use std::time::{Duration, Instant};
 use reqwest::blocking::Client;
 use serde_json::{Value, json};
 
-use super::auth_support::parse_newapi_bridge_bearer_selector;
 use super::{AgentInvocation, AgentInvocationOutput, short_sha256, summarize_text};
-
-#[path = "letai_direct_topup.rs"]
-mod letai_direct_topup;
-#[cfg(test)]
-pub(super) use letai_direct_topup::quota_from_usd;
-pub(super) use letai_direct_topup::{maybe_auto_topup_letai_user, should_auto_topup_letai_error};
 
 const DEFAULT_LETAI_BASE_URL: &str = "https://api.letai.run/v1";
 const DEFAULT_LETAI_MAX_OUTPUT_TOKENS: u64 = 256;
@@ -21,9 +14,6 @@ const DEFAULT_LETAI_TEMPERATURE: f64 = 0.0;
 const DEFAULT_LETAI_RETRY_COUNT: u64 = 2;
 const DEFAULT_LETAI_RETRY_DELAY_MS: u64 = 1000;
 const DEFAULT_LETAI_USER_AGENT: &str = "oasis7-letai-provider-rust/1.0";
-const DEFAULT_LETAI_PLATFORM_BASE_URL: &str = "https://api.letai.run";
-const DEFAULT_LETAI_AUTO_TOPUP_RETRY_COUNT: u64 = 10;
-const DEFAULT_LETAI_AUTO_TOPUP_RETRY_DELAY_MS: u64 = 5000;
 
 #[derive(Debug, Clone)]
 pub(super) struct LetaiChatConfig {
@@ -39,13 +29,6 @@ pub(super) struct LetaiChatConfig {
     pub(super) extra_headers: Vec<(String, String)>,
     pub(super) retry_count: u64,
     pub(super) retry_delay_ms: u64,
-    pub(super) auto_topup_usd: Option<String>,
-    pub(super) platform_base_url: String,
-    pub(super) platform_key: Option<String>,
-    pub(super) platform_user_id: Option<String>,
-    pub(super) platform_project_id: Option<String>,
-    pub(super) auto_topup_retry_count: u64,
-    pub(super) auto_topup_retry_delay_ms: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -57,12 +40,6 @@ pub(super) struct LetaiChatResult {
     pub(super) completion_tokens: Option<u64>,
     pub(super) total_tokens: Option<u64>,
     pub(super) upstream_trace: Value,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct AutoTopupOutcome {
-    pub(super) triggered: bool,
-    pub(super) trace: Value,
 }
 
 pub(super) fn invoke_rust_direct_letai(
@@ -96,11 +73,7 @@ pub(super) fn load_letai_chat_config(route_label: Option<&str>) -> Result<LetaiC
         .as_str(),
     );
     let api_key = route_string(&route, "api_key")
-        .or_else(|| {
-            route_label
-                .and_then(load_newapi_bridge_state_route_token)
-                .or_else(|| env_optional(&["OASIS7_REMOTE_LLM_API_KEY", "LETAI_API_KEY"]))
-        })
+        .or_else(|| env_optional(&["OASIS7_REMOTE_LLM_API_KEY", "LETAI_API_KEY"]))
         .ok_or_else(|| "missing required remote LLM api key".to_string())?;
     let model = route_or_env_optional(&route, "model", &["OASIS7_REMOTE_LLM_MODEL", "LETAI_MODEL"])
         .ok_or_else(|| "missing required remote LLM model".to_string())?;
@@ -163,44 +136,6 @@ pub(super) fn load_letai_chat_config(route_label: Option<&str>) -> Result<LetaiC
             DEFAULT_LETAI_RETRY_DELAY_MS,
             &["OASIS7_REMOTE_LLM_RETRY_DELAY_MS", "LETAI_RETRY_DELAY_MS"],
         )?,
-        auto_topup_usd: env_optional(&["OASIS7_REMOTE_LLM_AUTO_TOPUP_USD", "LETAI_AUTO_TOPUP_USD"]),
-        platform_base_url: normalize_base_url(
-            env_optional(&[
-                "OASIS7_REMOTE_LLM_PLATFORM_BASE_URL",
-                "OASIS7_NEWAPI_BRIDGE_LETAI_BASE_URL",
-                "LETAI_PLATFORM_BASE_URL",
-            ])
-            .unwrap_or_else(|| DEFAULT_LETAI_PLATFORM_BASE_URL.to_string())
-            .as_str(),
-        ),
-        platform_key: env_optional(&[
-            "OASIS7_REMOTE_LLM_PLATFORM_KEY",
-            "OASIS7_NEWAPI_BRIDGE_LETAI_PLATFORM_KEY",
-            "LETAI_PLATFORM_KEY",
-        ]),
-        platform_user_id: env_optional(&[
-            "OASIS7_REMOTE_LLM_PLATFORM_USER_ID",
-            "LETAI_PLATFORM_USER_ID",
-        ]),
-        platform_project_id: env_optional(&[
-            "OASIS7_REMOTE_LLM_PLATFORM_PROJECT_ID",
-            "LETAI_PLATFORM_PROJECT_ID",
-        ]),
-        auto_topup_retry_count: env_u64(
-            DEFAULT_LETAI_AUTO_TOPUP_RETRY_COUNT,
-            &[
-                "OASIS7_REMOTE_LLM_AUTO_TOPUP_RETRY_COUNT",
-                "LETAI_AUTO_TOPUP_RETRY_COUNT",
-            ],
-        )?
-        .max(1),
-        auto_topup_retry_delay_ms: env_u64(
-            DEFAULT_LETAI_AUTO_TOPUP_RETRY_DELAY_MS,
-            &[
-                "OASIS7_REMOTE_LLM_AUTO_TOPUP_RETRY_DELAY_MS",
-                "LETAI_AUTO_TOPUP_RETRY_DELAY_MS",
-            ],
-        )?,
     })
 }
 
@@ -214,19 +149,6 @@ fn send_letai_chat_completion_with_retries(
             Ok(result) => return Ok(result),
             Err(err) => {
                 last_error = err;
-                let topup_outcome = maybe_auto_topup_letai_user(config, last_error.as_str())?;
-                if topup_outcome.triggered {
-                    return send_letai_chat_completion_after_topup(
-                        config,
-                        invocation,
-                        topup_outcome.trace,
-                    );
-                }
-                if should_auto_topup_letai_error(last_error.as_str()) {
-                    last_error =
-                        format!("{}; auto_topup_skipped={}", last_error, topup_outcome.trace);
-                    break;
-                }
                 if attempt >= config.retry_count || !is_retryable_letai_error(last_error.as_str()) {
                     break;
                 }
@@ -246,92 +168,6 @@ fn send_letai_chat_completion_with_retries(
         }
     }
     Err(last_error)
-}
-
-fn send_letai_chat_completion_after_topup(
-    config: &LetaiChatConfig,
-    invocation: &AgentInvocation,
-    topup_trace: Value,
-) -> Result<LetaiChatResult, String> {
-    let mut last_error = String::new();
-    let mut attempts = 0_u64;
-    for attempt in 1..=config.auto_topup_retry_count {
-        attempts = attempt;
-        if attempt > 1 && config.auto_topup_retry_delay_ms > 0 {
-            std::thread::sleep(Duration::from_millis(config.auto_topup_retry_delay_ms));
-        }
-        match send_letai_chat_completion(config, invocation) {
-            Ok(result) => return Ok(result),
-            Err(err) => {
-                last_error = err;
-                let quota_related = should_auto_topup_letai_error(last_error.as_str());
-                let retryable_transport = is_retryable_letai_error(last_error.as_str());
-                if attempt >= config.auto_topup_retry_count
-                    || (!quota_related && !retryable_transport)
-                {
-                    break;
-                }
-                eprintln!(
-                    "{}",
-                    json!({
-                        "event": "rust_direct_letai_auto_topup_retry_wait",
-                        "attempt": attempt + 1,
-                        "retry_count": config.auto_topup_retry_count,
-                        "delay_ms": config.auto_topup_retry_delay_ms,
-                        "reason_class": if quota_related {
-                            "quota_settlement"
-                        } else {
-                            "transport_retry"
-                        },
-                        "reason": summarize_text(last_error.as_str(), 300),
-                    })
-                );
-            }
-        }
-    }
-    Err(format_auto_topup_retry_failure(
-        last_error.as_str(),
-        topup_trace,
-        attempts,
-        config.auto_topup_retry_count,
-        config.auto_topup_retry_delay_ms,
-    ))
-}
-
-pub(super) fn format_auto_topup_retry_failure(
-    last_error: &str,
-    topup_trace: Value,
-    attempts: u64,
-    retry_count: u64,
-    retry_delay_ms: u64,
-) -> String {
-    let quota_related = should_auto_topup_letai_error(last_error);
-    let retryable_transport = is_retryable_letai_error(last_error);
-    let stage = if quota_related {
-        "auto_topup_quota_retry"
-    } else if retryable_transport {
-        "auto_topup_transport_retry"
-    } else {
-        "auto_topup_followup_retry"
-    };
-    let summary = if quota_related {
-        "upstream chat completion still low quota after auto topup"
-    } else {
-        "upstream chat completion failed after auto topup retry"
-    };
-    format!(
-        "{}: {}; diagnostics={}",
-        summary,
-        summarize_text(last_error, 500),
-        json!({
-            "stage": stage,
-            "auto_topup": topup_trace,
-            "retry_attempts": attempts,
-            "retry_count": retry_count,
-            "retry_delay_ms": retry_delay_ms,
-            "last_error_diagnostics": error_diagnostics_json(last_error),
-        })
-    )
 }
 
 fn send_letai_chat_completion(
@@ -921,32 +757,6 @@ fn env_bool(default: bool, names: &[&str]) -> bool {
     )
 }
 
-fn load_newapi_bridge_state_route_token(route_label: &str) -> Option<String> {
-    let state_path = env_optional(&["OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH"])?;
-    let raw = fs::read_to_string(state_path).ok()?;
-    let payload = serde_json::from_str::<Value>(raw.as_str()).ok()?;
-    let bindings = payload.get("bindings").and_then(Value::as_array)?;
-    let project_bindings = payload.get("project_bindings").and_then(Value::as_array)?;
-    let (by_ref, by_bridge_user_id) = parse_newapi_bridge_bearer_selector(route_label)?;
-    let binding = bindings.iter().find(|entry| {
-        entry
-            .get("status")
-            .and_then(Value::as_str)
-            .is_some_and(|status| status == "active")
-            && ((by_ref.is_some()
-                && entry.get("newapi_user_ref").and_then(Value::as_str) == by_ref)
-                || (by_bridge_user_id.is_some()
-                    && entry.get("bridge_user_id").and_then(Value::as_str) == by_bridge_user_id))
-    })?;
-    let bridge_user_id = binding.get("bridge_user_id").and_then(Value::as_str)?;
-    project_bindings
-        .iter()
-        .filter(|entry| entry.get("bridge_user_id").and_then(Value::as_str) == Some(bridge_user_id))
-        .filter_map(|entry| entry.get("token_key").and_then(Value::as_str))
-        .rfind(|token| !token.trim().is_empty())
-        .map(str::to_string)
-}
-
 fn response_header_summary(headers: &reqwest::header::HeaderMap) -> Value {
     let mut map = serde_json::Map::new();
     for key in [
@@ -1115,13 +925,6 @@ mod tests {
             ],
             retry_count: 2,
             retry_delay_ms: 0,
-            auto_topup_usd: None,
-            platform_base_url: "http://127.0.0.1:1".to_string(),
-            platform_key: None,
-            platform_user_id: None,
-            platform_project_id: None,
-            auto_topup_retry_count: 1,
-            auto_topup_retry_delay_ms: 0,
         };
         let expected = invocation();
         let result = send_letai_chat_completion_with_retries(&config, &expected)
