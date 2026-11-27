@@ -1169,12 +1169,7 @@
       "system_deps",
       "wasm_target"
     ],
-    "launcher_web": [
-      "rust_toolchain",
-      "system_deps",
-      "wasm_target",
-      "trunk"
-    ],
+    "launcher_web": [],
     "workspace_support": [
       "rust_toolchain",
       "node",
@@ -2311,16 +2306,13 @@
       "pixel_world_bridge"
     ],
     "oasis7_client_launcher": [
-      "workspace_support",
-      "launcher_web"
+      "workspace_support"
     ],
     "oasis7_launcher_ui": [
-      "workspace_support",
-      "launcher_web"
+      "workspace_support"
     ],
     "oasis7_proto": [
-      "workspace_support",
-      "launcher_web"
+      "workspace_support"
     ],
     "oasis7_wasm_abi": [
       "workspace_support"
@@ -2415,8 +2407,7 @@
       "oasis7_required"
     ],
     "oasis7_launcher_config": [
-      "oasis7_required",
-      "launcher_web"
+      "oasis7_required"
     ],
     "oasis7_wasm_materializer": [
       "oasis7_required"
@@ -2536,7 +2527,6 @@
         "scripts/release-web-startup.test.py"
       ],
       "groups": [
-        "launcher_web",
         "operational_contracts"
       ],
       "reason": "web_fixture_process_consumers"
@@ -2555,7 +2545,7 @@
     },
     {
       "match": ["crates/oasis7_builtin_wasm_modules/m1_power_storage/src/**"],
-      "groups": ["rust_baseline", "oasis7_required", "formal_process", "launcher_web"],
+      "groups": ["rust_baseline", "oasis7_required", "formal_process"],
       "reason": "m1_storage_wasm_consumers"
     },
     {
@@ -2672,7 +2662,6 @@
         "scripts/run-launcher-stack-local-mock-lane.test.sh"
       ],
       "groups": [
-        "launcher_web",
         "operational_contracts"
       ],
       "reason": "launcher_and_release_web_runtime_callers"
@@ -2895,8 +2884,7 @@
       ],
       "groups": [
         "workflow_governance",
-        "packaging_contracts",
-        "launcher_web"
+        "packaging_contracts"
       ],
       "reason": "ci_download_contracts"
     },
@@ -2965,7 +2953,6 @@
         "scripts/hosted-passkey-world-runtime-smoke.mjs"
       ],
       "groups": [
-        "launcher_web",
         "viewer_js_required"
       ],
       "reason": "hosted_identity_browser_smoke"
@@ -2976,8 +2963,7 @@
         "scripts/playwright-module-loader.test.mjs"
       ],
       "groups": [
-        "viewer_js_required",
-        "launcher_web"
+        "viewer_js_required"
       ],
       "reason": "shared_playwright_module_resolution"
     },
@@ -2987,7 +2973,7 @@
         "scripts/launcher-help*"
       ],
       "groups": [
-        "launcher_web"
+        "operational_contracts"
       ],
       "reason": "launcher_tools"
     },

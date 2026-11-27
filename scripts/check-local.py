@@ -121,7 +121,7 @@ def requested(argv, name, default=None):
 CODE_TASK_FILE_GUIDELINE = 30
 HEAVY_ADVISORY_GROUPS = frozenset((
     'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'node', 'net',
-    'workspace_support', 'formal_process', 'viewer_js_required', 'launcher_web',
+    'workspace_support', 'formal_process', 'viewer_js_required',
 ))
 
 

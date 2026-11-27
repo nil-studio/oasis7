@@ -76,53 +76,29 @@ class ViewerNpmLockScopeTests(_ScopeFixtureBase):
                     self.assertNotIn('launcher_web', plan['groups'])
                     base = head
 
-    def test_launcher_web_tracks_real_client_launcher_dependency_closure_only(self):
+    def test_launcher_web_is_retired_from_active_groups(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.assertEqual(config['resources']['launcher_web'], [])
         real_manifests, real_reverse, _ = selector.cargo_graph(
             'HEAD', config.get('generated_inputs', []), repo=HERE.parent,
         )
         clean_manifests = {pkg: (directory, {}) for pkg, (directory, _) in real_manifests.items()}
         graph = (clean_manifests, real_reverse, {})
-        true_launcher_inputs = (
-            ('oasis7_client_launcher', 'crates/oasis7_client_launcher/src/main.rs'),
-            ('oasis7_launcher_config', 'crates/oasis7_launcher_config/src/lib.rs'),
-            ('oasis7_launcher_ui', 'crates/oasis7_launcher_ui/src/lib.rs'),
-            ('oasis7_client_api', 'crates/oasis7_client_api/src/lib.rs'),
-            ('oasis7_domain_types', 'crates/oasis7_domain_types/src/lib.rs'),
-            ('oasis7_wasm_abi', 'crates/oasis7_wasm_abi/src/lib.rs'),
-            ('oasis7_agent_api', 'crates/oasis7_agent_api/src/lib.rs'),
-            ('oasis7_proto', 'crates/oasis7_proto/src/lib.rs'),
+        sample_inputs = (
+            'crates/oasis7_client_launcher/src/main.rs',
+            'crates/oasis7_launcher_backend/src/lib.rs',
         )
-        non_launcher_backend_inputs = (
-            ('oasis7', 'crates/oasis7/src/lib.rs'),
-            ('oasis7_runtime', 'crates/oasis7_runtime/src/lib.rs'),
-            ('oasis7_runtime_host', 'crates/oasis7_runtime_host/src/lib.rs'),
-            ('oasis7_distfs', 'crates/oasis7_distfs/src/lib.rs'),
-            ('oasis7_simulator', 'crates/oasis7_simulator/src/lib.rs'),
-            ('oasis7_world_state', 'crates/oasis7_world_state/src/lib.rs'),
-            ('oasis7_launcher_backend', 'crates/oasis7_launcher_backend/src/lib.rs'),
-            ('oasis7_hosted_access', 'crates/oasis7_hosted_access/src/lib.rs'),
-        )
-        for _, rel_path in (*true_launcher_inputs, *non_launcher_backend_inputs):
+        for rel_path in sample_inputs:
             self.write(rel_path, '// baseline\n')
         base = self.commit()
         with patch.object(selector, 'cargo_graph', return_value=graph):
-            for pkg, rel_path in true_launcher_inputs:
-                with self.subTest(expected_launcher_web=True, package=pkg):
-                    self.write(rel_path, f'// changed {pkg}\n')
-                    head = self.commit()
-                    plan = selector.select(config, base, head)
-                    self.assertEqual(plan['scope'], 'targeted')
-                    self.assertIn('launcher_web', plan['groups'])
-                    base = head
-            for pkg, rel_path in non_launcher_backend_inputs:
-                with self.subTest(expected_launcher_web=False, package=pkg):
-                    self.write(rel_path, f'// changed {pkg}\n')
-                    head = self.commit()
-                    plan = selector.select(config, base, head)
-                    self.assertEqual(plan['scope'], 'targeted')
-                    self.assertNotIn('launcher_web', plan['groups'])
-                    base = head
+            for rel_path in sample_inputs:
+                self.write(rel_path, f'// changed {rel_path}\n')
+                head = self.commit()
+                plan = selector.select(config, base, head)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertNotIn('launcher_web', plan['groups'])
+                base = head
 
 
 class MainFastHistoricalRetiredPathsTests(_ScopeFixtureBase):
@@ -400,7 +376,7 @@ class MainFastHistoricalRetiredPathsTests(_ScopeFixtureBase):
             ('scripts/ops/new-drill.sh', {'operational_contracts'}),
             ('scripts/traffic-monitor-summary.sh', {'operational_contracts'}),
             ('scripts/provider-remote-https/smoke.sh', {'operational_contracts'}),
-            ('scripts/run-launcher-stack.sh', {'launcher_web', 'operational_contracts'}),
+            ('scripts/run-launcher-stack.sh', {'operational_contracts'}),
             ('doc/p2p/blockchain/local-file-signing-backend.runbook.md',
              {'packaging_contracts', 'macos_package_contract'}),
         )

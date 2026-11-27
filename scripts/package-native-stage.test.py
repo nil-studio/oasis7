@@ -8,7 +8,7 @@ helper = root / 'scripts/package-native-stage.py'
 with tempfile.TemporaryDirectory() as temporary:
     stage = Path(temporary) / 'stage'
     for sub, names in [('bin', ['oasis7_game_launcher', 'oasis7_web_launcher',
-        'oasis7_viewer_live', 'oasis7_chain_runtime', 'oasis7_client_launcher']),
+        'oasis7_viewer_live', 'oasis7_chain_runtime']),
         ('ops/bin', ['oasis7_world_repair_rebuild', 'oasis7_governance_registry_import',
         'oasis7_governance_registry_audit', 'service-readback'])]:
         (stage / sub).mkdir(parents=True)

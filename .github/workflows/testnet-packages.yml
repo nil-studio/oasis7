@@ -214,7 +214,7 @@ jobs:
           trunk --version | grep -Fqx "trunk ${TRUNK_VERSION}"
       - name: Build web dists
         run: |
-          mkdir -p output/testnet-packages/web-dist output/testnet-packages/web-launcher-dist output/testnet-packages/viewer-optional-payload
+          mkdir -p output/testnet-packages/web-dist output/testnet-packages/viewer-optional-payload
           (
             ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/testnet-packages/viewer-optional-payload
             ./scripts/copy-viewer-web-dist.sh \
@@ -225,32 +225,11 @@ jobs:
               --optional-payload-dir output/testnet-packages/viewer-optional-payload \
               --out-file output/testnet-packages/oasis7-viewer-web-delivery.tar.gz
           )
-          (
-            cd crates/oasis7_client_launcher
-            # Trunk 0.21.14 locks Cargo builds but its separate metadata command needs an adapter.
-            real_cargo="$(command -v cargo)"
-            cargo_adapter="$(mktemp "$RUNNER_TEMP/oasis7-trunk-cargo.XXXXXX")"
-            trap 'rm -f "$cargo_adapter"' EXIT
-            cat > "$cargo_adapter" <<'CARGO_ADAPTER'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          if [[ "${1:-}" == metadata ]]; then
-            set -- "$@" --locked
-          fi
-          unset CARGO
-          exec "$OASIS7_TRUNK_CARGO" "$@"
-          CARGO_ADAPTER
-            chmod 700 "$cargo_adapter"
-            CARGO="$cargo_adapter" OASIS7_TRUNK_CARGO="$real_cargo" \
-              env -u NO_COLOR trunk build --release --locked --dist ../../output/testnet-packages/web-launcher-dist
-          )
       - name: Upload web dist artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: testnet-web-dists
-          path: |
-            output/testnet-packages/web-dist
-            output/testnet-packages/web-launcher-dist
+          path: output/testnet-packages/web-dist
           if-no-files-found: error
       - name: Upload viewer web delivery
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -549,7 +528,6 @@ jobs:
             --target-triple "${{ matrix.target_triple }}" \
             --native-binaries "$GITHUB_WORKSPACE/output/native-stage" \
             --web-dist output/testnet-packages/web-dist \
-            --web-launcher-dist output/testnet-packages/web-launcher-dist \
             --out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}" \
             --ops-out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}-ops-tools" \
             --profile "${{ inputs.build_profile }}"

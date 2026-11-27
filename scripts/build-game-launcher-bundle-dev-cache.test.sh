@@ -30,7 +30,7 @@ mv "$TMP/cache/debug" "$TMP/cache/x86_64-unknown-linux-gnu/debug"
 TEST_CACHE="$TMP/cache" TEST_CALLS="$TMP/calls" bash "$TMP/repo/scripts/build-game-launcher-bundle.sh" \
   --profile dev --platform linux-x64 --target-triple x86_64-unknown-linux-gnu \
   --out-dir "$TMP/output" --web-dist "$TMP/web" --web-launcher-dist "$TMP/launcher" >"$TMP/log" 2>&1 || { cat "$TMP/log" >&2; exit 1; }
-test -x "$TMP/output/bin/oasis7_client_launcher"
+test -x "$TMP/output/bin/oasis7_game_launcher"
 grep -Fq 'build --target x86_64-unknown-linux-gnu' "$TMP/calls"
 if grep -Eq 'world_repair|registry_import|registry_audit' "$TMP/calls"; then exit 1; fi
 # Native compilation can finish without Web inputs. Assembly must consume the exact

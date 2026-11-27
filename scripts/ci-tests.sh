@@ -1085,9 +1085,7 @@ run_packaging_artifact_contract_tests() {
 
 run_packaging_contract_tests() {
   run_packaging_artifact_contract_tests
-  run bash ./scripts/release-packages-trunk-cache-contract.test.sh
   run python3 ./scripts/ci-local-signer-tests.py
-
 }
 
 run_operational_identity_contract_tests() {
@@ -1375,18 +1373,6 @@ run_hosted_account_local_smoke() {
   run bash ./scripts/hosted-account-staging-smoke.sh --mode local
 }
 
-run_oasis7_client_launcher_web_build() {
-  run ./scripts/worktree-harness-lifecycle.test.sh
-  run ./scripts/worktree-harness-lifecycle-races.test.sh
-  run ./scripts/worktree-harness-contract.test.sh
-  run ./scripts/launcher-help-contract.test.sh
-  run mkdir -p output/release/web-launcher-dist
-  (
-    cd crates/oasis7_client_launcher
-    run env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist
-  )
-}
-
 run_codex_agent_config_validation() {
   run python3 ./scripts/validate-codex-agent-config.py
 }
@@ -1399,6 +1385,10 @@ run_compile_metrics_contract_tests() {
   run bash ./scripts/ci-compile-metrics-contract.test.sh
   run python3 ./scripts/ci-ecs-build-metrics.test.py
   run python3 ./scripts/ci-ecs-cache.test.py
+}
+
+run_oasis7_client_launcher_web_build() {
+  echo "+ launcher_web retired (no-op compatibility stub)"
 }
 
 run_site_contract_tests() {
@@ -1889,7 +1879,7 @@ else
   case "$tier" in
     commit) run_commit_gate_checks ;;
     required)
-      for group in baseline rust_baseline oasis7_required consensus distfs node net viewer_js_required pixel_world_bridge launcher_web workspace_support scenario_regression operational_contracts packaging_contracts workflow_governance codex_agent_config_validation compile_metrics site_quality doc_checker_contracts cargo_tooling_contracts; do run_group "$group"; done
+      for group in baseline rust_baseline oasis7_required consensus distfs node net viewer_js_required pixel_world_bridge workspace_support scenario_regression operational_contracts packaging_contracts workflow_governance codex_agent_config_validation compile_metrics site_quality doc_checker_contracts cargo_tooling_contracts; do run_group "$group"; done
       ;;
     full|full-standard) run_full_required_superset; run_rust_baseline; run_full_extended_tier_tests; if [[ "$tier" == full ]]; then run_group formal_process; fi ;;
     full-extended) run_full_extended_tier_tests ;;

@@ -222,13 +222,13 @@ class WorkflowCorePart13(unittest.TestCase):
                         self.assertEqual(profiles, ['support'])
                         self.assertEqual(rows, [row for row in full_rows if row['profile'] == 'support'])
                     else:
-                        self.assertEqual(profiles, ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+                        self.assertEqual(profiles, ['native', 'node', 'net', 'tooling', 'support'])
                         full_rows = rows
                 return
             self.assertNotIn('image-support', workflow.split('jobs:', 1)[0])
             self.assertIn('matrix:\n        include:\n', writer)
             self.assertEqual(re.findall(r'^          - profile: ([a-z]+)$', writer, re.M),
-                             ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+                             ['native', 'node', 'net', 'tooling', 'support'])
             return
         predicate = lambda job: ' '.join(job.split('    if: >-\n', 1)[1].split('\n    ', 1)[0].split())
         self.assertEqual(predicate(planner), predicate(writer))

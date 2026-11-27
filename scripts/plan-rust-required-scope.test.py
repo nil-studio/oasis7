@@ -2078,8 +2078,8 @@ class PythonControlContracts(unittest.TestCase):
             'scripts/runtime-module-routing-perf-harness.test.py': {'cargo_tooling_contracts'},
             'scripts/safe_git_archive.py': {'workflow_governance', 'packaging_contracts'},
             'scripts/safe-git-archive.test.py': {'workflow_governance', 'packaging_contracts'},
-            'scripts/release-web-fixture-process.py': {'launcher_web', 'operational_contracts'},
-            'scripts/release-web-startup.test.py': {'launcher_web', 'operational_contracts'},
+            'scripts/release-web-fixture-process.py': {'operational_contracts'},
+            'scripts/release-web-startup.test.py': {'operational_contracts'},
         }
         for path, groups in cases.items():
             with self.subTest(path=path):
