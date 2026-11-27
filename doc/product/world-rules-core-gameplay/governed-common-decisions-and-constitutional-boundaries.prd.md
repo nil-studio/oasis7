@@ -49,7 +49,7 @@
 
 OC 作为外部链上资产保持可自由转让；持有、转入或转出本身不自动取得、出售或保留游戏内普通治理、高影响资格、区域权利、世界资产或行动结果。游戏内治理权只来自特定事项的可审计锁定、snapshot 与明确退出/解除绑定过程；进入有效窗口后，外部转让、反向转移或解除绑定不得追溯改票、重复投票或让同一权利同时属于两个控制关系。
 
-既有 operator-managed 单向 `OC -> LetAI Run quota` 服务额度桥继续保持为非治理、非赎回路径；额度、`token_key` 或服务消费不得影响任何治理资格、权重、投票、委托或世界权利。本文只规定两侧不可互推的产品边界，不宣称链上交易、智能合约、桥接或游戏权利绑定已实现。
+既有 operator-managed 单向 `OC -> 外部服务 quota` 服务额度桥继续保持为非治理、非赎回路径；额度、`token_key` 或服务消费不得影响任何治理资格、权重、投票、委托或世界权利。本文只规定两侧不可互推的产品边界，不宣称链上交易、智能合约、桥接或游戏权利绑定已实现。
 
 ## 3. 不可由普通治理改写的保护
 
@@ -233,7 +233,7 @@ Trace ID: O7-REQ-4b64b7c5-9819-4932-a1ad-3cdb09fa82e5
 - 设计验证方法：[GOV-M06 同切点、转让与退出](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-06-snapshot-transfer-exit)、[GOV-M07 三侧隔离](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-07-quota-isolation)、[GOV-M09 原件恢复](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-09-recovery)与[GOV-M10 当前读面](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-10-bounds-surfaces)分别记录外部转账、原事项权利与服务结果；正常新事项与旧事项重复来源使用独立前态，真实桥仅在原获准环境验证。
 - 设计补核日期与基线：2026-11-05；已合入 main `2731f781536018a857e5daf2cfa7ede504e9cd69` 及本次专业接收。原历史源码/实现核对字段保留，本次仅静态设计与方法核验，未执行业务或真人验收。
 
-- 要求：外部 OC 可转让，但持有、转入或转出不自动取得或保留游戏内普通治理权、高影响资格、区域权利、世界资产或行动结果；游戏内治理权只来自事项范围内可审计的锁定、snapshot 与退出/解除绑定。有效窗口后的转让或解除绑定不得追溯改票、双投或同时行使同一权利；既有 operator-managed 单向 `OC -> LetAI Run quota` 桥保持非治理、非赎回，额度、`token_key` 与服务消费不得影响治理资格。
+- 要求：外部 OC 可转让，但持有、转入或转出不自动取得或保留游戏内普通治理权、高影响资格、区域权利、世界资产或行动结果；游戏内治理权只来自事项范围内可审计的锁定、snapshot 与退出/解除绑定。有效窗口后的转让或解除绑定不得追溯改票、双投或同时行使同一权利；既有 operator-managed 单向 `OC -> 外部服务 quota` 桥保持非治理、非赎回，额度、`token_key` 与服务消费不得影响治理资格。
 - 专业权威：[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 - 验收：[AC-WR-GCB-005](#ac-wr-gcb-005)
 
@@ -317,7 +317,7 @@ Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8；声明：[REQ-WR-GCB-0
 ## 9. Non-Goals
 
 - 不定义治理资格的参数或实现机制，不定义资产锁定比例/期限、委托与控制人计算、身份聚合技术、隐私机制、权重、阈值、时钟或经济参数；本页仍冻结治理资格的产品边界、控制权公平、审计/纠错/申诉要求与验收，GCB-004/006 不宣称资格计算、惩罚状态机或相关专业实现已经存在。
-- 不定义 OC 外部转让、游戏内权利绑定或既有 `OC -> LetAI Run quota` 桥的链上/服务实现；GCB-005 只冻结两侧不可互推的产品边界与负例。
+- 不定义 OC 外部转让、游戏内权利绑定或既有 `OC -> 外部服务 quota` 桥的链上/服务实现；GCB-005 只冻结两侧不可互推的产品边界与负例。
 - 不实现投票、提案、宪制修订、申诉、runtime/P2P 状态机、validator/finality、signer 或 custody 操作。
 - 不把本文、历史证据或局部实现写成当前功能、preview readiness、主网、发行或公开 claim。
 

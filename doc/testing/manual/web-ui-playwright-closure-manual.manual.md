@@ -37,10 +37,10 @@ Playwright 实跑系列长期目标是形成一套可重复执行的玩家操作
 ./scripts/viewer-real-agent-chat-regression.sh --url "http://127.0.0.1:4173/?ws=ws://127.0.0.1:5011&test_api=1&locale=zh"
 ```
 
-若目标是本地启动 test 环境上的玩家 UI 实跑，先按 `doc/testing/manual/local-public-testnet-letai-test-environment-2026-06-23.manual.md` 启动并复核环境，再用 `--url` 指向该 runbook 输出的 URL。不要把 PWT-001 默认自启动栈当作 public_testnet attach-existing-node 证明；默认栈只证明纯本地真实 provider-backed 玩法链路。
+若目标是本地启动 test 环境上的玩家 UI 实跑，先按对应网络接入 runbook 启动并复核环境，再用 `--url` 指向该 runbook 输出的 URL。不要把 PWT-001 默认自启动栈当作 public_testnet attach-existing-node 证明；默认栈只证明纯本地真实 provider-backed 玩法链路。
 
 覆盖链路：
-- 本地真实 LetAI provider bridge。
+- 本地真实 provider bridge。
 - `oasis7_game_launcher` / `oasis7_viewer_live` / websocket bridge。
 - 真实 Viewer 页面。
 - UI 输入流程：进入沉浸模式、打开命令抽屉、填写 `#agent-chat-message`、点击 `button[data-chat-send="1"]`。

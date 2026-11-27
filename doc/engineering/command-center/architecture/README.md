@@ -46,7 +46,7 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 | 断线后如何继续同一原意图 | Game Client 拥有单操作 phase/disposition；Harness 保留全 run 扫描、预算与停止策略；查询不隐含重投 | [原操作生命周期](../../../world-simulator/llm/agent-game-client-boundary.design.md#original-operation-lifecycle-port) |
 | 如何判断自己的能力与下一条恢复路径 | 只读领域查询分开个人能力、世界上下文与三态恢复；presentation 不从文案或目标标签制造可行性 | [能力与恢复查询](../../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#subject-capability-recovery-query) |
 
-配套技术边界由[网络失败语义](../../../p2p/network/readme-p1-network-production-hardening.design.md#typed-failure-contract)、[额度桥诊断](../../../p2p/token/mainchain-token-newapi-quota-bridge.design.md)、[Provider 探测](../../../world-simulator/llm/provider-loopback-http-contract.design.md)和[WASM 构建来源](../../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md)分别拥有。不能因共享“恢复/错误/接口”词汇合并为万能状态机；既有可独立修复的业务缺陷不必等待全部架构迁移。
+配套技术边界由[网络失败语义](../../../p2p/network/readme-p1-network-production-hardening.design.md#typed-failure-contract)、[Provider 探测](../../../world-simulator/llm/provider-loopback-http-contract.design.md)和[WASM 构建来源](../../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md)分别拥有。不能因共享“恢复/错误/接口”词汇合并为万能状态机；既有可独立修复的业务缺陷不必等待全部架构迁移。
 
 ## 怎么读状态
 
