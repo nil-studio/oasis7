@@ -134,8 +134,8 @@ pub(crate) fn execute_staged_tick(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Action, ResourceKind};
-    use oasis7_agent_api::world_action::GeoPos;
+    use crate::Action;
+    use oasis7_agent_api::world_action::{GeoPos, ResourceKind};
     use oasis7_wasm_abi::{ModuleCallFailure, ModuleCallRequest, ModuleOutput};
 
     struct NoopSandbox {
@@ -213,6 +213,9 @@ mod tests {
             electricity_tax_bps: 0,
             power_trade_fee_bps: 0,
             data_tax_bps: 0,
+            max_open_contracts_per_agent: 16,
+            blocked_agents: Vec::new(),
+            forbidden_location_ids: Vec::new(),
         });
         world
     }
