@@ -1,14 +1,15 @@
 # 客户端启动器引导配置与可用性设计（当前 authority）
 
 > 对应需求：[引导配置与可用性 PRD](game-client-launcher-guided-configuration-and-usability.prd.md)。实现、运行、评审及发行状态由对应 PR 和真实证据维护。
+> **职责与承接边界**：仓库唯一图形界面为 SolidJS Web `viewer`；本文承载配置草稿/接受态/运行态分离、请求结果代次隔离、真实受阻原因与恢复下一步语义，供无头控制面及上游产品要求关联。
 
 ## 1. 问题、目标与范围
 
-让玩家在现有 native/Web Launcher 上看清“正在编辑什么、服务接受了什么、当前运行什么、这次请求得到什么结果”，并按真实 blocker 进入已有修复动作。本文在原配置真值与恢复设计上，落实[专业当前合同](game-client-launcher-guided-configuration-and-usability.prd.md#当前合同)委托的信息层级、具体文案、响应式、键盘操作和可编辑交付稿；不另建设置、账户或运行时产品。
+让操作者或玩家在受支持控制面与入口看清“正在编辑什么、服务接受了什么、当前运行什么、这次请求得到什么结果”，并按真实 blocker 进入已有修复动作。本文落实[专业当前合同](game-client-launcher-guided-configuration-and-usability.prd.md#当前合同)的配置真值、状态表达与失败恢复语义边界；不另建独立桌面设置、账户或运行时产品。
 
-Launcher 是 `viewer` / `pure_api` 路径的交付与控制表面。当前源码的“打开游戏页”进入 Web/UI；本文没有新增 pure_api 启动按钮或模式选择器。展示的目标模式须由该入口的已确认契约提供；未知时显示“入口模式待核实”，不能从 provider、链角色、URL 猜出正式可玩性。`observer` 只有在该入口 authority 明确报告受限路径时才适用；链节点的同名角色不等于玩家仅观察模式。
+Launcher 后端是 `viewer` / `pure_api` 路径的本地交付与控制支撑，不新增第三种玩家模式。展示的目标模式须由该入口的已确认契约提供；未知时显示“入口模式待核实”，不能从 provider、链角色、URL 猜出正式可玩性。`observer` 只有在该入口 authority 明确报告受限路径时才适用；链节点的同名角色不等于玩家仅观察模式。
 
-新增正文和两张 SVG 均为**设计目标 / DESIGN TARGET**。图中端口、请求和状态是布局样例；配置真值、结果关联、焦点与尺寸仍需实现和实际验收。本文不改变当前 primary-mode、权限、启动条件、自动启动策略或世界结果。
+下文保留的历史源码审读（基线 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9`）与两张 SVG 目标稿记录配置分层与故障恢复参考信息架构，不代表新增独立桌面客户端启动器；本文不改变当前 primary-mode、权限、启动条件、自动启动策略或世界结果。
 
 ### 2.1 需求承接与分配表
 
@@ -40,7 +41,7 @@ Launcher 是 `viewer` / `pure_api` 路径的交付与控制表面。当前源码
 | [self_guided.rs](../../../crates/oasis7_client_launcher/src/self_guided.rs)；[error cards](../../../crates/oasis7_client_launcher/src/self_guided_error_cards.rs) | 当前最近成功画像仍按 `game_running` 保存 `self.config`，Restore 未显式置 dirty；Chain 任务卡合并 Ready/Starting；“一键修复”实际只打开配置引导 | 原配置修复合同仍须实现；目标稿分层并准确命名，不把这些缺口写成已修复 |
 | [app_process.rs](../../../crates/oasis7_client_launcher/src/app_process.rs)、[app_process_web.rs](../../../crates/oasis7_client_launcher/src/app_process_web.rs) | native/Web 都有控制请求与状态 poll 代次；旧代次/控制在途的 poll 不应用；失败撤销 session 证据；dirty 不等于 snapshot 时保留编辑 | 表达请求结果与当前实例两条事实，保留迟到/失败/未知；不改代次或 HTTP 合同 |
 | [preflight](../../../crates/oasis7_client_launcher/src/self_guided_preflight.rs)、[blocked actions](../../../crates/oasis7_client_launcher/src/self_guided_blocked_actions.rs)、[reminder](../../../crates/oasis7_client_launcher/src/self_guided_onboarding_reminder.rs) | 已有重试状态探测、打开配置、显式启用链、继续/重置引导；引导可暂时关闭，普通模式继续提示 | 只编排这些已有动作；重置引导不重置配置、进程或世界 |
-| [main_ui_helpers.rs](../../../crates/oasis7_client_launcher/src/main_ui_helpers.rs) | 窗口尺寸存在 360×300 下限；已读配置/主 shell 未定义本次所需完整焦点返回与 Escape 顺序 | 窄屏/低高度与键盘是待实现目标，不能由 egui Window 或静态稿存在推定已通过 |
+| [main_ui_helpers.rs](../../../crates/oasis7_client_launcher/src/main_ui_helpers.rs) | 窗口尺寸存在 360×300 下限；已读配置/主 shell 未定义本次所需完整焦点返回与 Escape 顺序 | 窄屏/低高度与键盘是待实现目标，不能由窗口组件或静态稿存在推定已通过 |
 
 ## 4. 控制与信息边界
 
@@ -143,7 +144,7 @@ secret 字段保持遮挡；配置对照只写“凭据已修改”等安全摘�
 | 200% 文本/长 CJK/长英文 | 重排文字与按钮，控件可增高；长路径可断行并有完整安全读面 | 不截断“不/未”、目标名、错误原因或动作后果；不是整张图缩放 |
 | 软键盘打开 | 以实际可见高度放置当前字段，相关错误与关闭路径可滚达 | 不让固定底栏盖住字段；收起键盘回同一编辑位置，不触发提交 |
 
-配置引导和高级配置沿现有窗口模型交接，不把普通 `egui::Window` 称作已实现模态。打开时聚焦标题或首个需修复字段；Tab/Shift+Tab 按标题/关闭→字段→错误与说明→现有动作顺序走。非模态窗口允许回到其他可见控件，不能形成无出口焦点陷阱；若未来另有真正模态，须另验证背景隔离，本文不创建它。
+配置引导和高级配置沿非模态面板模型交接，不把普通浮动面板称作已实现模态。打开时聚焦标题或首个需修复字段；Tab/Shift+Tab 按标题/关闭→字段→错误与说明→现有动作顺序走。非模态窗口允许回到其他可见控件，不能形成无出口焦点陷阱；若未来另有真正模态，须另验证背景隔离，本文不创建它。
 
 Escape 只关闭最上层可关闭编辑/帮助窗口并返回调用入口；入口消失则返回该目标的配置或任务标题，不退出 Launcher、不停止服务。文本输入和 IME 合成期间 Enter/Escape 不触发 Start、Stop 或关闭；按钮获得焦点后才沿平台标准键盘激活。轮询、结果更新、语言切换不得抢走编辑焦点。关闭编辑窗口不等于丢弃草稿或撤销已发请求。
 

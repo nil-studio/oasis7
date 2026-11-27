@@ -11,7 +11,7 @@
 
 本设计补齐 GD-18／GD-20 的共同制作决策：从已有内容入口确定本次生产单元；保留源、导出、权利和实际消费的关系；用可核查的人时、直接费用、依赖与返工计算规模。具体玩法、文案、图形、语言和素材规格仍由原专业条款拥有。本设计不复制全部资产状态，不替换原 manifest，也不新增统一资产服务、采购流程或审批链。
 
-范围覆盖已在库的游戏规则／场景内容、Viewer 内容和图稿、Launcher 字体、官网／小说／传播材料，以及其共享制作依赖。工具样本、历史证据、尚未采用的素材和运行时生成内容分别处理，不能混入同一交付数量。玩法完整性、所有 WASM 模块的可玩内容审查、实际画面品质、完整来源授权与全游戏预算仍须在各自范围成立。
+范围覆盖已在库的游戏规则／场景内容、Viewer 内容和图稿、随包／远程字体、官网／小说／传播材料，以及其共享制作依赖。工具样本、历史证据、尚未采用的素材和运行时生成内容分别处理，不能混入同一交付数量。玩法完整性、所有 WASM 模块的可玩内容审查、实际画面品质、完整来源授权与全游戏预算仍须在各自范围成立。
 
 ## 2. 上游约束与职责
 
@@ -48,7 +48,7 @@
 | [程序化视觉内容](../../world-simulator/viewer/viewer-world-visual-content-delivery.design.md#visual-content-catalog) | 4 族：材质 10 个键／回退、热点 5 类含回退、模块 4 类及中性回退、depot 3 个状态及未知处理 | 原 Rust 是编辑真值；这些分支不是独立贴图／模型文件。参数变体和程序化实例不能乘成产能。 |
 | `assets/ui-ux/` 中的 Viewer 静态图稿及[原映射](../../world-simulator/viewer/assets/ui-ux/full-function/coverage-catalog.json) | 173 个受跟踪 SVG；原 coverage-catalog 包含 107 个源功能条目，catalog 自报来源为 `113868200d1f91bef1008babb689bd257f241428` | SVG 是可编辑参考稿，catalog 是历史源派生映射；两个数字都不是当前全功能完成分母。一个状态可能引用多张稿，稿件也可能被多个状态复用，且不证明 runtime 已使用。 |
 | [双语与帮助](../../world-simulator/viewer/viewer-localization-and-context-help.design.md)及[叙事内容](world-narrative-content-delivery.design.md) | 按原术语、消息角色和状态矩阵选单元；zh/en 版本分别核覆盖，不给运行时消息伪造固定总数 | 原消费者中的字符串和对应设计文本各有采用状态。一次 Agent 自由文本不是可预先制作的固定对白资产；其质量验证按原场景进行。 |
-| Viewer／Launcher 静态资源与字体 | Viewer 自身受跟踪独立图像为 [favicon.ico](../../../crates/oasis7_viewer/favicon.ico)；原生 Launcher 嵌入 1 个 [ms-yahei.ttf](../../../third_party/ms-yahei.ttf) | 这不是所有运行资源总量；WASM 内嵌依赖、构建输出和机器字体另算。字体的具体来源边界见 §3.2。 |
+| Viewer 静态图像资源 | Viewer 自身受跟踪独立图像为 [favicon.ico](../../../crates/oasis7_viewer/favicon.ico) | 这不是所有运行资源总量；WASM 内嵌依赖、构建输出和机器字体另算。字体的具体来源边界见 §3.2。 |
 | `site/assets/images/` 中的官网公共图像 | 23 个受跟踪图像文件：7 SVG、13 WebP、3 PNG | 文件数包括源／导出、概念展示、历史截图和传播图，不能相加为 23 项独立原作或本次发布 payload。实际使用集合从各语言页面和候选生成物追踪。 |
 | [小说 V50](../../../site/story/releases/v50/README.md) | 15 章、1 间章和 1 尾声，共 17 个阅读单元 | Markdown 是当前中文阅读源；不是 17 个游戏任务或英文正文。阅读顺序、原文保持和旧版本边界沿原索引。 |
 | [传播制作目录](../../../site/social/xiaohongshu/README.md)及[既有八图 manifest](../../readme/production/assets/xhs-ai-economy-2026-06-18/asset-manifest.md) | `site/social/` 有 20 个 HTML 和 66 个 PNG；另一个原制作包有 8 PNG、1 生成脚本及原 storyboard／manifest | 分别按原包追踪源与导出，不把 HTML 与导出逐个当新原作。数量只说明在库文件；实际发布、外部研究来源、字体和图像权利须按原包核实。 |
@@ -67,13 +67,13 @@
 | 当前来源组 | 已核到的具体材料 | 尚未被材料证明的部分与制作处置 |
 | --- | --- | --- |
 | 仓库原始规则、代码生成图形、文本和 SVG | 根 [LICENSE](../../../LICENSE)声明 MIT，copyright 为 `2026 scc`；`pixel_world_bridge` 的 [Cargo.toml](../../../crates/pixel_world_bridge/Cargo.toml)也声明 MIT | 这是已定位的仓库声明，不是所有输入逐项取得过程。复用时保留实际适用许可与 notice，若包含导入／生成／第三方元素，继续核其来源；不把根声明扩张到来源不明的外部素材。 |
-| Launcher 嵌入字体 | [main.rs](../../../crates/oasis7_client_launcher/src/main.rs)以 `include_bytes!` 使用 `third_party/ms-yahei.ttf`，并允许环境变量覆盖；文件 name 表标示 Microsoft YaHei、Version 5.00、Microsoft Corporation／Founder | 元数据许可提示使用依原产品许可并受嵌入限制约束；相邻目录没有本项目取得／再分发授权材料。字体元数据和文件存在不构成授权结论。发行维护者需核所选分发用途的依据，或按原字体链替换为已核实来源后复验；本设计不修改只读 third_party，也不宣布现有包已审清。 |
+| 随包嵌入与再分发字体准入边界 | 仓库仅允许随包嵌入具备明确开源再分发授权（如 OFL 1.1）的固定版本字体资产 | 严禁随包嵌入或再分发缺少明确开源再分发许可的商业系统字体；字体文件元数据或系统安装状态不构成再分发授权结论。 |
 | Viewer Bevy 默认字体 | `pixel_world_bridge` 启用 `default_font`；[Cargo.lock](../../../Cargo.lock)固定 Bevy／bevy_text 为 0.19.1 | 依赖来源已定位，本文没有取得该固定依赖实际包含的字体原件和 notice，不猜字体家族或许可证。对实际构建资源核原件、许可及随包保留情况后才能给出分发结论。 |
 | Viewer Shell 系统字体栈 | [viewer.html](../../../crates/oasis7_viewer/viewer.html)声明 body／display／mono 字体名称与 fallback | 声明字体名不等于随包分发对应字体，也不证明目标机器字形存在。实际机器解析结果、CJK、fallback 和自托管变更分别验证。 |
 | 官网远程字体 | [styles.css](../../../site/assets/styles.css)与 [deck.css](../../../site/deck/deck.css)实际使用 Google Fonts CSS `@import`，包含 Bricolage Grotesque、JetBrains Mono、Manrope；传播包还各有自己的请求 | 当前请求入口不同于系统 fallback，浮动响应没有固定为本地资产。实际发布保留其请求／返回版本和失败 fallback 的验证范围；改为本地打包时核具体字体文件与许可，不从服务名推定取得全部再分发材料。 |
 | 官网图像、SVG 与 raster 导出 | §3.1 的具体路径、Git 版本、原 [Site 设计](../../site/github-pages/public-site-discovery-and-showcase.design.md)和公开 provenance 标签 | SVG 可编辑只证明形式；raster 文件不等于原生编辑源、生成输入或完整权利材料。原作者、外部／生成来源未有对应记录时，明确该项缺口，不把概念图写为运行截图。 |
 | 原传播包 | 八图包有 [generate_carousel.py](../../readme/production/assets/xhs-ai-economy-2026-06-18/generate_carousel.py)、storyboard、manifest；其 manifest 说明外部研究材料未随仓库提交 | 生成脚本和上传顺序不替代外部资料、图像、字体、署名与复用依据；继续使用原受控来源入口，不在公开文档复制凭据或未授权材料。 |
-| Pixel World 原生 CJK fallback | Noto Sans SC Regular 2.004，固定上游 `notofonts/noto-cjk@f8d157532fbfaeda587e826d4cd5b21a49186f7c` 的原样 SC 地区 OTF；[资产及 OFL](../../../crates/pixel_world_bridge/assets/fonts/noto-sans-sc/README.md)记录原始路径、SHA-256、版权、大小与覆盖边界 | OFL 1.1 允许随软件嵌入及再分发并要求附版权与许可；源码目录保留全文，每个 WASM backend 通过 `native_font_notices()`保留全文。未采用 Launcher 微软雅黑，不把此证据扩写为其他资产权利齐备。 |
+| Pixel World 原生 CJK fallback | Noto Sans SC Regular 2.004，固定上游 `notofonts/noto-cjk@f8d157532fbfaeda587e826d4cd5b21a49186f7c` 的原样 SC 地区 OTF；[资产及 OFL](../../../crates/pixel_world_bridge/assets/fonts/noto-sans-sc/README.md)记录原始路径、SHA-256、版权、大小与覆盖边界 | OFL 1.1 允许随软件嵌入及再分发并要求附版权与许可；源码目录保留全文，每个 WASM backend 通过 `native_font_notices()`保留全文。不把此单项开源字体证据扩写为其他资产权利齐备。 |
 | 六视图／后续外部或生成素材 | 原 `tools/voxel_asset_pipeline/` 离线原型已按 #6647 退役；后续若采用体素或外部生成管线须由对应现行工具合同规定源图与导出格式 | 采用时绑定真实源图／输出、工具及相关输入来源；不可确定重建的输出保留其固定版本。合成测试长方体不是正式机器人源，生成服务名也不是完整权利证明。 |
 
 权利核对是所声明用途的材料核对，不能把未取得材料改写成“违规已证实”或“可自由复用”。已核范围写明具体文件／版本、用途、限制和证据；有未决输入时保留该内容的采用限制，原 owner 补证、换源或调整对外内容。尚未核实的材料不支持“全资产权利齐备”或正式发行结论。

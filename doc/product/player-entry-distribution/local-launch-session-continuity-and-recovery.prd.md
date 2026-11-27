@@ -7,11 +7,11 @@
 - 配对产品设计：[`local-launch-session-continuity-and-recovery.design.md`](local-launch-session-continuity-and-recovery.design.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-09-13
+- Last reviewed：2026-11-26
 - 公开状态权威：[`README.md`](../../../README.md)
 - 专业域权威：[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`Launcher 子域入口`](../../world-simulator/launcher/README.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 
-本文承载受支持本地 Launcher 路径的会话连续性与恢复产品承诺。它补充[访问模式与发行就绪](access-modes-and-release-readiness.prd.md)，不创建第三种玩家访问模式，也不定义启动器、链运行时、持久化或 Web/WASM 的实现合同。
+本文承载受支持本地 Launcher 路径的会话连续性与恢复产品承诺。本地 Launcher 路径由无头进程编排与 HTTP JSON 控制面（`oasis7_launcher_backend`）及其服务的 Web `viewer` / `pure_api` 入口组成。本文补充[访问模式与发行就绪](access-modes-and-release-readiness.prd.md)，不创建第三种玩家访问模式，也不定义启动器、链运行时、持久化或 Web/WASM 的实现合同。
 
 配对产品设计的 canonical 路径为 `doc/product/player-entry-distribution/local-launch-session-continuity-and-recovery.design.md`。
 
@@ -32,8 +32,8 @@
 
 ### 2.1 可理解的本地会话生命周期
 
-- 正式 Launcher 表面把本地路径组织为一条可理解的生命周期：选择当前入口与模式、准备或启动、确认当前可用或 blocked 状态、停止，以及恢复或重新进入。
-- Launcher 是已声明 primary mode 的交付、控制和过渡表面；本地 session、运行 lane、provider、浏览器或执行环境不会形成新的玩家模式、世界或发行等级。
+- 受支持本地编排与控制表面把本地路径组织为一条可理解的生命周期：选择当前入口与模式、准备或启动、确认当前可用或 blocked 状态、停止，以及恢复或重新进入。
+- Launcher 是已声明 primary mode 的本地交付、控制和过渡支撑；本地 session、运行 lane、provider、浏览器或执行环境不会形成新的玩家模式、世界或发行等级。
 - 已启动的子过程、可见页面、旧输出或局部健康状态不能单独证明玩家已进入权威世界、已获得身份/权限或已达到可玩结论。
 
 ### 2.2 中断、停止与恢复
@@ -50,8 +50,8 @@
 
 ### 2.4 Web 表面与跨入口连续性
 
-- 当 Launcher 的 Web 表面不可初始化、不可轮询或发生致命错误时，玩家得到可理解的失败或恢复状态，而不是无限加载、假连接或假成功。
-- native 与 Web 可以使用不同的表现、存储和恢复机制，但不能因入口不同而把配置编辑、本地 session 或诊断成功表达为不同的 primary-mode 或权威世界结果。
+- 当本地托管的 Web `viewer` 或控制面表面不可初始化、不可轮询或发生致命错误时，玩家得到可理解的失败或恢复状态，而不是无限加载、假连接或假成功。
+- CLI/控制面与浏览器表面可以使用不同的表现、存储和恢复机制，且不能因入口不同而把配置编辑、本地 session 或诊断成功表达为不同的 primary-mode 或权威世界结果。
 
 ## 2.5 叶级产品要求与验收
 

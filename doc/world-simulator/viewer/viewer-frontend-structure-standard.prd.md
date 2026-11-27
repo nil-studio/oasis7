@@ -24,7 +24,7 @@
   - `crates/oasis7_viewer/viewer.html`
   - `crates/oasis7_viewer/dist/software_safe.html`（generated compat output）
   - `crates/oasis7_viewer/software_safe_src/**`
-  - `crates/oasis7_viewer/viewer.js`
+  - `crates/oasis7_viewer/dist/viewer.js`（generated canonical bundle；按 [#7324](https://github.com/nil-studio/oasis7/issues/7324) 不再在源码根目录入库跟踪）
   - `crates/oasis7_viewer/dist/software_safe.js`（generated compat output）
   - `crates/oasis7_viewer/viewer_first_agent_claim_evidence.html` / `dist/software_safe_first_agent_claim_evidence.html`
   - `crates/oasis7_viewer/dist/pixel-world-bridge/**`
@@ -36,7 +36,7 @@
   - 不改变 Viewer runtime protocol、WASM ABI、server line protocol、hosted auth semantics 或 public URL taxonomy。
 
 ## 问题陈述
-- Viewer 前端既包含手写源码，也包含 checked-in generated artifacts 和 compat aliases；若边界不清，维护者容易在 `viewer.js` / `software_safe.js` / `viewer.html` / `software_safe.html` 之间建立第二套真值。HTML compat alias 只在 dist 中生成，不作为 checkout source。
+- Viewer 前端同时涉及手写源码、构建输出 generated artifacts 与 compat aliases；若边界不清，维护者容易在 `viewer.js` / `software_safe.js` / `viewer.html` / `software_safe.html` 之间建立第二套真值。生成的 `viewer.js` 与 HTML/JS compat aliases 只在构建输出 `dist/`（或隔离输出目录）生成，不作为 Git 跟踪源码。
 - `main.jsx` 与 `pixel_world_host.jsx` 承担 UI composition、state projection、copy、diagnostics、event handlers 与 fixture/test hooks，缺少“何时抽组件、何时抽 service/state module”的标准。
 - Rust 侧已有体量与真实职责拆分治理；Viewer JS/HTML/JSX 侧需要较轻但明确的对应规则。
 
@@ -49,7 +49,7 @@
 | Source HTML | `crates/oasis7_viewer/viewer.html` | 手写 canonical HTML shell；只承载 document shell、stable anchors、bundle reference 和 minimal static metadata。 |
 | Compat HTML | `crates/oasis7_viewer/dist/software_safe.html` | 由 canonical `viewer.html` 生成的发布兼容副本；不得成为独立设计或 bundle 真值。 |
 | Source JS/JSX | `crates/oasis7_viewer/software_safe_src/**` | 手写 Viewer Web source truth；组件、state projection、services、fixtures 和 tests 必须在这里形成清晰边界。 |
-| Generated bundle | `crates/oasis7_viewer/viewer.js` | canonical generated bundle；由 build/finalize flow 写入，不手改。 |
+| Generated bundle | `crates/oasis7_viewer/dist/viewer.js` | canonical generated bundle；由 build/finalize flow 写入构建输出目录，不手改且不在源码根目录入库跟踪。 |
 | Compat bundle | `crates/oasis7_viewer/dist/software_safe.js` | generated compat alias；必须显式指向 canonical bundle，不能承载第二份 bundle logic。 |
 | Compat evidence page | `crates/oasis7_viewer/dist/software_safe_first_agent_claim_evidence.html` | 由 canonical claim fixture 生成的 served compatibility route；scenario data stays in the canonical fixture. |
 | Generated runtime | `crates/oasis7_viewer/dist/pixel-world-bridge/**` | finalize flow 管理的 runtime artifact；不是手写 source module。 |

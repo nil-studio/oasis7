@@ -94,7 +94,7 @@
 
 ## 6. 非承诺
 
-- 不承诺旧 EGUI 右栏、模块可见性缓存、专用 fullscreen toggle、固定断点或历史 Web 布局。
+- 不承诺早期旧右栏、模块可见性缓存、专用 fullscreen toggle、固定断点或历史 Web 布局。
 - 不定义 control profile、动作枚举、seek/step、逻辑时间/事件游标、ack 字段、字体、翻译键、localStorage/JSON 路径、WebSocket callback/backoff、viewport hit test 或 Test API。
 - 不以历史截图、旧测试、mock、software-safe 或局部 DOM 存在代签当前产品能力。
 

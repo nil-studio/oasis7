@@ -1,6 +1,6 @@
 # 客户端启动器区块链浏览器（当前 authority）
 
-> 本文是启动器区块链浏览器的当前需求 authority。它收敛五组 2026-03/04 专题中已经实现或记录的只读查询、七个业务视图与状态呈现合同；本轮已完成语义回填和活跃引用修复，日期化源三件套随之退役删除，追溯使用 Git 与 GitHub task issue evidence。
+> **职责与承接边界**：本文承载 `oasis7_web_launcher` 控制面 `/api/chain/explorer/*` 只读查询代理及查询一致性合同（H1～H4），供活跃 HTTP 消费者与后端专业合同对齐，不维护独立客户端启动器图形窗口。
 
 - 对应设计: `doc/world-simulator/launcher/game-client-launcher-blockchain-explorer.design.md`
 - 后端专业需求：[链 HTTP 提交与 Explorer 查询合同](../../p2p/blockchain/chain-http-submit-explorer-contract.prd.md)。请求身份、批次处置、索引和交易生命周期由该专题承接。
@@ -8,12 +8,12 @@
 
 ## 目标
 
-- launcher 的 native/Web 同源 explorer 让玩家、测试和运维人员在同一只读表面查看当前可得的链概览和查询结果，而不必依赖命令行日志。
+- 通过 `oasis7_web_launcher` 只读控制面代理（`/api/chain/explorer/*`）向授权调用方与受支持界面提供当前可得的链概览和结构化查询结果。
 
 ## 范围
 
-- 既有概览覆盖高度、节点/world 标识、最近区块或执行哈希及已有状态计数；七个业务视图为 `Blocks`、`Txs`、`Search`、`Address`、`Contracts`、`Assets`、`Mempool`。
-- 本文只收敛当前 launcher 表现层、既有控制面代理与可观察结果；不定义世界规则、余额/交易计算、索引策略或 runtime 状态演化。
+- 既有只读查询覆盖高度、节点/world 标识、最近区块或执行哈希、状态计数及 `blocks`、`txs`、`search`、`address`、`contracts`、`assets`、`mempool` 接口代理。
+- 本文只收敛控制面只读代理与可观察查询结果语义；不定义世界规则、余额/交易计算、索引策略或 runtime 状态演化。
 
 ## 当前合同
 

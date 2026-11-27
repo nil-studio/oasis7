@@ -6,7 +6,7 @@
 - 上位产品 PRD：[`prd.md`](prd.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-10-19
+- Last reviewed：2026-11-26
 - 公开状态权威：[`README.md`](../../../README.md)
 - 专业域权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 
@@ -25,20 +25,20 @@
 
 ## 2. 玩家访问模式
 
-- 正式 primary mode 只有 `viewer` 与 `pure_api`。前者提供 Web/UI 表面，后者提供无 UI 的正式玩家入口。
+- 正式 primary mode 只有 `viewer` 与 `pure_api`。前者提供唯一正式 Web/UI 玩家表面，后者提供无 UI 的正式玩家入口。
 - alias、provider、execution lane、deployment、hosted session 或兼容路径不会形成第三种玩家模式，也不代表更高发布等级；其中 `software_safe` 仅是 `viewer` 的兼容 alias，不是独立玩家模式、发行等级或 claim / evidence lane。
 - 每份可玩性、parity、observer 或 blocked 结论必须绑定一个 primary mode；`viewer` 与 `pure_api` 的证据不得互相代签。
 - `pure_api` 不是协议探针或自动化执行 lane 的别名。它只有在专业域规定的正式玩法前置与独立证据成立时，才能声明为可玩。
 
 ### 2.1 Launcher 交付表面边界
 
-Native 或 Web Launcher 是已声明 `viewer` / `pure_api` 路径的交付、控制与过渡表面，不是第三种玩家模式、发行等级或独立可玩性证明。首次使用时，玩家的窄承诺是：能够理解当前入口所服务的 primary mode、看到真实的 `blocked` / `observer` 状态，并获得不伪装为成功的可恢复下一步。稳定的首次引导与配置修复产品要求由 [Launcher 引导配置与可用性 PRD](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.prd.md) 承接；具体 UI、控制面、请求状态、持久化、运行时恢复与验证契约继续由 [`doc/world-simulator/launcher/README.md`](../../world-simulator/launcher/README.md) 及其专业域文档维护。
+Launcher 是已声明 `viewer` / `pure_api` 路径的本地交付、控制与过渡支撑，不是第三种玩家模式、发行等级或独立可玩性证明。玩家图形入口统一为 SolidJS Web `viewer`；Launcher 范围限定为无头进程编排与 HTTP JSON 控制面（`oasis7_launcher_backend`：`oasis7_game_launcher` 与 `oasis7_web_launcher`）。首次使用适用本地入口时，窄承诺保持为：能够理解当前入口所服务的 primary mode、看到真实的 `blocked` / `observer` 状态，并获得不伪装为成功的可恢复下一步。配置阶段、请求结果、控制面与运行时会话恢复边界由 [`doc/world-simulator/launcher/README.md`](../../world-simulator/launcher/README.md) 及其专业域文档维护。
 
-该承诺不声称当前已实现某个引导步骤、自动修复、fallback、配置保存或持续运行结果。成功打开 Launcher、完成本地 fallback、探针/console 可用或单次启动成功，都不能反向证明声明的 primary mode 已经可玩，也不能扩大公开发行 claim。
+该承诺不声称当前已实现某个引导步骤、自动修复、fallback、配置保存或持续运行结果。控制面可达、完成本地 fallback、探针/console 可用或单次启动成功，都不能反向证明声明的 primary mode 已经可玩，也不能扩大公开发行 claim。
 
 ### 2.2 受控 Launcher 动作
 
-在当前专业 authority 支持时，Launcher 可向玩家呈现配置、设置、反馈或转账等受控动作的真实 `executable`、`blocked`、`result` 与恢复下一步；不同平台可以使用不同输入字段、存储或控制面适配。该产品边界要求语义真实，而非界面相同：不得把浏览器存储或控制面可达解释为 WASM authority、授权、安全持久化或运行时成功；也不得把 runtime 的 submit acceptance/action ID 解释为 settlement、最终确认、完整持久历史、100% parity、primary-mode playability 或发行就绪。当前专业实现边界见 [跨表面受控动作契约](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md)。
+在当前无头控制面与后端专业 authority 支持时，Launcher 控制面或适用入口可对配置、反馈代理或链查询/提交动作返回真实的 `executable`、`blocked`、`result` 与恢复下一步。该产品边界要求语义真实：不得把浏览器存储或控制面可达解释为 WASM authority、授权、安全持久化或运行时成功；也不得把 runtime 的 submit acceptance/action ID 解释为 settlement、最终确认、完整持久历史、100% parity、primary-mode playability 或发行就绪。动作结果语义边界见 [跨表面受控动作契约](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md)。
 
 ## 3. 入口能力等价
 
@@ -252,7 +252,7 @@ Trace ID: O7-REQ-bafbce55-b1f3-414c-98e8-2cb5e70e6d1e
 - 实现状态：部分实现
 - 实现与验证依据：[native 反馈窗口](../../../crates/oasis7_client_launcher/src/feedback_window.rs)、[native 提交与本地回落](../../../crates/oasis7_client_launcher/src/feedback_entry.rs)、[Web 反馈窗口](../../../crates/oasis7_client_launcher/src/feedback_window_web.rs)已有各自门控与结果消费；这是源码审读，不代表同候选 UI 或网络验收。
 - 核对日期与基线：2026-11-03；源码 `d21019414c46d7e8ba61ab2c59b1f217b144ba88`；未执行运行、浏览器或真实反馈提交。
-- 剩余范围：支持正文的实际采用、当前声明入口的可用性、提交结果与恢复组合仍需按候选验证；本地文件和远端受理不等于人工已经接收处理。
+- 剩余范围：后续活跃候选仅按正式支持入口、Web `viewer` 与受支持控制面代理核验可用性、提交结果与恢复组合；本地文件和远端受理不等于人工已经接收处理。
 - 验收：[AC-ENTRY-PREVIEW-FEEDBACK-001](#ac-entry-preview-feedback-001)。
 
 <a id="ac-entry-preview-feedback-001"></a>
