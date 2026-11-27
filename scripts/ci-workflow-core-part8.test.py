@@ -186,8 +186,15 @@ def effective_job_condition(condition, values, ancestor_results, *, cancelled=Fa
                      {'contains': lambda collection, item: item in collection}))
 
 
-def validate_mold_identity_order(steps, *, trusted_image=False):
+def validate_mold_identity_order(steps, *, trusted_image=False, portable_worker=False):
     action = 'uses: ./.github/actions/setup-linux-mold'
+    if portable_worker:
+        assert action not in steps
+        action = 'run: python3 .github/actions/setup-linux-mold/setup.py --install-dir /opt/oasis7-mold/3.0.0-v1\n'
+        assert steps.count(action) == 1
+        guard = 'run: python3 scripts/ci-portable-cache-job.py worker\n'
+        assert steps.count(guard) == 1
+        assert steps.index('uses: actions/checkout@') < steps.index(guard) < steps.index(action)
     assert steps.count(action) == 1
     assert steps.index('uses: actions/checkout@') < steps.index(action)
     preflight = '          python3 scripts/ci-test-artifacts.py ordinary-image-preflight\n'
@@ -197,7 +204,8 @@ def validate_mold_identity_order(steps, *, trusted_image=False):
         exempt = steps.index(preflight) + preflight.index('ci-test-artifacts.py')
     for boundary in re.finditer(
             r'Swatinem/rust-cache@|actions/cache(?:/restore)?@|'
-            r'ci-workspace-cache\.py|ci-ecs-cache\.py|ci-test-artifacts\.py', steps):
+            r'ci-workspace-cache\.py|ci-ecs-cache\.py|ci-test-artifacts\.py|'
+            r'portable-cache-transport|ci-worker-build\.py', steps):
         # This exact command checks cwd/source/OS, without deriving a cache or
         # artifact identity. Every actual identity operation still follows mold.
         if boundary.start() != exempt:
@@ -232,7 +240,21 @@ class WorkflowCorePart8(unittest.TestCase):
                     steps = jobs[name].split('    steps:', 1)[1]
                     validate_mold_identity_order(steps, trusted_image=(
                         filename == 'rust.yml' and name == 'oasis7-test-build-trusted'
+                        and '    container:' in jobs[name]), portable_worker=(
+                        filename == 'rust-cache.yml' and name == 'worker-build-cache'
                         and '    container:' in jobs[name]))
+
+    def test_portable_worker_requires_the_exact_direct_mold_before_archive_identity(self):
+        job = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']
+        steps = job.split('    steps:', 1)[1]
+        validate_mold_identity_order(steps, portable_worker=True)
+        action = 'run: python3 .github/actions/setup-linux-mold/setup.py --install-dir /opt/oasis7-mold/3.0.0-v1'
+        for changed in (steps.replace(action, action + '-foreign'),
+                        steps.replace('ci-portable-cache-job.py worker', 'ci-portable-cache-job.py browser'),
+                        steps.replace(action, 'echo removed') + '\n' + action,
+                        steps + '\nuses: ./.github/actions/setup-linux-mold'):
+            with self.subTest(steps=changed), self.assertRaises(AssertionError):
+                validate_mold_identity_order(changed, portable_worker=True)
 
     def test_mold_identity_order_only_exempts_exact_trusted_image_preflight(self):
         steps = ('uses: actions/checkout@pin\n'
