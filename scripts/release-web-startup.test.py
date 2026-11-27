@@ -32,6 +32,29 @@ class StartupTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fixture process exited: status=23", result.stderr)
 
+    def test_fixture_build_selects_the_full_tier_chain_runtime_test_elf(self):
+        library = ROOT / "scripts/release-web-fixture-lib.sh"
+        script = """
+source "$1"
+oasis7_cargo_dev() {
+  if [[ "$*" != "test -p oasis7_chain_runtime --lib --features test_tier_full --no-run --message-format=json" ]]; then
+    printf 'unexpected Cargo arguments: %s\n' "$*" >&2
+    return 29
+  fi
+  printf '%s\n' '{"reason":"compiler-artifact","target":{"name":"oasis7_chain_runtime"},"profile":{"test":false},"executable":"/fixture/ordinary"}'
+  printf '%s\n' '{"reason":"compiler-artifact","target":{"name":"oasis7_chain_runtime"},"profile":{"test":true},"executable":"/fixture/chain-runtime-test"}'
+}
+release_web_fixture_build "$2" || exit $?
+test "$release_web_fixture_bin" = /fixture/chain-runtime-test
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = pathlib.Path(directory) / "fixture-build.json"
+            result = subprocess.run(
+                ["bash", "-c", script, "bash", str(library), str(manifest)],
+                capture_output=True, text=True, timeout=10,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_configuration_rejects_unsafe_scope_and_permissions_without_key_leak(self):
         library = ROOT / "scripts/release-web-fixture-lib.sh"
         names = ('ENDPOINT', 'PUBLIC_KEY', 'WORLD_ID', 'GENESIS_DIGEST', 'SCOPE', 'READ_PRIVATE_KEY')
