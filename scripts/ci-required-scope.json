@@ -121,7 +121,6 @@
       {"package": "oasis7_hosted_access", "target_kind": "lib", "target_name": "oasis7_hosted_access", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 594},
       {"package": "oasis7_launcher_backend", "target_kind": "bin", "target_name": "oasis7_game_launcher", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8452},
       {"package": "oasis7_launcher_backend", "target_kind": "bin", "target_name": "oasis7_web_launcher", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 108},
-      {"package": "oasis7_launcher_config", "target_kind": "lib", "target_name": "oasis7_launcher_config", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2},
       {"package": "oasis7_letai_credit_adapter", "target_kind": "lib", "target_name": "oasis7_letai_credit_adapter", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 16},
       {"package": "oasis7_newapi_bridge_service", "target_kind": "bin", "target_name": "oasis7_newapi_bridge_service", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 653},
       {"package": "oasis7_observability", "target_kind": "lib", "target_name": "oasis7_observability", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2},
@@ -579,18 +578,6 @@
         "executable_image::replacement_tests::expectations::platform_report_accepts_the_platform_result",
         "executable_image::replacement_tests::expectations::report_matches_whole_lines_without_accepting_a_digest_prefix"
       ]
-    },
-    "launcher-config-lib": {
-      "package": "oasis7_launcher_config",
-      "target_kind": "lib",
-      "target_name": "oasis7_launcher_config",
-      "default_features": false,
-      "features": [],
-      "cases": [
-        "tests::default_chain_replication_bootstrap_peers_match_official_anchor_domains",
-        "tests::parse_chain_replication_bootstrap_peer_accepts_valid_multiaddr",
-        "tests::parse_chain_replication_bootstrap_peer_rejects_non_multiaddr"
-      ]
     }
   },
   "ordinary_fast_rules": [
@@ -895,18 +882,6 @@
     },
     {
       "match": [
-        "crates/oasis7_launcher_config/src/**"
-      ],
-      "exclude": [
-        "crates/oasis7_launcher_config/src/bin/**"
-      ],
-      "targets": [
-        "launcher-config-lib"
-      ],
-      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_launcher_config"
-    },
-    {
-      "match": [
         "crates/oasis7_runtime/src/world/incremental_*.rs",
         "crates/oasis7_world_state/src/incremental_*.rs"
       ],
@@ -924,7 +899,7 @@
     "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
     "oasis7_provider_local_bridge", "oasis7_provider_tools", "oasis7_viewer_runtime",
     "oasis7_viewer_codec", "oasis7_observability", "oasis7_hosted_access",
-    "oasis7_letai_credit_adapter", "oasis7_launcher_config", "oasis7_wasm_materializer",
+    "oasis7_letai_credit_adapter", "oasis7_wasm_materializer",
     "oasis7_game_client", "oasis7_browser_game_client", "oasis7_cas", "oasis7_formal_protocol"
   ],
   "oasis7_required_wasm_packages": [
@@ -2323,7 +2298,6 @@
     "oasis7_chain_runtime": {"ordinary_package": true, "full_tier_requires_host_docker": true, "host_docker_wasm_fixtures": ["builtin_test_modules", "provider_preview_wasm"]},
     "oasis7_client_api": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_client_api", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_client_cli": {"ordinary_package": true},
-    "oasis7_client_launcher": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_client_launcher", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_client_storage": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_client_storage", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_consensus": {"ordinary_package": false, "group_library_proof": {"group": "consensus"}},
     "oasis7_context": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_context", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
@@ -2337,8 +2311,6 @@
     "oasis7_game_client": {"ordinary_package": true, "support_profile": {"profile_id": "oasis7_game_client", "partition": "other", "requires_host_runner": true, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_hosted_access": {"ordinary_package": true},
     "oasis7_launcher_backend": {"ordinary_package": true},
-    "oasis7_launcher_config": {"ordinary_package": true},
-    "oasis7_launcher_ui": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_launcher_ui", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_letai_credit_adapter": {"ordinary_package": true},
     "oasis7_local_signer": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_local_signer", "partition": "other", "requires_host_runner": true, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_model_provider": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_model_provider", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
@@ -2417,12 +2389,6 @@
     ],
     "pixel_world_bridge": [
       "pixel_world_bridge"
-    ],
-    "oasis7_client_launcher": [
-      "workspace_support"
-    ],
-    "oasis7_launcher_ui": [
-      "workspace_support"
     ],
     "oasis7_proto": [
       "workspace_support"
@@ -2517,9 +2483,6 @@
       "fleet_health"
     ],
     "oasis7_letai_credit_adapter": [
-      "oasis7_required"
-    ],
-    "oasis7_launcher_config": [
       "oasis7_required"
     ],
     "oasis7_wasm_materializer": [

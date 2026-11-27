@@ -1,9 +1,0 @@
-[package]
-name = "oasis7_launcher_config"
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
-
-[dependencies]
-multiaddr = "0.19"
-oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }

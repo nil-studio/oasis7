@@ -626,7 +626,6 @@ run_oasis7_workspace_support_crate_tests() {
     -p oasis7_browser_game_client \
     -p oasis7_client_api \
     -p oasis7_local_signer \
-    -p oasis7_launcher_ui \
     -p oasis7_proto \
     -p oasis7_wasm_abi \
     -p oasis7_wasm_build \
@@ -643,7 +642,6 @@ run_oasis7_workspace_support_crate_tests() {
   run_cargo test -p oasis7_wasm_executor --features wasmtime --all-targets --locked
   run_cargo test -p oasis7_secure_envelope -p oasis7_context --all-targets --locked
   run_cargo test -p oasis7_local_signer --test context_cli --locked
-  run_cargo test -p oasis7_client_launcher --bin oasis7_client_launcher
   # Native tool tests build the real template with the installed stable WASM target.
   OASIS7_WASM_BUILD_STD=0 run_cargo test -p wasm_build_suite -p wasm_module_observe
 }
@@ -664,9 +662,9 @@ _S2_FALLBACK_SUPPORT = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api',
     'oasis7_game_client', 'oasis7_model_provider', 'oasis7_client_storage', 'oasis7_domain_types',
     'oasis7_signer_protocol', 'oasis7_custody_core', 'oasis7_custody_worker', 'oasis7_dev_test_worker',
-    'oasis7_local_signer', 'oasis7_launcher_ui', 'oasis7_proto', 'oasis7_wasm_abi', 'oasis7_wasm_build',
+    'oasis7_local_signer', 'oasis7_proto', 'oasis7_wasm_abi', 'oasis7_wasm_build',
     'oasis7_wasm_router', 'oasis7_wasm_sdk', 'oasis7_wasm_store', 'pixel_world_bridge',
-    'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context', 'oasis7_client_launcher',
+    'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
     'wasm_build_suite', 'wasm_module_observe',
 )
 _S2_FALLBACK_HOST = frozenset({'oasis7_game_client', 'oasis7_local_signer'})
@@ -711,11 +709,18 @@ if plan_input:
         profiles = _s2_legacy_support_contract(plan, cand_profiles, cand_host)['selected_profiles']
 else:
     profiles = json.loads(raw)
+full_policy_transition = (
+    plan_input and plan.get('test_policy_changed') is True and plan.get('scope') == 'full'
+)
 if (not isinstance(profiles, list) or not profiles or
-        any(not isinstance(p, str) for p in profiles) or
+        any(not isinstance(p, str) or not p for p in profiles) or
         len(set(profiles)) != len(profiles) or
-        not set(profiles).issubset(cand_profiles)):
+        (not full_policy_transition and not set(profiles).issubset(cand_profiles))):
     raise SystemExit('invalid or missing workspace support profiles')
+# A trusted base planner cannot name newly extracted packages or drop retired
+# ones during a policy transition. Full scope always expands to the candidate
+# inventory after validating its shape, so an additive or retiring profile
+# never narrows or breaks the full support job.
 if plan_input and plan.get('scope') == 'full':
     profiles = list(cand_profiles)
     host_profiles = cand_host
@@ -776,7 +781,6 @@ PY
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;
-      oasis7_client_launcher) run_cargo test -p "$profile" --bin oasis7_client_launcher ;;
       wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" ;;
       *) run_cargo test -p "$profile" --lib ;;
     esac

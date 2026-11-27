@@ -135,7 +135,7 @@ Trace ID: O7-REQ-50ef76f3-2e7e-46c6-9154-54b1eb900e57
 4. 只返回本地固定分类/说明，可附本地 endpoint 枚举（info/health）、数字 HTTP status 和饱和有界计数。至少区分 unauthorized、其他 HTTP failure、timeout、transport/read failure、response_too_large、decode failure；保留既有 UI 状态含义，不把任意错误归兼容失败。非 2xx 可在状态头处直接拒绝而不读 body；若读取任何 body，预算一律适用。
 5. 错误投影禁止透传供应商 body、任意 error/message、网络库原始错误或包含 token/query/userinfo 的 URL，UI、本地日志与 Debug/Display 使用同一安全摘要。成功 health 中的 `last_error` 也是诊断自由文本，不能因 2xx 直接写 UI/log；映射固定 provider-reported-error 或明确 allowlist 分类，保留 health/兼容结果本身。不改变其余合法结构化 info/health 的业务判定，也不宣称所有成功文本字段已完成通用隐私治理。
 
-[HTTP client](../../../crates/oasis7_client_launcher/src/launcher_core_http.rs) 通过有界 reader 累计读取至上限加一字节，并在解析前拒绝超限；401/非 2xx 在状态头处拒绝。固定错误摘要通过 [status](../../../crates/oasis7_client_launcher/src/provider_check_status.rs) 与现有日志入口投影。成功业务字段仍按第 5 条的范围处理。
+历史 HTTP client（原 `crates/oasis7_client_launcher/src/launcher_core_http.rs`，已随 #7326 下线）通过有界 reader 累计读取至上限加一字节，并在解析前拒绝超限；401/非 2xx 在状态头处拒绝。固定错误摘要通过原 status（`crates/oasis7_client_launcher/src/provider_check_status.rs`）与现有日志入口投影。成功业务字段仍按第 5 条的范围处理。
 
 离线验收须在真实 HTTP reader 与 status/log seam 覆盖：缺长度、虚假长度、chunked、压缩（启用时）、恰好上限/上限加一、超大合法/畸形 body、慢响应和读中断；断言预算生效且超限不保留 body。401/其他非 2xx/坏 JSON/2xx health.last_error 放短 canary，断言 UI 和本地日志均无原文；检查固定分类、info/health 次序和原兼容/降级正例不变。不调用真实付费 provider；可复用回归位于 `config_ui_provider_probe_tests.rs` 与 HTTP reader 的预算测试。HTTP 库按小 Content-Length 提前结束的响应只允许已解码字节进入 JSON，帧外字节不能绕过预算。测试不代签异步/取消 UX 或反馈导出隐私验收。
 

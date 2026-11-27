@@ -85,7 +85,7 @@ class ViewerNpmLockScopeTests(_ScopeFixtureBase):
         clean_manifests = {pkg: (directory, {}) for pkg, (directory, _) in real_manifests.items()}
         graph = (clean_manifests, real_reverse, {})
         sample_inputs = (
-            'crates/oasis7_client_launcher/src/main.rs',
+            'crates/oasis7_proto/src/lib.rs',
             'crates/oasis7_launcher_backend/src/lib.rs',
         )
         for rel_path in sample_inputs:

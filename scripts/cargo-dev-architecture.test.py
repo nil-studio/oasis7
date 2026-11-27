@@ -72,7 +72,7 @@ class RepositoryUpstreams(unittest.TestCase):
         pure_l0 = {
             'oasis7_agent_api', 'oasis7_client_api', 'oasis7_formal_protocol',
             'oasis7_proto', 'oasis7_wasm_abi', 'oasis7_wasm_sdk',
-            'oasis7_secure_envelope', 'oasis7_signer_protocol', 'oasis7_launcher_ui',
+            'oasis7_secure_envelope', 'oasis7_signer_protocol',
             'oasis7_domain_types',
         }
         members = tomllib.loads((HERE.parent / 'Cargo.toml').read_text(encoding='utf-8'))['workspace']['members']

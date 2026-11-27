@@ -167,7 +167,7 @@ Trace refs: O7-REQ-eb290f7e-b49e-42dc-ba88-016ed9c87808。承接[最小反馈与
 | GitHub / 已授权渠道记录 | 公开协作、复现和处置；按实际平台权限访问 | 本设计未核实平台保留、编辑历史或删除能力；不能保证关单后删除、全副本撤回或固定保存期 |
 | 运营汇总 | 从已有记录统计有效信号、分桶、重复误解、未结阻断和实际处置 | 只保留必要脱敏摘要与原记录定位，不新增个人档案、隐藏遥测或原始诊断副本；原证据依其既有权限与保留合同管理 |
 
-技术来源为 [native 传输与本地包](../../../crates/oasis7_client_launcher/src/feedback_entry.rs)、[Web 请求](../../../crates/oasis7_client_launcher/src/feedback_window_web.rs)、[runtime 请求构造](../../../crates/oasis7_chain_runtime/src/host/feedback_submit_api.rs)、[节点派生 signer](../../../crates/oasis7_chain_runtime/src/host/signer_derivation.rs)、[提交连接来源](../../../crates/oasis7_chain_runtime/src/host/status_server_support.rs)、[DistFS 记录与公开视图](../../../crates/oasis7_distfs/src/feedback.rs)和[复制入库](../../../crates/oasis7_distfs/src/feedback/replication.rs)。这些是固定输入审读接点，不是本候选已运行的证据。
+技术来源为原 `crates/oasis7_client_launcher/src/feedback_entry.rs`（native 传输与本地包）、`crates/oasis7_client_launcher/src/feedback_window_web.rs`（Web 请求）、[runtime 请求构造](../../../crates/oasis7_chain_runtime/src/host/feedback_submit_api.rs)、[节点派生 signer](../../../crates/oasis7_chain_runtime/src/host/signer_derivation.rs)、[提交连接来源](../../../crates/oasis7_chain_runtime/src/host/status_server_support.rs)、[DistFS 记录与公开视图](../../../crates/oasis7_distfs/src/feedback.rs)和[复制入库](../../../crates/oasis7_distfs/src/feedback/replication.rs)。这些是固定输入审读接点，不是本候选已运行的证据。
 
 **只追加记录的撤回限制。** root/event 不物理删除；tombstone 是追加事件。当前 `to_public_view` 在 `tombstoned=true` 时仍返回原 `content` 与 append events，因此标记撤回不能解释为正文已隐藏。runtime 的七天 `FEEDBACK_TTL_MS` 用于签名请求有效期，不是保存期限；到期不会据此证明历史记录或副本删除。复制受原网络权限约束，但没有私密受理、全节点及时一致或全副本擦除保证。
 
