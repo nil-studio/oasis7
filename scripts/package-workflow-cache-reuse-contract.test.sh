@@ -742,7 +742,7 @@ for workflow in (release, mainnet):
             assert "git rev-parse --verify 'HEAD^{commit}'" in body
 
 launcher = root / "scripts/ci-release-runtime-sync-image.sh"
-if any("Stage runtime sync launcher" in workflow for workflow in (release, mainnet)):
+if any("Select runtime sync image" in workflow for workflow in (release, mainnet)):
     with tempfile.TemporaryDirectory() as directory:
         checkout = Path(directory)
         subprocess.run(["git", "init", "-q", str(checkout)], check=True)

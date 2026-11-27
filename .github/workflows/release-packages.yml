@@ -292,11 +292,6 @@ jobs:
           sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
-      - name: Stage runtime sync launcher from the executing workflow
-        shell: bash
-        run: |
-          test "$(git rev-parse HEAD)" = "$GITHUB_WORKFLOW_SHA"
-          git show HEAD:scripts/ci-release-runtime-sync-image.sh >"$RUNNER_TEMP/oasis7-runtime-sync-image.sh"
       # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -312,7 +307,10 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
-        run: bash "$RUNNER_TEMP/oasis7-runtime-sync-image.sh" --select
+        run: |
+          launcher="$RUNNER_TEMP/oasis7-runtime-sync-image.sh"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/ci-release-runtime-sync-image.sh" >"$launcher"
+          bash "$launcher" --select
       - name: Install pinned Rust toolchain
         if: steps.sync-image.outputs.enabled == 'false'
         run: |
