@@ -271,6 +271,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
         permitted: Arc<AtomicBool>,
         reads: AtomicUsize,
         charges: AtomicU64,
+        deny_charge: AtomicBool,
     }
     impl ProtectedOriginalAdmissionAuthorityV2 for Authority {
         fn current_context(
@@ -314,8 +315,8 @@ fn real_original_admission_noise_is_bound_and_charged() {
             _: &VerifiedAdmissionBatchSubjectV2,
             outer: u64,
         ) -> Result<(), String> {
-            if outer == 0 {
-                return Err("empty outer charge".into());
+            if outer == 0 || self.deny_charge.load(Ordering::SeqCst) {
+                return Err("protected original charge/readback refused".into());
             }
             self.charges.fetch_add(outer, Ordering::SeqCst);
             Ok(())
@@ -382,6 +383,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
         permitted: Arc::new(AtomicBool::new(true)),
         reads: AtomicUsize::new(0),
         charges: AtomicU64::new(0),
+        deny_charge: AtomicBool::new(false),
     });
     let _service = NodeBftOriginalAdmissionNoiseV2::new(
         server.clone(),
@@ -442,5 +444,20 @@ fn real_original_admission_noise_is_bound_and_charged() {
             .is_err()
     );
     assert_eq!(authority.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(authority.charges.load(Ordering::SeqCst), previous_charge);
+    // A protected charge/readback failure must never deliver confidential
+    // material, even when signature, Noise identity and generation match.
+    authority.generation.store(7, Ordering::SeqCst);
+    authority.deny_charge.store(true, Ordering::SeqCst);
+    assert!(
+        client
+            .request_authenticated_to_peer_with_timeout(
+                PROTOCOL_V2,
+                &request.encode().unwrap(),
+                server.peer_id(),
+                Duration::from_secs(3),
+            )
+            .is_err()
+    );
     assert_eq!(authority.charges.load(Ordering::SeqCst), previous_charge);
 }
