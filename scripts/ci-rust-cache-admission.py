@@ -57,12 +57,16 @@ FAMILIES = {
                   '.github/workflows/ecs-packages.yml', 'native-trusted'),
     'release-web': ('release-packages-web-wasm-trusted-v3', '.github/workflows/rust-cache.yml', 'web-wasm-cache'),
     'release-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
+    'release-linux-image': ('oasis7-package-native-linux-x64-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
+                            '.github/workflows/release-packages.yml', 'package-native'),
     'release-windows': ('release-packages-package-native-Windows-native-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'release-macos': ('release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'hosted-login-release': (
         'hosted-login-linux-x86-64-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb',
         '.github/workflows/hosted-login-linux-build.yml', 'warm-linux-release-deps'),
     'testnet-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
+    'testnet-linux-image': ('oasis7-package-native-linux-x64-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
+                            '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
 }
 COMPONENT_IMAGE_FAMILIES = frozenset(('rust-image-components', 'rust-image-net',
                                     'rust-image-launcher', 'rust-image-tooling', 'rust-image-support'))
@@ -170,7 +174,7 @@ def trusted_writer(environment, api):
             selected = False
         if not selected:
             raise AdmissionError('manual dependency upload requires run_mode=' + '|'.join(modes))
-    package_source = family.startswith('release-') or family in ('testnet-linux', 'hosted-login-release')
+    package_source = family.startswith('release-') or family in ('testnet-linux', 'testnet-linux-image', 'hosted-login-release')
     if package_source:
         if (environment.get('OASIS7_DEPENDENCY_CACHE_SOURCE_SHA') != sha
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
@@ -185,6 +189,10 @@ def trusted_writer(environment, api):
         if (environment.get('RUST_ECS_NATIVE_IMAGE') != expected_image
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('ECS dependency upload requires its exact image and GitHub provider')
+    if family in ('release-linux-image', 'testnet-linux-image'):
+        expected_image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.rsplit('-image-', 1)[1]
+        if environment.get('RUST_PACKAGE_NATIVE_IMAGE') != expected_image:
+            raise AdmissionError('native package dependency upload requires its exact image')
     if component_image or ordinary_image or family in ('shared-native', 'rust-image-native', 'ecs-image') or package_source:
         try:
             # The plan must still describe the actual checkout after the build.
@@ -197,7 +205,7 @@ def trusted_writer(environment, api):
             raise AdmissionError('dependency source HEAD could not be verified') from None
         if head != sha:
             raise AdmissionError('dependency source HEAD does not match the trusted main source')
-    if family == 'testnet-linux':
+    if family in ('testnet-linux', 'testnet-linux-image'):
         try:
             inputs = json.loads(Path(environment.get('GITHUB_EVENT_PATH', '')).read_text()).get('inputs', {})
             selected = inputs.get('package_scope') == 'linux_only' and inputs.get('build_profile') == 'packaging'

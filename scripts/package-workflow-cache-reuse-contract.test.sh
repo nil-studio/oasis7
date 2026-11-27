@@ -131,6 +131,7 @@ for ref, event, source, workflow, scope, profile, expected in (
     assert selected(candidate_condition) != expected, "native lanes must be mutually exclusive and exhaustive"
 
 linux_keys: list[str] = []
+linux_images: list[str] = []
 expected_non_linux_keys = {
     "testnet-packages-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2",
     "release-packages-package-native-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2",
@@ -158,9 +159,20 @@ for path in workflow_paths:
     linux_key = re.search(r"^          shared-key: (?P<key>.+)$", linux[0], re.MULTILINE)
     assert linux_key, f"{path.name} Linux cache must declare shared-key"
     linux_keys.append(linux_key.group("key"))
-    assert "${{ runner.os }}" in linux_key.group("key")
-    assert "${{ matrix.target_triple }}" in linux_key.group("key")
-    assert "${{ inputs.build_profile }}" in linux_key.group("key") or "packaging" in linux_key.group("key")
+    native = re.search(r"(?ms)^  package-native:\n.*?(?=^  [a-z][a-z0-9_-]+:|\Z)", workflow)[0]
+    image = re.search(r"image: \$\{\{ matrix\.os == 'ubuntu-24\.04' && '(ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64}))' \|\| '' \}\}", native)
+    if image:
+        linux_images.append(image[1])
+        profile = "${{ inputs.build_profile }}" if path.name == "testnet-packages.yml" else "packaging"
+        assert linux_key["key"] == f"oasis7-package-native-linux-x64-{profile}-image-{image[2]}"
+        assert "RUST_PACKAGE_NATIVE_IMAGE: " + image[1] in linux[0]
+        assert "steps.source-toolchain.outputs.image_toolchain == 'true'" in linux[0]
+        assert "cache-provider: github" in linux[0]
+        assert "options: --user 1001:1001 --init" in native
+    else:
+        assert "${{ runner.os }}" in linux_key["key"]
+        assert "${{ matrix.target_triple }}" in linux_key["key"]
+        assert "${{ inputs.build_profile }}" in linux_key["key"] or "packaging" in linux_key["key"]
     assert "github.ref_name" not in linux_key.group("key")
     assert "GITHUB_REF_NAME" not in linux_key.group("key")
     assert "cache-on-failure: false" in linux[0], f"{path.name} Linux cache must save successful jobs only"
@@ -169,6 +181,9 @@ for path in workflow_paths:
         "testnet-packages.yml": "save-if: ${{ job.status == 'success' && github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}",
         "mainnet-packages.yml": "save-if: false",
     }
+    if image and path.name == "testnet-packages.yml":
+        expected_save[path.name] = expected_save[path.name].replace(
+            "job.status == 'success' &&", "job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' &&")
     assert expected_save[path.name] in linux[0], (
         f"{path.name} Linux cache must only save when checkout matches the trusted branch"
     )
@@ -206,6 +221,7 @@ for path in workflow_paths:
 normalized_linux_keys = {
     key.replace("${{ inputs.build_profile }}", "packaging") for key in linux_keys
 }
+assert not linux_images or len(linux_images) == len(workflow_paths) and len(set(linux_images)) == 1
 assert len(normalized_linux_keys) == 1, (
     "Testnet packaging profile=packaging, Mainnet, and Release Linux caches must share one key"
 )
@@ -634,9 +650,16 @@ for workflow, name, source in ((release, "package-native", "needs.plan.outputs.c
                        {source: "old-source"}):
             assert not evaluate(save, context | change), (name, change)
 testnet_linux = next(step for step in cache_steps(testnet, workflow_paths[0]) if "if: runner.os == 'Linux'" in step)
-assert "steps.dependency-cache-tools.outcome == 'success'" in testnet_linux
-assert "PATH: ${{ steps.dependency-cache-tools.outputs.path }}" in testnet_linux
-assert "OASIS7_DEPENDENCY_CACHE_FAMILY: testnet-linux" in testnet_linux
+if linux_images:
+    assert "NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}" in testnet_linux
+    assert "OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}" in testnet_linux
+    assert "OASIS7_DEPENDENCY_CACHE_FAMILY: testnet-linux-image" in testnet_linux
+    mainnet_linux = next(step for step in cache_steps(mainnet, workflow_paths[1]) if "if: runner.os == 'Linux'" in step)
+    assert "NODE_OPTIONS:" not in mainnet_linux and "GH_TOKEN:" not in mainnet_linux
+else:
+    assert "steps.dependency-cache-tools.outcome == 'success'" in testnet_linux
+    assert "PATH: ${{ steps.dependency-cache-tools.outputs.path }}" in testnet_linux
+    assert "OASIS7_DEPENDENCY_CACHE_FAMILY: testnet-linux" in testnet_linux
 assert "cache-provider: github" in testnet_linux
 
 # An older planned tag may not contain the normalizer. Both the normalizer and
