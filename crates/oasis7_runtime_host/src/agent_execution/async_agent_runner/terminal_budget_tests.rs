@@ -22,7 +22,7 @@ fn final_fixture() -> (
         .unwrap();
     let mut terminal = old.clone();
     terminal.remaining_budget.value = 0;
-    terminal.status = crate::runtime::ContinuationStatusV1::Completed;
+    terminal.status = oasis7_runtime::ContinuationStatusV1::Completed;
     terminal.terminal_disposition = Some("budget_exhausted".into());
     terminal.logical_tick += 1;
     terminal.refresh_status_digest();

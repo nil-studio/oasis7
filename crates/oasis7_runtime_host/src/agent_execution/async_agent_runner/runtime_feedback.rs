@@ -1,7 +1,7 @@
 use super::feedback::RuntimeReceiptReadbackVerifier;
 use super::*;
 #[cfg(test)]
-use crate::runtime::RuntimeFeedbackOutboxRecordV1;
+use oasis7_runtime::RuntimeFeedbackOutboxRecordV1;
 use oasis7_agent_harness::MemoryWritePolicyContextV1 as HarnessMemoryWritePolicyContextV1;
 
 fn runtime_receipt_from_api_projection(
@@ -191,7 +191,7 @@ impl AsyncAgentRunner {
                     .and_then(|lineage| lineage.receipt_lineage.as_ref())
                     .map(runtime_receipt_from_api_projection);
                 self.remember_runtime_feedback_replay(
-                    &super::super::agent_api_compat::feedback_from_api(projection.feedback),
+                    &crate::agent_api_compat::feedback_from_api(projection.feedback),
                     receipt_lineage,
                 );
             }
@@ -337,7 +337,7 @@ impl AsyncAgentRunner {
                     ));
                 }
                 Ok(oasis7_agent_harness::FeedbackHistoryProjection {
-                    feedback: super::super::agent_api_compat::feedback_to_api(&feedback),
+                    feedback: crate::agent_api_compat::feedback_to_api(&feedback),
                     acknowledged: record.state == "acked",
                     lineage: Some(oasis7_agent_harness::FeedbackHistoryLineage {
                         original_envelope_digest: record.envelope_digest.clone(),
@@ -412,7 +412,7 @@ impl AsyncAgentRunner {
         let native_before = self.rejected_wait_test_ledger_digests();
         let result = self.harness.accept_feedback_with_persistence_observed(
             harness_turn,
-            super::super::agent_api_compat::feedback_to_api(&feedback),
+            crate::agent_api_compat::feedback_to_api(&feedback),
             |_harness_cognition_digest| {
                 *memory = staged_memory.clone();
                 #[cfg(any(test, feature = "test_tier_required"))]
@@ -482,7 +482,7 @@ impl AsyncAgentRunner {
         readback: Option<&super::feedback::RuntimeReceiptReadbackHandleV1>,
         store: &mut MemoryWriteStore,
     ) -> Result<(), AsyncAgentRunnerError> {
-        let harness_feedback = super::super::agent_api_compat::feedback_to_api(&feedback);
+        let harness_feedback = crate::agent_api_compat::feedback_to_api(&feedback);
         if self
             .harness
             .replay_feedback(&harness_feedback)
@@ -558,7 +558,7 @@ impl AsyncAgentRunner {
             self.harness
                 .accept_feedback_with_persistence(
                     harness_turn,
-                    super::super::agent_api_compat::feedback_to_api(&feedback),
+                    crate::agent_api_compat::feedback_to_api(&feedback),
                     || Ok(()),
                 )
                 .map_err(map_harness_error)?;
@@ -569,7 +569,7 @@ impl AsyncAgentRunner {
             self.harness
                 .accept_compatibility_feedback(
                     harness_turn,
-                    super::super::agent_api_compat::feedback_to_api(&feedback),
+                    crate::agent_api_compat::feedback_to_api(&feedback),
                 )
                 .map_err(map_harness_error)?;
             if let Some(staged) = staged_memory {
@@ -619,7 +619,7 @@ impl AsyncAgentRunner {
         agent_id: &str,
         feedback: FeedbackEnvelopeV1,
         runtime_receipt: &RuntimeReceiptLineageV1,
-        response_identity: &super::super::continuous_agent_harness::ResponseArtifactIdentityV1,
+        response_identity: &crate::agent_execution::continuous_agent_harness::ResponseArtifactIdentityV1,
         verifier: &dyn RuntimeReceiptReadbackVerifier,
         store: &mut MemoryWriteStore,
     ) -> Result<(), AsyncAgentRunnerError> {

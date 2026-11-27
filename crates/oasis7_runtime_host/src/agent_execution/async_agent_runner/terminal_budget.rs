@@ -1,7 +1,7 @@
 //! Atomic local projection of an authenticated canonical final budget debit.
 use super::{AsyncAgentRunner, AsyncAgentRunnerError};
-use crate::runtime::{AgentContinuation, ContinuationStatusV1};
-use crate::simulator::{ContinuationAuthorityContextV1, ContinuationProposalV1};
+use oasis7_runtime::{AgentContinuation, ContinuationStatusV1};
+use crate::cognition_policy::{ContinuationAuthorityContextV1, ContinuationProposalV1};
 
 impl AsyncAgentRunner {
     #[cfg(not(target_arch = "wasm32"))]
@@ -123,7 +123,7 @@ impl AsyncAgentRunner {
         if expected != terminal {
             return Err(error("final budget changed unrelated canonical identity"));
         }
-        let mut bound: crate::runtime::CognitionContinuationProposalV1 = serde_json::from_value(
+        let mut bound: oasis7_runtime::CognitionContinuationProposalV1 = serde_json::from_value(
             serde_json::to_value(proposal).map_err(|e| error(&e.to_string()))?,
         )
         .map_err(|e| error(&e.to_string()))?;

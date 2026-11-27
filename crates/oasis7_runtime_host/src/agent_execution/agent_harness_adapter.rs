@@ -4,7 +4,7 @@
 //! admission. This adapter keeps simulator observations and behavior callbacks
 //! in Oasis while ensuring providers never receive Runtime or World access.
 
-use super::super::archive::WorldEvent;
+use crate::simulator_archive::archive::WorldEvent;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
@@ -19,33 +19,33 @@ use oasis7_agent_harness::{
     DecisionProviderError as HarnessProviderError, cognition_response_digest,
 };
 
-use super::super::agent::{ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace};
-use super::super::continuous_agent_harness::{
+use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1,
 };
-use super::super::decision_provider::MemoryWriteIntent;
+use crate::agent::{ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace};
+use crate::decision_provider::MemoryWriteIntent;
 use oasis7_simulator::Action;
 use oasis7_simulator::Observation;
 use oasis7_simulator::WorldTime;
 
-pub(super) type ProductionKey = (String, String, String, u64, u64);
+pub(crate) type ProductionKey = (String, String, String, u64, u64);
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct BehaviorTurnResult {
+pub(crate) struct BehaviorTurnResult {
     pub decision: AgentDecision,
     pub decision_trace: Option<AgentDecisionTrace>,
     pub prepared_context: Option<ContinuousAgentTurnContextV1>,
     pub prepared_response_context: Option<ContinuousAgentResponseContextV1>,
     #[cfg(not(target_arch = "wasm32"))]
-    pub provider_original_material_refs: Option<crate::simulator::ProviderOriginalMaterialRefsV1>,
+    pub provider_original_material_refs: Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1>,
     #[cfg(not(target_arch = "wasm32"))]
     pub provider_response_context_lease:
-        Option<crate::simulator::provider_json_admission::ProviderResponseContextLease>,
+        Option<crate::provider_json_admission::ProviderResponseContextLease>,
     pub memory_write_intents: Vec<MemoryWriteIntent>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum BehaviorCallback {
+pub(crate) enum BehaviorCallback {
     ActionResult(Box<ActionResult>),
     Event(Box<WorldEvent>),
     PromptOverrides {
@@ -60,7 +60,7 @@ pub(super) enum BehaviorCallback {
 }
 
 #[derive(Clone)]
-pub(super) struct AdapterControl(Arc<Mutex<AdapterState>>);
+pub(crate) struct AdapterControl(Arc<Mutex<AdapterState>>);
 
 #[derive(Default)]
 struct AdapterState {
@@ -75,7 +75,7 @@ struct ProductionInput {
     request_context: ContinuousAgentRequestContextV1,
 }
 
-pub(super) use oasis7_agent_harness::ScopedFeedbackHistoryAuthority;
+pub(crate) use oasis7_agent_harness::ScopedFeedbackHistoryAuthority;
 
 impl AdapterControl {
     pub fn new() -> Self {
@@ -121,7 +121,7 @@ impl AdapterControl {
     }
 }
 
-pub(super) struct OasisBehaviorProvider {
+pub(crate) struct OasisBehaviorProvider {
     behavior: Box<dyn AgentBehavior + Send>,
     control: AdapterControl,
 }
@@ -195,7 +195,7 @@ impl CompatibilityDecisionProvider<Observation, BehaviorTurnResult, BehaviorCall
     }
 }
 
-impl HarnessProvider<Action, super::super::agent::AgentQuery> for OasisBehaviorProvider {
+impl HarnessProvider<Action, crate::agent::AgentQuery> for OasisBehaviorProvider {
     fn provider_id(&self) -> &str {
         self.behavior.agent_id()
     }
@@ -203,7 +203,7 @@ impl HarnessProvider<Action, super::super::agent::AgentQuery> for OasisBehaviorP
     fn decide(
         &mut self,
         request: &ApiRequestContext,
-    ) -> Result<ApiResponseContext<Action, super::super::agent::AgentQuery>, HarnessProviderError>
+    ) -> Result<ApiResponseContext<Action, crate::agent::AgentQuery>, HarnessProviderError>
     {
         let key = production_key(request);
         let input = {
@@ -217,7 +217,7 @@ impl HarnessProvider<Action, super::super::agent::AgentQuery> for OasisBehaviorP
                 .take()
                 .ok_or_else(|| adapter_error("production_observation_missing"))?;
             if input.key != key
-                || super::super::agent_api_compat::request_context_to_api(&input.request_context)
+                || crate::agent_api_compat::request_context_to_api(&input.request_context)
                     != *request
             {
                 return Err(adapter_error("production_observation_identity_mismatch"));
@@ -269,17 +269,17 @@ fn production_key(request: &ApiRequestContext) -> ProductionKey {
     )
 }
 
-pub(super) fn production_key_from_context(
+pub(crate) fn production_key_from_context(
     request: &ContinuousAgentRequestContextV1,
 ) -> ProductionKey {
-    production_key(&super::super::agent_api_compat::request_context_to_api(
+    production_key(&crate::agent_api_compat::request_context_to_api(
         request,
     ))
 }
 
 fn decision_response(
     result: &BehaviorTurnResult,
-) -> ApiDecisionResponse<Action, super::super::agent::AgentQuery> {
+) -> ApiDecisionResponse<Action, crate::agent::AgentQuery> {
     let decision = match &result.decision {
         AgentDecision::Wait => ApiProviderDecision::Wait,
         AgentDecision::WaitTicks(ticks) => ApiProviderDecision::WaitTicks { ticks: *ticks },

@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::runtime::RuntimeFeedbackOutboxRecordV1;
+use oasis7_runtime::RuntimeFeedbackOutboxRecordV1;
 
 use super::{
     AgentCognitionStore, CognitionError, FeedbackEnvelopeV1, MAX_FEEDBACK_REPLAY_ENTRIES,

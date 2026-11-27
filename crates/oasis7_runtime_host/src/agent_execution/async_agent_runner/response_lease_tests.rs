@@ -4,14 +4,14 @@ use std::io::Cursor;
 
 #[test]
 fn decoded_provider_charge_lives_through_async_outcome_and_releases_on_drop() {
-    let base_decision_response = super::super::DecisionResponse::wait("lease-test-provider");
+    let base_decision_response = crate::decision_provider::DecisionResponse::wait("lease-test-provider");
     let response = ContinuousAgentResponseContextV1 {
         response_digest: Digest32(
             "blake3:0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         ),
         base_decision_response,
-        context_discriminator: super::super::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.to_string(),
-        context_version: super::super::CONTINUOUS_AGENT_CONTEXT_VERSION,
+        context_discriminator: crate::agent_execution::continuous_agent_harness::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.to_string(),
+        context_version: crate::agent_execution::continuous_agent_harness::CONTINUOUS_AGENT_CONTEXT_VERSION,
         agent_session_id: "session.lease-test".to_string(),
         agent_turn_id: "turn.lease-test".to_string(),
         decision_request_id: "request.lease-test".to_string(),
@@ -26,7 +26,7 @@ fn decoded_provider_charge_lives_through_async_outcome_and_releases_on_drop() {
     let memory = MemoryBudget::new(8 * 1024 * 1024, 0).expect("lease test pool");
 
     let (decoded, lease) =
-        super::super::provider_json_admission::decode_response_context_with_lease(
+        crate::provider_json_admission::decode_response_context_with_lease(
             &mut reader,
             bytes.len() as u64,
             &memory,

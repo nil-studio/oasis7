@@ -33,7 +33,19 @@ pub mod simulator_archive;
 
 pub mod agent_execution {
     #[cfg(not(target_arch = "wasm32"))]
+    pub mod agent_harness_adapter;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub mod async_agent_pilot;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub mod async_agent_runner;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub mod continuous_agent_harness;
+    #[cfg(not(target_arch = "wasm32"))]
     pub mod llm_agent;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub mod runner;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub mod turn_engine;
 }
 
 #[path = "agent_execution/llm_agent/decision_flow/field_identity.rs"]

@@ -18,7 +18,7 @@ pub use oasis7_agent_api::{
 };
 
 #[cfg(test)]
-use super::FeedbackEnvelope;
+use crate::decision_provider::FeedbackEnvelope;
 
 #[cfg(test)]
 #[path = "continuous_agent_feedback_recovery.rs"]
@@ -41,7 +41,7 @@ pub use oasis7_agent_api::{
     ContinuousAgentRequestContextV1, FeedbackEnvelopeV1, MemoryWriteIntentV1,
 };
 pub type ContinuousAgentResponseContextV1 =
-    oasis7_agent_api::ContinuousAgentResponseContextV1<super::Action, super::AgentQuery>;
+    oasis7_agent_api::ContinuousAgentResponseContextV1<oasis7_simulator::Action, crate::agent::AgentQuery>;
 
 #[cfg(test)]
 pub(crate) fn feedback_v1_from_legacy_value(
@@ -426,9 +426,9 @@ impl AgentCognitionStore {
 }
 
 fn feedback_digest(feedback: &FeedbackEnvelopeV1) -> Digest32 {
-    oasis7_agent_api::feedback_digest(&super::agent_api_compat::feedback_to_api(feedback))
+    oasis7_agent_api::feedback_digest(&crate::agent_api_compat::feedback_to_api(feedback))
 }
 
 fn validate_feedback_contract(feedback: &FeedbackEnvelopeV1) -> Result<(), CognitionError> {
-    super::agent_api_compat::feedback_to_api(feedback).validate()
+    crate::agent_api_compat::feedback_to_api(feedback).validate()
 }

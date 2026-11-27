@@ -15,15 +15,15 @@ pub(crate) use oasis7_runtime_host::agent;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
-mod async_agent_pilot;
+pub(crate) use oasis7_runtime_host::agent_execution::async_agent_pilot;
 #[cfg(not(target_arch = "wasm32"))]
-mod async_agent_runner;
+pub(crate) use oasis7_runtime_host::agent_execution::async_agent_runner;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_agent_harness as cognition_response_identity;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::cognition_policy;
 #[cfg(not(target_arch = "wasm32"))]
-mod continuous_agent_harness;
+pub(crate) use oasis7_runtime_host::agent_execution::continuous_agent_harness;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::decision_provider;
 
@@ -41,9 +41,9 @@ pub(crate) use oasis7_runtime_host::provider_loopback_http;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_material_capture;
 #[cfg(not(target_arch = "wasm32"))]
-mod runner;
+pub(crate) use oasis7_runtime_host::agent_execution::runner;
 #[cfg(not(target_arch = "wasm32"))]
-mod turn_engine;
+pub(crate) use oasis7_runtime_host::agent_execution::turn_engine;
 
 #[cfg(test)]
 mod tests;

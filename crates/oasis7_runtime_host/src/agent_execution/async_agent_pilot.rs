@@ -14,7 +14,7 @@ use super::async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback,
     AsyncTurnLifecycle, AsyncWorldEffect,
 };
-use super::cognition_policy::{
+use crate::cognition_policy::{
     GoalSnapshotInputV1, GoalSnapshotProjector, MemoryContextEntryV1, MemoryContextSnapshotV1,
 };
 use super::continuous_agent_harness::{ContinuousAgentTurnContextV1, h_v1};
@@ -264,11 +264,11 @@ fn world_effect_name(effect: &AsyncWorldEffect) -> &'static str {
 
 fn decision_name(outcome: &AsyncAgentTurnOutcome) -> &'static str {
     match outcome.decision.as_ref() {
-        Some(super::agent::AgentDecision::Wait) => "wait",
-        Some(super::agent::AgentDecision::WaitTicks(_)) => "wait_ticks",
-        Some(super::agent::AgentDecision::Act(_)) => "act",
-        Some(super::agent::AgentDecision::Query(_)) => "query",
-        Some(super::agent::AgentDecision::ModuleCommand { .. }) => "module_command",
+        Some(crate::agent::AgentDecision::Wait) => "wait",
+        Some(crate::agent::AgentDecision::WaitTicks(_)) => "wait_ticks",
+        Some(crate::agent::AgentDecision::Act(_)) => "act",
+        Some(crate::agent::AgentDecision::Query(_)) => "query",
+        Some(crate::agent::AgentDecision::ModuleCommand { .. }) => "module_command",
         None => "missing",
     }
 }
