@@ -303,8 +303,8 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     assert!(matches!(
         recorded.body.result,
         Ok(super::super::super::super::transport::Value::Query(query))
-            if matches!(*query, FormalQueryOutcomeV1::Recorded(state)
-                if matches!(*state, FormalRequestStateV1::Qualified { .. }))
+            if matches!(query.as_ref(), FormalQueryOutcomeV1::Recorded(state)
+                if matches!(state.as_ref(), FormalRequestStateV1::Qualified { .. }))
     ));
     let absent = server
         .call("paid_signed_query_miss", || {
