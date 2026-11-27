@@ -55,14 +55,14 @@
 
 ## 历史证据入口
 
-旧 EGUI 侧栏、IME bridge、Chat deadlock 与 industry semantic zoom 八份文档已退役；文本复制、中英文与输入隔离、组合输入/发送/恢复要求由 Viewer 手册、semantic test API、Agent conversation/Prompt 与 Web Build Truth 承接，产业流向/瓶颈/目标定位与空间层级要求由 Player-readable World Stage 和 Pixel-world 可读性专业文档承接。旧实现从固定提交 `25fbcd7cf590c5e1b1248119d407cc7c34e8e634` 与原任务证据追溯；承接的是要求，不是完整 IME 或 semantic zoom 已验证完成的声明。
+旧右侧栏、输入法桥接、Chat 锁重入与产业图谱语义缩放八份早期文档已退役；文本复制、中英文与输入隔离、组合输入/发送/恢复要求由 Viewer 手册、semantic test API、Agent conversation/Prompt 与 Web Build Truth 承接，产业流向/瓶颈/目标定位与空间层级要求由 Player-readable World Stage 和 Pixel-world 可读性专业文档承接。旧实现从固定提交 `25fbcd7cf590c5e1b1248119d407cc7c34e8e634` 与原任务证据追溯；承接的是要求，不是完整 IME 或 semantic zoom 已验证完成的声明。
 
 以下文档只作为 archive-only evidence，用于审计追溯，不作为 world-simulator 日常阅读入口：
 
 - historical world-simulator PRD review checklist snapshot（后续已删除；当前 world-simulator 技术入口见 `doc/world-simulator/README.md`、`doc/world-simulator/prd.index.md` 与 `doc/world-simulator/prd.md`，任务真值见 GitHub）
 - Viewer 旧控制反馈三件套与二次历史归档说明均已删除；当前正式控制反馈的产品结果读 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md`，Viewer/API 合同读 `doc/world-simulator/prd.md`，间接控制玩法规则读 `doc/game/gameplay/gameplay-indirect-control-agency-contract.prd.md`；原始 retired slug 只从 Git history / GitHub task issue evidence 追溯。
-- Viewer Chat prompt-presets、profile editing、scroll 与 Agent Prompt default-value prefill 历史专题已迁入 `doc/product/agents-world-simulation/agent-conversation-and-prompt-control.{prd,design}.md` 并物理删除；当前 surface、AgentChat、PromptControl、profile/override、鉴权与验证仍以 `doc/world-simulator/prd.md`、Viewer 手册和专业实现证据为准，任务状态读 GitHub，历史 EGUI 布局不得外推为当前能力。
-- Viewer EGUI 控制区高级调试折叠三件套已退役删除；该 2026-02 已完成专题的历史审计证据从 Git history、PR 与实际验证记录追溯，当前 Viewer 操作与 Web 闭环入口改读 `doc/world-simulator/viewer/viewer-manual.manual.md` 与 `doc/world-simulator/viewer/README.md`。
+- Viewer Chat prompt-presets、profile editing、scroll 与 Agent Prompt default-value prefill 历史专题已迁入 `doc/product/agents-world-simulation/agent-conversation-and-prompt-control.{prd,design}.md` 并物理删除；当前 surface、AgentChat、PromptControl、profile/override、鉴权与验证仍以 `doc/world-simulator/prd.md`、Viewer 手册和专业实现证据为准，任务状态读 GitHub，早期旧版面板布局不得外推为当前能力。
+- Viewer 早期控制区高级调试折叠三件套已退役删除；该 2026-02 已完成专题的历史审计证据从 Git history、PR 与实际验证记录追溯，当前 Viewer 操作与 Web 闭环入口改读 `doc/world-simulator/viewer/viewer-manual.manual.md` 与 `doc/world-simulator/viewer/README.md`。
 - Launcher native legacy cleanup 三件套已退役删除；该 2026-03 已完成专题只作为 `oasis7_client_launcher` native cleanup 历史证据保留在 git history 与 PR、实际 CI 与评审记录（Issue 按需），不能被外推为当前 web launcher/control-plane 字段退役结论。
 - 已删除的 intent/distributed/runtime closure 与 M4 market/hardware/data/governance closure 通过 Git history、PR 与实际验证记录追溯；当前阅读入口继续走下方活跃专题、Git、PR、实际 CI 记录与长期 world-simulator、P2P、runtime、gameplay 权威。
 - kernel rule-hook、Wasm readiness/executor/sandbox bridge/module-governance、Rust-to-Wasm build-suite、simulator `PowerStorage`、内建 `Compound/Hardware` hard-migration 与 runtime required 十项临时 ignore 九组 completed 三件套已退役删除。当前 simulator adapter / resource removal boundary 读 `doc/world-simulator/design.md` 与 `m4/industrial-resource-flow-contract.prd.md`；ABI、executor、artifact lifecycle 与 canonical build 读 `doc/world-runtime/wasm/` 和 `doc/world-runtime/prd.md`，历史实施只从 Git history / GitHub task issue evidence 追溯。

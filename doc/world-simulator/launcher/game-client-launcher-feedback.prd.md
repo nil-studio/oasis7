@@ -1,20 +1,19 @@
 # 客户端启动器反馈（当前 authority）
 
-> 本文是启动器反馈能力的当前需求 authority。它收敛入口、窗口化、分布式提交与 Web parity 的已实现合同；三个 2026-03 源三件套及其配对文档已删除，审计追溯仅保留在 Git 与 `.pm` task evidence。
+> **职责与承接边界**：玩家反馈与支持入口统一收敛至正式支持路径与 Web `viewer`；本文承载 `oasis7_web_launcher` `/api/chain/feedback` 代理边界、反馈结果不代签世界成功以及最小诊断脱敏原则。
 
 - 对应设计: `doc/world-simulator/launcher/game-client-launcher-feedback.design.md`
 - 历史迁移、验证与 task 状态：GitHub task issue evidence。
 
 ## 目标
 
-- 玩家或操作者可从 launcher 的反馈入口提交 `Bug` 或 `Suggestion`，并得到可区分、可诊断的结果。
-- native 路径在 chain `Ready` 后保留“分布式提交优先、远端失败本地 JSON 回落”的保障；本地包带时间戳、反馈内容、最小配置诊断和有上限的最近日志，每次成功保存具有不覆盖既有反馈的独立文件身份。
-- Web 路径经 `oasis7_web_launcher` 代理到 chain runtime；其浏览器环境不承担 native 本地文件回落。
-- 本文不新增反馈类型、附件、历史检索、远端遥测、权限模型或 runtime 协议。
+- 受支持反馈入口提交 `Bug` 或 `Suggestion` 时返回可区分、可诊断的真实结果，且反馈结果不代签可玩性或世界行动成功。
+- 控制面路径经 `oasis7_web_launcher` `/api/chain/feedback` 代理到 chain runtime（`/v1/chain/feedback/submit`），浏览器环境不伪造本地文件保存。
+- 自动诊断摘要严格执行最小 allowlist 与凭据/私有路径脱敏保护；本文不新增反馈类型、附件、历史检索、远端遥测、权限模型或 runtime 协议。
 
 ## 范围
 
-- 覆盖 launcher native 与 Web 的既有反馈入口、草稿校验、提交结果与各自的存储/代理边界。
+- 覆盖 `oasis7_web_launcher` 反馈代理边界、反馈结果语义与最小诊断保护原则。
 - 不覆盖 feedback 网络的底层规则、反馈检索、附件、世界状态或视觉方案；这些变化需由对应专题和专业角色另行授权。
 
 ## 当前合同

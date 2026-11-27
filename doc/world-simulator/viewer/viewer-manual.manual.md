@@ -501,7 +501,7 @@ Trace refs: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d；O7-REQ-a9797fdb-39f7-4
 
 Trace refs: O7-REQ-14ddd9ba-2d94-48e8-b2e4-0dbae26ddc36；O7-REQ-a82f1ee8-9d70-442c-9972-5f49f6665293；O7-REQ-b6140b6c-ca2c-4734-84ce-7963f9385fff。分别验收 REQ-PROMPT-001/002/005，唯一消费者目录为[跨入口接收](viewer-control-plane-split-live-playback.design.md#prompt-command-entry-applicability)，并复用原六个 PromptControl 合同和上述 PV01–PV12。以下为目标验证方法，本轮未运行。
 
-**固定对象与方法层。** 同一候选记录 build/入口/适配版本、endpoint/world、实际 backend、Hello 协商、当前 player/session/binding/authority、可调用 route、真实支持的操作与结果恢复子集。分别列 canonical Web、native Launcher 实际打开的 Web、确实已声明的 native 协议适配、TCP legacy/enhanced、HTTP/SDK 包装；未声明 native 编辑器不凭历史 egui 或服务端类名生成一个样本。当前 HTTP GET-only 与只提供签名类型/Chat 的 SDK 用无 Prompt route 的反例接收；不把该行记为整种 pure_api 不支持。其余声明采用但消费者缺接线的格如实 blocked/not_run，不删掉以换取全入口通过。
+**固定对象与方法层。** 同一候选记录 build/入口/适配版本、endpoint/world、实际 backend、Hello 协商、当前 player/session/binding/authority、可调用 route、真实支持的操作与结果恢复子集。分别列 canonical Web、本地启动入口实际打开的 Web、确实已声明的 native 协议适配、TCP legacy/enhanced、HTTP/SDK 包装；未声明 native 编辑器不凭早期历史界面或服务端类名生成一个样本。当前 HTTP GET-only 与只提供签名类型/Chat 的 SDK 用无 Prompt route 的反例接收；不把该行记为整种 pure_api 不支持。其余声明采用但消费者缺接线的格如实 blocked/not_run，不删掉以换取全入口通过。
 
 每例独立准备原合法 controller P 与可控 Agent A、只可观察不可控制的 Agent X，采用实际原授权/注册流程；有 enhanced 能力时固定 authority E、合法 session/binding 与 profile version 7，三字段/历史均由原合法变更建立。需要回滚的例子保存可解析 v6（short-term=`C0`）及当前 v7（`C1`），其余字段相同，保证回滚不是 no-op；本地 preset `P-text`（仅实际提供时）、草稿 `D-text`、Chat `M-text` 互异。不得用自造授予、测试页面缓存或无来源 JSON 替代权限与历史。只读、Chat 提交、Prompt Preview、Apply/Rollback、profile mutation 和原结果查询各自计数，expected 来自上述固定前态与原动作语义，不能调用被测显示函数生成。
 
@@ -517,7 +517,7 @@ Trace refs: O7-REQ-14ddd9ba-2d94-48e8-b2e4-0dbae26ddc36；O7-REQ-a82f1ee8-9d70-4
 
 ### 已退役的 legacy 操作
 
-历史 Standard-3D / egui 表面曾提供 auto select、右侧模块显隐及本地缓存、选中详情、Agent 快速定位、2D 全览图分层缩放和可复制文本面板；该表面及这些操作均已退役，不能作为当前 canonical `viewer` Web 页面的使用说明或能力声明。当前支持边界仍为实时观察、当前选中对象与 prompt/chat；`window.__AW_TEST__` 仅在显式 visual-test 构建且 opt-in 时可用，三条回归脚本的结果按各自构建与场景解释。
+历史 Standard-3D 旧表面曾提供 auto select、右侧模块显隐及本地缓存、选中详情、Agent 快速定位、2D 全览图分层缩放和可复制文本面板；该表面及这些操作均已退役，不能作为当前 canonical `viewer` Web 页面的使用说明或能力声明。当前支持边界仍为实时观察、当前选中对象与 prompt/chat；`window.__AW_TEST__` 仅在显式 visual-test 构建且 opt-in 时可用，三条回归脚本的结果按各自构建与场景解释。
 
 ## 证据边界
 - `doc/testing/evidence/software-safe-primary-web-entry-evidence-2026-04-07.md` 是固定历史样本；其中 2026-04-08 的 LLM-enabled follow-up PASS 仅代表原候选、环境和场景，不是今天默认生效的 formal gameplay 或 release-grade PASS。

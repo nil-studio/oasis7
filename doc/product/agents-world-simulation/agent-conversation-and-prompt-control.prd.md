@@ -12,7 +12,7 @@
 - Last reviewed：2026-11-05
 - 专业域权威：[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`Viewer 手册`](../../world-simulator/viewer/viewer-manual.manual.md)
 
-本文承载玩家与 Agent 对话、复用 Prompt 草稿以及在受支持时调整 Agent Prompt/目标的长期产品承诺。它不声明某个历史 EGUI 面板仍存在，也不拥有协议字段、前端状态、patch 算法、鉴权、持久化或测试步骤。
+本文承载玩家与 Agent 对话、复用 Prompt 草稿以及在受支持时调整 Agent Prompt/目标的长期产品承诺。它不绑定早期旧客户端面板，也不拥有协议字段、前端状态、patch 算法、鉴权、持久化或测试步骤。
 
 ## 设计适用性与生命周期闭合
 
@@ -61,7 +61,7 @@
 
 - 在受支持的窗口和设备尺寸下，Agent 选择、草稿、主要动作、结果与恢复路径必须可达；内容超出可视区域时应提供稳定滚动、分组或渐进披露。
 - 响应式收敛不能使输入焦点、输入法、发送动作或高风险配置动作互相混淆；高影响动作不得因空间不足而失去目标和结果说明。
-- 对话输入必须保留可理解、可编辑的草稿和明确的发送动作。具体快捷键、组件层级、焦点恢复和布局位置由当前 surface authority 与手册定义；历史 EGUI 的 Enter 发送、最右面板或输入桥接实现不是跨 surface 承诺。
+- 对话输入必须保留可理解、可编辑的草稿和明确的发送动作。具体快捷键、组件层级、焦点恢复和布局位置由当前 surface authority 与手册定义；早期旧面板的 Enter 发送、最右面板或输入桥接实现不是跨 surface 承诺。
 
 - 持续输入验收要求：中文组合输入正常完成；预编辑文字、重复事件或焦点切换不得误发/重复发送。正文保持中英文可读和可复制，文本/控件操作不得误触世界交互。输入和发送不得使页面卡死，错误可见且有真实恢复路径。快捷键与验证状态由当前 Viewer 手册定义，局部 IME 保护不证明完整兼容。
 
@@ -321,7 +321,7 @@ Trace ID: O7-REQ-36cc9e9d-eaa7-436f-b16b-6f6af089b04c
 
 ## 5. 里程碑
 
-1. 产品承诺与已退役 EGUI 布局解耦。
+1. 产品承诺与已退役早期面板布局解耦。
 2. 产品交互设计集中到同名 design，并由模块 PRD 可达。
 3. 当前 Web 权限、操作与自动化合同由 Viewer 手册和专业文档稳定承接。
 4. 后续 surface 变更以本专题验收与专业证据共同复核。
@@ -339,7 +339,7 @@ Trace ID: O7-REQ-36cc9e9d-eaa7-436f-b16b-6f6af089b04c
 | --- | --- |
 | 单一交互路径、对话与配置的语义区分、草稿/默认/override 可读性、结果与恢复承诺、响应式可达性 | `doc/world-simulator/prd.md` 拥有 AgentChat、PromptControl、模式、鉴权与 Viewer 合同；Viewer 手册拥有当前 surface 和操作边界；runtime/provider 专业权威拥有实际应用、拒绝和世界影响 |
 
-历史 Standard-3D / EGUI Chat Panel、Prompt Ops、字段名、状态结构和 patch 构造只能作为迁移来源或 Git 历史追溯，不能覆盖当前 Viewer 手册与专业 authority。
+历史 Standard-3D 旧版 Chat Panel、Prompt Ops、字段名、状态结构和 patch 构造只能作为迁移来源或 Git 历史追溯，不能覆盖当前 Viewer 手册与专业 authority。
 
 ## 8. 组合验收
 
