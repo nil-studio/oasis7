@@ -2,7 +2,7 @@
 //! exactly one zero-cost canonical MoveAgent, never a path or timed promise.
 use super::*;
 use crate::cognition_recovery::cognition_digest_v1;
-use crate::service_admission::{SignedReadRequest, safe_alternative::validate_owner};
+use crate::service_admission::{SignedReadRequest, safe_alternative::{validate_owner, validate_owner_with_revocation_state}};
 use crate::{Action, CausedBy, DomainEvent, WorldEventBody};
 use oasis7_client_api::safe_alternative::{
     SafeAlternativeCommandV1, SafeAlternativeOperationV1 as Op,
@@ -66,15 +66,13 @@ impl World {
             .cloned()
             .ok_or("outcome_unknown".into())
     }
-    pub(super) fn project_safe_alternative(
-        &self,
-        signed: &SignedReadRequest<SafeAlternativeCommandV1>,
-    ) -> Result<(String, Value), String> {
-        validate_owner(self, signed)?;
+    pub(super) fn project_safe_alternative(&self, signed: &SignedReadRequest<SafeAlternativeCommandV1>) -> Result<(String, Value), String> { self.project_safe_alternative_with_revocation_state(&self.capability_revocation_state, signed) }
+    pub(super) fn project_safe_alternative_with_revocation_state(&self, rev: &crate::capability_authorization::CapabilityRevocationState, signed: &SignedReadRequest<SafeAlternativeCommandV1>) -> Result<(String, Value), String> {
+        validate_owner_with_revocation_state(self, rev, signed)?;
         let command = &signed.request;
         let key = lineage_key(command);
         let now = self.state.time;
-        let previous = self.capability_revocation_state.safe_alternatives.get(&key);
+        let previous = rev.safe_alternatives.get(&key);
         let command_digest = digest(&json!(command));
         if let Some(old) = previous
             && let Some(recorded) = old["command_digests"].get(&command.client_operation_id)
@@ -87,7 +85,7 @@ impl World {
 
         match &command.operation {
             Op::Propose { .. } => {
-                self.project_safe_alternative_proposal(signed, key, previous, now, &command_digest)
+                self.project_safe_alternative_proposal(rev, signed, key, previous, now, &command_digest)
             }
             _ => self.project_safe_alternative_existing_operation(
                 signed,
@@ -101,6 +99,7 @@ impl World {
 
     fn project_safe_alternative_proposal(
         &self,
+        rev: &crate::capability_authorization::CapabilityRevocationState,
         signed: &SignedReadRequest<SafeAlternativeCommandV1>,
         key: String,
         previous: Option<&Value>,
@@ -126,7 +125,7 @@ impl World {
             }
             return Ok((key, old.clone()));
         }
-        if self.capability_revocation_state.safe_alternatives.len() >= MAX_SAFE_ALTERNATIVE_LINEAGES
+        if rev.safe_alternatives.len() >= MAX_SAFE_ALTERNATIVE_LINEAGES
         {
             return Err("evaluation_unavailable".into());
         }
@@ -140,8 +139,7 @@ impl World {
             predecessor_command.operation = Op::Read {
                 request_id: predecessor.clone(),
             };
-            let valid = self
-                .capability_revocation_state
+            let valid = rev
                 .safe_alternatives
                 .get(&lineage_key(&predecessor_command))
                 .is_some_and(|record| record["outcome"]["status"] == "rejected");
@@ -597,14 +595,9 @@ impl World {
         }
         Ok(())
     }
-    pub(super) fn safe_alternative_outcome_projection(
-        &self,
-        key: &str,
-        action_id: u64,
-        event_id: u64,
-    ) -> Result<Value, WorldError> {
-        let mut r = self
-            .capability_revocation_state
+    pub(super) fn safe_alternative_outcome_projection(&self, key: &str, action_id: u64, event_id: u64) -> Result<Value, WorldError> { self.safe_alternative_outcome_projection_with_revocation_state(&self.capability_revocation_state, key, action_id, event_id) }
+    pub(super) fn safe_alternative_outcome_projection_with_revocation_state(&self, rev: &crate::capability_authorization::CapabilityRevocationState, key: &str, action_id: u64, event_id: u64) -> Result<Value, WorldError> {
+        let mut r = rev
             .safe_alternatives
             .get(key)
             .cloned()
