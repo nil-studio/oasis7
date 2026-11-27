@@ -1512,7 +1512,7 @@ if os.environ['FAILED'] == action:
 
     def test_full_driver_contains_every_locally_supported_required_group(self):
         groups = ['baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'node', 'net',
-                  'viewer_js_required', 'viewer_performance_report', 'pixel_world_bridge',
+                  'viewer_js_required', 'viewer_performance_report', 'pixel_world_bridge', 'launcher_web',
                   'workspace_support', 'scenario_regression', 'operational_contracts', 'packaging_contracts',
                   'workflow_governance', 'codex_agent_config_validation', 'compile_metrics', 'site_quality',
                   'doc_checker_contracts', 'cargo_tooling_contracts']

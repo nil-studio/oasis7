@@ -1117,6 +1117,7 @@
     "viewer_js_required",
     "viewer_performance_report",
     "pixel_world_bridge",
+    "launcher_web",
     "workspace_support",
     "scenario_regression",
     "operational_contracts",
@@ -1168,6 +1169,7 @@
       "system_deps",
       "wasm_target"
     ],
+    "launcher_web": [],
     "workspace_support": [
       "rust_toolchain",
       "node",

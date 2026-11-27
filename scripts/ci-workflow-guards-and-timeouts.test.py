@@ -107,6 +107,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'custody-wasm-production': 25,
                 'distfs': 16,
                 'rust-baseline': 32,
+                'launcher-web': 10,
                 'viewer-js-required': 14,
                 'viewer-performance-report': 15,
                 'newapi-bridge-package': 10,

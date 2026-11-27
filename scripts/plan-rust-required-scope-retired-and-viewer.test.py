@@ -78,7 +78,7 @@ class ViewerNpmLockScopeTests(_ScopeFixtureBase):
 
     def test_launcher_web_is_retired_from_active_groups(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        self.assertNotIn('launcher_web', config['groups'])
+        self.assertEqual(config['resources']['launcher_web'], [])
         real_manifests, real_reverse, _ = selector.cargo_graph(
             'HEAD', config.get('generated_inputs', []), repo=HERE.parent,
         )

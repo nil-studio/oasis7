@@ -423,7 +423,7 @@ print({m0!r})
 
         for heavy in ('rust-baseline', 'oasis7-test-build-candidate', 'workspace-support-other',
                       'custody-native-contracts', 'custody-native', 'custody-wasm-production',
-                      'distfs', 'node', 'net', 'scenario-regression'):
+                      'distfs', 'node', 'net', 'launcher-web', 'scenario-regression'):
             job = JOBS[heavy]
             self.assertIn('needs: [select, fast-preflight]', job)
             self.assertIn("(needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped')", job)
@@ -498,7 +498,7 @@ print({m0!r})
         group_jobs = required_result.configured_group_jobs(CONFIG, plan)
         retired_jobs = required_result.retired_group_jobs(CONFIG, plan)
         for selected_group in ('rust_baseline', 'distfs', 'node', 'consensus', 'net',
-                               'scenario_regression', 'pixel_world_bridge',
+                               'launcher_web', 'scenario_regression', 'pixel_world_bridge',
                                'cargo_tooling_contracts'):
             plan_with_group = dict(plan, groups=['baseline', selected_group])
             needs = {'select': {'result': 'success'}}

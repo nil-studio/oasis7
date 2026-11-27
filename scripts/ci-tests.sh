@@ -1395,6 +1395,10 @@ run_compile_metrics_contract_tests() {
   run python3 ./scripts/ci-ecs-cache.test.py
 }
 
+run_oasis7_client_launcher_web_build() {
+  echo "+ launcher_web retired (no-op compatibility stub)"
+}
+
 run_site_contract_tests() {
   run ./scripts/site-link-check.sh
   run ./scripts/site-homepage-claim-check.sh
@@ -1599,6 +1603,7 @@ run_full_required_superset() {
   run_oasis7_viewer_performance_smoke_report_only
   run_pixel_world_bridge_lib_tests
   run_pixel_world_bridge_wasm_check
+  run_oasis7_client_launcher_web_build
   run_oasis7_workspace_support_crate_tests
 }
 
@@ -1723,6 +1728,7 @@ run_group() {
     viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests --source-only; run_oasis7_viewer_software_safe_build --with-ui; run_oasis7_viewer_browser_functional_regression; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
     viewer_performance_report) run bash ./scripts/viewer-performance-report-only-contract.test.sh; run_oasis7_viewer_software_safe_build; run_oasis7_viewer_visual_test_build; run_oasis7_viewer_performance_smoke_report_only ;;
     pixel_world_bridge) run_pixel_world_bridge_lib_tests; run_pixel_world_bridge_wasm_check ;;
+    launcher_web) run_oasis7_client_launcher_web_build ;;
     workspace_support) run_selected_workspace_support ;;
     scenario_regression) run_scenario_regression_tests ;;
     operational_contracts) run_operational_contract_tests ;;

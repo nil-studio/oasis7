@@ -308,7 +308,7 @@ class AptWorkflow(unittest.TestCase):
                    'formal-endpoint-build-trusted', 'formal-test-build',
                    'formal-test-build-trusted', 'oasis7-required', 'formal-process-tests',
                    'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
-                   'workspace-support-legacy', 'workspace-support-other', 'custody-native',
+                   'launcher-web', 'workspace-support-legacy', 'workspace-support-other', 'custody-native',
                    'custody-wasm-production', 'custody-node', 'scenario-regression'}
 
     def apt_steps(self):
@@ -327,7 +327,7 @@ class AptWorkflow(unittest.TestCase):
     def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
-        for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression',
+        for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression', 'launcher-web',
                      'custody-native', 'custody-wasm-production', 'workspace-support-other'):
             if rust_image_cache_namespace(name, JOBS[name]):
                 if name != 'workspace-support-other' or not workspace_support_image_matrix(JOBS[name]):
