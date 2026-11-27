@@ -494,11 +494,6 @@ class ScopeSliceAndDirectSupportGateTests(_ScopeFixtureBase):
                 {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'command_center'},
                 [],
             ),
-            'tests/libp2p-compat/candidate/Cargo.toml': (
-                '[package]\nname="candidate"\nversion="0.1.0"\n',
-                {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'net'},
-                [],
-            ),
             'tools/wasm_build_suite/templates/minimal_module/Cargo.toml': (
                 '[package]\nname="minimal_module"\nversion="0.1.0"\n',
                 {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'workspace_support'},

@@ -635,8 +635,6 @@ def _classify_standalone_cargo_path(path):
         'tools/wasm_build_suite/templates/minimal_module/Cargo.lock',
     }:
         return {'rust_baseline', 'cargo_tooling_contracts', 'workspace_support'}, {'wasm_build_suite'}
-    if len(parts) == 4 and parts[:2] == ['tests', 'libp2p-compat'] and parts[2] in {'common', 'candidate', 'legacy'}:
-        return {'rust_baseline', 'cargo_tooling_contracts', 'net'}, set()
     return None
 
 

@@ -2534,8 +2534,7 @@
     },
     {
       "match": [
-        ".gitmodules",
-        "third_party/agent-os"
+        ".gitmodules"
       ],
       "groups": [
         "workflow_governance"
@@ -2662,16 +2661,6 @@
       "match": ["scripts/cargo-dev-architecture*"],
       "groups": ["rust_baseline", "cargo_tooling_contracts"],
       "reason": "cargo_architecture_boundaries"
-    },
-    {
-      "match": [
-        "tests/libp2p-compat/**",
-        "scripts/libp2p-compat.test.py"
-      ],
-      "groups": [
-        "net"
-      ],
-      "reason": "libp2p_compatibility_protocols"
     },
     {
       "match": [

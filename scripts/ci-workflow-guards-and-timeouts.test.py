@@ -254,9 +254,6 @@ class DependabotCoverageGuardTests(unittest.TestCase):
         '/.github/actions/cache-sdk': 'vendored fixed actions/cache 55cc SDK closure; update patch/provenance together',
     }
     EXCLUDED_CARGO_DIRECTORIES = {
-        '/tests/libp2p-compat/candidate': 'compatibility test fixture',
-        '/tests/libp2p-compat/common': 'compatibility test fixture',
-        '/tests/libp2p-compat/legacy': 'compatibility test fixture',
         '/tools/wasm_build_suite/templates/minimal_module': 'zero-dependency minimal template',
         '/vendor/if-watch-3.2.2': 'vendored crate patched by root Cargo.toml',
         '/vendor/libp2p-quic-0.15.0': 'vendored crate patched by root Cargo.toml',
