@@ -1,0 +1,19 @@
+[Unit]
+Description=oasis7 newapi bridge service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=oasis7-newapi
+Group=oasis7-newapi
+WorkingDirectory=/opt/oasis7/newapi-bridge/current
+EnvironmentFile=/etc/oasis7/newapi-bridge-service.env
+ExecStart=/opt/oasis7/newapi-bridge/current/scripts/newapi-bridge-service/start-newapi-bridge-service.sh
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
