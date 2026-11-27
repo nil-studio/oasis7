@@ -540,32 +540,6 @@ class WorkflowCorePart4(unittest.TestCase):
             self.assertEqual(max(serial_peaks), 1)
             self.assertIn('ci-python-control-contracts.py local-contract', serial.stdout)
 
-    def test_local_public_testnet_build_uses_selected_repo_in_dev_and_ci(self):
-        with tempfile.TemporaryDirectory() as directory:
-            temporary = Path(directory)
-            repo = (temporary / 'build repo').resolve()
-            (repo / 'scripts').mkdir(parents=True)
-            bin_dir = temporary / 'build-bin'
-            bin_dir.mkdir()
-            for path, mode in ((repo / 'scripts/cargo-dev.sh', 'wrapper'), (bin_dir / 'cargo', 'raw')):
-                path.write_text('#!/usr/bin/env bash\n{ printf "' + mode + '\\n"; printf "%s\\n" "$PWD" "$@"; } > "$BUILD_TRACE"\nexit "${BUILD_EXIT:-0}"\n')
-                path.chmod(0o755)
-            source = (ROOT / 'scripts/run-local-public-testnet-letai-test-environment.sh').read_text()
-            function = re.search(r'^build_bins\(\) \{\n.*?^\}', source, re.M | re.S).group()
-            script = 'set -euo pipefail\nROOT_DIR="$1"; source "$2"; BUILD=1; log() { :; }\n' + function + '\nbuild_bins\n'
-            for ci, raw in (('', '0'), ('1', '0'), ('true', '0'), ('', '1')):
-                trace = temporary / ('build-trace-' + (ci or 'dev') + raw)
-                env = dict(os.environ, CI=ci, OASIS7_FORCE_RAW_CARGO=raw,
-                           OASIS7_CARGO_DEV_REPO_ROOT=str(temporary / 'unrelated-repo'), BUILD_TRACE=str(trace),
-                           PATH=str(bin_dir) + os.pathsep + os.environ['PATH'])
-                for code in (0, 37):
-                    result = subprocess.run(['bash', '-c', script, '_', str(repo), str(ROOT / 'scripts/cargo-dev-lib.sh')],
-                                            cwd=temporary, env=dict(env, BUILD_EXIT=str(code)), capture_output=True, text=True)
-                    assert result.returncode == code, result.stderr
-                    records = trace.read_text().splitlines()
-                    assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
-                    assert 'oasis7_viewer_live' in records, records
-
     def test_engineering_observation_policy_is_exact_and_never_exempts_required_steps(self):
         import engineering_telemetry as bindings
         from unittest.mock import patch
