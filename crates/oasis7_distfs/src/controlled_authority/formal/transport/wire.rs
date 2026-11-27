@@ -184,6 +184,25 @@ pub(super) fn write<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(
 /// One server-owned Ordinary pool and one monotonic Work meter are supplied at
 /// process startup, never minted or reset per RPC. The retained frame fee stays
 /// alive while the caller authenticates and signs its response.
+/// Every physical network read attempt consumes the same original Work.
+/// Short reads and Interrupted retries never evade the step/byte counter.
+fn read_exact_prepaid(
+    stream: &mut TcpStream,
+    mut bytes: &mut [u8],
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), FormalError> {
+    while !bytes.is_empty() {
+        work.charge(1, bytes.len() as u64, cancelled)?;
+        match stream.read(bytes) {
+            Ok(0) => return Err(io("formal RPC frame ended early")),
+            Ok(n) => bytes = &mut bytes[n..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(io(error)),
+        }
+    }
+    Ok(())
+}
 pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
     stream: &mut TcpStream,
     memory: &oasis7_proto::memory_budget::MemoryBudget,
@@ -191,9 +210,8 @@ pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<(T, oasis7_proto::memory_budget::ReservedValue<Vec<u8>>), FormalError> {
     use oasis7_proto::memory_budget::MemoryClass;
-    work.charge(1, 4, cancelled)?;
     let mut length = [0u8; 4];
-    stream.read_exact(&mut length).map_err(io)?;
+    read_exact_prepaid(stream, &mut length, work, cancelled)?;
     let length = u32::from_be_bytes(length) as usize;
     if length == 0 || length > LIMIT {
         return Err(invalid("formal RPC bounded frame"));
@@ -212,8 +230,7 @@ pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
         return Err(invalid("formal RPC frame allocation capacity"));
     }
     for chunk in bytes.chunks_mut(8192) {
-        work.charge(1, chunk.len() as u64, cancelled)?;
-        stream.read_exact(chunk).map_err(io)?;
+        read_exact_prepaid(stream, chunk, work, cancelled)?;
     }
     let paid = fee.retain(bytes);
     work.consume_steps(1, cancelled)?;
