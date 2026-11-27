@@ -16,6 +16,7 @@ const REQUEST_DOMAIN: &[u8] = b"oasis7.bft.private-retention.original-request.v1
 const RECEIPT_DOMAIN: &[u8] = b"oasis7.bft.private-retention.original-receipt.v1\0";
 const MAX_ORIGINAL_OPERATIONS: usize = 4096;
 const MAX_ORIGINAL_BYTES: usize = 1024 * 1024;
+const MAX_ORIGINAL_RETAINED_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ORIGINAL_REFS: usize = 16;
 
 /// Hash exact original signed bytes, not a decoded/reencoded receipt. Retain
@@ -135,11 +136,23 @@ pub struct BftOriginalRetentionTxnSnapshotV1 {
 
 impl BftOriginalRetentionTxnSnapshotV1 {
     pub fn validate(&self) -> Result<(), BftSignerErrorV3> {
+        self.validate_with_byte_budget(MAX_ORIGINAL_RETAINED_BYTES)
+    }
+
+    fn validate_with_byte_budget(&self, maximum_bytes: usize) -> Result<(), BftSignerErrorV3> {
         if self.original_operations.len() > MAX_ORIGINAL_OPERATIONS {
             return Err(invalid("original operation index capacity exceeded"));
         }
+        let mut original_bytes = 0_usize;
         for (id, operation) in &self.original_operations {
             operation.validate()?;
+            original_bytes = original_bytes
+                .checked_add(operation.signed_request_bytes.len())
+                .and_then(|total| total.checked_add(operation.signed_receipt_bytes.len()))
+                .ok_or_else(|| invalid("original operation index byte overflow"))?;
+            if original_bytes > maximum_bytes {
+                return Err(invalid("original operation index total byte limit"));
+            }
             if id != &operation.operation_id
                 || operation.original_lease_generation > self.current.current.signer.lease_generation
                 || (operation.source == self.current.current.marker.source

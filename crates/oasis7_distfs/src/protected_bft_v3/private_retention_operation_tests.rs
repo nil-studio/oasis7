@@ -202,6 +202,14 @@ fn cold_history_keeps_original_operation_across_new_lease_and_rejects_corruption
         .unwrap()
         .signed_receipt_bytes[0] ^= 1;
     assert!(rewritten.validate().is_err());
+    let mut bounded = stored.clone();
+    let mut another = operation();
+    another.operation_id = "original-reserve-2".into();
+    bounded
+        .original_operations
+        .insert(another.operation_id.clone(), another);
+    bounded.validate_with_byte_budget(16).unwrap();
+    assert!(bounded.validate_with_byte_budget(15).is_err());
     let mut collision = stored.clone();
     collision.original_operations.remove(&original.operation_id);
     collision.original_operations.insert("different".into(), original);
