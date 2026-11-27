@@ -271,6 +271,9 @@ jobs:
   release_gate_runtime_sync:
     cache-mode: read
     name: release-gate-runtime-sync
+    permissions:
+      contents: read
+      packages: read
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -299,7 +302,17 @@ jobs:
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Select runtime sync image for the verified source
+        id: sync-image
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+        run: |
+          launcher="$RUNNER_TEMP/oasis7-runtime-sync-image.sh"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-sync-image.sh" >"$launcher"
+          bash "$launcher" --select
       - name: Install pinned Rust toolchain
+        if: steps.sync-image.outputs.enabled == 'false'
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
@@ -307,15 +320,16 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
+        if: steps.sync-image.outputs.enabled == 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y             jq             pkg-config             libwayland-dev             wayland-protocols             libxkbcommon-dev             libx11-dev             libxi-dev             libxcursor-dev             libxrandr-dev             libxinerama-dev             libasound2-dev             libudev-dev
       - name: Normalize Rust cache toolchains
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.sync-image.outputs.enabled == 'false'
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.sync-image.outputs.enabled == 'false'
         with:
           shared-key: ci-shared-native-trusted-v4
           save-if: false
@@ -324,16 +338,29 @@ jobs:
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Run runtime sync release gate
         shell: bash
+        env:
+          USE_IMAGE: ${{ steps.sync-image.outputs.enabled }}
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          GHCR_TOKEN: ${{ steps.sync-image.outputs.enabled == 'true' && github.token || '' }}
         run: |
           mkdir -p .tmp/release_gate_runtime_sync
-          {
+          run_runtime_sync() {
             echo "+ ./scripts/sync-m1-builtin-wasm-artifacts.sh --check"
             ./scripts/sync-m1-builtin-wasm-artifacts.sh --check
             echo "+ ./scripts/sync-m4-builtin-wasm-artifacts.sh --check"
             ./scripts/sync-m4-builtin-wasm-artifacts.sh --check
             echo "+ ./scripts/sync-m5-builtin-wasm-artifacts.sh --check"
             ./scripts/sync-m5-builtin-wasm-artifacts.sh --check
-          } | tee .tmp/release_gate_runtime_sync/runtime-sync-checks.log
+          }
+          if [[ "$USE_IMAGE" == true ]]; then
+            {
+              declare -f run_runtime_sync
+              echo run_runtime_sync
+            } | bash "$RUNNER_TEMP/oasis7-runtime-sync-image.sh" |
+              tee .tmp/release_gate_runtime_sync/runtime-sync-checks.log
+          else
+            run_runtime_sync | tee .tmp/release_gate_runtime_sync/runtime-sync-checks.log
+          fi
       - name: Upload runtime sync gate summary
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
