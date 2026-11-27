@@ -2534,6 +2534,16 @@
     },
     {
       "match": [
+        ".gitmodules",
+        "third_party/agent-os"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "git_submodule_manifest"
+    },
+    {
+      "match": [
         "scripts/unified-world-code-terminology-scan.sh",
         "scripts/unified-world-code-terminology-scan.test.sh"
       ],

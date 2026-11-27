@@ -283,6 +283,8 @@ def plan(args):
             all_units('scan configuration: ' + path)
         elif name == '.gitattributes':
             all_units('Git checkout attributes: ' + path)
+        elif path == '.gitmodules':
+            all_units('Git submodule manifest: ' + path)
         elif path in VENDOR_RUST_METADATA_INPUTS:
             # Metadata travels with these fixed Rust dependencies; do not treat
             # neighboring unclassified files as registered or excluded.
