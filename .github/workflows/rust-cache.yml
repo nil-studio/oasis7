@@ -525,18 +525,32 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     if: >-
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     timeout-minutes: 22
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: --user 1001:1001 --init
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUST_RELEASE_WEB_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
+      - name: Verify the fixed Release Web image and main source
+        run: python3 scripts/ci-release-web-image.py --preflight --source "$GITHUB_SHA"
+      - name: Configure pinned mold without writing the host auxiliary cache
+        run: python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/release-web-mold"
       - name: Verify current main cache source
         shell: bash
         run: |
@@ -544,19 +558,8 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
       - name: Install viewer web dependencies
         run: npm ci --prefix crates/oasis7_viewer
-      - name: Install pinned Rust toolchain
-        run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
-          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
-          rustup default "${RUST_TOOLCHAIN}"
-      - name: Normalize Rust cache toolchains
-        shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - name: Install Web cache admission
         id: dependency-cache-tools
         continue-on-error: true
@@ -567,12 +570,14 @@ jobs:
         env:
           NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
           OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
-          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web
+          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web-image
           OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ github.sha }}
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
         with:
-          shared-key: release-packages-web-wasm-trusted-v3
+          shared-key: ci-rust-release-web-f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST
           save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) }}
           cache-provider: github
           cache-on-failure: false

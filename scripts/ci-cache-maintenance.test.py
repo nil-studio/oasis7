@@ -452,6 +452,14 @@ class DependencyRetentionTests(unittest.TestCase):
                 self.assertEqual([entry['id'] for entry in plan['delete']], [1])
                 self.assertEqual(set(plan['dependencies']['recovery_ids']), {2, 3, 4, 5})
 
+    def test_release_web_image_and_legacy_host_recovery_remain_separate(self):
+        image = 'ci-rust-release-web-f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59'
+        host = 'release-packages-web-wasm-trusted-v3'
+        entries = [self.dependency(1, image), self.dependency(2, host)]
+        plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=1)
+        self.assertEqual(plan['delete'], [])
+        self.assertEqual(set(plan['dependencies']['recovery_ids']), {1, 2})
+
     def test_formal_dependency_profiles_cannot_replace_one_another_or_shared_native(self):
         entries = [self.dependency(i, namespace) for i, namespace in enumerate(
             ('ci-formal-debug-deps-trusted-v1', 'ci-formal-endpoint-deps-trusted-v1',

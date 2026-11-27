@@ -49,6 +49,7 @@ jobs:
         shell: bash
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
+      webImageCompatible: ${{ steps.source.outputs.webImageCompatible }}
       version: ${{ steps.source.outputs.version }}
       resolvedRef: ${{ steps.source.outputs.resolvedRef }}
       sourcePlan: ${{ steps.source.outputs.sourcePlan }}
@@ -66,7 +67,7 @@ jobs:
         id: source
         env:
           REQUESTED_REF: ${{ inputs.tag || github.ref }}
-        run: python3 scripts/package-source-plan.py --release
+        run: python3 scripts/package-source-plan.py --release --release-web-image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591
       - name: Require complete CI for the exact package source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -348,6 +349,20 @@ jobs:
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.plan.outputs.webImageCompatible == 'true' && 'ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59' || '' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: --user 1001:1001 --init
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_WEB_IMAGE_COMPATIBLE: ${{ needs.plan.outputs.webImageCompatible }}
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -355,10 +370,21 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: .github/actions/setup-linux-mold
+          sparse-checkout: |
+            .github/actions/setup-linux-mold
+            scripts/ci-release-web-image.py
+      - name: Verify the fixed Release Web image from trusted workflow tools
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 scripts/ci-release-web-image.py --preflight --source "$EXPECTED_WORKFLOW_SHA"
       - name: Configure mold for Linux host linking
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         uses: ./.github/actions/setup-linux-mold
       # Omitting sparse-checkout disables it and restores the full business source.
+      - name: Configure pinned mold without writing the host auxiliary cache
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'
+        run: python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/release-web-mold"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -369,16 +395,19 @@ jobs:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         with:
           node-version: '22'
       - name: Install viewer web dependencies
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned Rust toolchain
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
           rustup default "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -397,13 +426,24 @@ jobs:
             libasound2-dev \
             libudev-dev
       - name: Normalize Rust cache toolchains
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && (hashFiles('scripts/ci-rust-cache-toolchains.py') != '')
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && (hashFiles('scripts/ci-rust-cache-toolchains.py') != '')
         with:
           shared-key: release-packages-web-wasm-trusted-v3
+          save-if: false
+          cache-on-failure: false
+      - name: Restore the matching Release Web image dependency cache
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        env:
+          RUST_RELEASE_WEB_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
+        with:
+          shared-key: ci-rust-release-web-f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST
           save-if: false
           cache-on-failure: false
       - name: Run web strict release gate

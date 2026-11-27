@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import re
 import tempfile
 import unittest
 
@@ -68,6 +69,68 @@ class SourceCompatibility(unittest.TestCase):
         p.unlink()
         revision = self.commit()
         self.assertFalse(M.compatible(self.root, revision, revision))
+
+
+class WorkflowRouting(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parent.parent
+    IMAGE = "ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59"
+    KEY = "ci-rust-release-web-f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59"
+
+    @staticmethod
+    def job(text, name):
+        return re.search(r"(?ms)^  " + name + r":\n.*?(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)[0]
+
+    @classmethod
+    def reader_contract(cls, job):
+        header, body = job.split("    steps:\n", 1)
+        assert "timeout-minutes: 25\n" in header
+        assert "image: ${{ needs.plan.outputs.webImageCompatible == 'true' && '" + cls.IMAGE + "' || '' }}" in header
+        assert "options: --user 1001:1001 --init\n" in header
+        assert "volumes:" not in header and "privileged" not in header
+        assert "RUST_RELEASE_WEB_IMAGE:" not in header  # No empty value may poison host fingerprints.
+        assert 'ref: ${{ github.workflow_sha }}' in body
+        assert 'ref: ${{ needs.plan.outputs.checkoutSha }}' in body
+        assert 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"' in body
+        assert body.index('Verify the fixed Release Web image from trusted workflow tools') < body.index('Configure pinned mold')
+        assert body.index('Configure pinned mold') < body.index('ref: ${{ needs.plan.outputs.checkoutSha }}')
+        assert "if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && (hashFiles" in body
+        cache = body.split('      - name: Restore the matching Release Web image dependency cache\n', 1)[1].split('      - ', 1)[0]
+        assert "if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'" in cache
+        assert 'RUST_RELEASE_WEB_IMAGE: ' + cls.IMAGE in cache
+        assert 'shared-key: ' + cls.KEY in cache
+        assert 'save-if: false\n' in cache
+        assert 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST\n' in cache
+        assert 'shared-key: release-packages-web-wasm-trusted-v3\n' in body
+        assert 'xvfb-run -a ./scripts/release-gate.sh' in body and '--web-headed' in body
+
+    def test_two_readers_keep_host_route_and_bind_readonly_image_cache(self):
+        for filename in ('release-packages.yml', 'mainnet-packages.yml'):
+            text = (self.ROOT / '.github/workflows' / filename).read_text()
+            job = self.job(text, 'release_gate_web')
+            with self.subTest(filename=filename):
+                self.reader_contract(job)
+                for bad in (job.replace("save-if: false", "save-if: true"),
+                            job.replace("env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'", "always()"),
+                            job.replace(self.KEY, 'release-packages-web-wasm-trusted-v3'),
+                            job.replace("      RELEASE_WEB_IMAGE_COMPATIBLE:", "      RUST_RELEASE_WEB_IMAGE: injected\n      RELEASE_WEB_IMAGE_COMPATIBLE:")):
+                    with self.assertRaises(AssertionError):
+                        self.reader_contract(bad)
+
+    def test_writer_keeps_original_budget_guard_and_one_image_family(self):
+        text = (self.ROOT / '.github/workflows/rust-cache.yml').read_text()
+        job = self.job(text, 'web-wasm-cache')
+        self.assertIn('timeout-minutes: 22\n', job)
+        self.assertIn('image: ' + self.IMAGE, job)
+        self.assertIn("github.ref == 'refs/heads/main' && github.workflow_sha == github.sha", job)
+        self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: release-web-image', job)
+        self.assertIn('shared-key: ' + self.KEY, job)
+        self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST\n', job)
+        self.assertIn("steps.dependency-cache-tools.outputs.guard_ready == 'true'", job)
+        self.assertIn('cache-on-failure: false\n', job)
+        self.assertNotIn('rustup toolchain install', job)
+        self.assertNotIn('ci-rust-cache-toolchains.py', job)
+        self.assertNotIn('shared-key: release-packages-web-wasm-trusted-v3', job)
+        self.assertNotIn('uses: ./.github/actions/setup-linux-mold', job)
 
 
 if __name__ == "__main__":

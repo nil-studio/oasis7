@@ -1245,6 +1245,8 @@
     ".github/actions/portable-cache-transport/index.cjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/run.mjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/transport.test.cjs": ["workflow_governance"],
+    "scripts/ci-release-web-image.py": ["workflow_governance"],
+    "scripts/ci-release-web-image.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-job.py": ["workflow_governance"],
     "scripts/ci-portable-cache-job.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-archive.py": ["workflow_governance"],
@@ -1428,6 +1430,7 @@
     "scripts/plan-rust-required-scope-selection-part6.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-release-web-image.test.py",
     "scripts/ci-portable-cache-job.test.py",
     "scripts/ci-portable-cache-container-contract.test.py",
     "scripts/ci-portable-cache-archive.test.py",
@@ -1516,6 +1519,8 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-release-web-image.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
+    "scripts/ci-release-web-image.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
     "scripts/ci-portable-cache-job.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
     "scripts/ci-portable-cache-job.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
     "scripts/ci-trusted-full-regression.py": {"group": "workflow_governance", "tests": ["scripts/ci-workflow.test.py"]},

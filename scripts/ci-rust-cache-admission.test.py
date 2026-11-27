@@ -443,6 +443,40 @@ class AdmissionTests(unittest.TestCase):
         self.run['path'] = '.github/workflows/ecs-packages.yml'
         self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
 
+    def test_release_web_image_binds_source_mode_provider_and_full_image(self):
+        namespace, workflow, job = admission.FAMILIES['release-web-image']
+        image = 'ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:' + namespace.removeprefix('ci-rust-release-web-')
+        environment = self.environment | {
+            'OASIS7_DEPENDENCY_CACHE_FAMILY': 'release-web-image', 'RUST_RELEASE_WEB_IMAGE': image,
+            'GITHUB_JOB': job, 'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': self.source_sha,
+            'INPUT_SHARED-KEY': namespace, 'INPUT_CACHE-PROVIDER': 'github',
+        }
+        self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        self.assertIn(namespace, admission.maintenance.DEPENDENCY_NAMESPACES)
+        self.assertIn('release-packages-web-wasm-trusted-v3', admission.maintenance.DEPENDENCY_NAMESPACES)
+        for override in (
+                {'RUST_RELEASE_WEB_IMAGE': image.replace('ci-rust-release-web@', 'ci-rust-viewer@')},
+                {'RUST_RELEASE_WEB_IMAGE': image[:-1] + '0'}, {'RUST_RELEASE_WEB_IMAGE': ''},
+                {'INPUT_SHARED-KEY': 'release-packages-web-wasm-trusted-v3'},
+                {'GITHUB_JOB': 'release_gate_web'}, {'GITHUB_REF': 'refs/pull/1/merge'},
+                {'GITHUB_WORKFLOW_SHA': '0' * 40}, {'INPUT_CACHE-PROVIDER': 'warpbuild'},
+                {'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': '0' * 40}):
+            with self.subTest(override=override):
+                self.api.list_caches.reset_mock()
+                self.assertFalse(admission.check_archive(self.archive, environment | override, self.api)['allowed'])
+                self.api.list_caches.assert_not_called()
+        event = self.root / 'web-mode.json'
+        self.run['event'] = 'workflow_dispatch'
+        environment |= {'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_EVENT_PATH': str(event)}
+        for mode, allowed in (('full', True), ('image-native', False), ('image-support', False), ('', False)):
+            event.write_text(json.dumps({'inputs': {'run_mode': mode}}))
+            self.assertEqual(admission.check_archive(self.archive, environment, self.api)['allowed'], allowed)
+        event.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
+        subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=CI fixture',
+                        '-c', 'user.email=ci-fixture@example.invalid', 'commit', '-q',
+                        '--allow-empty', '-m', 'changed source'], check=True)
+        self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+
     def test_ecs_image_writer_requires_frozen_image_source_and_namespace(self):
         namespace, workflow, job = admission.FAMILIES['ecs-image']
         image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.removeprefix('oasis7-ecs-native-image-')

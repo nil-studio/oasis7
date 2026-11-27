@@ -83,7 +83,8 @@ def preflight(root, source):
     def run(command, env=None):
         return subprocess.check_output(command, cwd=root, text=True,
                                        env=env, timeout=60).strip()
-    actual = run(["git", "-c", "safe.directory=" + str(root), "rev-parse", "HEAD"])
+    run(["git", "config", "--global", "--add", "safe.directory", str(root)])
+    actual = run(["git", "rev-parse", "HEAD"])
     if actual != source:
         raise ValueError("release Web source differs from immutable plan")
     version = os.environ["RUST_TOOLCHAIN"]

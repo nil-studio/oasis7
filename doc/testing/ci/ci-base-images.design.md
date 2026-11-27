@@ -159,7 +159,7 @@ tag工具兼容、独立digest缓存族及原20GB/保存准入验收。
 
 ### Web 发布门禁与依赖 writer 的镜像批次
 
-以下为 #7342 实施合同；当前三job仍用原宿主链路，专用leaf尚待正式发布。
+以下为 #7342 实施合同；正式leaf已发布，三job接线仍是待合入候选。
 
 `rust-cache.yml::web-wasm-cache` 与 Release/Mainnet 的两个
 `release_gate_web` 是同一 Web 工具闭包的 producer/consumer：保留 Node22、
@@ -190,3 +190,24 @@ miss。原 finite portable-cache adapter 的四角色不包含 Cargo target。
 实际验收分列工具/真实 headed-WASM闭包、生产 writer 准入与保存、reader
 恢复后的原门禁及历史host fallback；短fixture或sharedcache exacthit导致的
 save跳过不得冒签新增上传。正式发布后的新命名空间首次miss如实报告。
+
+本批消费固定正式 `ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59`，
+镜像源 d5319297d754a9c7d4de347a2ce8e1a20ba43591、可信发布
+45965554793/release-web140396891588已成功，2m48/10m。源码兼容同时
+核 executing workflow 与目标tag的完整Docker/build/package清单、browser
+Chrome/字体/apt/DNS/npm材料及原浏览器调用接口与编译器三项env；不信
+候选自报兼容。SOURCEPLAN JSON及原资格核验保持，路由bool单独输出。
+
+镜像激活仍以Node24满足原browser helper合同，后续npm/Web业务选择
+Node22；native agent CLI从旧npx fallback0.37.1变为正式canonical0.43.0，
+须以未修改参数/断言的原headed Web业务验收，不能仅靠DOM工具smoke。
+历史材料不兼容保旧hostroute。镜像不执行宿主stable-only normalize，
+避免卸载其不可变nightly；原host分支保此步骤。三个镜像分支沿原Web
+完整hash选择集CARGO/CC/CFLAGS/CXX/CMAKE/RUST，并纳入完整
+RUST_RELEASE_WEB_IMAGE；host分支不注入哪怕空的新RUST变量，保原v3
+指纹。原Web直接stable Cargo不沿native无关的OASIS7_WASM扩展伪造命中。
+
+镜像只运行原固定mold setup.py/SHA/ELF验证，不从这些job写宿主mold
+辅助archive；host分支原composite不变。该非业务缓存策略变化需单列cold
+成本，原Web主族、20GB/post-preload及历史v3维护保护不变。有限portable
+adapter仍只承担原四种下载归档，不接受Cargo target。

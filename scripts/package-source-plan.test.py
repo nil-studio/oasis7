@@ -3,6 +3,8 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import json
+import sys
 import tempfile
 spec = importlib.util.spec_from_file_location("source_plan", Path(__file__).with_name("package-source-plan.py"))
 plan = importlib.util.module_from_spec(spec)
@@ -38,6 +40,20 @@ with tempfile.TemporaryDirectory() as temporary:
             try: plan.resolve(bad, True)
             except ValueError: pass
             else: raise AssertionError(bad)
+        # Image routing is separate from the immutable source/qualification plan.
+        cli_env = dict(os.environ, REQUESTED_REF="v1.2.3", GITHUB_SHA=sha,
+                       GITHUB_WORKFLOW_SHA=sha, GITHUB_REPOSITORY="nil-studio/oasis7")
+        outputs = []
+        for image_args in ([], ["--release-web-image-source", sha]):
+            output = root / ("image-output" if image_args else "legacy-output")
+            subprocess.run([sys.executable, plan.__file__, "--release", *image_args],
+                           env=cli_env | {"GITHUB_OUTPUT": str(output)}, check=True)
+            outputs.append(dict(line.split("=", 1) for line in output.read_text().splitlines()))
+        assert outputs[0]["sourcePlan"] == outputs[1]["sourcePlan"]
+        assert outputs[0]["checkoutSha"] == outputs[1]["checkoutSha"] == sha
+        assert "webImageCompatible" not in outputs[0]
+        assert outputs[1]["webImageCompatible"] == "false"  # Historic tree lacks the image tool inputs.
+        assert json.loads(outputs[1]["sourcePlan"])["resolvedRef"] == "refs/tags/v1.2.3"
         git("checkout", "-q", "--orphan", "outside-protected-history")
         git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "outside")
         git("tag", "v9.9.9")
