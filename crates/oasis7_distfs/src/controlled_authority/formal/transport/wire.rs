@@ -435,8 +435,7 @@ mod deadline_tests {
         use oasis7_proto::memory_budget::MemoryBudget;
         let bytes = serde_cbor::to_vec(&77u64).unwrap();
         let memory = MemoryBudget::new(1 << 20, 0).unwrap();
-        let work =
-            super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 1024).unwrap();
+        let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 1024).unwrap();
         for attempt in 0..2 {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let addr = listener.local_addr().unwrap();
