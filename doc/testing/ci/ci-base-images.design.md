@@ -157,7 +157,8 @@ capability 或新的动态权限。正式发布不可变 digest 后才接生产�
 
 两个发布 reader 的镜像选择由执行工作流的可信 plan 决定：以精确
 checkoutSha 对照冻结镜像构建源的 rust-toolchain.toml、浏览器 helper/进程
-helper、浏览器 npm manifest/lock 与 bindgen helper 的 Git blob。所有文件
+helper、浏览器构建时使用的 apt/DNS helper、浏览器 npm manifest/lock 与
+bindgen helper 的 Git blob。所有文件
 须为存在的普通文件，目标 commit 及输入须完整。材料变化、缺失、symlink
 或未知 commit 均继续既有 host 分支；仅产品源码变化可使用同一镜像。
 兼容检测不替代 sourcePlan、原资格核验或允许候选保存缓存。

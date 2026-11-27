@@ -15,6 +15,8 @@ TOOL_INPUTS = (
     "rust-toolchain.toml",
     "scripts/ci-browser-deps.py",
     "scripts/ci_process_runner.py",
+    "scripts/ci-apt-install.py",
+    "scripts/ci-apt-dns.py",
     "scripts/ci-browser-tools/package.json",
     "scripts/ci-browser-tools/package-lock.json",
     "scripts/ensure-wasm-bindgen-cli.sh",
