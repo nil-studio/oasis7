@@ -19,9 +19,9 @@ mod async_agent_pilot;
 #[cfg(not(target_arch = "wasm32"))]
 mod async_agent_runner;
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use oasis7_runtime_host::cognition_policy;
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_agent_harness as cognition_response_identity;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use oasis7_runtime_host::cognition_policy;
 #[cfg(not(target_arch = "wasm32"))]
 mod continuous_agent_harness;
 #[cfg(not(target_arch = "wasm32"))]
