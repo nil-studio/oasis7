@@ -346,7 +346,7 @@ class WorkflowCorePart4(unittest.TestCase):
         setup = 'set -euo pipefail\nrun_provider_remote_https_smoke() { :; }\n'
         setup += 'run() { echo "$*"; if [[ -n "$FAIL_TEST" && "$*" == *"$FAIL_TEST"* ]]; then return 37; fi; }\n'
         calls = '\nrun_operational_contract_tests\nrun_packaging_contract_tests\necho contracts-complete\n'
-        tests = ('local-letai-provider-bridge.test.sh', 'build-wasm-module.test.sh')
+        tests = ('traffic-monitor-summary.test.sh', 'build-wasm-module.test.sh')
         for failing in ('', *tests):
             result = subprocess.run(['bash', '-c', setup + functions + calls], text=True,
                                     capture_output=True, env=dict(os.environ, FAIL_TEST=failing))
@@ -409,7 +409,7 @@ class WorkflowCorePart4(unittest.TestCase):
                 ['bash', '-c', setup + functions + '\nrun_operational_contract_tests\necho never\n'],
                 text=True, capture_output=True,
                 env=dict(os.environ, OASIS7_OPERATIONAL_CONTRACT_JOBS='4',
-                         FAIL_TEST='local-letai-provider-bridge.test.sh'),
+                         FAIL_TEST='traffic-monitor-summary.test.sh'),
             )
             self.assertEqual(failed.returncode, 41, failed.stdout + failed.stderr)
             self.assertNotIn('never', failed.stdout)

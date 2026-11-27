@@ -2726,7 +2726,6 @@
         "scripts/check-active-llm-provider.sh",
         "scripts/governance-registry-live-drill.sh",
         "scripts/run-local-letai-provider-bridge.sh",
-        "scripts/local-letai-provider-bridge.test.sh",
         "scripts/provider-parity-p0.sh",
         "scripts/oasis7-liveops-grant.sh",
         "scripts/runtime-module-routing-perf-harness.sh"
@@ -2846,6 +2845,8 @@
         "scripts/check-letai-chat-completions.sh",
         "scripts/ensure-letai-local-token-config*",
         "scripts/with-letai-llm-config*",
+        "scripts/local-letai-provider-bridge*",
+        "scripts/run-local-letai-provider-bridge*",
         "scripts/run-local-letai-game-test*",
         "scripts/run-local-public-testnet-letai-test-environment*",
         "scripts/game-world-state-sync*",
