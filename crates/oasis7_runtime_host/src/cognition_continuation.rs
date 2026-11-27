@@ -2,10 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::super::Observation;
-use super::super::continuous_agent_harness::{CognitionError, Digest32, h_v1};
 use super::GoalSnapshotV1;
+use oasis7_agent_api::{CognitionError, Digest32, h_v1};
 use oasis7_agent_harness::ContinuationHarness as HarnessContinuationHarness;
+use oasis7_simulator::Observation;
 
 #[cfg(not(target_arch = "wasm32"))]
 use oasis7_agent_harness::{
@@ -101,7 +101,7 @@ struct RuntimeContinuationAuthority;
 impl RuntimeAuthority for RuntimeContinuationAuthority {
     type Lease = ();
     type Receipt = ();
-    type Continuation = crate::runtime::AgentContinuation;
+    type Continuation = oasis7_runtime::AgentContinuation;
 
     fn validate_lease(
         &self,
@@ -186,31 +186,31 @@ impl RuntimeAuthority for RuntimeContinuationAuthority {
             continuation_digest: continuation.continuation_digest(),
             continuation_status_digest,
             status: match continuation.status {
-                crate::runtime::ContinuationStatusV1::Scheduled => {
+                oasis7_runtime::ContinuationStatusV1::Scheduled => {
                     HarnessContinuationStatusProjectionV1::Scheduled
                 }
-                crate::runtime::ContinuationStatusV1::Pending => {
+                oasis7_runtime::ContinuationStatusV1::Pending => {
                     HarnessContinuationStatusProjectionV1::Pending
                 }
-                crate::runtime::ContinuationStatusV1::Waking => {
+                oasis7_runtime::ContinuationStatusV1::Waking => {
                     HarnessContinuationStatusProjectionV1::Waking
                 }
-                crate::runtime::ContinuationStatusV1::Consumed => {
+                oasis7_runtime::ContinuationStatusV1::Consumed => {
                     HarnessContinuationStatusProjectionV1::Consumed
                 }
-                crate::runtime::ContinuationStatusV1::Completed => {
+                oasis7_runtime::ContinuationStatusV1::Completed => {
                     HarnessContinuationStatusProjectionV1::Completed
                 }
-                crate::runtime::ContinuationStatusV1::Cancelled => {
+                oasis7_runtime::ContinuationStatusV1::Cancelled => {
                     HarnessContinuationStatusProjectionV1::Cancelled
                 }
-                crate::runtime::ContinuationStatusV1::Invalidated => {
+                oasis7_runtime::ContinuationStatusV1::Invalidated => {
                     HarnessContinuationStatusProjectionV1::Invalidated
                 }
-                crate::runtime::ContinuationStatusV1::Expired => {
+                oasis7_runtime::ContinuationStatusV1::Expired => {
                     HarnessContinuationStatusProjectionV1::Expired
                 }
-                crate::runtime::ContinuationStatusV1::Rejected => {
+                oasis7_runtime::ContinuationStatusV1::Rejected => {
                     HarnessContinuationStatusProjectionV1::Rejected
                 }
             },
@@ -275,7 +275,7 @@ impl ContinuationHarness {
     pub fn consume_runtime_projection(
         &mut self,
         handle: ContinuationHandle,
-        runtime: &crate::runtime::AgentContinuation,
+        runtime: &oasis7_runtime::AgentContinuation,
     ) -> Result<ContinuationProjectionV1, CognitionError> {
         self.core
             .consume_authoritative_projection(handle, runtime, &RuntimeContinuationAuthority)
@@ -286,7 +286,7 @@ impl ContinuationHarness {
     pub fn consume_runtime_projection_with_context(
         &mut self,
         handle: ContinuationHandle,
-        runtime: &crate::runtime::AgentContinuation,
+        runtime: &oasis7_runtime::AgentContinuation,
         context: &ContinuationAuthorityContextV1,
     ) -> Result<ContinuationProjectionV1, CognitionError> {
         self.core.consume_authoritative_projection_with_context(
@@ -304,7 +304,7 @@ impl ContinuationHarness {
     pub fn advance_ready_wake(
         &mut self,
         handle: ContinuationHandle,
-        runtime: &crate::runtime::AgentContinuation,
+        runtime: &oasis7_runtime::AgentContinuation,
         context: &ContinuationAuthorityContextV1,
     ) -> Result<ContinuationHandle, CognitionError> {
         let mut projected = self.core.advance_ready_wake(
@@ -313,7 +313,7 @@ impl ContinuationHarness {
             context,
             &RuntimeContinuationAuthority,
         )?;
-        if runtime.status == crate::runtime::ContinuationStatusV1::Consumed {
+        if runtime.status == oasis7_runtime::ContinuationStatusV1::Consumed {
             projected.active = false;
         }
         Ok(projected)

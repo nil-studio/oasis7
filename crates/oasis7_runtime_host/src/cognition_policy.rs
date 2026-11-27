@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::continuous_agent_harness::{CognitionError, Digest32};
+use oasis7_agent_api::{CognitionError, Digest32};
 
 pub use oasis7_agent_api::{GoalSnapshotV1, MemoryContextEntryV1, MemoryContextSnapshotV1};
 
@@ -111,7 +111,7 @@ impl MemoryWriteStore {
 
     pub fn bind_corrections_to_decision(
         &mut self,
-        turn: &super::continuous_agent_harness::ContinuousAgentTurnContextV1,
+        turn: &oasis7_agent_api::ContinuousAgentTurnContextV1,
     ) -> Result<(), CognitionError> {
         self.with_harness_store(|store| store.bind_corrections_to_decision(turn))
     }
@@ -122,7 +122,7 @@ impl MemoryWriteStore {
         &mut self,
         parent_request_id: &str,
         parent_digest: &str,
-        turn: &super::continuous_agent_harness::ContinuousAgentTurnContextV1,
+        turn: &oasis7_agent_api::ContinuousAgentTurnContextV1,
     ) -> Result<(), CognitionError> {
         self.with_harness_store(|store| {
             store.rebind_corrections_after_stale_parent(parent_request_id, parent_digest, turn)
@@ -134,7 +134,7 @@ impl MemoryWriteStore {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn finalize_corrections(
         &mut self,
-        receipt: &crate::runtime::RuntimeReceiptLineageV1,
+        receipt: &oasis7_runtime::RuntimeReceiptLineageV1,
     ) -> Result<(), CognitionError> {
         receipt
             .validate()
@@ -275,7 +275,7 @@ impl MemoryWriteStore {
         &mut self,
         intent: NormalizedMemoryWriteIntentV1,
         digest: Digest32,
-        receipt: &crate::runtime::RuntimeReceiptLineageV1,
+        receipt: &oasis7_runtime::RuntimeReceiptLineageV1,
     ) -> Result<(), CognitionError> {
         self.apply_runtime_receipt_with_context(intent, digest, receipt, None)
     }
@@ -287,7 +287,7 @@ impl MemoryWriteStore {
         &mut self,
         intent: NormalizedMemoryWriteIntentV1,
         digest: Digest32,
-        receipt: &crate::runtime::RuntimeReceiptLineageV1,
+        receipt: &oasis7_runtime::RuntimeReceiptLineageV1,
         context: Option<&MemoryWritePolicyContextV1>,
     ) -> Result<(), CognitionError> {
         receipt.validate().map_err(|runtime_error| {
@@ -322,7 +322,7 @@ impl MemoryWriteStore {
     /// Harness transition after the supplied host authority verifies the
     /// receipt.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn apply_runtime_receipt_with_authority<A: HarnessRuntimeAuthority>(
+    pub fn apply_runtime_receipt_with_authority<A: HarnessRuntimeAuthority>(
         &mut self,
         intent: NormalizedMemoryWriteIntentV1,
         digest: Digest32,
@@ -344,7 +344,7 @@ impl MemoryWriteStore {
     /// Finalize only corrections bound to a receipt accepted by the same
     /// authority boundary as memory writes.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn finalize_corrections_with_authority<A: HarnessRuntimeAuthority>(
+    pub fn finalize_corrections_with_authority<A: HarnessRuntimeAuthority>(
         &mut self,
         receipt: &A::Receipt,
         context: &MemoryWritePolicyContextV1,

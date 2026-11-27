@@ -5,15 +5,11 @@
 //! durable receipt derivation, and world-readback verification stay in their
 //! existing Oasis7-owned paths.
 
-use crate::simulator::DecisionRequest;
-#[cfg(test)]
-use crate::simulator::DecisionResponse;
-#[cfg(test)]
+use crate::decision_provider::{DecisionRequest, DecisionResponse};
+use oasis7_agent_api::{ContinuousAgentRequestContextV1, FeedbackEnvelopeV1, MemoryWriteIntentV1};
 use oasis7_simulator::{Action, AgentQuery};
-
-use super::continuous_agent_harness::{ContinuousAgentRequestContextV1, FeedbackEnvelopeV1};
-#[cfg(test)]
-use super::continuous_agent_harness::{ContinuousAgentResponseContextV1, MemoryWriteIntentV1};
+type ContinuousAgentResponseContextV1 =
+    oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>;
 
 pub fn request_context_to_api(
     context: &ContinuousAgentRequestContextV1,
@@ -42,7 +38,7 @@ pub fn request_context_to_api(
     }
 }
 
-pub(crate) fn request_context_from_api(
+pub fn request_context_from_api(
     context: oasis7_agent_api::ContinuousAgentRequestContextV1,
 ) -> ContinuousAgentRequestContextV1 {
     ContinuousAgentRequestContextV1 {
@@ -69,8 +65,7 @@ pub(crate) fn request_context_from_api(
     }
 }
 
-#[cfg(test)]
-pub(crate) fn response_context_to_api(
+pub fn response_context_to_api(
     context: &ContinuousAgentResponseContextV1,
 ) -> oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery> {
     oasis7_agent_api::ContinuousAgentResponseContextV1 {
@@ -87,8 +82,7 @@ pub(crate) fn response_context_to_api(
     }
 }
 
-#[cfg(test)]
-pub(crate) fn response_context_from_api(
+pub fn response_context_from_api(
     context: oasis7_agent_api::ContinuousAgentResponseContextV1<Action, AgentQuery>,
 ) -> ContinuousAgentResponseContextV1 {
     ContinuousAgentResponseContextV1 {
@@ -122,9 +116,7 @@ pub fn feedback_to_api(feedback: &FeedbackEnvelopeV1) -> oasis7_agent_api::Feedb
     }
 }
 
-pub(crate) fn feedback_from_api(
-    feedback: oasis7_agent_api::FeedbackEnvelopeV1,
-) -> FeedbackEnvelopeV1 {
+pub fn feedback_from_api(feedback: oasis7_agent_api::FeedbackEnvelopeV1) -> FeedbackEnvelopeV1 {
     FeedbackEnvelopeV1 {
         feedback_id: feedback.feedback_id,
         feedback_seq: feedback.feedback_seq,
@@ -141,8 +133,7 @@ pub(crate) fn feedback_from_api(
     }
 }
 
-#[cfg(test)]
-pub(crate) fn memory_write_intent_to_api(
+pub fn memory_write_intent_to_api(
     intent: &MemoryWriteIntentV1,
 ) -> oasis7_agent_api::MemoryWriteIntentV1 {
     oasis7_agent_api::MemoryWriteIntentV1 {
@@ -180,8 +171,7 @@ fn decision_request_from_api(request: oasis7_agent_api::DecisionRequest) -> Deci
     }
 }
 
-#[cfg(test)]
-pub(crate) fn decision_response_to_api(
+pub fn decision_response_to_api(
     response: &DecisionResponse,
 ) -> oasis7_agent_api::DecisionResponse<Action, AgentQuery> {
     oasis7_agent_api::DecisionResponse {
@@ -194,7 +184,6 @@ pub(crate) fn decision_response_to_api(
     }
 }
 
-#[cfg(test)]
 fn decision_response_from_api(
     response: oasis7_agent_api::DecisionResponse<Action, AgentQuery>,
 ) -> DecisionResponse {

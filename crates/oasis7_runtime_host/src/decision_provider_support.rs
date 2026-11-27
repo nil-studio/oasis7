@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use super::super::{ObservedAgent, ObservedLocation, ResourceKind, ResourceStock};
 use super::{
     Action, ActionCatalogEntry, ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
     ContinuousAgentTurnContextV1, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION,
@@ -12,7 +11,7 @@ use super::{
     Observation, ObservationEnvelope, ProviderDecision, ProviderExecutionMode, WorldEvent,
     provider_observation_from_runtime_observation,
 };
-use crate::geometry::GeoPos;
+use oasis7_simulator::{GeoPos, ObservedAgent, ObservedLocation, ResourceKind, ResourceStock};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GoldenDecisionFixture {
