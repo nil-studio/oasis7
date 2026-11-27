@@ -36,24 +36,42 @@ impl StartupV3Fixture {
         let observed_at = Instant::now();
         let server = std::thread::spawn(move || {
             let mut incarnations = Vec::new();
-            let mut exact_replays = 0;
+            let mut observation_nonces = std::collections::BTreeSet::new();
+            let mut runtime_incarnation = None;
             // The provider's first history fetch reaches the real configured
             // transport, but authorization evidence is temporarily unavailable.
             let (mut stream, unavailable) = read_query(&listener);
             assert_eq!(unavailable.provider_public_key, public(90));
             assert!(unavailable.provider_lease_request.is_none());
+            observation_nonces.insert(unavailable.observation_nonce.clone());
             stream
                 .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                 .unwrap();
             drop(stream);
-            // Each fresh runtime performs observation + lease acquisition on
-            // the pre-material check, then observes again before release.
-            for rpc_index in 0..6 {
+            // Each fresh runtime probes and acquires before materialization.
+            // Before release it probes again and requests fresh read-only
+            // evidence for the already committed lease, without replaying CAS.
+            const RPCS_PER_START: u8 = 4;
+            for rpc_index in 0..2 * RPCS_PER_START {
                 let (mut stream, q) = read_query(&listener);
                 assert_eq!(q.provider_public_key, public(90));
+                assert!(
+                    observation_nonces.insert(q.observation_nonce.clone()),
+                    "each V3 observation must use a fresh nonce"
+                );
+                let phase = rpc_index % RPCS_PER_START;
+                assert_eq!(
+                    q.provider_lease_request.is_some(),
+                    phase == 1,
+                    "only the acquisition RPC may write a lease"
+                );
+                if phase == 0 {
+                    runtime_incarnation = Some(q.provider_incarnation.clone());
+                } else {
+                    assert_eq!(runtime_incarnation.as_ref(), Some(&q.provider_incarnation));
+                }
                 if rpc_index == 0 {
                     assert_eq!(q.provider_incarnation, unavailable.provider_incarnation);
-                    assert_ne!(q.observation_nonce, unavailable.observation_nonce);
                     assert_eq!(q.target, unavailable.target);
                     assert_eq!(q.minimum_anchor, unavailable.minimum_anchor);
                 }
@@ -89,10 +107,6 @@ impl StartupV3Fixture {
                         &before.observation,
                     )
                     .unwrap();
-                    // Every issuer witness query has a fresh nonce, including
-                    // the second owner lifetime. The signed provider request
-                    // nonce is unchanged on exact replay, which returns the
-                    // original receipt without appending history.
                     let observation = v3_observation_for_test(
                         &f.verified_v3,
                         state.anchor(),
@@ -100,52 +114,25 @@ impl StartupV3Fixture {
                         protected_time,
                     );
                     let prepared = state
-                        .prepare_lease(signed.clone(), &observation, &key(LEASE_SIGNER_KEY))
+                        .prepare_lease(signed, &observation, &key(LEASE_SIGNER_KEY))
                         .unwrap();
-                    if let Some(record) = prepared.record() {
-                        let receipt = SignedFullSyncIssuerReceiptV3::sign(
-                            FullSyncIssuerReceiptObservationV3::V3(observation),
-                            record,
-                            &key(WITNESS_KEY),
-                        )
-                        .unwrap();
-                        let decision = prepared.commit(receipt).unwrap();
-                        witness
-                            .history
-                            .lock()
-                            .unwrap()
-                            .v3_entries
-                            .push(decision.entry().clone());
-                        incarnations.push(incarnation);
-                    } else {
-                        // The production client resends its exact pending
-                        // request at the release check. The reducer proves the
-                        // original committed operation; do not append it twice.
-                        let existing = prepared.existing().expect("exact committed lease replay");
-                        match &existing.record.event {
-                            FullSyncIssuerEventV3::Lease { request, .. } => {
-                                assert_eq!(request.as_ref(), &signed);
-                            }
-                            _ => panic!("lease replay returned another operation"),
-                        }
-                        existing
-                            .receipt
-                            .verify_for_record(&existing.record, &f.verified_v2, &f.verified_v3)
-                            .unwrap();
-                        assert_eq!(
-                            witness
-                                .history
-                                .lock()
-                                .unwrap()
-                                .v3_entries
-                                .iter()
-                                .filter(|entry| *entry == existing)
-                                .count(),
-                            1,
-                            "replay must retain exactly one original history entry"
-                        );
-                        exact_replays += 1;
-                    }
+                    let record = prepared
+                        .record()
+                        .expect("each fresh runtime must append its own lease");
+                    let receipt = SignedFullSyncIssuerReceiptV3::sign(
+                        FullSyncIssuerReceiptObservationV3::V3(observation),
+                        record,
+                        &key(WITNESS_KEY),
+                    )
+                    .unwrap();
+                    let decision = prepared.commit(receipt).unwrap();
+                    witness
+                        .history
+                        .lock()
+                        .unwrap()
+                        .v3_entries
+                        .push(decision.entry().clone());
+                    incarnations.push(incarnation);
                 }
                 let evidence = witness.fetch(&request).unwrap();
                 let body = serde_json::to_vec(&evidence).unwrap();
@@ -157,7 +144,6 @@ impl StartupV3Fixture {
                 .unwrap();
                 stream.write_all(&body).unwrap();
             }
-            assert_eq!(exact_replays, 2, "one exact lease replay per runtime");
             incarnations
         });
         Self {
