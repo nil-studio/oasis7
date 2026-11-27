@@ -260,18 +260,35 @@ for platform, asset in (("linux-x64", "oasis7-linux-x64.deb"),
             assert subprocess.run(["shasum", "-a", "256", "-c", platform + "-SHA256SUMS"], cwd=checksum_root, capture_output=True).returncode != 0
 print("ok: Testnet SOURCEPLAN final upload selection, missing-file rejection and checksum integrity on all native platforms")
 
-# The Mainnet Linux image provides GNU coreutils. Execute the workflow's exact
-# checksum shell and compare bytes with the legacy Perl verifier.
+# Exercise the exact checksum shell used by each migrated Linux package
+# consumer, and compare the manifest bytes with the legacy Perl verifier.
 mainnet = (repo / ".github/workflows/mainnet-packages.yml").read_text()
-if "name: Verify the fixed Linux package toolchain" in mainnet:
-    block = mainnet.split("      - name: Write BUILDINFO\n", 1)[1].split("      - name:", 1)[0]
+installer = testnet.split("  package-installers:\n", 1)[1]
+fixed_installer = "name: Verify the Linux packaging runtime" in installer
+if fixed_installer:
+    image = "ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9"
+    assert "image: ${{ matrix.os == 'ubuntu-24.04' && '" + image + "' || '' }}" in installer
+    assert "options: --user 1001:1001 --init" in installer
+    assert "timeout-minutes: 90" in installer
+    assert "name: Install pinned Rust toolchain\n        if: runner.os != 'Linux'" in installer
+    assert "sudo apt-get" not in installer
+    assert "--native-binaries" in installer and "--web-dist" in installer and "--web-launcher-dist" in installer
+    assert "volumes:" not in installer and "actions: write" not in installer
+
+for name, body, migrated in (
+    ("Mainnet", mainnet, "name: Verify the fixed Linux package toolchain" in mainnet),
+    ("Testnet", installer, fixed_installer),
+):
+    if not migrated:
+        continue
+    block = body.split("      - name: Write BUILDINFO\n", 1)[1].split("      - name:", 1)[0]
     checksum_run = block.split('            cd "${bundle}"\n', 1)[1].rsplit("          fi", 1)[0]
     with tempfile.TemporaryDirectory() as temporary:
         bundle = Path(temporary)
         (bundle / "bin").mkdir()
         payloads = ("BUILDINFO", "bin/launcher with spaces", "bin/runtime")
-        for name in payloads:
-            (bundle / name).write_text(f"fixture for {name}\n")
+        for file in payloads:
+            (bundle / file).write_text(f"fixture for {file}\n")
         expected = subprocess.check_output(["shasum", "-a", "256", *payloads], cwd=bundle)
         subprocess.run([workflow_bash, "-e", "-o", "pipefail", "-c", checksum_run], cwd=bundle, check=True)
         assert (bundle / "SHA256SUMS").read_bytes() == expected
@@ -280,4 +297,4 @@ if "name: Verify the fixed Linux package toolchain" in mainnet:
         (bundle / "bin/runtime").write_text("tampered\n")
         assert subprocess.run(["sha256sum", "-c", "SHA256SUMS"], cwd=bundle,
                               capture_output=True).returncode != 0
-    print("ok: Mainnet Linux checksum shell preserves bytes and rejects tampered payload")
+    print(f"ok: {name} Linux checksum shell preserves bytes and rejects tampered payload")
