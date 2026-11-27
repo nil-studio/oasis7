@@ -47,11 +47,10 @@ pub trait NodeBftCommittedReadCredentialsV3: Send + Sync {
     fn sign_request(&self, canonical_payload: &[u8]) -> Result<String, String>;
 }
 
-#[allow(dead_code)] // Request contract only. Live Noise registration is a subsequent slice.
+#[path = "admission_input_live_v2.rs"]
+pub mod admission_input_live_v2;
 #[path = "admission_input_request_v2.rs"]
-mod admission_input_request_v2;
-// Strict binary response codec only; production Noise handlers remain unwired.
-#[allow(dead_code)]
+pub mod admission_input_request_v2;
 #[path = "admission_input_response_v2.rs"]
 mod admission_input_response_v2;
 #[path = "client.rs"]

@@ -234,4 +234,233 @@ fn real_outer_network_response_charge_can_exceed_inner_64k_limit() {
     let mut reader = futures::io::Cursor::new(outer.clone());
     let decoded = futures::executor::block_on(codec.read_response(&protocol, &mut reader)).unwrap();
     assert_eq!(decoded.payload, frame);
+    real_original_admission_noise_is_bound_and_charged();
+}
+
+fn real_original_admission_noise_is_bound_and_charged() {
+    use super::super::admission_input_live_v2::{
+        NodeBftOriginalAdmissionNoiseV2, ProtectedOriginalAdmissionAuthorityV2,
+        ProtectedOriginalAdmissionContextV2, ProtectedOriginalAdmissionPartsV2,
+    };
+    use super::super::admission_input_request_v2::{
+        AdmissionInputBoundContextV2, PROTOCOL_V2, VerifiedAdmissionBatchSubjectV2,
+    };
+    use oasis7_distfs::protected_bft_v3::{
+        BftPrivateRetentionAdmissionReadGrantV1, BftSignerErrorV3, BftSigningKeyHandleV3,
+    };
+    use oasis7_net::{Libp2pNetwork, Libp2pNetworkConfig};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    };
+    use std::time::{Duration, Instant};
+
+    struct Issuer(ed25519_dalek::SigningKey);
+    impl BftSigningKeyHandleV3 for Issuer {
+        fn public_key_hex(&self) -> String {
+            hex::encode(self.0.verifying_key().to_bytes())
+        }
+        fn sign_preimage(&self, bytes: &[u8]) -> Result<[u8; 64], BftSignerErrorV3> {
+            Ok(self.0.sign(bytes).to_bytes())
+        }
+    }
+    struct Authority {
+        bound: AdmissionInputBoundContextV2,
+        bytes: Vec<u8>,
+        generation: Arc<AtomicU64>,
+        permitted: Arc<AtomicBool>,
+        reads: AtomicUsize,
+        charges: AtomicU64,
+        deny_charge: AtomicBool,
+    }
+    impl ProtectedOriginalAdmissionAuthorityV2 for Authority {
+        fn current_context(
+            &self,
+            _: &AdmissionBatchRequestV2,
+        ) -> Result<ProtectedOriginalAdmissionContextV2, String> {
+            Ok(ProtectedOriginalAdmissionContextV2 {
+                bound: self.bound.clone(),
+                original_attempt_deadline: Instant::now() + Duration::from_secs(30),
+                current_generation: self.generation.clone(),
+                expected_generation: 7,
+                reply_permitted: self.permitted.clone(),
+            })
+        }
+        fn read_authorized_parts(
+            &self,
+            subject: &VerifiedAdmissionBatchSubjectV2,
+            deadline: Instant,
+        ) -> Result<ProtectedOriginalAdmissionPartsV2, String> {
+            if deadline > Instant::now() + Duration::from_secs(10) {
+                return Err("original admission RPC exceeds ten-second limit".into());
+            }
+            if subject.read().reference.object.digest
+                != blake3::hash(&self.bytes).to_hex().to_string()
+            {
+                return Err("original source mismatch".into());
+            }
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            let parts = subject
+                .read()
+                .ranges()?
+                .iter()
+                .map(|r| {
+                    self.bytes[r.offset as usize..r.offset as usize + r.length as usize].to_vec()
+                })
+                .collect();
+            Ok(ProtectedOriginalAdmissionPartsV2 {
+                parts,
+                transport_hold: Box::new(()), // Test fixture, never production custody.
+            })
+        }
+        fn reserve_encoded_response_and_readback(
+            &self,
+            _: &VerifiedAdmissionBatchSubjectV2,
+            outer: u64,
+        ) -> Result<(), String> {
+            if outer == 0 || self.deny_charge.load(Ordering::SeqCst) {
+                return Err("protected original charge/readback refused".into());
+            }
+            self.charges.fetch_add(outer, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    fn wait_connected(mut condition: impl FnMut() -> bool) {
+        let limit = Instant::now() + Duration::from_secs(5);
+        while !condition() {
+            assert!(Instant::now() < limit, "Noise peer connection deadline");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let original = vec![0x5a; 4 * CHUNK as usize + 7];
+    let server = Arc::new(Libp2pNetwork::new(Libp2pNetworkConfig {
+        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        request_response_timeout: Duration::from_secs(3),
+        ..Default::default()
+    }));
+    wait_connected(|| !server.listening_addrs().is_empty());
+    let client = Libp2pNetwork::new(Libp2pNetworkConfig {
+        bootstrap_peers: vec![
+            server.listening_addrs()[0]
+                .clone()
+                .with(libp2p::multiaddr::Protocol::P2p(server.peer_id())),
+        ],
+        request_response_timeout: Duration::from_secs(3),
+        ..Default::default()
+    });
+    wait_connected(|| client.connected_peers().contains(&server.peer_id()));
+    let (mut request, mut bound, subject) = fixture_with_original(
+        AdmissionBatchOperationV2::Batch {
+            offset_bytes: 0,
+            part_count: 3,
+        },
+        original.len() as u64,
+        blake3::hash(&original).to_hex().to_string(),
+    );
+    let unbound_request = request.clone();
+    request.read.requester_peer_id = client.peer_id().to_string();
+    request.read.serving_peer_id = server.peer_id().to_string();
+    let issuer = Issuer(ed25519_dalek::SigningKey::from_bytes(&[71; 32]));
+    let mut body = request.authorization.grant.body.clone();
+    body.requester_peer_id = request.read.requester_peer_id.clone();
+    body.serving_peer_id = request.read.serving_peer_id.clone();
+    request.authorization.grant =
+        BftPrivateRetentionAdmissionReadGrantV1::sign(body, &issuer).unwrap();
+    request.authorization.signature_hex = hex::encode(
+        subject
+            .sign(
+                &request
+                    .read
+                    .signing_bytes(&request.authorization.grant)
+                    .unwrap(),
+            )
+            .to_bytes(),
+    );
+    bound.authenticated_requester_peer_id = client.peer_id().to_string();
+    bound.authenticated_serving_peer_id = server.peer_id().to_string();
+    let authority = Arc::new(Authority {
+        bound,
+        bytes: original.clone(),
+        generation: Arc::new(AtomicU64::new(7)),
+        permitted: Arc::new(AtomicBool::new(true)),
+        reads: AtomicUsize::new(0),
+        charges: AtomicU64::new(0),
+        deny_charge: AtomicBool::new(false),
+    });
+    let _service = NodeBftOriginalAdmissionNoiseV2::new(
+        server.clone(),
+        vec![client.peer_id().to_string()],
+        authority.clone(),
+    )
+    .unwrap();
+    assert!(
+        client
+            .request_authenticated_to_peer_with_timeout(
+                PROTOCOL_V2,
+                &unbound_request.encode().unwrap(),
+                server.peer_id(),
+                Duration::from_secs(3),
+            )
+            .is_err()
+    );
+    assert_eq!(authority.reads.load(Ordering::SeqCst), 0);
+    let answer = client
+        .request_authenticated_to_peer_with_timeout(
+            PROTOCOL_V2,
+            &request.encode().unwrap(),
+            server.peer_id(),
+            Duration::from_secs(3),
+        )
+        .unwrap();
+    let verified = OriginalAdmissionBatchResponseV2::decode_for(&answer, &request).unwrap();
+    assert_eq!(verified.parts.len(), 3);
+    assert_eq!(
+        verified.parts[0].bytes.as_slice(),
+        &original[..CHUNK as usize]
+    );
+    assert_eq!(authority.reads.load(Ordering::SeqCst), 1);
+    assert!(authority.charges.load(Ordering::SeqCst) > answer.len() as u64);
+
+    let previous_charge = authority.charges.load(Ordering::SeqCst);
+    let mut tampered = request.clone();
+    tampered.authorization.signature_hex = "00".repeat(64);
+    assert!(
+        client
+            .request_authenticated_to_peer_with_timeout(
+                PROTOCOL_V2,
+                &tampered.encode().unwrap(),
+                server.peer_id(),
+                Duration::from_secs(3),
+            )
+            .is_err()
+    );
+    authority.generation.store(8, Ordering::SeqCst);
+    assert!(
+        client
+            .request_authenticated_to_peer_with_timeout(
+                PROTOCOL_V2,
+                &request.encode().unwrap(),
+                server.peer_id(),
+                Duration::from_secs(3),
+            )
+            .is_err()
+    );
+    assert_eq!(authority.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(authority.charges.load(Ordering::SeqCst), previous_charge);
+    // A protected charge/readback failure must never deliver confidential
+    // material, even when signature, Noise identity and generation match.
+    authority.generation.store(7, Ordering::SeqCst);
+    authority.deny_charge.store(true, Ordering::SeqCst);
+    assert!(
+        client
+            .request_authenticated_to_peer_with_timeout(
+                PROTOCOL_V2,
+                &request.encode().unwrap(),
+                server.peer_id(),
+                Duration::from_secs(3),
+            )
+            .is_err()
+    );
+    assert_eq!(authority.charges.load(Ordering::SeqCst), previous_charge);
 }
