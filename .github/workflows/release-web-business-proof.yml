@@ -96,7 +96,6 @@ jobs:
       - name: Run original Web writer build recipe
         run: |
           set -euo pipefail
-          set -euo pipefail
           mkdir -p output/release/viewer-optional-payload output/release/web-launcher-dist
           OASIS7_FORCE_VIEWER_SOFTWARE_SAFE_BUILD=1 ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload
           (
@@ -143,7 +142,8 @@ jobs:
           import hashlib,json,os,pathlib
           root=pathlib.Path('web-image-proof')
           files={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file() and not p.is_symlink()}
-          receipt={'source':os.environ['CODE_SHA'],'image':os.environ['RUST_RELEASE_WEB_IMAGE'],'uid':os.getuid(),'gid':os.getgid(),'probe_only':True,'main_write_authorized':False,'release_qualified':False,'job_status_before_receipt':os.environ['JOB_STATUS'],'files':files}
+          products={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for base in ('output/release/viewer-optional-payload','output/release/web-launcher-dist') for p in pathlib.Path(base).rglob('*') if p.is_file() and not p.is_symlink()}
+          receipt={'product_files':products,'source':os.environ['CODE_SHA'],'image':os.environ['RUST_RELEASE_WEB_IMAGE'],'uid':os.getuid(),'gid':os.getgid(),'probe_only':True,'main_write_authorized':False,'release_qualified':False,'job_status_before_receipt':os.environ['JOB_STATUS'],'files':files}
           (root/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
           PYPROOF
       - name: Upload bounded original reports and source receipt
