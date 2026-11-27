@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import hashlib
 import importlib.util
@@ -409,6 +410,92 @@ def check_ci_fast_path_health(
     return errors
 
 
+_AUDITED_GENERIC_WORDS = frozenset({
+    "test", "tests", "main", "lib", "core", "cli", "app", "bin", "api",
+    "sdk", "web", "ui", "net", "node", "store", "common", "types", "proto",
+    "utils", "tools", "crates", "build", "check", "bench", "example", "examples",
+})
+
+
+def collect_workspace_forbidden_identifiers(repo_root: Path) -> set[str]:
+    """Dynamically collect all workspace/standalone Cargo package, target, and crate/tool dir names."""
+    forbidden: set[str] = set()
+    for base_name in ("crates", "tools"):
+        base_dir = repo_root / base_name
+        if base_dir.is_dir():
+            for child in base_dir.iterdir():
+                if child.is_dir() and not child.name.startswith("."):
+                    forbidden.add(child.name)
+    manifests: list[Path] = []
+    root_manifest = repo_root / "Cargo.toml"
+    if root_manifest.is_file():
+        manifests.append(root_manifest)
+    for base_name in ("crates", "tools"):
+        base_dir = repo_root / base_name
+        if base_dir.is_dir():
+            for path in base_dir.rglob("Cargo.toml"):
+                if "target" not in path.parts and "third_party" not in path.parts:
+                    manifests.append(path)
+    for manifest in manifests:
+        try:
+            parsed = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            continue
+        pkg = parsed.get("package")
+        if isinstance(pkg, dict) and isinstance(pkg.get("name"), str):
+            forbidden.add(pkg["name"])
+        lib = parsed.get("lib")
+        if isinstance(lib, dict) and isinstance(lib.get("name"), str):
+            forbidden.add(lib["name"])
+        for section in ("bin", "test"):
+            entries = parsed.get(section)
+            if isinstance(entries, list):
+                for entry in entries:
+                    if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+                        forbidden.add(entry["name"])
+    return {name for name in forbidden if len(name) >= 3 and name not in _AUDITED_GENERIC_WORDS}
+
+
+def check_ci_engine_zero_business_identifiers(repo_root: Path) -> list[str]:
+    """AST-scan scripts/ci_engine/**/*.py to enforce zero workspace package/target/dir literals."""
+    engine_dir = repo_root / "scripts/ci_engine"
+    if not engine_dir.is_dir():
+        return []
+    forbidden = collect_workspace_forbidden_identifiers(repo_root)
+    if not forbidden:
+        return []
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_])(?:" + "|".join(re.escape(w) for w in sorted(forbidden, key=len, reverse=True)) + r")(?![A-Za-z0-9_])"
+    )
+    errors: list[str] = []
+    for py_file in sorted(engine_dir.rglob("*.py")):
+        rel = py_file.relative_to(repo_root).as_posix()
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=rel)
+        except SyntaxError as exc:
+            errors.append(f"{rel}: syntax error during AST gate: {exc}")
+            continue
+        for node in ast.walk(tree):
+            candidates: list[tuple[int, str]] = []
+            lineno = getattr(node, "lineno", 0)
+            if isinstance(node, ast.Name):
+                candidates.append((lineno, node.id))
+            elif isinstance(node, ast.Attribute):
+                candidates.append((lineno, node.attr))
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                candidates.append((lineno, node.name))
+            elif isinstance(node, ast.arg):
+                candidates.append((lineno, node.arg))
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                candidates.append((lineno, node.value))
+            for line, text in candidates:
+                for match in pattern.finditer(text):
+                    errors.append(
+                        f"{rel}:{line}: forbidden workspace identifier {match.group(0)!r} in L1 pure engine"
+                    )
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Check exact paths and fast-path anti-fallback invariants in scripts/ci-required-scope.json."
@@ -439,6 +526,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {rel_path} (at {loc})", file=sys.stderr)
         return 1
 
+    engine_errors = check_ci_engine_zero_business_identifiers(repo_root)
+    if engine_errors:
+        print(
+            "check-ci-scope-paths: FAIL: scripts/ci_engine contains forbidden workspace identifier(s):",
+            file=sys.stderr,
+        )
+        for err in engine_errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
+
     run_fast_canary = not args.skip_fast_paths and (
         args.check_fast_paths
         or (scope_file is None and (repo_root / "scripts/plan-rust-required-scope.py").is_file())
@@ -453,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
             for err in fast_errors:
                 print(f"  - {err}", file=sys.stderr)
             return 1
-        print("check-ci-scope-paths: OK (0 missing exact paths, fast-path anti-fallback canary passed)")
+        print("check-ci-scope-paths: OK (0 missing exact paths, ci_engine AST gate & fast-path canary passed)")
         return 0
 
     print("check-ci-scope-paths: OK (0 missing exact paths)")

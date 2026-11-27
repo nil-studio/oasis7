@@ -158,7 +158,7 @@ NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
-           'scripts/check-local.py',
+           'scripts/check-local.py', 'scripts/ci_engine/**', 'scripts/run-ci-authority-python.py',
            'scripts/plan-rust-required-scope*', 'scripts/ci_process_runner.py')
 
 
