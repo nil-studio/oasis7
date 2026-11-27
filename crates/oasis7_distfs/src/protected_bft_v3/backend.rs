@@ -119,6 +119,36 @@ pub trait BftSignerBackendV3: Send + Sync {
         Err(invalid("atomic first original Reserve is unsupported"))
     }
 
+    /// Read the existing current Fresh/FirstReserve tuple together with ALL
+    /// historical original results under the same generation/token/floor.
+    /// This must be one protected namespace snapshot, not a second WAL.
+    /// A backend lacking that exact whole-value primitive MUST fail closed.
+    fn read_original_operation_envelope_for_lease(
+        &mut self,
+        _generation: u64,
+        _token_digest: &str,
+    ) -> Result<super::BftOriginalRetentionTxnSnapshotV1, BftSignerErrorV3> {
+        Err(invalid(
+            "atomic original operation retention is unsupported",
+        ))
+    }
+
+    /// Compare and commit the *entire* original-operation envelope in a single
+    /// fenced transaction: current State/marker/signed original FirstReserve
+    /// bytes, operation identities/raw receipts and accumulated transfer spend.
+    /// An unknown commit requires exact same-namespace readback, not re-sign.
+    /// Never implement by calling compare_and_commit_first_reserve and then
+    /// independently appending operation records: that permits double debit.
+    fn compare_and_commit_original_operation_envelope(
+        &mut self,
+        _expected: &super::BftOriginalRetentionTxnSnapshotV1,
+        _next: &super::BftOriginalRetentionTxnSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        Err(invalid(
+            "atomic original operation retention is unsupported",
+        ))
+    }
+
     /// Persists one fully validated state transition under the exact lease,
     /// revision, digest and protected-time floor.
     fn compare_and_swap(
