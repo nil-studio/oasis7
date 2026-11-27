@@ -376,6 +376,7 @@ mod deadline_tests {
         drop(stream);
         sender.join().unwrap();
         prepaid_frame_is_charged_before_allocation_and_retained_across_decode();
+        prepaid_frame_work_cannot_reset_between_connections();
     }
 
     fn prepaid_frame_is_charged_before_allocation_and_retained_across_decode() {
@@ -413,6 +414,46 @@ mod deadline_tests {
             sender.join().unwrap();
         }
     }
+    fn prepaid_frame_work_cannot_reset_between_connections() {
+        use oasis7_proto::memory_budget::MemoryBudget;
+        let bytes = serde_cbor::to_vec(&77u64).unwrap();
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(
+            100,
+            u64::try_from(bytes.len() + 4).unwrap(),
+        )
+        .unwrap();
+        for attempt in 0..2 {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let frame = bytes.clone();
+            let sender = std::thread::spawn(move || {
+                let (mut peer, _) = listener.accept().unwrap();
+                let _ = peer.write_all(&(frame.len() as u32).to_be_bytes());
+                let _ = peer.write_all(&frame);
+            });
+            let mut stream = TcpStream::connect(addr).unwrap();
+            configure(&stream, Duration::from_secs(2)).unwrap();
+            let result = read_prepaid_frame::<u64>(
+                &mut stream,
+                &memory,
+                &work,
+                &mut || false,
+            );
+            if attempt == 0 {
+                let (value, retained) = result.unwrap();
+                assert_eq!(value, 77);
+                assert!(retained.uses_budget(&memory));
+                drop(retained);
+            } else {
+                assert!(result.is_err(), "second RPC must not renew work quota");
+            }
+            assert_eq!(memory.used(), 0);
+            sender.join().unwrap();
+        }
+        assert_eq!(work.remaining_read_bytes(), 0);
+    }
+
 }
 
 #[cfg(test)]
