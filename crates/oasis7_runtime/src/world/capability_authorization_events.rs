@@ -513,7 +513,7 @@ fn apply_registered_grant(
 }
 
 pub(super) fn validate_and_project_registered_grant(world: &World, capability_grants_v2: &mut BTreeMap<String, serde_json::Value>, grant: &CapabilityGrantV2, time: WorldTime) -> Result<(), WorldError> { validate_and_project_registered_grant_with_revocation_state(world, &world.capability_revocation_state, capability_grants_v2, grant, time) }
-pub(super) fn validate_and_project_registered_grant_with_revocation_state(world: &World, rev: &CapabilityRevocationState, capability_grants_v2: &mut BTreeMap<String, serde_json::Value>, grant: &CapabilityGrantV2, time: WorldTime) -> Result<(), WorldError> {
+pub(super) fn validate_and_project_registered_grant_with_revocation_state(world: &World, rev: &crate::capability_authorization::CapabilityRevocationState, capability_grants_v2: &mut BTreeMap<String, serde_json::Value>, grant: &CapabilityGrantV2, time: WorldTime) -> Result<(), WorldError> {
     validate_grant_body(grant, time)?;
     world.verify_issuer_with_revocation_state(rev, grant)?;
     World::verify_live_revocation_with_state(rev, grant)?;
