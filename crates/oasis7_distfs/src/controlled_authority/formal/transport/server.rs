@@ -43,11 +43,9 @@ impl FormalEndpointServer {
                 if limit.ordinary_bytes < 4096 || limit.work_steps == 0 || limit.work_bytes == 0 {
                     return Err(invalid("formal RPC frame admission policy"));
                 }
-                let memory = oasis7_proto::memory_budget::MemoryBudget::new(
-                    limit.ordinary_bytes,
-                    0,
-                )
-                .map_err(|_| invalid("formal RPC frame admission memory"))?;
+                let memory =
+                    oasis7_proto::memory_budget::MemoryBudget::new(limit.ordinary_bytes, 0)
+                        .map_err(|_| invalid("formal RPC frame admission memory"))?;
                 let work = super::super::endpoint::FormalArchiveReadWorkV1::new(
                     limit.work_steps,
                     limit.work_bytes,
