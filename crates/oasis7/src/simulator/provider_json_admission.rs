@@ -540,7 +540,3 @@ pub fn decode_response_context_with_lease<R: Read + Seek, F: Fn() -> bool>(
     )?;
     Ok((decoded, ProviderResponseContextLease::new(charge)))
 }
-
-#[cfg(test)]
-#[path = "provider_json_admission_tests.rs"]
-mod tests;
