@@ -14,7 +14,7 @@
 pub(crate) use oasis7_agent_harness as cognition_response_identity;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) use oasis7_runtime_host::agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_execution::async_agent_runner;
@@ -103,7 +103,7 @@ pub use agent::{
 pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::project_receipt_memory;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::{
