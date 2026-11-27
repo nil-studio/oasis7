@@ -340,7 +340,7 @@ class SelectionPart2(unittest.TestCase):
     def test_existing_bridge_input_covers_modification_and_deletion(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         cases = {
-            'scripts/local-letai-provider-bridge.test.sh': {'oasis7_required', 'operational_contracts'},
+            'scripts/provider-parity-p0.sh': {'oasis7_required', 'operational_contracts'},
         }
         for path, groups in cases.items():
             with self.subTest(path=path):
