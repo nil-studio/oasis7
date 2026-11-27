@@ -192,7 +192,7 @@ after(()=>{assert.equal(completed,2);record('finish');});
             root = Path(temporary)
             scripts = root / 'scripts'
             scripts.mkdir()
-            for name in ('plan-rust-required-scope.py', 'find-python-with-module.sh',
+            for name in ('plan-rust-required-scope.py', 'ci-required-scope.json', 'find-python-with-module.sh',
                          'viewer-dependency-preflight.sh'):
                 shutil.copyfile(ROOT / 'scripts' / name, scripts / name)
             if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
@@ -911,6 +911,75 @@ run_group viewer_js_required
                 result, events = self.viewer_fixture(directory, local_entry=True, **options)
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(set(['visual', 'browser', 'smoke']) & {role for role, _ in events})
+
+
+class MaterializedDualContractAndZeroEngineImportTests(unittest.TestCase):
+    def test_executors_run_without_ci_engine_or_planner_across_s2_and_s4_matrix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / 'scripts'
+            scripts.mkdir()
+            for name in ('ci-test-artifacts.py', 'ci-required-scope.json',
+                         'find-python-with-module.sh', 'viewer-dependency-preflight.sh'):
+                shutil.copyfile(ROOT / 'scripts' / name, scripts / name)
+            # Physically omit scripts/ci_engine/ and scripts/plan-rust-required-scope.py.
+            self.assertFalse((scripts / 'ci_engine').exists())
+            self.assertFalse((scripts / 'plan-rust-required-scope.py').exists())
+            marker = '  run_group "$group"\n'
+            driver = DRIVER.replace(marker, '  run_cargo() { printf "cargo %s\\n" "$*"; }\n  run_cargo_clippy() { :; }\n' + marker)
+            (scripts / 'ci-tests.sh').write_text(driver, encoding='utf-8')
+
+            # 1. Test ci-test-artifacts.py S2 -> S4 shim, S3/S4 -> S4 direct read, and conflict rejection.
+            import importlib.util
+            spec = importlib.util.spec_from_file_location('sandbox_artifacts', scripts / 'ci-test-artifacts.py')
+            art = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(art)
+            s2_plan = {'groups': ['oasis7_required'], 'scope': 'targeted', 'execution_profile': 'pr-fast',
+                       'fast_plan_version': 1, 'check_inventory_version': 1,
+                       'source_sha': 'a' * 40, 'tested_sha': 'a' * 40, 'policy_sha': 'a' * 40,
+                       'test_policy_changed': False, 'oasis7_required_wasm_packages': ['oasis7_agent_api']}
+            self.assertTrue(art.ordinary_candidate_image_eligible(s2_plan))
+            self.assertEqual(art.required_wasm_packages(s2_plan), ['oasis7_agent_api'])
+            s4_plan = dict(s2_plan, ordinary_execution_contract={
+                'version': 1, 'mode': 'artifact-v2', 'supports_universal_v2': True,
+                'candidate_container_eligible': False, 'artifact_partitions': ['compact'],
+                'partitions': ['all'], 'logical_harness_aliases': {},
+                'required_wasm_packages': ['oasis7_agent_api'], 'required_host_docker_wasm_fixtures': [],
+                'deferred_cases': {}, 'delegated_clippy': [],
+            })
+            self.assertFalse(art.ordinary_candidate_image_eligible(s4_plan))
+            with self.assertRaises(ValueError):
+                art.resolve_ordinary_execution_contract(dict(s2_plan, ordinary_execution_contract={'version': 99}))
+            with self.assertRaises(ValueError):
+                art.resolve_ordinary_execution_contract(dict(s4_plan, ordinary_execution='inline'))
+
+            # 2. Test ci-tests.sh --support-plan-file with S2 (no contract) and S4 (with contract) without planner/ci_engine.
+            for label, plan in (
+                ('S2->S4', {'groups': ['workspace_support'], 'scope': 'targeted',
+                            'workspace_support_profile_version': 1,
+                            'workspace_support_profiles': ['oasis7_proto', 'oasis7_game_client'],
+                            'workspace_support_partition_version': 1, 'workspace_support_partitions': ['other']}),
+                ('S4->S4', {'groups': ['workspace_support'], 'scope': 'targeted',
+                            'workspace_support_profile_version': 1,
+                            'workspace_support_profiles': ['oasis7_proto', 'oasis7_game_client'],
+                            'workspace_support_partition_version': 1, 'workspace_support_partitions': ['other'],
+                            'workspace_support_execution_contract': {
+                                'version': 1, 'selected_profiles': ['oasis7_game_client', 'oasis7_proto'],
+                                'partitions': {'custody': [], 'other': ['oasis7_game_client', 'oasis7_proto']},
+                                'host_profiles': ['oasis7_game_client'], 'image_profiles': ['oasis7_proto'],
+                                'expanded_targets_by_profile': {}, 'complete_features_by_profile': {},
+                                'wasm_compile_checks': {},
+                            }}),
+            ):
+                pf = root / f'{label.replace(">", "_")}.json'
+                pf.write_text(json.dumps(plan), encoding='utf-8')
+                res = subprocess.run(
+                    ['bash', str(scripts / 'ci-tests.sh'), 'required', '--group', 'workspace_support',
+                     '--support-plan-file', str(pf), '--support-partition', 'other', '--support-execution', 'image'],
+                    cwd=root, text=True, capture_output=True)
+                self.assertEqual(res.returncode, 0, f'{label}: {res.stdout}{res.stderr}')
+                self.assertIn('+ support profile: oasis7_proto', res.stdout)
+                self.assertNotIn('+ support profile: oasis7_game_client', res.stdout)
 
 
 if __name__ == '__main__':
