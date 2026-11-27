@@ -1,0 +1,131 @@
+name: Runtime core canonical image probe
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-release-runtime-core-probe-base]
+    paths: [.github/workflows/release-runtime-core-image-probe.yml]
+
+permissions:
+  contents: read
+  packages: read
+cache-mode: read
+
+jobs:
+  canonical-core:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.base_ref == 'codex/engineering-release-runtime-core-probe-base' &&
+      github.head_ref == 'codex/engineering-release-runtime-core-probe' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      TOOL_SHA: 8279957e86e58cac51c491a5663f6391bb614216
+      PROTECTED_SHA: 7155de3a0ecd33a5e514985b31e2ca8a4daf27f4
+      EXPECTED_SHA: 04f2a3048b192ce06681b474a3d90346183d59f5
+      TAG_SHA: a6f9bb785befc9ceb56dd0ee2ce11cfc0e696f32
+      RUST_TOOLCHAIN: 1.96.0
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CARGO_NET_RETRY: 10
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 8279957e86e58cac51c491a5663f6391bb614216
+          persist-credentials: false
+          sparse-checkout: .github/actions/setup-linux-mold
+      - name: Configure mold exactly as the release gates
+        uses: ./.github/actions/setup-linux-mold
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 04f2a3048b192ce06681b474a3d90346183d59f5
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the original source plan and production-event rejection
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse refs/tags/2026-11-26_v1)" = "$TAG_SHA"
+          test "$(git cat-file -t "$TAG_SHA")" = tag
+          git show "${TOOL_SHA}:scripts/package-source-plan.py" > "$RUNNER_TEMP/core-source-plan.py"
+          TRUSTED_DEFAULT_REF="$PROTECTED_SHA" REQUESTED_REF=refs/tags/2026-11-26_v1 \
+            GITHUB_OUTPUT="$RUNNER_TEMP/core-source-plan" \
+            /usr/bin/python3 "$RUNNER_TEMP/core-source-plan.py" --release
+          grep -Fx "checkoutSha=$EXPECTED_SHA" "$RUNNER_TEMP/core-source-plan"
+          launcher="$RUNNER_TEMP/runtime-core-image.sh"
+          git show "${TOOL_SHA}:scripts/package-release-runtime-sync-image.sh" > "$launcher"
+          GITHUB_OUTPUT="$RUNNER_TEMP/core-image-choice" bash "$launcher" --select-core
+          grep -Fx enabled=false "$RUNNER_TEMP/core-image-choice"
+          if bash "$launcher" --core; then exit 1; fi
+          printf 'OASIS7_PRODUCT_DOC_BASE=%s\n' "$(git rev-parse --verify 'HEAD^1')" >> "$GITHUB_ENV"
+          printf 'OASIS7_PRODUCT_DOC_HEAD=%s\n' "$EXPECTED_SHA" >> "$GITHUB_ENV"
+      - name: Build the actual Provider and feature-matched native Viewer
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .tmp/runtime-core-image-probe
+          cat > .tmp/runtime-core-image-probe/check.sh <<'PROBE'
+          set -euo pipefail
+          source scripts/ci-tests.sh
+          repo_root="$(pwd -P)"
+          driver_dir="$repo_root/scripts"
+          ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
+          test "$(git rev-parse HEAD^1)" = "$OASIS7_PRODUCT_DOC_BASE"
+          test "$(git rev-parse HEAD)" = "$OASIS7_PRODUCT_DOC_HEAD"
+          time prepare_full_provider_artifact
+          test -n "$OASIS7_PREVIEW_TEST_PROVIDER_WASM" && test -n "$OASIS7_PREVIEW_TEST_PROVIDER_METADATA"
+          "$ci_python" - <<'PY'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path.cwd()
+          bundles = list((root / 'target').glob('ci-preview-provider.*'))
+          assert len(bundles) == 1, bundles
+          bundle = bundles[0]
+          spec = importlib.util.spec_from_file_location('artifact', root / 'scripts/ci-test-artifacts.py')
+          artifact = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(artifact)
+          record = json.loads((bundle / 'preview-provider.json').read_text())
+          expected = artifact.ProviderArtifact.identity(root)
+          assert expected['tested_sha'] == expected['source_sha'] == os.environ['EXPECTED_SHA']
+          artifact.ProviderArtifact.validate(root, bundle, record, expected)
+          print(json.dumps({'source': expected['source_sha'], 'files': record['files']}, sort_keys=True))
+          record['files']['wasm']['sha256'] = '0' * 64
+          try:
+              artifact.ProviderArtifact.validate(root, bundle, record, expected)
+          except ValueError as error:
+              assert str(error) == 'provider artifact hash mismatch', str(error)
+          else:
+              raise AssertionError('corrupt Provider hash accepted')
+          PY
+          run_product_doc_governance_check
+          viewer="$(time build_oasis7_viewer_binary 'test_tier_full,wasmtime,viewer_live_integration')"
+          test -x "$viewer"
+          readelf -h "$viewer" | grep -F 'Advanced Micro Devices X86-64'
+          readelf -p .comment "$viewer" | grep -F 'mold 3.0.0'
+          sha256sum "$viewer"
+          git diff --exit-code
+          git diff --cached --exit-code
+          PROBE
+          production="$RUNNER_TEMP/runtime-core-image.sh"
+          probe="$RUNNER_TEMP/runtime-core-probe.sh"
+          test "$(grep -cx eligible_context "$production")" = 1
+          test "$(grep -Fc 'exec ./scripts/ci-tests.sh full-core' "$production")" = 1
+          sed -e '/^eligible_context$/d' \
+            -e 's@exec ./scripts/ci-tests.sh full-core@exec bash .tmp/runtime-core-image-probe/check.sh@' \
+            "$production" > "$probe"
+          bash "$probe" --core
