@@ -1236,7 +1236,7 @@ def snapshot_regressions(manifest):
     if plan is None:
         return DEFAULT_SNAPSHOT_REGRESSIONS
     packages = set(required_packages(plan))
-    owners = {'viewer-snapshot-tests': 'oasis7_viewer_runtime', 'snapshot-tests': 'oasis7'}
+    owners = {'viewer-snapshot-tests': 'oasis7_viewer_runtime', 'snapshot-tests': 'oasis7_runtime_host'}
     return tuple((owner, pattern) for owner, pattern in DEFAULT_SNAPSHOT_REGRESSIONS if owners[owner] in packages)
 
 
@@ -1474,7 +1474,7 @@ def build_variants(scope, plan=None, ordinary_partition=None):
         ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime', '--features', 'test_tier_required'], required_features),
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
-        ('snapshot-tests', ['test', '-p', 'oasis7', '--lib', '--no-run'], []),
+        ('snapshot-tests', ['test', '-p', 'oasis7_runtime_host', '--lib', '--no-run'], []),
         ('viewer-snapshot-tests', ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'], []),
     ]
     if scope == 'all':
@@ -1496,7 +1496,7 @@ def build_variants(scope, plan=None, ordinary_partition=None):
                 viewer_features = package_features(['oasis7_viewer_runtime'], plan)
                 selected.insert(0, ('viewer', ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live',
                                                '--features', ','.join(viewer_features)], viewer_features))
-            owners = {'snapshot-tests': 'oasis7', 'viewer-snapshot-tests': 'oasis7_viewer_runtime'}
+            owners = {'snapshot-tests': 'oasis7_runtime_host', 'viewer-snapshot-tests': 'oasis7_viewer_runtime'}
             selected.extend(v for v in variants if owners.get(v[0]) in packages)
             return (selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
                     + target_build_variants(ordinary_risk_supplements(plan), 'required-risk-'))
@@ -1814,7 +1814,7 @@ def shared_incremental_duplicate(manifest):
 def coalesce_build_invocations(variants):
     """Legacy helper retained temporarily for trusted-baseline test compatibility; unused by build()."""
     snapshot_specs = {
-        'snapshot-tests': ['test', '-p', 'oasis7', '--lib', '--no-run'],
+        'snapshot-tests': ['test', '-p', 'oasis7_runtime_host', '--lib', '--no-run'],
         'viewer-snapshot-tests': ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'],
     }
     present = {
@@ -1830,9 +1830,9 @@ def coalesce_build_invocations(variants):
             if not merged:
                 invocations.append((
                     'snapshot-tests',
-                    ['test', '-p', 'oasis7', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'],
+                    ['test', '-p', 'oasis7_runtime_host', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'],
                     [],
-                    {'oasis7': 'snapshot-tests', 'oasis7_viewer_runtime': 'viewer-snapshot-tests'},
+                    {'oasis7_runtime_host': 'snapshot-tests', 'oasis7_viewer_runtime': 'viewer-snapshot-tests'},
                 ))
                 merged = True
             continue

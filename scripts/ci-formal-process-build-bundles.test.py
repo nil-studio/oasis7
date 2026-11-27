@@ -396,7 +396,7 @@ class BuildAndBundles(unittest.TestCase):
         for variant, command, features in [*ordinary, *formal[1:], *artifacts.build_variants('all')]:
             self.assertNotIn('ci_formal_required_features', features, variant)
             self.assertFalse(any('ci_formal_required_features' in arg for arg in command), variant)
-        for owner, package in [('snapshot-tests', 'oasis7'), ('viewer-snapshot-tests', 'oasis7_viewer_runtime')]:
+        for owner, package in [('snapshot-tests', 'oasis7_runtime_host'), ('viewer-snapshot-tests', 'oasis7_viewer_runtime')]:
             snapshot = next(args for name, args, _ in ordinary if name == owner)
             self.assertEqual(snapshot, ['test', '-p', package, '--lib', '--no-run'])
             self.assertEqual(next(features for name, _, features in ordinary if name == owner), [])

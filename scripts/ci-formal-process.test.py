@@ -485,7 +485,7 @@ class FastExecutionSelection(unittest.TestCase):
         self.assertEqual({name for name, _, _ in variants}, {'required', 'viewer', 'viewer-snapshot-tests'})
         manifest = dict(execution_plan=plan)
         self.assertEqual(artifacts.snapshot_regressions(manifest), (artifacts.DEFAULT_SNAPSHOT_REGRESSIONS[0],))
-        core = self.selection(('oasis7',))
+        core = self.selection(('oasis7_runtime_host',))
         self.assertEqual(artifacts.snapshot_regressions(dict(execution_plan=core)),
                          (artifacts.DEFAULT_SNAPSHOT_REGRESSIONS[1],))
 

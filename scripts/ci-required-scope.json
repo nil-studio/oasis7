@@ -100,7 +100,7 @@
     },
     "harnesses": [
       {"package": "oasis7", "target_kind": "lib", "target_name": "oasis7", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 1887},
-      {"package": "oasis7", "target_kind": "lib", "target_name": "oasis7", "variant": "snapshot-tests", "mode": "filter", "selector": "snapshot_player_gameplay_execution_state_backfills_from_legacy_fields", "elapsed_ms": 8},
+      {"package": "oasis7_runtime_host", "target_kind": "lib", "target_name": "oasis7_runtime_host", "variant": "snapshot-tests", "mode": "filter", "selector": "snapshot_player_gameplay_execution_state_backfills_from_legacy_fields", "elapsed_ms": 8},
       {"package": "oasis7_cas", "target_kind": "lib", "target_name": "oasis7_cas", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 398},
       {"package": "oasis7_chain_runtime", "target_kind": "bin", "target_name": "oasis7_chain_runtime", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2},
       {"package": "oasis7_chain_runtime", "target_kind": "test", "target_name": "host_api", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 516},
