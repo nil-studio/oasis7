@@ -215,6 +215,135 @@ class SelectedCargoMountPaths(_ScopeFixtureBase):
                 self.assertIn(self.LEAF, plan['test_policy_paths'])
                 self.assertNotIn('ordinary_fast_targets', plan)
 
+    def test_inline_literal_path_test_module_does_not_poison_sibling_component_inline_selection(self):
+        self.write('.gitignore', 'target/\nCargo.lock\n')
+        self.write('Cargo.toml', '[workspace]\nresolver="2"\nmembers=["crates/core"]\n')
+        self.write(
+            'crates/core/Cargo.toml',
+            '[package]\nname="core"\nversion="0.1.0"\nedition="2021"\n'
+            '[features]\ndefault=[]\ntest_tier_required=[]\n'
+            'test_tier_full=["test_tier_required"]\ncustom_off=[]\n',
+        )
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] include!("native.rs");\n')
+        self.write(
+            'crates/core/src/native.rs',
+            'mod events {\n'
+            '    #[cfg(test)]\n'
+            '    #[path = "recipe_origin_tests.rs"]\n'
+            '    pub(crate) mod recipe_origin_tests;\n'
+            '}\n'
+            'mod world;\n',
+        )
+        self.write('crates/core/src/events/recipe_origin_tests.rs', '#[test] fn origin_ok() {}\n')
+        self.write(
+            'crates/core/src/world/mod.rs',
+            'pub mod governance;\n#[test] fn existing() { assert_eq!(governance::val(), 2); }\n',
+        )
+        self.write('crates/core/src/world/governance.rs', 'pub fn val() -> u8 { 1 }\n')
+        base = self.commit()
+        self.write('crates/core/src/world/governance.rs', 'pub fn val() -> u8 { 2 }\n')
+        head = self.commit()
+
+        config = self.bounded_config(('crates/core/src/world/governance.rs',))
+        config['fast_execution_version'] = 1
+        config['architecture_build_policy_version'] = 1
+        config['ordinary_fast_component_rules'] = [
+            dict(
+                match=['crates/core/src/**'],
+                exclude=['crates/core/src/bin/**'],
+                targets=['core-lib'],
+                reason='complete selected library',
+            )
+        ]
+        config['ordinary_fast_targets']['core-lib'].update(
+            default_features=False,
+            features=['test_tier_required'],
+            cases=['world::existing'],
+        )
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [])
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+        summary = selector.explain_plan_fallbacks(plan)
+        self.assertEqual(summary['execution_tier'], 'targeted-inline')
+        self.assertFalse(summary['is_fallback'])
+
+        # Inherited gates on the inline #[path] child must still be enforced.
+        for gate_feat in ('test_tier_full', 'custom_off'):
+            self.write(
+                'crates/core/src/native.rs',
+                'mod events {\n'
+                f'    #[cfg(all(test, feature = "{gate_feat}"))]\n'
+                '    #[path = "recipe_origin_tests.rs"]\n'
+                '    pub(crate) mod recipe_origin_tests;\n'
+                '}\n'
+                'mod world;\n',
+            )
+            self.write('crates/core/src/events/recipe_origin_tests.rs', '#[test] fn origin_ok() {}\n')
+            gated_base = self.commit()
+            self.write(
+                'crates/core/src/events/recipe_origin_tests.rs',
+                '#[test] fn origin_ok() {}\n#[test] fn added_case() {}\n',
+            )
+            gated_head = self.commit()
+            with self.subTest(gate_feat=gate_feat):
+                if gate_feat == 'custom_off':
+                    with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                        selector.select(config, gated_base, gated_head, profile='pr-fast')
+                else:
+                    fallback_plan = selector.select(config, gated_base, gated_head, profile='pr-fast')
+                    self.assertTrue(fallback_plan['test_policy_changed'])
+                    self.assertIn(
+                        'crates/core/src/events/recipe_origin_tests.rs',
+                        fallback_plan['test_policy_paths'],
+                    )
+                    self.assertTrue(selector.explain_plan_fallbacks(fallback_plan)['is_fallback'])
+
+    def test_struct_field_attribute_before_closing_brace_does_not_leak_to_following_path_module(self):
+        self.write('.gitignore', 'target/\nCargo.lock\n')
+        self.write('Cargo.toml', '[workspace]\nresolver="2"\nmembers=["crates/core"]\n')
+        self.write(
+            'crates/core/Cargo.toml',
+            '[package]\nname="core"\nversion="0.1.0"\nedition="2021"\n'
+            '[features]\ndefault=[]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n',
+        )
+        self.write(
+            'crates/core/src/lib.rs',
+            'pub struct Header {\n'
+            '    #[allow(dead_code)]\n'
+            '    pub version: u32\n'
+            '}\n'
+            '#[path = "journal.rs"]\n'
+            'pub mod journal;\n'
+            '#[test] fn existing() { assert_eq!(journal::seq(), 2); }\n',
+        )
+        self.write('crates/core/src/journal.rs', 'pub fn seq() -> u32 { 1 }\n')
+        base = self.commit()
+        self.write('crates/core/src/journal.rs', 'pub fn seq() -> u32 { 2 }\n')
+        head = self.commit()
+
+        config = self.bounded_config(('crates/core/src/journal.rs',))
+        config['fast_execution_version'] = 1
+        config['architecture_build_policy_version'] = 1
+        config['ordinary_fast_component_rules'] = [
+            dict(
+                match=['crates/core/src/**'],
+                exclude=['crates/core/src/bin/**'],
+                targets=['core-lib'],
+                reason='complete selected library',
+            )
+        ]
+        config['ordinary_fast_targets']['core-lib'].update(
+            default_features=False,
+            features=['test_tier_required'],
+            cases=['existing'],
+        )
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [])
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+
 
 class WorkspaceMemberCargoAndScopedCfgTests(_ScopeFixtureBase):
     ROOT_TOML = (

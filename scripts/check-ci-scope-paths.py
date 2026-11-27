@@ -1,17 +1,42 @@
 #!/usr/bin/env python3
-"""Verify that exact repository paths declared in scripts/ci-required-scope.json exist."""
+"""Verify exact repository paths and fast-path anti-fallback invariants for CI scope."""
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import hashlib
+import importlib.util
 import json
+import re
 import sys
+import tomllib
 from pathlib import Path
 
 REPO_TOP_DIRS = frozenset(
     {"crates", "tools", "scripts", "doc", "site", "skills", "docker", ".github", ".agents"}
 )
 SKIP_OBJECT_KEYS = frozenset({"reserved_empty_dir_prefixes"})
+
+# Frozen legacy set of fast-component production files on main that predate the
+# production full-tier attribute ratchet. Do not add new production src/** files
+# here; keep helpers #[cfg(test)] and anchor liveness inside test modules.
+LEGACY_PRODUCTION_FULL_TIER_FILES = frozenset(
+    {
+        "crates/oasis7_runtime/src/m1_builtin_wasm_artifact.rs",
+        "crates/oasis7_runtime/src/m4_builtin_wasm_artifact.rs",
+        "crates/oasis7_runtime/src/m5_builtin_wasm_artifact.rs",
+        "crates/oasis7_runtime/src/native.rs",
+        "crates/oasis7_runtime/src/world/agent_intent_terminal.rs",
+        "crates/oasis7_runtime/src/world/bootstrap_power.rs",
+        "crates/oasis7_runtime/src/world/mod.rs",
+        "crates/oasis7_runtime/src/world_rules.rs",
+    }
+)
+
+_MODULE_OR_INCLUDE_RE = re.compile(
+    r"#\s*\[\s*path\b|#\s*\[\s*cfg_attr\b[^\]]*\bpath\b|\binclude(?:_bytes|_str)?\s*!"
+)
 
 
 def is_exact_repo_path(value: str) -> bool:
@@ -50,10 +75,343 @@ def find_missing_scope_paths(repo_root: Path, scope_file: Path | None = None) ->
     return missing
 
 
+def _load_planner_module(planner_path: Path):
+    spec = importlib.util.spec_from_file_location("_ci_scope_planner_canary", planner_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load planner module from {planner_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _is_test_only_rust_file(rel_path: str) -> bool:
+    return "/tests/" in rel_path or rel_path.endswith(("_tests.rs", "/tests.rs", "_regressions.rs"))
+
+
+def _has_narrow_unproven_full_tier_gate(selector, text: str) -> bool:
+    tokens, closing = selector.rust_source_inputs(text, return_tokens=True)
+    for index, (_, token, _) in enumerate(tokens):
+        inner = index + 1 < len(tokens) and tokens[index + 1][1] == "!"
+        opening = index + 2 if inner else index + 1
+        if token != "#" or opening not in closing or tokens[opening][1] != "[":
+            continue
+        end = closing[opening]
+        values = tuple(
+            val.removeprefix("r#") if kind == "identifier" else val
+            for kind, val, _ in tokens[opening + 1 : end]
+        )
+        if not values or values[0] not in ("cfg", "cfg_attr"):
+            continue
+        if values[0] == "cfg_attr":
+            nesting = 0
+            comma = None
+            for offset, val in enumerate(values[2:], 2):
+                if val == "," and nesting == 0:
+                    comma = offset
+                    break
+                nesting += (val == "(") - (val == ")")
+            if comma is not None and not set(values[comma + 1 :]) & {"cfg", "cfg_attr", "test", "ignore"}:
+                continue
+        if any("test_tier_full" in part for part in values) and not any(
+            "test_tier_required" in part for part in values
+        ):
+            return True
+    return False
+
+
+_SIMPLE_LITERAL_PATH_ATTR_RE = re.compile(r'#\s*\[\s*path\s*=\s*"[^"\\\r\n]+"\s*\]')
+_SIMPLE_LITERAL_DATA_INCLUDE_RE = re.compile(
+    r'(?<![A-Za-z0-9_:])(?:(?:std|core)::)?include_(?:bytes|str)!\(\s*"[^"\\\r\n]+"\s*,?\s*\)'
+)
+
+
+def _needs_full_source_input_scan(text: str) -> bool:
+    if not _MODULE_OR_INCLUDE_RE.search(text):
+        return False
+    scrubbed = _SIMPLE_LITERAL_PATH_ATTR_RE.sub("", text)
+    scrubbed = _SIMPLE_LITERAL_DATA_INCLUDE_RE.sub("", scrubbed)
+    if _MODULE_OR_INCLUDE_RE.search(scrubbed):
+        return True
+    # Inline `#[path = "..."] mod name {` blocks also make module paths uncertain.
+    return bool(re.search(r'#\s*\[\s*path\b[\s\S]{0,160}?\bmod\s+[A-Za-z0-9_#]+\s*\{', text))
+
+
+def check_ci_fast_path_health(
+    repo_root: Path,
+    scope_file: Path | None = None,
+    planner_file: Path | None = None,
+) -> list[str]:
+    """Check CI fast-path contracts against silent slow-fallback regressions."""
+    scope_path = scope_file or (repo_root / "scripts/ci-required-scope.json")
+    planner_path = planner_file or (repo_root / "scripts/plan-rust-required-scope.py")
+    data = json.loads(scope_path.read_text(encoding="utf-8"))
+    selector = _load_planner_module(planner_path)
+    errors: list[str] = []
+
+    def verify_sha256(trail: str, rel_path: str, expected: str) -> None:
+        target = repo_root / rel_path
+        if not target.is_file():
+            errors.append(f"{trail}: missing pinned file {rel_path}")
+            return
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
+        if actual != expected:
+            errors.append(
+                f"{trail}: stale SHA-256 for {rel_path} (expected {expected}, actual {actual}); "
+                "review fast-contract boundary and update scripts/ci-required-scope.json"
+            )
+
+    # 1. Pinned SHA-256 fast-contract anchors (prevent silent fast-contract invalidation).
+    for idx, item in enumerate(data.get("generated_inputs", ())):
+        verify_sha256(
+            f"generated_inputs[{idx}].producer_sha256",
+            item["producer"],
+            item["producer_sha256"],
+        )
+    scale_contract = data.get("ordinary_scale_contract") or {}
+    for rel_path, digest in sorted((scale_contract.get("anchors") or {}).items()):
+        verify_sha256(f"ordinary_scale_contract.anchors[{rel_path}]", rel_path, digest)
+    for idx, contract in enumerate(data.get("ordinary_fast_support_contracts", ())):
+        for rel_path, digest in sorted((contract.get("callers") or {}).items()):
+            verify_sha256(
+                f"ordinary_fast_support_contracts[{idx}].callers[{rel_path}]",
+                rel_path,
+                digest,
+            )
+
+    # 2. Static module/include/OUT_DIR/ambiguity & production full-tier ratchet scan.
+    registered_generated: dict[str, set[str]] = {}
+    for item in data.get("generated_inputs", ()):
+        registered_generated.setdefault(item["package"], set()).update(item.get("outputs", ()))
+
+    component_rules = data.get("ordinary_fast_component_rules", ())
+    targets_by_key = data.get("ordinary_fast_targets", {})
+    fast_packages = {
+        targets_by_key[key]["package"]
+        for rule in component_rules
+        for key in rule.get("targets", ())
+        if key in targets_by_key
+    }
+
+    crates_dir = repo_root / "crates"
+    if crates_dir.is_dir():
+        root_str = repo_root.as_posix().rstrip("/") + "/"
+        all_rs_files = sorted(crates_dir.rglob("*.rs"))
+        rel_list = [path.as_posix().removeprefix(root_str) for path in all_rs_files]
+        rel_set = set(rel_list)
+        for path, rel in zip(all_rs_files, rel_list):
+            parts = rel.split("/")
+            if len(parts) < 3:
+                continue
+            pkg = parts[1]
+            if not rel.endswith("/mod.rs") and rel.removesuffix(".rs") + "/mod.rs" in rel_set:
+                errors.append(
+                    f"ambiguous Rust module files: both {rel} and {rel.removesuffix('.rs')}/mod.rs exist"
+                )
+            text = path.read_text(encoding="utf-8")
+            if _needs_full_source_input_scan(text):
+                _, calls, uncertain_module_paths = selector.rust_source_inputs(
+                    text, with_module_paths=True
+                )
+                if uncertain_module_paths:
+                    errors.append(
+                        f"{rel}: uncertain module path attribute (conditional #[cfg_attr(..., path = ...)], "
+                        "non-literal #[path], or inline #[path] block) poisons CI fast-path reachability"
+                    )
+                for call in calls:
+                    macro, line_no = call["macro"], call["line"]
+                    if call["kind"] == "unknown":
+                        errors.append(
+                            f"{rel}:{line_no}: unresolved {macro}! call poisons CI fast-path analysis"
+                        )
+                    elif call["kind"] == "generated":
+                        out_name = (call["path"] or "").lstrip("/")
+                        if macro == "include" or out_name not in registered_generated.get(pkg, set()):
+                            errors.append(
+                                f"{rel}:{line_no}: unregistered OUT_DIR {macro}!({out_name!r}) for {pkg}; "
+                                "register producer/outputs in scripts/ci-required-scope.json generated_inputs"
+                            )
+            if (
+                pkg in fast_packages
+                and "test_tier_full" in text
+                and rel not in LEGACY_PRODUCTION_FULL_TIER_FILES
+                and not _is_test_only_rust_file(rel)
+                and any(
+                    any(fnmatch.fnmatchcase(rel, m) for m in rule.get("match", ()))
+                    and not any(fnmatch.fnmatchcase(rel, e) for e in rule.get("exclude", ()))
+                    for rule in component_rules
+                )
+                and _has_narrow_unproven_full_tier_gate(selector, text)
+            ):
+                errors.append(
+                    f"{rel}: production fast-component file introduces narrow-unproven #[cfg(...test_tier_full...)] "
+                    "gate (causes test_policy_changed=true fallback on future edits); keep helper #[cfg(test)] "
+                    "and anchor full-tier liveness with `const _: () = { let _ = (...); };` inside the test module"
+                )
+
+    # 3. Live planner reachability & Adapter/Cutover slice archetype canary per fast-component crate.
+    by_pkg: dict[str, tuple[dict, dict]] = {}
+    for rule in component_rules:
+        lib_targets = [
+            targets_by_key[key]
+            for key in rule.get("targets", ())
+            if key in targets_by_key and targets_by_key[key].get("target_kind") == "lib"
+        ]
+        if not lib_targets:
+            continue
+        pkg = lib_targets[0]["package"]
+        if pkg not in by_pkg and (repo_root / "crates" / pkg / "Cargo.toml").is_file():
+            by_pkg[pkg] = (rule, lib_targets[0])
+
+    preferred_probes = {
+        "oasis7_runtime": [
+            "crates/oasis7_runtime/src/domains/capability_authz/catalog.rs",
+            "crates/oasis7_runtime/src/world/governance.rs",
+        ],
+        "oasis7_world_state": [
+            "crates/oasis7_world_state/src/formal_retained_history_journal.rs",
+            "crates/oasis7_world_state/src/events/domain_event_rejections.rs",
+        ],
+    }
+    representative_pkgs = (
+        set(by_pkg)
+        if len(by_pkg) <= 4
+        else {
+            pkg
+            for pkg in (
+                "oasis7_runtime",
+                "oasis7_world_state",
+                "oasis7_viewer_runtime",
+                "oasis7_simulator",
+            )
+            if pkg in by_pkg
+        }
+    )
+
+    root_prefix = repo_root.as_posix().rstrip("/") + "/"
+    for pkg in sorted(representative_pkgs):
+        rule, target = by_pkg[pkg]
+        crate_rel = f"crates/{pkg}"
+        manifest = tomllib.loads((repo_root / crate_rel / "Cargo.toml").read_text(encoding="utf-8"))
+        src_dir = repo_root / crate_rel / "src"
+        if not src_dir.is_dir():
+            continue
+        sources = {
+            p.as_posix().removeprefix(root_prefix): p.read_bytes()
+            for p in sorted(src_dir.rglob("*.rs"))
+        }
+        eligible = [
+            rel
+            for rel in sorted(sources)
+            if not _is_test_only_rust_file(rel)
+            and not rel.endswith(("/native.rs", "/world/mod.rs"))
+            and rel not in LEGACY_PRODUCTION_FULL_TIER_FILES
+            and any(fnmatch.fnmatchcase(rel, m) for m in rule.get("match", ()))
+            and not any(fnmatch.fnmatchcase(rel, e) for e in rule.get("exclude", ()))
+            and not any(
+                tok in sources[rel].decode("utf-8")
+                for tok in ("test_tier_full", "wasm32", "windows", "macos")
+            )
+        ]
+        if not eligible:
+            continue
+        chosen = [p for p in preferred_probes.get(pkg, ()) if p in eligible]
+        for candidate in eligible:
+            if len(chosen) >= 2:
+                break
+            if candidate not in chosen:
+                chosen.append(candidate)
+
+        adapter_path = chosen[0]
+        cutover_path = chosen[1] if len(chosen) > 1 else None
+        base_map: dict[str, str] = {}
+        head_map: dict[str, str] = {}
+        mod_sources = dict(sources)
+        probed_paths = [adapter_path]
+
+        adapter_orig = sources[adapter_path].decode("utf-8")
+        adapter_head = (
+            adapter_orig
+            + '\n#[cfg_attr(not(test), expect(dead_code, reason = "canary"))]\n'
+            + "pub fn __ci_canary_adapter() -> usize { 1 }\n"
+            + "#[test]\nfn __ci_canary_adapter_test() { assert_eq!(__ci_canary_adapter(), 1); }\n"
+        )
+        base_map[adapter_path] = adapter_orig
+        head_map[adapter_path] = adapter_head
+        mod_sources[adapter_path] = adapter_head.encode("utf-8")
+
+        if cutover_path is not None:
+            cutover_orig = sources[cutover_path].decode("utf-8")
+            cutover_base = (
+                cutover_orig
+                + '\n#[cfg_attr(not(test), expect(dead_code, reason = "canary"))]\n'
+                + "pub fn __ci_canary_cutover() -> usize { 1 }\n"
+            )
+            cutover_head = cutover_orig + "\npub fn __ci_canary_cutover() -> usize { 1 }\n"
+            base_map[cutover_path] = cutover_base
+            head_map[cutover_path] = cutover_head
+            mod_sources[cutover_path] = cutover_head.encode("utf-8")
+            probed_paths.append(cutover_path)
+
+        feats = set(manifest.get("features", ())) | {"test_tier_required", "test_tier_full"}
+        defaults = set(manifest.get("features", {}).get("default", ()))
+        lib_root = f"{crate_rel}/src/lib.rs"
+        narrow_features = set(target.get("features", ())) | (
+            defaults if target.get("default_features", True) else set()
+        )
+        includes = {p for p in mod_sources if p.endswith("/native.rs")}
+        s_inputs = {
+            "sources": mod_sources,
+            "directories": {pkg: crate_rel},
+            "manifests": {pkg: manifest},
+            "default_features": {pkg: sorted(defaults)},
+            "includes": includes,
+            "ref_sources": {"BASE": base_map, "HEAD": head_map},
+        }
+        narrow_unavailable: set[str] = set()
+        try:
+            policy_paths, ignored_risk, prod_cfg = selector.changed_test_policy(
+                "BASE",
+                "HEAD",
+                probed_paths,
+                feature_owners={p: {pkg} for p in probed_paths},
+                feature_packages={pkg},
+                available_features={pkg: feats},
+                ordinary_roots={lib_root},
+                source_inputs=s_inputs,
+                narrow_features_by_path={p: narrow_features for p in probed_paths},
+                narrow_unavailable=narrow_unavailable,
+                selected_targets=[target],
+                required_source_paths=set(probed_paths),
+            )
+        except selector.TestPolicyError as exc:
+            errors.append(f"fast-component canary raised TestPolicyError for {pkg}: {exc}")
+            continue
+        if policy_paths or ignored_risk or prod_cfg or narrow_unavailable:
+            errors.append(
+                f"fast-component canary failed for {pkg} ({probed_paths}): "
+                f"policy_paths={policy_paths}, narrow_unavailable={sorted(narrow_unavailable)}, "
+                f"production_cfg={prod_cfg}, ignored_risk={ignored_risk}"
+            )
+
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Check exact paths in scripts/ci-required-scope.json.")
+    parser = argparse.ArgumentParser(
+        description="Check exact paths and fast-path anti-fallback invariants in scripts/ci-required-scope.json."
+    )
     parser.add_argument("--repo-root", default=".", help="Repository root directory")
     parser.add_argument("--scope-file", default=None, help="Optional override path to ci-required-scope.json")
+    parser.add_argument(
+        "--check-fast-paths",
+        action="store_true",
+        help="Force running CI fast-path anti-fallback canary even when --scope-file is overridden",
+    )
+    parser.add_argument(
+        "--skip-fast-paths",
+        action="store_true",
+        help="Skip CI fast-path anti-fallback canary and check exact path existence only",
+    )
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).resolve()
@@ -67,6 +425,23 @@ def main(argv: list[str] | None = None) -> int:
         for loc, rel_path in missing:
             print(f"  - {rel_path} (at {loc})", file=sys.stderr)
         return 1
+
+    run_fast_canary = not args.skip_fast_paths and (
+        args.check_fast_paths
+        or (scope_file is None and (repo_root / "scripts/plan-rust-required-scope.py").is_file())
+    )
+    if run_fast_canary:
+        fast_errors = check_ci_fast_path_health(repo_root, scope_file)
+        if fast_errors:
+            print(
+                "check-ci-scope-paths: FAIL: CI fast-path anti-fallback canary detected regression(s):",
+                file=sys.stderr,
+            )
+            for err in fast_errors:
+                print(f"  - {err}", file=sys.stderr)
+            return 1
+        print("check-ci-scope-paths: OK (0 missing exact paths, fast-path anti-fallback canary passed)")
+        return 0
 
     print("check-ci-scope-paths: OK (0 missing exact paths)")
     return 0

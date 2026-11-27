@@ -205,7 +205,7 @@ Game Client 的 `dev_test_service_cli.rs` 只承接原 `dev-test-serve`、`dev-t
 
 同一 package、相同默认 feature 设置和相同显式 features 的快速目标可合并到一次 Cargo 构建调用，例如同时指定 `--lib` 与具名 `--test`；不同 package 或 feature 组合不合并。构建清单继续为每个目标分别保存并校验真实 executable、features、摘要及完整用例，不以命令合并消除任何目标或验收项。
 
-修改测试或生产源码时，即使已有 feature gate 没有变化，也核对快速组合可达性；无法执行则扩测。新增共享测试只有证明静态 `mod/include!` 路由实际到达被选 Cargo target 且全部门控成立，才继续精简，未知宏、动态路径和断开入口保守处理。`native.rs/world/mod.rs` 保留已登记声明/导出的精确新增规则；精确 native cfg 也是声明的一部分，删除或替换已有 API、其他代码仍回退。
+修改测试或生产源码时，即使已有 feature gate 没有变化，也核对快速组合可达性；无法执行则扩测。新增共享测试只有证明静态 `mod/include!` 路由实际到达被选 Cargo target 且全部门控成立，才继续精简，未知宏、动态路径和断开入口保守处理。无路径属性的内联模块（`mod outer { #[path = "<literal>"] mod leaf; }`）按 Rust Reference §6.2.1 将字面量路径解析到 `{module_directory/*inline/<literal>, directory/*inline/<literal>}` 的唯一目标并继承完整门控链，不再通配污染同包其余生产文件；若上层模块带继承路径属性（`#[path]` / `cfg_attr(..., path = ...)`）、条件路径或非字面量路径仍保持保守扩测。结构体与枚举块内末尾字段/变体的外属性在闭合 `}` 处截断，避免跨块污染紧随其后的顶层 `#[path]` 模块声明。`native.rs/world/mod.rs` 保留已登记声明/导出的精确新增规则；精确 native cfg 也是声明的一部分，删除或替换已有 API、其他代码仍回退。
 
 可信规则可为完整 library 目标登记 `static_module_additions`。它只接纳入口最外层新增的无属性 `mod name;` 及其可见性形式，要求源码实际新增于同一比较范围、使用唯一常规模块路径，且所选 target/features 能执行入口和新模块。此能力用于 Runtime `world/mod.rs` 与 Viewer `runtime_live.rs`，不放宽 `native.rs` 的导出合同。base/source/tested 的每一项实际差异均须通过；已有代码变更、模块删除/替换、`cfg/path` 属性、inline module、宏挂载或歧义路径不能借此准入。新模块内的门控和嵌入输入继续接受原有风险及可达性检查。
 
@@ -247,7 +247,7 @@ Viewer 的 Vitest UI 测试保留单 worker、逐文件独立 fork 与 jsdom，�
 
 预览矩阵直接消费已验证计划输出的完整组列表，所有选中组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；每个样本从 workflow 创建到其全部所选 job 完成的时长独立验收，包含排队、规划和产物上传，单个镜像 job 的 `runner_seconds` 从镜像初始化后的第一个步骤计到结果生成。现场核对冷拉取和初始化时长时，以该 job 的容器初始化日志为准。不得混用另一份样本的完成时间。不能只运行三个核心组而漏掉计划中的消费者。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
 
-baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。baseline 不自动附加 `--full-corpus` 历史内容报告；需要存量分析时显式运行，不能把其历史告警升级为当前无关改动的阻断。改变规则、范围选择或解析器时仍运行全部适用回归并核对完整适用文档集合。
+baseline 保留必要治理、格式与一致性检查。`check-ci-scope-paths.py` 在校验精确路径存在性的同时执行快速路径防回退哨兵：核对 `generated_inputs[*].producer_sha256`、`ordinary_scale_contract.anchors` 与 `ordinary_fast_support_contracts[*].callers` 相对当前源码的 SHA-256 一致性，检查快速组件源码不存在未登记 `OUT_DIR` 嵌入读取、条件/非字面量/继承式 `#[path]`、同名 `foo.rs` 与 `foo/mod.rs` 歧义或生产文件非测试项的 `test_tier_full` 门控，并以真实规划器验证代表性快速组件入口与 `Adapter` / `Cutover` 切片原型的 `inline` 可达性。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。baseline 不自动附加 `--full-corpus` 历史内容报告；需要存量分析时显式运行，不能把其历史告警升级为当前无关改动的阻断。改变规则、范围选择或解析器时仍运行全部适用回归并核对完整适用文档集合。
 
 单次系统设计追踪检查可复用本轮 Git 工作树与暂存区的变更映射，避免每读取一个引用目标都重复扫描全仓状态。每次调用重新取得映射，仍按原规则区分 unstaged、staged-only、删除、重命名及未跟踪文件；工作树恢复为 HEAD 而暂存区仍有修改时，读取暂存内容。内容缓存限于本轮首次读取，不跨调用复用，也不把本地可变工作区宣称为原子不可变快照。
 

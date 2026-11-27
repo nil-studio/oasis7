@@ -97,6 +97,114 @@ class ScopePathsTests(unittest.TestCase):
             missing = scope_paths.find_missing_scope_paths(root, scope)
             self.assertEqual([p for _, p in missing], ["crates/missing/src/ghost.rs"])
 
+    def test_fast_path_canary_accepts_healthy_fixture_and_catches_regressions(self) -> None:
+        import hashlib
+
+        planner = SCRIPTS_DIR / "plan-rust-required-scope.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            src = root / "crates/demo/src"
+            src.mkdir(parents=True)
+            build_rs = root / "crates/demo/build.rs"
+            build_rs.write_text("fn main() {}\n", encoding="utf-8")
+            anchor_rs = root / "crates/demo/src/anchor.rs"
+            anchor_rs.write_text("pub fn anchor() -> u8 { 1 }\n", encoding="utf-8")
+            caller_rs = root / "crates/demo/src/caller.rs"
+            caller_rs.write_text("pub fn call() -> u8 { super::anchor::anchor() }\n", encoding="utf-8")
+            (root / "crates/demo/Cargo.toml").write_text(
+                '[package]\nname = "demo"\nversion = "0.1.0"\nedition = "2021"\n'
+                '[features]\ndefault = []\ntest_tier_required = []\ntest_tier_full = ["test_tier_required"]\n',
+                encoding="utf-8",
+            )
+            (src / "lib.rs").write_text(
+                "pub mod anchor;\npub mod caller;\npub mod domain;\n",
+                encoding="utf-8",
+            )
+            domain_rs = src / "domain.rs"
+            domain_rs.write_text(
+                'const META: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/meta.txt"));\n'
+                "pub fn ok() -> usize { META.len() }\n",
+                encoding="utf-8",
+            )
+
+            def sha(path: Path) -> str:
+                return hashlib.sha256(path.read_bytes()).hexdigest()
+
+            base_scope = {
+                "generated_inputs": [
+                    {
+                        "package": "demo",
+                        "producer": "crates/demo/build.rs",
+                        "producer_sha256": sha(build_rs),
+                        "outputs": ["meta.txt"],
+                    }
+                ],
+                "ordinary_scale_contract": {
+                    "anchors": {"crates/demo/src/anchor.rs": sha(anchor_rs)}
+                },
+                "ordinary_fast_support_contracts": [
+                    {"package": "demo", "callers": {"crates/demo/src/caller.rs": sha(caller_rs)}}
+                ],
+                "ordinary_fast_targets": {
+                    "demo-lib": {
+                        "package": "demo",
+                        "target_kind": "lib",
+                        "target_name": "demo",
+                        "default_features": False,
+                        "features": ["test_tier_required"],
+                        "cases": [],
+                    }
+                },
+                "ordinary_fast_component_rules": [
+                    {"match": ["crates/demo/src/**"], "exclude": [], "targets": ["demo-lib"]}
+                ],
+            }
+            scope = root / "scripts/ci-required-scope.json"
+            scope.write_text(json.dumps(base_scope), encoding="utf-8")
+
+            self.assertEqual(scope_paths.check_ci_fast_path_health(root, scope, planner), [])
+
+            # 1. Stale producer_sha256 anchor caught
+            build_rs.write_text("fn main() { println!(\"changed\"); }\n", encoding="utf-8")
+            errs = scope_paths.check_ci_fast_path_health(root, scope, planner)
+            self.assertTrue(any("stale SHA-256 for crates/demo/build.rs" in e for e in errs), errs)
+            build_rs.write_text("fn main() {}\n", encoding="utf-8")
+
+            # 2. Unregistered OUT_DIR include_bytes! caught
+            domain_rs.write_text(
+                'const SECRET: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/unregistered.bin"));\n'
+                "pub fn ok() -> usize { SECRET.len() }\n",
+                encoding="utf-8",
+            )
+            errs = scope_paths.check_ci_fast_path_health(root, scope, planner)
+            self.assertTrue(any("unregistered OUT_DIR" in e for e in errs), errs)
+
+            # 3. Narrow-unproven test_tier_full gate on production file caught
+            domain_rs.write_text(
+                "pub fn ok() -> usize { 1 }\n"
+                '#[cfg(all(test, feature = "test_tier_full"))]\n'
+                "fn full_only_helper() -> usize { 2 }\n",
+                encoding="utf-8",
+            )
+            errs = scope_paths.check_ci_fast_path_health(root, scope, planner)
+            self.assertTrue(any("narrow-unproven #[cfg(...test_tier_full...)]" in e for e in errs), errs)
+
+            # 4. Conditional #[cfg_attr(test, path = ...)] caught
+            domain_rs.write_text(
+                '#[cfg_attr(test, path = "anchor.rs")]\nmod sub;\npub fn ok() -> usize { 1 }\n',
+                encoding="utf-8",
+            )
+            errs = scope_paths.check_ci_fast_path_health(root, scope, planner)
+            self.assertTrue(any("uncertain module path attribute" in e for e in errs), errs)
+
+            # 5. Ambiguous foo.rs + foo/mod.rs caught
+            domain_rs.write_text("pub fn ok() -> usize { 1 }\n", encoding="utf-8")
+            (src / "domain").mkdir()
+            (src / "domain/mod.rs").write_text("pub fn conflict() {}\n", encoding="utf-8")
+            errs = scope_paths.check_ci_fast_path_health(root, scope, planner)
+            self.assertTrue(any("ambiguous Rust module files" in e for e in errs), errs)
+
 
 class DocCargoTestCommandsTests(unittest.TestCase):
     def test_reports_missing_test_filter_and_accepts_existing_one(self) -> None:
