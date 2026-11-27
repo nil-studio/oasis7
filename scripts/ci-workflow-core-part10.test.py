@@ -243,10 +243,10 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
 
     def test_workspace_support_runs_real_worker_compile_helper_and_propagates_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        self.assertNotIn('run_worker_wasm_compile_profiles', driver)
+        self.assertIn('run_worker_wasm_compile_profiles()', driver)
         functions = workspace_support_fixture_functions(driver)
         script = "set -euo pipefail\n" + functions + """
-! declare -F run_worker_wasm_compile_profiles >/dev/null
+declare -F run_worker_wasm_compile_profiles >/dev/null
 run_signed_read_protocol_contract_tests() { :; }
 run_game_client_cli_contracts() { :; }
 run_cargo() { printf 'cargo %s\\n' "$*" >> "$SUPPORT_CAPTURE"; }

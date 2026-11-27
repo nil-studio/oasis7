@@ -269,7 +269,7 @@ source "$1"
 [[ $* == "$before_arguments" ]] || exit 73
 [[ -z ${driver_dir+x} && -z ${repo_root+x} && -z ${ci_python+x} && -z ${tier+x} ]] || exit 74
 declare -F run_selected_workspace_support >/dev/null || exit 75
-! declare -F run_worker_wasm_compile_profiles >/dev/null || exit 76
+declare -F run_worker_wasm_compile_profiles >/dev/null || exit 76
 echo 'loaded definitions only'
 '''
         with tempfile.TemporaryDirectory() as directory:

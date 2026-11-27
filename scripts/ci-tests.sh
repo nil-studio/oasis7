@@ -584,6 +584,14 @@ run_game_client_cli_contracts() {
   fi
 }
 
+# Compatibility no-op stub kept for policy_sha compatibility with .github/workflows/rust.yml
+# until #7315 removes the custody-* job shells.
+if ! declare -F run_worker_wasm_compile_profiles >/dev/null; then
+  run_worker_wasm_compile_profiles() {
+    echo "+ worker wasm compile profiles offboarded"
+  }
+fi
+
 run_dev_test_worker_checks() {
   if ! command -v worker-build >/dev/null || [[ "$(worker-build --version)" != "0.7.5" ]]; then
     run_cargo install worker-build --version 0.7.5 --locked
