@@ -706,8 +706,7 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         for command in ['oasis7_wasm_executor --features wasmtime --all-targets --locked',
                         'oasis7_context --all-targets --locked',
                         'oasis7_secure_envelope --all-targets --locked',
-                        'oasis7_local_signer --test context_cli --locked',
-                        'oasis7_client_launcher --bin oasis7_client_launcher']:
+                        'oasis7_local_signer --test context_cli --locked']:
             self.assertIn(command, result.stdout)
 
     def test_old_trusted_plan_cannot_narrow_support(self):

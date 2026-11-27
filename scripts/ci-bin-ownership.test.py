@@ -973,9 +973,7 @@ class Ownership(unittest.TestCase):
         self.assertNotIn('multiaddr', core['dependencies'])
 
     def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
-        for package in ('oasis7_launcher_config', 'oasis7_wasm_materializer'):
-            if not (ROOT / 'crates' / package / 'Cargo.toml').exists():
-                continue
+        for package in ('oasis7_wasm_materializer',):
             data = manifest(package)
             tables = [data.get('dependencies', {})]
             tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]

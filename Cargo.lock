@@ -6223,28 +6223,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oasis7_client_launcher"
-version = "0.1.0"
-dependencies = [
- "ed25519-dalek",
- "eframe",
- "gloo-net",
- "hex",
- "js-sys",
- "libc",
- "oasis7_client_api",
- "oasis7_launcher_config",
- "oasis7_launcher_ui",
- "reqwest 0.13.5",
- "serde",
- "serde_json",
- "toml",
- "wasm-bindgen-futures",
- "web-sys",
- "web-time",
-]
-
-[[package]]
 name = "oasis7_client_storage"
 version = "0.1.0"
 dependencies = [
@@ -6501,21 +6479,6 @@ dependencies = [
  "webauthn-rs-core",
  "windows-sys 0.61.2",
  "zeroize",
-]
-
-[[package]]
-name = "oasis7_launcher_config"
-version = "0.1.0"
-dependencies = [
- "multiaddr",
- "oasis7_client_api",
-]
-
-[[package]]
-name = "oasis7_launcher_ui"
-version = "0.1.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]
