@@ -82,7 +82,7 @@ where
     let cap = usize::try_from(max_text_bytes).map_err(|_| invalid())?;
     let phase = cap
         .checked_mul(6)
-        .and_then(|n| n.checked_add(std::mem::size_of::<CrisisState>()))
+        .and_then(|n| n.checked_add(std::mem::size_of::<ReservedValue<CrisisState>>()))
         .ok_or_else(invalid)?;
     let fee = ctx
         .values
