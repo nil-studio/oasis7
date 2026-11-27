@@ -41,12 +41,12 @@ pub(crate) use oasis7_runtime_host::provider_loopback_http;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_material_capture;
 #[cfg(any())]
-#[path = "."]
-mod retired_legacy {
-    mod archive;
-    mod kernel_host;
-    mod persist;
-}
+#[rustfmt::skip]
+#[path = "kernel_host.rs"]
+mod retired_kernel_host;
+#[cfg(any())]
+#[path = "persist.rs"]
+mod retired_persist;
 #[cfg(any())]
 #[path = "provider_json_admission.rs"]
 mod retired_provider_json_admission;
