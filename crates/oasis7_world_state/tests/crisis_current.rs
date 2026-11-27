@@ -843,10 +843,27 @@ fn check_current_crisis_rule_cancel() {
         || true,
     );
     let error = decide_current_crisis_resolution_data_v1(
-        "outer", "work", true, 12, &parent_family, &f.roots, &mut tx, &mut ctx,
-        &mut scan(), &mut 100_000, 4096, &guard, &live,
+        "outer",
+        "work",
+        true,
+        12,
+        &parent_family,
+        &f.roots,
+        &mut tx,
+        &mut ctx,
+        &mut scan(),
+        &mut 100_000,
+        4096,
+        &guard,
+        &live,
     );
-    assert!(matches!(error, Err(WorldFieldOverlayErrorV1::Value(ValueTreeError::Cancelled))));
+    assert!(matches!(
+        error,
+        Err(WorldFieldOverlayErrorV1::Value(ValueTreeError::Cancelled))
+    ));
     let guard = tx.guard();
-    assert!(matches!(tx.seal(&guard, &live, 1), Err(ExecutionError::Aborted)));
+    assert!(matches!(
+        tx.seal(&guard, &live, 1),
+        Err(ExecutionError::Aborted)
+    ));
 }

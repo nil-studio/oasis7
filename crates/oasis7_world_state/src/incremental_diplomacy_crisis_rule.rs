@@ -50,7 +50,7 @@ pub enum CrisisResolutionDataOutcomeV1 {
 /// Current child. The sole root caller must first authenticate the action's
 /// submitting agent and current tick. This routine deliberately cannot
 /// manufacture that entitlement, an Accepted result or an Event.
-/// 
+///
 /// The original World resolver trims the map key and strategy and checks:
 /// present -> Active -> time <= expires_at -> nonempty strategy -> signed
 /// impact. Success and failure both use max(severity, 1) * 10.
@@ -93,7 +93,8 @@ pub fn decide_current_crisis_resolution_data_v1<
         max_text_bytes,
         guard,
         live,
-    )? else {
+    )?
+    else {
         return Ok(Rejected(Why::Missing));
     };
     if current.status != CrisisStatus::Active {
@@ -106,8 +107,7 @@ pub fn decide_current_crisis_resolution_data_v1<
         return Ok(Rejected(Why::EmptyStrategy));
     }
     const LEGACY_IMPACT_PER_SEVERITY: i64 = 10;
-    let magnitude = i64::from(current.severity.max(1))
-        .saturating_mul(LEGACY_IMPACT_PER_SEVERITY);
+    let magnitude = i64::from(current.severity.max(1)).saturating_mul(LEGACY_IMPACT_PER_SEVERITY);
     let impact = if success { magnitude } else { -magnitude };
     Ok(Ready(CrisisResolutionDataV1 { current, impact }))
 }
