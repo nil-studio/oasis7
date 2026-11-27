@@ -429,16 +429,7 @@ fn current_crisis_reopens_typed_pending_edit_and_deletion() {
         );
         let guard = tx.guard();
         read_current_diplomacy_crisis_state_v1(
-            "outer",
-            &q,
-            &f.roots,
-            &mut tx,
-            &mut body,
-            &mut inner,
-            &mut cells,
-            4096,
-            &guard,
-            &live,
+            "outer", &q, &f.roots, &mut tx, &mut body, &mut inner, &mut cells, 4096, &guard, &live,
         )
         .unwrap()
         .unwrap()
