@@ -287,20 +287,27 @@ def plan_from_baseline(root, base, snapshot, args, directory, result):
     for name in ('plan-rust-required-scope.py', 'ci-required-scope.json', 'ci-formal-process-suites.json'):
         blobs[name] = inputs.git(root, 'show', f'{base}:scripts/{name}')
         (policy / name).write_bytes(blobs[name])
+    blobs.update(inputs.extract_authority_engine(root, base, policy))
     config = json.loads(blobs['ci-required-scope.json'])
     known = config.get('groups')
     if not isinstance(known, list) or any(not isinstance(group, str) for group in known):
         raise Blocked('trusted policy has no valid group inventory')
     result.update(policy_sha=base, policy=dict(status='used', sha=base,
-                  files_sha256={name: inputs.sha256(data) for name, data in blobs.items()}))
+                  files_sha256={name: inputs.sha256(data) for name, data in sorted(blobs.items())}))
     planner = policy / 'plan-rust-required-scope.py'
+    launcher = policy / 'run-ci-authority-python.py'
     env = inputs.environment()
-    argv = [sys.executable, str(planner), '--base-ref', base,
-            '--head-ref', snapshot['summary']['source_sha'], '--policy-ref', base,
-            '--profile', 'candidate-full' if args.tier == 'full' else 'pr-fast',
-            '--config', str(policy / 'ci-required-scope.json'),
-            '--formal-config', str(policy / 'ci-formal-process-suites.json'),
-            '--output', str(directory / 'plan.json')]
+    env.pop('PYTHONPATH', None)
+    if launcher.is_file():
+        argv = [sys.executable, '-P', str(launcher), str(planner)]
+    else:
+        argv = [sys.executable, str(planner)]
+    argv += ['--base-ref', base,
+             '--head-ref', snapshot['summary']['source_sha'], '--policy-ref', base,
+             '--profile', 'candidate-full' if args.tier == 'full' else 'pr-fast',
+             '--config', str(policy / 'ci-required-scope.json'),
+             '--formal-config', str(policy / 'ci-formal-process-suites.json'),
+             '--output', str(directory / 'plan.json')]
     dirty = snapshot['summary']['dirty'] or snapshot['summary']['untracked'] or any(
         item['origin'] == 'referenced' for item in snapshot['summary']['changes'])
     if dirty:

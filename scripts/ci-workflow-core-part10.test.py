@@ -322,6 +322,14 @@ worker-build() { echo "0.7.5"; }
             for name in ('ci-tests.sh', 'find-python-with-module.sh', 'plan-rust-required-scope.py',
                          'ci-custody-platform.py', 'ci-custody-workerd-capture.py', 'ci_process_runner.py'):
                 (scripts / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+            if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
+                (scripts / 'run-ci-authority-python.py').write_bytes(
+                    (ROOT / 'scripts/run-ci-authority-python.py').read_bytes())
+            if (ROOT / 'scripts/ci_engine').is_dir():
+                for ef in sorted((ROOT / 'scripts/ci_engine').rglob('*.py')):
+                    dst = root / ef.relative_to(ROOT)
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(ef.read_bytes())
             worker = root / 'crates/oasis7_custody_worker'
             (worker / 'scripts').mkdir(parents=True)
             names = sorted({name for profile in features for name in profile.split(',')})
