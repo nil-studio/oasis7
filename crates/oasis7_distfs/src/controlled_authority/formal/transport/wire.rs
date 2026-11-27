@@ -189,13 +189,7 @@ pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
     memory: &oasis7_proto::memory_budget::MemoryBudget,
     work: &super::super::endpoint::FormalArchiveReadWorkV1,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<
-    (
-        T,
-        oasis7_proto::memory_budget::ReservedValue<Vec<u8>>,
-    ),
-    FormalError,
-> {
+) -> Result<(T, oasis7_proto::memory_budget::ReservedValue<Vec<u8>>), FormalError> {
     use oasis7_proto::memory_budget::MemoryClass;
     work.charge(1, 4, cancelled)?;
     let mut length = [0u8; 4];
@@ -399,7 +393,8 @@ mod deadline_tests {
             let mut client = TcpStream::connect(addr).unwrap();
             configure(&client, Duration::from_secs(2)).unwrap();
             let memory = MemoryBudget::new(capacity, 0).unwrap();
-            let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
+            let work =
+                super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
             let original_steps = work.remaining_steps();
             let result: Result<_, FormalError> =
                 read_prepaid_frame::<u64>(&mut client, &memory, &work, &mut || false);
