@@ -34,9 +34,8 @@ repo-owned 参考装配中，这些端点由 `oasis7_provider_local_bridge` 提�
 systemd 模板默认使用低权限专用用户:
 
 - remote provider bridge: `oasis7-provider`
-- newapi bridge: `oasis7-newapi`
 
-部署时须先创建对应 user/group，并把 env/state 文件权限授权给这些用户。
+部署时须先创建对应 user/group，并把 env 文件权限授权给该用户。
 
 ## ECS 目录建议
 
@@ -73,8 +72,6 @@ openssl rand -hex 32
 
 当前参考装配可实现“每个用户一个 `token_key`”：按 `bridge bearer token -> route label -> upstream token_key/model/base_url` 路由。
 
-还支持自动映射模式：`bridge bearer token -> newapi bridge state -> token_key`。此处 Authorization bearer 字段承载路由 selector，不是调用者拥有该用户的证明；满足下述安全前提后，才可省去单独维护的 auth-routes / llm-routes JSON。
-
 需要两份 JSON:
 
 - `/etc/oasis7/remote-provider-auth-routes.json`
@@ -95,19 +92,6 @@ OASIS7_REMOTE_LLM_ROUTES_PATH=/etc/oasis7/remote-provider-llm-routes.json
 ```
 
 此时可不再使用单一 `OASIS7_PROVIDER_BRIDGE_AUTH_TOKEN` / `OASIS7_REMOTE_LLM_API_KEY` 作为唯一真值。
-
-### 自动映射模式
-
-#### 认证与授权前提
-
-`newapi_user_ref`、`bridge_user_id` 及公钥 fingerprint 都是路由标识，不是秘密，
-也不证明调用者拥有该用户或有权使用其额度。TLS 和按 IP/Authorization 限流不能
-替代调用者认证与 caller → selector 授权绑定。
-
-当前 `http_bridge_support.rs::authorize_request` 先使用非空静态 auth route map；
-仅在该 map 为空时进入自动映射分支。该分支解析 selector 并查询 state，不再叠加
-`OASIS7_PROVIDER_BRIDGE_AUTH_TOKEN` 的比较。配置该全局 token 不能被当作自动映射
-的第二层认证；state 中的 active binding / token_key 也只证明路由可用。
 
 推荐不要手改 JSON，直接用脚本给用户签发 bridge token:
 

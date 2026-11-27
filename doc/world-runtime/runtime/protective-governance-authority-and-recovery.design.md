@@ -17,7 +17,7 @@ Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8。
 
 ### 2.1 需求承接与分配表
 
-| 上游 requirement / product AC / professional acceptance（path#fragment） | 原义务与本设计承接 | 本设计条款（path#anchor） | 协作 authority / 消费者 | 适用边界 |
+| 上游 requirement / product AC / professional acceptance（path#fragment） | 原义务与承接要点 | 本设计条款（path#anchor） | 协作 authority / 消费者 | 适用边界 |
 | --- | --- | --- | --- | --- |
 | [REQ-WR-GCB-006](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-006)；Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8 | 正式提交、initiator/guardian 本次授权与独立复核角色 | [授权 producer](#protective-authority) | 原身份/签名 authority、经授权制度 policy 与 Runtime | 登记 node ID 或技术 admission proof 不代签。 |
 | [REQ-WR-GCB-006](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-006)；Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8 | 冻结、否决、降权、惩罚逐类有限效果与紧急防绕过 | [效果目录](#protective-action-catalog) | 原 proposal、身份、资格与 policy 执行器 | 不接管 validator/finality，不新增受罚资产。 |
