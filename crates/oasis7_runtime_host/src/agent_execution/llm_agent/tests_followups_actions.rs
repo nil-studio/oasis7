@@ -1,5 +1,5 @@
 use super::*;
-use crate::simulator::llm_agent::prompt_assembly::PromptSectionKind;
+use super::prompt_assembly::PromptSectionKind;
 
 fn seed_known_factory<C: LlmCompletionClient>(
     behavior: &mut LlmAgentBehavior<C>,
@@ -154,7 +154,7 @@ fn llm_agent_limits_module_call_rounds() {
 fn cognition_request_context_with_budget(
     max_model_calls: u32,
     max_tool_calls: u32,
-) -> crate::simulator::ContinuousAgentRequestContextV1 {
+) -> oasis7_agent_api::ContinuousAgentRequestContextV1 {
     let request = serde_json::json!({
         "observation": {
             "agent_id": "agent-1",
@@ -909,7 +909,8 @@ fn llm_agent_mock_sequence_recovers_and_completes_factory_recipe_chain() {
         &world_config,
     );
     let (mut kernel, _) =
-        crate::simulator::initialize_kernel(world_config, world_init).expect("init kernel");
+        crate::simulator_archive::kernel_host::initialize_kernel(world_config, world_init)
+            .expect("init kernel");
     let start_location_id = kernel
         .model()
         .agents
@@ -933,13 +934,29 @@ fn llm_agent_mock_sequence_recovers_and_completes_factory_recipe_chain() {
     config.execute_until_auto_reenter_ticks = 0;
     config.force_replan_after_same_action = 0;
 
-    let behavior = LlmAgentBehavior::new("agent-0", config, client);
-    let mut runner: crate::simulator::AgentRunner<LlmAgentBehavior<SequenceMockClient>> =
-        crate::simulator::AgentRunner::new();
-    runner.register(behavior);
+    let mut behavior = LlmAgentBehavior::new("agent-0", config, client);
+    let tick_agent = |behavior: &mut LlmAgentBehavior<SequenceMockClient>,
+                      kernel: &mut crate::simulator_archive::kernel_host::WorldKernel|
+     -> ActionResult {
+        let observation = kernel.observe("agent-0").expect("observe");
+        let decision = behavior.decide(&observation);
+        let AgentDecision::Act(action) = decision else {
+            panic!("expected Act decision, got {decision:?}");
+        };
+        let action_id = kernel.submit_action_from_agent("agent-0".to_string(), action.clone());
+        let event = kernel.step().expect("step event");
+        let success = !matches!(event.kind, WorldEventKind::ActionRejected { .. });
+        let result = ActionResult {
+            action,
+            action_id,
+            success,
+            event,
+        };
+        behavior.on_action_result(&result);
+        result
+    };
 
-    let tick1 = runner.tick(&mut kernel).expect("tick1");
-    let action1 = tick1.action_result.expect("tick1 action");
+    let action1 = tick_agent(&mut behavior, &mut kernel);
     assert!(action1.success);
     assert!(matches!(
         action1.event.kind,
@@ -963,11 +980,13 @@ fn llm_agent_mock_sequence_recovers_and_completes_factory_recipe_chain() {
         .add(ResourceKind::Electricity, 20)
         .expect("seed electricity for schedule");
     let seeded_journal = kernel.journal_snapshot();
-    kernel = crate::simulator::WorldKernel::from_snapshot(seeded_snapshot, seeded_journal)
-        .expect("restore seeded kernel");
+    kernel = crate::simulator_archive::kernel_host::WorldKernel::from_snapshot(
+        seeded_snapshot,
+        seeded_journal,
+    )
+    .expect("restore seeded kernel");
 
-    let tick2 = runner.tick(&mut kernel).expect("tick2");
-    let action2 = tick2.action_result.expect("tick2 action");
+    let action2 = tick_agent(&mut behavior, &mut kernel);
     assert!(action2.success);
     assert!(matches!(
         action2.event.kind,
@@ -977,8 +996,7 @@ fn llm_agent_mock_sequence_recovers_and_completes_factory_recipe_chain() {
         }
     ));
 
-    let tick3 = runner.tick(&mut kernel).expect("tick3");
-    let action3 = tick3.action_result.expect("tick3 action");
+    let action3 = tick_agent(&mut behavior, &mut kernel);
     assert!(action3.success);
     assert!(matches!(
         action3.event.kind,

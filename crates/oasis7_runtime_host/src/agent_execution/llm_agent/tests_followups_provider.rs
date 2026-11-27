@@ -1,4 +1,4 @@
-use crate::runtime::{
+use oasis7_runtime::{
     DomainEvent as RuntimeDomainEvent, MaterialLedgerId, MaterialStack,
     WorldEvent as RuntimeWorldEvent, WorldEventBody as RuntimeWorldEventBody,
 };
@@ -280,10 +280,7 @@ fn llm_agent_counts_pure_simulator_recipe_event_as_completed_coverage() {
 
 #[test]
 fn llm_agent_counts_pure_simulator_recipe_result_as_completed_coverage() {
-    let behavior = LlmAgentBehavior::new("agent-1", base_config(), MockClient::default());
-    let mut runner: crate::simulator::AgentRunner<LlmAgentBehavior<MockClient>> =
-        crate::simulator::AgentRunner::new();
-    runner.register(behavior);
+    let mut behavior = LlmAgentBehavior::new("agent-1", base_config(), MockClient::default());
     let event = WorldEvent {
         id: 12_101,
         time: 12_102,
@@ -317,16 +314,13 @@ fn llm_agent_counts_pure_simulator_recipe_result_as_completed_coverage() {
         success: true,
         event,
     };
-    assert!(runner.notify_action_result("agent-1", &result));
+    behavior.on_action_result(&result);
 
     assert!(
-        runner
-            .get("agent-1")
-            .expect("registered agent")
-            .behavior
+        behavior
             .recipe_coverage
             .is_completed("recipe.assembler.control_chip"),
-        "AgentRunner must deliver the WorldKernel-shaped atomic simulator result as authoritative completion feedback"
+        "LlmAgentBehavior must count the WorldKernel-shaped atomic simulator result as authoritative completion feedback"
     );
 }
 

@@ -1,10 +1,11 @@
-use super::super::cognition_response_identity::cognition_response_digest;
-use super::super::continuous_agent_harness::{
+use crate::decision_provider::{DecisionResponse, ProviderDiagnostics};
+use oasis7_agent_api::{
     CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION,
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ContinuousAgentTurnContextV1,
+    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
 };
-use super::super::decision_provider::{DecisionResponse, ProviderDiagnostics};
+use oasis7_agent_harness::cognition_response_digest;
+type ContinuousAgentResponseContextV1 =
+    oasis7_agent_api::ContinuousAgentResponseContextV1<oasis7_simulator::Action, crate::agent::AgentQuery>;
 use super::behavior_budget::{BudgetTraceState, budget_diagnostics};
 use super::behavior_context::{CognitionBudgetExhausted, builtin_provider_decision};
 use super::*;

@@ -215,7 +215,7 @@ impl<C: LlmCompletionClient> LlmAgentBehavior<C> {
             }
 
             let candidate_to_target =
-                crate::geometry::space_distance_cm(candidate.pos, target_location.pos);
+                oasis7_agent_api::world_geometry::space_distance_cm(candidate.pos, target_location.pos);
             if candidate_to_target >= target_location.distance_cm {
                 continue;
             }

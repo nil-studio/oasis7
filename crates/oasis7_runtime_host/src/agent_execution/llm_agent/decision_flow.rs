@@ -1,4 +1,4 @@
-use super::super::agent::{AgentDecision, AgentQuery, MicroDepotQuoteRequest};
+use crate::agent::{AgentDecision, AgentQuery, MicroDepotQuoteRequest};
 use super::LlmCompletionTurn;
 use super::prompt_assembly::{PromptSectionKind, PromptSectionPriority};
 use oasis7_simulator::{Action, ResourceKind, ResourceOwner};

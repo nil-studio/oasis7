@@ -31,6 +31,11 @@ pub mod provider_material_capture;
 pub mod provider_transport_url;
 pub mod simulator_archive;
 
+pub mod agent_execution {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub mod llm_agent;
+}
+
 #[path = "agent_execution/llm_agent/decision_flow/field_identity.rs"]
 pub mod llm_decision_field_identity;
 
