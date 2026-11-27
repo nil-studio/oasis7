@@ -5,6 +5,8 @@
 //! without modifying any active `World::step*` entrypoint or removing the four outer
 //! `World::clone()` guards yet.
 
+#![cfg_attr(not(test), allow(dead_code))]
+
 use super::step_staged_clock::{NextTickClock, TickClockDelta};
 use super::transition::{
     BorrowedWorldView, PreparedStagedCommit, RootInstallContext, StagedRootTransaction,
