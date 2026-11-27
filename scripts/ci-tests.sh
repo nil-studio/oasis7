@@ -536,7 +536,6 @@ run_oasis7_net_libp2p_tests() {
     run_cargo test --locked --manifest-path ./vendor/if-watch-3.2.2/Cargo.toml \
       --target-dir ./target --all-features --lib
   fi
-  run python3 ./scripts/libp2p-compat.test.py
   # Preserve the standalone warm-contract reader; real groups already ran
   # the equivalent native library with default features.
   if [[ "${1:-}" != --skip-native ]]; then

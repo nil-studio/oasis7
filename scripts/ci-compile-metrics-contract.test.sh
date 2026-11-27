@@ -1360,7 +1360,7 @@ case "${1:-}" in
           printf 'ignored mutation\n' >"$PWD/config.toml"
           ;;
         gitlink)
-          printf 'nested gitlink mutation\n' >"$PWD/third_party/agent-os/.v2-gitlink-mutation"
+          printf 'nested gitlink mutation\n' >"$PWD/third_party/rust-skills/.v2-gitlink-mutation"
           ;;
         *)
           echo "unknown fake V2 mutation mode: $FAKE_MUTATION_MODE" >&2
@@ -2083,8 +2083,8 @@ for mutation_mode in content mode type symlink untracked ignored gitlink; do
     ln -s README.md "$mutation_worktree/.v2-tracked-symlink"
     git -C "$mutation_worktree" add .v2-tracked-symlink
   elif [[ "$mutation_mode" == gitlink ]]; then
-    mkdir -p "$mutation_worktree/third_party/agent-os"
-    printf 'stable nested fixture\n' >"$mutation_worktree/third_party/agent-os/stable.txt"
+    mkdir -p "$mutation_worktree/third_party/rust-skills"
+    printf 'stable nested fixture\n' >"$mutation_worktree/third_party/rust-skills/stable.txt"
   fi
   mutation_out="$tmp_dir/mutation-out-$mutation_mode"
   mutation_log="$tmp_dir/mutation-log-$mutation_mode"
@@ -2119,7 +2119,7 @@ for mutation_mode in content mode type symlink untracked ignored gitlink; do
   elif [[ "$mutation_mode" == "ignored" ]]; then
     expected_mutation_path="config.toml"
   elif [[ "$mutation_mode" == "gitlink" ]]; then
-    expected_mutation_path="third_party/agent-os/.v2-gitlink-mutation"
+    expected_mutation_path="third_party/rust-skills/.v2-gitlink-mutation"
   fi
   if ! grep -Fq "$expected_mutation_path" "$mutation_error"; then
     echo "source mutation $mutation_mode diagnostic did not identify $expected_mutation_path: $(cat "$mutation_error")" >&2
