@@ -2,33 +2,37 @@
 
 use crate::agent::*;
 use crate::agent_api_compat;
-use crate::agent_execution::async_agent_runner::{self, *};
-use crate::agent_execution::continuous_agent_harness::{self, *};
+use crate::agent_execution::async_agent_runner::*;
+use crate::agent_execution::continuous_agent_harness::{
+    self, AgentCognitionStore, COGNITION_CAPABILITY_CATALOG_DOMAIN,
+    COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, COGNITION_PROVIDER_INVOCATION_DOMAIN,
+    COGNITION_REQUEST_DIGEST_DOMAIN, COGNITION_RESPONSE_ARTIFACT_IDENTITY_DOMAIN,
+    CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION, CognitionError,
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+    ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1, FinalityBindingV1,
+    MemoryWriteIntentV1, ResponseArtifactIdentityV1, RuntimeBindingV1, h_v1,
+};
 use crate::agent_execution::llm_agent::{self, *};
 use crate::agent_execution::runner::*;
 use crate::agent_execution::turn_engine::*;
 use crate::cognition_policy::*;
-use crate::cognition_response_identity::*;
 use crate::decision_provider::*;
 use crate::provider_loopback_adapter::*;
 use crate::provider_loopback_http::*;
 use crate::provider_material_capture::*;
-use crate::simulator_archive::archive::{self, WorldEvent, WorldSnapshotExtensions};
-use crate::simulator_archive::kernel_host::{
-    WorldEventRef, WorldJournalView, WorldKernel, initialize_kernel,
-};
+use crate::simulator_archive::archive::{WorldEvent, WorldSnapshotExtensions};
+use crate::simulator_archive::kernel_host::{WorldKernel, initialize_kernel};
 use crate::simulator_archive::persist::{self, *};
-use oasis7_agent_api::CapabilityInvocationContext;
 use oasis7_agent_api::intent_summary::*;
-use oasis7_agent_harness::BudgetContractV1;
 use oasis7_agent_harness::llm_defaults::*;
 use oasis7_agent_harness::{
-    ModelProvider, ModelProviderError, ModelProviderRequest, ModelProviderResponse,
-    ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry, ModelProviderTurn,
-    ModelProviderUsage,
+    BudgetContractV1, COGNITION_LEGACY_RESPONSE_DIGEST_DOMAIN, COGNITION_RESPONSE_DIGEST_DOMAIN,
+    CognitionResponseDigestDisposition, ModelProvider, ModelProviderError, ModelProviderRequest,
+    ModelProviderResponse, ModelProviderTrace, ModelProviderTurn, ModelProviderUsage,
+    classify_cognition_response_digest, cognition_legacy_response_digest,
+    cognition_response_digest,
 };
 use oasis7_model_provider::legacy_model_adapter::LlmCompletionModelProvider;
-use oasis7_simulator::WorldKernel as NativeKernel;
 use oasis7_simulator::*;
 use std::fs;
 
