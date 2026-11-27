@@ -22,6 +22,9 @@ class SourceCompatibility(unittest.TestCase):
             p = self.root / name
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("original\n")
+        workflow = self.root / ".github/workflows/rust.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("env:\n  RUST_TOOLCHAIN: 1.96.0\n  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11\n  OASIS7_WASM_TARGET: wasm32-unknown-unknown\n")
         self.base = self.commit()
 
     def git(self, *args):
@@ -45,6 +48,16 @@ class SourceCompatibility(unittest.TestCase):
                 p.write_text("original\n")
         self.assertFalse(M.compatible(self.root, self.base, "0" * 40))
         self.assertFalse(M.compatible(self.root, self.base, "HEAD"))
+
+    def test_compiler_changes_reject_but_unrelated_workflow_changes_do_not(self):
+        p = self.root / ".github/workflows/rust.yml"
+        original = p.read_text()
+        p.write_text(original + "jobs: {}\n")
+        self.assertTrue(M.compatible(self.root, self.base, self.commit()))
+        p.write_text(original.replace("1.96.0", "1.97.0"))
+        self.assertFalse(M.compatible(self.root, self.base, self.commit()))
+        p.write_text(original + "  RUST_TOOLCHAIN: 1.96.0\n")
+        self.assertFalse(M.compatible(self.root, self.base, self.commit()))
 
     def test_matching_symlinks_or_missing_material_do_not_admit(self):
         p = self.root / M.TOOL_INPUTS[0]

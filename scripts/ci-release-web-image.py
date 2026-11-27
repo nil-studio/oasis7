@@ -13,6 +13,10 @@ from pathlib import Path
 
 TOOL_INPUTS = (
     "rust-toolchain.toml",
+    "docker/ci-base/Dockerfile",
+    "docker/ci-base/build.sh",
+    "docker/ci-base/runtime-packages.txt",
+    "docker/ci-base/build-packages.txt",
     "scripts/ci-browser-deps.py",
     "scripts/ci_process_runner.py",
     "scripts/ci-apt-install.py",
@@ -32,10 +36,11 @@ def compatible(root, image_source, source):
         return subprocess.run(["git", "-C", str(root), *args],
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               check=False)
+    compiler_inputs = []
     for revision in (image_source, source):
         if git("cat-file", "-e", revision + "^{commit}").returncode:
             return False
-        for name in TOOL_INPUTS:
+        for name in (*TOOL_INPUTS, ".github/workflows/rust.yml"):
             result = git("ls-tree", revision, "--", name)
             # Symlinks, absent files and directories cannot satisfy this tool
             # closure, even if both revisions contain the same invalid entry.
@@ -43,6 +48,18 @@ def compatible(root, image_source, source):
                     rb"100(?:644|755) blob [0-9a-f]{40}\t" + name.encode() + rb"\n",
                     result.stdout):
                 return False
+        workflow = git("show", revision + ":.github/workflows/rust.yml")
+        if workflow.returncode:
+            return False
+        values = []
+        for key in ("RUST_TOOLCHAIN", "OASIS7_WASM_TOOLCHAIN", "OASIS7_WASM_TARGET"):
+            matches = re.findall(rb"(?m)^  " + key.encode() + rb": ([^\n]+)$", workflow.stdout)
+            if len(matches) != 1:
+                return False
+            values.append(matches[0])
+        compiler_inputs.append(values)
+    if compiler_inputs[0] != compiler_inputs[1]:
+        return False
     return git("diff", "--quiet", "--no-ext-diff", "--no-textconv",
                image_source, source, "--", *TOOL_INPUTS).returncode == 0
 
