@@ -1,13 +1,13 @@
-use oasis7_runtime::{
-    Action, World, WorldState,
-    service_admission::{game_task::*, *},
-};
-use oasis7_world_service::projection;
 use oasis7_agent_api::game::*;
 use oasis7_agent_api::game::{
     GAME_EXECUTOR_CONTROL_DOMAIN, GameExecutorControlV1, GameExecutorOperationV1, GameTaskFenceV1,
 };
 use oasis7_client_api::world_service::sign_read_request;
+use oasis7_runtime::{
+    Action, World, WorldState,
+    service_admission::{game_task::*, *},
+};
+use oasis7_world_service::projection;
 
 fn delegated(world: &mut World, owner: &str, generation: u64, nonce: u64, delegate: &str) {
     let public = sign_read_request("key", (), delegate)

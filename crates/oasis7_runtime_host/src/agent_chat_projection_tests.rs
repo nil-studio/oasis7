@@ -1,12 +1,12 @@
+use oasis7_client_api::world_service::sign_read_request;
+use oasis7_proto::player_auth::sign_agent_chat_auth_proof;
+use oasis7_proto::viewer::AgentChatRequest;
 use oasis7_runtime::{Action, WorldState};
 use oasis7_runtime::{
     World,
     service_admission::{agent_chat::*, *},
 };
 use oasis7_world_service::projection;
-use oasis7_client_api::world_service::sign_read_request;
-use oasis7_proto::player_auth::sign_agent_chat_auth_proof;
-use oasis7_proto::viewer::AgentChatRequest;
 
 fn fixture() -> (World, String, String) {
     let private = hex::encode([71u8; 32]);

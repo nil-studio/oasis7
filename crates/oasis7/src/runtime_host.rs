@@ -2,8 +2,8 @@
 pub use oasis7_runtime_host::{install_runtime_capabilities, world};
 
 pub mod bootstrap;
-pub use oasis7_runtime_host::harness_authority;
 pub use oasis7_runtime_host::feedback;
+pub use oasis7_runtime_host::harness_authority;
 
 /// Composite native host archive extensions.
 pub mod archive {

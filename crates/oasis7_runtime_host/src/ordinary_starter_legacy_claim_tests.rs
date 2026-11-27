@@ -1,10 +1,10 @@
-use oasis7_world_service::ordinary_starter::*;
 use oasis7_agent_api::world_action::{Action, GeoPos, MaterialLedgerId, ResourceKind};
 use oasis7_proto::player_auth::sign_gameplay_action_auth_proof;
 use oasis7_proto::viewer::GameplayActionRequest;
 use oasis7_runtime::{
     ChainResourceDerivationContext, DomainEvent, RejectReason, World, WorldEventBody,
 };
+use oasis7_world_service::ordinary_starter::*;
 
 fn published_world() -> World {
     let mut world = crate::world::new();
@@ -23,8 +23,7 @@ fn published_world() -> World {
         "test",
         "test",
     );
-    let mut world =
-        crate::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    let mut world = crate::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
     publish(&mut world, &pool).unwrap();
     world
 }
@@ -101,9 +100,7 @@ fn ordinary_starter_actual_legacy_signed_claims_cannot_take_public_supplier() {
             before_power
         );
     }
-    let restored =
-        crate::world::from_snapshot(world.snapshot(), world.journal().clone())
-            .unwrap();
+    let restored = crate::world::from_snapshot(world.snapshot(), world.journal().clone()).unwrap();
     assert!(restored.state().is_ordinary_starter_supplier(SUPPLIER_ID));
     assert!(restored.current_agent_owner(SUPPLIER_ID).is_none());
 }
@@ -126,8 +123,7 @@ fn ordinary_starter_publication_rejects_preexisting_identity_without_creating_au
         "test",
         "test",
     );
-    let mut world =
-        crate::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    let mut world = crate::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
     world
         .install_capability_agent_identity(SUPPLIER_ID, "occupied-owner", 1)
         .unwrap();
