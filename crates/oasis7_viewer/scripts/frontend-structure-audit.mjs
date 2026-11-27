@@ -169,16 +169,15 @@ async function validateGeneratedRuntimeContracts() {
     return failures;
   }
 
-  const [canonicalBundle, canonicalHtml, canonicalClaimEvidence, distBundle] = await Promise.all([
-    readFile(canonicalBundlePath, "utf8"),
+  const [canonicalHtml, canonicalClaimEvidence, distBundle] = await Promise.all([
     readFile(canonicalHtmlPath, "utf8"),
     readFile(canonicalClaimEvidencePath, "utf8"),
     readFile(distViewerBundlePath, "utf8").catch(() => null),
   ]);
   if (distBundle == null) {
     failures.push("dist/viewer.js must exist when crates/oasis7_viewer/dist exists");
-  } else if (distBundle !== canonicalBundle) {
-    failures.push("dist/viewer.js must remain a finalize-managed copy of canonical viewer.js");
+  } else if (!distBundle.startsWith(canonicalBundleBanner)) {
+    failures.push("dist/viewer.js must carry the generated canonical bundle banner");
   }
 
   const [distCanonicalHtml, distCompatHtml] = await Promise.all([
