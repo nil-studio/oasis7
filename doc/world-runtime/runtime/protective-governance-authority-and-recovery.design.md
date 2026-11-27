@@ -47,6 +47,8 @@ Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8。
 <a id="protective-authority"></a>
 ### 4.1 已授权 policy 的 producer 与消费者
 
+Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8。
+
 `ProtectivePolicyV1` 是本专题目标模块的版本化制度记录，不是部署配置中的自授权限。其正式 producer 使用已有[proof-bearing capability authority 准入](../../../crates/oasis7_runtime/src/world/capability_authorization_admin.rs)与[CapabilityGrantV2](../../../crates/oasis7_wasm_abi/src/capability_v2.rs)的精确命令授权；不得把“已有一位 authority”作为充分条件。接收链固定如下：
 
 1. **信任根及当前 World。** 从固定 world/chain/genesis 和合法 authority profile 的合格历史取得[CapabilityAuthorityRecord/FinalityProof](../../../crates/oasis7_world_state/src/capability_authorization.rs)。原 verifier 核已知且 Approved/Applied 的精确 proposal/manifest、历史 finality epoch snapshot、证书阈值和 signer 集，以及签名覆盖的完整 authority binding：issuer/kind/key/key epoch/governance epoch、finalized/rotation receipt、world/branch/finality epoch/block/status。record hash、proof binding 和全部 signer 集须相同，issuer 的当前 key 也须匹配；[原验证与 transition](../../../crates/oasis7_runtime/src/world/capability_authorization_events.rs)拥有这些判定。裸 certificate、deployment config、旧无 proof 安装接口、active charter 或 validator admission proof 均不能补此链。它证明可信 issuer，不自动批准其任意业务效果。
@@ -82,6 +84,8 @@ initiator 与所需 guardian 各自签同一内容；review/appeal/release 使�
 <a id="protective-action-catalog"></a>
 ### 5.1 有限效果目录与原执行器
 
+Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8。
+
 | 原效果类别 | 精确作用对象与释放条件 | 期限/恢复和禁止扩大之处 |
 | --- | --- | --- |
 | technical governance brake / release | 当前受支持的技术 proposal apply gate；复用原 brake producer/准备语义与合法 guardian policy。 | 时长 `0<duration<=原 emergency_brake_max_ticks`，有效窗半开；不暂停 World tick、普通玩家、审计或申诉，不改变 finality。新 case 不能借重复本案延长。 |
@@ -99,6 +103,8 @@ initiator 与所需 guardian 各自签同一内容；review/appeal/release 使�
 <a id="protective-evidence-bounds"></a>
 ### 5.2 证据充分性、target、金额和期限
 
+Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8。
+
 原始证据必须来自 policy 声明的原 authority，含 schema/version、事件/对象及发生切点、完整被证事实、target 映射、签名或可验证 canonical commit/proof。`evidence_hash` 非空只是格式检查，hash、threat heatmap、截图、举报、LLM 结论或 pending slashing intent 都不能单独证明可处罚。
 
 有限 evidence adapter 有两类：(1) 原已验证的 consensus misbehavior facts，复用原证据规则检查冲突的已签消息、同一逻辑位置/类型、当时 validator/node 与 stake root、精确 target 映射和真实可罚范围；不重定义共识违规或从 validator ID 字符串猜 Agent。(2) 原制度/业务权限违规，原 authorized reviewer 绑定精确已声明规则、原对象/效果与事实，出具当前 policy 指定 predicate 的可验证判断；不能从“危险”自由文本直接生成 sanction。每类的角色、predicate、对象范围与证据 schema 是 policy 的闭合字段；未支持证据类型为 `unsupported_evidence`，缺原件/目标证据为 `needs_evidence`，零初始保护效果。
@@ -109,6 +115,8 @@ initiator 与所需 guardian 各自签同一内容；review/appeal/release 使�
 
 <a id="protective-review-expiry"></a>
 ### 5.3 独立复核、申诉、到期及并发恢复
+
+Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8。
 
 案例状态区分 `draft/needs_evidence/awaiting_authority/ready/applied/review_pending/appealed/resolved/expired`；`submitted/ready` 不产生限制或扣款。正式效果以唯一 execution receipt 为准。受影响主体可按当前读权查询原理由、公开证据摘要、准确范围/金额/截止、复核/申诉入口和原结果；必要私下证据仅对原有权角色开放。
 
@@ -136,6 +144,8 @@ initiator 与所需 guardian 各自签同一内容；review/appeal/release 使�
 ## 7. 原子提交与恢复
 
 <a id="protective-commit-recovery"></a>
+
+Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8。
 提交顺序固定：当前鉴权/读权 → 查询原请求及初始处置/后继槽 → 验证 payload 冲突 → 在同一合格 parent/staged view 重验全部 policy/role/证据/金额/期限/范围/预算 → 准备完整效果 → 一次发布。已有同内容结果返回原 receipt，不因后来权限过期而重复执行；读权不足不泄露案卷，也不执行新的写入。
 
 完整事务包含 policy/role 消费标记、模块实例状态、case/restriction、proposal/profile/精确账源、实际费用与原返还、incident/operation/结果索引、计时状态、审计/事件/journal/allocator、receipt、outbox 与 commitment。使用原[staged typed delta](../design.md#621-explicit-transaction-and-typed-delta-model)及[disposition/idempotency](../design.md#622-disposition-and-idempotency-contract)；已有 brake/appeal sidecar 的局部原子性不能代签该集合。任何需要的后置来源失败不能先留下一半冻结、罚款、费用或审查状态。
@@ -153,6 +163,8 @@ initiator 与所需 guardian 各自签同一内容；review/appeal/release 使�
 ## 9. 消费者、费用和有限容量
 
 <a id="protective-consumers-budgets"></a>
+
+Trace refs: O7-REQ-c3d848a8-0668-408a-99ca-ef08a7c64be8。
 Viewer、pure API 与 Agent 对同一 case/result 投影相同事实：待补/已确认条件/已生效/申诉中/到期或解除/结果未知；准确 target/scope/金额/期限、原 authority/结果引用、当前可用查询/申诉下一步。只读状态不能补原 receipt。用户没有相应角色时仅显示其可读事实，不提供假的可提交按钮或默认 admin fallback。个人签名、guardian 操作和独立审查各沿其实际授权界面，SDK 的局部能力不代签整个入口。
 
 目标有界 profile `protective_case_v1` 的上限是设计初值，未经性能或平衡实测：完整签名请求原件≤64 KiB；总签名校验≤16（其中 guardian≤12）；证据项≤16；完整来源对象≤64、raw/解码来源各≤256 KiB；单 invocation 原 state≤32 KiB，完整 ABI input≤256 KiB、output≤128 KiB，`max_effects=1/max_emits=1`。一个 effect 是本案已规范化完整原子处置，不能把隐藏的另一次 module invocation 或多案当同一 effect。超过任一界限在业务写前拒绝，不截断 guardian/证据/旧案/fee 图；合法 policy 阈值或旧状态无法容纳时，该 profile 不适用，须沿原版本化配置/迁移合同处理。
