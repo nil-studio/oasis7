@@ -594,7 +594,6 @@ mod deadline_tests {
         assert!(refused.is_empty(), "exhaustion must not start a new response frame");
         assert_eq!(memory.used(), 0);
     }
-
 }
 
 #[cfg(test)]
