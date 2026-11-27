@@ -97,7 +97,7 @@ fixture v87 / production v30 / endpoint release v14 的普通提交/重启、完
 - TODO：将本机诊断日志整理为可复用的操作故障排查步骤，保留阶段及原 operation 身份，避免仅凭超时判断故障原因。
 - TODO（P2）：owner 启动当前分别为首次不可变身份及 runtime 恢复重放同一固定 C0 历史。可在保持 opaque 资格、writer lock 和错误拒绝的条件下复用验证结果，减少重复读取；本轮不以未验证 marker 替代完整重放。
 - TODO：补齐 main 新增的 `GameGoalPublish` / `GameExecutorControl` 冷查询索引及保护记录的整体容量规划。当前两类记录保留在热状态，不删除前驱；原 32 条及字节上限保持，超限明确拒绝且保留世界状态。由于 planner 只计算可归档后缀，可能保守拒绝；验收应证明合法长链完整查询、热容量有界与原控制身份不变，不能靠扩大上限或删除控制记录解决。
-- TODO（ST-02/ST-04，blocked）：验证正式玩家 Skill 支持的私有 Formal Game API 与 attached executor binding 后，组织独立 Agent 对 retained task/nonce/control 的目标、问答、断连回读和恢复自主试玩。现有普通合同测试不代签；当前 delivered Skill 指向 LocalProvider/LetAI，不能证明本轮 formal 消费者。本次仍交付最初定义的本机持久化与管理基础设施，不开放完整 formal 玩法。
+- TODO（ST-02/ST-04，blocked）：验证正式玩家 Skill 支持的私有 Formal Game API 与 attached executor binding 后，组织独立 Agent 对 retained task/nonce/control 的目标、问答、断连回读和恢复自主试玩。现有普通合同测试不代签；当前 delivered Skill 指向 LocalProvider，不能证明本轮 formal 消费者。本次仍交付最初定义的本机持久化与管理基础设施，不开放完整 formal 玩法。
 
 ## 合入收口评审（2026-10-14）
 
@@ -236,7 +236,7 @@ watch 为有界、只在 commit 变化时输出的 snapshot polling。`--cursor`
 
 2026-10-14 用户授权快速推进合入，小遗留在实施文档标记 TODO。本次以关联的文档 PR 与代码 PR 交付本机代码及管理基础设施（代码候选 #4683）；满足真实主链、独立评审和 required CI 后推进合入。合入不表示整套部署方案、生产故障域或完整 formal 玩法验收已完成。未实现的 BFT signer/成员写动作继续明确拒绝，不能以本地配置冒充生效。
 
-2026-10-14 独立试玩前置预检读取了候选正式玩家 Skill `site/skills/oasis7.md`，SHA-256 为 `c103ef66284e18d23cfc9b6d39ad4bcad9c922d7e18eeb5e93762d12caa3dc92`。官方入口 `./scripts/run-local-letai-game-test.sh --local-world-playtest` 使用私有本机 LocalProvider 世界，不连接 formal/public testnet，但需要真实 LetAI 凭据与付费推理，公开说明含默认自动充值；本轮没有新增付费预算授权，因此未启动该入口。预检子任务未读取实现，但环境仍能访问源码，隔离级别为 `instruction_only/source_visible`。此结果仅是前置预检，不能代签自主试玩；正式网络玩家 Skill 及真实执行 profile 仍未在本轮证明。
+2026-10-14 独立试玩前置预检读取了候选正式玩家 Skill `site/skills/oasis7.md`，SHA-256 为 `c103ef66284e18d23cfc9b6d39ad4bcad9c922d7e18eeb5e93762d12caa3dc92`。当时仅针对私有本机 LocalProvider 世界完成静态预检，未连接 formal/public testnet，亦未获得付费推理预算授权启动真实试玩。预检子任务未读取实现，但环境仍能访问源码，隔离级别为 `instruction_only/source_visible`。此结果仅是前置预检，不能代签自主试玩；正式网络玩家 Skill 及真实执行 profile 仍未在本轮证明。
 
 ## 本机验证命令
 
