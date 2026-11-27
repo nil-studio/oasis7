@@ -19,7 +19,6 @@ usage() {
 Usage: ./scripts/build-game-launcher-bundle.sh [options]
 
 Build a distributable launcher bundle:
-- bin/oasis7_client_launcher
 - bin/oasis7_game_launcher
 - bin/oasis7_web_launcher
 - bin/oasis7_viewer_live

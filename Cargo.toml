@@ -20,7 +20,6 @@ members = [
     "crates/oasis7_chain_runtime",
     "crates/oasis7_executable_image",
     "crates/oasis7_observability",
-    "crates/oasis7_launcher_config",
     "crates/oasis7_wasm_materializer",
     "crates/oasis7_letai_credit_adapter",
     "crates/oasis7_newapi_bridge_service",
@@ -33,8 +32,6 @@ members = [
     "crates/oasis7_ops_tools",
     "crates/oasis7_viewer_runtime",
     "crates/oasis7_viewer_codec",
-    "crates/oasis7_client_launcher",
-    "crates/oasis7_launcher_ui",
     "crates/oasis7_consensus",
     "crates/oasis7_local_signer",
     "crates/oasis7_signer_protocol",
@@ -101,11 +98,6 @@ opt-level = 3
 strip = "symbols"
 lto = false
 codegen-units = 16
-
-[profile.dev.package.epaint]
-# On wasm32-unknown-unknown, `std::time::Instant` is unavailable.
-# epaint's debug deadlock checks call `parking_lot::try_*_for`, which panics there.
-debug-assertions = false
 
 [patch.crates-io]
 if-watch = { path = "vendor/if-watch-3.2.2" }

@@ -54,8 +54,6 @@ scope = [
     "crates/oasis7_wasm_abi",
     "crates/oasis7_game_client/Cargo.toml",
     "crates/oasis7_game_client/src",
-    "crates/oasis7_launcher_config/Cargo.toml",
-    "crates/oasis7_launcher_config/src",
     "crates/oasis7_wasm_materializer/Cargo.toml",
     "crates/oasis7_wasm_materializer/src",
     "crates/oasis7_observability/Cargo.toml",
