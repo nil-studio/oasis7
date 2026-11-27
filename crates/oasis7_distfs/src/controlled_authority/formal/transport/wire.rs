@@ -177,6 +177,65 @@ pub(super) fn write<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(
         .and_then(|_| stream.write_all(&bytes))
         .map_err(io)
 }
+/// Encode the original signed response under the same continuing Common and
+/// Ordinary pool as the admitted request frame. Both serialization passes and
+/// every physical write attempt consume Work; retain the raw output owner
+/// until the last byte is sent. This does not admit the earlier response DTO
+/// construction, checkpoint witness loading or signing allocations.
+pub(super) fn write_prepaid_frame<T: Serialize>(
+    stream: &mut impl Write,
+    value: &T,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), FormalError> {
+    use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
+        BoundedCborDataErrorV1, CborDataLimitsV1, encode_closed_cbor_data_v1,
+    };
+    let owner = {
+        let mut common = work.bounded_context(memory, cancelled);
+        let limits = CborDataLimitsV1 {
+            max_wire_bytes: LIMIT,
+            max_graph_bytes: LIMIT,
+            max_depth: 128,
+        };
+        match encode_closed_cbor_data_v1(value, &limits, &mut common) {
+            Ok(Ok(owner)) => owner,
+            Ok(Err(refusal)) => return Err(invalid(refusal.message())),
+            Err(BoundedCborDataErrorV1::Common(error)) => return Err(error),
+            Err(error) => return Err(invalid(error.to_string())),
+        }
+    };
+    let bytes: &[u8] = owner.as_ref();
+    let length = u32::try_from(bytes.len()).map_err(|_| invalid("formal RPC bounded frame"))?;
+    if length == 0 || bytes.len() > LIMIT {
+        return Err(invalid("formal RPC bounded frame"));
+    }
+    write_exact_prepaid(stream, &length.to_be_bytes(), work, cancelled)?;
+    for chunk in bytes.chunks(8192) {
+        write_exact_prepaid(stream, chunk, work, cancelled)?;
+    }
+    Ok(())
+}
+
+fn write_exact_prepaid(
+    stream: &mut impl Write,
+    mut bytes: &[u8],
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), FormalError> {
+    while !bytes.is_empty() {
+        work.charge(1, bytes.len() as u64, cancelled)?;
+        match stream.write(bytes) {
+            Ok(0) => return Err(io("formal RPC frame write ended early")),
+            Ok(n) => bytes = &bytes[n..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(io(error)),
+        }
+    }
+    Ok(())
+}
+
 /// Explicit server-side admission of the original transport *frame* before
 /// allocating the 64 MiB raw body. This deliberately does not certify the
 /// subsequently decoded Request DTO, its signing, or an accepted GEN result.
@@ -394,6 +453,7 @@ mod deadline_tests {
         sender.join().unwrap();
         prepaid_frame_is_charged_before_allocation_and_retained_across_decode();
         prepaid_frame_work_cannot_reset_between_connections();
+        prepaid_response_frame_preserves_wire_and_owner();
     }
 
     fn prepaid_frame_is_charged_before_allocation_and_retained_across_decode() {
@@ -465,6 +525,75 @@ mod deadline_tests {
             sender.join().unwrap();
         }
         assert_eq!(work.remaining_read_bytes(), 0);
+    }
+    fn prepaid_response_frame_preserves_wire_and_owner() {
+        use oasis7_proto::memory_budget::MemoryBudget;
+        struct Inspect<'a> {
+            memory: &'a MemoryBudget,
+            sent: Vec<u8>,
+            interrupted: bool,
+        }
+        impl Write for Inspect<'_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                assert!(self.memory.used() > 0);
+                if !self.interrupted {
+                    self.interrupted = true;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                let n = bytes.len().min(2);
+                self.sent.extend_from_slice(&bytes[..n]);
+                Ok(n)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let value = vec![42u64, 77];
+        let payload = serde_cbor::to_vec(&value).unwrap();
+        let mut expected = (payload.len() as u32).to_be_bytes().to_vec();
+        expected.extend_from_slice(&payload);
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(1000, 4096).unwrap();
+        let mut writer = Inspect {
+            memory: &memory,
+            sent: Vec::new(),
+            interrupted: false,
+        };
+        write_prepaid_frame(&mut writer, &value, &memory, &work, &mut || false).unwrap();
+        assert_eq!(writer.sent, expected);
+        assert!(writer.interrupted);
+        assert_eq!(memory.used(), 0);
+        assert!(work.remaining_steps() < 1000);
+        assert!(work.remaining_read_bytes() < 4096);
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        configure(&client, Duration::from_secs(2)).unwrap();
+        configure(&peer, Duration::from_secs(2)).unwrap();
+        write_prepaid_frame(&mut peer, &value, &memory, &work, &mut || false).unwrap();
+        assert_eq!(read::<Vec<u64>>(&mut client).unwrap(), value);
+        assert_eq!(memory.used(), 0);
+
+        let empty_pool = MemoryBudget::new(0, 0).unwrap();
+        let mut refused = Vec::new();
+        assert!(
+            write_prepaid_frame(&mut refused, &value, &empty_pool, &work, &mut || false).is_err()
+        );
+        assert!(refused.is_empty());
+        assert_eq!(empty_pool.used(), 0);
+        assert!(write_prepaid_frame(&mut refused, &value, &memory, &work, &mut || true).is_err());
+        assert!(refused.is_empty());
+        assert_eq!(memory.used(), 0);
+
+        let remaining = work.remaining_read_bytes();
+        work.consume_read_bytes(remaining, &mut || false).unwrap();
+        assert!(write_prepaid_frame(&mut refused, &value, &memory, &work, &mut || false).is_err());
+        assert!(
+            refused.is_empty(),
+            "exhaustion must not start a new response frame"
+        );
+        assert_eq!(memory.used(), 0);
     }
 }
 
