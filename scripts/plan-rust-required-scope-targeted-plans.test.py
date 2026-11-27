@@ -212,14 +212,15 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
                                    'ordinary_dynamic_partition_version', 'ordinary_universal_sharding_version',
                                    'ordinary_controls_in_rust_baseline_version',
                                    'ordinary_clippy_group', 'ordinary_wasm_group',
-                                   'ordinary_harness_costs', 'ordinary_artifact_delivery_version')
+                                   'ordinary_harness_costs', 'ordinary_artifact_delivery_version',
+                                   'ordinary_execution_contract')
                 }
                 comparable_current['architecture'] = {
                     key: value for key, value in current['architecture'].items()
                     if key not in ('build_policy_version', 'build_policy')
                 }
                 comparable_current['reasons'] = [r for r in current['reasons'] if r != arch_reason]
-                self.assertEqual(comparable_current, legacy)
+                self.assertEqual(comparable_current, {k: v for k, v in legacy.items() if k != 'ordinary_execution_contract'})
                 heavy_plan = dict(current)
                 heavy_plan.pop('ordinary_dynamic_partition_version', None)
                 heavy_plan['oasis7_required_packages'] = ['oasis7', 'oasis7_chain_runtime']
@@ -244,7 +245,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
         old_config = self.config | {'ordinary_artifact_delivery_version': 1}
         physical = {'ordinary_artifact_partition_version', 'ordinary_partitions',
                     'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
-                    'ordinary_universal_sharding_version'}
+                    'ordinary_universal_sharding_version', 'ordinary_execution_contract'}
         for profile in ('pr-fast', 'main-fast'):
             with self.subTest(profile=profile):
                 current = selector.select(current_config, self.base, head, profile=profile)
@@ -334,7 +335,8 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
             self.assertEqual(legacy['ordinary_partitions'],
                              ['native-0', 'native-1', 'native-2', 'native-3'])
             current['ordinary_partitions'] = legacy['ordinary_partitions']
-            self.assertEqual(current, legacy)
+            self.assertEqual({k: v for k, v in current.items() if k != 'ordinary_execution_contract'},
+                             {k: v for k, v in legacy.items() if k != 'ordinary_execution_contract'})
         for execution in ('periodic-full', 'candidate-full'):
             self.assertNotIn('ordinary_harness_costs', selector.full_plan(self.config, execution, head))
         self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# shared control\n')
@@ -432,7 +434,8 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
                 self.assertEqual(v1_selected['ordinary_partitions'],
                                  ['runtime', 'component-libs', 'integrations-0', 'integrations-1'])
                 self.assertNotIn('ordinary_partitions', legacy)
-                self.assertEqual({key: value for key, value in selected.items() if key not in physical}, legacy)
+                self.assertEqual({key: value for key, value in selected.items() if key not in physical and key != 'ordinary_execution_contract'},
+                                 {key: value for key, value in legacy.items() if key != 'ordinary_execution_contract'})
                 output = Path('github-output-' + profile)
                 with patch.object(sys, 'argv', ['planner', '--base-ref', self.base, '--head-ref', head,
                         '--profile', profile, '--config', str(HERE / 'ci-required-scope.json'),
@@ -544,7 +547,8 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
                 self.assertEqual(legacy['ordinary_artifact_partition_version'], 2)
                 self.assertNotIn('ordinary_artifact_delivery_version', legacy)
                 self.assertNotIn('ordinary_universal_sharding_version', legacy)
-                self.assertEqual(current, legacy)
+                self.assertEqual({k: v for k, v in current.items() if k != 'ordinary_execution_contract'},
+                                 {k: v for k, v in legacy.items() if k != 'ordinary_execution_contract'})
         # A candidate with delivery=2 cannot enroll the old BASE in either the
         # new full/fast partition or the new transport, even on a policy fallback.
         self.write('scripts/ci-required-scope.json', json.dumps(self.config) + '\n')
