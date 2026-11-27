@@ -535,9 +535,9 @@ fn parse_options_accepts_auth_route_from_bearer() {
 }
 
 #[test]
-fn parse_options_defaults_to_rust_direct_letai_backend() {
+fn parse_options_defaults_to_legacy_cli_backend() {
     let options = parse_options(std::iter::empty()).expect("parse options");
-    assert_eq!(options.provider_backend, ProviderBackend::RustDirectLetai);
+    assert_eq!(options.provider_backend, ProviderBackend::LegacyCli);
 }
 
 #[test]
