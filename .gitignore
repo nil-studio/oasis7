@@ -57,7 +57,6 @@ crates/oasis7_viewer/.software-safe-build/
 crates/oasis7_viewer/.software-safe-test-build/
 crates/oasis7_viewer/.viewer-test-dist/
 crates/oasis7_viewer/dist
-crates/oasis7_viewer/viewer.js
 crates/oasis7/explorer-index.json
 **/.oasis7-hosted-player-sessions.json
 **/.oasis7-hosted-registration-replay.json
