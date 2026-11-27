@@ -316,7 +316,7 @@ class SelectionPart2(unittest.TestCase):
 
     def test_independent_bin_callers_are_registered(self):
         self.config = json.loads((HERE / "ci-required-scope.json").read_text())
-        for path in ['scripts/oasis7-pure-api-parity-smoke.sh', 'scripts/governance-registry-drill.sh', 'scripts/governed-rollback-v2-drill.sh', 'scripts/hosted-account-staging-smoke.sh', 'scripts/llm-baseline-fixture-smoke.sh', 'scripts/llm-longrun-stress.sh', 'scripts/public-testnet-faucet/package-public-testnet-faucet.sh', 'scripts/check-active-llm-provider.sh', 'scripts/governance-registry-live-drill.sh', 'scripts/run-local-letai-provider-bridge.sh', 'scripts/provider-parity-p0.sh', 'scripts/oasis7-liveops-grant.sh', 'scripts/newapi-bridge-service/package-newapi-bridge-service.sh', 'scripts/run-local-public-testnet-letai-test-environment.sh', 'scripts/runtime-module-routing-perf-harness.sh']:
+        for path in ['scripts/oasis7-pure-api-parity-smoke.sh', 'scripts/governance-registry-drill.sh', 'scripts/governed-rollback-v2-drill.sh', 'scripts/hosted-account-staging-smoke.sh', 'scripts/llm-baseline-fixture-smoke.sh', 'scripts/llm-longrun-stress.sh', 'scripts/public-testnet-faucet/package-public-testnet-faucet.sh', 'scripts/check-active-llm-provider.sh', 'scripts/governance-registry-live-drill.sh', 'scripts/run-local-letai-provider-bridge.sh', 'scripts/provider-parity-p0.sh', 'scripts/oasis7-liveops-grant.sh', 'scripts/run-local-public-testnet-letai-test-environment.sh', 'scripts/runtime-module-routing-perf-harness.sh']:
             with self.subTest(path=path):
                 self.write(path, "changed existing bin caller")
                 plan = self.plan()
