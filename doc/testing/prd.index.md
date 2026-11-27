@@ -65,6 +65,7 @@
 - `doc/testing/manual/README.md`：`manual/` 子树 landing page，按 Web UI 页面闭环、真实 Playwright 流程、formal public-testnet attach 与模型视觉评审分流；具体 manual 保留 operator 真值，不并入下方模块 PRD 三件套长表。
 - `doc/testing/performance/performance-coverage-gap-matrix-2026-06-09.md`：按 surface 汇总现有性能覆盖、当前缺口、建议补测和建议 tier 的速查表。
 - `doc/testing/performance/compile-metrics-v2-warm-check.design.md`：Compile Metrics V2 warm/no-op check 的技术合同、冷/暖隔离、schema/identity、阈值与 rollout；它补充性能矩阵，不承载可变任务状态。
+- [`doc/testing/ci/ci-engine-and-policy-decoupling.design.md`](ci/ci-engine-and-policy-decoupling.design.md)：CI 控制面三层解耦（L1 `scripts/ci_engine/` 零业务标识纯机制引擎、L2 声明式包/目标能力 Schema、L3 单一策略数据与 `ordinary_execution_contract` 显式执行契约）、`policy_sha` 提取隔离与防耦合静态门禁设计。
 - Provider dual-mode 历史 blocker 已收敛到 `doc/world-simulator/llm/provider-agent-dual-mode.prd.md`、`provider-agent-dual-mode-contract.md` 与复签 evidence；当前 task blockers 只从 PR、实际 CI 与评审记录（Issue 按需） 进入。
 
 Manual convergence note: Web UI manual 当前按 driver / evidence mode 分流，不再作为单一 PRD/design/project 三件套维护。`web-ui-agent-browser-closure-manual.*` 保留 Viewer 页面通用闭环的 PRD / project / manual 真值；`web-ui-playwright-closure-manual.manual.md` 保留真实本地栈 + 玩家 UI 操作流程的 `PWT-###` 系列入口；`web-ui-playwright-closure-manual.design.md` 仅作为历史/共享设计 companion 追溯，不再把两条 manual surface 合并成一个 normal triplet。
