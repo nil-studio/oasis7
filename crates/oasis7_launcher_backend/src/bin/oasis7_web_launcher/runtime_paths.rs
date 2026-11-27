@@ -2,11 +2,9 @@ use std::env;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const DEFAULT_CONSOLE_STATIC_DIR: &str = "web-launcher";
 const GAME_LAUNCHER_BIN_ENV: &str = "OASIS7_GAME_LAUNCHER_BIN";
 const OASIS7_CHAIN_RUNTIME_BIN_ENV: &str = "OASIS7_CHAIN_RUNTIME_BIN";
 const GAME_STATIC_DIR_ENV: &str = "OASIS7_GAME_STATIC_DIR";
-const WEB_LAUNCHER_STATIC_DIR_ENV: &str = "OASIS7_WEB_LAUNCHER_STATIC_DIR";
 
 pub(super) fn resolve_oasis7_game_launcher_binary() -> PathBuf {
     if let Some(path) = resolve_non_empty_override_value(env::var(GAME_LAUNCHER_BIN_ENV).ok()) {
@@ -65,21 +63,6 @@ pub(super) fn repo_root_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-}
-
-pub(super) fn resolve_console_static_dir_path() -> PathBuf {
-    if let Some(path) = resolve_non_empty_override_value(env::var(WEB_LAUNCHER_STATIC_DIR_ENV).ok())
-    {
-        return PathBuf::from(path);
-    }
-
-    if let Ok(current_exe) = env::current_exe()
-        && let Some(bin_dir) = current_exe.parent()
-    {
-        return bin_dir.join("..").join(DEFAULT_CONSOLE_STATIC_DIR);
-    }
-
-    PathBuf::from(DEFAULT_CONSOLE_STATIC_DIR)
 }
 
 pub(super) fn normalize_bind_host_for_local_access(host: &str) -> String {
