@@ -103,11 +103,6 @@ pub use agent::{
 pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::project_receipt_memory;
-<<<<<<< HEAD
-#[cfg(all(test, not(target_arch = "wasm32")))]
-pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
-=======
->>>>>>> eab08a0 (fix(runtime-host): use compact explicit imports for continuous_agent_harness in tests/mod.rs)
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
