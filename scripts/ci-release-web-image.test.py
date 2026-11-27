@@ -36,6 +36,23 @@ class SourceCompatibility(unittest.TestCase):
         self.git("commit", "-qm", "fixture")
         return self.git("rev-parse", "HEAD")
 
+    def test_image_material_inventory_excludes_same_source_runtime_callers(self):
+        self.assertEqual(set(M.TOOL_INPUTS), {
+            "rust-toolchain.toml", "docker/ci-base/Dockerfile", "docker/ci-base/build.sh",
+            "docker/ci-base/runtime-packages.txt", "docker/ci-base/build-packages.txt",
+            "scripts/ci-browser-deps.py", "scripts/ci_process_runner.py",
+            "scripts/ci-apt-install.py", "scripts/ci-apt-dns.py",
+            "scripts/ci-browser-tools/package.json", "scripts/ci-browser-tools/package-lock.json",
+            "scripts/ensure-wasm-bindgen-cli.sh", "scripts/wasm-bindgen-cli-common.sh",
+        })
+        # These repository scripts are not image build-context files. Changing
+        # the product artifact layout must not pretend the fixed tools changed.
+        for name in ("scripts/agent-browser-lib.sh", "scripts/viewer-web-dist-contract.sh"):
+            p = self.root / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("runtime product artifact layout changed\n")
+        self.assertTrue(M.compatible(self.root, self.base, self.commit()))
+
     def test_same_tool_closure_across_product_source_changes(self):
         (self.root / "product.txt").write_text("new product\n")
         self.assertTrue(M.compatible(self.root, self.base, self.commit()))

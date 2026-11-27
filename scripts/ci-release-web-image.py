@@ -14,6 +14,9 @@ import subprocess
 from pathlib import Path
 
 
+# Frozen image construction/install inputs only. Repository browser callers and
+# product-dist contracts execute from the same checked-out product SHA; they are
+# not copied into the image and their behavior is covered by the original gate.
 TOOL_INPUTS = (
     "rust-toolchain.toml",
     "docker/ci-base/Dockerfile",
@@ -22,8 +25,6 @@ TOOL_INPUTS = (
     "docker/ci-base/build-packages.txt",
     "scripts/ci-browser-deps.py",
     "scripts/ci_process_runner.py",
-    "scripts/agent-browser-lib.sh",
-    "scripts/viewer-web-dist-contract.sh",
     "scripts/ci-apt-install.py",
     "scripts/ci-apt-dns.py",
     "scripts/ci-browser-tools/package.json",

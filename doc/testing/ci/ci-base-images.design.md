@@ -195,7 +195,7 @@ save跳过不得冒签新增上传。正式发布后的新命名空间首次miss
 镜像源 d5319297d754a9c7d4de347a2ce8e1a20ba43591、可信发布
 45965554793/release-web140396891588已成功，2m48/10m。源码兼容同时
 核 executing workflow 与目标tag的完整Docker/build/package清单、browser
-Chrome/字体/apt/DNS/npm材料及原浏览器调用接口与编译器三项env；不信
+Chrome/字体/apt/DNS/npm材料与编译器三项env；不信
 候选自报兼容。SOURCEPLAN JSON及原资格核验保持，路由bool单独输出。
 
 镜像激活仍以Node24满足原browser helper合同，后续npm/Web业务选择
@@ -230,3 +230,13 @@ The runner mounts only the workspace and selected tool data. The
 original local Docker socket is bound for the trusted test command
 alone after checking the trusted execution identity. Candidate full
 regression continues through the original runner.
+
+镜像材料集合只包括实际构建/安装闭包：Dockerfile/build、两包清单、Rust
+工具链、viewer-context 内四个 Python helper 与 npm manifest/lock，以及
+bindgen 安装定义。`agent-browser-lib.sh` 与 `viewer-web-dist-contract.sh`
+没有复制进镜像：前者从当前完整 checkout 调用已激活的浏览器 CLI，后者
+描述同一产品源码生成的 Web 产物布局；两者由同一 tested SHA 构建/执行，
+不与镜像内一份旧脚本交换数据。因此其产品路径调整不属于工具镜像输入
+漂移，不以定向字符串规范化或更换发布来源规避检查。原 CLI 参数与功能
+合同继续由该 tested SHA 的原 headed 门禁核验；实际镜像输入任一变化、
+缺失或软链仍拒绝镜像，完整 Docker/build 保守比对及三编译器环境保留。
