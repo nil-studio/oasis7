@@ -374,10 +374,24 @@ class WorkflowCorePart9(unittest.TestCase):
             self.assertIn('apt-get install -y --no-install-recommends clang llvm', full_leaf)
             self.assertIn('COPY --from=rust-ordinary-builder /usr/local/bin/docker /usr/local/bin/docker', full_leaf)
             self.assertNotIn('dockerd', full_leaf)
+        if re.search(r'^FROM rust-viewer AS rust-release-web$', dockerfile, re.M):
+            targets.append('rust-release-web')
+            leaf = dockerfile.split('FROM rust-viewer AS rust-release-web\n', 1)[1].split('\nFROM ', 1)[0]
+            self.assertIn('COPY --from=custody-node-tools /usr/local/bin/node /opt/oasis7-node22/bin/node', leaf)
+            self.assertIn('netcat-openbsd xvfb xauth', leaf)
+            smoke = (ROOT / 'docker/ci-base/build.sh').read_text().split('if [[ "$target" == rust-release-web ]]; then', 1)[1]
+            self.assertIn('--network none --user 1001:1001', smoke)
+            self.assertIn('export PATH=/opt/oasis7-node22/bin:$PATH', smoke)
+            self.assertIn('xvfb-run -a node', smoke)
+            self.assertIn('headless: false', smoke)
+            self.assertIn('--target wasm32-unknown-unknown --crate-type lib', smoke)
+            self.assertNotIn('docker.sock', leaf)
         self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]
         groups = 'base, specialized, app-wasm' if 'rust-viewer' in targets else 'base, specialized'
+        if 'rust-release-web' in targets:
+            groups += ', release-web'
         self.assertIn(f'    strategy:\n      matrix:\n        group: [{groups}]\n', publish_header)
         self.assertIn('timeout-minutes: 10\n', publish_header)
         self.assertIn("if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n", publish_header)
@@ -390,6 +404,7 @@ class WorkflowCorePart9(unittest.TestCase):
             ('base', {'runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'}),
             ('specialized', {'codeql-rust', 'api-runtime', 'rust-ordinary-builder', 'rust-full-regression'}),
             ('app-wasm' if 'rust-viewer' in targets else 'specialized', {'rust-custody-wasm', 'rust-viewer'}),
+            ('release-web', {'rust-release-web'}),
         )
         by_target = {target: group for group, members in expected_groups for target in members}
         routes = [(by_target[target], target) for target in targets]
