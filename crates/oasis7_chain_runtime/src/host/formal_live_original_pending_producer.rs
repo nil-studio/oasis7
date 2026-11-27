@@ -648,6 +648,13 @@ mod tests {
         fs::remove_file(&original_prepared).unwrap();
         symlink(&alias, &original_prepared).unwrap();
         assert!(cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, 1).is_err());
-        assert!(read_exact_file(&scratch.0, PREPARED_FILE, RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1 as u64).is_err());
+        assert!(
+            read_exact_file(
+                &scratch.0,
+                PREPARED_FILE,
+                RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1 as u64,
+            )
+            .is_err()
+        );
     }
 }
