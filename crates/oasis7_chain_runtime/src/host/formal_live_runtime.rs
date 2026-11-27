@@ -62,8 +62,9 @@ pub(super) mod observation;
 pub(crate) use owner::observe_operation_owner;
 #[cfg(unix)]
 pub(crate) use owner::{
-    DurableSetControlRequestV1, control_durable_set_transition,
-    control_prepare_durable_set_transition,
+    DurableSetControlRequestV1, cold_read_original_pending_for_owner,
+    control_durable_set_transition, control_prepare_durable_set_transition,
+    freeze_original_pending,
 };
 #[cfg(unix)]
 pub(crate) use owner::{FormalRuntimeInstanceV1, FormalRuntimeOwnerSnapshotV1};
