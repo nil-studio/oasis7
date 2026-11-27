@@ -179,7 +179,7 @@ impl RemoteFormalEndpoint {
             &response.signature,
             &self.instance().endpoint_public_key,
         )?;
-        attestation::verify_response_custody(&response, &self.authority, self.role)?;
+        attestation::verify_response_custody(response, &self.authority, self.role)?;
         let body = &response.body;
         if body.schema_version != 1
             || body.request_digest != digest
@@ -198,7 +198,7 @@ impl RemoteFormalEndpoint {
         }
         hash_hex(&body.head.record_id)?;
         let pending = super::super::endpoint::verify_formal_rpc_checkpoint(
-            &body,
+            body,
             &self.authority,
             self.role,
         )?;
@@ -227,7 +227,7 @@ impl RemoteFormalEndpoint {
             return Err(invalid("formal RPC provider/head checkpoint mismatch"));
         }
         let native_context =
-            native_context::context_after_authenticated_call(&body, &self.authority, self.role)?;
+            native_context::context_after_authenticated_call(body, &self.authority, self.role)?;
         self.remaining_timeout(deadline)?;
         self.last_native_context = Some(native_context);
         self.last_checkpoint = Some(body.checkpoint.clone());
