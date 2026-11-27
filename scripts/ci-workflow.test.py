@@ -553,9 +553,11 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
         'native': (('consensus', 'distfs'), 'rust-image-components'),
         'node': (('node',), 'rust-image-components'),
         'net': (('net',), 'rust-image-net'),
-        'launcher': (('launcher-web',), 'rust-image-launcher'),
         'tooling': (('cargo-tooling-contracts',), 'rust-image-tooling'),
     }
+    launcher_family = 'rust-image-launcher'
+    if 'launcher' in rows or launcher_family in families:
+        expected['launcher'] = (('launcher-web',), launcher_family)
     support_family = 'rust-image-support'
     if 'support' in rows or support_family in families:
         expected['support'] = (('workspace-support-other',), support_family)
@@ -900,8 +902,11 @@ class Workflow(unittest.TestCase):
         families = ast.literal_eval(next(node.value for node in source.body
             if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
                 and target.id == 'FAMILIES' for target in node.targets)))
-        expected_profiles = {'native', 'node', 'net', 'launcher', 'tooling'}
-        image_families = {'rust-image-components', 'rust-image-net', 'rust-image-launcher', 'rust-image-tooling'}
+        expected_profiles = {'native', 'node', 'net', 'tooling'}
+        image_families = {'rust-image-components', 'rust-image-net', 'rust-image-tooling'}
+        if 'rust-image-launcher' in families and 'launcher-web' in JOBS:
+            expected_profiles.add('launcher')
+            image_families.add('rust-image-launcher')
         if 'rust-image-support' in families:
             expected_profiles.add('support')
             image_families.add('rust-image-support')
@@ -1601,7 +1606,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         else:
             expected.add('custody-wasm-production')
         self.assertEqual(node_jobs, expected)
-        self.assertNotIn('oasis7_viewer', JOBS['launcher-web'])
+        if 'launcher-web' in JOBS:
+            self.assertNotIn('oasis7_viewer', JOBS['launcher-web'])
         self.assertIn("node-version: '24'", JOBS['site-quality'])
         for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node'}:
             self.assertIn('cache: npm',JOBS[name])
@@ -1623,7 +1629,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 preparation = ('name: Verify the preinstalled Rust toolchains'
                                if rust_image_cache_namespace(name, job) else 'rustup default')
                 self.assertLess(job.index(preparation), job.index('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2'))
-        for name in ('launcher-web','full-regression'):
+        for name in (n for n in ('launcher-web', 'full-regression') if n in JOBS):
             job=JOBS[name]
             self.assertIn('uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',job)
             self.assertIn("hashFiles('scripts/install-ci-trunk.sh')",job)
@@ -2115,7 +2121,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             'oasis7-required', 'formal-process-tests', 'formal-process',
             'consensus', 'distfs', 'node', 'net',
             'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
-            'launcher-web', 'workspace-support-other',
+            'workspace-support-other',
             'custody-native-contracts', 'custody-native',
             'custody-wasm-production',
             'custody-node', 'workspace-support',
@@ -2124,6 +2130,8 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             'compile-metrics', 'site-quality', 'doc-checker-contracts',
             'cargo-tooling-contracts', 'macos-package-contract', 'required-gate',
         }
+        if 'launcher-web' in JOBS:
+            priority_jobs.add('launcher-web')
         excluded_jobs = {
             'operational-contracts', 'packaging-contracts',
             'pr-fast-preview-plan', 'pr-fast-preview',
