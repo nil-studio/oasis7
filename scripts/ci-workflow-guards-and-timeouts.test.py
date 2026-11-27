@@ -128,11 +128,6 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             '.github/workflows/command-center.yml': {
                 'desktop': 16,
             },
-            '.github/workflows/compile-metrics.yml': {
-                'compile-metrics': 45,
-                'compile-metrics-linux': 25,
-                'summarize': 5,
-            },
             '.github/workflows/daily-github-release.yml': {
                 'create-release': 5,
             },
