@@ -569,6 +569,41 @@ def check_ci_engine_zero_business_identifiers(repo_root: Path) -> list[str]:
     return errors
 
 
+def check_candidate_executors_zero_engine_imports(repo_root: Path) -> list[str]:
+    """Enforce zero direct or transitive ci_engine/planner imports in ci-test-artifacts.py and ci-tests.sh."""
+    errors: list[str] = []
+
+    def scan_source(label: str, source: str) -> None:
+        try:
+            tree = ast.parse(source, filename=label)
+        except SyntaxError as exc:
+            errors.append(f"{label}: syntax error during executor import gate: {exc}")
+            return
+        for node in ast.walk(tree):
+            line = getattr(node, "lineno", 0)
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "ci_engine" or alias.name.startswith("ci_engine."):
+                        errors.append(f"{label}:{line}: forbidden import {alias.name!r} in candidate executor")
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                if mod == "ci_engine" or mod.startswith("ci_engine."):
+                    errors.append(f"{label}:{line}: forbidden from-import {mod!r} in candidate executor")
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if "ci_engine" in node.value or "plan-rust-required-scope" in node.value:
+                    errors.append(f"{label}:{line}: forbidden planner/engine reference {node.value!r} in candidate executor")
+
+    artifacts_py = repo_root / "scripts/ci-test-artifacts.py"
+    if artifacts_py.is_file():
+        scan_source("scripts/ci-test-artifacts.py", artifacts_py.read_text(encoding="utf-8"))
+    ci_tests_sh = repo_root / "scripts/ci-tests.sh"
+    if ci_tests_sh.is_file():
+        sh_text = ci_tests_sh.read_text(encoding="utf-8")
+        for idx, match in enumerate(re.finditer(r"<<'?PY'?\n(.*?)\nPY\b", sh_text, re.S), 1):
+            scan_source(f"scripts/ci-tests.sh#PY-{idx}", match.group(1))
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Check exact paths and fast-path anti-fallback invariants in scripts/ci-required-scope.json."
@@ -606,6 +641,16 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         for err in engine_errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
+
+    executor_errors = check_candidate_executors_zero_engine_imports(repo_root)
+    if executor_errors:
+        print(
+            "check-ci-scope-paths: FAIL: candidate executor imports ci_engine or planner:",
+            file=sys.stderr,
+        )
+        for err in executor_errors:
             print(f"  - {err}", file=sys.stderr)
         return 1
 
