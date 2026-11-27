@@ -1,4 +1,5 @@
 use super::*;
+use ed25519_dalek::Signer;
 
 #[test]
 fn real_witness_history_revocation_inventory_rejects_forks_and_reissued_targets() {
@@ -113,6 +114,53 @@ fn real_witness_history_revocation_inventory_rejects_forks_and_reissued_targets(
     assert_eq!(pending.original_lease_count, 1);
     assert_eq!(pending.pending_lease_count, 1);
     assert!(!pending.effective);
+    // A software-signed receipt fixture exercises only the verified issuer
+    // consumer. It cannot stand in for a physically protected cutoff witness.
+    let original_lease = inventory.leases.keys().next().unwrap().clone();
+    let signed_fence = |kind: FullSyncFenceKindV1,
+                        lease: Option<FullSyncIssuerTargetLeaseV3>| {
+        let body = FullSyncRevocationFenceBodyV1 {
+            schema_version: 1,
+            revocation_record_digest: revoke_digest.clone(),
+            revocation_anchor: inventory.revocation_anchor.clone(),
+            target: inventory.target.clone(),
+            revoked_target_generation: inventory.revoked_target_generation,
+            original_lease: lease,
+            kind,
+            protected_floor_revision: verified.anchor().revision,
+            protected_earliest_unix_ms: 1_000,
+        };
+        let mut bytes = b"oasis7.formal.full-sync-revocation.fence.v1\\0".to_vec();
+        bytes.extend_from_slice(&serde_json::to_vec(&body).unwrap());
+        SignedFullSyncRevocationFenceV1 {
+            signature_hex: hex::encode(key(4).sign(&bytes).to_bytes()),
+            body,
+        }
+    };
+    let mut proven = inventory.clone();
+    proven
+        .record_protected_fence(
+            &verified,
+            signed_fence(FullSyncFenceKindV1::TargetGateStopped, None),
+        )
+        .unwrap();
+    let partial = issuer
+        .read_revocation_status(&revoke_digest, &proven, &mut witness)
+        .unwrap();
+    assert!(!partial.effective);
+    assert_eq!(partial.pending_lease_count, 1);
+    proven
+        .record_protected_fence(
+            &verified,
+            signed_fence(FullSyncFenceKindV1::InstanceCutoff, Some(original_lease)),
+        )
+        .unwrap();
+    let effective = issuer
+        .read_revocation_status(&revoke_digest, &proven, &mut witness)
+        .unwrap();
+    assert!(effective.effective);
+    assert_eq!(effective.pending_lease_count, 0);
+
     assert!(
         issuer
             .read_revocation_status(&hash(255), &inventory, &mut witness)
