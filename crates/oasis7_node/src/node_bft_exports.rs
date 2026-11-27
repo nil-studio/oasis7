@@ -68,3 +68,14 @@ pub use crate::node_bft_v3_runtime::private_exchange::{
     NodeBftPrivateReadAuthorizationV3, NodeBftPrivateReadGateV3, NodeBftPrivateReadScopeV3,
     decode_bft_v3_private_candidate_package, encode_bft_v3_private_candidate_package,
 };
+
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use crate::node_bft_v3_runtime::private_exchange::admission_input_live_v2::{
+    NodeBftOriginalAdmissionNoiseV2, ProtectedOriginalAdmissionAuthorityV2,
+    ProtectedOriginalAdmissionContextV2, ProtectedOriginalAdmissionPartsV2,
+};
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use crate::node_bft_v3_runtime::private_exchange::admission_input_request_v2::{
+    AdmissionBatchReadV2, AdmissionBatchRequestV2, AdmissionInputBoundContextV2,
+    VerifiedAdmissionBatchSubjectV2,
+};

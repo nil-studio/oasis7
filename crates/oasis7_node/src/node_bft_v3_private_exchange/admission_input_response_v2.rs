@@ -10,7 +10,7 @@ use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 
-const RESPONSE_DOMAIN: &str = "oasis7.bft.admission-input.response.v2";
+pub(super) const RESPONSE_DOMAIN: &str = "oasis7.bft.admission-input.response.v2";
 const MAX_PARTS: usize = 3;
 
 /// Raw confidential bytes never enter Debug, hex, base64, or JSON arrays.
@@ -145,6 +145,7 @@ impl OriginalAdmissionBatchResponseV2 {
         encode_frame(self)
     }
 
+    #[allow(dead_code)] // V2 client decode has no registered runtime consumer yet.
     pub(super) fn decode_for(
         bytes: &[u8],
         request: &AdmissionBatchRequestV2,
@@ -158,6 +159,7 @@ impl OriginalAdmissionBatchResponseV2 {
     /// original staging primitive. The frame count is measured, never guessed
     /// from raw parts. The caller still owns admission, deadline, transfer CAS,
     /// original object readback and irreversible attempt-error handling.
+    #[allow(dead_code)] // Retain pre-existing Dark staging until the client Cutover.
     pub(super) fn decode_and_stage<W: Write>(
         bytes: &[u8],
         request: &AdmissionBatchRequestV2,

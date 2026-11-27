@@ -108,6 +108,7 @@ pub(super) fn run(
     oracle_address: SocketAddr,
     listen: SocketAddr,
     timeout: Duration,
+    frame_admission: Option<FormalRpcFrameAdmissionLimitsV1>,
 ) -> Result<(), String> {
     let preparation_started = std::time::Instant::now();
     if bootstrap.management_listen == listen {
@@ -244,7 +245,7 @@ pub(super) fn run(
     let management = TcpListener::bind(bootstrap.management_listen).map_err(|e| e.to_string())?;
     if let Some(endpoint) = active {
         retain_management(server, management)?;
-        return serve_ready(endpoint, listen, timeout);
+        return serve_ready(endpoint, listen, timeout, frame_admission);
     }
     report_bootstrap_timing("management_ready", preparation_started);
     println!(
@@ -260,7 +261,7 @@ pub(super) fn run(
         ) {
             Ok(Some(endpoint)) => {
                 retain_management(server, management)?;
-                return serve_ready(endpoint, listen, timeout);
+                return serve_ready(endpoint, listen, timeout, frame_admission);
             }
             Ok(None) => {}
             Err(error) => report_management_error(&error),
@@ -308,9 +309,12 @@ fn serve_ready(
     endpoint: FileFormalEndpoint,
     listen: SocketAddr,
     timeout: Duration,
+    frame_admission: Option<FormalRpcFrameAdmissionLimitsV1>,
 ) -> Result<(), String> {
     let listener = TcpListener::bind(listen).map_err(|e| e.to_string())?;
-    let mut server = FormalEndpointServer::new(endpoint, timeout).map_err(|e| e.to_string())?;
+    let mut server =
+        FormalEndpointServer::new_with_frame_admission(endpoint, timeout, frame_admission)
+            .map_err(|e| e.to_string())?;
     println!(
         "formal_endpoint_listening={}",
         listener.local_addr().map_err(|e| e.to_string())?

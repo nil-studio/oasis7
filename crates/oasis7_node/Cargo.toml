@@ -23,6 +23,8 @@ blake3 = "1"
 ed25519-dalek = "3"
 hex = "0.4"
 getrandom = "0.4"
+# Actual original-input protected byte billing uses the libp2p Codec in production.
+futures = "0.3"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "2cb3c04346fdcb0ecf6717728664602378edac13", optional = true, default-features = false, features = ["cbor", "gossipsub", "macros", "noise", "request-response", "tcp", "tokio", "yamux"] }
 serde = { version = "1", features = ["derive"] }
 serde_cbor = { package = "serde_cbor_2", version = "0.13" }
@@ -33,7 +35,3 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
-
-[dev-dependencies]
-# Actual libp2p request_response::Codec bytes are measured in original admission tests.
-futures = "0.3"
