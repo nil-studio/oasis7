@@ -257,6 +257,7 @@ impl World {
 
     /// Runtime-owned authority/control terminal boundary. Does not publish an
     /// effect receipt or modify a prior committed result.
+    #[allow(dead_code)] // #6142: legacy authority terminal helper, remove in 7c
     pub(super) fn terminate_agent_authority_intent_exact(
         &mut self,
         agent_id: &str,
