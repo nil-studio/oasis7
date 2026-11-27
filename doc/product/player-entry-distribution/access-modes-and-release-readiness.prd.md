@@ -250,7 +250,7 @@ Trace ID: O7-REQ-bafbce55-b1f3-414c-98e8-2cb5e70e6d1e
 - 系统设计状态：已覆盖
 - 系统设计依据：[支持入口与结果](../../readme/governance/player-support-and-service-lifecycle.design.md#support-entry-results)承接实际路径、结果文案和说明的采用；Launcher 的传输、门控及回落沿原反馈专业合同。
 - 实现状态：部分实现
-- 实现与验证依据：原 `crates/oasis7_client_launcher/src/feedback_window.rs`（native 反馈窗口）、`crates/oasis7_client_launcher/src/feedback_entry.rs`（native 提交与本地回落）、`crates/oasis7_client_launcher/src/feedback_window_web.rs`（Web 反馈窗口）已有各自门控与结果消费；这是源码审读，不代表同候选 UI 或网络验收。
+- 实现与验证依据：[runtime 请求构造](../../../crates/oasis7_chain_runtime/src/host/feedback_submit_api.rs)；原 `crates/oasis7_client_launcher/src/feedback_window.rs`（native 反馈窗口）、`crates/oasis7_client_launcher/src/feedback_entry.rs`（native 提交与本地回落）、`crates/oasis7_client_launcher/src/feedback_window_web.rs`（Web 反馈窗口）已有各自门控与结果消费；这是源码审读，不代表同候选 UI 或网络验收。
 - 核对日期与基线：2026-11-03；源码 `d21019414c46d7e8ba61ab2c59b1f217b144ba88`；未执行运行、浏览器或真实反馈提交。
 - 剩余范围：后续活跃候选仅按正式支持入口、Web `viewer` 与受支持控制面代理核验可用性、提交结果与恢复组合；本地文件和远端受理不等于人工已经接收处理。
 - 验收：[AC-ENTRY-PREVIEW-FEEDBACK-001](#ac-entry-preview-feedback-001)。

@@ -709,11 +709,18 @@ if plan_input:
         profiles = _s2_legacy_support_contract(plan, cand_profiles, cand_host)['selected_profiles']
 else:
     profiles = json.loads(raw)
+full_policy_transition = (
+    plan_input and plan.get('test_policy_changed') is True and plan.get('scope') == 'full'
+)
 if (not isinstance(profiles, list) or not profiles or
-        any(not isinstance(p, str) for p in profiles) or
+        any(not isinstance(p, str) or not p for p in profiles) or
         len(set(profiles)) != len(profiles) or
-        not set(profiles).issubset(cand_profiles)):
+        (not full_policy_transition and not set(profiles).issubset(cand_profiles))):
     raise SystemExit('invalid or missing workspace support profiles')
+# A trusted base planner cannot name newly extracted packages or drop retired
+# ones during a policy transition. Full scope always expands to the candidate
+# inventory after validating its shape, so an additive or retiring profile
+# never narrows or breaks the full support job.
 if plan_input and plan.get('scope') == 'full':
     profiles = list(cand_profiles)
     host_profiles = cand_host
