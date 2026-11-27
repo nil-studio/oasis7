@@ -51,12 +51,12 @@ fn crisis() -> CrisisState {
         resolved_at: None,
     }
 }
-fn fixture() -> Fixture {
+fn fixture_with_crisis(selected: CrisisState) -> Fixture {
     let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();
     let pages = Pages::with_limit(&memory, 32768);
     let mut roots = RootSetV1::empty("crisis-data-only".into(), [71; 32]).unwrap();
     let mut state = WorldState::default();
-    state.crises.insert("outer".into(), crisis());
+    state.crises.insert("outer".into(), selected);
     let mut writer = Writer(&pages);
     let mut i = io();
     let mut k = keys();
@@ -112,6 +112,9 @@ fn fixture() -> Fixture {
         pages,
         roots,
     }
+}
+fn fixture() -> Fixture {
+    fixture_with_crisis(crisis())
 }
 fn context<'a, C: FnMut() -> bool>(
     f: &'a Fixture,
@@ -738,4 +741,111 @@ fn current_crisis_exhausted_typed_scan_is_not_a_valid_current_proof() {
         tx.seal(&guard, &live, 1),
         Err(ExecutionError::Aborted)
     ));
+}
+
+
+fn decide_crisis_case(
+    source: CrisisState,
+    id: &str,
+    strategy: &str,
+    success: bool,
+    now: u64,
+    expected: Result<i64, CrisisResolutionDataRejectionV1>,
+) {
+    let f = fixture_with_crisis(source.clone());
+    let parent_family = qualify(&f);
+    let mut tx =
+        ExecutionTransaction::begin(parent(&f), [103; 32], &f.pages, &f.memory, limits()).unwrap();
+    let live = tx.parent_fence();
+    let guard = tx.guard();
+    let mut io = io();
+    let mut keys = keys();
+    let mut ctx = context(
+        &f,
+        f.roots.state_root(StateNamespaceV1::Business),
+        &mut io,
+        &mut keys,
+        || false,
+    );
+    let before = f.memory.used();
+    let actual = decide_current_crisis_resolution_data_v1(
+        id,
+        strategy,
+        success,
+        now,
+        &parent_family,
+        &f.roots,
+        &mut tx,
+        &mut ctx,
+        &mut scan(),
+        &mut 100_000,
+        4096,
+        &guard,
+        &live,
+    )
+    .unwrap();
+    match (actual, expected) {
+        (CrisisResolutionDataOutcomeV1::Rejected(actual), Err(expected)) => {
+            assert_eq!(actual, expected);
+        }
+        (CrisisResolutionDataOutcomeV1::Ready(result), Ok(expected)) => {
+            assert_eq!(result.current(), &source);
+            assert_eq!(result.impact(), expected);
+            assert!(result.uses_budget(&f.memory));
+            assert!(f.memory.used() > before);
+        }
+        _ => panic!("crisis-only rule outcome differs from legacy"),
+    }
+    let guard = tx.guard();
+    tx.seal(&guard, &live, 1).unwrap();
+}
+
+#[test]
+fn real_current_crisis_rule_matches_legacy_success_failure_boundary_and_rejections() {
+    use CrisisResolutionDataRejectionV1 as Why;
+    // Actual outer map key differs from the embedded crisis_id.
+    decide_crisis_case(crisis(), " outer ", "  containment  ", true, 20, Ok(20));
+    decide_crisis_case(crisis(), "outer", "containment", false, 20, Ok(-20));
+    let mut minimum_severity = crisis();
+    minimum_severity.severity = 0;
+    decide_crisis_case(minimum_severity, "outer", "work", false, 20, Ok(-10));
+    decide_crisis_case(crisis(), " ", "work", true, 20, Err(Why::EmptyId));
+    decide_crisis_case(crisis(), "missing", "work", true, 20, Err(Why::Missing));
+    decide_crisis_case(crisis(), "outer", "work", true, 21, Err(Why::Expired));
+    decide_crisis_case(crisis(), "outer", " \t ", true, 20, Err(Why::EmptyStrategy));
+    let mut resolved = crisis();
+    resolved.status = CrisisStatus::Resolved;
+    resolved.resolved_at = Some(5);
+    decide_crisis_case(resolved, "outer", "work", true, 21, Err(Why::Inactive));
+    let mut timed_out = crisis();
+    timed_out.status = CrisisStatus::TimedOut;
+    decide_crisis_case(timed_out, "outer", "work", false, 20, Err(Why::Inactive));
+}
+
+#[test]
+fn actual_current_crisis_rule_cancel_aborts_same_transaction_without_a_rule_grant() {
+    use oasis7_formal_protocol::incremental_execution::ExecutionError;
+    use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
+    let f = fixture();
+    let parent_family = qualify(&f);
+    let mut tx =
+        ExecutionTransaction::begin(parent(&f), [104; 32], &f.pages, &f.memory, limits()).unwrap();
+    let live = tx.parent_fence();
+    let guard = tx.guard();
+    let mut io = io();
+    let mut keys = keys();
+    let mut ctx = context(
+        &f,
+        f.roots.state_root(StateNamespaceV1::Business),
+        &mut io,
+        &mut keys,
+        || true,
+    );
+    let error = decide_current_crisis_resolution_data_v1(
+        "outer", "work", true, 12, &parent_family, &f.roots, &mut tx, &mut ctx,
+        &mut scan(), &mut 100_000, 4096, &guard, &live,
+    );
+    assert!(matches!(error, Err(WorldFieldOverlayErrorV1::Value(ValueTreeError::Cancelled))));
+    let guard = tx.guard();
+    assert!(matches!(tx.seal(&guard, &live, 1), Err(ExecutionError::Aborted)));
 }
