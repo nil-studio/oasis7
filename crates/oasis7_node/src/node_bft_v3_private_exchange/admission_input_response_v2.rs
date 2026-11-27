@@ -10,7 +10,7 @@ use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 
-const RESPONSE_DOMAIN: &str = "oasis7.bft.admission-input.response.v2";
+pub(super) const RESPONSE_DOMAIN: &str = "oasis7.bft.admission-input.response.v2";
 const MAX_PARTS: usize = 3;
 
 /// Raw confidential bytes never enter Debug, hex, base64, or JSON arrays.
