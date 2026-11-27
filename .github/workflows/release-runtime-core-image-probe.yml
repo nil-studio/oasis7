@@ -2,7 +2,7 @@ name: Runtime core canonical image probe
 
 on:
   pull_request:
-    types: [opened]
+    types: [synchronize]
     branches: [codex/engineering-release-runtime-core-probe-base]
     paths: [.github/workflows/release-runtime-core-image-probe.yml]
 
@@ -79,6 +79,7 @@ jobs:
           cat > .tmp/runtime-core-image-probe/check.sh <<'PROBE'
           set -euo pipefail
           source scripts/ci-tests.sh
+          tier=full-core
           repo_root="$(pwd -P)"
           driver_dir="$repo_root/scripts"
           ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
