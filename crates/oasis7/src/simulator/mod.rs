@@ -41,6 +41,7 @@ pub(crate) use oasis7_runtime_host::provider_loopback_http;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_material_capture;
 #[cfg(any())]
+#[rustfmt::skip]
 #[path = "kernel_host.rs"]
 mod retired_kernel_host;
 #[cfg(any())]
