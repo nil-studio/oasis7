@@ -1,19 +1,21 @@
 use super::{FixtureProviderAuthority, capture_root, read_http_request, test_provider_context};
 use crate::viewer::ProviderOriginalMaterialOwnerV1;
-use oasis7::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ProviderOriginalMaterialStore, ProviderSpoolReservation,
-};
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
 };
 use oasis7_formal_protocol::incremental_value::ValueIoBudget;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime_host::agent_execution::continuous_agent_harness::{
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+};
 use oasis7_runtime_host::provider_material_capture::{
     ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1, ProviderMaterialOwnerBindingV1,
     ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1, ProviderPendingRootsCursorV1,
     ProviderPendingRootsPageV1,
+};
+use oasis7_runtime_host::provider_material_capture::{
+    ProviderOriginalMaterialStore, ProviderSpoolReservation,
 };
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -422,8 +424,12 @@ fn durable_dispatch_cancellation_survives_reopen_and_blocks_same_identity_send()
         "http://{}/v1",
         listener.local_addr().expect("endpoint address")
     );
-    let client = oasis7::simulator::ProviderLoopbackHttpClient::new(base_url.as_str(), None, 5_000)
-        .expect("create captured provider client");
+    let client = oasis7_runtime_host::provider_loopback_http::ProviderLoopbackHttpClient::new(
+        base_url.as_str(),
+        None,
+        5_000,
+    )
+    .expect("create captured provider client");
     let cancel_after_dispatch = CancelAfterDispatchStore {
         inner: owner.as_ref(),
         dispatched: AtomicBool::new(false),
@@ -570,16 +576,19 @@ fn redirected_non_success_bodies_remain_pending_and_never_reach_second_endpoint(
                 location: None,
             },
         );
-        let client =
-            oasis7::simulator::ProviderLoopbackHttpClient::new(first_url.as_str(), None, 5_000)
-                .expect("create captured redirect client");
+        let client = oasis7_runtime_host::provider_loopback_http::ProviderLoopbackHttpClient::new(
+            first_url.as_str(),
+            None,
+            5_000,
+        )
+        .expect("create captured redirect client");
 
         let error = client
             .request_decision_with_context_and_material_store(&request, owner.as_ref())
             .expect_err("redirect status must be reported without following Location");
         assert!(matches!(
             &error,
-            oasis7::simulator::ProviderLoopbackHttpError::UnexpectedStatus {
+            oasis7_runtime_host::provider_loopback_http::ProviderLoopbackHttpError::UnexpectedStatus {
                 status_code,
                 ..
             } if *status_code == status

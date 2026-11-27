@@ -4,12 +4,13 @@ use crate::viewer::{
     ProviderOriginalMaterialOwnerV1, ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
     install_provider_original_material_owner,
 };
-use oasis7::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ProviderMaterialAuthority,
-    cognition_response_digest,
-};
+use oasis7_agent_harness::cognition_response_digest;
 use oasis7_distfs::incremental_page_store::PageCompression;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime_host::agent_execution::continuous_agent_harness::{
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+};
+use oasis7_runtime_host::provider_material_capture::ProviderMaterialAuthority;
 use oasis7_runtime_host::provider_material_capture::{
     ProviderAttemptAuthorityBindingV1, ProviderDispositionEvidenceV1, ProviderMaterialAttemptV1,
     ProviderMaterialOwnerBindingV1, ProviderOriginalMaterialRefsV1, ProviderPendingAttemptPhaseV1,
@@ -877,8 +878,12 @@ fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispa
     // is the no-dispatch oracle, not the connection error alone.
     let before_retry = reopened.pending_protection_root().expect("before retry");
     let retry_client =
-        oasis7::simulator::ProviderLoopbackHttpClient::new(base_url.as_str(), None, 5_000)
-            .expect("create same-identity retry client");
+        oasis7_runtime_host::provider_loopback_http::ProviderLoopbackHttpClient::new(
+            base_url.as_str(),
+            None,
+            5_000,
+        )
+        .expect("create same-identity retry client");
     let retry_error = retry_client
         .request_decision_with_context_and_material_store(&request, reopened.as_ref())
         .expect_err("same operation identity cannot dispatch again after restart");

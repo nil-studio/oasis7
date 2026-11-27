@@ -13,7 +13,6 @@ oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 serde_ignored = "0.1"
 oasis7_agent_api = { version = "0.1.0", path = "../oasis7_agent_api" }
 serde = { version = "1", features = ["derive"] }
-oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false }
 ed25519-dalek = { version = "3", features = ["rand_core"] }
 hex = "0.4"
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
@@ -44,13 +43,11 @@ libc = "0.2"
 [features]
 default = ["wasmtime", "node-libp2p"]
 node-libp2p = ["oasis7_node/libp2p"]
-wasmtime = ["oasis7/wasmtime"]
+wasmtime = ["oasis7_runtime/wasmtime", "oasis7_world_service/wasmtime"]
 viewer_live_integration = []
-test_tier_required = ["oasis7/test_tier_required"]
-test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
-
-[dev-dependencies]
-oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false, features = ["test_tier_required"] }
+test_tier_required = ["oasis7_simulator/test_tier_required", "oasis7_runtime/test_tier_required", "oasis7_world_service/test_tier_required", "oasis7_runtime_host/test_tier_required"]
+test_tier_full = ["test_tier_required", "oasis7_simulator/test_tier_full", "oasis7_runtime/test_tier_full", "oasis7_world_service/test_tier_full", "oasis7_runtime_host/test_tier_full"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false, features = ["test-support"] }
+oasis7_runtime_host = { path = "../oasis7_runtime_host", features = ["test_tier_required"] }

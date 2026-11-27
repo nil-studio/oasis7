@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 
 #[test]
 fn missing_authenticated_feedback_view_cannot_create_fresh_economic_checkpoint() {

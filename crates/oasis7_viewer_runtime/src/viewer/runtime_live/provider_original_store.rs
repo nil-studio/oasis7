@@ -16,10 +16,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use oasis7::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ProviderOriginalMaterialStore, ProviderSpoolReservation,
-};
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
@@ -34,6 +30,12 @@ use oasis7_formal_protocol::provider_material::{
     ProviderPendingStateRootsV1,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
+use oasis7_runtime_host::agent_execution::continuous_agent_harness::{
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+};
+use oasis7_runtime_host::provider_material_capture::{
+    ProviderMaterialAuthority, ProviderOriginalMaterialStore, ProviderSpoolReservation,
+};
 
 use super::provider_original_store_codec::{
     EventPhase, EventRecord, MAX_EVENT_BYTES, MAX_EVENTS, MAX_OPERATION_ID_BYTES,
@@ -87,7 +89,7 @@ pub struct ProviderOriginalMaterialOwnerV1 {
     memory: MemoryBudget,
     pages: IncrementalPageStore,
     files: OwnerFiles,
-    authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
+    authority: Arc<dyn ProviderMaterialAuthority>,
     inner: Mutex<Inner>,
     cancelled: Arc<AtomicBool>,
     writable: bool,
@@ -101,7 +103,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         owner: ProviderMaterialOwnerBindingV1,
         memory: MemoryBudget,
         compression: PageCompression,
-        authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
+        authority: Arc<dyn ProviderMaterialAuthority>,
     ) -> Result<Arc<Self>, String> {
         authority.verify_owner_scope(&owner)?;
         let root = root.as_ref();
@@ -147,7 +149,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         memory: MemoryBudget,
         compression: PageCompression,
         class: MemoryClass,
-        authority: Arc<dyn oasis7::simulator::ProviderMaterialAuthority>,
+        authority: Arc<dyn ProviderMaterialAuthority>,
     ) -> Result<Arc<Self>, String> {
         authority.verify_owner_scope(expected_owner)?;
         let root = root.as_ref();
