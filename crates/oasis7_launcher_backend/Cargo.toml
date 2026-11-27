@@ -7,7 +7,7 @@ license = "MIT"
 [dependencies]
 oasis7_custody_core = { path = "../oasis7_custody_core" }
 oasis7_observability = { path = "../oasis7_observability" }
-oasis7_launcher_config = { version = "0.1.0", path = "../oasis7_launcher_config" }
+multiaddr = "0.19"
 oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 oasis7_agent_harness = { version = "0.1.0", path = "../oasis7_agent_harness" }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
@@ -38,7 +38,6 @@ chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
 zeroize = "1"
 libc = "0.2"
 aliyun-tablestore-rs = { version = "0.1.2", default-features = false, features = ["rust-tls"] }
-oasis7_launcher_ui = { version = "0.1.0", path = "../oasis7_launcher_ui" }
 ctrlc = { version = "3.4", features = ["termination"] }
 reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 tokio = { version = "1", features = ["rt", "time"] }

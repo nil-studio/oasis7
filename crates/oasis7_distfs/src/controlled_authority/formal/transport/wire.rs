@@ -588,10 +588,11 @@ mod deadline_tests {
 
         let remaining = work.remaining_read_bytes();
         work.consume_read_bytes(remaining, &mut || false).unwrap();
+        assert!(write_prepaid_frame(&mut refused, &value, &memory, &work, &mut || false).is_err());
         assert!(
-            write_prepaid_frame(&mut refused, &value, &memory, &work, &mut || false).is_err()
+            refused.is_empty(),
+            "exhaustion must not start a new response frame"
         );
-        assert!(refused.is_empty(), "exhaustion must not start a new response frame");
         assert_eq!(memory.used(), 0);
     }
 }

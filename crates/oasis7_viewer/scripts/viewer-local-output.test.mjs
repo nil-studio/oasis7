@@ -222,6 +222,8 @@ test("the CI artifact build preserves Cargo.lock without changing the developer 
       "oasis7_browser_game_client",
       "pixel_world_bridge",
     ]);
+    assert.equal(readFileSync(join(f.viewer, "viewer.js"), "utf8"), "source sentinel: viewer.js\n");
+    assert.match(readFileSync(join(f.viewer, "dist/viewer.js"), "utf8"), /currentCandidate/);
     assert.ok(cargoBuilds.every(x => x.args.includes("--locked") === (ci === "true")));
     assert.equal(readFileSync(lock, "utf8") === originalLock, ci === "true");
   }

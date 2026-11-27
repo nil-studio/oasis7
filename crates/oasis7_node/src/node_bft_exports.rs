@@ -70,6 +70,8 @@ pub use crate::node_bft_v3_runtime::private_exchange::{
 };
 
 #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use crate::node_bft_v3_runtime::private_exchange::admission_input_client_v2::fetch_original_admission_input_v2;
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
 pub use crate::node_bft_v3_runtime::private_exchange::admission_input_live_v2::{
     NodeBftOriginalAdmissionNoiseV2, ProtectedOriginalAdmissionAuthorityV2,
     ProtectedOriginalAdmissionContextV2, ProtectedOriginalAdmissionPartsV2,

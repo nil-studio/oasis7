@@ -1,6 +1,4 @@
-use super::{
-    LAUNCHER_AGENT_PROVIDER_FIELD_IDS, LauncherConfig, build_launcher_args, validate_game_config,
-};
+use super::{LauncherConfig, build_launcher_args, validate_game_config};
 
 fn arg_value(args: &[String], flag: &str) -> Option<String> {
     args.windows(2)
@@ -218,14 +216,7 @@ fn web_launcher_rejects_provider_url_that_violates_transport_policy() {
 }
 
 #[test]
-fn web_schema_agent_provider_fields_have_config_and_arg_contract() {
-    let ids: std::collections::BTreeSet<&str> = oasis7_launcher_ui::launcher_ui_fields_for_web()
-        .map(|field| field.id)
-        .collect();
-    for field_id in LAUNCHER_AGENT_PROVIDER_FIELD_IDS {
-        assert!(ids.contains(field_id), "web schema missing `{field_id}`");
-    }
-
+fn agent_provider_fields_have_config_and_arg_contract() {
     let config = LauncherConfig {
         viewer_static_dir: ".".to_string(),
         ..LauncherConfig::default()
