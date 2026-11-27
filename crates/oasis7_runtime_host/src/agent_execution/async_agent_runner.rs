@@ -67,7 +67,7 @@ use self::outcome::{
     validate_cognition_lease_for_request,
 };
 mod lease_view;
-pub(crate) use self::lease_view::validated_cognition_lease_consumption_view;
+pub use self::lease_view::validated_cognition_lease_consumption_view;
 mod actor_controls;
 mod budget;
 mod continuation;

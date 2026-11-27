@@ -15,7 +15,7 @@ use super::{
 /// Runtime lease admission checks used by the provider-dispatch boundary.
 /// The view intentionally omits quote/accounting fields and cannot authorize
 /// reservation, settlement, or world effects.
-pub(crate) fn validated_cognition_lease_consumption_view(
+pub fn validated_cognition_lease_consumption_view(
     agent_id: &str,
     request_context: &ContinuousAgentRequestContextV1,
     lease: &CognitionLeaseV1,
