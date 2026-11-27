@@ -9,7 +9,7 @@ use oasis7_distfs::controlled_authority::formal::{
     self,
     endpoint::{FileFormalEndpoint, FormalEndpointAuthorizationV1},
     fencing::{RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1},
-    transport::FormalEndpointServer,
+    transport::{FormalEndpointServer, FormalRpcFrameAdmissionLimitsV1},
 };
 use std::sync::Arc;
 #[derive(Deserialize)]
@@ -28,6 +28,10 @@ struct FormalConfig {
     oracle_address: std::net::SocketAddr,
     listen: std::net::SocketAddr,
     timeout_ms: u64,
+    /// Optional explicitly provisioned, process-lifetime raw RPC frame budget.
+    /// This does not enable bounded Query DTO or GEN authority.
+    #[serde(default)]
+    rpc_frame_admission: Option<FormalRpcFrameAdmissionLimitsV1>,
 }
 pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
     let envelope: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
@@ -82,6 +86,7 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
             config.oracle_address,
             config.listen,
             Duration::from_millis(config.timeout_ms),
+            config.rpc_frame_admission,
         );
     }
     let (authorization, archive) = if let Some(mut bootstrap) = config.recovery_bootstrap {
@@ -198,7 +203,12 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
     })?;
     // A port is published only after strict custody/floor and native restore.
     let listener = std::net::TcpListener::bind(config.listen).map_err(|e| e.to_string())?;
-    let mut server = FormalEndpointServer::new(endpoint, timeout).map_err(|e| e.to_string())?;
+    let mut server = FormalEndpointServer::new_with_frame_admission(
+        endpoint,
+        timeout,
+        config.rpc_frame_admission,
+    )
+    .map_err(|e| e.to_string())?;
     println!(
         "formal_endpoint_listening={}",
         listener.local_addr().map_err(|e| e.to_string())?
