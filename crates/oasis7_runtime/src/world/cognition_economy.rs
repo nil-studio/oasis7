@@ -388,6 +388,7 @@ impl CognitionEconomyStateV1 {
 
     /// Explicit bootstrap/credit operation.  It never refills implicitly and
     /// cannot overwrite an account while an active reservation exists.
+    #[cfg(test)]
     pub fn set_resource_balance(
         &mut self,
         account_id: impl Into<String>,
@@ -401,6 +402,7 @@ impl CognitionEconomyStateV1 {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn reserve(
         &mut self,
         request: CognitionLeaseRequestV1,
@@ -417,7 +419,7 @@ impl CognitionEconomyStateV1 {
     /// Reserve against one exact Runtime provisioning binding. The binding is
     /// supplied by `World`, which derives it from the current capability
     /// identity and runtime world/reorg tuple.
-    #[cfg_attr(not(test), expect(dead_code, reason = "legacy wrapper removed in #6143 PR 4/4"))]
+    #[cfg(test)]
     pub(crate) fn reserve_for_binding(
         &mut self,
         request: CognitionLeaseRequestV1,
@@ -433,6 +435,7 @@ impl CognitionEconomyStateV1 {
         Ok(lease)
     }
 
+    #[cfg(test)]
     pub fn settle(
         &mut self,
         lease_id: &str,
@@ -446,6 +449,7 @@ impl CognitionEconomyStateV1 {
         Ok(receipt)
     }
 
+    #[cfg(test)]
     pub fn release(
         &mut self,
         lease_id: &str,
@@ -458,6 +462,7 @@ impl CognitionEconomyStateV1 {
         Ok(receipt)
     }
 
+    #[cfg(test)]
     pub fn refund(
         &mut self,
         lease_id: &str,
@@ -502,6 +507,7 @@ impl CognitionEconomyStateV1 {
     /// Runtime-authorized compensating refund for a settled lease. The parent
     /// settlement receipt and reason are immutable audit inputs; the amount
     /// cannot exceed the settled usage and the operation is terminal.
+    #[cfg(test)]
     pub fn refund_settled(
         &mut self,
         lease_id: &str,
@@ -518,6 +524,7 @@ impl CognitionEconomyStateV1 {
         Ok(receipt)
     }
 
+    #[cfg(test)]
     pub fn expire(
         &mut self,
         lease_id: &str,
