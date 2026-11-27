@@ -3,7 +3,8 @@ use std::hint::black_box;
 use std::io::Write;
 use std::time::Instant;
 
-use oasis7::simulator::{WorldEvent, WorldKernel};
+use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+use oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel;
 use oasis7_simulator::{Agent, GeoPos, RejectReason, WorldEventKind};
 use oasis7_viewer_codec::{
     ViewerRequest, ViewerResponse, request_from_json, response_to_json, write_response_json,

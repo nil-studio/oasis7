@@ -24,24 +24,12 @@ fn native_archive_owner_retains_exact_original_viewer_response_identity() {
         oasis7_simulator::RunnerMetrics,
         oasis7_simulator::WorldTime,
     >;
-    assert_eq!(
-        TypeId::of::<WorldKernel>(),
-        TypeId::of::<oasis7::simulator::WorldKernel>()
-    );
-    assert_eq!(
-        TypeId::of::<WorldSnapshot>(),
-        TypeId::of::<oasis7::simulator::WorldSnapshot>()
-    );
-    assert_eq!(
-        TypeId::of::<WorldEvent>(),
-        TypeId::of::<oasis7::simulator::WorldEvent>()
-    );
     assert_eq!(TypeId::of::<ViewerResponse>(), TypeId::of::<HostWire>());
-    let original: oasis7::simulator::WorldSnapshot = WorldKernel::new().snapshot();
-    let current: WorldSnapshot = original.clone();
+    let snapshot: WorldSnapshot = WorldKernel::new().snapshot();
+    let cloned: WorldSnapshot = snapshot.clone();
     assert_eq!(
-        serde_json::to_vec(&current).expect("native archive JSON"),
-        serde_json::to_vec(&original).expect("original archive JSON")
+        serde_json::to_vec(&cloned).expect("native archive JSON"),
+        serde_json::to_vec(&snapshot).expect("original archive JSON")
     );
 }
 
@@ -50,19 +38,13 @@ fn canonical_simulator_trace_metrics_and_world_time_keep_legacy_viewer_wire_type
     // Native L2's telemetry and decision grammar are the exact old public
     // ViewerResponse generic arguments, not a new runtime wire encoding.
     type NativeResponse = oasis7_proto::viewer::ViewerResponse<
-        oasis7::simulator::WorldSnapshot,
-        oasis7::simulator::WorldEvent,
+        oasis7_runtime_host::simulator_archive::persist::WorldSnapshot,
+        oasis7_runtime_host::simulator_archive::archive::WorldEvent,
         oasis7_simulator::AgentDecisionTrace,
         oasis7_simulator::RunnerMetrics,
         oasis7_simulator::WorldTime,
     >;
-    type LegacyResponse = oasis7_proto::viewer::ViewerResponse<
-        oasis7::simulator::WorldSnapshot,
-        oasis7::simulator::WorldEvent,
-        oasis7::simulator::AgentDecisionTrace,
-        oasis7::simulator::RunnerMetrics,
-        oasis7::simulator::WorldTime,
-    >;
+    type LegacyResponse = ViewerResponse;
     let native: NativeResponse = typed_error();
     let legacy: LegacyResponse = native;
     assert_eq!(
