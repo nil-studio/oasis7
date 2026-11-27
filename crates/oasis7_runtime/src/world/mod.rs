@@ -27,7 +27,7 @@ pub use agent_intent::{AgentIntentProviderFailureDisposition, AgentIntentRecordO
 mod audit;
 mod base_layer;
 mod body;
-mod bootstrap_economy;
+pub(crate) mod bootstrap_economy;
 mod bootstrap_gameplay;
 mod bootstrap_power;
 #[path = "../domains/industrial/mod.rs"]
@@ -44,9 +44,9 @@ pub mod capability_authz;
 mod capability_authorization;
 mod capability_authorization_admin;
 mod capability_authorization_command;
-mod capability_authorization_command_stage;
+pub(crate) mod capability_authorization_command_stage;
 mod capability_authorization_events;
-mod capability_authorization_publication;
+pub(crate) mod capability_authorization_publication;
 mod capability_authorization_state;
 mod provider_terminal_authority;
 pub use provider_terminal_authority::ProviderCapabilityAvailability;
@@ -68,7 +68,7 @@ mod effect_publication;
 #[cfg(test)]
 mod effect_publication_transaction_regressions;
 mod effects;
-mod event_processing;
+pub(crate) mod event_processing;
 mod formal_execution_tick;
 mod formal_retention;
 mod formal_tick_consensus;
@@ -1044,7 +1044,7 @@ mod effect_birth;
 pub use observer_identity::ObserverAuthorityIdentity;
 
 mod owner_control_admission;
-mod owner_delegation_control;
+pub(crate) mod owner_delegation_control;
 pub use owner_control_admission::OwnerControlHostAuthority;
 pub use owner_delegation_control::{
     DelegationControlDisposition, DelegationControlError, DelegationControlOperation,

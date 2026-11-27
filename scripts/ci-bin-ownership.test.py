@@ -96,10 +96,16 @@ def require_materialized_native_archive(root):
                        + r'\s*' + visibility + r'mod ' + module + r';')
         wasm_decl = (r'#\[cfg\(target_arch = "wasm32"\)\]\s*'
                      + visibility + r'mod ' + module + r';')
-        if re.search(native_decl, selected) is None:
+        unified_decl = (r'(?m)^'
+                        + re.escape(f'#[path = "{name}"]')
+                        + r'\s*' + visibility + r'mod ' + module + r';')
+        has_native = re.search(native_decl, selected) is not None
+        has_wasm = re.search(wasm_decl, selected) is not None
+        has_unified = not has_native and re.search(unified_decl, selected) is not None
+        if not ((has_native and has_wasm) or has_unified):
+            if has_native and not has_wasm:
+                raise AssertionError(f'original wasm archive removed: {module}')
             raise AssertionError(f'native archive facade not selected: {module}')
-        if re.search(wasm_decl, selected) is None:
-            raise AssertionError(f'original wasm archive removed: {module}')
         require(facade / name, (
             r'^pub use oasis7_runtime_host::simulator_archive::' + module + r'::\*;$',
         ))
@@ -786,12 +792,18 @@ class Ownership(unittest.TestCase):
                 'unknown_transport_and_url_syntax_fail_closed',
             ):
                 self.assertIn(required, policy_source)
+        host_non_wasm_deps = (
+            host_spec.get('target', {})
+            .get('cfg(not(target_arch = "wasm32"))', {})
+            .get('dependencies', {})
+        )
+        effective_host_deps = {**host_deps, **host_non_wasm_deps}
         self.assertTrue(
-            required_core_edges.issubset(host_deps),
-            f'missing core RuntimeHost dependencies: {sorted(required_core_edges - set(host_deps))}',
+            required_core_edges.issubset(effective_host_deps),
+            f'missing core RuntimeHost dependencies: {sorted(required_core_edges - set(effective_host_deps))}',
         )
         for core_pkg in ('oasis7_runtime', 'oasis7_world_service'):
-            edge = host_deps[core_pkg]
+            edge = host_deps[core_pkg] if core_pkg in host_deps else host_non_wasm_deps[core_pkg]
             self.assertIsInstance(edge, dict, core_pkg)
             self.assertIs(edge.get('default-features'), False, core_pkg)
             self.assertNotIn('wasmtime', edge.get('features', ()), core_pkg)
@@ -849,16 +861,19 @@ class Ownership(unittest.TestCase):
             data = cached_manifest(pkg)
             if pkg == 'oasis7_runtime_host':
                 data['dependencies']['url'] = '2'
-                data.setdefault('target', {})['cfg(not(target_arch = "wasm32"))'] = {
-                    'dependencies': {
+                (
+                    data.setdefault('target', {})
+                    .setdefault('cfg(not(target_arch = "wasm32"))', {})
+                    .setdefault('dependencies', {})
+                    .update({
                         'blake3': '1',
                         'hex': '0.4',
                         'oasis7_model_provider': {'path': '../oasis7_model_provider'},
                         'reqwest': {'version': '0.13.4', 'default-features': False, 'features': ['blocking', 'json', 'rustls']},
                         'toml': '0.9.12',
                         'tracing': '0.1',
-                    }
-                }
+                    })
+                )
                 data['dev-dependencies'] = {
                     'oasis7_hosted_access': {'path': '../oasis7_hosted_access', 'features': ['test-support']},
                     'oasis7_runtime': {'path': '../oasis7_runtime', 'default-features': False, 'features': ['test-support']},
@@ -866,6 +881,11 @@ class Ownership(unittest.TestCase):
             return data
 
         self.check_runtime_host_dependency_boundaries(with_legitimate_additions)
+
+        def core_dep_table(d, pkg):
+            if pkg in d.get('dependencies', {}):
+                return d['dependencies']
+            return d['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
 
         for label, mutate in (
             ('umbrella_direct', lambda d: d['dependencies'].__setitem__('oasis7', {'path': '../oasis7'})),
@@ -875,9 +895,9 @@ class Ownership(unittest.TestCase):
             ('surface_chain', lambda d: d['dependencies'].__setitem__('oasis7_chain_runtime', {'path': '../oasis7_chain_runtime'})),
             ('node_p2p', lambda d: d['dependencies'].__setitem__('oasis7_node', {'path': '../oasis7_node'})),
             ('direct_wasmtime', lambda d: d['dependencies'].__setitem__('wasmtime', '49')),
-            ('runtime_default_features', lambda d: d['dependencies']['oasis7_runtime'].__setitem__('default-features', True)),
-            ('runtime_wasmtime_feature', lambda d: d['dependencies']['oasis7_runtime'].__setitem__('features', ['wasmtime'])),
-            ('missing_core_edge', lambda d: d['dependencies'].pop('oasis7_world_service')),
+            ('runtime_default_features', lambda d: core_dep_table(d, 'oasis7_runtime')['oasis7_runtime'].__setitem__('default-features', True)),
+            ('runtime_wasmtime_feature', lambda d: core_dep_table(d, 'oasis7_runtime')['oasis7_runtime'].__setitem__('features', ['wasmtime'])),
+            ('missing_core_edge', lambda d: core_dep_table(d, 'oasis7_world_service').pop('oasis7_world_service')),
         ):
             with self.subTest(case=label):
                 def mutated_manifest(pkg, fn=mutate):

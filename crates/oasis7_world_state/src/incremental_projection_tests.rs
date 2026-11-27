@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::{AgentCell, AgentState, MaterialLedgerId, WorldState};
 use oasis7_agent_api::world_action::GeoPos;
@@ -129,6 +130,7 @@ fn genesis_projection_borrows_binary_and_nested_entries_without_mutating_sources
     assert_eq!(state.agents["a"].last_active, 7);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn sink_admission_failure_stops_before_binary_entries_and_later_fields() {
     let mut state = WorldState::default();
@@ -152,6 +154,7 @@ fn sink_admission_failure_stops_before_binary_entries_and_later_fields() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn historical_side_borrow_never_serializes_payload_in_projection() {
     struct HistoricalPayload;
@@ -171,6 +174,7 @@ fn historical_side_borrow_never_serializes_payload_in_projection() {
     assert_eq!(sink.fields["historical-original"], field);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn empty_nested_owners_and_sets_remain_distinct_from_absent_owners() {
     let mut state = WorldState::default();
@@ -216,6 +220,7 @@ fn empty_nested_owners_and_sets_remain_distinct_from_absent_owners() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn outer_group_admission_failure_precedes_members_and_preserves_source() {
     let mut state = WorldState::default();

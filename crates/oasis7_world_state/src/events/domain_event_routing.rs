@@ -250,6 +250,7 @@ impl DomainEvent {
             DomainEvent::FactoryProfileGoverned {
                 operator_agent_id, ..
             } => Some(operator_agent_id.as_str()),
+            DomainEvent::ModuleTickScheduleUpdated { .. } => None,
         }
     }
 }

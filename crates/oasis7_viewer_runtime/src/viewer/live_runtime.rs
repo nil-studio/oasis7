@@ -632,12 +632,12 @@ impl ViewerLiveServer {
 }
 
 struct LiveWorld {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     config: WorldConfig,
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     init: WorldInitConfig,
     kernel: WorldKernel,
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     decision_mode: ViewerLiveDecisionMode,
     driver: LiveDriver,
     llm_decision_mailbox: u64,
@@ -676,9 +676,9 @@ impl LiveWorld {
         consensus_gate_max_tick: Option<Arc<AtomicU64>>,
         consensus_runtime: Option<Arc<Mutex<NodeRuntime>>>,
     ) -> Result<Self, ViewerLiveServerError> {
-        #[cfg(test)]
+        #[cfg(all(test, feature = "test_tier_full"))]
         let reset_config = config.clone();
-        #[cfg(test)]
+        #[cfg(all(test, feature = "test_tier_full"))]
         let reset_init = init.clone();
         let (kernel, _) = initialize_kernel(config.clone(), init.clone())?;
         let driver = build_driver(&kernel, decision_mode)?;
@@ -688,12 +688,12 @@ impl LiveWorld {
             0
         };
         Ok(Self {
-            #[cfg(test)]
+            #[cfg(all(test, feature = "test_tier_full"))]
             config: reset_config,
-            #[cfg(test)]
+            #[cfg(all(test, feature = "test_tier_full"))]
             init: reset_init,
             kernel,
-            #[cfg(test)]
+            #[cfg(all(test, feature = "test_tier_full"))]
             decision_mode,
             driver,
             llm_decision_mailbox,
@@ -756,7 +756,7 @@ impl LiveWorld {
         self.kernel.time() < max_tick.load(Ordering::SeqCst)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     fn reset(&mut self) -> Result<(), ViewerLiveServerError> {
         let (kernel, _) = initialize_kernel(self.config.clone(), self.init.clone())?;
         self.kernel = kernel;

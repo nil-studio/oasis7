@@ -2,13 +2,18 @@
 //! quote to an exact decision; only the existing cognition transaction can
 //! publish its debit and domain references.
 use super::World;
+use super::transition::{
+    BorrowedWorldView, DurableCommitConfirmation, PreparedStagedCommit, RootInstallContext,
+    StagedTransition, SubsystemDelta, TransitionContext, TransitionReject,
+};
 use crate::cognition_recovery::{WorldCommitRecordV1, cognition_digest_v1};
 use crate::{Action, DomainEvent, MaterialLedgerId, WorldError, WorldEventBody};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 #[path = "agent_delegation_controls.rs"]
-mod controls;
+pub(crate) mod controls;
 #[path = "agent_delegation_projection.rs"]
 mod genesis_projection;
 pub(super) use genesis_projection::visit as visit_iws_delegation_projection;
@@ -189,10 +194,29 @@ impl World {
         &mut self,
         grant: AgentDelegationGrantV1,
     ) -> Result<(), WorldError> {
-        let mut transaction = self.clone();
-        transaction.install_agent_delegation_grant_inner(grant)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
+        let mut ledger = self.delegation_ledger()?;
+        self.stage_agent_delegation_grant_in_ledger(&mut ledger, grant)?;
+        let commit = PreparedStagedCommit::new(
+            super::prepared_base_head::WorldPreparedBaseHead::capture(self)?,
+            None,
+            AgentDelegationDelta {
+                encoded_ledger: serde_json::to_value(&ledger)?,
+            },
+        );
+        let prev_cognition = self
+            .persistence_dir
+            .borrow()
+            .is_some()
+            .then(|| self.cognition.clone());
+        commit
+            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
+            .map_err(TransitionReject::into_world_error)?;
+        if let Err(err) = self.persist_runtime_transaction_if_configured() {
+            if let Some(prev) = prev_cognition {
+                self.cognition = prev;
+            }
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -200,19 +224,74 @@ impl World {
         &mut self,
         grant: AgentDelegationGrantV1,
     ) -> Result<AgentDelegationAuthorizationV1, WorldError> {
-        let mut transaction = self.clone();
-        transaction.install_agent_delegation_grant_inner(grant.clone())?;
-        // Project before persistence/publication: projection failure cannot turn a
-        // successfully published mutation into an error.
-        let authorization =
-            transaction.delegation_authorization(&transaction.delegation_ledger()?, &grant)?;
-        transaction.persist_runtime_transaction_if_configured()?;
-        *self = transaction;
-        Ok(authorization)
+        let staged = StagedAgentDelegationGrant::new(grant);
+        let commit = staged
+            .prepare(&BorrowedWorldView::new(self)?, &TransitionContext::default())
+            .map_err(TransitionReject::into_world_error)?;
+        let prev_cognition = self
+            .persistence_dir
+            .borrow()
+            .is_some()
+            .then(|| self.cognition.clone());
+        commit
+            .install_confirmed_unchecked_head(self, DurableCommitConfirmation::Confirmed)
+            .map_err(TransitionReject::into_world_error)?;
+        if let Err(err) = self.persist_runtime_transaction_if_configured() {
+            if let Some(prev) = prev_cognition {
+                self.cognition = prev;
+            }
+            return Err(err);
+        }
+        Ok(staged
+            .take_authorization()
+            .expect("staged delegation authorization"))
+    }
+}
+
+pub(crate) struct AgentDelegationDelta {
+    pub(super) encoded_ledger: Value,
+}
+impl SubsystemDelta for AgentDelegationDelta {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        let world = ctx.world_mut();
+        if world.cognition.is_null() {
+            world.cognition = crate::cognition_recovery::default_cognition_persistence_projection();
+        }
+        world.cognition["agent_delegation"] = self.encoded_ledger;
+    }
+}
+
+pub(crate) struct StagedAgentDelegationGrant {
+    pub(crate) grant: AgentDelegationGrantV1,
+    pub(crate) authorization: RefCell<Option<AgentDelegationAuthorizationV1>>,
+}
+impl StagedAgentDelegationGrant {
+    pub(crate) fn new(grant: AgentDelegationGrantV1) -> Self { Self { grant, authorization: RefCell::new(None) } }
+    pub(crate) fn take_authorization(&self) -> Option<AgentDelegationAuthorizationV1> { self.authorization.borrow_mut().take() }
+}
+impl StagedTransition for StagedAgentDelegationGrant {
+    type Delta = AgentDelegationDelta;
+    fn prepare(&self, view: &BorrowedWorldView<'_>, _ctx: &TransitionContext) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject> {
+        let (delta, authorization) = view.world().prepare_agent_delegation_grant_delta(&self.grant)?;
+        *self.authorization.borrow_mut() = Some(authorization);
+        Ok(PreparedStagedCommit::new(view.base_head().clone(), None, delta))
+    }
+}
+
+impl World {
+    pub(super) fn prepare_agent_delegation_grant_delta(
+        &self,
+        grant: &AgentDelegationGrantV1,
+    ) -> Result<(AgentDelegationDelta, AgentDelegationAuthorizationV1), WorldError> {
+        let mut ledger = self.delegation_ledger()?;
+        self.stage_agent_delegation_grant_in_ledger(&mut ledger, grant.clone())?;
+        let authorization = self.delegation_authorization(&ledger, grant)?;
+        Ok((AgentDelegationDelta { encoded_ledger: serde_json::to_value(&ledger)? }, authorization))
     }
 
-    fn install_agent_delegation_grant_inner(
-        &mut self,
+    fn stage_agent_delegation_grant_in_ledger(
+        &self,
+        ledger: &mut Ledger,
         grant: AgentDelegationGrantV1,
     ) -> Result<(), WorldError> {
         self.validate_grant_source(&grant)?;
@@ -242,7 +321,6 @@ impl World {
         {
             return Err(denied("grant_invalid"));
         }
-        let mut ledger = self.delegation_ledger()?;
         if let Some(old) = ledger.grants.get(&grant.grant_id) {
             if old == &grant {
                 return Ok(());
@@ -266,7 +344,7 @@ impl World {
             }
         }
         ledger.grants.insert(grant.grant_id.clone(), grant);
-        self.save_delegation_ledger(&ledger)
+        Ok(())
     }
 
     /// Bind an exact host quote and context before the provider decision is

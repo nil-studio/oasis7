@@ -9,6 +9,7 @@ import json
 import posixpath
 import re
 import subprocess
+import sys
 import unicodedata
 try:
     import tomllib
@@ -3188,11 +3189,45 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     if value in (';', '{'):
                         break
 
+        type_bodies, type_occurrences = {}, {}
+        for item_start, owner in item_owners.items():
+            if owner[0] not in ('struct', 'enum'):
+                continue
+            cursor = item_start + 2
+            while cursor < len(tokens) and tokens[cursor][1] not in ('{', ';'):
+                if cursor in closing and tokens[cursor][1] in ('(', '['):
+                    cursor = closing[cursor] + 1
+                else:
+                    cursor += 1
+            if cursor not in closing or tokens[cursor][1] != '{':
+                continue
+            left, right = cursor, closing[cursor]
+            if any(right < closing[opening] and tokens[opening][1] == '{' and opening not in module_braces
+                   for opening in ancestors_of(item_start)):
+                continue
+            decl = declaration_start(item_start)
+            modules_here = tuple(item_owners[opening - 2] for opening, stop, _ in modules
+                                 if opening < decl < stop)
+            context = (modules_here, owner[0], tuple(value for _, value, _ in tokens[decl:left]))
+            occ = type_occurrences.get(context, 0)
+            type_occurrences[context] = occ + 1
+            identity = hashlib.sha256(json.dumps(
+                (context, occ, [value for _, value, _ in tokens[left:right + 1]]),
+                ensure_ascii=True, separators=(',', ':')).encode()).hexdigest()
+            type_bodies[left] = (decl, right, identity)
+
         def enclosing_function_owner(index, fallback):
             ancestors = ancestors_of(index)
-            innermost = next((b for b in ancestors if b in function_body_by_left), None)
-            if innermost is None or any(b in macro_openings for b in ancestors):
+            if any(b in macro_openings for b in ancestors):
                 return fallback
+            innermost = next((b for b in ancestors if b in function_body_by_left or b in type_bodies), None)
+            if innermost is None:
+                return fallback
+            if innermost in type_bodies:
+                start, right, identity = type_bodies[innermost]
+                if any(innermost < b and closing[b] < right and tokens[b][1] == '{' for b in ancestors):
+                    return fallback
+                return 'type_body', identity, index - start
             scope = stable_functions.get(innermost)
             if scope is None:
                 return fallback
@@ -3210,7 +3245,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             if not values:
                 continue
             cursor = end + 1
-            while cursor < len(tokens) and cursor not in item_owners and tokens[cursor][1] not in ('{', ';'):
+            while cursor < len(tokens) and cursor not in item_owners and tokens[cursor][1] not in ('{', '}', ';'):
                 if tokens[cursor][1] == '#' and cursor + 1 in closing:
                     cursor = closing[cursor + 1] + 1
                     continue
@@ -3506,13 +3541,16 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     def enabled_gate(attribute, native_linux, enabled=None):
         return gate_value(attribute, native_linux, enabled) is True
 
+    source_inputs = source_inputs or {}
+    ref_sources = source_inputs.get('ref_sources')
+
     def source_at(ref, path):
+        if ref_sources is not None and ref in ref_sources and path in ref_sources[ref]:
+            return ref_sources[ref][path]
         try:
             return git('show', f'{ref}:{path}').decode('utf-8', 'replace')
         except subprocess.CalledProcessError:
             return ''  # Both rename endpoints and additions/deletions are present.
-
-    source_inputs = source_inputs or {}
     sources = source_inputs.get('sources', {})
     directories = source_inputs.get('directories', {})
     production_roots = production_target_roots(sources, directories, source_inputs.get('manifests', {}))
@@ -3520,7 +3558,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     integration_targets = {package: integration_test_targets(sources, directories[package], manifest)
                            for package, manifest in source_inputs.get('manifests', {}).items()}
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
-    ordinary_structure_cache = {}
+    ordinary_structure_cache, inherited_cache, inline_reference_cache = {}, {}, {}
     unit_cargo_roots = {}
 
     def selected_attribute(attribute, native, features):
@@ -3553,6 +3591,14 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             parsed_sources[key] = attributes(text, native, tok)
         return parsed_sources[key]
 
+    comment_or_ws_bytes = rb'(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)'
+    non_plain_path_or_include_re = re.compile(
+        rb'#' + comment_or_ws_bytes + rb'*\[\s*(?:r#)?cfg_attr\b[\s\S]*?\bpath\b'
+        rb'|#' + comment_or_ws_bytes + rb'*\[\s*(?:r#)?path\b(?!\s*=\s*"[^"\\\r\n]+"\s*\])'
+        rb'|#' + comment_or_ws_bytes + rb'*\[\s*(?:r#)?path\b[\s\S]*?\bmod' + comment_or_ws_bytes + rb'+[A-Za-z0-9_#]+' + comment_or_ws_bytes + rb'*\{'
+        rb'|(?<![A-Za-z0-9_])include' + comment_or_ws_bytes + rb'*!'
+    )
+
     def candidate_parents(path):
         cached = candidate_cache.get(path)
         if cached is not None:
@@ -3560,13 +3606,20 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         owners = source_owners(path)
         stem = (posixpath.basename(posixpath.dirname(path)) if path.endswith('/mod.rs')
                 else posixpath.basename(path).removesuffix('.rs'))
-        name = re.compile(rb'(?<![A-Za-z0-9_])' + re.escape(stem.encode()) + rb'(?![A-Za-z0-9_])')
-        base_bytes = posixpath.basename(path).encode()
         stem_bytes = stem.encode()
+        mod_decl = re.compile(
+            rb'(?<![A-Za-z0-9_])mod' + comment_or_ws_bytes + rb'+(?:r#)?'
+            + re.escape(stem_bytes)
+            + rb'(?![A-Za-z0-9_])'
+        )
+        base_bytes = posixpath.basename(path).encode()
         cached = [candidate for candidate, contents in sources.items()
                   if candidate in uncertain_module_set
-                  or ((source_owners(candidate) == owners or base_bytes in contents)
-                      and ((stem_bytes in contents and name.search(contents)) or base_bytes in contents))]
+                  or ((source_owners(candidate) == owners or base_bytes in contents or b'#' in contents or b'include' in contents)
+                      and (base_bytes in contents
+                           or (stem_bytes in contents and mod_decl.search(contents))
+                           or ((b'#' in contents or b'include' in contents)
+                               and non_plain_path_or_include_re.search(contents))))]
         candidate_cache[path] = cached
         return cached
 
@@ -3581,7 +3634,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             return parent_cache[key]
         owners = source_owners(path)
         candidates = candidate_parents(path)
-        references, provenance = [], []
+        references, provenance, inline_flags = [], [], []
         for parent in candidates:
             info = parsed(parent, native)
             annotations, tokens, closing, items, modules, context = info[6:12]
@@ -3625,9 +3678,24 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         known = False
                         opaque = True
                     if path_attrs:
-                        if (len(path_attrs) == 1 and len(path_attrs[0]) == 3
-                                and rust_literal_path(path_attrs[0][2]) is not None and not inline):
-                            targets.append(posixpath.normpath(posixpath.join(directory, rust_literal_path(path_attrs[0][2]))))
+                        literal_target = (rust_literal_path(path_attrs[0][2])
+                                          if len(path_attrs) == 1 and len(path_attrs[0]) == 3 else None)
+                        if literal_target is not None and not inline and not inherited_path:
+                            targets.append(posixpath.normpath(posixpath.join(directory, literal_target)))
+                        elif literal_target is not None and not inherited_path:
+                            inline_base_dirs = {module_directory, directory}
+                            if (posixpath.basename(parent) != 'mod.rs'
+                                    and parent not in source_inputs.get('includes', ())
+                                    and (not root_context
+                                         or (selected_root is None and bool(candidate_parents(parent))))):
+                                inline_base_dirs.add(parent.removesuffix('.rs'))
+                            inline_candidates = {
+                                posixpath.normpath(posixpath.join(base_dir, *inline, literal_target))
+                                for base_dir in inline_base_dirs
+                            }
+                            targets.extend(sorted(inline_candidates))
+                            resolved &= len(inline_candidates) == 1
+                            known &= len(inline_candidates) == 1
                         else:
                             # A possible nonliteral parent cannot disappear
                             # just because another parent is easy to resolve.
@@ -3674,9 +3742,11 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         (selected_attribute(attribute, native, selected_features) if selected_features is not None
                          else ordinary_attribute(attribute, native))
                         for attribute in attributes_here), attributes_here))
+                    inline_flags.append(bool(inline))
                     provenance.append((parent, known, opaque, resolved, tuple(
                         attribute for attribute in attributes_here if attribute[0] in ('cfg', 'cfg_attr'))))
         reference_cache[key] = provenance
+        inline_reference_cache[key] = tuple(inline_flags)
         parent_cache[key] = references
         return references
 
@@ -3708,10 +3778,23 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # Opaque references/cycles cannot be hidden by a second convenient path.
         if path in visiting:
             return [((), False, True, frozenset())]
+        cache_key = None
+        if not visiting:
+            cache_key = (
+                path,
+                native,
+                None if roots is None else frozenset(roots),
+                None if selected_features is None else frozenset(selected_features),
+                selected_root,
+            )
+            if cache_key in inherited_cache:
+                return inherited_cache[cache_key]
         result = []
         if path in (ordinary_roots if roots is None else roots):
             result.append(((), True, False, frozenset(source_owners(path))))
         if path not in sources:
+            if cache_key is not None:
+                inherited_cache[cache_key] = result
             return result
         parents(path, native, selected_features, selected_root)
         for parent, known, opaque, resolved, gates in reference_cache[(path, native, selected_features, selected_root)]:
@@ -3721,6 +3804,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     parent, native, visiting | {path}, roots,
                     selected_features=selected_features, selected_root=selected_root):
                 result.append((previous + gates, proven and known, uncertain or opaque, packages))
+        if cache_key is not None:
+            inherited_cache[cache_key] = result
         return result
 
     def ordinary_source_context(path, native):
@@ -3823,19 +3908,23 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         result = False
         sibling_directory = (posixpath.basename(path) in ('lib.rs', 'main.rs', 'mod.rs')
                              or path in source_inputs.get('includes', ()))
-        for parent, kind, known, annotations in parents(path, True, features, root):
+        refs = parents(path, True, features, root)
+        inline_flags = inline_reference_cache.get((path, True, features, root), ())
+        for idx, (parent, kind, known, annotations) in enumerate(refs):
+            is_inline = inline_flags[idx] if idx < len(inline_flags) else False
             literal_path = any(attribute[:2] == ('path', '=') and len(attribute) == 3
                                and rust_literal_path(attribute[2]) is not None for attribute in annotations)
             # Proving this file's body needs no inference about its children.
-            # An implicit child also needs the directory assumption to agree
-            # with this mount: #[path]/include use siblings, plain .rs mods use
-            # their stem. Unknown/mixed contexts cannot borrow another route.
+            # An implicit child — or a literal #[path] inside an inline mod —
+            # also needs the directory assumption to agree with this mount:
+            # #[path]/include use siblings, plain .rs mods use their stem.
             directory_matches = (not directory_context
                 or (kind == 'include' and sibling_directory)
                 or (kind == 'mod' and (posixpath.basename(path) == 'mod.rs'
                                       or literal_path == sibling_directory)))
             if (known and directory_matches and selected_source_context(
-                    parent, target, visiting | {path}, directory_context=kind == 'mod' and not literal_path)):
+                    parent, target, visiting | {path},
+                    directory_context=kind == 'mod' and (not literal_path or is_inline))):
                 result = True
                 break
         selected_context_cache[key] = result
@@ -5831,6 +5920,43 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
     return plan
 
 
+def explain_plan_fallbacks(plan):
+    scope = plan.get('scope')
+    if scope == 'explicit-full':
+        tier = 'explicit-full'
+    elif scope == 'full':
+        tier = 'scope-full'
+    elif plan.get('ordinary_execution') == 'inline':
+        tier = 'targeted-inline'
+    elif plan.get('ordinary_artifact_partition_version') == 2:
+        tier = 'targeted-artifact-v2-container'
+    elif 'oasis7_required' in plan.get('groups', ()):
+        tier = 'targeted-artifact-v1-host'
+    else:
+        tier = 'targeted-non-ordinary'
+    test_policy_changed = bool(plan.get('test_policy_changed'))
+    exceptions = list(plan.get('fast_plan_exceptions', ()))
+    risk_targets = plan.get('ordinary_risk_targets')
+    return {
+        'execution_tier': tier,
+        'is_fallback': (
+            tier in ('scope-full', 'targeted-artifact-v1-host')
+            or test_policy_changed
+            or bool(exceptions)
+            or bool(risk_targets)
+        ),
+        'scope': scope,
+        'test_policy_changed': test_policy_changed,
+        'test_policy_paths': list(plan.get('test_policy_paths', ())),
+        'ordinary_risk_targets': risk_targets,
+        'fast_plan_exceptions': exceptions,
+        'groups': list(plan.get('groups', ())),
+        'ordinary_partitions': plan.get('ordinary_partitions'),
+        'architecture_build_policy': plan.get('architecture', {}).get('build_policy', 'matrix'),
+        'reasons': list(plan.get('reasons', ())),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base-ref')
@@ -5844,6 +5970,8 @@ def main():
     parser.add_argument('--add-group', action='append', default=[])
     parser.add_argument('--github-output')
     parser.add_argument('--output')
+    parser.add_argument('--explain-fallbacks', action='store_true',
+                        help='write structured fallback diagnostics JSON to stderr')
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
     try:
@@ -5880,6 +6008,8 @@ def main():
                 output.write('workspace_support_host=' + str(workspace_support_requires_host(plan)).lower() + '\n')
                 output.write('formal_shards=' + json.dumps(plan['formal_shards'], separators=(',', ':')) + '\n')
                 output.write('command_center_package=' + str(plan['command_center_package']).lower() + '\n')
+    if args.explain_fallbacks:
+        sys.stderr.write(json.dumps(explain_plan_fallbacks(plan), indent=2, ensure_ascii=False) + '\n')
     print(encoded)
 
 

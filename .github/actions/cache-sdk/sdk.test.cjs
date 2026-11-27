@@ -101,3 +101,49 @@ test('real V2 HTTP download invokes fatal validation before SDK extraction', {ti
     fs.rmSync(temporary,{recursive:true,force:true});
   }
 });
+
+test('all four original portable roots and versions survive each host/container direction', async () => {
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'portable-all-contracts-'));
+  const prior=process.env.GITHUB_WORKSPACE;
+  try {
+    const {utils,tar}=await import('../../../vendor/actions-cache-explicit-context/index.mjs');
+    const python=process.env.CACHE_SDK_FIXTURE_PYTHON||'python3';
+    const host=path.join(temporary,'home/runner/work/oasis7/oasis7');
+    const mapped=path.join(temporary,'__w/oasis7/oasis7');
+    fs.mkdirSync(host,{recursive:true});fs.mkdirSync(mapped,{recursive:true});
+    const metadata=(helper,args)=>JSON.parse(execFileSync(python,['scripts/'+helper+'.py','metadata',...args],{encoding:'utf8',timeout:10000,maxBuffer:16384}));
+    const worker=metadata('ci-worker-build',['--root',path.join(temporary,'home/runner/.cache/oasis7/worker-build/0.7.5')]);
+    const pin=fs.readFileSync('rust-toolchain.toml','utf8').match(/channel\s*=\s*"([^"]+)"/)[1];
+    const rows=[{component:'worker-build',root:worker.root,key:`worker-build-cli-v1-Linux-X64-${pin}-${worker.version}-${worker.definition_sha}`}];
+    const browser=metadata('ci-browser-deps',['--browser','agent','--cache-base',path.join(temporary,'home/runner/work/_temp/oasis7-browser-archives')]);
+    for(const component of ['fonts-noto-cjk','fonts-freefont-ttf','chrome']) {
+      const prefix=component.replaceAll('-','_');rows.push({component,root:browser[prefix+'_root'],key:browser[prefix+'_key']});
+    }
+    for(const row of rows) {
+      assert.ok(row.root.startsWith(temporary+'/'));
+      const raw=row.root.slice(temporary.length), member=path.relative(host,row.root);
+      const version=utils.getCacheVersion([raw],'zstd-without-long',false);
+      assert.equal(version,require('node:crypto').createHash('sha256').update([raw,'zstd-without-long','1.0'].join('|')).digest('hex'));
+      for(const [writer,reader]of [['host','host'],['host','container'],['container','host'],['container','container']]) {
+        fs.mkdirSync(row.root,{recursive:true});fs.writeFileSync(path.join(row.root,'payload'),'payload-'+row.component);
+        const archive=fs.mkdtempSync(path.join(temporary,'archive-'));
+        process.env.GITHUB_WORKSPACE=writer==='host'?host:mapped;
+        const cwd=writer==='host'?undefined:host;
+        const members=await utils.resolvePaths([row.root],cwd);assert.deepEqual(members,[member]);
+        await tar.createTar(archive,members,'zstd-without-long',cwd);
+        const file=path.join(archive,utils.getCacheFileName('zstd-without-long'));
+        const listing=execFileSync(process.platform==='darwin'?'gtar':'tar',['-P','--use-compress-program','unzstd','-tf',file],{encoding:'utf8'}).trim().split('\n');
+        assert.ok(listing.includes(member+'/payload'));
+        assert.ok(listing.every(name=>name===member||name.startsWith(member+'/')));
+        fs.rmSync(row.root,{recursive:true});process.env.GITHUB_WORKSPACE=reader==='host'?host:mapped;
+        await tar.extractTar(file,'zstd-without-long',reader==='host'?undefined:host);
+        assert.equal(fs.readFileSync(path.join(row.root,'payload'),'utf8'),'payload-'+row.component);
+        fs.rmSync(row.root,{recursive:true});
+      }
+      console.log(JSON.stringify({portable_component:row.component,key:row.key,raw_paths:[raw],archive_version:version,directions:4,shared_cache_write:false}));
+    }
+  } finally {
+    if(prior===undefined)delete process.env.GITHUB_WORKSPACE;else process.env.GITHUB_WORKSPACE=prior;
+    fs.rmSync(temporary,{recursive:true,force:true});
+  }
+});

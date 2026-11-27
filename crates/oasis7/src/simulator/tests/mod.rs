@@ -90,8 +90,6 @@ mod module_lifecycle;
 mod persist;
 #[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_adapter;
-#[cfg(not(target_arch = "wasm32"))]
-mod provider_loopback_http;
 mod runner;
 mod runner_query_trace;
 #[cfg(not(target_arch = "wasm32"))]

@@ -17,7 +17,8 @@
 | 文件 | 在按需选测与前置门控中的职责 | 对应本地单测 |
 | --- | --- | --- |
 | `scripts/ci-required-scope.json` | 声明 `package_groups`、`resources`、路径 `rules`、`scoped_control_paths` 及子契约能力版本（如 `fleet_health_subcontracts_version`） | `scripts/plan-rust-required-scope.test.py` |
-| `scripts/plan-rust-required-scope.py` | 基于真实 `cargo metadata` 依赖闭包选组，计算多平台子契约集合（`*_oses`、`*_checks`），不满足安全前提时保守回退全矩阵或 `scope=full` | `scripts/plan-rust-required-scope.test.py` |
+| `scripts/plan-rust-required-scope.py` | 基于真实 `cargo metadata` 依赖闭包选组，计算多平台子契约集合（`*_oses`、`*_checks`），支持 `--explain-fallbacks` 输出慢速回退触发层级与具体路径，不满足安全前提时保守回退全矩阵或 `scope=full` | `scripts/plan-rust-required-scope.test.py`、`scripts/plan-rust-required-scope-member-cargo-and-mounts.test.py` |
+| `scripts/check-ci-scope-paths.py` | 在 `baseline` 与 `check-local.py --profile quick` 必跑入口校验精确路径存在性，并执行快速路径防回退哨兵（核对 `generated_inputs` / `ordinary_scale_contract.anchors` / `ordinary_fast_support_contracts.callers` SHA-256 锚点新鲜度、快速组件静态模块/`OUT_DIR` 无歧义解析、生产文件非测试项禁挂 `test_tier_full` 以及代表性快速组件与 `Adapter`/`Cutover` 原型的 `inline` 可达性） | `scripts/check-governance-hygiene.test.py` |
 | `.github/workflows/rust.yml` | 定义 `fast-preflight`、双处计划投影（`workflow-plan` 与 `&validate-complete-selection`）、动态 `matrix.os` 及步骤级 `if:` 守卫 | `scripts/ci-workflow.test.py` |
 | `scripts/ci-tests.sh` | 执行组内具体检查命令，承接显式受控环境变量（如 `OASIS7_SKIP_RUSTFMT`）去重同源前置检查 | `scripts/ci-formal-process.test.py`、`scripts/ci-workflow.test.py` |
 | `scripts/ci-python-control-contracts.py` | 在 `workflow-governance` 中总控 `ci-authority` 受信测试：`EVOLVING_POLICY_TESTS` 在 `policy_sha` 侧仅跑 `FIXED_TESTS` 红线子集并在候选侧跑完整新套件；其余契约套件在无全量策略迁移（`boundaries` 含 `ci-required-scope.json` / `ci-python-control-contracts.py`）时跑 `policy_sha` 全集，`FIXED_TESTS` 始终在受信侧强制执行且禁删改签名 | `scripts/ci-python-control-contracts.test.py` |

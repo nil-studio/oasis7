@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::incremental_projection::WORLD_STATE_FIELDS;
 use std::collections::BTreeSet;
@@ -71,6 +72,7 @@ fn frozen_vector_borrows_name_and_preserves_zero_member_digest() {
         Some([0; 32])
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn all_ownership_dimensions_are_bound_and_catalog_names_fit_the_profile() {
     let mut keys = BTreeSet::new();
@@ -138,6 +140,7 @@ fn all_ownership_dimensions_are_bound_and_catalog_names_fit_the_profile() {
     assert_eq!(raw.len(), WORLD_FIELD_KEY_MAX_BYTES);
     assert_eq!(WorldFieldKeyV1::from_bytes(&raw).unwrap().name, maximum);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn malformed_tags_framing_names_and_kind_combinations_fail_closed() {
     let original = WorldFieldKeyV1::new(
@@ -272,6 +275,7 @@ fn malformed_tags_framing_names_and_kind_combinations_fail_closed() {
     assert!(WorldFieldKeyV1::from_bytes(&invalid_group).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn all_record_kinds_have_distinct_keys_and_the_name_limit_is_explicit() {
     let descriptor = field("mixed", FieldShape::ByteMap);

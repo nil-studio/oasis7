@@ -13,7 +13,7 @@ const STATUS_COMPLETED: &str = "completed";
 const STATUS_REJECTED: &str = "rejected";
 const STATUS_EXPIRED: &str = "expired";
 const STATUS_CANCELLED: &str = "cancelled";
-#[cfg(test)]
+#[cfg(all(test, feature = "test_tier_full"))]
 const SOURCE_PROVIDER_ADVISORY: &str = "provider_advisory";
 
 fn invalid_intent(reason: impl Into<String>) -> WorldError {
@@ -82,7 +82,7 @@ impl World {
     ///
     /// This path deliberately creates only `AgentIntentProposed`; provider
     /// output cannot submit, accept, or complete an intent on its own.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     pub(crate) fn record_provider_advisory_proposed(
         &mut self,
         agent_id: &str,
@@ -222,7 +222,7 @@ impl World {
     }
 
     /// Persist expiry for an exact intent before execution or completion.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     pub(crate) fn expire_agent_intent_exact(
         &mut self,
         agent_id: &str,
@@ -239,7 +239,7 @@ impl World {
     }
 
     /// Persist cancellation for an exact submitted/accepted/blocked intent.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test_tier_full"))]
     pub(crate) fn cancel_agent_intent_exact(
         &mut self,
         agent_id: &str,
@@ -257,6 +257,7 @@ impl World {
 
     /// Runtime-owned authority/control terminal boundary. Does not publish an
     /// effect receipt or modify a prior committed result.
+    #[allow(dead_code)] // #6142: legacy authority terminal helper, remove in 7c
     pub(super) fn terminate_agent_authority_intent_exact(
         &mut self,
         agent_id: &str,

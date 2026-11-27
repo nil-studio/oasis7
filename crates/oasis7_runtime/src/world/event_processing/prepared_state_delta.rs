@@ -15,6 +15,11 @@ pub(in crate::world::event_processing) enum PreparedEventStateDelta {
         prepared: super::super::super::super::state::module_instance_transition::PreparedModuleInstance,
         schedule: Option<(String, Option<WorldTime>)>,
     },
+    ModuleTickScheduleUpdated {
+        instance_id: String,
+        next_tick: Option<WorldTime>,
+        module_tick_schedule: BTreeMap<String, WorldTime>,
+    },
     ModuleStateUpdated {
         module_states: BTreeMap<String, Vec<u8>>,
     },
@@ -182,6 +187,17 @@ impl PreparedEventStateDelta {
             Self::ModuleInstance { prepared, .. } => {
                 matches!(body, WorldEventBody::Domain(event) if prepared.matches_event(event))
             }
+            Self::ModuleTickScheduleUpdated {
+                instance_id,
+                next_tick,
+                ..
+            } => matches!(
+                body,
+                WorldEventBody::Domain(DomainEvent::ModuleTickScheduleUpdated {
+                    instance_id: body_instance_id,
+                    next_tick: body_next_tick,
+                }) if body_instance_id == instance_id && body_next_tick == next_tick
+            ),
             Self::ModuleStateUpdated { module_states } => matches!(body,
                 WorldEventBody::ModuleStateUpdated(update)
                 if module_states.len() == 1 && module_states.get(&update.module_id) == Some(&update.state)),
@@ -360,6 +376,7 @@ impl PreparedEventStateDelta {
             Self::ModuleMarketplace(_) => unreachable!("marketplace uses a sparse overlay"),
             Self::ModuleRelease(_) => unreachable!("release uses a sparse release overlay"),
             Self::ModuleInstance { .. }
+            | Self::ModuleTickScheduleUpdated { .. }
             | Self::ModuleStateUpdated { .. }
             | Self::ModuleVisualEntities { .. }
             | Self::ModuleRuntimeCharged(_) => {
@@ -469,6 +486,12 @@ impl PreparedEventStateDelta {
             Self::ModuleInstance { prepared, schedule } => {
                 prepared.install_infallible(&mut world.state);
                 world.install_prepared_module_instance_schedule(schedule);
+            }
+            Self::ModuleTickScheduleUpdated {
+                module_tick_schedule,
+                ..
+            } => {
+                world.module_tick_schedule = module_tick_schedule;
             }
             Self::ModuleStateUpdated { module_states } => {
                 world.state.module_states.extend(module_states)

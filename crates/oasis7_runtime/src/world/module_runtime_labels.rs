@@ -169,6 +169,7 @@ pub(super) fn event_kind_label(body: &WorldEventBody) -> &'static str {
             DomainEvent::ProductProfileGoverned { .. } => "domain.economy.product_profile_governed",
             DomainEvent::RecipeProfileGoverned { .. } => "domain.economy.recipe_profile_governed",
             DomainEvent::FactoryProfileGoverned { .. } => "domain.economy.factory_profile_governed",
+            DomainEvent::ModuleTickScheduleUpdated { .. } => "domain.module.tick_schedule_updated",
         },
         WorldEventBody::EffectQueued(_) => "effect.queued",
         WorldEventBody::ReceiptAppended(_) => "effect.receipt_appended",

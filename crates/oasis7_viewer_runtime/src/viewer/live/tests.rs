@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use ed25519_dalek::SigningKey;
 use oasis7_node::{
@@ -134,6 +135,7 @@ fn live_control_metrics_mark_runtime_perf_unknown_when_unavailable() {
     assert_eq!(perf.tick.samples_window, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_loop_non_disconnect_error_is_preserved() {
     let result = normalize_live_loop_action_result(Err(ViewerLiveServerError::Io(
@@ -196,6 +198,7 @@ impl NodeExecutionHook for TestNoopExecutionHook {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_script_moves_between_locations() {
     let mut config = WorldConfig::default();
@@ -229,6 +232,7 @@ fn live_script_moves_between_locations() {
     assert!(moved);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_world_reset_rebuilds_kernel() {
     let config = WorldConfig::default();
@@ -247,6 +251,7 @@ fn live_world_reset_rebuilds_kernel() {
     assert_eq!(world.kernel.time(), 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_server_config_supports_llm_mode() {
     let config = ViewerLiveServerConfig::new(WorldScenario::Minimal);
@@ -266,6 +271,7 @@ fn viewer_live_llm_timeout_env_lock() -> &'static Mutex<()> {
     oasis7_hosted_access::process_env::process_env_lock()
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn viewer_live_llm_timeout_defaults_to_trust_floor_budget() {
     let _guard = viewer_live_llm_timeout_env_lock().lock().expect("env lock");
@@ -277,6 +283,7 @@ fn viewer_live_llm_timeout_defaults_to_trust_floor_budget() {
     assert_eq!(resolve_viewer_live_llm_timeout_ms(8_000), 8_000);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn viewer_live_llm_timeout_respects_env_ceiling_without_expanding_budget() {
     let _guard = viewer_live_llm_timeout_env_lock().lock().expect("env lock");
@@ -292,6 +299,7 @@ fn viewer_live_llm_timeout_respects_env_ceiling_without_expanding_budget() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_server_config_play_step_interval_clamps_to_minimum_budget() {
     let config = ViewerLiveServerConfig::new(WorldScenario::Minimal)
@@ -299,6 +307,7 @@ fn live_server_config_play_step_interval_clamps_to_minimum_budget() {
     assert_eq!(config.play_step_interval, Duration::from_millis(20));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn viewer_live_session_play_schedule_scales_with_tick_progress() {
     let mut session = ViewerLiveSession::new();
@@ -312,6 +321,7 @@ fn viewer_live_session_play_schedule_scales_with_tick_progress() {
     assert!(delay >= Duration::from_millis(160));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_world_consensus_gate_limits_step_budget() {
     let config = WorldConfig::default();
@@ -335,6 +345,7 @@ fn live_world_consensus_gate_limits_step_budget() {
     assert!(!world.can_step_for_consensus());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn step_control_is_deferred_from_request_handler() {
     let config = WorldConfig::default();
@@ -365,6 +376,7 @@ fn step_control_is_deferred_from_request_handler() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn legacy_live_server_rejects_market_quote_decision_with_stable_code() {
     let config = WorldConfig::default();
@@ -398,6 +410,7 @@ fn legacy_live_server_rejects_market_quote_decision_with_stable_code() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn seek_control_is_ignored_in_live_request_handler() {
     let config = WorldConfig::default();
@@ -422,6 +435,7 @@ fn seek_control_is_ignored_in_live_request_handler() {
     assert!(outcome.deferred_control.is_none());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_world_llm_bootstrap_script_mode_advances_tick() {
     let config = WorldConfig::default();
@@ -435,6 +449,7 @@ fn live_world_llm_bootstrap_script_mode_advances_tick() {
     assert!(world.kernel.time() > 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[expect(
     clippy::field_reassign_with_default,
@@ -467,6 +482,7 @@ fn live_world_llm_event_driven_gate_avoids_repeated_empty_ticks() {
     assert_eq!(world.metrics().total_ticks, 2);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[expect(
     clippy::field_reassign_with_default,
@@ -506,6 +522,7 @@ fn live_world_llm_mailbox_preserves_multiple_requests() {
     assert_eq!(world.metrics().total_ticks, 3);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[expect(
     clippy::field_reassign_with_default,
@@ -529,6 +546,7 @@ fn live_world_event_drive_gate_tracks_llm_mailbox() {
     assert!(world.should_step_on_event_drive());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[expect(
     clippy::field_reassign_with_default,
@@ -553,6 +571,7 @@ fn live_world_non_consensus_path_is_event_drive_only() {
     assert!(llm_world.uses_non_consensus_event_drive());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 #[expect(
     clippy::field_reassign_with_default,
@@ -573,6 +592,7 @@ fn live_world_script_event_drive_stops_requeue_on_idle_step() {
     assert!(!world.should_requeue_non_consensus_drive(&step));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn emit_step_outcome_skips_idle_metrics_when_disabled() {
     let config = ViewerLiveServerConfig::new(WorldScenario::Minimal);
@@ -610,6 +630,7 @@ fn emit_step_outcome_skips_idle_metrics_when_disabled() {
     assert!(line.contains("\"metrics\""));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn restore_behavior_long_term_memory_from_model_applies_persisted_entries() {
     let _env_guard = set_test_llm_env();
@@ -633,6 +654,7 @@ fn restore_behavior_long_term_memory_from_model_applies_persisted_entries() {
     assert_eq!(restored[0].content, persisted.content);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn sync_llm_runner_long_term_memory_writes_back_to_world_model() {
     let _env_guard = set_test_llm_env();
@@ -657,6 +679,7 @@ fn sync_llm_runner_long_term_memory_writes_back_to_world_model() {
     assert_eq!(restored[0].content, runtime_entry.content);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_world_consensus_bridge_applies_only_committed_actions() {
     let node_config = NodeConfig::new("node-live-bridge", "live-minimal", NodeRole::Sequencer)
@@ -700,6 +723,7 @@ fn live_world_consensus_bridge_applies_only_committed_actions() {
     locked.stop().expect("stop node runtime");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn consensus_committed_advances_world_even_when_session_paused() {
     let node_config = NodeConfig::new(
@@ -746,6 +770,7 @@ fn consensus_committed_advances_world_even_when_session_paused() {
     locked.stop().expect("stop node runtime");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn consensus_committed_paused_keeps_viewer_quiet() {
     let node_config = NodeConfig::new(
@@ -792,6 +817,7 @@ fn consensus_committed_paused_keeps_viewer_quiet() {
     locked.stop().expect("stop node runtime");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn step_request_emits_completion_ack_advanced_when_world_progresses() {
     let config = ViewerLiveServerConfig::new(WorldScenario::Minimal)
@@ -811,6 +837,7 @@ fn step_request_emits_completion_ack_advanced_when_world_progresses() {
     assert!(ack.delta_logical_time > 0 || ack.delta_event_seq > 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn step_request_emits_completion_ack_timeout_when_consensus_has_no_commit() {
     let node_config = NodeConfig::new(
@@ -847,6 +874,7 @@ fn step_request_emits_completion_ack_timeout_when_consensus_has_no_commit() {
     locked.stop().expect("stop node runtime");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn enqueue_coalesced_signal_merges_duplicate_llm_decision_requests() {
     let (tx, rx) = mpsc::sync_channel(4);
@@ -885,6 +913,7 @@ fn enqueue_coalesced_signal_merges_duplicate_llm_decision_requests() {
     assert_eq!(llm_stats.handled, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn enqueue_coalesced_signal_drops_when_queue_is_full() {
     let (tx, rx) = mpsc::sync_channel(1);
@@ -921,6 +950,7 @@ fn enqueue_coalesced_signal_drops_when_queue_is_full() {
     assert_eq!(drive_stats.handled, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn live_loop_backpressure_records_per_signal_latency_metrics() {
     let backpressure = LiveLoopBackpressure::default();
@@ -941,6 +971,7 @@ fn live_loop_backpressure_records_per_signal_latency_metrics() {
     assert!(summary.contains("request={in:1, handled:2, avg_us:250, max_us:380}"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn consensus_commit_signal_thread_emits_on_committed_batches() {
     let node_config = NodeConfig::new(

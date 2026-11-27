@@ -1,3 +1,5 @@
+#![cfg(feature = "test_tier_full")]
+
 use super::super::explorer_p0_api::{
     ExplorerBlocksResponse, ExplorerSearchResponse, ExplorerTxResponse, ExplorerTxsResponse,
 };

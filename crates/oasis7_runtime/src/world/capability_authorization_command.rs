@@ -41,6 +41,38 @@ impl World {
         _executor: &mut E,
         sandbox: &mut dyn ModuleSandbox,
     ) -> Result<CapabilityAuthorizationAuditReceipt, WorldError> {
+        let (receipt, prepared) = self.prepare_trusted_module_command_with_staged_context(
+            grant, catalog, response, sandbox, None,
+        )?;
+        if let Some(prepared) = prepared {
+            if self.take_fail_next_append_after_publication_prepare_for_test() {
+                return Err(WorldError::ResourceBalanceInvalid {
+                    reason: "injected append_event failure after publication preparation"
+                        .to_string(),
+                });
+            }
+            prepared.install(self)?;
+        }
+        Ok(receipt)
+    }
+
+    pub(in crate::world) fn prepare_trusted_module_command_with_staged_context(
+        &self,
+        grant: CapabilityGrantV2,
+        catalog: CapabilityCatalogSnapshot,
+        response: AgentCommandResponse,
+        sandbox: &mut dyn ModuleSandbox,
+        staged_context: Option<(
+            String,
+            super::super::capability_authorization::CapabilityInvocationContext,
+        )>,
+    ) -> Result<
+        (
+            CapabilityAuthorizationAuditReceipt,
+            Option<super::capability_authorization_command_stage::PreparedTrustedCommand>,
+        ),
+        WorldError,
+    > {
         grant
             .validate()
             .map_err(|error| deny(format!("grant validation: {error}")))?;
@@ -70,7 +102,12 @@ impl World {
         if !response.matches_catalog(&catalog) {
             return Err(deny("response does not match catalog snapshot"));
         }
-        self.verify_invocation_context(&grant, &catalog, &response)?;
+        self.verify_invocation_context_with_staged(
+            &grant,
+            &catalog,
+            &response,
+            staged_context.as_ref().map(|(k, c)| (k.as_str(), c)),
+        )?;
         if grant.issued_at_tick > self.state.time {
             return Err(deny("grant is not issued at the current logical tick"));
         }
@@ -95,7 +132,7 @@ impl World {
             {
                 let mut idempotent = receipt.clone();
                 idempotent.decision = "idempotent".to_string();
-                return Ok(idempotent);
+                return Ok((idempotent, None));
             }
             return Err(deny("committed nonce has no durable receipt"));
         }
@@ -114,7 +151,7 @@ impl World {
             }
             let mut idempotent = retained.receipt;
             idempotent.decision = "idempotent".to_string();
-            return Ok(idempotent);
+            return Ok((idempotent, None));
         }
 
         if grant.status != "verified" {
@@ -280,6 +317,7 @@ impl World {
             &response,
             &manifest,
             world_head_before,
+            staged_context.as_ref().map(|(k, c)| (k.as_str(), c)),
         )?;
         let state_hash_after = staged.state_hash()?;
         let result_hash =
@@ -354,6 +392,7 @@ impl World {
         projected_budget_accounts.insert(budget_key.clone(), budget_account.clone());
         let mut projected_effect_receipt_links = self.capability_effect_receipt_links.clone();
         projected_effect_receipt_links.extend(effect_receipt_links.clone());
+        let staged_context_ref = staged_context.as_ref().map(|(k, c)| (k.as_str(), c));
         self.validate_projected_command_commit(
             &budget_key,
             budget_before,
@@ -365,12 +404,22 @@ impl World {
             &nonce_record,
             &effect_receipt_links,
             &staged,
+            staged_context_ref,
         )?;
+        let projected_invocation_contexts = if let Some((ref key, ref context)) = staged_context {
+            let mut contexts = self.capability_invocation_contexts.clone();
+            contexts.entry(key.clone()).or_insert_with(|| context.clone());
+            Some(contexts)
+        } else {
+            None
+        };
         let capability_authorization_root = self
             .compute_capability_authorization_root_with_full_projection(
                 &projected_grants_v2,
                 &self.capability_revocation_state,
-                &self.capability_invocation_contexts,
+                projected_invocation_contexts
+                    .as_ref()
+                    .unwrap_or(&self.capability_invocation_contexts),
                 &projected_budget_accounts,
                 &projected_nonce_records,
                 &projected_receipts,
@@ -393,27 +442,26 @@ impl World {
                 effect_receipt_links,
             },
         ))?;
-        let consensus_state_root = staged.consensus_state_root_hash()?;
-        let prepared = staged.prepare(consensus_state_root)?;
-        if self.take_fail_next_append_after_publication_prepare_for_test() {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: "injected append_event failure after publication preparation".to_string(),
-            });
+        if let Some((key, context)) = staged_context
+            && !self.capability_invocation_contexts.contains_key(&key)
+        {
+            staged.append_event(WorldEventBody::CapabilityAuthorization(
+                CapabilityAuthorizationEvent::InvocationContextInstalled { key, context },
+            ))?;
         }
-        prepared
-            .with_capability_authorization_projection(
-                super::capability_authorization_command_stage::
-                    PreparedCapabilityAuthorizationProjection {
-                    capability_grants_v2: projected_grants_v2,
-                    capability_nonce_records: projected_nonce_records,
-                    capability_authorization_receipts: projected_receipts,
-                    capability_budget_accounts: projected_budget_accounts,
-                    capability_effect_receipt_links: projected_effect_receipt_links,
-                    capability_authorization_root,
-                },
-            )
-            .install(self)?;
-        Ok(receipt)
+        let consensus_state_root = staged.consensus_state_root_hash()?;
+        let prepared = staged.prepare(consensus_state_root)?.with_capability_authorization_projection(
+            super::capability_authorization_command_stage::PreparedCapabilityAuthorizationProjection {
+                capability_grants_v2: projected_grants_v2,
+                capability_nonce_records: projected_nonce_records,
+                capability_authorization_receipts: projected_receipts,
+                capability_budget_accounts: projected_budget_accounts,
+                capability_effect_receipt_links: projected_effect_receipt_links,
+                capability_invocation_contexts: projected_invocation_contexts,
+                capability_authorization_root,
+            },
+        );
+        Ok((receipt, Some(prepared)))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -429,6 +477,10 @@ impl World {
         nonce_record: &CapabilityAuthorizationNonceRecord,
         effect_receipt_links: &BTreeMap<String, CapabilityEffectReceiptLink>,
         staged: &TrustedCommandStage<'_>,
+        staged_context: Option<(
+            &str,
+            &super::super::capability_authorization::CapabilityInvocationContext,
+        )>,
     ) -> Result<(), WorldError> {
         validate_budget_account(budget_account)?;
         if budget_account.reserved_units != 0
@@ -483,6 +535,11 @@ impl World {
         let context = self
             .capability_invocation_contexts
             .get(&context_key)
+            .or_else(|| {
+                staged_context
+                    .filter(|(k, _)| *k == context_key)
+                    .map(|(_, c)| c)
+            })
             .or_else(|| self.capability_invocation_contexts.get(&grant.grant_id))
             .ok_or_else(|| deny("capability command invocation context is missing"))?;
         if context.grant_id != grant.grant_id
@@ -621,11 +678,15 @@ impl World {
         Ok(())
     }
 
-    fn verify_invocation_context(
+    fn verify_invocation_context_with_staged(
         &self,
         grant: &CapabilityGrantV2,
         catalog: &CapabilityCatalogSnapshot,
         response: &AgentCommandResponse,
+        staged_context: Option<(
+            &str,
+            &super::super::capability_authorization::CapabilityInvocationContext,
+        )>,
     ) -> Result<(), WorldError> {
         let key =
             super::capability_authorization_events::capability_invocation_context_key_for_values(
@@ -635,6 +696,7 @@ impl World {
         let hot_context = self
             .capability_invocation_contexts
             .get(&key)
+            .or_else(|| staged_context.filter(|(k, _)| *k == key).map(|(_, c)| c))
             // Snapshots written before the nonce-key migration used the grant
             // id alone. Keep those records readable, but only when their
             // complete bound nonce still matches this response.
@@ -680,6 +742,7 @@ impl World {
         response: &AgentCommandResponse,
         manifest: &oasis7_wasm_abi::ModuleManifest,
         world_head_before: u64,
+        staged_context: Option<(&str, &super::super::capability_authorization::CapabilityInvocationContext)>,
     ) -> Result<(), WorldError> {
         self.verify_capability_authorization_root()?;
         if self
@@ -726,7 +789,7 @@ impl World {
         if grant.status != "verified" {
             return Err(deny("grant status changed before commit"));
         }
-        self.verify_invocation_context(grant, catalog, response)?;
+        self.verify_invocation_context_with_staged(grant, catalog, response, staged_context)?;
         self.verify_issuer(grant)?;
         self.verify_live_revocation(grant)?;
         self.verify_parent_chain(grant)

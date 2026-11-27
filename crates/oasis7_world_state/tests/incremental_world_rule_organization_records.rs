@@ -595,3 +595,21 @@ fn qualified_genesis_failures_discard_the_combined_prefix() {
 
 #[path = "support/incremental_world_rule_organization_relative_fields.rs"]
 mod typed_fields;
+
+// Consolidated sibling incremental integration suites (4-shard LPT balanced).
+#[cfg(feature = "test_tier_full")]
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_field_presence.rs"]
+mod incremental_field_presence;
+#[cfg(feature = "test_tier_full")]
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_inventory_genesis.rs"]
+mod incremental_inventory_genesis;
+#[cfg(feature = "test_tier_full")]
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_rule_batches.rs"]
+mod incremental_world_rule_batches;
+#[cfg(feature = "test_tier_full")]
+#[allow(clippy::duplicate_mod)]
+#[path = "suites/incremental_world_rule_shipments.rs"]
+mod incremental_world_rule_shipments;

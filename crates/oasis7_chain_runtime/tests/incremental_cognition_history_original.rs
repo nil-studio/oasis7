@@ -180,17 +180,21 @@ fn state_error(error: PageStoreError) -> ValueTreeError {
 #[path = "support/cognition_history_absence.rs"]
 mod absence;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/cognition_history_cache_physical.rs"]
 mod cache_physical;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/cognition_history_v2_signed.rs"]
 mod v2_signed;
 
 #[path = "support/cognition_history_normal_accept.rs"]
 mod normal_accept;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/cognition_history_lifecycle_physical.rs"]
 mod lifecycle_physical;
 
+#[cfg(feature = "test_tier_full")]
 #[path = "support/cognition_history_journal_normal.rs"]
 mod journal_normal;

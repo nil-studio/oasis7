@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_node::{NodeConsensusAction, NodeExecutionHook};
 use oasis7_runtime::{Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, WorldState};
@@ -465,39 +466,75 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
 }
 
 #[path = "world_service_game_task.rs"]
+#[cfg(feature = "test_tier_full")]
 mod game_task_tests;
 
 #[cfg(unix)]
 #[path = "world_service_private_goal.rs"]
+#[cfg(feature = "test_tier_full")]
 mod private_goal_tests;
 
 #[cfg(unix)]
 #[path = "world_service_private_task_context.rs"]
+#[cfg(feature = "test_tier_full")]
 mod private_task_context_tests;
 
 #[cfg(unix)]
 #[path = "world_service_private_task_context_read_race.rs"]
+#[cfg(feature = "test_tier_full")]
 mod private_task_context_read_race_tests;
 
 #[cfg(unix)]
 #[path = "world_service_task_playtest.rs"]
+#[cfg(feature = "test_tier_full")]
 mod task_playtest;
 
 #[path = "world_service_cognition_rejection.rs"]
+#[cfg(feature = "test_tier_full")]
 mod cognition_rejection_tests;
 
 #[path = "world_service_safe_alternative.rs"]
+#[cfg(feature = "test_tier_full")]
 mod safe_alternative;
 
 #[path = "participant_http.rs"]
+#[cfg(feature = "test_tier_full")]
 mod participant_http;
 
 #[path = "world_service_executor_rotation.rs"]
+#[cfg(feature = "test_tier_full")]
 mod executor_rotation_tests;
 
 #[path = "participant_devlocal_host.rs"]
+#[cfg(feature = "test_tier_full")]
 mod participant_devlocal_host;
 
 #[cfg(unix)]
 #[path = "world_service_resource_basis_v2.rs"]
+#[cfg(feature = "test_tier_full")]
 mod resource_basis_v2;
+
+#[allow(unreachable_code, clippy::diverging_sub_expression)]
+fn _keep_private_goal_delivery_hook_seam() {
+    if false {
+        let _ = crate::world_service_api::private_goal::maybe_handle_with_delivery_hook(
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            || {},
+            |_| {},
+        );
+    }
+}
+
+const _: () = {
+    let _ = _keep_private_goal_delivery_hook_seam;
+};

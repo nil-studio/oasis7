@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::state::ModuleInstanceState;
 use crate::tests::signed_test_artifact_identity;
@@ -103,6 +104,7 @@ fn prepared_subscription_cache_lookup_key_uses_stable_record_identity() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn prepared_subscription_cache_entry_keeps_full_subscription_fingerprint() {
     let manifest = manifest_with_subscription("hash-a", "world.tick");
@@ -123,6 +125,7 @@ fn prepared_subscription_cache_entry_keeps_full_subscription_fingerprint() {
     assert_eq!(entry.prepared.len(), prepared.len());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn prepared_subscription_cache_refreshes_when_subscription_fingerprint_changes() {
     let base = manifest_with_subscription("hash-a", "world.tick");
@@ -157,6 +160,7 @@ fn prepared_subscription_cache_refreshes_when_subscription_fingerprint_changes()
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn active_module_invocation_for_id_resolves_due_instance_only() {
     let due_manifest = manifest_with_subscription("hash-due", "world.tick");
@@ -215,6 +219,7 @@ fn active_module_invocation_for_id_resolves_due_instance_only() {
     assert_eq!(invocation.module_id, "m.due");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn active_module_invocation_for_id_errors_only_for_referenced_missing_record() {
     let mut world = World::new();
@@ -245,6 +250,7 @@ fn active_module_invocation_for_id_errors_only_for_referenced_missing_record() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn route_tick_to_modules_reports_due_and_overdue_routing_metrics() {
     let mut world = World::new();
@@ -300,6 +306,7 @@ fn route_tick_to_modules_reports_due_and_overdue_routing_metrics() {
     assert_eq!(metrics.routing_count, 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_tick_routing_metrics_survive_world_persistence() {
     let mut world = World::new();
@@ -373,6 +380,7 @@ fn module_tick_routing_metrics_survive_world_persistence() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn route_tick_to_modules_keeps_schedule_when_due_record_is_missing() {
     let mut world = World::new();
@@ -431,6 +439,7 @@ fn route_tick_to_modules_keeps_schedule_when_due_record_is_missing() {
     assert_eq!(metrics.routing_count, 2);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn route_tick_to_modules_preflights_due_records_before_side_effects() {
     let mut world = World::new();
@@ -503,3 +512,7 @@ fn route_tick_to_modules_preflights_due_records_before_side_effects() {
         1
     );
 }
+
+const _: () = {
+    let _ = World::prepared_subscriptions_for_manifest;
+};

@@ -240,6 +240,50 @@ fn fresh_current_crisis_absence_accepts_its_own_first_reads() {
 }
 
 #[test]
+fn current_crisis_complete_paid_state_consumes_actual_pages_without_hydrating_world() {
+    let f = fixture();
+    let family = qualify(&f);
+    let mut tx =
+        ExecutionTransaction::begin(parent(&f), [99; 32], &f.pages, &f.memory, limits()).unwrap();
+    let live = tx.parent_fence();
+    let guard = tx.guard();
+    let mut i = io();
+    let mut k = keys();
+    let mut ctx = context(
+        &f,
+        f.roots.state_root(StateNamespaceV1::Business),
+        &mut i,
+        &mut k,
+        || false,
+    );
+    let before = f.memory.used();
+    let full = read_current_diplomacy_crisis_state_v1(
+        "outer",
+        &family,
+        &f.roots,
+        &mut tx,
+        &mut ctx,
+        &mut scan(),
+        &mut 100_000,
+        4096,
+        &guard,
+        &live,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(&*full, &crisis());
+    assert!(full.uses_budget(&f.memory));
+    let during = f.memory.used();
+    let paid = full.reserved_bytes();
+    assert!(paid > 0);
+    assert!(during >= before + paid);
+    drop(full);
+    assert_eq!(f.memory.used(), during - paid);
+    let guard = tx.guard();
+    tx.seal(&guard, &live, 1).unwrap();
+}
+
+#[test]
 fn current_crisis_reopens_typed_pending_edit_and_deletion() {
     use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayContextV1;
     let f = fixture();
@@ -373,6 +417,25 @@ fn current_crisis_reopens_typed_pending_edit_and_deletion() {
         .unwrap();
     }
     assert_eq!(text, b"updated");
+    // The same original transaction must expose the COMPLETE edited child,
+    // not reconstruct the old outer/embedded record from a World snapshot.
+    let full = {
+        let mut body = context(
+            &f,
+            f.roots.state_root(StateNamespaceV1::Business),
+            &mut i,
+            &mut k,
+            || false,
+        );
+        let guard = tx.guard();
+        read_current_diplomacy_crisis_state_v1(
+            "outer", &q, &f.roots, &mut tx, &mut body, &mut inner, &mut cells, 4096, &guard, &live,
+        )
+        .unwrap()
+        .unwrap()
+    };
+    assert_eq!(&*full, &after);
+    drop(full);
     let guard = tx.guard();
     {
         let mut overlay = WorldFieldOverlayContextV1 {

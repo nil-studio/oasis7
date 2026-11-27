@@ -1,3 +1,5 @@
+#![cfg(feature = "test_tier_full")]
+
 use super::status_payload_tests::{
     build_minimal_status_payload, build_minimal_status_payload_with_storage_root,
 };

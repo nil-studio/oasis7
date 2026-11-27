@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_world_service::{
     authority::{self, sign_read_request, verify_service_response},
@@ -438,7 +439,7 @@ fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
         incarnation: "original-incarnation".into(),
     };
     let tracker = Arc::new(Mutex::new(
-        OriginalPendingProducerV1::open(&path, owner_id).unwrap(),
+        OriginalPendingProducerV1::open(&path, owner_id.clone()).unwrap(),
     ));
     let (base_world, trust, anchor) = fixture_trust();
     let (world, owner) = world_with_owner();
@@ -471,20 +472,9 @@ fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
     );
     let prepared = tracker.lock().unwrap().begin_freeze(&path).unwrap();
     assert_eq!(prepared.count, 1);
-    // No actual Node Frozen has occurred yet: the record is only prepared,
-    // and the independent cold reader MUST continue to reject it.
-    assert!(super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
-        &path,
-        &OriginalPendingOwnerV1 {
-            authority_id: "authenticated-owner".into(),
-            operation_id: "original".into(),
-            request_digest: "original-digest".into(),
-            config_digest: "verified-config".into(),
-            incarnation: "original-incarnation".into(),
-        },
-        &prepared.root,
-        1,
-    ).is_err());
+    // Before real Node Frozen, a prepared original is not externally readable.
+    let cold_read = super::super::formal_live_original_pending_producer::cold_read_exact_frozen;
+    assert!(cold_read(&path, &owner_id, &prepared.root, prepared.count).is_err());
     let declined = service.handle("POST", SUBMIT_PATH, &bytes);
     assert_eq!(declined.status, 503);
     assert_eq!(
@@ -492,6 +482,14 @@ fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
             .submit_buffer_action_count,
         1,
     );
+    node.lock().unwrap().stop().unwrap();
+    // Publish the final marker only after real Node stop.
+    let frozen = tracker.lock().unwrap().finish_node_freeze(&path).unwrap();
+    assert_eq!(frozen, prepared);
+    let restored = cold_read(&path, &owner_id, &prepared.root, prepared.count).unwrap();
+    assert_eq!(restored.requests.len(), 1);
+    assert_eq!(restored.requests[0].signed_request, bytes);
+    assert!(cold_read(&path, &owner_id, &"0".repeat(64), prepared.count).is_err());
     std::fs::remove_dir_all(&path).unwrap();
 }
 
@@ -658,6 +656,7 @@ fn strict_json_rejects_unknown_fields_and_formal_reads_reject_private_scopes() {
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn loopback_status_uses_the_running_node_and_server_shutdown_is_bounded() {
     let (world, trust, anchor) = fixture_trust();
@@ -703,6 +702,7 @@ fn loopback_status_uses_the_running_node_and_server_shutdown_is_bounded() {
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn http_parser_enforces_an_absolute_partial_request_deadline() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -716,6 +716,7 @@ fn http_parser_enforces_an_absolute_partial_request_deadline() {
     drop(client);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_http_fragmented_body_on_nonblocking_accepted_stream_reaches_grant_rejection() {
     use oasis7_client_api::world_service_full_sync::{
@@ -813,6 +814,7 @@ fn formal_http_fragmented_body_on_nonblocking_accepted_stream_reaches_grant_reje
     stop_test_node(&node);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signature_drift() {
     use oasis7_world_service::wire::FormalAuthenticatedLookupV1;
@@ -876,11 +878,13 @@ fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signatu
 #[path = "formal_live_read_error_tests.rs"]
 mod read_error_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
     poisoned_state_signed_http_recovery(false);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn poisoned_admission_gate_blocks_signed_http_status_until_explicit_repair() {
     poisoned_state_signed_http_recovery(true);

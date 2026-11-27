@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use std::sync::Mutex;
 
@@ -146,6 +147,7 @@ fn finish_hint(
     )
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn missing_partial_prefix_discards_already_staged_business_bytes() {
     let reader = CacheRecorder::default();
@@ -161,6 +163,7 @@ fn missing_partial_prefix_discards_already_staged_business_bytes() {
     assert!(reader.writes.lock().unwrap().is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn mismatching_protected_head_discards_staged_bytes_as_optional_warmup_miss() {
     let reader = CacheRecorder::default();
@@ -172,6 +175,7 @@ fn mismatching_protected_head_discards_staged_bytes_as_optional_warmup_miss() {
     assert!(reader.writes.lock().unwrap().is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn corrupt_proof_error_is_not_converted_to_an_optional_warmup_miss() {
     let reader = CacheRecorder::default();
@@ -185,6 +189,7 @@ fn corrupt_proof_error_is_not_converted_to_an_optional_warmup_miss() {
     assert!(reader.writes.lock().unwrap().is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn exact_head_with_different_verified_context_does_not_seed() {
     let (_world, _trust, anchor, _) = fixtures::actual_world_initial_fixture();
@@ -237,6 +242,7 @@ fn prewarm_resolver(
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn completed_prewarm_receipt_reuses_only_the_exact_same_open() {
     let (world, _, origin, _) = fixtures::actual_world_initial_fixture();
@@ -288,6 +294,7 @@ fn completed_prewarm_receipt_reuses_only_the_exact_same_open() {
     assert_eq!(reader.writes.lock().unwrap().len(), 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn prewarm_receipt_binds_full_checkpoint_context_resolver_and_reader() {
     let (world, _, origin, _) = fixtures::actual_world_initial_fixture();
@@ -387,6 +394,7 @@ fn prewarm_receipt_binds_full_checkpoint_context_resolver_and_reader() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn expired_or_failed_cache_installation_cannot_complete_prewarm() {
     let (_, _, anchor, _) = fixtures::actual_world_initial_fixture();
@@ -438,6 +446,7 @@ fn expired_or_failed_cache_installation_cannot_complete_prewarm() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cache_installation_crossing_deadline_cannot_issue_prewarm_receipt() {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -533,6 +542,7 @@ impl LookupTiming {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn full_sync_business_object_uses_typed_reader_source() {
     use oasis7_distfs::controlled_authority::formal::FormalError;

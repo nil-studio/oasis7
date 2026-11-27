@@ -6052,6 +6052,7 @@ dependencies = [
  "oasis7_agent_api",
  "oasis7_agent_harness",
  "oasis7_client_api",
+ "oasis7_domain_types",
  "oasis7_formal_protocol",
  "oasis7_hosted_access",
  "oasis7_model_provider",
@@ -6605,6 +6606,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "ed25519-dalek",
+ "futures",
  "getrandom 0.4.3",
  "hex",
  "libp2p",
@@ -6748,6 +6750,7 @@ dependencies = [
  "oasis7_agent_harness",
  "oasis7_client_api",
  "oasis7_formal_protocol",
+ "oasis7_hosted_access",
  "oasis7_proto",
  "oasis7_runtime",
  "oasis7_simulator",

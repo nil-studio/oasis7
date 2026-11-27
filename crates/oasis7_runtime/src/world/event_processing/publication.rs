@@ -11,11 +11,17 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod prepared_state_delta;
 pub(super) use prepared_state_delta::PreparedEventStateDelta;
 #[path = "../../domains/industrial/staged_publication.rs"]
-mod staged_industrial;
+pub(in crate::world) mod staged_industrial;
 #[path = "../../domains/institutions/staged_publication.rs"]
 mod staged_institutions;
+#[path = "../../domains/institutions/staged_governance.rs"]
+mod staged_institutions_governance;
+#[path = "../../domains/monetary/staged_publication.rs"]
+pub(crate) mod staged_monetary;
 use staged_industrial::StagedIndustrialPublication;
 use staged_institutions::StagedInstitutionsPublication;
+use staged_institutions_governance::StagedInstitutionsGovernanceTransition;
+use staged_monetary::StagedMonetaryPublication;
 
 struct PreparedEventPublication {
     event: WorldEvent,
@@ -28,7 +34,7 @@ struct PreparedEventPublication {
 }
 
 impl World {
-    pub(in crate::world) fn append_event(
+    pub(crate) fn append_event(
         &mut self,
         body: WorldEventBody,
         caused_by: Option<CausedBy>,
@@ -125,6 +131,12 @@ impl World {
         if let Some(transition) = StagedInstitutionsPublication::from_body(&body) {
             return self.append_staged_institutions_event(transition, caused_by);
         }
+        if let Some(transition) = StagedInstitutionsGovernanceTransition::from_body(&body) {
+            return self.append_staged_institutions_governance_event(transition, caused_by);
+        }
+        if let Some(transition) = StagedMonetaryPublication::from_body(&body) {
+            return self.append_staged_monetary_event(transition, caused_by);
+        }
         let state_delta = match &body {
             WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { world_binding, .. }) => {
                 if world_binding != &self.world_rule_binding() {
@@ -178,6 +190,25 @@ impl World {
                     .prepare_module_instance_event_with_registry(event, self.state.time, Some(&self.module_registry))?;
                 let schedule = self.prepare_module_instance_schedule(event, self.state.time)?;
                 Some(PreparedEventStateDelta::ModuleInstance { prepared, schedule })
+            }
+            WorldEventBody::Domain(DomainEvent::ModuleTickScheduleUpdated {
+                instance_id,
+                next_tick,
+            }) => {
+                let mut module_tick_schedule = self.module_tick_schedule.clone();
+                match next_tick {
+                    Some(wake) => {
+                        module_tick_schedule.insert(instance_id.clone(), *wake);
+                    }
+                    None => {
+                        module_tick_schedule.remove(instance_id);
+                    }
+                }
+                Some(PreparedEventStateDelta::ModuleTickScheduleUpdated {
+                    instance_id: instance_id.clone(),
+                    next_tick: *next_tick,
+                    module_tick_schedule,
+                })
             }
             WorldEventBody::Domain(
                 event @ (DomainEvent::ResourceTransferred { .. }
@@ -667,6 +698,9 @@ impl World {
                 )?,
             PreparedEventStateDelta::ModuleInstance { prepared, .. } => {
                 self.state_root_hash_with_module_instance_overlay(prepared)?
+            }
+            PreparedEventStateDelta::ModuleTickScheduleUpdated { .. } => {
+                self.current_state_root_hash()?
             }
             PreparedEventStateDelta::ModuleStateUpdated { module_states } => self
                 .state_root_hash_with_command_overlay(

@@ -1,3 +1,5 @@
+#![cfg(feature = "test_tier_full")]
+
 use super::*;
 use std::process::{Command, Stdio};
 use std::sync::Arc;

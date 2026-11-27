@@ -65,7 +65,7 @@ impl World {
         })
     }
 
-    fn state_root_hash_for_state(&self, state: &WorldState) -> Result<String, WorldError> {
+    pub(in crate::world) fn state_root_hash_for_state(&self, state: &WorldState) -> Result<String, WorldError> {
         let manifest_hash = self.current_manifest_hash()?;
         let policy_hash = hash_json(&self.policies)?;
         state_root_hash(&StateRootProjection {
@@ -73,5 +73,11 @@ impl World {
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
         })
+    }
+
+    pub(in crate::world) fn state_root_hash_for_state_with_industry_overlay(&self, state: &WorldState, prepared: &crate::state::industry_transition::PreparedIndustryEvent) -> Result<String, WorldError> {
+        let (manifest_hash, policy_hash) = (self.current_manifest_hash()?, hash_json(&self.policies)?);
+        let projection = WorldStateProjection::borrowed(state).with_industry_overlay(prepared);
+        state_root_hash(&StateRootProjection { state: &projection, manifest_hash: &manifest_hash, policy_hash: &policy_hash })
     }
 }

@@ -1,19 +1,19 @@
 //! Compatible native Host decision-provider contract; no shipping cutover.
+use std::fmt;
 use std::sync::Arc;
-use std::{error::Error, fmt};
 
 use oasis7_agent_api::ProviderModuleCommand;
 use oasis7_agent_harness::{
     CognitionResponseDigestDisposition, classify_cognition_response_digest,
-    cognition_response_digest,
 };
 use oasis7_simulator::{Action, AgentQuery};
 use oasis7_wasm_abi::{
-    ModuleCommandDeclaration, ModuleCommandValidationError, ModuleSchemaDeclarations,
-    validate_module_command_declarations,
+    AgentCommandResponse, CapabilityCatalogSnapshot, CapabilityGrantV2, ModuleCommandDeclaration,
+    ModuleCommandValidationError, ModuleSchemaDeclarations, validate_module_command_declarations,
 };
-use serde_json::Value;
 
+use crate::decision_provider::ProviderCapabilityContext;
+pub use crate::decision_provider::{DecisionProvider, DecisionProviderError};
 use crate::provider_json_admission::ProviderResponseContextLease;
 use crate::provider_loopback_http::{
     CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION,
@@ -25,7 +25,6 @@ use crate::provider_loopback_http::{
 use crate::provider_material_capture::{
     ProviderOriginalMaterialRefsV1, ProviderOriginalMaterialStore,
 };
-use crate::simulator_archive::archive::WorldEvent;
 
 const DEFAULT_ID: &str = "provider_loopback_http";
 const PHASE1_REFS: &[&str] = &[
@@ -51,133 +50,70 @@ fn dp_chk(cond: bool, code: &str) -> DpResult<()> {
     if cond { Ok(()) } else { bail(code, code) }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct DecisionProviderError {
-    pub code: String,
-    pub message: String,
-    pub retryable: bool,
-    pub upstream_trace: Option<Value>,
+pub trait TrustedModuleCommandExecutor {
+    fn execute_trusted_module_command(
+        &mut self,
+        response: AgentCommandResponse,
+    ) -> Result<oasis7_runtime::CapabilityAuthorizationAuditReceipt, oasis7_runtime::WorldError>;
 }
 
-impl DecisionProviderError {
-    pub fn new(code: impl Into<String>, msg: impl Into<String>, retryable: bool) -> Self {
-        Self::new_with_upstream_trace(code, msg, retryable, None)
-    }
+pub struct RuntimeTrustedModuleExecutor<'a> {
+    world: &'a mut oasis7_runtime::World,
+    grant: CapabilityGrantV2,
+    catalog: CapabilityCatalogSnapshot,
+    invocation: oasis7_agent_api::CapabilityInvocationContext,
+    sandbox: &'a mut dyn oasis7_wasm_abi::ModuleSandbox,
+}
 
-    pub fn new_with_upstream_trace(
-        c: impl Into<String>,
-        m: impl Into<String>,
-        retryable: bool,
-        upstream_trace: Option<Value>,
+impl<'a> RuntimeTrustedModuleExecutor<'a> {
+    pub fn new(
+        world: &'a mut oasis7_runtime::World,
+        grant: CapabilityGrantV2,
+        catalog: CapabilityCatalogSnapshot,
+        invocation: oasis7_agent_api::CapabilityInvocationContext,
+        sandbox: &'a mut dyn oasis7_wasm_abi::ModuleSandbox,
     ) -> Self {
         Self {
-            code: c.into(),
-            message: m.into(),
-            retryable,
-            upstream_trace,
+            world,
+            grant,
+            catalog,
+            invocation,
+            sandbox,
         }
     }
 
-    pub fn as_trace_message(&self) -> String {
-        format!("{}: {}", self.code, self.message)
-    }
-}
-
-impl fmt::Display for DecisionProviderError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
-    }
-}
-
-impl Error for DecisionProviderError {}
-
-pub trait DecisionProvider {
-    fn provider_id(&self) -> &str;
-    fn decide(&mut self, request: &DecisionRequest) -> DpResult<DecisionResponse>;
-
-    fn decide_with_continuous_context(
+    pub fn execute(
         &mut self,
-        req: &DecisionRequest,
-        ctx: &ContinuousAgentTurnContextV1,
-    ) -> DpResult<ContinuousAgentResponseContextV1> {
-        Ok(wrap_continuous_response(self.decide(req)?, ctx))
+        response: AgentCommandResponse,
+    ) -> Result<oasis7_runtime::CapabilityAuthorizationAuditReceipt, oasis7_runtime::WorldError>
+    {
+        let context = ProviderCapabilityContext {
+            catalog: self.catalog.clone(),
+            invocation: self.invocation.clone(),
+        };
+        context.validate_response(&response).map_err(|error| {
+            oasis7_runtime::WorldError::CapabilityAuthorizationDenied {
+                reason: error.to_string(),
+            }
+        })?;
+        self.world.execute_trusted_module_command(
+            self.grant.clone(),
+            self.catalog.clone(),
+            response,
+            &mut (),
+            self.sandbox,
+        )
     }
+}
 
-    fn decide_with_continuous_request_context(
+impl TrustedModuleCommandExecutor for RuntimeTrustedModuleExecutor<'_> {
+    fn execute_trusted_module_command(
         &mut self,
-        req: &DecisionRequest,
-        tc: &ContinuousAgentTurnContextV1,
-        rc: &ContinuousAgentRequestContextV1,
-    ) -> DpResult<ContinuousAgentResponseContextV1> {
-        validate_request_context_pair(req, tc, rc)?;
-        let mut r = self.decide_with_continuous_context(req, tc)?;
-        r.context_discriminator = CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.into();
-        r.context_version = CONTINUOUS_AGENT_CONTEXT_VERSION;
-        r.agent_session_id = rc.agent_session_id.clone();
-        r.agent_turn_id = rc.agent_turn_id.clone();
-        r.decision_request_id = rc.decision_request_id.clone();
-        r.retry_seq = rc.retry_seq;
-        r.transport_attempt = rc.transport_attempt;
-        r.request_digest = rc.request_digest.clone();
-        Ok(r)
+        response: AgentCommandResponse,
+    ) -> Result<oasis7_runtime::CapabilityAuthorizationAuditReceipt, oasis7_runtime::WorldError>
+    {
+        self.execute(response)
     }
-
-    fn take_provider_original_material_refs(&mut self) -> Option<ProviderOriginalMaterialRefsV1> {
-        None
-    }
-
-    fn take_provider_response_context_lease(&mut self) -> Option<ProviderResponseContextLease> {
-        None
-    }
-
-    fn push_feedback(&mut self, _fb: &FeedbackEnvelope) -> DpResult<()> {
-        Ok(())
-    }
-
-    fn push_continuous_feedback(&mut self, _fb: &FeedbackEnvelopeV1) -> DpResult<()> {
-        Ok(())
-    }
-
-    fn on_world_event(&mut self, _ev: &WorldEvent) -> DpResult<()> {
-        Ok(())
-    }
-}
-
-pub fn wrap_continuous_response(
-    resp: DecisionResponse,
-    ctx: &ContinuousAgentTurnContextV1,
-) -> ContinuousAgentResponseContextV1 {
-    let response_digest = cognition_response_digest(&resp);
-    ContinuousAgentResponseContextV1 {
-        base_decision_response: resp,
-        context_discriminator: CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.into(),
-        context_version: CONTINUOUS_AGENT_CONTEXT_VERSION,
-        agent_session_id: ctx.agent_session_id.clone(),
-        agent_turn_id: ctx.agent_turn_id.clone(),
-        decision_request_id: ctx.decision_request_id.clone(),
-        retry_seq: 0,
-        transport_attempt: 0,
-        request_digest: ctx.request_digest.clone(),
-        response_digest,
-    }
-}
-
-pub fn validate_request_context_pair(
-    req: &DecisionRequest,
-    tc: &ContinuousAgentTurnContextV1,
-    rc: &ContinuousAgentRequestContextV1,
-) -> DpResult<()> {
-    rc.validate_production_lane()
-        .map_err(|e| reject(e.code(), e.message()))?;
-    tc.validate_for_agent(&rc.agent_subject)
-        .map_err(|e| reject(e.code(), e.message()))?;
-    let ok = rc.base_decision_request == *req
-        && rc.agent_session_id == tc.agent_session_id
-        && rc.agent_turn_id == tc.agent_turn_id
-        && rc.decision_request_id == tc.decision_request_id
-        && rc.request_digest == tc.request_digest
-        && req.observation.agent_id == rc.agent_subject;
-    dp_chk(ok, "request_context_identity_mismatch")
 }
 
 pub struct ProviderLoopbackAdapter {
@@ -288,10 +224,16 @@ impl ProviderLoopbackAdapter {
                 dp_chk(ok, "module_command_context_mismatch")
             }
             ProviderDecision::Wait => Ok(()),
-            ProviderDecision::WaitTicks { .. } => dp_chk(
-                Self::has_ref(req, "wait_ticks"),
-                "action_ref_not_in_catalog",
-            ),
+            ProviderDecision::WaitTicks { .. } => {
+                if Self::has_ref(req, "wait_ticks") {
+                    Ok(())
+                } else {
+                    bail(
+                        "action_ref_not_in_catalog",
+                        "provider returned wait_ticks which is not in request action catalog",
+                    )
+                }
+            }
             ProviderDecision::Act {
                 action_ref: ar,
                 action,
@@ -314,6 +256,31 @@ impl ProviderLoopbackAdapter {
                 dp_chk(false, "module_command_unroutable")
             }
         }
+    }
+
+    pub fn execute_trusted_module_command<E: TrustedModuleCommandExecutor>(
+        &self,
+        request: &DecisionRequest,
+        response: DecisionResponse,
+        executor: &mut E,
+    ) -> Result<oasis7_runtime::CapabilityAuthorizationAuditReceipt, DecisionProviderError> {
+        self.validate_response(request, &response)?;
+        let ProviderDecision::ModuleCommandResponse { response } = response.decision else {
+            return Err(DecisionProviderError::new(
+                "module_command_not_typed",
+                "only typed ModuleCommandResponse values may cross the trusted module bridge",
+                false,
+            ));
+        };
+        executor
+            .execute_trusted_module_command(response)
+            .map_err(|error| {
+                DecisionProviderError::new(
+                    "trusted_module_execution_failed",
+                    format!("trusted module executor rejected command: {error:?}"),
+                    false,
+                )
+            })
     }
 
     fn map_http_error(error: ProviderLoopbackHttpError) -> DecisionProviderError {

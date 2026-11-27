@@ -582,6 +582,35 @@ class AdmissionTests(unittest.TestCase):
             self.assertNotIn('GH_TOKEN', git.call_args.kwargs['env'])
             self.assertNotIn('NODE_OPTIONS', git.call_args.kwargs['env'])
 
+    def test_package_image_writers_keep_exact_policy_boundaries(self):
+        event = self.root / 'package-image-event.json'
+        event.write_text(json.dumps({'inputs': {'package_scope': 'linux_only', 'build_profile': 'packaging'}}))
+        for family in ('release-linux-image', 'testnet-linux-image'):
+            namespace, workflow, job = admission.FAMILIES[family]
+            image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.rsplit('-image-', 1)[1]
+            self.run.update(event='workflow_dispatch', path=workflow)
+            environment = self.environment | {
+                'OASIS7_DEPENDENCY_CACHE_FAMILY': family, 'RUST_PACKAGE_NATIVE_IMAGE': image,
+                'GITHUB_JOB': job, 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+                'GITHUB_WORKFLOW_REF': f'nil-studio/oasis7/{workflow}@refs/heads/main',
+                'GITHUB_EVENT_PATH': str(event), 'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': self.source_sha,
+                'INPUT_SHARED-KEY': namespace, 'INPUT_CACHE-PROVIDER': 'github',
+            }
+            self.assertIn(namespace, admission.maintenance.DEPENDENCY_NAMESPACES)
+            self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+            for override in ({'RUST_PACKAGE_NATIVE_IMAGE': image[:-1] + '0'},
+                             {'INPUT_SHARED-KEY': 'oasis7-package-native-Linux-native-packaging-trusted-v2'},
+                             {'INPUT_CACHE-PROVIDER': 'buildjet'},
+                             {'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': 'b' * 40},
+                             {'GITHUB_JOB': 'untrusted'}, {'GITHUB_REF': 'refs/heads/candidate'}):
+                with self.subTest(family=family, override=override):
+                    self.api.list_caches.reset_mock()
+                    self.assertFalse(admission.check_archive(self.archive, environment | override, self.api)['allowed'])
+                    self.api.list_caches.assert_not_called()
+            if family == 'testnet-linux-image':
+                event.write_text(json.dumps({'inputs': {'package_scope': 'linux_only', 'build_profile': 'dev'}}))
+                self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+
     def test_node_preload_uses_the_reviewed_upstream_revision(self):
         hook = Path(__file__).with_name('ci-rust-cache-admission-hook.cjs')
         result = subprocess.run(['node', '-e',

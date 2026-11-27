@@ -289,7 +289,7 @@ impl AdmissionBatchRequestV2 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use oasis7_distfs::protected_bft_v3::{
@@ -315,6 +315,19 @@ mod tests {
         AdmissionInputBoundContextV2,
         SigningKey,
     ) {
+        fixture_with_original(operation, 4 * u64::from(CHUNK) + 7, "66".repeat(32))
+    }
+
+    /// Shared signed fixture for the distinct original response codec tests.
+    pub(in super::super) fn fixture_with_original(
+        operation: AdmissionBatchOperationV2,
+        original_bytes: u64,
+        original_digest: String,
+    ) -> (
+        AdmissionBatchRequestV2,
+        AdmissionInputBoundContextV2,
+        SigningKey,
+    ) {
         let subject = SigningKey::from_bytes(&[32; 32]);
         let issuer = TestIssuer(SigningKey::from_bytes(&[71; 32]));
         let input = InputRef {
@@ -329,8 +342,8 @@ mod tests {
                 header_id: "55".repeat(32),
             },
             object: BftSuccessorWindowArchiveRefV1 {
-                digest: "66".repeat(32),
-                bytes: 4 * u64::from(CHUNK) + 7,
+                digest: original_digest,
+                bytes: original_bytes,
             },
             admission_digest: "77".repeat(32),
         };

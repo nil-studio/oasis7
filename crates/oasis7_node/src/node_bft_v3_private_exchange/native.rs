@@ -50,6 +50,10 @@ pub trait NodeBftCommittedReadCredentialsV3: Send + Sync {
 #[allow(dead_code)] // Request contract only. Live Noise registration is a subsequent slice.
 #[path = "admission_input_request_v2.rs"]
 mod admission_input_request_v2;
+// Strict binary response codec only; production Noise handlers remain unwired.
+#[allow(dead_code)]
+#[path = "admission_input_response_v2.rs"]
+mod admission_input_response_v2;
 #[path = "client.rs"]
 mod client;
 #[path = "package.rs"]

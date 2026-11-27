@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::world_rules::{AgentIndustrialPhaseV1 as P, manufacturing_capacity_guard};
 use oasis7_agent_api::world_action::ResourceKind;
@@ -163,6 +164,7 @@ fn quote_expiry_and_dependency_drift_do_not_reserve_assets() {
     unrelated.reputation_scores.insert("unrelated".into(), 99);
     assert!(PreparedWorldRule::prepare(&unrelated, &e, 12).is_ok());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn confirmation_reserves_inputs_electricity_liquid_without_identity_or_claim() {
     let mut state = industrial_fixture();
@@ -197,6 +199,7 @@ fn confirmation_reserves_inputs_electricity_liquid_without_identity_or_claim() {
             .is_err()
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn cancellation_before_start_refunds_exact_original_assets_once() {
     let mut state = industrial_fixture();
@@ -232,6 +235,7 @@ fn cancellation_before_start_refunds_exact_original_assets_once() {
         .is_err()
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn start_deadline_endpoint_cancels_without_consumption() {
     let mut state = industrial_fixture();
@@ -246,6 +250,7 @@ fn start_deadline_endpoint_cancels_without_consumption() {
     advance(&mut last, &id, 19);
     assert_eq!(order(&last, &id).phase, P::Producing);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn twelve_legal_ticks_produce_lot_and_delivery_settles_frozen_claim_once() {
     let mut state = industrial_fixture();
@@ -290,6 +295,7 @@ fn twelve_legal_ticks_produce_lot_and_delivery_settles_frozen_claim_once() {
         .is_err()
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn progress_requires_legal_distinct_ticks_and_preserves_first_block_deadline() {
     let mut state = industrial_fixture();
@@ -322,6 +328,7 @@ fn progress_requires_legal_distinct_ticks_and_preserves_first_block_deadline() {
     advance(&mut state, &id, 37);
     assert_eq!(order(&state, &id).phase, P::Disposed);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn post_start_disposal_only_returns_claim_funds_and_keeps_input_loss() {
     let mut state = industrial_fixture();
@@ -367,6 +374,7 @@ fn post_start_disposal_only_returns_claim_funds_and_keeps_input_loss() {
         952
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn delivery_expiry_endpoint_disposes_lot_and_unfreezes_funds() {
     let mut state = industrial_fixture();
@@ -384,6 +392,7 @@ fn delivery_expiry_endpoint_disposes_lot_and_unfreezes_funds() {
     advance(&mut state, &id, 47);
     assert_eq!(order(&state, &id).phase, P::Disposed);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn primary_binding_cap_and_shared_capacity_remain_after_delivery() {
     let mut state = industrial_fixture();
@@ -409,6 +418,7 @@ fn primary_binding_cap_and_shared_capacity_remain_after_delivery() {
             .is_err()
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn frozen_slot_price_survives_other_claim_release_and_no_restricted_subsidy() {
     let mut state = industrial_fixture();
@@ -435,6 +445,7 @@ fn frozen_slot_price_survives_other_claim_release_and_no_restricted_subsidy() {
         0
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn manufacturing_quote_single_use_and_maximum_request_identity() {
     let mut state = industrial_fixture();
@@ -454,6 +465,7 @@ fn manufacturing_quote_single_use_and_maximum_request_identity() {
     );
     assert!(PreparedWorldRule::prepare(&state, &event("owner", "different", command), 12).is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn raw_identity_registration_cannot_forge_manufactured_target() {
     let mut state = industrial_fixture();
@@ -473,6 +485,7 @@ fn raw_identity_registration_cannot_forge_manufactured_target() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn missing_material_power_factory_and_source_fail_without_partial_reservations() {
     let original = industrial_fixture();
@@ -536,6 +549,7 @@ fn missing_material_power_factory_and_source_fail_without_partial_reservations()
             .is_ok()
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn root_owner_rebinding_blocks_same_order_instead_of_changing_beneficiary() {
     let mut state = industrial_fixture();
@@ -549,6 +563,7 @@ fn root_owner_rebinding_blocks_same_order_instead_of_changing_beneficiary() {
     advance(&mut state, &id, 13);
     assert_eq!(order(&state, &id).completed_work_ticks, 1);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn hard_production_deadline_is_not_extended_by_long_gap_or_repair() {
     let mut state = industrial_fixture();
@@ -559,6 +574,7 @@ fn hard_production_deadline_is_not_extended_by_long_gap_or_repair() {
     advance(&mut state, &id, 47);
     assert_eq!(order(&state, &id).phase, P::Disposed);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn production_tick_gap_does_not_count_elapsed_time_and_delivery_rechecks_cap() {
     let mut state = industrial_fixture();
@@ -598,6 +614,7 @@ fn production_tick_gap_does_not_count_elapsed_time_and_delivery_rechecks_cap() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn historical_over_cap_only_blocks_expansion_not_existing_target_claims() {
     let mut state = industrial_fixture();
@@ -608,6 +625,7 @@ fn historical_over_cap_only_blocks_expansion_not_existing_target_claims() {
     assert!(manufacturing_capacity_guard(&state, "owner", None, true).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn inconsistent_recovered_phase_is_rejected_without_panicking_or_refunding() {
     let mut state = industrial_fixture();
@@ -633,6 +651,7 @@ fn inconsistent_recovered_phase_is_rejected_without_panicking_or_refunding() {
 #[path = "industrial_control_tests.rs"]
 mod industrial_control_tests;
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn same_player_new_root_source_cannot_inherit_reserved_order() {
     let mut state = industrial_fixture();
@@ -644,6 +663,7 @@ fn same_player_new_root_source_cannot_inherit_reserved_order() {
     assert_eq!(order(&state, &id).completed_work_ticks, 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn new_root_source_cannot_cancel_or_dispose_original_orders() {
     for started in [false, true] {
@@ -667,6 +687,7 @@ fn new_root_source_cannot_cancel_or_dispose_original_orders() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn original_source_frozen_refund_survives_terminal_snapshot_and_releases_once_after_recovery() {
     for started in [false, true] {
@@ -753,6 +774,7 @@ fn original_source_frozen_refund_survives_terminal_snapshot_and_releases_once_af
         );
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn blocked_original_source_timeout_retains_refund_and_overflow_cannot_partially_release() {
     let mut state = industrial_fixture();
@@ -801,6 +823,7 @@ fn blocked_original_source_timeout_retains_refund_and_overflow_cannot_partially_
     assert!(!order(&state, &id).refund_pending);
     assert_eq!(state.main_token_balances["owner"].liquid_balance, 488);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn inconsistent_terminal_refund_flags_fail_closed_and_legacy_terminal_shape_is_readable() {
     let mut state = industrial_fixture();

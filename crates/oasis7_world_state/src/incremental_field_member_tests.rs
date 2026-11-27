@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::incremental_projection::{FieldDestination, FieldOwner, FieldShape};
 use oasis7_formal_protocol::{
@@ -263,6 +264,7 @@ fn read(
         cancel,
     )
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -385,6 +387,7 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn framing_limits_wrong_fields_and_key_hash_fail_before_payload_output() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -447,6 +450,7 @@ fn framing_limits_wrong_fields_and_key_hash_fail_before_payload_output() {
         assert!(payload.is_empty());
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn source_limits_cancel_io_and_sink_failures_never_return_a_root() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -491,6 +495,7 @@ fn source_limits_cancel_io_and_sink_failures_never_return_a_root() {
         );
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn provisional_outputs_and_final_cancellation_do_not_return_completion() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -576,6 +581,7 @@ fn provisional_outputs_and_final_cancellation_do_not_return_completion() {
     assert_eq!(before, pages.reads.get());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn root_loading_cancellation_precedes_range_workspace_and_preserves_spent_io() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -636,6 +642,7 @@ fn root_loading_cancellation_precedes_range_workspace_and_preserves_spent_io() {
     assert_eq!(pages.reads.get(), 1);
     assert_eq!(io.nodes_remaining, 999);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn raw_reads_forward_class_and_fail_on_exhausted_io_without_output() {
     let memory = MemoryBudget::new(2 << 20, 16 << 10).unwrap();
@@ -679,6 +686,7 @@ fn raw_reads_forward_class_and_fail_on_exhausted_io_without_output() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn inconsistent_declared_lengths_are_invalid_before_operation_limits() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -722,6 +730,7 @@ fn inconsistent_declared_lengths_are_invalid_before_operation_limits() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn raw_authenticated_key_bytes_are_not_typed_semantic_validation() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -764,6 +773,7 @@ fn raw_authenticated_key_bytes_are_not_typed_semantic_validation() {
     assert!(crate::incremental_semantic_key::read_semantic_key_v1(&key).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn key_output_cancellation_stops_before_retry_or_payload_output() {
     struct CancelKey<'a> {
@@ -820,6 +830,7 @@ fn key_output_cancellation_stops_before_retry_or_payload_output() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn key_digest_covers_each_accepted_byte_once_across_short_and_interrupted_writes() {
     struct ShortKey {
@@ -885,6 +896,7 @@ fn key_digest_covers_each_accepted_byte_once_across_short_and_interrupted_writes
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn expected_i64_profile_rejects_malformed_fixed_length_before_payload_limits() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -932,6 +944,7 @@ fn expected_i64_profile_rejects_malformed_fixed_length_before_payload_limits() {
     assert!(payload.is_empty());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_u64_genesis_preserves_namespace_unit_and_full_unsigned_range() {
     use crate::{incremental_world_u64::*, state::WorldState};
@@ -1038,6 +1051,7 @@ fn world_u64_genesis_preserves_namespace_unit_and_full_unsigned_range() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn world_u64_genesis_stops_on_record_limit_or_sink_rejection() {
     use crate::{incremental_world_u64::*, state::WorldState};

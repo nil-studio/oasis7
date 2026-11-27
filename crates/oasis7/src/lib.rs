@@ -8,7 +8,10 @@ pub mod geometry {
         space_distance_cm, space_distance_m,
     };
 }
-pub mod industry_types;
+pub mod industry_types {
+    pub use oasis7_agent_api::world_industry::StarterIndustrialSettlementSummaryV1;
+    pub use oasis7_domain_types::MaterialLedgerId;
+}
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime as runtime;
 #[cfg(not(target_arch = "wasm32"))]

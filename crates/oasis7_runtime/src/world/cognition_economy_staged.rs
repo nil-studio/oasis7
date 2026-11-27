@@ -53,7 +53,7 @@ impl StagedTransition for StagedCognitionResourceBalance<'_> {
         }
         let mut economy = view.world().cognition_economy()?;
         economy
-            .set_resource_balance(self.account_id, self.resource, self.available)
+            .set_resource_balance_staged(self.account_id, self.resource, self.available)
             .map_err(|error| WorldError::DistributedValidationFailed {
                 reason: error.code().to_string(),
             })?;

@@ -5,8 +5,14 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{error::Error, fmt, path::Path, time::Duration};
 
-use oasis7_agent_api::{ProviderAgentChatRequest, ProviderAgentChatResponse};
-use oasis7_client_api::{ProviderHealth, ProviderInfo};
+pub use oasis7_agent_api::{
+    ProviderAgentChatRequest, ProviderAgentChatResponse, provider_agent_chat_log_key,
+};
+pub use oasis7_client_api::{
+    ProviderCompatibilityReport, ProviderCompatibilityStatus, ProviderHealth, ProviderInfo,
+    evaluate_provider_compatibility, provider_phase1_required_actions,
+    provider_phase1_required_capabilities,
+};
 use oasis7_proto::memory_budget::MemoryClass;
 use oasis7_simulator::{Action, AgentQuery};
 use reqwest::blocking::{Body, Client, RequestBuilder};
@@ -20,6 +26,7 @@ pub use oasis7_agent_api::{
     DecisionRequest, DecisionRequestContractError, FeedbackEnvelopeV1,
 };
 pub use oasis7_client_api::provider::{
+    PROVIDER_PHASE1_ACTION_SET_ALIAS,
     PROVIDER_TRANSPORT_LOOPBACK_HTTP as LOOPBACK_HTTP_PROVIDER_TRANSPORT,
     PROVIDER_TRANSPORT_REMOTE_HTTPS as REMOTE_HTTPS_PROVIDER_TRANSPORT,
 };
@@ -316,7 +323,9 @@ impl ProviderLoopbackHttpClient {
         let req_len = rq.length;
         let req_id = rq.digest().ctx("req digest")?;
         let qf = rq.rewind().ctx("rewind")?;
-        let att = store.persist_request(req, req_id, qf, req_len).ctx("req")?;
+        let att = store
+            .persist_request(req, req_id, qf, req_len)
+            .ctx("request persistence failed")?;
         let inv = req.provider_invocation_key().to_string();
         let ok_att = att.owner == *bnd
             && att.operation_id == inv
@@ -327,7 +336,10 @@ impl ProviderLoopbackHttpClient {
         let req_file = rq.into_file().ctx("req transfer")?;
         let rb = self.captured_req(Method::POST, CTX_PATH)?;
         store.mark_dispatched(&att).ctx("dispatch marker")?;
-        http_chk(!store.cancelled(), "cancelled before send")?;
+        http_chk(
+            !store.cancelled(),
+            "provider material capture cancelled after dispatch marker and before HTTP send",
+        )?;
 
         let mut resp = rb
             .header(CONTENT_TYPE, JSON_CT)

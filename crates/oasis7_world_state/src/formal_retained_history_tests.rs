@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_formal_protocol::controlled_authority::formal::business_index::{
     BusinessIndexDeltaV1, BusinessIndexLeafKindV1, BusinessIndexLeafV1, BusinessIndexNodeReader,
@@ -132,6 +133,7 @@ fn sparse_read_distinguishes_authenticated_absence_from_missing_cas() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn candidate_must_inherit_exact_parent_descriptor() {
     #[derive(Serialize)]
@@ -170,6 +172,7 @@ fn candidate_must_inherit_exact_parent_descriptor() {
     assert!(parent.verify_inherited_descriptor(&[]).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn descriptor_digest_commits_to_the_sparse_root() {
     let (mut root, _) = one_leaf_root(&"1".repeat(64));
@@ -183,6 +186,7 @@ fn descriptor_digest_commits_to_the_sparse_root() {
     assert!(root.validate().is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn archived_reorg_epoch_summary_preserves_only_query_cardinality() {
     let one = DistinctReorgEpochSummaryV1::from_hot([&Some(8), &Some(8), &None]);
@@ -205,6 +209,7 @@ fn archived_reorg_epoch_summary_preserves_only_query_cardinality() {
     assert_eq!(one.single_epoch(), Some(8));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn repeated_prune_metadata_updates_preserve_monotonic_retention_state() {
     let private_key = hex::encode([71u8; 32]);
@@ -320,6 +325,7 @@ fn repeated_prune_metadata_updates_preserve_monotonic_retention_state() {
     }
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn read_leaf_rejects_kind_mismatch_with_decoded_variant() {
     let key_digest = "3".repeat(64);
@@ -350,6 +356,7 @@ fn read_leaf_rejects_kind_mismatch_with_decoded_variant() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn correlation_key_digests_keep_the_world_service_algorithm_prefix() {
     assert!(is_correlation_key_digest(&format!(
@@ -363,6 +370,7 @@ fn correlation_key_digests_keep_the_world_service_algorithm_prefix() {
     )));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn feedback_lookup_requires_canonical_prefixed_request_digest() {
     let mut lookup = FeedbackPublicationLookupV1 {
@@ -377,4 +385,9 @@ fn feedback_lookup_requires_canonical_prefixed_request_digest() {
     lookup.validate().unwrap();
     lookup.request_digest = "a".repeat(64);
     assert!(lookup.validate().is_err());
+}
+
+fn _keep_from_hot_seam() {
+    let empty = DistinctReorgEpochSummaryV1::from_hot(std::iter::empty::<&Option<u64>>());
+    let _ = empty.has_multiple();
 }

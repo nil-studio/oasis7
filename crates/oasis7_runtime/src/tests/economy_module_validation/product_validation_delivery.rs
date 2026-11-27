@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::{
     Journal, ProductValidationAttemptV1, ProductValidationDeliveryCursor,
@@ -79,6 +80,7 @@ fn product_validation_delivery_cursor_stays_bounded_over_long_run() {
     assert_eq!(cursor.routed_through_event_id, 1_000_000);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_delivery_cursor_routes_after_event_id_rollover() {
     let mut cursor = ProductValidationDeliveryCursor {
@@ -94,6 +96,7 @@ fn product_validation_delivery_cursor_routes_after_event_id_rollover() {
     assert!(cursor.has_routed(4, 1));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_delivery_cursor_decodes_legacy_id_only_snapshot() {
     let cursor: ProductValidationDeliveryCursor =
@@ -103,6 +106,7 @@ fn product_validation_delivery_cursor_decodes_legacy_id_only_snapshot() {
     assert_eq!(cursor.routed_through_event_id, 7);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_delivery_cursor_replays_event_id_rollover_era() {
     let world = World::new();
@@ -153,6 +157,7 @@ fn product_validation_delivery_cursor_replays_event_id_rollover_era() {
     assert_eq!(recovered_snapshot.last_event_id, 1);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_delivery_cursor_replay_keeps_monotonic_high_water_mark() {
     let world = World::new();
@@ -184,6 +189,7 @@ fn product_validation_delivery_cursor_replay_keeps_monotonic_high_water_mark() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_factory_rejects_world_invalid_submission_before_module_evaluation() {
     let mut world = World::new();
@@ -241,6 +247,7 @@ fn module_factory_rejects_world_invalid_submission_before_module_evaluation() {
     }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn module_factory_revalidates_resolved_spec_before_commit() {
     let mut world = World::new();
@@ -316,6 +323,7 @@ fn module_factory_revalidates_resolved_spec_before_commit() {
     }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejected_resolved_factory_spec_discards_all_module_side_effects() {
     let mut world = World::new();
@@ -408,6 +416,7 @@ fn rejected_resolved_factory_spec_discards_all_module_side_effects() {
     }));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_recovery_replays_existing_delivery_before_next_output_intent() {
     let mut world = logistics_drone_module_recipe_world("factory.recipe.delivery-checkpoint");
@@ -619,6 +628,7 @@ fn product_validation_recovery_replays_existing_delivery_before_next_output_inte
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_attempt_is_emitted_to_subscribers_before_decision() {
     let mut world = logistics_drone_module_recipe_world("factory.recipe.attempt-delivery");
@@ -726,6 +736,7 @@ fn product_validation_attempt_is_emitted_to_subscribers_before_decision() {
     ));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_checkpoint_routes_batch_before_persist_and_recovery_dedupes() {
     let mut world = logistics_drone_module_recipe_world("factory.recipe.delivery-atomicity");
@@ -946,6 +957,7 @@ fn product_validation_checkpoint_routes_batch_before_persist_and_recovery_dedupe
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn product_validation_receipt_with_existing_delivery_is_not_replayed() {
     let mut world = logistics_drone_module_recipe_world("factory.recipe.delivery-replay");

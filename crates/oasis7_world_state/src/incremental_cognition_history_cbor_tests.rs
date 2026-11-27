@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use std::io::{self, Cursor};
 fn work() -> CognitionHistoryCborWorkV1 {
@@ -59,6 +60,7 @@ impl Read for Interrupted {
         Err(io::ErrorKind::Interrupted.into())
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn source_work_hash_length_memory_and_final_cancellation_are_independent_gates() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -135,6 +137,7 @@ fn source_work_hash_length_memory_and_final_cancellation_are_independent_gates()
     ));
     assert_eq!(memory.used(), 0);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn long_text_streams_under_recovery_while_ordinary_capacity_is_held() {
     const LENGTH: u64 = 32 << 20;
@@ -188,6 +191,7 @@ fn semantic(
 fn digest(domain: &str, value: &serde_json::Value) -> String {
     crate::cognition_recovery::cognition_digest_v1(domain, value)
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn event_projections_match_original_abi_with_unknown_null_absent_and_nested_fields() {
     use crate::incremental_cognition_history::CognitionOriginalIdentityStatusV1;
@@ -237,6 +241,7 @@ fn event_projections_match_original_abi_with_unknown_null_absent_and_nested_fiel
     );
     assert_eq!(missing.sequence(), None);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn response_uses_only_original_artifact_and_does_not_upgrade_missing_material() {
     use crate::incremental_cognition_history::CognitionOriginalIdentityStatusV1;
@@ -275,6 +280,7 @@ fn response_uses_only_original_artifact_and_does_not_upgrade_missing_material() 
     assert!(semantic(CognitionHistoryFieldV1::Responses, &record).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rejected_semantic_scalar_still_spends_every_actual_source_byte() {
     let value = serde_json::json!({"event_digest":"x".repeat(16384)});
@@ -312,6 +318,7 @@ fn rejected_semantic_scalar_still_spends_every_actual_source_byte() {
     assert_eq!(memory.used(), 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn trailing_probe_charges_consumed_byte_and_preserves_exact_eof_budget() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -363,6 +370,7 @@ fn trailing_probe_charges_consumed_byte_and_preserves_exact_eof_budget() {
     assert_eq!(memory.used(), 0);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn large_response_artifact_digest_streams_with_ordinary_capacity_exhausted() {
     use crate::incremental_cognition_history::CognitionOriginalIdentityStatusV1;

@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use oasis7_runtime::BlobStore;
 use std::{
@@ -95,6 +96,7 @@ fn read_only_cas_probe_does_not_create_roots_or_directories() {
     assert!(!store.blobs_dir().exists());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn read_only_cas_probe_rejects_missing_durable_root_and_corrupt_blob() {
     let root = CasTestRoot::new();
@@ -117,6 +119,7 @@ fn read_only_cas_probe_rejects_missing_durable_root_and_corrupt_blob() {
     assert!(error.contains("content digest"), "{error}");
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn gc_keeps_history_and_new_loaded_closure_and_removes_old_orphans() {
     let root = CasTestRoot::new();
@@ -173,6 +176,7 @@ fn gc_keeps_history_and_new_loaded_closure_and_removes_old_orphans() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn over_capacity_candidate_keeps_old_world_and_history_pins() {
     let root = CasTestRoot::new();
@@ -219,6 +223,7 @@ fn over_capacity_candidate_keeps_old_world_and_history_pins() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn post_rename_directory_sync_failure_is_classified_as_uncertain() {
     let root = CasTestRoot::new();
@@ -270,6 +275,7 @@ fn post_rename_directory_sync_failure_is_classified_as_uncertain() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn durable_full_sync_pin_shard_uses_private_modes() {
     let root = CasTestRoot::new();
@@ -309,6 +315,7 @@ fn durable_full_sync_pin_shard_uses_private_modes() {
 }
 
 #[cfg(unix)]
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn durable_pin_publication_tightens_legacy_scoped_directories() {
     use std::os::unix::fs::PermissionsExt;
@@ -349,6 +356,7 @@ fn durable_pin_publication_tightens_legacy_scoped_directories() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn missing_protected_blob_fails_closed_without_sweeping_other_objects() {
     let root = CasTestRoot::new();
@@ -370,6 +378,7 @@ fn missing_protected_blob_fails_closed_without_sweeping_other_objects() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn oversized_local_object_is_rejected_before_pin_publication() {
     let root = CasTestRoot::new();
@@ -400,6 +409,7 @@ fn oversized_local_object_is_rejected_before_pin_publication() {
     assert!(store.has(&old_world).expect("old root remains"));
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn synced_material_budget_charges_each_digest_once_across_provider_attempts() {
     let mut budget = CasBudget::new(10);
@@ -418,6 +428,7 @@ fn synced_material_budget_charges_each_digest_once_across_provider_attempts() {
     assert_eq!(budget.objects.len(), 2);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn synced_material_budget_resets_only_the_traversal_allowance_per_traversal() {
     let mut budget = CasBudget::new(64);

@@ -11,9 +11,9 @@ use super::super::{
 };
 use super::{LogisticsSlaMetrics, World};
 
-struct PreparedDueMaterialTransits {
-    bodies: Vec<WorldEventBody>,
-    logistics_sla_metrics: LogisticsSlaMetrics,
+pub(in crate::world) struct PreparedDueMaterialTransits {
+    pub(in crate::world) bodies: Vec<WorldEventBody>,
+    pub(in crate::world) logistics_sla_metrics: LogisticsSlaMetrics,
 }
 
 pub(super) const MATERIAL_TRANSFER_MAX_DISTANCE_KM: i64 = 10_000;
@@ -934,7 +934,10 @@ impl World {
         })
     }
 
-    fn prepare_due_material_transits_at(&self, now: WorldTime) -> PreparedDueMaterialTransits {
+    pub(in crate::world) fn prepare_due_material_transits_at(
+        &self,
+        now: WorldTime,
+    ) -> PreparedDueMaterialTransits {
         let mut due_jobs: Vec<_> = self
             .state
             .pending_material_transits
@@ -977,6 +980,10 @@ impl World {
         }
     }
 
+    pub(in crate::world) fn set_logistics_sla_metrics(&mut self, metrics: LogisticsSlaMetrics) {
+        self.logistics_sla_metrics = metrics;
+    }
+
     #[cfg(test)]
     pub(crate) fn prepared_due_material_transits_for_test(
         &self,
@@ -999,16 +1006,15 @@ impl World {
     }
 
     pub(super) fn process_due_material_transits(&mut self) -> Result<Vec<WorldEvent>, WorldError> {
-        let prepared = self.prepare_due_material_transits_at(self.state.time);
-        let mut emitted = Vec::with_capacity(prepared.bodies.len());
-        for body in prepared.bodies {
-            self.append_event(body, None)?;
-            if let Some(event) = self.journal.events.last() {
-                emitted.push(event.clone());
-            }
-        }
-        self.logistics_sla_metrics = prepared.logistics_sla_metrics;
-
-        Ok(emitted)
+        let prev_next_event_id = self.next_event_id;
+        self.install_staged_industrial(
+            &super::industrial::staged_writes::StagedDueMaterialTransits {
+                now: Some(self.state.time),
+            },
+            None,
+        )?;
+        let added = self.next_event_id.saturating_sub(prev_next_event_id) as usize;
+        let start = self.journal.events.len().saturating_sub(added);
+        Ok(self.journal.events[start..].to_vec())
     }
 }

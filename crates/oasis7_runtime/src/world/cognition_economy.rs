@@ -388,6 +388,7 @@ impl CognitionEconomyStateV1 {
 
     /// Explicit bootstrap/credit operation.  It never refills implicitly and
     /// cannot overwrite an account while an active reservation exists.
+    #[cfg(test)]
     pub fn set_resource_balance(
         &mut self,
         account_id: impl Into<String>,
@@ -401,6 +402,7 @@ impl CognitionEconomyStateV1 {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn reserve(
         &mut self,
         request: CognitionLeaseRequestV1,
@@ -417,6 +419,7 @@ impl CognitionEconomyStateV1 {
     /// Reserve against one exact Runtime provisioning binding. The binding is
     /// supplied by `World`, which derives it from the current capability
     /// identity and runtime world/reorg tuple.
+    #[cfg(all(test, feature = "test_tier_full"))]
     pub(crate) fn reserve_for_binding(
         &mut self,
         request: CognitionLeaseRequestV1,
@@ -432,6 +435,7 @@ impl CognitionEconomyStateV1 {
         Ok(lease)
     }
 
+    #[cfg(test)]
     pub fn settle(
         &mut self,
         lease_id: &str,
@@ -445,6 +449,7 @@ impl CognitionEconomyStateV1 {
         Ok(receipt)
     }
 
+    #[cfg(test)]
     pub fn release(
         &mut self,
         lease_id: &str,
@@ -457,6 +462,7 @@ impl CognitionEconomyStateV1 {
         Ok(receipt)
     }
 
+    #[cfg(test)]
     pub fn refund(
         &mut self,
         lease_id: &str,
@@ -501,6 +507,7 @@ impl CognitionEconomyStateV1 {
     /// Runtime-authorized compensating refund for a settled lease. The parent
     /// settlement receipt and reason are immutable audit inputs; the amount
     /// cannot exceed the settled usage and the operation is terminal.
+    #[cfg(test)]
     pub fn refund_settled(
         &mut self,
         lease_id: &str,
@@ -517,6 +524,7 @@ impl CognitionEconomyStateV1 {
         Ok(receipt)
     }
 
+    #[cfg(test)]
     pub fn expire(
         &mut self,
         lease_id: &str,
@@ -526,6 +534,79 @@ impl CognitionEconomyStateV1 {
         let receipt = next.expire_inner(lease_id, tick)?;
         next.validate()?;
         *self = next;
+        Ok(receipt)
+    }
+
+    pub(crate) fn set_resource_balance_staged(
+        &mut self,
+        account_id: impl Into<String>,
+        resource: impl Into<String>,
+        available: u64,
+    ) -> Result<(), CognitionEconomyError> {
+        self.set_resource_balance_inner(account_id.into(), resource.into(), available)?;
+        self.validate()
+    }
+
+    pub(crate) fn reserve_staged(
+        &mut self,
+        request: CognitionLeaseRequestV1,
+        tick: u64,
+    ) -> Result<CognitionLeaseV1, CognitionEconomyError> {
+        request.validate()?;
+        let lease = self.reserve_inner(request, tick, None)?;
+        self.validate()?;
+        Ok(lease)
+    }
+
+    pub(crate) fn reserve_for_binding_staged(
+        &mut self,
+        request: CognitionLeaseRequestV1,
+        binding_key: impl Into<String>,
+        tick: u64,
+    ) -> Result<CognitionLeaseV1, CognitionEconomyError> {
+        request.validate()?;
+        let lease = self.reserve_inner(request, tick, Some(binding_key.into()))?;
+        self.validate()?;
+        Ok(lease)
+    }
+
+    pub(crate) fn settle_staged(&mut self, lease_id: &str, consumed: u64, tick: u64) -> Result<CognitionReceiptV1, CognitionEconomyError> {
+        let receipt = self.settle_inner(lease_id, consumed, tick)?;
+        self.validate()?;
+        Ok(receipt)
+    }
+
+    pub(crate) fn release_staged(&mut self, lease_id: &str, tick: u64) -> Result<CognitionReceiptV1, CognitionEconomyError> {
+        let receipt = self.release_inner(lease_id, tick)?;
+        self.validate()?;
+        Ok(receipt)
+    }
+
+    pub(crate) fn refund_staged(&mut self, lease_id: &str, tick: u64) -> Result<CognitionReceiptV1, CognitionEconomyError> {
+        if let Some(existing) = self.operations.get(&operation_key(lease_id, "refund")) {
+            return self.receipts.get(&existing.receipt_id).cloned().ok_or(CognitionEconomyError::InvalidState("cognition_operation_receipt_missing"));
+        }
+        let parent_receipt_id = self
+            .leases
+            .get(lease_id)
+            .and_then(|l| l.receipt_id.as_deref())
+            .filter(|id| self.receipts.get(*id).is_some_and(|r| r.operation == "settle"))
+            .or_else(|| self.operations.get(&operation_key(lease_id, "settle")).map(|r| r.receipt_id.as_str()))
+            .unwrap_or_default()
+            .to_string();
+        let amount = self.leases.get(lease_id).map(|l| l.settled_amount).unwrap_or_default();
+        self.refund_settled_staged(lease_id, amount, parent_receipt_id.as_str(), "runtime_compatibility_refund", tick)
+    }
+
+    pub(crate) fn refund_settled_staged(&mut self, lease_id: &str, refunded: u64, parent_receipt_id: &str, reason: &str, tick: u64) -> Result<CognitionReceiptV1, CognitionEconomyError> {
+        let receipt = self.refund_inner(lease_id, refunded, parent_receipt_id, reason, tick)?;
+        self.validate()?;
+        Ok(receipt)
+    }
+
+    pub(crate) fn expire_staged(&mut self, lease_id: &str, tick: u64) -> Result<CognitionReceiptV1, CognitionEconomyError> {
+        let receipt = self.expire_inner(lease_id, tick)?;
+        self.validate()?;
         Ok(receipt)
     }
 

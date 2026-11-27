@@ -489,6 +489,8 @@ def main(argv=None):
             if args.github_output:
                 with args.github_output.open('a') as stream:
                     stream.write('save=' + str(report['save']).lower() + '\n')
+                    if 'upload_bound_bytes' in report:
+                        stream.write(f'upload_bound_bytes={report["upload_bound_bytes"]}\n')
             print(json.dumps(report, sort_keys=True))
     except (OSError, ValueError, subprocess.SubprocessError, zipfile.BadZipFile) as error:
         print(f'error: {error}', file=sys.stderr)

@@ -1,4 +1,5 @@
 //! Claim-backed control integration; production helpers live in the parent fixture.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 fn delivered() -> (WorldState, String) {
     let mut state = industrial_fixture();
@@ -108,6 +109,7 @@ fn delivery_freezes_source_and_terminal_claim_cannot_keep_or_invent_owner() {
     state.starter_oc_claims.insert(target.clone(), fake);
     assert!(state.resolved_agent_owner(&target).is_none());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn primary_rebind_does_not_transfer_manufactured_agent_to_new_player() {
     let (mut state, target) = delivered();
@@ -117,6 +119,7 @@ fn primary_rebind_does_not_transfer_manufactured_agent_to_new_player() {
     state.starter_oc_claims.get_mut("owner").unwrap().claimed_at += 1;
     assert!(state.resolved_agent_owner(&target).is_none());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn current_identity_and_native_source_change_after_root_generation_advance() {
     let (state, target) = delivered();
@@ -186,6 +189,7 @@ fn current_identity_and_native_source_change_after_root_generation_advance() {
         world.state().resolved_agent_owner(&target)
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn raw_starter_support_cannot_replace_claim_backed_control() {
     let (mut state, target) = delivered();
@@ -201,6 +205,7 @@ fn raw_starter_support_cannot_replace_claim_backed_control() {
     assert!(state.apply_domain_event(&e, 25).is_err());
     assert_eq!(state, before);
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn legitimate_successor_claim_creates_fresh_source_instead_of_reviving_old_one() {
     let (mut state, target) = delivered();
@@ -238,6 +243,7 @@ fn legitimate_successor_claim_creates_fresh_source_instead_of_reviving_old_one()
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn historical_registered_namespace_is_not_reinterpreted_as_manufactured_control() {
     let mut state = WorldState::default();
@@ -262,6 +268,7 @@ fn historical_registered_namespace_is_not_reinterpreted_as_manufactured_control(
     assert!(state.apply_domain_event(&current, 2).is_err());
     assert_eq!(before, serde_json::to_value(&state).unwrap());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn primary_binding_without_economic_claim_cannot_use_plain_claim_as_free_extra_supply() {
     let state = industrial_fixture();
@@ -292,6 +299,7 @@ fn terminal_release_for(state: &WorldState, target: &str) -> DomainEvent {
         refunded_bond_restricted_sink_bucket_id: String::new(),
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn identical_same_tick_successor_acquisitions_use_persistent_sequence_and_never_revive_grants() {
     let (mut state, target) = delivered();
@@ -410,6 +418,7 @@ fn identical_same_tick_successor_acquisitions_use_persistent_sequence_and_never_
         world.state().resolved_agent_owner(&target)
     );
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn historical_claim_events_do_not_create_acquisition_tombstones_or_change_empty_projection_shape() {
     let mut state = industrial_fixture();
@@ -448,6 +457,7 @@ fn rehash_test_authorization(snapshot: &mut crate::Snapshot) {
     }))
     .unwrap();
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn manufactured_identity_counter_overflow_rejects_root_rotation_atomically() {
     let (state, target) = delivered();
@@ -527,6 +537,7 @@ fn manufactured_identity_counter_overflow_rejects_root_rotation_atomically() {
     assert_eq!(world.snapshot(), before_raw);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn manufactured_identity_cannot_move_to_another_world_manifest() {
     let (mut state, target) = delivered();
@@ -639,6 +650,7 @@ fn manufactured_identity_cannot_move_to_another_world_manifest() {
     assert_eq!(moved.snapshot(), before);
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn manufactured_checkpoints_compose_multiple_root_rotations_in_one_prepared_batch() {
     let (state, target) = delivered();

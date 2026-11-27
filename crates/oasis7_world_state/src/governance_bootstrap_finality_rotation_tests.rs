@@ -1,4 +1,5 @@
 //! Persistence/projection vectors only. World separately verifies authority.
+#![cfg_attr(not(feature = "test_tier_full"), allow(dead_code, unused_imports))]
 use super::*;
 use crate::{GovernanceEvent, Snapshot, WorldStateProjection};
 use oasis7_agent_api::world_action::GovernanceAuthorizationV1;
@@ -115,6 +116,7 @@ fn history_rejects_declared_overflow_duplicates_wrong_ids_and_non_rotation_actio
     invalid.authorized_action.authorization.nonce += 1;
     assert!(invalid.validate().is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn rotation_map_capacity_is_enforced_in_both_decode_and_persistence() {
     let mut snapshot = snapshot();
@@ -133,6 +135,7 @@ fn rotation_map_capacity_is_enforced_in_both_decode_and_persistence() {
         .insert("one-too-many".into(), record("one-too-many"));
     assert!(crate::codec::snapshot_cbor(&snapshot).is_err());
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn empty_history_preserves_bytes_and_atomic_projection_matches_installed_record() {
     let base = snapshot();
@@ -237,6 +240,7 @@ impl<'de> Deserialize<'de> for LossyLegacySnapshot {
             .map_err(de::Error::custom)
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn formal_snapshot_and_delta_keep_nonempty_history_and_reject_lossy_legacy_decode() {
     let base = snapshot();
@@ -271,6 +275,7 @@ fn formal_snapshot_and_delta_keep_nonempty_history_and_reject_lossy_legacy_decod
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn bootstrap_source_digest_pins_typed_registry_framing_and_all_fields() {
     let base = crate::GovernanceFinalitySignerRegistry::default();
@@ -303,6 +308,7 @@ fn bootstrap_source_digest_pins_typed_registry_framing_and_all_fields() {
         );
     }
 }
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn both_sources_share_capacity_without_changing_individual_bounds() {
     use crate::governance::validate_finality_key_rotation_history_capacity as capacity;
@@ -332,6 +338,7 @@ fn both_sources_share_capacity_without_changing_individual_bounds() {
     assert!(crate::codec::snapshot_from_json(&serde_json::to_vec(&value).unwrap()).is_err());
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn explicit_empty_bootstrap_history_preserves_legacy_bytes_and_state_root() {
     let legacy = snapshot();
@@ -346,6 +353,7 @@ fn explicit_empty_bootstrap_history_preserves_legacy_bytes_and_state_root() {
     );
 }
 
+#[cfg(feature = "test_tier_full")]
 #[test]
 fn bootstrap_manual_decoder_rejects_duplicate_map_field_and_sequence_extension() {
     let json = serde_json::to_string(&snapshot().state).unwrap();

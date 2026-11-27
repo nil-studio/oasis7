@@ -4,12 +4,13 @@ use super::{
 };
 use crate::World;
 
-pub fn owner_public_key(world: &World, agent_id: &str) -> Result<String, String> {
+pub fn owner_public_key(world: &World, agent_id: &str) -> Result<String, String> { owner_public_key_with_revocation_state(world, world.capability_revocation_state(), agent_id) }
+pub(crate) fn owner_public_key_with_revocation_state(world: &World, rev: &crate::capability_authorization::CapabilityRevocationState, agent_id: &str) -> Result<String, String> {
     let identity = world
-        .current_agent_identity(agent_id)
+        .current_agent_identity_with_revocation_state(rev, agent_id)
         .ok_or("Agent identity unavailable")?;
     let owner = world
-        .current_agent_owner(agent_id)
+        .current_agent_owner_with_revocation_state(rev, agent_id)
         .ok_or("canonical owner claim unavailable")?;
     if owner.player_id != identity.owner_binding {
         return Err("canonical owner changed".into());
@@ -19,17 +20,15 @@ pub fn owner_public_key(world: &World, agent_id: &str) -> Result<String, String>
         .ok_or_else(|| "canonical owner key unavailable".into())
 }
 
-pub fn validate_delegation(
-    world: &World,
-    signed: &SignedReadRequest<AgentSignerDelegationChangeV1>,
-) -> Result<(), String> {
+pub fn validate_delegation(world: &World, signed: &SignedReadRequest<AgentSignerDelegationChangeV1>) -> Result<(), String> { validate_delegation_with_revocation_state(world, world.capability_revocation_state(), signed) }
+pub(crate) fn validate_delegation_with_revocation_state(world: &World, rev: &crate::capability_authorization::CapabilityRevocationState, signed: &SignedReadRequest<AgentSignerDelegationChangeV1>) -> Result<(), String> {
     verify_read_request("delegation", signed)?;
     let change = &signed.request;
-    if owner_public_key(world, &change.agent_id)? != signed.subject_public_key {
+    if owner_public_key_with_revocation_state(world, rev, &change.agent_id)? != signed.subject_public_key {
         return Err("delegation requires canonical owner signature".into());
     }
     let identity = world
-        .current_agent_identity(&change.agent_id)
+        .current_agent_identity_with_revocation_state(rev, &change.agent_id)
         .ok_or("Agent identity unavailable")?;
     let binding = world
         .current_cognition_runtime_binding()
@@ -47,8 +46,7 @@ pub fn validate_delegation(
     {
         return Err("delegation identity, history or generation mismatch".into());
     }
-    if let Some(previous) = world
-        .capability_revocation_state()
+    if let Some(previous) = rev
         .agent_signer_delegations
         .get(&change.agent_id)
     {

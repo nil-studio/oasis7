@@ -381,4 +381,56 @@ fn successful_raw_sequence_preserves_cause_and_replays_maps_and_root() {
         replay.current_state_root_hash().expect("replay root"),
         world.current_state_root_hash().expect("live root")
     );
+    staged_capability_grant_revoke_and_trusted_command_prepare_and_rollback();
+}
+
+fn staged_capability_grant_revoke_and_trusted_command_prepare_and_rollback() {
+    use crate::gameplay_state::StarterOcClaimState; use crate::world::agent_delegation::StagedAgentDelegationGrant;
+    use crate::world::agent_delegation::controls::{StagedAgentDelegationDenial, StagedAgentOwnerControl};
+    use crate::world::capability_authorization_publication::{StagedCapabilityGrantV2, StagedCapabilityRevokeV2};
+    use crate::world::capability_authz::transaction::StagedTrustedModuleCommandWithContext; use crate::world::owner_delegation_control::StagedOwnerDelegationControl;
+    use crate::world::transition::{BorrowedWorldView, DurableCommitConfirmation, StagedTransition, TransitionContext, TransitionReject};
+    use ed25519_dalek::Signer; use oasis7_proto::agency_control::{AGENCY_CONTROL_REQUEST_TYPE, AgencyControlOperation, AgencyControlRequest};
+    use oasis7_proto::player_auth::sign_agency_control_auth_proof; use serde_json::json; use std::collections::BTreeSet;
+    let (mut world, ctx) = { let w = fixture(); let t = w.state().time; (w, TransitionContext::new(t, None)) };
+    let grant = super::capability_grant_v2::signed_grant(super::capability_grant_v2::grant_json(json!({"grant_nonce": "staged-grant-adapter-regression"})));
+    let mut bad_grant = grant.clone(); bad_grant.status = "pending".into(); let view = BorrowedWorldView::new(&world).unwrap(); assert!(StagedCapabilityGrantV2 { grant: bad_grant }.prepare(&view, &ctx).is_err());
+    let snap = world.snapshot(); let prep_grant = StagedCapabilityGrantV2 { grant: grant.clone() }.prepare(&view, &ctx).unwrap();
+    assert!(matches!(prep_grant.clone().install_confirmed(&mut world, DurableCommitConfirmation::StatusUnknown { reason: "io".into() }), Err(TransitionReject::StatusUnknownFenced { .. }))); assert_eq!(world.snapshot(), snap); prep_grant.install_confirmed(&mut world, DurableCommitConfirmation::Confirmed).unwrap();
+    super::capability_grant_v2::install_budget_for_grant(&mut world, &grant, 100);
+    let catalog = super::capability_grant_v2::prepared_catalog(&world, &grant, super::capability_grant_v2::catalog_json(json!({}))); let response = super::capability_grant_v2::prepared_response(super::capability_grant_v2::response_json(json!({})), &catalog);
+    let inv_ctx = CapabilityInvocationContext { grant_id: grant.grant_id.clone(), subject: grant.subject.clone(), presenter: response.presenter.clone(), audience: grant.audience.clone(), catalog_snapshot_id: catalog.snapshot_id.clone(), module_id: response.selected_entry.module_id.clone(), module_version: response.selected_entry.module_version.clone(), response_nonce: response.response_nonce.clone() };
+    let mut bad_cmd_grant = grant.clone(); bad_cmd_grant.status = "revoked".into(); assert!(StagedTrustedModuleCommandWithContext::new(bad_cmd_grant, catalog.clone(), response.clone(), inv_ctx.clone(), &mut super::capability_grant_v2::RecordingSandbox::default()).prepare(&BorrowedWorldView::new(&world).unwrap(), &ctx).is_err());
+    let snap_cmd = world.snapshot(); let mut sb = super::capability_grant_v2::RecordingSandbox::default(); let cmd_stage = StagedTrustedModuleCommandWithContext::new(grant.clone(), catalog, response, inv_ctx, &mut sb);
+    let prep_cmd = cmd_stage.prepare(&BorrowedWorldView::new(&world).unwrap(), &ctx).unwrap(); assert_eq!(cmd_stage.take_receipt().unwrap().decision, "accepted");
+    assert!(matches!(prep_cmd.install_confirmed(&mut world, DurableCommitConfirmation::StatusUnknown { reason: "io".into() }), Err(TransitionReject::StatusUnknownFenced { .. }))); assert_eq!(world.snapshot(), snap_cmd);
+    let mut record = world.capability_revocation_state().authority_records.get(super::capability_grant_v2::ISSUER_ID).unwrap().clone(); record.revocation_epoch += 1; record.revoked_grant_ids = BTreeSet::from([grant.grant_id.clone()]);
+    let mut proof = world.capability_revocation_state().authority_finality_proofs.get(super::capability_grant_v2::ISSUER_ID).unwrap().clone(); proof.binding = CapabilityAuthorityFinalityBinding::from_record(&record).unwrap(); proof.signatures.clear();
+    for (id, k) in [(super::capability_grant_v2::ISSUER_ID, super::capability_grant_v2::capability_issuer_signing_key()), (super::capability_grant_v2::FINALITY_SIGNER_2, super::capability_grant_v2::capability_finality_signing_key_2())] { let sig = k.sign(&proof.signing_payload_v1(id).unwrap()); proof.signatures.insert(id.into(), format!("{}{}", CapabilityAuthorityFinalityProof::SIGNATURE_PREFIX_ED25519_V1, hex::encode(sig.to_bytes()))); }
+    record.revoked_grant_ids.remove(&grant.grant_id); let view = BorrowedWorldView::new(&world).unwrap(); assert!(StagedCapabilityRevokeV2 { grant_id: String::new(), record: record.clone(), proof: proof.clone() }.prepare(&view, &ctx).is_err());
+    let prep_rev = StagedCapabilityRevokeV2 { grant_id: grant.grant_id.clone(), record, proof }.prepare(&view, &ctx).unwrap(); let snap_rev = world.snapshot();
+    assert!(matches!(prep_rev.clone().install_confirmed(&mut world, DurableCommitConfirmation::StatusUnknown { reason: "io".into() }), Err(TransitionReject::StatusUnknownFenced { .. }))); assert_eq!(world.snapshot(), snap_rev); prep_rev.install_confirmed(&mut world, DurableCommitConfirmation::Confirmed).unwrap(); assert!(world.capability_revocation_state().revoked_grant_ids.contains(&grant.grant_id));
+    struct TestRegistry { public: String }
+    impl OwnerControlHostAuthority for TestRegistry { fn validate_registered_owner(&self, p: &str, k: &str, a: &str, w: &str, e: u64) -> Result<(), String> { if p != "player" || k != self.public || a != super::agent_cognition_runtime_hardening::AGENT_ID || w != super::agent_cognition_runtime_hardening::WORLD_ID || e != 0 { Err("rejected".into()) } else { Ok(()) } } }
+    let (agent_id, world_id) = (super::agent_cognition_runtime_hardening::AGENT_ID, super::agent_cognition_runtime_hardening::WORLD_ID);
+    let mut w = World::new(); w.submit_action(Action::RegisterAgent { agent_id: agent_id.into(), pos: super::pos(0, 0) }); w.step().unwrap();
+    let mut st = w.state().clone(); st.starter_oc_claims.insert(agent_id.into(), StarterOcClaimState { agent_id: agent_id.into(), player_id: "player".into(), public_key: None, amount: 1, claimed_at: 0, source_treasury_bucket_id: None });
+    let mut w = World::new_with_state(st); w.bind_cognition_runtime(world_id, "main", 0, None, "pending", 0).unwrap(); w.record_agent_chat_intent("player", agent_id, 1, "move").unwrap(); let intent = w.state().agents.get(agent_id).unwrap().intent.clone().unwrap();
+    let dgrant = AgentDelegationGrantV1 { grant_id: "staged-del-grant".into(), source_id: format!("starter_claim:{agent_id}:0"), issuer_id: "player".into(), owner_id: "player".into(), organization_id: None, agent_id: agent_id.into(), object_id: agent_id.into(), action_kinds: vec!["MoveAgent".into()], revision: 1, period_id: "period".into(), valid_from_tick: 0, valid_until_tick: 100, limit_units: 3, resource_kind: "electricity".into(), revoked: false };
+    let mut bad_owner = dgrant.clone(); bad_owner.owner_id = "intruder".into(); assert!(StagedAgentDelegationGrant::new(bad_owner).prepare(&BorrowedWorldView::new(&w).unwrap(), &ctx).is_err());
+    let gs = StagedAgentDelegationGrant::new(dgrant.clone()); let pg = gs.prepare(&BorrowedWorldView::new(&w).unwrap(), &ctx).unwrap(); assert!(gs.take_authorization().is_some());
+    let snap = w.snapshot(); assert!(matches!(pg.install_confirmed(&mut w, DurableCommitConfirmation::StatusUnknown { reason: "io".into() }), Err(TransitionReject::StatusUnknownFenced { .. }))); assert_eq!(w.snapshot(), snap);
+    StagedAgentDelegationGrant::new(dgrant.clone()).prepare(&BorrowedWorldView::new(&w).unwrap(), &ctx).unwrap().install_confirmed(&mut w, DurableCommitConfirmation::Confirmed).unwrap();
+    let private = [61u8; 32]; let public = hex::encode(ed25519_dalek::SigningKey::from_bytes(&private).verifying_key().to_bytes()); let host = TestRegistry { public: public.clone() };
+    let mut req = AgencyControlRequest { frame_type: AGENCY_CONTROL_REQUEST_TYPE.into(), request_id: "signed-revoke-1".into(), player_id: "player".into(), public_key: public, agent_id: agent_id.into(), world_id: world_id.into(), reorg_epoch: 0, command: AgencyControlOperation::RevokeDelegation { grant_id: dgrant.grant_id.clone(), expected_revision: 1 }, auth: None };
+    req.auth = Some(sign_agency_control_auth_proof(&req.request_id, &req.player_id, &req.public_key, &req.agent_id, &req.world_id, 0, &serde_json::to_value(&req.command).unwrap(), 1, &req.public_key, &hex::encode(private)).unwrap());
+    let os = StagedOwnerDelegationControl::new(&req, &host); let po = os.prepare(&BorrowedWorldView::new(&w).unwrap(), &ctx).unwrap(); assert!(os.take_outcome().is_some());
+    let snap = w.snapshot(); assert!(matches!(po.install_confirmed(&mut w, DurableCommitConfirmation::StatusUnknown { reason: "io".into() }), Err(TransitionReject::StatusUnknownFenced { .. }))); assert_eq!(w.snapshot(), snap);
+    let ctrl = AgentOwnerControlV1 { control_id: "ctrl-1".into(), agent_id: agent_id.into(), intent_id: intent.intent_id.clone(), request_digest: intent.request_digest.clone(), grant_id: Some(dgrant.grant_id), expected_grant_revision: Some(1), kind: AgentOwnerControlKindV1::Interrupt };
+    assert!(StagedAgentOwnerControl::new("intruder", ctrl.clone()).prepare(&BorrowedWorldView::new(&w).unwrap(), &ctx).is_err());
+    let cs = StagedAgentOwnerControl::new("player", ctrl); let pc = cs.prepare(&BorrowedWorldView::new(&w).unwrap(), &ctx).unwrap(); assert!(cs.take_disposition().is_some());
+    assert!(matches!(pc.install_confirmed(&mut w, DurableCommitConfirmation::StatusUnknown { reason: "io".into() }), Err(TransitionReject::StatusUnknownFenced { .. }))); assert_eq!(w.snapshot(), snap);
+    let err = WorldError::ResourceBalanceInvalid { reason: "agent_delegation:grant_revoked".into() };
+    StagedAgentDelegationDenial { agent_id: agent_id.into(), context: AgentDecisionCausalContextV1 { intent_id: Some(intent.intent_id), ..Default::default() }, error: &err }.prepare(&BorrowedWorldView::new(&w).unwrap(), &ctx).unwrap().install_confirmed(&mut w, DurableCommitConfirmation::Confirmed).unwrap();
+    assert_eq!(w.state().agents.get(agent_id).unwrap().intent.as_ref().unwrap().status, "rejected");
 }
