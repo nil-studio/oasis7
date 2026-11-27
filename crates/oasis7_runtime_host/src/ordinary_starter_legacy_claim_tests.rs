@@ -1,13 +1,13 @@
-use super::*;
 use oasis7_agent_api::world_action::{Action, GeoPos, MaterialLedgerId, ResourceKind};
 use oasis7_proto::player_auth::sign_gameplay_action_auth_proof;
 use oasis7_proto::viewer::GameplayActionRequest;
 use oasis7_runtime::{
     ChainResourceDerivationContext, DomainEvent, RejectReason, World, WorldEventBody,
 };
+use oasis7_world_service::ordinary_starter::*;
 
 fn published_world() -> World {
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     let pool = initialize(&mut world).unwrap();
     let tick = world.state().time;
     let snapshot = world.snapshot_with_chain_resource_context(
@@ -23,8 +23,7 @@ fn published_world() -> World {
         "test",
         "test",
     );
-    let mut world =
-        crate::runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    let mut world = crate::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
     publish(&mut world, &pool).unwrap();
     world
 }
@@ -66,7 +65,7 @@ fn ordinary_starter_actual_legacy_signed_claims_cannot_take_public_supplier() {
         );
         // The production legacy authenticator and its real action builder both accept the
         // signed request; the shared Runtime boundary must protect public source ownership.
-        let action = crate::world_service::gameplay::authenticated_action(
+        let action = crate::gameplay_service::authenticated_action(
             &world,
             &serde_json::to_vec(&request).unwrap(),
         )
@@ -101,16 +100,14 @@ fn ordinary_starter_actual_legacy_signed_claims_cannot_take_public_supplier() {
             before_power
         );
     }
-    let restored =
-        crate::runtime_host::world::from_snapshot(world.snapshot(), world.journal().clone())
-            .unwrap();
+    let restored = crate::world::from_snapshot(world.snapshot(), world.journal().clone()).unwrap();
     assert!(restored.state().is_ordinary_starter_supplier(SUPPLIER_ID));
     assert!(restored.current_agent_owner(SUPPLIER_ID).is_none());
 }
 
 #[test]
 fn ordinary_starter_publication_rejects_preexisting_identity_without_creating_authority() {
-    let mut world = crate::runtime_host::world::new();
+    let mut world = crate::world::new();
     let pool = initialize(&mut world).unwrap();
     let tick = world.state().time;
     let snapshot = world.snapshot_with_chain_resource_context(
@@ -126,8 +123,7 @@ fn ordinary_starter_publication_rejects_preexisting_identity_without_creating_au
         "test",
         "test",
     );
-    let mut world =
-        crate::runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    let mut world = crate::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
     world
         .install_capability_agent_identity(SUPPLIER_ID, "occupied-owner", 1)
         .unwrap();

@@ -199,6 +199,15 @@ pub mod world {
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
+mod agent_chat_projection_tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod game_task_projection_tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod ordinary_starter_legacy_claim_tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod source_compiler_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 
