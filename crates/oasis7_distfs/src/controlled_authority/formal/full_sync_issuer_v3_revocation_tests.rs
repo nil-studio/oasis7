@@ -117,8 +117,7 @@ fn real_witness_history_revocation_inventory_rejects_forks_and_reissued_targets(
     // A software-signed receipt fixture exercises only the verified issuer
     // consumer. It cannot stand in for a physically protected cutoff witness.
     let original_lease = inventory.leases.keys().next().unwrap().clone();
-    let signed_fence = |kind: FullSyncFenceKindV1,
-                        lease: Option<FullSyncIssuerTargetLeaseV3>| {
+    let signed_fence = |kind, lease| {
         let body = FullSyncRevocationFenceBodyV1 {
             schema_version: 1,
             revocation_record_digest: revoke_digest.clone(),
@@ -130,7 +129,7 @@ fn real_witness_history_revocation_inventory_rejects_forks_and_reissued_targets(
             protected_floor_revision: verified.anchor().revision,
             protected_earliest_unix_ms: 1_000,
         };
-        let mut bytes = b"oasis7.formal.full-sync-revocation.fence.v1\\0".to_vec();
+        let mut bytes = b"oasis7.formal.full-sync-revocation.fence.v1\0".to_vec();
         bytes.extend_from_slice(&serde_json::to_vec(&body).unwrap());
         SignedFullSyncRevocationFenceV1 {
             signature_hex: hex::encode(key(4).sign(&bytes).to_bytes()),
