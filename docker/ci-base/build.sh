@@ -342,7 +342,9 @@ if [[ "$target" == rust-release-web ]]; then
       work=$(mktemp -d)
       printf "pub fn smoke() {}\n" > "$work/smoke.rs"
       rustc +"$RUST_TOOLCHAIN" --target wasm32-unknown-unknown --crate-type lib "$work/smoke.rs" -o "$work/smoke.rlib"
-      python3 /opt/oasis7-viewer-browser/scripts/ci-browser-deps.py activate --prebuilt --browser agent \
+      # Browser tooling retains its existing Node24 contract; the release CLI
+      # and actual headed Playwright invocation below keep Node22.
+      PATH="/usr/local/bin:$PATH" python3 /opt/oasis7-viewer-browser/scripts/ci-browser-deps.py activate --prebuilt --browser agent \
         --work-dir "$work/browser" --github-env "$work/browser.env"
       set -a
       source "$work/browser.env"

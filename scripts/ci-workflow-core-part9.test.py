@@ -382,6 +382,7 @@ class WorkflowCorePart9(unittest.TestCase):
             smoke = (ROOT / 'docker/ci-base/build.sh').read_text().split('if [[ "$target" == rust-release-web ]]; then', 1)[1]
             self.assertIn('--network none --user 1001:1001', smoke)
             self.assertIn('export PATH=/opt/oasis7-node22/bin:$PATH', smoke)
+            self.assertIn('PATH="/usr/local/bin:$PATH" python3 /opt/oasis7-viewer-browser/scripts/ci-browser-deps.py activate', smoke)
             self.assertIn('xvfb-run -a node', smoke)
             self.assertIn('headless: false', smoke)
             self.assertIn('--target wasm32-unknown-unknown --crate-type lib', smoke)
