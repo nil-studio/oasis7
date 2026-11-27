@@ -45,9 +45,22 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         &std::fs::read(&args[4]).map_err(|_| "original pending owner snapshot unreadable")?,
     )
     .map_err(|_| "original pending owner snapshot invalid")?;
-    let current = formal_live_runtime::current_operation_owner(config)?;
+    let current = if freeze {
+        // Stop commands require the currently serving owner and its live socket.
+        formal_live_runtime::current_operation_owner(config)?
+    } else {
+        // After SIGKILL the former process socket may be gone; obtain only the
+        // exact persisted incarnation, never re-enable it or infer a new grant.
+        formal_live_runtime::query_operation_owner(
+            config,
+            &supplied.instance.operation_id,
+            &supplied.instance.request_digest,
+            &supplied.instance.config_digest,
+            Some(&supplied.instance.incarnation),
+        )?.ok_or("original pending exact owner is missing")?
+    };
     if current.instance != supplied.instance {
-        return Err("original pending CLI owner instance differs from exact current owner".into());
+        return Err("original pending CLI owner instance differs from exact recorded owner".into());
     }
 
     if let Some((independent_root, independent_count)) = external {
