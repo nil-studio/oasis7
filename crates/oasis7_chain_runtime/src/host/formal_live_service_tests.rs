@@ -439,7 +439,7 @@ fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
         incarnation: "original-incarnation".into(),
     };
     let tracker = Arc::new(Mutex::new(
-        OriginalPendingProducerV1::open(&path, owner_id).unwrap(),
+        OriginalPendingProducerV1::open(&path, owner_id.clone()).unwrap(),
     ));
     let (base_world, trust, anchor) = fixture_trust();
     let (world, owner) = world_with_owner();
@@ -493,6 +493,19 @@ fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
             .submit_buffer_action_count,
         1,
     );
+    node.lock().unwrap().stop().unwrap();
+    // Actual Node stop is not a local marker: only its successful completion
+    // permits final Frozen publication; readback must retain the signed HTTP original.
+    let frozen = tracker.lock().unwrap().finish_node_freeze(&path).unwrap();
+    assert_eq!(frozen, prepared);
+    let restored = super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
+        &path, &owner_id, &prepared.root, prepared.count,
+    ).unwrap();
+    assert_eq!(restored.requests.len(), 1);
+    assert_eq!(restored.requests[0].signed_request, bytes);
+    assert!(super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
+        &path, &owner_id, &"0".repeat(64), prepared.count,
+    ).is_err());
     std::fs::remove_dir_all(&path).unwrap();
 }
 
