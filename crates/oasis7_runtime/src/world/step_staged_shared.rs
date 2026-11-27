@@ -439,6 +439,7 @@ mod tests {
             let mut assembler =
                 StagedTickSharedAssembler::begin(&world, TransitionContext::new(next_tick, None))
                     .expect("begin shared assembler");
+            assert_eq!(assembler.context().tick, next_tick);
             assembler.stage_clock().expect("stage clock");
 
             let first = assembler.queue_mut().pop_next().expect("first action");
