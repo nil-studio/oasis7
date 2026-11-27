@@ -816,7 +816,6 @@ run_oasis7_llm_baseline_fixture_smoke() {
 }
 
 run_provider_remote_https_smoke() {
-  run ./scripts/provider-remote-https/letai-provider-cli.test.sh
   run ./scripts/provider-remote-https/provider-bridge-contract-smoke.test.sh
 }
 

@@ -42,25 +42,13 @@ Options:
   --release-gate               Enable release defaults (min kinds + core actions)
   --release-gate-profile <p>   Release gate profile: industrial | gameplay | hybrid (default: hybrid)
   --coverage-bootstrap-profile <p>  Deterministic bootstrap before LLM loop: none | industrial | gameplay | hybrid
-  --with-letai-config          Load current LetAI/oasis7 LLM env via scripts/with-letai-llm-config.sh before running
-  --letai-config <path>        Config path passed to --with-letai-config
-  --letai-model <id>           Model passed to --with-letai-config
-  --letai-base-url <url>       Base URL passed to --with-letai-config
-  --with-local-letai-provider-bridge
-                              Run through the local LetAI provider bridge/adapter instead of direct Responses API
   --local-provider-bind <host:port>
-                              Local provider bridge bind/reuse address (default: 127.0.0.1:5841)
-  --local-provider-config <path>
-                              LetAI config passed to run-local-letai-provider-bridge.sh
-  --local-provider-model <id>  Model passed to run-local-letai-provider-bridge.sh
-  --local-provider-auto-topup-usd <amount>
-                              Auto top up amount for local bridge (default: 0.1)
+                              Local provider bridge reuse address (default: 127.0.0.1:5841)
   --reuse-local-provider-bridge
-                              Reuse an already-listening local provider bridge instead of starting one
-  --no-ensure-token-config     Use --local-provider-config directly; do not generate local token config first
-  --proxy <url>                HTTP/HTTPS proxy for local LetAI bridge startup (or $OASIS7_LOCAL_TEST_PROXY_URL; unset by default)
-  --socks-proxy <url>          all_proxy value for local LetAI bridge startup (or $OASIS7_LOCAL_TEST_SOCKS_PROXY_URL; unset by default)
-  --no-default-proxy           Do not set local proxy defaults for bridge startup
+                              Reuse an already-listening local provider bridge
+  --proxy <url>                HTTP/HTTPS proxy for local provider bridge (or $OASIS7_LOCAL_TEST_PROXY_URL; unset by default)
+  --socks-proxy <url>          all_proxy value for local provider bridge (or $OASIS7_LOCAL_TEST_SOCKS_PROXY_URL; unset by default)
+  --no-default-proxy           Do not set local proxy defaults for local provider bridge
   --agent-provider-connect-timeout-ms <n>
                               Provider bridge connect timeout passed to demo (default: 60000)
   --agent-provider-decision-timeout-ms <n>
@@ -96,10 +84,6 @@ Notes:
   - runtime gameplay preset 可注入可续跑的治理事件句柄（待投票提案/活跃危机/待结算合约）
   - state dir 参数仅支持单场景模式（便于构建/复用同一阶段基线）
   - --no-llm-io only disables raw LLM I/O logging; this stress runner still needs an active LLM provider.
-    For direct Responses API diagnostics, use --with-letai-config or wrap this command with
-    ./scripts/with-letai-llm-config.sh -- <command>.
-  - --with-local-letai-provider-bridge uses the local bridge/adapter path backed by
-    scripts/run-local-letai-provider-bridge.sh, including its LetAI auto-topup support.
 
 Output:
   - report json: detailed run metrics emitted by oasis7_llm_agent_demo
@@ -107,97 +91,6 @@ Output:
   - summary: flattened key metrics for quick comparison
 USAGE
 }
-
-maybe_reexec_with_letai_config() {
-  if [[ "${OASIS7_LLM_LONGRUN_STRESS_WRAPPED:-0}" == "1" ]]; then
-    return 0
-  fi
-
-  local help_arg
-  for help_arg in "$@"; do
-    if [[ "$help_arg" == "-h" || "$help_arg" == "--help" ]]; then
-      return 0
-    fi
-  done
-
-  local with_letai_config=0
-  local letai_config=""
-  local letai_model=""
-  local letai_base_url=""
-  local arg
-  local next
-  local -a filtered_args=()
-  local -a wrapper_args=()
-
-  while [[ $# -gt 0 ]]; do
-    arg=$1
-    case "$arg" in
-      --with-letai-config)
-        with_letai_config=1
-        shift
-        ;;
-      --letai-config)
-        with_letai_config=1
-        letai_config="${2:-}"
-        shift 2
-        ;;
-      --letai-model)
-        with_letai_config=1
-        letai_model="${2:-}"
-        shift 2
-        ;;
-      --letai-base-url)
-        with_letai_config=1
-        letai_base_url="${2:-}"
-        shift 2
-        ;;
-      --)
-        filtered_args+=("$arg")
-        shift
-        while [[ $# -gt 0 ]]; do
-          filtered_args+=("$1")
-          shift
-        done
-        ;;
-      *)
-        filtered_args+=("$arg")
-        if [[ $# -gt 1 ]]; then
-          next=$2
-          case "$arg" in
-            --scenario|--scenarios|--ticks|--jobs|--out-dir|--report-json|--log-file|--summary-file|--llm-system-prompt|--llm-short-goal|--llm-long-goal|--prompt-pack|--prompt-switch-tick|--switch-llm-system-prompt|--switch-llm-short-goal|--switch-llm-long-goal|--prompt-switches-json|--llm-execute-until-auto-reenter-ticks|--runtime-gameplay-preset|--load-state-dir|--save-state-dir|--max-llm-errors|--max-parse-errors|--max-repair-rounds-max|--min-active-ticks|--min-action-kinds|--require-action-kind|--release-gate-profile|--coverage-bootstrap-profile|--llm-io-max-chars|--local-provider-bind|--local-provider-config|--local-provider-model|--local-provider-auto-topup-usd|--proxy|--socks-proxy|--agent-provider-connect-timeout-ms|--agent-provider-decision-timeout-ms|--agent-provider-profile)
-              filtered_args+=("$next")
-              shift 2
-              continue
-              ;;
-          esac
-        fi
-        shift
-        ;;
-    esac
-  done
-
-  if (( with_letai_config == 0 )); then
-    return 0
-  fi
-
-  if [[ -n "$letai_config" ]]; then
-    wrapper_args+=(--config "$letai_config")
-  fi
-  if [[ -n "$letai_model" ]]; then
-    wrapper_args+=(--model "$letai_model")
-  fi
-  if [[ -n "$letai_base_url" ]]; then
-    wrapper_args+=(--base-url "$letai_base_url")
-  fi
-
-  echo "+ OASIS7_LLM_LONGRUN_STRESS_WRAPPED=1 $repo_root/scripts/with-letai-llm-config.sh ${wrapper_args[*]-} -- $0 ${filtered_args[*]-}"
-  if (( ${#wrapper_args[@]} > 0 )); then
-    OASIS7_LLM_LONGRUN_STRESS_WRAPPED=1 exec "$repo_root/scripts/with-letai-llm-config.sh" "${wrapper_args[@]}" -- "$0" "${filtered_args[@]}"
-  fi
-  OASIS7_LLM_LONGRUN_STRESS_WRAPPED=1 exec "$repo_root/scripts/with-letai-llm-config.sh" -- "$0" "${filtered_args[@]}"
-}
-
-maybe_reexec_with_letai_config "$@"
 
 run() {
   echo "+ $*"
@@ -266,65 +159,13 @@ start_or_reuse_local_provider_bridge() {
   provider_url=$(local_provider_base_url)
   configure_local_provider_proxy_env
   if local_provider_ready; then
-    if (( reuse_local_provider_bridge == 1 )); then
-      echo "local LetAI provider bridge: reusing $provider_url"
-      return 0
-    fi
-    echo "error: local provider bridge already listening at $provider_url" >&2
-    echo "hint: stop the existing bridge, choose --local-provider-bind <free host:port>, or pass --reuse-local-provider-bridge to accept existing bridge config/token state." >&2
-    exit 2
+    echo "local provider bridge: reusing $provider_url"
+    return 0
   fi
 
-  local effective_provider_config="$local_provider_config"
-  if (( ensure_token_config == 1 )); then
-    effective_provider_config="$out_dir/letai-local-token.env"
-    local -a ensure_cmd=(
-      "$repo_root/scripts/ensure-letai-local-token-config.sh"
-      --out "$effective_provider_config"
-    )
-    if [[ -n "$local_provider_config" ]]; then
-      ensure_cmd+=(--config "$local_provider_config")
-    fi
-    if [[ -n "$local_provider_model" ]]; then
-      ensure_cmd+=(--model "$local_provider_model")
-    fi
-    run "${ensure_cmd[@]}"
-  fi
-
-  local_provider_bridge_log="$out_dir/local-letai-provider-bridge.log"
-  local -a bridge_cmd=(
-    "$repo_root/scripts/run-local-letai-provider-bridge.sh"
-    --bind "$local_provider_bind"
-    --auto-topup-usd "$local_provider_auto_topup_usd"
-  )
-  if [[ -n "$effective_provider_config" ]]; then
-    bridge_cmd+=(--config "$effective_provider_config")
-  fi
-  if [[ -n "$local_provider_model" ]]; then
-    bridge_cmd+=(--model "$local_provider_model")
-  fi
-
-  echo "+ ${bridge_cmd[*]} > $local_provider_bridge_log 2>&1 &"
-  "${bridge_cmd[@]}" >"$local_provider_bridge_log" 2>&1 &
-  local_provider_bridge_pid=$!
-  trap cleanup_local_provider_bridge EXIT INT TERM
-
-  for _ in $(seq 1 90); do
-    if ! kill -0 "$local_provider_bridge_pid" >/dev/null 2>&1; then
-      echo "error: local LetAI provider bridge exited early; log: $local_provider_bridge_log" >&2
-      tail -n 120 "$local_provider_bridge_log" >&2 || true
-      exit 1
-    fi
-    if local_provider_ready; then
-      echo "local LetAI provider bridge: started $provider_url pid=$local_provider_bridge_pid"
-      return 0
-    fi
-    sleep 1
-  done
-
-  echo "error: local LetAI provider bridge did not become ready at $provider_url; log: $local_provider_bridge_log" >&2
-  tail -n 120 "$local_provider_bridge_log" >&2 || true
-  exit 1
+  echo "error: local provider bridge is not listening at $provider_url" >&2
+  echo "hint: start oasis7_provider_local_bridge at $local_provider_bind before passing --reuse-local-provider-bridge." >&2
+  exit 2
 }
 
 ensure_positive_int() {
@@ -1343,43 +1184,14 @@ while [[ $# -gt 0 ]]; do
       coverage_bootstrap_profile_explicit=1
       shift 2
       ;;
-    --with-letai-config)
-      shift
-      ;;
-    --letai-config|--letai-model|--letai-base-url)
-      shift 2
-      ;;
-    --with-local-letai-provider-bridge)
-      with_local_provider_bridge=1
-      shift
-      ;;
     --local-provider-bind)
       with_local_provider_bridge=1
       local_provider_bind=${2:-}
       shift 2
       ;;
-    --local-provider-config)
-      with_local_provider_bridge=1
-      local_provider_config=${2:-}
-      shift 2
-      ;;
-    --local-provider-model)
-      with_local_provider_bridge=1
-      local_provider_model=${2:-}
-      shift 2
-      ;;
-    --local-provider-auto-topup-usd)
-      with_local_provider_bridge=1
-      local_provider_auto_topup_usd=${2:-}
-      shift 2
-      ;;
     --reuse-local-provider-bridge)
       with_local_provider_bridge=1
       reuse_local_provider_bridge=1
-      shift
-      ;;
-    --no-ensure-token-config)
-      ensure_token_config=0
       shift
       ;;
     --proxy)

@@ -83,8 +83,6 @@ Start the lower-level launcher/runtime bootstrap used by wrappers and targeted
 regressions.
 
 Operator-facing playtest entries:
-- Local real LetAI provider-backed playtest:
-  ./scripts/run-local-letai-game-test.sh --local-world-playtest
 - Producer / release manual playtest:
   ./scripts/run-producer-playtest.sh --open-headed
 
@@ -153,7 +151,7 @@ Options:
                            local (default), local-mock (smoke/CI only), test, or prod
   --agent-provider-url <u> Provider bridge URL override for provider_backed mode
   --agent-provider-auth-token <t>
-                           Optional provider bridge bearer token, e.g. newapi_user_ref:<user>
+                           Optional provider bridge bearer token (if configured on the bridge)
   --agent-provider-transport <t>
                            loopback_http (default) or remote_https
   --agent-execution-lane <lane>
