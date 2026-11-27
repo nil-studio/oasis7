@@ -66,19 +66,6 @@ class Selection(unittest.TestCase):
     def plan(self, head=None):
         return selector.select(self.config, self.base, head or self.commit())
 
-    def test_libp2p_compatibility_packages_and_driver_select_network_tests(self):
-        config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('tests/libp2p-compat/common/src/protocol.rs',
-                     'tests/libp2p-compat/candidate/src/main.rs',
-                     'tests/libp2p-compat/legacy/src/main.rs',
-                     'scripts/libp2p-compat.test.py'):
-            with self.subTest(path=path):
-                case_base = self.git('rev-parse', 'HEAD')
-                self.write(path, 'compatibility input')
-                plan = selector.select(config, case_base, self.commit())
-                self.assertIn('net', plan['groups'])
-                self.assertEqual(plan['scope'], 'targeted')
-
     def test_portable_cache_sdk_inputs_require_exact_trusted_ownership(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         old = copy.deepcopy(config)

@@ -116,7 +116,7 @@ Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；O7-REQ-26cefe7a-deb5-4
 
 Trace refs: O7-REQ-e0ae0d80-31ca-488b-8ba2-a728bfb9ce8d；[上游要求](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-005)。
 
-预设区分 `provider_id` 与 `protocol`。保留既有 Responses 路径；Chat Completions 仅在其适配器完成工具往返、流式与用量契约后可启用，不能把 `letai_direct` 文本结果直接当作完整 Harness 工具闭环。DeepSeek 官方已提供 Chat Completions/工具调用说明；其文档也列有 Responses 入口，不能将“只支持 Chat”硬编码成永久产品前提。具体协议随候选配置验证，不做盲目协议探测或失败后隐式改协议。
+预设区分 `provider_id` 与 `protocol`。保留既有 Responses 路径；Chat Completions 仅在其适配器完成工具往返、流式与用量契约后可启用，不能把纯文本直连响应直接当作完整 Harness 工具闭环。DeepSeek 官方已提供 Chat Completions/工具调用说明；其文档也列有 Responses 入口，不能将“只支持 Chat”硬编码成永久产品前提。具体协议随候选配置验证，不做盲目协议探测或失败后隐式改协议。
 
 传输允许域名仅为选定预设的 `api.deepseek.com` 或 `openrouter.ai`，实际 HTTPS origin/path 按已核实的官方协议固定。使用 `redirect: error`，禁止接受模型返回的调用 URL、用户自带代理地址或动态额外认证头；依赖浏览器 TLS/网络安全机制，不声称网页能够检查 DNS 解析后的 IP 或配置主机出站防火墙。
 

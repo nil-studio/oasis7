@@ -494,11 +494,6 @@ class ScopeSliceAndDirectSupportGateTests(_ScopeFixtureBase):
                 {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'command_center'},
                 [],
             ),
-            'tests/libp2p-compat/candidate/Cargo.toml': (
-                '[package]\nname="candidate"\nversion="0.1.0"\n',
-                {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'net'},
-                [],
-            ),
             'tools/wasm_build_suite/templates/minimal_module/Cargo.toml': (
                 '[package]\nname="minimal_module"\nversion="0.1.0"\n',
                 {'baseline', 'rust_baseline', 'cargo_tooling_contracts', 'workspace_support'},
@@ -594,17 +589,20 @@ class ScopeSliceAndDirectSupportGateTests(_ScopeFixtureBase):
                 self.assertFalse(selector.workspace_support_selects_signer_image(
                     dict(mixed_plan, workspace_support_profiles=sorted([*mixed_plan['workspace_support_profiles'], extra]))))
 
-        # Live config (v2): custody crate -> custody_execution_version=1 AND direct gate v2 emitted
+        # Live config (v2, custody offboarded): custody crate -> no custody_execution_version, direct gate v2 emitted, other partition
         self.git('checkout', '-q', self.base)
         self.write('crates/oasis7_custody_worker/src/lib.rs', 'pub fn changed() {}\n')
         custody_head = self.commit()
         custody_plan = selector.select(self.config, self.base, custody_head, profile='pr-fast')
-        self.assertEqual(custody_plan.get('custody_execution_version'), 1)
+        self.assertNotIn('custody_execution_version', custody_plan)
         self.assertEqual(custody_plan.get('workspace_support_direct_gate_version'), 2)
+        self.assertEqual(custody_plan.get('workspace_support_partitions'), ['other'])
 
         # Policy v1 compatibility: emits 1 for non-custody other-only, omits for custody-split
         v1_config = copy.deepcopy(self.config)
         v1_config['workspace_support_direct_gate_version'] = 1
+        v1_config['custody_execution_version'] = 1
+        v1_config['custody_node_shards_version'] = 2
         ctx_v1 = selector.select(v1_config, self.base, ctx_head, profile='pr-fast')
         self.assertEqual(ctx_v1.get('workspace_support_direct_gate_version'), 1)
         custody_v1 = selector.select(v1_config, self.base, custody_head, profile='pr-fast')

@@ -302,7 +302,6 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
   - SC-17A: p2p 模块的 iroh-inspired reachability follow-up 必须保持 oasis7/libp2p 底座不变，只借鉴 identity-first address boundary、path behavior evidence taxonomy 与 bounded status observability；不得引入 iroh 依赖、替换 libp2p、或新增第二套 net health truth。
   - SC-18: 当前链上代币的正式产品命名、runtime `main_token.symbol` / ticker 与公钥派生账户前缀已统一迁移到“绿洲币 / Oasis Coin” / `OC` / `oc:pk:`；对外 API、viewer/client、脚本与测试不得再把 `AWT` / `awt:pk:` 当作现行真值。
   - SC-19: 当前本机 + 2 ECS real-env triad 必须具备一条可审计的“三节点等权 validator”落地路径，明确 validator set、signer binding、static bootstrap、same-window snapshot evidence 与 residual legacy service naming 的边界；当 execution world 已存在 `governance_finality_signer_registry` 时，节点启动/恢复必须优先从该 world-state registry 恢复 validator membership 与 signer binding，而不是继续把 role-separated `observer + sequencer + storage` 或 operator-local env 当成唯一真值拓扑。
-  - SC-20: `oasis7` 可以通过独立部署的 bridge-service，把已确认的 `OC` 充值映射为 LetAI Run OpenAPI 的用户额度与动态项目 `token_key`，同时冻结“只支持 one-way service-credit bridge，不是公开兑换所、不是 AMM、也不支持自动提现回 OC”的对外口径。
   - SC-21: `hosted_public_join` 必须具备一条对普通玩家友好的正式身份路径：默认推荐通行密钥、邮箱为可选兼容方式；账号接入遵循[多凭证合同](blockchain/hosted-public-join-key-based-onboarding.prd.md)，托管 player signer 与后续自托管升级；浏览器不再被要求作为长期玩家私钥保管面。
   - SC-26: 面向普通用户的 game / web / client launcher 默认进入 `hosted_public_join`，并不再暴露 `trusted_local_only` 本地可信预览作为可选启动模式；历史本地配置迁移到 hosted join 后继续走 hosted account / player session 链路，账号认证按多凭证合同推荐通行密钥、保留可选邮箱。
   - SC-22: validator / finality signer 必须具备一条正式的治理准入流程，至少覆盖 `genesis registry cold start -> apply -> approved_candidate -> probation_ready -> active -> rotate/revoke`，并明确 world-state registry 才是正式激活真值；正式激活真值必须同时覆盖 validator membership、governed stake 与 finality signer binding，public tiers 的冷启动必须来自 genesis/world-state registry，且 genesis runtime import 只允许空 execution world 首启，已有 snapshot/journal world 必须走专用 registry migration/import；`--node-validator*` / `NODE_VALIDATORS_CSV` 与 operator-local env 只能作为 local/dev legacy fallback 或一次性迁移适配输入。
@@ -358,7 +357,6 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
   - PRD-P2P-024: As a producer_system_designer, I want one public-chain-grade private-reachability P2P architecture, so that oasis7 不再把“所有正式节点都要有公网 IP”当成默认前提，并能在 mixed-topology 现实下继续对标公共主链。
   - PRD-P2P-025: As a producer_system_designer, I want one canonical triad observability stack, so that 当前 real-env triad（物理上为本机 + 2 ECS，runtime 上已收口为 three_equal_validator，历史 service label 仅作兼容别名）的真实运行状态可以在同一轮监控里同时回答资源、链状态、流量、WASM 健康，并进一步定位到具体 runtime 子模块和优化热点。
   - PRD-P2P-026: As a producer_system_designer, I want the live triad to support a three-equal-validator topology, so that the local node is no longer a permanent observer exception and triad semantics can match “three peer-equal validators” when operations explicitly choose that mode.
-  - PRD-P2P-027: As a producer_system_designer, I want one canonical one-way `OC -> LetAI Run OpenAPI quota/token_key` bridge model, so that oasis7 可以把当前主链 Token 用作受控的 AI 服务额度充值资产，同时不误滑成公开兑换所、浏览器热钱包或双向提现承诺。
   - PRD-P2P-028: As a producer_system_designer, I want one formal public-chain-style network-tier mechanism, so that oasis7 can stop treating `public_testnet_rehearsal`、`public_testnet` and `mainnet` as informal aliases and instead promote networks through explicit manifest + gate truth.
   - PRD-P2P-028A: As a `producer_system_designer`, I want one idealized transaction target model, so that主链交易未来从“转账裸参数”升级为统一协议对象时，有一份不受当前实现约束的长期目标态可对齐。
   - PRD-P2P-029: As a producer_system_designer, I want one explicit hosted-public-join managed identity / custody model, so that普通玩家可以通过推荐通行密钥或可选邮箱登录游戏，而不是被迫管理裸公私钥，同时 hosted player signer、step-up auth 与自托管升级路径都保持在可审计边界内。
@@ -387,7 +385,6 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
   21. Flow-P2P-021: `读取 MAINNET-1~3 当前状态 -> 判断哪些仅为 spec gate、哪些已 execution complete -> 冻结 claim allowlist/denylist 与未来升级条件`
   22. Flow-P2P-022: `读取 testing-manual 与安全/readiness 专题 -> 映射 oasis7 当前测试层 -> 对照主流公链 testing benchmark -> 冻结 gap matrix 与下一步验证优先级`
   23. Flow-P2P-023: `host 启动 hosted access -> public join 先过 admission control -> 远程访客建 guest/player session -> runtime 按 capability 绑定实体与动作 -> `gui-agent` 仅走 player-safe split surface -> 资产/治理类动作再升级 strong auth`
-  24. Flow-P2P-024: `用户绑定 bridge 身份 -> bridge-service 分配唯一 deposit route -> 用户通过受信转账面支付 OC -> bridge watcher 等待确认并写入 bridge_ledger -> LetAI OpenAPI 执行 user upsert / project+token_key / topup / query verification -> operator 对账与异常收口`
   25. Flow-P2P-025: `访客通过推荐通行密钥或可选邮箱从 guest 升级到 hosted account -> identity broker 恢复账户与 signer_ref -> session broker 签发 device/player session -> 高风险动作再经 step-up + custody sign -> 如需退出托管则走 external wallet bind / transfer-out`
   26. Flow-P2P-026: `同一 world_id/chain_id/genesis/manifest + action/event 输入 -> 单节点执行生成 execution record/receipt/state hash -> 多节点 consensus/replication 收敛 -> DistFS/blob closure 可验证 -> observer 自动追高 -> API/viewer 读取同一 world state -> S10/public-testnet gate 再决定是否升级 claim`
 - Functional Specification Matrix:
@@ -453,7 +450,6 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
   - AC-33: `TASK-P2P-047` 必须把当前链上代币的创世 `initial_supply` 冻结为 `10,000,000,000 OC`，并把 7 个 bucket 的绝对分配额、首年外部释放绝对边界与 formal freeze sheet 的 supply gate 同步回写到 token 专题与模块执行台账。
   - AC-34: `triad-observability-stack` 必须把 real-env triad 的 host/process、chain status、traffic window、wasm window 收敛到统一 repo-owned 监控入口，并在 `testing-manual.md` 冻结 canonical 命令与产物路径。
   - AC-35: `triad-three-equal-validator-topology` 必须把当前 real-env triad 从“本机 observer + 两台云端 validator”提升为“三节点等权 validator”可审计基线，至少覆盖：`3` 个 validator 的 stake/signer binding、local 节点不再以 observer-only 角色运行、repo-owned snapshot/manual 不再把 `partial_with_observer_blocker` 当成唯一有效 claim、same-window evidence 对 legacy service label 与真实 runtime role 的区分，以及 `oasis7_chain_runtime` 在 execution world 已落盘 `governance_finality_signer_registry` 时会优先用该 world-state registry 恢复 validator membership / signer binding；`--node-validator*` 只保留为 bootstrap 或显式运维覆盖。
-  - AC-36: `mainchain-token-newapi-quota-bridge` 专题文档落盘并映射任务链，明确 `one-way OC -> LetAI Run OpenAPI quota`、bridge-service 独立部署、唯一入账映射、`bridge_ledger` 幂等对账、动态 project/`token_key`、query verification 与 manual review 风控，以及“不支持自动提现/不承诺公开兑换所”边界。
   - AC-37: `formal-network-tiers-testnet-mechanism` 专题文档与 repo-owned skeleton 必须落盘并映射任务链 `formal-network-tiers-testnet-mechanism (PRD-P2P-028)`，明确 `local_devnet/public_testnet/mainnet` 三层 operator/runtime network-tier 模型、`public_testnet_rehearsal` 的 legacy/rehearsal evidence 边界、`network_tier_manifest` 字段集合、`public_testnet` 的 public RPC/explorer/faucet/reset 语义，以及 `mainnet` 的 `no faucet + frozen reset + MAINNET-1~4` gate；这些 tier 不作为玩家世界模型。
   - AC-38: `hosted-public-join-managed-identity-custody` 专题文档必须落盘并映射任务链 `hosted-managed-identity-doc-freeze (PRD-P2P-029)`，明确 hosted account、多凭证登录（推荐通行密钥、邮箱可选）、`signer_ref`、device session、step-up auth、托管退出与“默认不让玩家管理裸私钥”的正式产品边界。
   - AC-38A: 稳定权威 `mainchain-token-ideal-transaction` 承接 `ideal-transaction-model-doc-freeze (PRD-P2P-028A)` 与 `PRD-P2P-ITX-001/002/003`：明确 signed metadata 字段、完整 JSON、签名域、回执与 Phase 1 最小升级集；fee quote 仍是 metadata-only，真实 fee/auth execution 属于独立 Phase 2+，不得误称当前实现真值。
@@ -486,7 +482,6 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
   - `doc/p2p/blockchain/hosted-player-access-operator-runbook.md`
   - `doc/p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md`
   - `doc/p2p/network/mainnet-private-reachability-architecture.prd.md`
-  - `doc/p2p/token/mainchain-token-newapi-quota-bridge.prd.md`
   - `doc/p2p/token/mainchain-token-ideal-transaction.prd.md`
   - `doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.prd.md`
   - `doc/product/world-rules-core-gameplay/prd.md`
@@ -522,8 +517,6 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
   - fallback 误分类：若 replication fallback 仍依赖多层自由文本 contains 匹配，就可能把可等待的 availability gap、不可等待的 route unavailable 与真正 unsupported handler 混成同一类；判定必须收敛到共享 classifier 与稳定 prefix。
   - 权限混层：若 guest/player session 在没有强鉴权的情况下能执行资产转账、治理或高风险 prompt/control，则必须回退到 hosted access 权限设计审查。
   - admission 失控：若 public join 在没有 `max_guest/max_player/rate_limit/world_full_policy` 的情况下无界签发 session，则必须回退到 hosted access admission 设计审查。
-  - bridge 错配：若 bridge-service 无法把一笔 `OC` 入账唯一映射到一个 LetAI `platform_user_id`、`platform_project_id`、`external_order_id` 或 `token_key`，则必须停在 `manual_review`，不得把共享收款账户上的模糊入账自动折算成 quota。
-  - credit 半成功：若链上入账已确认、`bridge_ledger` 已写入，但 LetAI OpenAPI 的 user/project/topup/query 任一步失败，则必须保留幂等重试键并阻止重复入账，不得靠人工重复发放覆盖。
 - Non-Functional Requirements:
   - NFR-P2P-1: 多节点长跑稳定性指标持续达标并可追溯。
   - NFR-P2P-2: 共识提交与复制链路关键失败模式覆盖率 100%。
@@ -553,7 +546,6 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
   - NFR-P2P-26: hosted access public join origin 默认不得暴露 runtime/control start/stop、chain start/stop 或 operator-only GUI action 入口；能力不足时前后端都必须拒绝。
   - NFR-P2P-27: hosted access public join 必须具备有界 admission control，至少冻结 `max_guest_sessions/max_player_sessions/issue_rate_limit/world_full_policy`，且超限时返回结构化拒绝。
   - NFR-P2P-28: `doc/p2p/**` 活跃文档、token 专题、模块入口与 runtime/account 相关实现提到当前链上代币时，必须统一使用“绿洲币 / Oasis Coin” / `OC` / `oc:pk:` 作为现行真值；`AWT` / `awt:pk:` 仅允许保留在明确标注的历史语境或兼容说明中。
-  - NFR-P2P-29: `OC -> LetAI Run OpenAPI` bridge 必须坚持 `one-way service-credit only`、独立 bridge-service、唯一入账映射、`bridge_ledger` 幂等对账、动态 project/`token_key` 持久化与 operator-review fallback；在公开钱包体系、生产级 custody、双向兑回与价格发现机制缺失前，任何“公开兑换所”“自动提现”“浏览器直连热钱包充值”口径都不得进入 allowlist。
   - NFR-P2P-30: `hosted_public_join` 的正式产品路径按[多凭证合同](blockchain/hosted-public-join-key-based-onboarding.prd.md)推荐通行密钥、保留可选邮箱，并保持服务端托管 player signer 与后续自托管升级；在浏览器仍长期持有托管私钥、账户恢复仍依赖手抄私钥或高风险动作仍没有正式 step-up + custody sign lane 之前，不得声称“任意新用户都已有安全可用的 hosted account + wallet”。
 - Security & Privacy: 需保证节点身份、签名、账本与反馈数据链路的完整性；所有关键动作必须具备可审计记录。
 
@@ -600,7 +592,6 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
 | PRD-P2P-024 | TASK-P2P-043 | `test_tier_required` | 非全公网覆盖网络专题 PRD/project/design 建档、deployment mode / role model / peer record / reachability / traffic lanes 与 claims gate 冻结；2026-06-15 补齐 peer reachability contract、path behavior matrix taxonomy 与 no-iroh/no-libp2p-replacement 边界 | mixed-topology 网络边界、私网节点参与能力与后续框架拆解排序 |
 | PRD-P2P-025 | triad-observability-stack | `test_tier_required` | triad host/process monitor、merged observability summary、testing manual 入口、fixture 回归与 real-env smoke；2026-06-15 补齐 bounded reachability/path summary projection 边界 | 当前 real-env triad（本机 + 2 ECS，runtime 已为 three_equal_validator）的 canonical 运维监控入口，并显式区分 legacy service label 与真实 runtime role |
 | PRD-P2P-026 | triad-three-equal-validator-topology | `test_tier_required` | live triad validator-set/signer/bootstrap 改造、same-window snapshot evidence、testing manual claim 口径更新与 legacy service label 边界说明 | 三节点等权 validator 拓扑、live 运维真值与 mixed-topology 历史边界 |
-| PRD-P2P-027 | mainchain-token-newapi-quota-bridge-proposal | `test_tier_required` | `OC -> LetAI Run OpenAPI quota` 专题 PRD/design/project 建档、one-way bridge boundary、独立 bridge-service、唯一入账映射、`bridge_ledger` 状态机、动态 project/`token_key`、query verification 与 operator risk gate 冻结 | 链上资产到 AI 服务内部额度的受控桥接口径与后续实现排序 |
 | PRD-P2P-028 | formal-network-tiers-testnet-mechanism | `test_tier_required` | 正式网络分层 / testnet 机制专题 PRD/design/project 建档、`network_tier_manifest` 脚本+smoke+example manifests、`testing-manual` 入口、current verdict 冻结与 `public_testnet` live-candidate checklist companion runbook | 公共主链式 `local_devnet/public_testnet/mainnet` 目标分层口径、`public_testnet_rehearsal` legacy/rehearsal evidence 边界、manifest 真值、live-candidate checklist 与后续 runtime/liveops 接线排序；不表示 public launch、mainnet、production OC settlement、public validator admission 或 no-reset release；当前 live-candidate 口径以 11-lane readiness script / claims boundary evidence 为准 |
 | PRD-P2P-028A | ideal-transaction-model-doc-freeze | `test_tier_required` | 理想化交易升级专题 `prd/design/project` 建档、字段分组、完整 JSON 草案、完整签名域建议、理想回执与最小理想升级集冻结 | 主链交易长期目标模型与未来协议升级对齐基线 |
 | PRD-P2P-029 | hosted-managed-identity-doc-freeze | `test_tier_required` | hosted-public-join 托管身份 / 托管密钥专题 PRD/design/project 建档、hosted account/device session/`signer_ref`/step-up auth/self-custody upgrade 边界冻结、模块入口映射与文档门禁 | 普通玩家 hosted onboarding、player custody 产品边界与后续实现排序 |

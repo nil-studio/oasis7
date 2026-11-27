@@ -27,7 +27,7 @@ def workspace_support_fixture_functions(driver):
         return prefix + 'source "$driver_dir/ci-tests.sh"\n'
     # Extract the real transitive shell dependency, rather than supplying a
     # no-op helper, for historical drivers without the source interface.
-    names = ('run_worker_wasm_compile_profiles',
+    names = ('run_dev_test_worker_checks',
              'run_oasis7_workspace_support_crate_tests')
     functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}',
                            driver, re.M | re.S).group() for name in names]
@@ -243,46 +243,35 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
 
     def test_workspace_support_runs_real_worker_compile_helper_and_propagates_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        self.assertIn('run_worker_wasm_compile_profiles()', driver)
         functions = workspace_support_fixture_functions(driver)
-        script = "set -euo pipefail\n" + functions + """run_signed_read_protocol_contract_tests() { :; }
-run_cargo() { :; }
-run_cargo_clippy() { :; }
-run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
+        script = "set -euo pipefail\n" + functions + """
+declare -F run_worker_wasm_compile_profiles >/dev/null
+run_signed_read_protocol_contract_tests() { :; }
+run_game_client_cli_contracts() { :; }
+run_cargo() { printf 'cargo %s\\n' "$*" >> "$SUPPORT_CAPTURE"; }
+run_cargo_clippy() { printf 'clippy %s\\n' "$*" >> "$SUPPORT_CAPTURE"; }
+run() { printf 'run %s\\n' "$*" >> "$SUPPORT_CAPTURE"; if [[ "$*" == *"verify.sh"* ]]; then return "${VERIFY_RESULT:-0}"; fi; }
+worker-build() { echo "0.7.5"; }
 """ + "\nrun_oasis7_workspace_support_crate_tests\n"
-        features = ('identity', 'owner', 'executor', 'recovery-fence',
-                    'owner,approval-harness', 'identity,native-runtime-harness')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            manifest = root / 'crates/oasis7_custody_worker/Cargo.toml'
-            manifest.parent.mkdir(parents=True)
-            # A closed manifest fixture keeps this shell-consumer proof separate
-            # from the conditional future-profile contracts in the Python suite.
-            names = sorted({name for profile in features for name in profile.split(',')})
-            manifest.write_text('[features]\ndefault = []\n'
-                                + ''.join(name + ' = []\n' for name in names))
-            binary = root / 'bin'
-            binary.mkdir()
-            capture = root / 'cargo-command-capture'
-            cargo = binary / 'cargo'
-            # This executable captures argv only; no real Cargo or compiler runs.
-            cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\nexit "$WORKER_COMPILE_RESULT"\n')
-            cargo.chmod(0o755)
-            environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
-                               WORKER_COMPILE_CAPTURE=str(capture), WORKER_COMPILE_RESULT='0')
+            capture = root / 'support-capture'
+            environment = dict(os.environ, SUPPORT_CAPTURE=str(capture), VERIFY_RESULT='0')
             result = subprocess.run(['bash', '-c', script], cwd=root, env=environment,
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            expected = ['check -p oasis7_custody_worker --target wasm32-unknown-unknown '
-                        '--no-default-features --features ' + feature + ' --locked'
-                        for feature in features]
-            self.assertEqual(capture.read_text().splitlines(), expected)
+            lines = capture.read_text().splitlines()
+            self.assertIn('run bash crates/oasis7_dev_test_worker/scripts/verify.sh', lines)
+            self.assertIn('cargo test -p oasis7_custody_core --all-targets --locked', lines)
+            self.assertFalse(any('oasis7_custody_worker' in line for line in lines))
             capture.unlink()
-            environment['WORKER_COMPILE_RESULT'] = '42'
+            environment['VERIFY_RESULT'] = '42'
             failed = subprocess.run(['bash', '-c', script], cwd=root, env=environment,
                                     text=True, capture_output=True)
-            self.assertNotEqual(failed.returncode, 0)
-            self.assertIn('exit status 42', failed.stderr)
-            self.assertEqual(capture.read_text().splitlines(), expected[:1])
+            self.assertEqual(failed.returncode, 42)
+            self.assertEqual(capture.read_text().splitlines(),
+                             ['run bash crates/oasis7_dev_test_worker/scripts/verify.sh'])
 
     def test_private_context_macos_uses_fixed_toolchain_and_declared_resource(self):
         fleet = JOBS['fleet-health']
@@ -374,7 +363,11 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             def invoke(extra=None):
                 capture.unlink(missing_ok=True)
                 verify_capture.unlink(missing_ok=True)
-                script = 'set -euo pipefail\n' + scripts_by_component[environment['CUSTODY_COMPONENT']]
+                script = (
+                    'set -euo pipefail\n'
+                    'run_worker_wasm_compile_profiles() { printf "compile-profiles\\n" >> "$WORKER_COMPILE_CAPTURE"; return "${WORKER_COMPILE_RESULT:-0}"; }\n'
+                    + scripts_by_component[environment['CUSTODY_COMPONENT']]
+                )
                 return subprocess.run(['bash', '-c', script], cwd=root, env=environment | (extra or {}),
                                       text=True, capture_output=True)
             for signer in (False, True):
@@ -385,10 +378,6 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                     git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'signer profile')
                     plan['tested_sha'] = git('rev-parse', 'HEAD')
                     environment['OASIS7_SUPPORT_TESTED_SHA'] = plan['tested_sha']
-                selected = [*features, *(['executor,execution-signer-harness', 'identity,execution-signer-harness',
-                                         'owner,execution-signer-harness', 'recovery-fence,execution-signer-harness'] if signer else [])]
-                expected = ['check -p oasis7_custody_worker --target wasm32-unknown-unknown '
-                            '--no-default-features --features ' + feature + ' --locked' for feature in selected]
                 for proof, component, stage in [(False, 'wasm-approval', 'wasm-approval'),
                                                 (True, 'wasm-approval', 'wasm-approval-artifacts'),
                                                 (True, 'wasm-contracts', 'wasm-contracts')]:
@@ -406,15 +395,14 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertEqual(verify_capture.read_text().splitlines(), ['--stage ' + stage])
                         actual = capture.read_text().splitlines() if capture.exists() else []
-                        self.assertEqual(actual, [] if stage == 'wasm-approval-artifacts' else expected)
+                        self.assertEqual(actual, [] if stage == 'wasm-approval-artifacts' else ['compile-profiles'])
                         failed = invoke({'VERIFY_RESULT': '37'})
                         self.assertEqual(failed.returncode, 37)
                         self.assertFalse(capture.exists())
                         if stage != 'wasm-approval-artifacts':
                             failed = invoke({'WORKER_COMPILE_RESULT': '42'})
-                            self.assertNotEqual(failed.returncode, 0)
-                            self.assertIn('exit status 42', failed.stderr)
-                            self.assertEqual(capture.read_text().splitlines(), expected[:1])
+                            self.assertEqual(failed.returncode, 42)
+                            self.assertEqual(capture.read_text().splitlines(), ['compile-profiles'])
                         invalid_contexts = ({'CUSTODY_SELECTION_SHA256': '0' * 64},
                                             {'OASIS7_SUPPORT_POLICY_SHA': 'c' * 40}) if proof else ()
                         for invalid in invalid_contexts:

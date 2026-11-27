@@ -88,7 +88,7 @@ Node snapshot 与目录存储观测到奖励运行时输入的宿主适配由实
 
 `oasis7` owns the shared world library and no executable targets. `oasis7_launcher_backend` owns game/Web launcher backends; `oasis7_viewer_runtime` owns viewer processes; `oasis7_client_cli` and `oasis7_ops_tools` own client commands and world operations. The lightweight `oasis7_protocol_tools` owns transfer submission/signing and strict rollback audit evidence creation without normal/build dependencies on Runtime or Wasmtime; real Runtime signature interoperability remains a dev test through direct `oasis7_runtime` (`default-features=false`, `features=[test_tier_required]`) and `oasis7_world_service` (`default-features=false`, `features=[]`) dependencies. Protocol Tools no longer depends on the umbrella in any dependency kind. `oasis7_simulator` owns `oasis7_init_demo` and its scenario integration tests. Other Ops tools retain their default Wasmtime and test tiers.
 
-Newapi service, local provider bridge and provider diagnostics/benchmarks have separate package ownership. Observability, hosted-access policy and LetAI credit adaptation are shared libraries; libraries and executables must not borrow another binary's source.
+Bridge service, local provider bridge and provider diagnostics/benchmarks have separate package ownership. Observability and hosted-access policy are shared libraries; libraries and executables must not borrow another binary's source.
 
 Client CLI production defaults exclude Wasmtime/libp2p. Entrypoints that execute local worlds, resolve authoritative simulator configuration or serve viewers retain explicit world-library dependencies instead of duplicating protocol, authorization or recovery logic. Executable names, CLI, serialized formats and persistence behavior remain unchanged.
 

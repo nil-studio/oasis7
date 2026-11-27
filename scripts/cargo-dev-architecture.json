@@ -1940,6 +1940,25 @@
       ],
       "required_profiles": ["default", "lightweight", "test_tier_required", "test_tier_full"],
       "test_kinds": ["normal", "build", "dev"]
+    },
+    {
+      "key": "viewer-codec-umbrella-retirement",
+      "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology",
+      "roots": [{ "name": "oasis7_viewer_codec", "source": null, "version": "0.1.0" }],
+      "forbidden": [{ "name": "oasis7" }],
+      "kinds": ["normal", "build"],
+      "declaration_kinds": ["normal", "build", "dev"],
+      "profiles": [
+        { "id": "default", "target": "host", "default_features": true, "features": [], "mode": "production" },
+        { "id": "lightweight", "target": "host", "default_features": false, "features": [], "mode": "production" },
+        { "id": "wasm-default", "target": "wasm32-unknown-unknown", "default_features": true, "features": [], "mode": "production" },
+        { "id": "wasm-lightweight", "target": "wasm32-unknown-unknown", "default_features": false, "features": [], "mode": "production" },
+        { "id": "test_tier_required", "target": "host", "default_features": true, "features": ["test_tier_required"], "mode": "test" }
+      ],
+      "allows": ["Viewer codec calls native L2/L4 owners on both host and wasm32 without oasis7 umbrella"],
+      "exceptions": [],
+      "required_profiles": ["default", "lightweight", "wasm-default", "wasm-lightweight", "test_tier_required"],
+      "test_kinds": ["normal", "build", "dev"]
     }
   ]
 }

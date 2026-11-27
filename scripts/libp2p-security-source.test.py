@@ -75,28 +75,6 @@ class NetworkSourceContract(unittest.TestCase):
         core = [p for p in lock if p["name"] == "netlink-packet-core"]
         self.assertEqual([p["version"] for p in core], ["0.9.0"])
 
-    def test_compat_fixtures_share_only_the_interface_watcher_patch(self):
-        for mode in ("legacy", "candidate"):
-            fixture = ROOT / "tests/libp2p-compat" / mode
-            manifest = tomllib.loads((fixture / "Cargo.toml").read_text())
-            self.assertEqual(sorted(manifest["patch"].keys()), ["crates-io"])
-            self.assertEqual(manifest["patch"]["crates-io"]["if-watch"]["path"],
-                             "../../../vendor/if-watch-3.2.2")
-            dep = manifest["dependencies"]["libp2p"]
-            packages = tomllib.loads((fixture / "Cargo.lock").read_text())["package"]
-            if mode == "legacy":
-                self.assertEqual(dep["version"], "=0.56.0")
-            else:
-                self.assertEqual((dep["git"], dep["rev"]), (URL, REVISION))
-                for name in ("libp2p", "libp2p-swarm", "libp2p-quic"):
-                    selected = [p for p in packages if p["name"] == name]
-                    self.assertEqual(len(selected), 1)
-                    self.assertEqual(selected[0]["source"], f"git+{URL}?rev={REVISION}#{REVISION}")
-            self.assertFalse(any(p["name"] == "paste" for p in packages))
-            watcher = [p for p in packages if p["name"] == "if-watch"]
-            self.assertEqual(len(watcher), 1)
-            self.assertNotIn("source", watcher[0])
-
     def test_swarm_snapshot_matches_upstream_sources(self):
         vendor = ROOT / "vendor/libp2p-swarm-0.49.0"
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())

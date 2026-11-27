@@ -330,8 +330,10 @@ class WorkflowCorePart13(unittest.TestCase):
                                                       JOBS['custody-native-contracts'], re.M | re.S)
                           if 'name: Execute complete custody WASM compile proofs\n' in step)
         step_condition = re.search(r'^        if: (.+)$', proof_step, re.M)[1]
+        legacy_capable = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
+                              custody_policy_tests_version=1, custody_node_shards_version=2)
         for version in ('new', 'old-custody', 'legacy'):
-            policy = dict(CONFIG)
+            policy = dict(legacy_capable)
             if version != 'new':
                 del policy['custody_compile_proof_version']
                 del policy['custody_policy_tests_version']
@@ -352,14 +354,17 @@ class WorkflowCorePart13(unittest.TestCase):
                 self.assertEqual(step_runs, version == 'new')
 
     def test_current_workflow_preserves_the_fixed_historical_custody_source_protocol(self):
-        old = {key: value for key, value in CONFIG.items()
+        legacy_capable = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
+                              custody_policy_tests_version=1, custody_node_shards_version=2)
+        legacy_capable.pop('workspace_support_direct_gate_version', None)
+        old = {key: value for key, value in legacy_capable.items()
                if key not in ('custody_compile_proof_version', 'custody_policy_tests_version')}
         for event in ('workflow_dispatch', 'pull_request', 'push'):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
                 result, outputs, plan, policy, source = self.run_selection(
                     directory, event=event, source_ref='candidate' if event == 'workflow_dispatch' else '',
                     candidate=event != 'workflow_dispatch', ref='refs/heads/main' if event == 'push' else None,
-                    candidate_config=old)
+                    policy_config=legacy_capable, candidate_config=old)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertNotEqual(source, policy)
                 self.assertEqual(plan['custody_execution_version'], 1)

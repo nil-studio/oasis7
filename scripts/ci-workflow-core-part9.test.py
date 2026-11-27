@@ -299,7 +299,7 @@ class WorkflowCorePart9(unittest.TestCase):
         compiler_step = ('Verify the preinstalled WASM C compiler' if rust_image_cache_namespace('net', net)
                          else 'Install WASM C compiler')
         self.assertLess(net.index(compiler_step), net.index('Execute selected group'))
-        for check in ('scripts/libp2p-security-source.test.py', 'scripts/libp2p-compat.test.py',
+        for check in ('scripts/libp2p-security-source.test.py',
                       'CC_wasm32_unknown_unknown=clang', 'AR_wasm32_unknown_unknown=llvm-ar',
                       'cargo check -p oasis7_net --no-default-features --target wasm32-unknown-unknown --locked',
                       'cargo check -p oasis7_node --features libp2p --target wasm32-unknown-unknown --locked'):
