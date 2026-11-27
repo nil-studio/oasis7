@@ -78,8 +78,7 @@ impl RemoteFormalEndpoint {
             sequence_element: size_of::<FormalRequestStateV1>()
                 .max(size_of::<String>())
                 .max(size_of::<Vec<u8>>()),
-            map_pair: size_of::<(String, String)>()
-                .max(size_of::<(String, Vec<u8>)>()),
+            map_pair: size_of::<(String, String)>().max(size_of::<(String, Vec<u8>)>()),
             set_element: size_of::<String>(),
             box_pointee: size_of::<FormalRequestStateV1>(),
             default_heap_per_value: size_of::<String>(),
