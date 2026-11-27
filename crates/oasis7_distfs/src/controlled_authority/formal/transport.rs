@@ -15,7 +15,7 @@ mod wire;
 pub(crate) use client::VerifiedNativeRpcContextV1;
 pub use client::{RemoteFormalEndpoint, VerifiedEndpointObservationV1};
 pub use durable_set::{DurableSetCandidateServerV1, RemoteDurableSetCandidateV1};
-pub use server::FormalEndpointServer;
+pub use server::{FormalEndpointServer, FormalRpcFrameAdmissionLimitsV1};
 pub(crate) use wire::{Command, Request, RequestBody, Response, ResponseBody, Value};
 pub(crate) const REQUEST_DOMAIN: &str = "oasis7.formal.endpoint.rpc.request.v1";
 pub(crate) const RESPONSE_DOMAIN: &str = "oasis7.formal.endpoint.rpc.response.v1";
