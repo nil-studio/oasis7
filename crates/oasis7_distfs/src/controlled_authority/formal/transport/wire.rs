@@ -177,6 +177,35 @@ pub(super) fn write<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(
         .and_then(|_| stream.write_all(&bytes))
         .map_err(io)
 }
+/// Signatures and original response serialization stay unchanged. A paid
+/// Query's genuine DTO, clone and CBOR workspace fees are already reserved by
+/// the caller and remain live until this physical write finishes. Charge the
+/// *same process-lifetime* Work for the actual reply before any socket write.
+/// No new pool, meter, or accepted/qualified execution token is created here.
+pub(super) fn write_prepaid_query_reply<T: Serialize>(
+    stream: &mut TcpStream,
+    value: &T,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+) -> Result<(), FormalError> {
+    work.consume_steps(1, &mut || false)?;
+    let bytes = serde_cbor::to_vec(value).map_err(|e| invalid(e.to_string()))?;
+    if bytes.len() > LIMIT {
+        return Err(invalid("formal RPC bounded frame"));
+    }
+    let total = bytes
+        .len()
+        .checked_add(4)
+        .ok_or_else(|| invalid("formal paid Query wire length"))?;
+    work.charge(
+        1,
+        u64::try_from(total).map_err(|_| invalid("formal paid Query wire layout"))?,
+        &mut || false,
+    )?;
+    stream
+        .write_all(&(bytes.len() as u32).to_be_bytes())
+        .and_then(|_| stream.write_all(&bytes))
+        .map_err(io)
+}
 /// Explicit server-side admission of the original transport *frame* before
 /// allocating the 64 MiB raw body. This deliberately does not certify the
 /// subsequently decoded Request DTO, its signing, or an accepted GEN result.
