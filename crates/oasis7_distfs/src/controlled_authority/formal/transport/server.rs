@@ -17,7 +17,7 @@ pub struct FormalEndpointServer {
     timeout: Duration,
     frame_admission: Option<(
         oasis7_proto::memory_budget::MemoryBudget,
-        super::super::FormalArchiveReadWorkV1,
+        super::super::endpoint::FormalArchiveReadWorkV1,
     )>,
     last_rpc: std::time::Instant,
     #[cfg(test)]
@@ -51,7 +51,7 @@ impl FormalEndpointServer {
                     0,
                 )
                 .map_err(|_| invalid("formal RPC frame admission memory"))?;
-                let work = super::super::FormalArchiveReadWorkV1::new(
+                let work = super::super::endpoint::FormalArchiveReadWorkV1::new(
                     limit.work_steps,
                     limit.work_bytes,
                 )?;
