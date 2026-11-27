@@ -861,16 +861,19 @@ class Ownership(unittest.TestCase):
             data = cached_manifest(pkg)
             if pkg == 'oasis7_runtime_host':
                 data['dependencies']['url'] = '2'
-                data.setdefault('target', {})['cfg(not(target_arch = "wasm32"))'] = {
-                    'dependencies': {
+                (
+                    data.setdefault('target', {})
+                    .setdefault('cfg(not(target_arch = "wasm32"))', {})
+                    .setdefault('dependencies', {})
+                    .update({
                         'blake3': '1',
                         'hex': '0.4',
                         'oasis7_model_provider': {'path': '../oasis7_model_provider'},
                         'reqwest': {'version': '0.13.4', 'default-features': False, 'features': ['blocking', 'json', 'rustls']},
                         'toml': '0.9.12',
                         'tracing': '0.1',
-                    }
-                }
+                    })
+                )
                 data['dev-dependencies'] = {
                     'oasis7_hosted_access': {'path': '../oasis7_hosted_access', 'features': ['test-support']},
                     'oasis7_runtime': {'path': '../oasis7_runtime', 'default-features': False, 'features': ['test-support']},
@@ -878,6 +881,11 @@ class Ownership(unittest.TestCase):
             return data
 
         self.check_runtime_host_dependency_boundaries(with_legitimate_additions)
+
+        def core_dep_table(d, pkg):
+            if pkg in d.get('dependencies', {}):
+                return d['dependencies']
+            return d['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
 
         for label, mutate in (
             ('umbrella_direct', lambda d: d['dependencies'].__setitem__('oasis7', {'path': '../oasis7'})),
@@ -887,9 +895,9 @@ class Ownership(unittest.TestCase):
             ('surface_chain', lambda d: d['dependencies'].__setitem__('oasis7_chain_runtime', {'path': '../oasis7_chain_runtime'})),
             ('node_p2p', lambda d: d['dependencies'].__setitem__('oasis7_node', {'path': '../oasis7_node'})),
             ('direct_wasmtime', lambda d: d['dependencies'].__setitem__('wasmtime', '49')),
-            ('runtime_default_features', lambda d: d['dependencies']['oasis7_runtime'].__setitem__('default-features', True)),
-            ('runtime_wasmtime_feature', lambda d: d['dependencies']['oasis7_runtime'].__setitem__('features', ['wasmtime'])),
-            ('missing_core_edge', lambda d: d['dependencies'].pop('oasis7_world_service')),
+            ('runtime_default_features', lambda d: core_dep_table(d, 'oasis7_runtime')['oasis7_runtime'].__setitem__('default-features', True)),
+            ('runtime_wasmtime_feature', lambda d: core_dep_table(d, 'oasis7_runtime')['oasis7_runtime'].__setitem__('features', ['wasmtime'])),
+            ('missing_core_edge', lambda d: core_dep_table(d, 'oasis7_world_service').pop('oasis7_world_service')),
         ):
             with self.subTest(case=label):
                 def mutated_manifest(pkg, fn=mutate):
