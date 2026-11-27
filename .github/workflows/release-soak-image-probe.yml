@@ -1,0 +1,177 @@
+name: Runtime soak image probe
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-release-soak-probe-base]
+    paths: [.github/workflows/release-soak-image-probe.yml]
+
+permissions:
+  contents: read
+  packages: read
+cache-mode: read
+
+jobs:
+  soak-shape:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.base_ref == 'codex/engineering-release-soak-probe-base' &&
+      github.head_ref == 'codex/engineering-release-soak-image-probe' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      TOOL_SHA: 9fcd97672682c9cff71d00310989b92fa08d8bfb
+      PROTECTED_SHA: f9e612e400dae0228b4ddf4617550575ce777d20
+      EXPECTED_SHA: 04f2a3048b192ce06681b474a3d90346183d59f5
+      TAG_SHA: a6f9bb785befc9ceb56dd0ee2ce11cfc0e696f32
+      RUST_TOOLCHAIN: 1.96.0
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CARGO_NET_RETRY: 10
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 9fcd97672682c9cff71d00310989b92fa08d8bfb
+          persist-credentials: false
+          sparse-checkout: .github/actions/setup-linux-mold
+      - name: Configure mold with the original path semantics
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-release-soak-mold
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 04f2a3048b192ce06681b474a3d90346183d59f5
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm the actual protected tag and extract original gate commands
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse refs/tags/2026-11-26_v1)" = "$TAG_SHA"
+          test "$(git cat-file -t "$TAG_SHA")" = tag
+          git show "${TOOL_SHA}:scripts/package-source-plan.py" > "$RUNNER_TEMP/soak-source-plan.py"
+          TRUSTED_DEFAULT_REF="$PROTECTED_SHA" REQUESTED_REF=refs/tags/2026-11-26_v1 \
+            GITHUB_OUTPUT="$RUNNER_TEMP/soak-source-plan" \
+            python3 "$RUNNER_TEMP/soak-source-plan.py" --release
+          grep -Fx "checkoutSha=$EXPECTED_SHA" "$RUNNER_TEMP/soak-source-plan"
+          git show "${TOOL_SHA}:scripts/package-release-soak-image.py" > "$RUNNER_TEMP/soak-selector.py"
+          GITHUB_OUTPUT="$RUNNER_TEMP/soak-image-choice" python3 "$RUNNER_TEMP/soak-selector.py" "$EXPECTED_SHA"
+          grep -Fx compatible=false "$RUNNER_TEMP/soak-image-choice"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import textwrap
+
+          scratch = Path(os.environ['RUNNER_TEMP'])
+          sha = os.environ['TOOL_SHA']
+          def block(variant):
+              workflow = subprocess.check_output(
+                  ['git', 'show', f'{sha}:.github/workflows/{variant}-packages.yml'], text=True)
+              return workflow.split('  release_gate_soak:\n', 1)[1].split('  release_gate:\n', 1)[0]
+          def step(job, name):
+              prefix = f'      - name: {name}\n'
+              body = job.split(prefix, 1)[1].split('      - name:', 1)[0]
+              return body
+          release, mainnet = block('release'), block('mainnet')
+          for title, filename in (
+              ('Verify the fixed soak tools and process environment', 'preflight'),
+              ('Prewarm soak runtime binary', 'prewarm'),
+              ('Run soak release gate', 'gate'),
+          ):
+              one, two = step(release, title), step(mainnet, title)
+              assert one.replace('release-workflow-', 'mainnet-workflow-') == two
+              script = textwrap.dedent(one.split('        run: |\n', 1)[1]) if '        run: |\n' in one else re.search(r'^        run: (.+)$', one, re.M)[1] + '\n'
+              if filename == 'gate':
+                  assert '--dry-run' not in script
+                  script = script.rstrip() + ' --s9-dry-run --s10-dry-run\n'
+              (scratch / f'soak-{filename}.sh').write_text(script)
+          PY
+      - name: Exercise original soak tools and fail before prewarm on missing ELF
+        run: |
+          bash -euo pipefail "$RUNNER_TEMP/soak-preflight.sh"
+          test ! -e target/debug/oasis7_chain_runtime
+          if ./scripts/p2p-longrun-soak.sh --profile soak_release --topologies triad_distributed \
+            --no-prewarm >"$RUNNER_TEMP/missing-chain.log" 2>&1; then
+            exit 1
+          fi
+          grep -F 'oasis7_chain_runtime binary not found:' "$RUNNER_TEMP/missing-chain.log"
+      - name: Build and check the actual native chain binary
+        run: |
+          time bash -eo pipefail "$RUNNER_TEMP/soak-prewarm.sh"
+          test -x target/debug/oasis7_chain_runtime
+          readelf -h target/debug/oasis7_chain_runtime | grep -F 'Advanced Micro Devices X86-64'
+          readelf -p .comment target/debug/oasis7_chain_runtime | grep -F 'mold 3.0.0'
+          sha256sum target/debug/oasis7_chain_runtime
+      - name: Render the original release-gate command and record upload inventory
+        run: |
+          bash -eo pipefail "$RUNNER_TEMP/soak-gate.sh"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          root = Path('.tmp')
+          gates = {name: root / f'release_gate_{name}' for name in ('soak', 'p2p', 's10')}
+          def unique(directory, pattern):
+              matches = list(directory.glob(pattern))
+              assert len(matches) == 1, matches
+              return matches[0]
+          s9 = json.loads(unique(gates['p2p'], '*/summary.json').read_text())
+          s10 = json.loads(unique(gates['s10'], '*/summary.json').read_text())
+          settings = json.loads(unique(gates['s10'], '*/run_config.json').read_text())
+          assert s9['profile'] == 'soak_release'
+          assert s9['duration_secs_per_topology'] == 300 and s9['overall_status'] == 'dry_run'
+          assert s9['thresholds'] == {'max_stall_secs': 240, 'max_lag_p95': 50, 'max_distfs_failure_ratio': 0.1}
+          assert [node['topology'] for node in s9['topologies']] == ['triad_distributed']
+          assert s9['chaos_continuous'] == {
+              'enabled': True, 'interval_secs': 30, 'start_sec': 90, 'max_events': 8,
+              'actions_csv': 'pause', 'seed': 1772284566, 'restart_down_secs': 1, 'pause_duration_secs': 2,
+          }
+          assert s10['duration_secs'] == 300 and s10['overall_status'] == 'dry_run'
+          assert len(settings['nodes']) == 5 and len(list(gates['s10'].glob('*/nodes/*/command.txt'))) == 5
+          assert s10['api_viewer_projection']['status'] == 'not_collected'
+          gate = unique(gates['soak'], '*/release-gate-summary.md').read_text()
+          assert all(line in gate for line in ('- s9: passed (ok)', '- s10: passed (ok)',
+              'release-workflow-runtime-shard-runs-ci-full', 'release-workflow-sync-shards-run-wasm-sync',
+              'release-workflow-web-shard-runs-web-strict'))
+          inventory = {}
+          for directory in gates.values():
+              for item in sorted(directory.rglob('*')):
+                  relative = item.relative_to(root)
+                  if item.is_file() and not any(part.startswith('.') for part in relative.parts):
+                      inventory[str(relative)] = hashlib.sha256(item.read_bytes()).hexdigest()
+          (gates['soak'] / 'probe-inventory.json').write_text(json.dumps(inventory, sort_keys=True) + '\n')
+          print(f'Listed {len(inventory)} public artifact files across three roots')
+          PY
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Upload the three original output roots
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runtime-soak-dry-run-probe
+          path: |
+            .tmp/release_gate_soak
+            .tmp/release_gate_p2p
+            .tmp/release_gate_s10
+          if-no-files-found: error
+          retention-days: 7
