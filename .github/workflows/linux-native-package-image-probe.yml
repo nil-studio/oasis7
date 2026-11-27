@@ -1,0 +1,77 @@
+name: Linux native package runtime evidence
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/linux-native-package-probe-base]
+    paths: [.github/workflows/linux-native-package-image-probe.yml, scripts/ci-linux-native-package-probe.py]
+permissions:
+  actions: read
+  contents: read
+  packages: read
+cache-mode: none
+
+jobs:
+  package-check:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/linux-native-package-probe' &&
+      github.base_ref == 'codex/linux-native-package-probe-base'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CANDIDATE: afdd5f31145704f384582f3438f630df0d516fda
+      RELEASE_SOURCE: 3d8b22af93f214e4cbe945c2880a57c92f52d804
+      TESTNET_SOURCE: cc84d8a8552bc8f52e80a2fcc064446885420028
+      HISTORICAL_SOURCE: 4eb0fe9099aa91af408e5bb41eddd52d3af3ee0f
+      RUST_TOOLCHAIN: 1.96.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 3d8b22af93f214e4cbe945c2880a57c92f52d804
+          path: evidence-release
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: cc84d8a8552bc8f52e80a2fcc064446885420028
+          path: evidence-testnet
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 4eb0fe9099aa91af408e5bb41eddd52d3af3ee0f
+          path: evidence-legacy
+          persist-credentials: false
+      - name: Verify source identities and immutable controller parent
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD^1)" = "$CANDIDATE"
+          test "$(git diff --name-only "$CANDIDATE" HEAD)" = "$(printf '%s\n' .github/workflows/linux-native-package-image-probe.yml scripts/ci-linux-native-package-probe.py)"
+          for checkout in evidence-release evidence-testnet evidence-legacy; do
+            git config --global --add safe.directory "$GITHUB_WORKSPACE/$checkout"
+          done
+          test "$(git -C evidence-release rev-parse HEAD)" = "$RELEASE_SOURCE"
+          test "$(git -C evidence-testnet rev-parse HEAD)" = "$TESTNET_SOURCE"
+          test "$(git -C evidence-legacy rev-parse HEAD)" = "$HISTORICAL_SOURCE"
+      - uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-native-package-probe-mold
+      - name: Download exact real Linux package evidence
+        env:
+          CACHELESS_ARTIFACT_READ_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-linux-native-package-probe.py capture
+      - name: Exercise actual image preparation and real package consumers
+        run: python3 scripts/ci-linux-native-package-probe.py replay
