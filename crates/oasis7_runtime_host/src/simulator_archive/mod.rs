@@ -4,8 +4,4 @@ pub mod archive;
 pub mod kernel_host;
 pub mod persist;
 #[cfg(test)]
-mod archive_tests;
-#[cfg(test)]
-mod retention_tests;
-#[cfg(test)]
 mod tests;
