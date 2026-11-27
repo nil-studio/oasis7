@@ -37,7 +37,8 @@ pub(crate) struct BehaviorTurnResult {
     pub prepared_context: Option<ContinuousAgentTurnContextV1>,
     pub prepared_response_context: Option<ContinuousAgentResponseContextV1>,
     #[cfg(not(target_arch = "wasm32"))]
-    pub provider_original_material_refs: Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1>,
+    pub provider_original_material_refs:
+        Option<crate::provider_material_capture::ProviderOriginalMaterialRefsV1>,
     #[cfg(not(target_arch = "wasm32"))]
     pub provider_response_context_lease:
         Option<crate::provider_json_admission::ProviderResponseContextLease>,
@@ -203,8 +204,7 @@ impl HarnessProvider<Action, crate::agent::AgentQuery> for OasisBehaviorProvider
     fn decide(
         &mut self,
         request: &ApiRequestContext,
-    ) -> Result<ApiResponseContext<Action, crate::agent::AgentQuery>, HarnessProviderError>
-    {
+    ) -> Result<ApiResponseContext<Action, crate::agent::AgentQuery>, HarnessProviderError> {
         let key = production_key(request);
         let input = {
             let mut state = self
@@ -272,9 +272,7 @@ fn production_key(request: &ApiRequestContext) -> ProductionKey {
 pub(crate) fn production_key_from_context(
     request: &ContinuousAgentRequestContextV1,
 ) -> ProductionKey {
-    production_key(&crate::agent_api_compat::request_context_to_api(
-        request,
-    ))
+    production_key(&crate::agent_api_compat::request_context_to_api(request))
 }
 
 fn decision_response(

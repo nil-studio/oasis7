@@ -1,13 +1,13 @@
 //! Async runner integration for strict continuation admission and wake handoff.
 
-use oasis7_runtime::AgentContinuation as RuntimeAgentContinuation;
+use crate::agent_execution::continuous_agent_harness::{
+    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
+};
 use crate::cognition_policy::{
     ContinuationAuthorityContextV1, ContinuationCurrentContextV1, ContinuationHandle,
     ContinuationInvalidationReason, ContinuationProposalV1,
 };
-use crate::agent_execution::continuous_agent_harness::{
-    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
-};
+use oasis7_runtime::AgentContinuation as RuntimeAgentContinuation;
 use oasis7_simulator::Observation;
 
 use super::{AsyncAgentRunner, AsyncAgentRunnerError, AsyncTurnId};
@@ -98,8 +98,10 @@ impl AsyncAgentRunner {
             || turn.decision_request_id != request.decision_request_id
             || turn.request_digest != request.request_digest
             || turn.continuation.as_ref() != Some(proposal)
-            || crate::agent_execution::continuous_agent_harness::h_v1("oasis7.cognition.continuation.v1", &turn.continuation)
-                != request.continuation_digest
+            || crate::agent_execution::continuous_agent_harness::h_v1(
+                "oasis7.cognition.continuation.v1",
+                &turn.continuation,
+            ) != request.continuation_digest
         {
             return Err(AsyncAgentRunnerError::Cognition(
                 "rejected Resume absence identity mismatch".into(),

@@ -13,17 +13,17 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::agent::AgentBehavior;
 use super::async_agent_runner::RuntimeReceiptReadbackVerifier;
 use super::async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
     AsyncTurnLifecycle,
 };
-use crate::cognition_policy::MemoryWriteStore;
 use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, FeedbackEnvelopeV1,
     ResponseArtifactIdentityV1,
 };
+use crate::agent::AgentBehavior;
+use crate::cognition_policy::MemoryWriteStore;
 use oasis7_runtime::{CognitionLeaseV1, RuntimeReceiptLineageV1};
 use oasis7_simulator::Observation;
 

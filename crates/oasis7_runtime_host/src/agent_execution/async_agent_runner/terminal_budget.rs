@@ -1,7 +1,7 @@
 //! Atomic local projection of an authenticated canonical final budget debit.
 use super::{AsyncAgentRunner, AsyncAgentRunnerError};
-use oasis7_runtime::{AgentContinuation, ContinuationStatusV1};
 use crate::cognition_policy::{ContinuationAuthorityContextV1, ContinuationProposalV1};
+use oasis7_runtime::{AgentContinuation, ContinuationStatusV1};
 
 impl AsyncAgentRunner {
     #[cfg(not(target_arch = "wasm32"))]

@@ -40,8 +40,10 @@ pub use oasis7_agent_harness::FinalityBindingV1;
 pub use oasis7_agent_api::{
     ContinuousAgentRequestContextV1, FeedbackEnvelopeV1, MemoryWriteIntentV1,
 };
-pub type ContinuousAgentResponseContextV1 =
-    oasis7_agent_api::ContinuousAgentResponseContextV1<oasis7_simulator::Action, crate::agent::AgentQuery>;
+pub type ContinuousAgentResponseContextV1 = oasis7_agent_api::ContinuousAgentResponseContextV1<
+    oasis7_simulator::Action,
+    crate::agent::AgentQuery,
+>;
 
 #[cfg(test)]
 pub(crate) fn feedback_v1_from_legacy_value(

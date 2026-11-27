@@ -14,10 +14,10 @@ use super::async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback,
     AsyncTurnLifecycle, AsyncWorldEffect,
 };
+use super::continuous_agent_harness::{ContinuousAgentTurnContextV1, h_v1};
 use crate::cognition_policy::{
     GoalSnapshotInputV1, GoalSnapshotProjector, MemoryContextEntryV1, MemoryContextSnapshotV1,
 };
-use super::continuous_agent_harness::{ContinuousAgentTurnContextV1, h_v1};
 
 const PILOT_PROTOCOL_VERSION: &str = "oasis7.live-agent-pilot.v1";
 const PILOT_RUNTIME_VERSION: &str = "oasis7.async-agent-actor.v1";

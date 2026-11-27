@@ -2,8 +2,8 @@
 use super::super::test_support::BuiltinWaitBehavior;
 use super::*;
 use crate::agent_execution::continuous_agent_harness::{
-    COGNITION_CAPABILITY_CATALOG_DOMAIN, COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
-    Digest32, h_v1,
+    COGNITION_CAPABILITY_CATALOG_DOMAIN, COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, Digest32,
+    h_v1,
 };
 use crate::cognition_policy::{GoalSnapshotV1, MemoryContextSnapshotV1};
 use crate::decision_provider::{

@@ -30,14 +30,14 @@ use super::agent_harness_adapter::{
     AdapterControl, BehaviorCallback, BehaviorTurnResult, OasisBehaviorProvider,
     production_key_from_context,
 };
+use super::continuous_agent_harness::{
+    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
+    ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1, MemoryWriteIntentV1, h_v1,
+};
 use crate::agent::{ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery};
 use crate::cognition_policy::{
     ContinuationHandle, ContinuationHarness, ContinuationInvalidationReason,
     MemoryWriteIntentPolicyV1, MemoryWritePolicyContextV1, MemoryWriteStore,
-};
-use super::continuous_agent_harness::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1,
-    ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1, MemoryWriteIntentV1, h_v1,
 };
 use crate::decision_provider::{
     ActionCatalogEntry, MemoryWriteIntent, MockDecisionProvider, ProviderBackedAgentBehavior,

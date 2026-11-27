@@ -1,5 +1,5 @@
-use crate::agent_execution::continuous_agent_harness::ResponseArtifactIdentityV1;
 use super::{AsyncAgentRunnerError, ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1};
+use crate::agent_execution::continuous_agent_harness::ResponseArtifactIdentityV1;
 
 use oasis7_runtime::RuntimeReceiptLineageV1;
 

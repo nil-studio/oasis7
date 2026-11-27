@@ -1,8 +1,8 @@
 use super::feedback::RuntimeReceiptReadbackVerifier;
 use super::*;
+use oasis7_agent_harness::MemoryWritePolicyContextV1 as HarnessMemoryWritePolicyContextV1;
 #[cfg(test)]
 use oasis7_runtime::RuntimeFeedbackOutboxRecordV1;
-use oasis7_agent_harness::MemoryWritePolicyContextV1 as HarnessMemoryWritePolicyContextV1;
 
 fn runtime_receipt_from_api_projection(
     receipt: &oasis7_agent_api::RuntimeReceiptLineageV1,
