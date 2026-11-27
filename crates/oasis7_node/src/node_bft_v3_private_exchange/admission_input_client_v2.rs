@@ -102,6 +102,24 @@ fn query(
         .map_err(|_| "original admission Noise request denied, lost or timed out".into())
 }
 
+/// Check the original absolute deadline both before and after completing the
+/// digest/length proof and flushing the staging sink. A successful last RPC
+/// does not extend the original attempt while final local work is running.
+pub(super) fn finish_before_attempt_deadline<W: Write>(
+    staging: BftAdmissionInputV2StreamStage<W>,
+    deadline: Instant,
+    now: impl Fn() -> Instant,
+) -> Result<W, String> {
+    if now() >= deadline {
+        return Err("original admission attempt deadline exhausted".into());
+    }
+    let sink = staging.finish().map_err(|error| error.to_string())?;
+    if now() >= deadline {
+        return Err("original admission attempt deadline exhausted".into());
+    }
+    Ok(sink)
+}
+
 /// Fetch the original signed grant's Manifest followed by every exact 16-KiB
 /// part over real authenticated Noise and stage the original into `sink`.
 ///
@@ -126,6 +144,9 @@ where
     W: Write,
     F: FnMut(&[u8]) -> Result<String, String>,
 {
+    let deadline = Instant::now()
+        .checked_add(ATTEMPT_LIMIT)
+        .ok_or("original admission attempt deadline overflow")?;
     template.verify_bound_subject(context)?;
     if template.read.requester_peer_id != network.peer_id().to_string()
         || template.read.serving_peer_id != peer.to_string()
@@ -134,9 +155,6 @@ where
     {
         return Err("original admission signed grant mismatches actual Noise peers".into());
     }
-    let deadline = Instant::now()
-        .checked_add(ATTEMPT_LIMIT)
-        .ok_or("original admission attempt deadline overflow")?;
     let plan = BftAdmissionInputTransferPlanV2::for_original(&template.read.reference)
         .map_err(|error| error.to_string())?;
     let mut recent = VecDeque::with_capacity(PEER_WINDOW_MAX);
@@ -169,5 +187,5 @@ where
         let raw_response = query(network, peer, &request, &mut recent, deadline)?;
         OriginalAdmissionBatchResponseV2::decode_and_stage(&raw_response, &request, &mut staging)?;
     }
-    staging.finish().map_err(|error| error.to_string())
+    finish_before_attempt_deadline(staging, deadline, Instant::now)
 }
