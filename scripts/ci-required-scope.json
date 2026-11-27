@@ -3189,6 +3189,16 @@
         "workflow_governance"
       ],
       "reason": "split_python_control_test_suites"
+    },
+    {
+      "match": [
+        "scripts/ci_engine/**",
+        "scripts/run-ci-authority-python.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "ci_engine_and_authority_launcher"
     }
   ]
 }
