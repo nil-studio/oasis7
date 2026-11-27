@@ -413,11 +413,7 @@ struct ServiceState {
 }
 
 impl ServiceState {
-    fn new(
-        launcher_bin: String,
-        chain_runtime_bin: String,
-        config: LauncherConfig,
-    ) -> Self {
+    fn new(launcher_bin: String, chain_runtime_bin: String, config: LauncherConfig) -> Self {
         let chain_runtime_status = if config.chain_enabled {
             ChainRuntimeStatus::NotStarted
         } else {

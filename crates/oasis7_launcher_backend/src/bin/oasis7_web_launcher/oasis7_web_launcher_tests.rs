@@ -730,11 +730,7 @@ fn stop_process_noop_preserves_error_state() {
         chain_enabled: false,
         ..LauncherConfig::default()
     };
-    let mut state = ServiceState::new(
-        "launcher".to_string(),
-        "chain".to_string(),
-        config,
-    );
+    let mut state = ServiceState::new("launcher".to_string(), "chain".to_string(), config);
     state.process_state = ProcessState::StartFailed("boot failed".to_string());
 
     stop_process(&mut state).expect("stop no-op should succeed");
@@ -751,11 +747,7 @@ fn stop_chain_process_noop_preserves_error_state() {
         chain_enabled: true,
         ..LauncherConfig::default()
     };
-    let mut state = ServiceState::new(
-        "launcher".to_string(),
-        "chain".to_string(),
-        config,
-    );
+    let mut state = ServiceState::new("launcher".to_string(), "chain".to_string(), config);
     state.chain_runtime_status = ChainRuntimeStatus::Unreachable("probe failed".to_string());
 
     stop_chain_process(&mut state).expect("chain stop no-op should succeed");
@@ -858,11 +850,7 @@ fn gui_agent_query_chain_disabled_returns_structured_error() {
         chain_enabled: false,
         ..LauncherConfig::default()
     };
-    let mut state = ServiceState::new(
-        "launcher".to_string(),
-        "chain".to_string(),
-        config,
-    );
+    let mut state = ServiceState::new("launcher".to_string(), "chain".to_string(), config);
 
     let response = execute_gui_agent_action(
         &mut state,
@@ -972,11 +960,7 @@ fn state_snapshot_redacts_agent_provider_auth_token() {
         agent_provider_auth_token: "secret-token".to_string(),
         ..LauncherConfig::default()
     };
-    let state = ServiceState::new(
-        "launcher".to_string(),
-        "chain".to_string(),
-        config,
-    );
+    let state = ServiceState::new("launcher".to_string(), "chain".to_string(), config);
 
     let snapshot = snapshot_from_state(&state, Some("127.0.0.1"));
     let encoded = serde_json::to_value(&snapshot).expect("serialize snapshot");
