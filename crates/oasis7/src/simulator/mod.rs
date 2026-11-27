@@ -17,8 +17,6 @@ pub(crate) use oasis7_runtime_host::agent;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use oasis7_runtime_host::agent_execution::async_agent_pilot;
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_execution::async_agent_runner;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_execution::continuous_agent_harness;

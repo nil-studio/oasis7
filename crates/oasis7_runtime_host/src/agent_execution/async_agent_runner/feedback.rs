@@ -27,7 +27,7 @@ impl RuntimeReceiptReadbackHandleV1 {
         &self.response_artifact_digest
     }
 
-    pub(crate) fn verified_lineage(&self) -> &RuntimeReceiptLineageV1 {
+    pub fn verified_lineage(&self) -> &RuntimeReceiptLineageV1 {
         &self.verified_lineage
     }
 
@@ -35,7 +35,7 @@ impl RuntimeReceiptReadbackHandleV1 {
     /// read back and verified both durable identities. Keep the constructor
     /// crate-private: provider callers and external verifier implementations
     /// cannot mint a readback capability from a DTO.
-    pub(crate) fn from_durable_world_readback(
+    pub fn from_durable_world_readback(
         receipt: &RuntimeReceiptLineageV1,
         response_identity: &ResponseArtifactIdentityV1,
     ) -> Self {

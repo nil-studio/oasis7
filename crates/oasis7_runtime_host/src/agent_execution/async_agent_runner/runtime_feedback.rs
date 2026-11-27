@@ -1,7 +1,6 @@
 use super::feedback::RuntimeReceiptReadbackVerifier;
 use super::*;
 use oasis7_agent_harness::MemoryWritePolicyContextV1 as HarnessMemoryWritePolicyContextV1;
-#[cfg(test)]
 use oasis7_runtime::RuntimeFeedbackOutboxRecordV1;
 
 fn runtime_receipt_from_api_projection(
@@ -124,7 +123,7 @@ impl AsyncAgentRunner {
     /// Restore only the bounded replay/collision verifier from an Oasis-owned
     /// Runtime authority projection. The Harness receives validated history,
     /// never the Runtime World or authority itself.
-    pub(crate) fn restore_host_validated_feedback_history<H: RuntimeAuthority>(
+    pub fn restore_host_validated_feedback_history<H: RuntimeAuthority>(
         &mut self,
         authority: &H,
     ) -> Result<(), AsyncAgentRunnerError> {
@@ -206,7 +205,7 @@ impl AsyncAgentRunner {
     ///
     /// The callback receives only an immutable runner view, so it cannot
     /// enqueue a successor provider turn while the release is provisional.
-    pub(crate) fn with_runtime_turn_release_for_continuation<F>(
+    pub fn with_runtime_turn_release_for_continuation<F>(
         &mut self,
         agent_id: &str,
         agent_session_id: &str,
@@ -289,7 +288,7 @@ impl AsyncAgentRunner {
         }
     }
 
-    pub(crate) fn needs_runtime_feedback_recovery(&self) -> bool {
+    pub fn needs_runtime_feedback_recovery(&self) -> bool {
         self.harness.needs_feedback_history_refresh()
     }
 
@@ -297,22 +296,21 @@ impl AsyncAgentRunner {
     /// projection. A loaded projection may still fence individual damaged
     /// Agent/session partitions; that must not be confused with having no
     /// history at all when deciding whether unrelated Agents may dispatch.
-    pub(crate) fn runtime_feedback_history_loaded(&self) -> bool {
+    pub fn runtime_feedback_history_loaded(&self) -> bool {
         self.harness.feedback_recovery_loaded()
     }
 
-    pub(crate) fn feedback_recovery_blocked(&self, agent: &str, session: &str) -> bool {
+    pub fn feedback_recovery_blocked(&self, agent: &str, session: &str) -> bool {
         self.harness.feedback_recovery_blocked(agent, session)
     }
 
-    pub(crate) fn agent_feedback_recovery_blocked(&self, agent: &str) -> bool {
+    pub fn agent_feedback_recovery_blocked(&self, agent: &str) -> bool {
         self.harness.agent_feedback_recovery_blocked(agent)
     }
 
     /// Restore only the bounded replay/collision verifier from Runtime's
     /// durable outbox. Feedback is not consumed again and memory is untouched.
-    #[cfg(test)]
-    pub(crate) fn restore_runtime_feedback_outbox(
+    pub fn restore_runtime_feedback_outbox(
         &mut self,
         records: &[RuntimeFeedbackOutboxRecordV1],
     ) -> Result<(), AsyncAgentRunnerError> {
@@ -353,7 +351,7 @@ impl AsyncAgentRunner {
     }
 
     /// Caller must have authenticated the Agent-scoped Runtime View.
-    pub(crate) fn restore_preverified_scoped_feedback_history(
+    pub fn restore_preverified_scoped_feedback_history(
         &mut self,
         records: &[oasis7_agent_harness::FeedbackHistoryProjection],
     ) -> Result<(), AsyncAgentRunnerError> {
@@ -364,7 +362,7 @@ impl AsyncAgentRunner {
 
     /// Roll back native verifier/turn ledgers and private memory if the sole
     /// durable consumption checkpoint fails. No actor I/O occurs here.
-    pub(crate) fn with_committed_feedback_memory_transaction<A, F>(
+    pub fn with_committed_feedback_memory_transaction<A, F>(
         &mut self,
         input: CommittedFeedbackMemoryInput<'_>,
         authority_receipt: &A::Receipt,
@@ -686,7 +684,7 @@ impl AsyncAgentRunner {
     /// Production helper for the Runtime adapter: derive the expected
     /// response identity from the exact still-awaiting actor outcome rather
     /// than accepting a parallel caller-provided identity at the host seam.
-    pub(crate) fn consume_runtime_feedback_with_world_readback_from_outcome(
+    pub fn consume_runtime_feedback_with_world_readback_from_outcome(
         &mut self,
         agent_id: &str,
         feedback: FeedbackEnvelopeV1,

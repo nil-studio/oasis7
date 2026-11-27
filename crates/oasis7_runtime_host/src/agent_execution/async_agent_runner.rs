@@ -496,7 +496,7 @@ impl AsyncAgentRunner {
     /// admit a Runtime lease, or imply that durable feedback history has been
     /// restored. Committed memory feedback still requires the strict Runtime
     /// readback path.
-    pub(crate) fn start_compatibility_turn_with_context_and_observation(
+    pub fn start_compatibility_turn_with_context_and_observation(
         &mut self,
         agent_id: &str,
         observation: Observation,

@@ -9,7 +9,6 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-#[cfg(test)]
 use serde_json::Value;
 
 pub use oasis7_agent_api::{
@@ -17,7 +16,6 @@ pub use oasis7_agent_api::{
     RuntimeBindingV1, h_v1,
 };
 
-#[cfg(test)]
 use crate::decision_provider::FeedbackEnvelope;
 
 #[cfg(test)]
@@ -45,10 +43,7 @@ pub type ContinuousAgentResponseContextV1 = oasis7_agent_api::ContinuousAgentRes
     crate::agent::AgentQuery,
 >;
 
-#[cfg(test)]
-pub(crate) fn feedback_v1_from_legacy_value(
-    value: Value,
-) -> Result<FeedbackEnvelopeV1, CognitionError> {
+pub fn feedback_v1_from_legacy_value(value: Value) -> Result<FeedbackEnvelopeV1, CognitionError> {
     let legacy: FeedbackEnvelope = serde_json::from_value(value)
         .map_err(|error| CognitionError::new("legacy_feedback_invalid", error.to_string()))?;
     let _ = legacy;
