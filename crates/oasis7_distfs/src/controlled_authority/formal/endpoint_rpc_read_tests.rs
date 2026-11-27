@@ -267,16 +267,63 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
 
     let expected_pending = endpoint.store.body.pending.is_some();
     let expected_checkpoint = endpoint.store.checkpoint.clone();
-    let mut server = OwnedRpcServer::start(
+    let mut server = OwnedRpcServer::start_prepaid(
         endpoint,
         (
             primary_oracle.clone(),
             replica_oracle.clone(),
             fixture.clone(),
         ),
+        crate::controlled_authority::formal::transport::FormalRpcFrameAdmissionLimitsV1 {
+            ordinary_bytes: 512 << 20,
+            work_steps: 10_000_000,
+            work_bytes: 4 << 30,
+        },
     )
     .unwrap();
     let address = server.address;
+
+    // Real protected-signer TCP Query (both signed Recorded and absent):
+    // the server must use the same production paid Store Index/five-state
+    // reader as #7240, keep its original owner across reply signing/write
+    // and return the original wire DTO without granting accepted GEN.
+    let recorded = server
+        .call("paid_signed_query_hit", || {
+            signed_rpc(
+                address,
+                &fixture.authority,
+                first_commit.head(),
+                super::super::super::super::transport::Command::Query(
+                    fixture.initial.candidate.record.request_digest.clone(),
+                ),
+            )
+        })
+        .unwrap();
+    assert_eq!(recorded.body.minimum, first_commit.head());
+    assert!(matches!(
+        recorded.body.result,
+        Ok(super::super::super::super::transport::Value::Query(query))
+            if matches!(*query, FormalQueryOutcomeV1::Recorded(state)
+                if matches!(*state, FormalRequestStateV1::Qualified { .. }))
+    ));
+    let absent = server
+        .call("paid_signed_query_miss", || {
+            signed_rpc(
+                address,
+                &fixture.authority,
+                first_commit.head(),
+                super::super::super::super::transport::Command::Query(h(209)),
+            )
+        })
+        .unwrap();
+    assert!(matches!(
+        absent.body.result,
+        Ok(super::super::super::super::transport::Value::Query(query))
+            if matches!(*query, FormalQueryOutcomeV1::NotRecorded)
+    ));
+    // Preserve all existing one-guard counter assertions below, without
+    // confusing the two genuine preceding signed Query operations.
+    acquisitions.store(0, Ordering::SeqCst);
 
     // This functional fixture reads and verifies all 257 cold sparse-tree nodes.
     // Give debug-build I/O bounded headroom; this is not a product latency budget.

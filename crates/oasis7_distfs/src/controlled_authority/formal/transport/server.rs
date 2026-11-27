@@ -185,6 +185,13 @@ impl FormalEndpointServer {
                 .verify_sealed_archive_grant_scope(grant, &body.minimum)?;
         }
         let request_digest = hash("oasis7.formal.endpoint.rpc.request_digest.v1", body)?;
+        // These two original fees outlive protected signing AND the physical
+        // response write. A paid Query must never detach its typed state owner
+        // or silently fall back to the legacy unbounded endpoint.query().
+        let mut paid_query_owner: Option<super::super::endpoint::PaidFormalRequestQueryV1> = None;
+        let mut _paid_query_copy_lease: Option<
+            oasis7_proto::memory_budget::MemoryReservation,
+        > = None;
         let response = match &body.command {
             Command::Head
             | Command::ArchiveChunk { .. }
@@ -197,7 +204,38 @@ impl FormalEndpointServer {
             )?,
             _ => {
                 self.endpoint.verify_minimum(&body.minimum)?;
-                let result = self.execute(body.command.clone());
+                let result = match (&body.command, self.frame_admission.as_ref()) {
+                    (Command::Query(key), Some((memory, work))) => {
+                        // The Request was already checked against the real
+                        // writer signature, exact instance and original floor.
+                        // Reuse the one process-owned Ordinary pool and meter
+                        // through Store Index -> five-state typed data.
+                        self.endpoint
+                            .query_data_bounded(key, memory, work, &mut || false)
+                            .and_then(|paid| {
+                                use oasis7_proto::memory_budget::MemoryClass;
+                                let workspace = paid.response_copy_workspace()?;
+                                // Reserve *before* cloning the genuine paid DTO,
+                                // hashing/signing it or CBOR-encoding its reply.
+                                let fee = memory
+                                    .reserve(workspace, MemoryClass::Ordinary)
+                                    .map_err(|_| invalid("formal paid Query response admission"))?;
+                                work.consume_steps(1, &mut || false)?;
+                                let outcome = match paid.state() {
+                                    Some(state) => FormalQueryOutcomeV1::Recorded(Box::new(
+                                        state.clone(),
+                                    )),
+                                    None => FormalQueryOutcomeV1::NotRecorded,
+                                };
+                                _paid_query_copy_lease = Some(fee);
+                                paid_query_owner = Some(paid);
+                                Ok(Value::Query(Box::new(outcome)))
+                            })
+                    }
+                    // Legacy-only mode retains its pre-existing protocol;
+                    // paid mode never reaches the old unbounded Query arm.
+                    _ => self.execute(body.command.clone()),
+                };
                 self.endpoint.sign_formal_rpc_response(
                     request_digest,
                     body.challenge.clone(),
@@ -206,7 +244,12 @@ impl FormalEndpointServer {
                 )?
             }
         };
-        wire::write(stream, &response)
+        if paid_query_owner.is_some() {
+            let (_, work) = self.frame_admission.as_ref().expect("paid Query mode");
+            wire::write_prepaid_query_reply(stream, &response, work)
+        } else {
+            wire::write(stream, &response)
+        }
     }
     fn execute(&mut self, command: Command) -> Result<Value, FormalError> {
         match command {
