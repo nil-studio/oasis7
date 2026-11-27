@@ -512,16 +512,12 @@ fn apply_registered_grant(
     Ok(())
 }
 
-pub(super) fn validate_and_project_registered_grant(
-    world: &World,
-    capability_grants_v2: &mut BTreeMap<String, serde_json::Value>,
-    grant: &CapabilityGrantV2,
-    time: WorldTime,
-) -> Result<(), WorldError> {
+pub(super) fn validate_and_project_registered_grant(world: &World, capability_grants_v2: &mut BTreeMap<String, serde_json::Value>, grant: &CapabilityGrantV2, time: WorldTime) -> Result<(), WorldError> { validate_and_project_registered_grant_with_revocation_state(world, &world.capability_revocation_state, capability_grants_v2, grant, time) }
+pub(super) fn validate_and_project_registered_grant_with_revocation_state(world: &World, rev: &CapabilityRevocationState, capability_grants_v2: &mut BTreeMap<String, serde_json::Value>, grant: &CapabilityGrantV2, time: WorldTime) -> Result<(), WorldError> {
     validate_grant_body(grant, time)?;
-    world.verify_issuer(grant)?;
-    world.verify_live_revocation(grant)?;
-    world.verify_parent_chain(grant)?;
+    world.verify_issuer_with_revocation_state(rev, grant)?;
+    World::verify_live_revocation_with_state(rev, grant)?;
+    world.verify_parent_chain_with_revocation_state(rev, grant)?;
     let encoded = serde_json::to_value(grant)?;
     if let Some(existing) = capability_grants_v2.get(&grant.grant_id)
         && existing != &encoded
