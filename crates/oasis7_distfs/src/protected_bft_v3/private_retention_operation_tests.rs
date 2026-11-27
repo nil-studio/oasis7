@@ -57,15 +57,16 @@ fn current(revision: u64, reserved: u64) -> BftFirstReserveSnapshotV1 {
 fn operation() -> BftRetainedOriginalOperationV1 {
     let signed_request_bytes = vec![0x31, 0, 0xff, 0x12];
     let signed_receipt_bytes = vec![0x44, 0, 0xfe, 0x30];
+    let original_request_digest =
+        BftRetainedOriginalOperationV1::request_digest_from_original_bytes(&signed_request_bytes);
+    let original_receipt_digest =
+        BftRetainedOriginalOperationV1::receipt_digest_from_original_bytes(&signed_receipt_bytes);
     BftRetainedOriginalOperationV1 {
         schema_version: 1,
         operation_id: "original-reserve-1".into(),
         source: source(),
         ledger_origin_digest: hex_hash(6),
-        original_request_digest:
-            BftRetainedOriginalOperationV1::request_digest_from_original_bytes(
-                &signed_request_bytes,
-            ),
+        original_request_digest,
         signed_request_bytes,
         before_revision: 1,
         before_state_digest: hex_hash(11),
@@ -86,10 +87,7 @@ fn operation() -> BftRetainedOriginalOperationV1 {
             },
             admission_digest: hex_hash(11),
         }],
-        original_receipt_digest:
-            BftRetainedOriginalOperationV1::receipt_digest_from_original_bytes(
-                &signed_receipt_bytes,
-            ),
+        original_receipt_digest,
         signed_receipt_bytes,
         cumulative_reserved_response_bytes: 100,
     }
@@ -179,6 +177,12 @@ fn cold_history_keeps_original_operation_across_new_lease_and_rejects_corruption
         .unwrap();
     stored.current.current.signer.lease_generation = 8;
     stored.current.current.signer.lease_token_digest = hex_hash(20);
+    stored.validate().unwrap();
+    // A newer current H/window may reset its local signer revision. The old
+    // signed operation belongs to the original source, not the new marker.
+    stored.current.current.marker.source.handoff_digest = hex_hash(21);
+    stored.current.current.marker.ledger_origin_digest = hex_hash(22);
+    stored.current.current.signer.state.revision = 0;
     stored.validate().unwrap();
     assert_eq!(
         stored

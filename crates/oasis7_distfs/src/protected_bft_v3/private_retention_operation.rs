@@ -141,11 +141,11 @@ impl BftOriginalRetentionTxnSnapshotV1 {
         for (id, operation) in &self.original_operations {
             operation.validate()?;
             if id != &operation.operation_id
-                || operation.source != self.current.current.marker.source
-                || operation.ledger_origin_digest
-                    != self.current.current.marker.ledger_origin_digest
                 || operation.original_lease_generation > self.current.current.signer.lease_generation
-                || operation.after_revision > self.current.current.signer.state.revision
+                || (operation.source == self.current.current.marker.source
+                    && operation.ledger_origin_digest
+                        == self.current.current.marker.ledger_origin_digest
+                    && operation.after_revision > self.current.current.signer.state.revision)
                 || operation.cumulative_reserved_response_bytes
                     > self.current.current.reserved_response_bytes
             {
