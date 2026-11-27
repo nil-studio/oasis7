@@ -3,11 +3,11 @@ use super::recovery_ledger::{
     RecoveryLedger, RecoveryLineage, assess_recovery_events, metric_summary,
 };
 use super::*;
-use oasis7::simulator::{
-    ContinuousAgentResponseContextV1, DecisionProvider, DecisionResponse, FeedbackEnvelopeV1,
-    golden_decision_provider_fixtures,
+use oasis7_agent_api::{FeedbackEnvelopeV1, cognition_response_digest};
+use oasis7_runtime_host::decision_provider::{
+    DecisionProvider, DecisionResponse, golden_decision_provider_fixtures,
 };
-use oasis7_agent_api::cognition_response_digest;
+use oasis7_runtime_host::provider_loopback_http::ContinuousAgentResponseContextV1;
 use oasis7_simulator::Action;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -18,19 +18,6 @@ mod target_context_legacy_tests;
 
 #[path = "provider_info_tests.rs"]
 mod provider_info_tests;
-
-#[test]
-fn provider_parity_original_archive_identity_survives_native_owner() {
-    use std::any::TypeId;
-    assert_eq!(
-        TypeId::of::<oasis7_runtime_host::simulator_archive::kernel_host::WorldKernel>(),
-        TypeId::of::<oasis7::simulator::WorldKernel>(),
-    );
-    assert_eq!(
-        TypeId::of::<WorldEvent>(),
-        TypeId::of::<oasis7::simulator::WorldEvent>()
-    );
-}
 
 const ORIGIN_DIGEST: &str =
     "blake3:0000000000000000000000000000000000000000000000000000000000000000";
@@ -125,7 +112,7 @@ fn sample_patrol_observation() -> Observation {
     Observation {
         time: 7,
         agent_id: "agent-1".to_string(),
-        pos: oasis7::geometry::GeoPos {
+        pos: oasis7_agent_api::world_action::GeoPos {
             x_cm: 0,
             y_cm: 0,
             z_cm: 0,
@@ -137,7 +124,7 @@ fn sample_patrol_observation() -> Observation {
             oasis7_simulator::ObservedLocation {
                 location_id: "loc-1".to_string(),
                 name: "base".to_string(),
-                pos: oasis7::geometry::GeoPos {
+                pos: oasis7_agent_api::world_action::GeoPos {
                     x_cm: 0,
                     y_cm: 0,
                     z_cm: 0,
@@ -148,7 +135,7 @@ fn sample_patrol_observation() -> Observation {
             oasis7_simulator::ObservedLocation {
                 location_id: "loc-2".to_string(),
                 name: "neighbor".to_string(),
-                pos: oasis7::geometry::GeoPos {
+                pos: oasis7_agent_api::world_action::GeoPos {
                     x_cm: 100,
                     y_cm: 0,
                     z_cm: 0,

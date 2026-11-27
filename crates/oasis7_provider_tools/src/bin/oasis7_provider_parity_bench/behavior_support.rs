@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use oasis7::simulator::ActionResult;
 use oasis7_agent_api::{ActionCatalogEntry, ProviderExecutionMode};
+use oasis7_runtime_host::agent::ActionResult;
 use oasis7_simulator::{Action, AgentDecision, AgentDecisionTrace, Observation};
 
 use super::{DEFAULT_MAX_MOVE_DISTANCE_CM_PER_TICK, RecoveryLineage};

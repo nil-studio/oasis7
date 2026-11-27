@@ -1,4 +1,4 @@
-use oasis7::simulator::{
+use oasis7_runtime_host::agent_execution::llm_agent::{
     DEFAULT_CONFIG_FILE_NAME, LlmAgentConfig, LlmClientError, OpenAiChatCompletionClient,
 };
 use serde::Serialize;
