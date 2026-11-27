@@ -16,7 +16,7 @@ pub(super) fn send_control(
     action: &str,
     timeout: Duration,
 ) -> Result<FormalRuntimeOwnerSnapshotV1, String> {
-    if !matches!(action, "query" | "stop") {
+    if !matches!(action, "query" | "stop" | "freeze_original_pending") {
         return Err("unsupported formal runtime owner control action".into());
     }
     let deadline = Instant::now() + timeout.min(Duration::from_secs(60));
@@ -43,7 +43,7 @@ pub(super) fn send_control_reply(
     deadline: Instant,
     mut stream: UnixStream,
 ) -> Result<ControlReply, String> {
-    if !matches!(action, "query" | "stop" | "observe_protected") {
+    if !matches!(action, "query" | "stop" | "observe_protected" | "freeze_original_pending") {
         return Err("unsupported formal runtime owner control action".into());
     }
     let remaining = control_wire::remaining(deadline).map_err(|error| error.to_string())?;
@@ -78,6 +78,28 @@ pub(super) fn send_control_reply(
     {
         return Err("formal runtime owner durable/live status mismatch".into());
     }
+    if action == "freeze_original_pending" {
+        if reply.control_error.is_none() {
+            if reply.snapshot.state != "stopped" {
+                return Err("original pending freeze reply did not stop the exact owner".into());
+            }
+            let pin = reply
+                .original_pending_pin
+                .as_ref()
+                .ok_or("original pending freeze reply omitted its pin")?;
+            let expected_owner =
+                super::super::super::formal_live_original_pending_producer::OriginalPendingOwnerV1 {
+                    authority_id: instance.authority_id.clone(),
+                    operation_id: instance.operation_id.clone(),
+                    request_digest: instance.request_digest.clone(),
+                    config_digest: instance.config_digest.clone(),
+                    incarnation: instance.incarnation.clone(),
+                };
+            pin.validate(&expected_owner)?;
+        }
+    } else if reply.original_pending_pin.is_some() {
+        return Err("non-freeze owner reply unexpectedly contains original pending pin".into());
+    }
     Ok(reply)
 }
 
@@ -86,7 +108,7 @@ pub(super) fn send_control_reply(
 // caller deadline; sub-millisecond wire budgets cannot authorize a stop.
 pub(super) fn control_work_timeout(action: &str, timeout: Duration) -> Result<Duration, String> {
     let timeout = timeout.min(Duration::from_secs(60));
-    let work = if matches!(action, "stop" | "observe_protected") {
+    let work = if matches!(action, "stop" | "observe_protected" | "freeze_original_pending") {
         timeout - (timeout / 2).min(Duration::from_secs(2))
     } else {
         timeout

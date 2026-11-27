@@ -116,6 +116,114 @@ fn pending_stop_retains_the_same_owner_until_an_in_flight_node_tick_finishes() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn original_pending_final_marker_waits_for_real_node_stop_after_admission_quiescence() {
+    use oasis7_node::{NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook};
+    use super::super::formal_live_original_pending_producer::{
+        OriginalPendingOwnerV1, OriginalPendingProducerV1, cold_read_exact_frozen,
+    };
+    use oasis7_distfs::controlled_authority::LocalRequestIdentity;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    struct BlockingTick {
+        gate: Arc<Mutex<()>>,
+        entered: Option<mpsc::SyncSender<()>>,
+        release: mpsc::Receiver<()>,
+    }
+    impl NodeExecutionHook for BlockingTick {
+        fn on_commit(
+            &mut self,
+            context: NodeExecutionCommitContext,
+        ) -> Result<NodeExecutionCommitResult, String> {
+            let _admission = self.gate.lock().map_err(|_| "test admission gate poisoned")?;
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).map_err(|error| error.to_string())?;
+                self.release
+                    .recv_timeout(Duration::from_secs(5))
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(NodeExecutionCommitResult {
+                execution_height: context.height,
+                execution_block_hash: format!("freeze-regression-block-{}", context.height),
+                execution_state_root: format!("freeze-regression-state-{}", context.height),
+            })
+        }
+    }
+
+    let root = std::env::temp_dir().join(format!(
+        "o7-original-freeze-order-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let owner = OriginalPendingOwnerV1 {
+        authority_id: "freeze-authority".into(),
+        operation_id: "freeze-operation".into(),
+        request_digest: "freeze-request".into(),
+        config_digest: "freeze-config".into(),
+        incarnation: "freeze-incarnation".into(),
+    };
+    let mut producer = OriginalPendingProducerV1::open(&root, owner.clone()).unwrap();
+    let identity = LocalRequestIdentity {
+        verified_subject: "subject".into(),
+        operation_domain: "submit".into(),
+        nonce_scope: "nonce-scope".into(),
+        request_id: "request-1".into(),
+    };
+    producer.note_accepted_enqueue(identity, vec![0x43, 0x01, 0x02]).unwrap();
+
+    let gate = Arc::new(Mutex::new(()));
+    let (entered_send, entered_receive) = mpsc::sync_channel(1);
+    let (release_send, release_receive) = mpsc::channel();
+    let config = local_single_authority_node_config("freeze-regression", "freeze-world")
+        .unwrap()
+        .with_tick_interval(Duration::from_millis(5))
+        .unwrap();
+    let node = Arc::new(Mutex::new(NodeRuntime::new(config).with_execution_hook(
+        BlockingTick {
+            gate: gate.clone(),
+            entered: Some(entered_send),
+            release: release_receive,
+        },
+    )));
+    node.lock().unwrap().start().unwrap();
+    entered_receive.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    assert!(cold_read_exact_frozen(&root, &owner, &"0".repeat(64), 1).is_err());
+    let release = release_send.send(());
+    release.unwrap();
+    let admission = gate.lock().unwrap();
+    let prepared = producer.begin_freeze(&root).unwrap();
+    drop(admission);
+    assert_eq!(prepared.count, 1);
+    assert!(cold_read_exact_frozen(&root, &owner, &prepared.root, prepared.count).is_err());
+
+    let state = FormalLiveState::default();
+    state.node_running.store(true, Ordering::Release);
+    state.stopping.store(true, Ordering::Release);
+    let pending = PendingNodeStop::spawn(node.clone(), state.clone()).unwrap();
+    assert_eq!(
+        pending.result.recv_timeout(Duration::from_secs(5)).unwrap(),
+        Ok(()),
+        "the actual NodeRuntime stop must complete before final Frozen publication"
+    );
+    assert_eq!(pending.worker.join().unwrap(), Ok(()));
+    assert!(!node.lock().unwrap().snapshot().running);
+    assert!(cold_read_exact_frozen(&root, &owner, &prepared.root, prepared.count).is_err());
+
+    let frozen = producer.finish_node_freeze(&root).unwrap();
+    assert_eq!(frozen, prepared);
+    let recovered = cold_read_exact_frozen(&root, &owner, &frozen.root, frozen.count).unwrap();
+    assert_eq!(recovered.requests.len(), 1);
+    assert_eq!(recovered.requests[0].signed_request, [0x43, 0x01, 0x02]);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 #[test]
 fn business_reader_requires_dual_replica_content_addressed_bytes() {
     let bytes = b"verified business node".to_vec();
