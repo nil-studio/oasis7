@@ -139,3 +139,36 @@ runner until its canonical build can use an isolated Docker boundary.
 两producer只把原runner workspace/temp同目录绑定到固定canonical路径，Worker另把该job已有私有temp绑定到原cache parent，不挂home范围或授daemon权限。预检核对真实dev/inode、checkout SHA、UID、GNU tar/zstd及Docker socket不可连接；runner的实际cwd可以是同inode映射路径，收据记录observed_cwd，SDK始终明确使用canonical archiveWorkingDirectory。原GITHUB_*不重写。Browser命令显式原cache-base，Worker命令显式原root，因此rawpaths/getCacheVersion不变；Browser仅输出原准入report已有upload_bound_bytes，save必须绑定对应原admit输出。
 
 Worker的mold仍由原固定setup.py核对原SHA并执行真实ELF smoke，安装于原owned /opt/oasis7-mold/3.0.0-v1。此job停止写辅助mold archive，避免默认Node cwd变化污染原宿主同key；其它job的mold cache策略不变。源码/工具预检与准备均计入原12分钟，后续正式日志记录setup-seconds；单次观察不作因果提速结论。四种原工具root各执行host默认/container显式cwd四向实际SDK tar回归，缓存API/version/exact hit与实际main准入及sharedsave另行核对，自然exacthit跳过save不能冒签新上传。
+
+### Web 发布门禁与依赖 writer 的镜像批次
+
+以下为 #7342 实施合同；当前三job仍用原宿主链路，专用leaf尚待正式发布。
+
+`rust-cache.yml::web-wasm-cache` 与 Release/Mainnet 的两个
+`release_gate_web` 是同一 Web 工具闭包的 producer/consumer：保留 Node22、
+Rust1.96、wasm32 target、Trunk0.21.14，以及原 Xvfb headed 门禁。writer
+预算22分钟、两个 reader 各25分钟；原构建、测试、报告和发布资格检查不变。
+本批不包含 shared-native writer 或其宿主消费者。实施和实际验收见 #7342。
+
+现 rust-viewer 包含 Chrome/浏览器闭包但为 Node24，不能冒称满足原 Node22
+要求。专用 rust-release-web leaf 复用该浏览器与 Rust底座，使用同源固定
+Node22/npm，并预置 netcat-openbsd、xvfb、xauth；不含 Docker socket、额外
+capability 或新的动态权限。正式发布不可变 digest 后才接生产消费。
+
+两个发布 reader 的镜像选择由执行工作流的可信 plan 决定：以精确
+checkoutSha 对照冻结镜像构建源的 rust-toolchain.toml、浏览器 helper/进程
+helper、浏览器 npm manifest/lock 与 bindgen helper 的 Git blob。所有文件
+须为存在的普通文件，目标 commit 及输入须完整。材料变化、缺失、symlink
+或未知 commit 均继续既有 host 分支；仅产品源码变化可使用同一镜像。
+兼容检测不替代 sourcePlan、原资格核验或允许候选保存缓存。
+
+新镜像 writer 和兼容 reader 只能使用独立完整 digest 的 cache namespace
+及真实环境 hash，不沿原 release-packages-web-wasm-trusted-v3 声称同ABI。
+旧tag host分支继续只读原旧族，原对象按已有维护保护规则保留；切换后
+不再重复预热旧 Web 族。新增族必须贯通原 main/workflow/source/job guard、
+20GB库存、post保存准入及maintenance识别，不新增无界双warm或人为cache
+miss。原 finite portable-cache adapter 的四角色不包含 Cargo target。
+
+实际验收分列工具/真实 headed-WASM闭包、生产 writer 准入与保存、reader
+恢复后的原门禁及历史host fallback；短fixture或sharedcache exacthit导致的
+save跳过不得冒签新增上传。正式发布后的新命名空间首次miss如实报告。
