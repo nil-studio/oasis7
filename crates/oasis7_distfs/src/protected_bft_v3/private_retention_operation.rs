@@ -84,7 +84,9 @@ impl BftRetainedOriginalOperationV1 {
             || self.original_lease_generation == 0
             || self.after_revision < self.before_revision
         {
-            return Err(invalid("original operation identity or byte capacity invalid"));
+            return Err(invalid(
+                "original operation identity or byte capacity invalid",
+            ));
         }
         self.source.validate()?;
         for digest in [
@@ -98,7 +100,8 @@ impl BftRetainedOriginalOperationV1 {
             validate_digest(digest)?;
         }
         if self.original_request_digest != byte_digest(REQUEST_DOMAIN, &self.signed_request_bytes)
-            || self.original_receipt_digest != byte_digest(RECEIPT_DOMAIN, &self.signed_receipt_bytes)
+            || self.original_receipt_digest
+                != byte_digest(RECEIPT_DOMAIN, &self.signed_receipt_bytes)
         {
             return Err(invalid("original signed byte identity changed"));
         }
@@ -109,7 +112,9 @@ impl BftRetainedOriginalOperationV1 {
                 || reference.key.ledger_origin_digest != self.ledger_origin_digest
                 || previous.is_some_and(|before| before >= reference.key.header_id.as_str())
             {
-                return Err(invalid("original operation source/ref order or identity differs"));
+                return Err(invalid(
+                    "original operation source/ref order or identity differs",
+                ));
             }
             previous = Some(&reference.key.header_id);
         }
@@ -139,7 +144,10 @@ impl BftOriginalRetentionTxnSnapshotV1 {
         self.validate_with_byte_budget(MAX_ORIGINAL_RETAINED_BYTES)
     }
 
-    pub(super) fn validate_with_byte_budget(&self, maximum_bytes: usize) -> Result<(), BftSignerErrorV3> {
+    pub(super) fn validate_with_byte_budget(
+        &self,
+        maximum_bytes: usize,
+    ) -> Result<(), BftSignerErrorV3> {
         if self.original_operations.len() > MAX_ORIGINAL_OPERATIONS {
             return Err(invalid("original operation index capacity exceeded"));
         }
@@ -154,7 +162,8 @@ impl BftOriginalRetentionTxnSnapshotV1 {
                 return Err(invalid("original operation index total byte limit"));
             }
             if id != &operation.operation_id
-                || operation.original_lease_generation > self.current.current.signer.lease_generation
+                || operation.original_lease_generation
+                    > self.current.current.signer.lease_generation
                 || (operation.source == self.current.current.marker.source
                     && operation.ledger_origin_digest
                         == self.current.current.marker.ledger_origin_digest
@@ -162,7 +171,9 @@ impl BftOriginalRetentionTxnSnapshotV1 {
                 || operation.cumulative_reserved_response_bytes
                     > self.current.current.reserved_response_bytes
             {
-                return Err(invalid("protected original operation index differs from current"));
+                return Err(invalid(
+                    "protected original operation index differs from current",
+                ));
             }
         }
         Ok(())
@@ -179,11 +190,12 @@ impl BftOriginalRetentionTxnSnapshotV1 {
         let Some(stored) = self.original_operations.get(operation_id) else {
             return Ok(None);
         };
-        if stored.original_request_digest
-            != byte_digest(REQUEST_DOMAIN, signed_request_bytes)
+        if stored.original_request_digest != byte_digest(REQUEST_DOMAIN, signed_request_bytes)
             || stored.signed_request_bytes != signed_request_bytes
         {
-            return Err(invalid("original operation identity reused with different bytes"));
+            return Err(invalid(
+                "original operation identity reused with different bytes",
+            ));
         }
         Ok(Some(stored))
     }
@@ -234,7 +246,9 @@ impl BftOriginalRetentionTxnSnapshotV1 {
             || new_operation.cumulative_reserved_response_bytes
                 != next_current.current.reserved_response_bytes
         {
-            return Err(invalid("original operation whole-tuple CAS transition invalid"));
+            return Err(invalid(
+                "original operation whole-tuple CAS transition invalid",
+            ));
         }
 
         let mut next = Self {
@@ -247,4 +261,3 @@ impl BftOriginalRetentionTxnSnapshotV1 {
         Ok(next)
     }
 }
-

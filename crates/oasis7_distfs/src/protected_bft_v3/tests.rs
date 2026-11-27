@@ -209,9 +209,11 @@ fn exact_single_protected_transaction_retains_original_bytes_and_idempotent_resu
     );
     let mut substituted = original.clone();
     substituted.signed_receipt_bytes[0] ^= 1;
-    assert!(committed
-        .prepare_single_atomic_operation(committed.current.clone(), substituted)
-        .is_err());
+    assert!(
+        committed
+            .prepare_single_atomic_operation(committed.current.clone(), substituted)
+            .is_err()
+    );
     let encoded = serde_cbor::to_vec(&original).unwrap();
     let cold: BftRetainedOriginalOperationV1 = serde_cbor::from_slice(&encoded).unwrap();
     assert_eq!(cold, original);
@@ -227,25 +229,53 @@ fn original_whole_tuple_refuses_stale_lease_floor_spend_and_changed_identity() {
     let good = current(2, 100);
     let mut stale = good.clone();
     stale.current.signer.lease_generation = 8;
-    assert!(before.prepare_single_atomic_operation(stale, original.clone()).is_err());
+    assert!(
+        before
+            .prepare_single_atomic_operation(stale, original.clone())
+            .is_err()
+    );
     let mut token = good.clone();
     token.current.signer.lease_token_digest = hex_hash(12);
-    assert!(before.prepare_single_atomic_operation(token, original.clone()).is_err());
+    assert!(
+        before
+            .prepare_single_atomic_operation(token, original.clone())
+            .is_err()
+    );
     let mut floor = good.clone();
     floor.current.signer.protected_time_floor_ms = 99;
-    assert!(before.prepare_single_atomic_operation(floor, original.clone()).is_err());
+    assert!(
+        before
+            .prepare_single_atomic_operation(floor, original.clone())
+            .is_err()
+    );
     let mut refund = good.clone();
     refund.current.reserved_response_bytes = 0;
-    assert!(before.prepare_single_atomic_operation(refund, original.clone()).is_err());
+    assert!(
+        before
+            .prepare_single_atomic_operation(refund, original.clone())
+            .is_err()
+    );
     let mut wrong = original.clone();
     wrong.original_request_digest = hex_hash(15);
-    assert!(before.prepare_single_atomic_operation(good.clone(), wrong).is_err());
+    assert!(
+        before
+            .prepare_single_atomic_operation(good.clone(), wrong)
+            .is_err()
+    );
     let mut crossed = original.clone();
     crossed.original_lease_generation += 1;
-    assert!(before.prepare_single_atomic_operation(good.clone(), crossed).is_err());
+    assert!(
+        before
+            .prepare_single_atomic_operation(good.clone(), crossed)
+            .is_err()
+    );
     let mut changed = good.clone();
     changed.current.marker.creation_identity = hex_hash(16);
-    assert!(before.prepare_single_atomic_operation(changed, original).is_err());
+    assert!(
+        before
+            .prepare_single_atomic_operation(changed, original)
+            .is_err()
+    );
 }
 
 fn cold_history_keeps_original_operation_across_new_lease_and_rejects_corruption() {
@@ -294,6 +324,8 @@ fn cold_history_keeps_original_operation_across_new_lease_and_rejects_corruption
     assert!(bounded.validate_with_byte_budget(15).is_err());
     let mut collision = stored.clone();
     collision.original_operations.remove(&original.operation_id);
-    collision.original_operations.insert("different".into(), original);
+    collision
+        .original_operations
+        .insert("different".into(), original);
     assert!(collision.validate().is_err());
 }

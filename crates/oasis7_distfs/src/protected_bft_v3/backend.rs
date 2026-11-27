@@ -128,7 +128,9 @@ pub trait BftSignerBackendV3: Send + Sync {
         _generation: u64,
         _token_digest: &str,
     ) -> Result<super::BftOriginalRetentionTxnSnapshotV1, BftSignerErrorV3> {
-        Err(invalid("atomic original operation retention is unsupported"))
+        Err(invalid(
+            "atomic original operation retention is unsupported",
+        ))
     }
 
     /// Compare and commit the *entire* original-operation envelope in a single
@@ -142,7 +144,9 @@ pub trait BftSignerBackendV3: Send + Sync {
         _expected: &super::BftOriginalRetentionTxnSnapshotV1,
         _next: &super::BftOriginalRetentionTxnSnapshotV1,
     ) -> Result<(), BftSignerErrorV3> {
-        Err(invalid("atomic original operation retention is unsupported"))
+        Err(invalid(
+            "atomic original operation retention is unsupported",
+        ))
     }
 
     /// Persists one fully validated state transition under the exact lease,
