@@ -3,21 +3,65 @@ use std::net::TcpListener;
 use std::time::{Duration, Instant};
 #[path = "readiness.rs"]
 mod readiness;
+/// Explicit, process-lifetime server read-admission settings. These are not
+/// request-side GEN evidence and never authorize a Qualified transition.
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FormalRpcFrameAdmissionLimitsV1 {
+    pub ordinary_bytes: usize,
+    pub work_steps: u64,
+    pub work_bytes: u64,
+}
 pub struct FormalEndpointServer {
     endpoint: FileFormalEndpoint,
     timeout: Duration,
+    frame_admission: Option<(
+        oasis7_proto::memory_budget::MemoryBudget,
+        super::super::FormalArchiveReadWorkV1,
+    )>,
     last_rpc: std::time::Instant,
     #[cfg(test)]
     readiness_counts: (u64, u64),
 }
 impl FormalEndpointServer {
     pub fn new(endpoint: FileFormalEndpoint, timeout: Duration) -> Result<Self, FormalError> {
+        Self::new_with_frame_admission(endpoint, timeout, None)
+    }
+    /// Both normal/recovery and healthy activation call this once at startup.
+    /// Optional mode is only frame admission: Request DTO, remote Query
+    /// response and GEN proof cutover remain separate formal contracts.
+    pub fn new_with_frame_admission(
+        endpoint: FileFormalEndpoint,
+        timeout: Duration,
+        limits: Option<FormalRpcFrameAdmissionLimitsV1>,
+    ) -> Result<Self, FormalError> {
         if timeout.is_zero() || timeout > Duration::from_secs(60) {
             return Err(invalid("formal RPC timeout in (0,60s]"));
         }
+        let frame_admission = limits
+            .map(|limit| {
+                if limit.ordinary_bytes < 4096
+                    || limit.work_steps == 0
+                    || limit.work_bytes == 0
+                {
+                    return Err(invalid("formal RPC frame admission policy"));
+                }
+                let memory = oasis7_proto::memory_budget::MemoryBudget::new(
+                    limit.ordinary_bytes,
+                    0,
+                )
+                .map_err(|_| invalid("formal RPC frame admission memory"))?;
+                let work = super::super::FormalArchiveReadWorkV1::new(
+                    limit.work_steps,
+                    limit.work_bytes,
+                )?;
+                Ok((memory, work))
+            })
+            .transpose()?;
         Ok(Self {
             endpoint,
             timeout,
+            frame_admission,
             last_rpc: std::time::Instant::now(),
             #[cfg(test)]
             readiness_counts: (0, 0),
@@ -94,7 +138,19 @@ impl FormalEndpointServer {
     ) -> Result<(), FormalError> {
         wire::address(peer)?;
         wire::configure(stream, self.timeout)?;
-        let request: Request = wire::read(stream)?;
+        // Hold the original frame fee through signature validation and the
+        // signed response write. This is frame admission, not a paid DTO owner.
+        let (request, _paid_frame): (
+            Request,
+            Option<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>>,
+        ) = match self.frame_admission.as_ref() {
+            Some((memory, work)) => {
+                let (value, owner) =
+                    wire::read_prepaid_frame(stream, memory, work, &mut || false)?;
+                (value, Some(owner))
+            }
+            None => (wire::read(stream)?, None),
+        };
         let body = &request.body;
         hash_hex(&body.challenge)?;
         hash_hex(&body.minimum.record_id)?;
