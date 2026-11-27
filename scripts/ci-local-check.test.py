@@ -105,6 +105,11 @@ class GitFixture(unittest.TestCase):
             self.write('scripts/' + name, (HERE / name).read_text() if real else json.dumps({'groups': list(groups)}))
         if real:
             self.write('scripts/plan-rust-required-scope.py', (HERE / 'plan-rust-required-scope.py').read_text())
+            if (HERE / 'run-ci-authority-python.py').is_file():
+                self.write('scripts/run-ci-authority-python.py', (HERE / 'run-ci-authority-python.py').read_text())
+            if (HERE / 'ci_engine').is_dir():
+                for ef in sorted((HERE / 'ci_engine').rglob('*.py')):
+                    self.write('scripts/' + ef.relative_to(HERE).as_posix(), ef.read_text())
         else:
             self.write('scripts/plan-rust-required-scope.py',
                        'import json, pathlib, sys\n'
@@ -793,6 +798,9 @@ class SupportContracts(GitFixture):
         for name in ('ci-tests.sh', 'viewer-dependency-preflight.sh',
                      'plan-rust-required-scope.py'):
             self.write('scripts/' + name, (HERE / name).read_text(), True)
+        if (HERE / 'ci_engine').is_dir():
+            for ef in sorted((HERE / 'ci_engine').rglob('*.py')):
+                self.write('scripts/' + ef.relative_to(HERE).as_posix(), ef.read_text())
         self.write('scripts/find-python-with-module.sh',
                    f'#!/bin/sh\nprintf "%s\\n" "{sys.executable}"\n', True)
         self.calls = Path(self.temp.name) / 'cargo-calls.jsonl'

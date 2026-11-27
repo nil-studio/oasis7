@@ -1402,7 +1402,13 @@
     "scripts/ci-workflow.test.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.test.py": ["workflow_governance"],
+    "scripts/ci-engine-unit.test.py": ["workflow_governance"],
+    "scripts/ci_engine/__init__.py": ["workflow_governance"],
+    "scripts/ci_engine/capability_schema.py": ["workflow_governance"],
+    "scripts/ci_engine/rust_source_graph.py": ["workflow_governance"],
+    "scripts/ci_engine/shard_scheduler.py": ["workflow_governance"],
     "scripts/ci_process_runner.py": ["workflow_governance"],
+    "scripts/run-ci-authority-python.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-worker-local.test.py": ["workflow_governance"],
@@ -1423,6 +1429,7 @@
     "scripts/plan-rust-required-scope-selection-part6.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-engine-unit.test.py",
     "scripts/ci-portable-cache-job.test.py",
     "scripts/ci-portable-cache-container-contract.test.py",
     "scripts/ci-portable-cache-archive.test.py",
@@ -2114,6 +2121,52 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-engine-unit.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py"
+      ]
+    },
+    "scripts/ci_engine/__init__.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci_engine/capability_schema.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci_engine/rust_source_graph.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci_engine/shard_scheduler.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/run-ci-authority-python.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
       ]
     },
     "scripts/ci_process_runner.py": {

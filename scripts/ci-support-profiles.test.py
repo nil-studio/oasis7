@@ -195,6 +195,13 @@ after(()=>{assert.equal(completed,2);record('finish');});
             for name in ('plan-rust-required-scope.py', 'find-python-with-module.sh',
                          'viewer-dependency-preflight.sh'):
                 shutil.copyfile(ROOT / 'scripts' / name, scripts / name)
+            if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
+                shutil.copyfile(ROOT / 'scripts/run-ci-authority-python.py', scripts / 'run-ci-authority-python.py')
+            if (ROOT / 'scripts/ci_engine').is_dir():
+                for ef in sorted((ROOT / 'scripts/ci_engine').rglob('*.py')):
+                    dst = root / ef.relative_to(ROOT)
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(ef, dst)
             # Keep the complete production CLI and dispatcher; record only the
             # expensive Cargo boundary after parsing has selected the real path.
             marker = '  run_group "$group"\n'

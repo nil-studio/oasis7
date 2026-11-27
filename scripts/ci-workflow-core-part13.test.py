@@ -138,6 +138,14 @@ class WorkflowCorePart13(unittest.TestCase):
         for name in ('plan-rust-required-scope.py', 'ci-required-scope.json', 'ci-required-result.py',
                      'ci-formal-plan.py', 'ci-formal-process-suites.json', 'ci-python-control-contracts.py'):
             (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+        if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
+            (repo / 'scripts/run-ci-authority-python.py').write_bytes(
+                (ROOT / 'scripts/run-ci-authority-python.py').read_bytes())
+        if (ROOT / 'scripts/ci_engine').is_dir():
+            for ef in sorted((ROOT / 'scripts/ci_engine').rglob('*.py')):
+                dst = repo / ef.relative_to(ROOT)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(ef.read_bytes())
         if policy_config is not None:
             (repo / 'scripts/ci-required-scope.json').write_text(json.dumps(policy_config))
         (repo / 'scripts/ci-full-result.py').write_text('# producer is not executed by selection\n')

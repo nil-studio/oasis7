@@ -1064,6 +1064,14 @@ class Workflow(unittest.TestCase):
                  'ci-formal-plan.py', 'ci-formal-process-suites.json')
         for name in files:
             (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+        if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
+            (repo / 'scripts/run-ci-authority-python.py').write_bytes(
+                (ROOT / 'scripts/run-ci-authority-python.py').read_bytes())
+        if (ROOT / 'scripts/ci_engine').is_dir():
+            for engine_file in sorted((ROOT / 'scripts/ci_engine').rglob('*.py')):
+                dst = repo / engine_file.relative_to(ROOT)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(engine_file.read_bytes())
         if policy_config is not None:
             (repo / 'scripts/ci-required-scope.json').write_text(json.dumps(policy_config))
         if not legacy:
