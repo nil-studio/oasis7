@@ -64,7 +64,7 @@ jobs:
       - name: Verify business runtime and source compatibility
         run: |
           set -euo pipefail
-          test "$(node -p 'process.versions.node.split(`.`)[0]')" = 22
+          node --version | grep -E '^v22[.]'
           /usr/local/bin/node --version
           agent-browser --version
           python3 scripts/ci-release-web-image.py --image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591 --source "$CODE_SHA" | grep -Fx release_web_image_compatible=true
