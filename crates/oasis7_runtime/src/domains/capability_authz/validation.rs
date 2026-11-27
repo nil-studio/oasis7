@@ -80,8 +80,7 @@ impl World {
         Ok(())
     }
 
-    pub(in crate::world) fn verify_parent_chain(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> { self.verify_parent_chain_with_revocation_state(&self.capability_revocation_state, grant) }
-    pub(in crate::world) fn verify_parent_chain_with_revocation_state(&self, rev: &crate::capability_authorization::CapabilityRevocationState, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
+    pub(in crate::world) fn verify_parent_chain(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
         // Depth one is the first delegated-child level. A higher-depth
         // parent may be issued directly by governance as a delegation root;
         // a depth-one grant without a parent is otherwise an orphan child.
@@ -91,7 +90,7 @@ impl World {
             ));
         }
         let mut visited = BTreeSet::new();
-        self.verify_parent_chain_inner(grant, rev, &mut visited, self.state.time)
+        self.verify_parent_chain_inner(grant, &mut visited, self.state.time)
     }
 
     pub(in crate::world) fn verify_parent_chain_at_tick(
@@ -104,13 +103,12 @@ impl World {
                 "delegated grant must carry an explicit parent authorization",
             ));
         }
-        self.verify_parent_chain_inner(grant, &self.capability_revocation_state, &mut BTreeSet::new(), tick)
+        self.verify_parent_chain_inner(grant, &mut BTreeSet::new(), tick)
     }
 
     fn verify_parent_chain_inner(
         &self,
         grant: &CapabilityGrantV2,
-        rev: &crate::capability_authorization::CapabilityRevocationState,
         visited: &mut BTreeSet<String>,
         tick: u64,
     ) -> Result<(), WorldError> {
@@ -145,8 +143,8 @@ impl World {
         {
             return Err(deny("parent grant lifetime is not currently valid"));
         }
-        self.verify_issuer_with_revocation_state(rev, &parent)?;
-        Self::verify_live_revocation_with_state(rev, &parent)?;
+        self.verify_issuer(&parent)?;
+        self.verify_live_revocation(&parent)?;
         if parent.subject != grant.subject
             || parent.audience != grant.audience
             || parent.issuer.issuer_id != grant.issuer.issuer_id
@@ -173,6 +171,6 @@ impl World {
         {
             return Err(deny("delegated grant does not attenuate its parent"));
         }
-        self.verify_parent_chain_inner(&parent, rev, visited, tick)
+        self.verify_parent_chain_inner(&parent, visited, tick)
     }
 }

@@ -237,15 +237,16 @@ impl World {
         self.verify_parent_chain(&grant)
     }
 
-    pub(super) fn verify_issuer(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> { self.verify_issuer_with_revocation_state(&self.capability_revocation_state, grant) }
-    pub(in crate::world) fn verify_issuer_with_revocation_state(&self, state: &crate::capability_authorization::CapabilityRevocationState, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
+    pub(super) fn verify_issuer(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
         let issuer = &grant.issuer;
-        let authority = state
+        let authority = self
+            .capability_revocation_state
             .authority_records
             .get(&issuer.issuer_id)
             .ok_or_else(|| deny("issuer has no finalized authority record"))?;
         validate_authority_record(authority)?;
-        let proof = state
+        let proof = self
+            .capability_revocation_state
             .authority_finality_proofs
             .get(&issuer.issuer_id)
             .ok_or_else(|| deny("issuer has no replayable finality proof"))?;
@@ -290,8 +291,11 @@ impl World {
         Ok(())
     }
 
-    pub(super) fn verify_live_revocation(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> { Self::verify_live_revocation_with_state(&self.capability_revocation_state, grant) }
-    pub(in crate::world) fn verify_live_revocation_with_state(state: &crate::capability_authorization::CapabilityRevocationState, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
+    pub(super) fn verify_live_revocation(
+        &self,
+        grant: &CapabilityGrantV2,
+    ) -> Result<(), WorldError> {
+        let state = &self.capability_revocation_state;
         if state.epoch < grant.revocation_epoch {
             return Err(deny("revocation registry is stale"));
         }

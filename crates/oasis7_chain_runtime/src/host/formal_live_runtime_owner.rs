@@ -31,9 +31,6 @@ mod control;
 #[path = "formal_live_runtime_owner_original_pending.rs"]
 mod original_pending;
 pub(super) use original_pending::{operation_root, owner_root, paths, prepare_operation_root};
-pub(crate) use original_pending::{
-    cold_read_original_pending_for_owner, freeze_original_pending,
-};
 #[cfg(test)]
 use control::control_work_timeout;
 use control::{send_control, send_control_on_stream};

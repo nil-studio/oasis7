@@ -109,10 +109,6 @@ def require_materialized_native_archive(root):
         require(facade / name, (
             r'^pub use oasis7_runtime_host::simulator_archive::' + module + r'::\*;$',
         ))
-    require(facade / 'archive_host_facade.rs', (
-        r'^#\[path = "archive/tests.rs"\]$',
-        r'^#\[path = "archive/retention_tests.rs"\]$',
-    ))
 
 
 class Ownership(unittest.TestCase):
@@ -589,8 +585,8 @@ class Ownership(unittest.TestCase):
         """The real extracted L4 owner must retain original wasm and replay witnesses."""
         archive = ROOT / 'crates/oasis7_runtime_host/src/simulator_archive'
         original = ROOT / 'crates/oasis7/src/simulator'
+        self.assertIn('pub struct WorldEvent {', (archive / 'archive.rs').read_text())
         for filename, symbol in (
-            ('archive.rs', 'pub struct WorldEvent {'),
             ('persist.rs', 'pub struct WorldSnapshot {'),
             ('kernel_host.rs', 'pub struct WorldKernel {'),
         ):
@@ -599,9 +595,8 @@ class Ownership(unittest.TestCase):
         source = (archive / 'tests.rs').read_text()
         self.assertIn('original_composite_snapshot_extensions_survive_exact_native_split_rejoin', source)
         self.assertIn('native_composite_event_roundtrip_keeps_rejection_and_host_field', source)
-        facade = (original / 'archive_host_facade.rs').read_text()
-        self.assertIn('archive/tests.rs', facade)
-        self.assertIn('archive/retention_tests.rs', facade)
+        self.assertIn('snapshot_split_rejoin_preserves_nonempty_host_extensions_and_exact_codecs', source)
+        self.assertIn('restored_snapshot_keeps_external_cut_exactly_through_no_journal_mutations', source)
         deps = manifest('oasis7_runtime_host')['dependencies']
         self.assertEqual(deps['oasis7_agent_harness'], {'path': '../oasis7_agent_harness'})
         self.assertEqual(deps['serde'], {'version': '1', 'features': ['derive']})

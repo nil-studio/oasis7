@@ -18,18 +18,17 @@ impl World {
     }
     /// Native grants bind the current credential generation as well as the
     /// immutable economic claim source. Reauthentication cannot revive a grant.
-    pub fn current_agent_owner(&self, agent: &str) -> Option<ResolvedAgentOwnerV1> { self.current_agent_owner_with_revocation_state(&self.capability_revocation_state, agent) }
-    pub(crate) fn current_agent_owner_with_revocation_state(&self, rev: &crate::capability_authorization::CapabilityRevocationState, agent: &str) -> Option<ResolvedAgentOwnerV1> {
-        let participant = rev.participants.bindings.values()
+    pub fn current_agent_owner(&self, agent: &str) -> Option<ResolvedAgentOwnerV1> {
+        let participant = self.capability_revocation_state.participants.bindings.values()
             .find(|receipt| receipt.agent_id == agent);
         if let Some(receipt) = participant {
-            let policy=rev.participants.policy.as_ref()?;
-            let identity=self.current_agent_identity_with_revocation_state(rev, agent)?;
+            let policy=self.capability_revocation_state.participants.policy.as_ref()?;
+            let identity=self.current_agent_identity(agent)?;
             if !self.state.agents.contains_key(agent) || self.state.is_manufactured_agent(agent)
                 || receipt.world_id != self.chain_resource_manifest.world_id
                 || self.chain_resource_manifest.genesis_ref.as_ref() != Some(&receipt.genesis_digest)
                 || !receipt.identity_namespace.same_authority(&policy.identity_namespace)
-                || !crate::service_admission::participant::namespace_was_authorized_in_state(rev,&receipt.identity_namespace)
+                || !crate::service_admission::participant::namespace_was_authorized(self,&receipt.identity_namespace)
                 || identity.owner_binding != receipt.owner_binding || identity.generation != receipt.owner_generation.0
                 || self.state.agent_claims.get(agent).is_some_and(|claim| claim.claim_owner_id != agent || claim.control_source.is_some()) {
                 return None;
@@ -47,7 +46,7 @@ impl World {
         if !self.state.is_manufactured_agent(agent) {
             return Some(owner);
         }
-        let identity = self.current_agent_identity_with_revocation_state(rev, agent)?;
+        let identity = self.current_agent_identity(agent)?;
         if owner.player_id != identity.owner_binding {
             return None;
         }
@@ -57,10 +56,10 @@ impl World {
         }
         Some(owner)
     }
-    pub fn current_agent_identity(&self, agent: &str) -> Option<CapabilityAgentIdentity> { self.current_agent_identity_with_revocation_state(&self.capability_revocation_state, agent) }
-    pub(crate) fn current_agent_identity_with_revocation_state(&self, rev: &crate::capability_authorization::CapabilityRevocationState, agent: &str) -> Option<CapabilityAgentIdentity> {
+    pub fn current_agent_identity(&self, agent: &str) -> Option<CapabilityAgentIdentity> {
         if !self.state.is_manufactured_agent(agent) {
-            return rev
+            return self
+                .capability_revocation_state
                 .agent_identities
                 .get(agent)
                 .cloned();
@@ -76,14 +75,15 @@ impl World {
             return None;
         }
         let owner = self.state.resolved_agent_owner(agent)?;
-        let root = rev
+        let root = self
+            .capability_revocation_state
             .agent_identities
             .get(&owner.primary_agent_id)?;
         if root.owner_binding != owner.player_id {
             return None;
         }
         let generation = manufactured_identity_generation(
-            rev,
+            &self.capability_revocation_state,
             agent,
             owner.generation,
         )?;

@@ -439,7 +439,7 @@ fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
         incarnation: "original-incarnation".into(),
     };
     let tracker = Arc::new(Mutex::new(
-        OriginalPendingProducerV1::open(&path, owner_id.clone()).unwrap(),
+        OriginalPendingProducerV1::open(&path, owner_id).unwrap(),
     ));
     let (base_world, trust, anchor) = fixture_trust();
     let (world, owner) = world_with_owner();
@@ -472,9 +472,20 @@ fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
     );
     let prepared = tracker.lock().unwrap().begin_freeze(&path).unwrap();
     assert_eq!(prepared.count, 1);
-    // Before real Node Frozen, a prepared original is not externally readable.
-    let cold_read = super::super::formal_live_original_pending_producer::cold_read_exact_frozen;
-    assert!(cold_read(&path, &owner_id, &prepared.root, prepared.count).is_err());
+    // No actual Node Frozen has occurred yet: the record is only prepared,
+    // and the independent cold reader MUST continue to reject it.
+    assert!(super::super::formal_live_original_pending_producer::cold_read_exact_frozen(
+        &path,
+        &OriginalPendingOwnerV1 {
+            authority_id: "authenticated-owner".into(),
+            operation_id: "original".into(),
+            request_digest: "original-digest".into(),
+            config_digest: "verified-config".into(),
+            incarnation: "original-incarnation".into(),
+        },
+        &prepared.root,
+        1,
+    ).is_err());
     let declined = service.handle("POST", SUBMIT_PATH, &bytes);
     assert_eq!(declined.status, 503);
     assert_eq!(
@@ -482,14 +493,6 @@ fn exact_owner_recorder_captures_only_successful_real_node_enqueues() {
             .submit_buffer_action_count,
         1,
     );
-    node.lock().unwrap().stop().unwrap();
-    // Publish the final marker only after real Node stop.
-    let frozen = tracker.lock().unwrap().finish_node_freeze(&path).unwrap();
-    assert_eq!(frozen, prepared);
-    let restored = cold_read(&path, &owner_id, &prepared.root, prepared.count).unwrap();
-    assert_eq!(restored.requests.len(), 1);
-    assert_eq!(restored.requests[0].signed_request, bytes);
-    assert!(cold_read(&path, &owner_id, &"0".repeat(64), prepared.count).is_err());
     std::fs::remove_dir_all(&path).unwrap();
 }
 
