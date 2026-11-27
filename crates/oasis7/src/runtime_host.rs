@@ -10,7 +10,7 @@ mod agent_chat_projection_tests;
 mod game_task_projection_tests;
 
 pub mod bootstrap;
-pub mod harness_authority;
+pub use oasis7_runtime_host::harness_authority;
 #[cfg(test)]
 mod ordinary_starter {
     pub use oasis7_world_service::ordinary_starter::*;
@@ -20,11 +20,11 @@ mod ordinary_starter {
     mod legacy_claim_tests;
 }
 
-pub mod feedback;
+pub use oasis7_runtime_host::feedback;
 
 /// Composite native host archive extensions.
 pub mod archive {
     pub use crate::simulator::persist::*;
 }
 
-pub mod runner;
+pub use oasis7_runtime_host::runner;
