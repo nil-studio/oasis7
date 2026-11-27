@@ -1,13 +1,20 @@
 //! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod agent;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod agent_api_compat;
 #[path = "agent_execution/async_agent_runner_retry.rs"]
 pub mod async_agent_runner_retry;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod bootstrap;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod cognition_policy;
 pub mod cognition_response_identity;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod decision_provider;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gameplay_actions;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gameplay_service;
 pub mod llm_prompt_profile;
 pub mod llm_request_budget;
@@ -18,6 +25,7 @@ pub mod provider_json_shape;
 pub mod provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod provider_loopback_http;
+#[cfg(not(target_arch = "wasm32"))]
 #[path = "agent_execution/provider_material_capture.rs"]
 pub mod provider_material_capture;
 pub mod provider_transport_url;
@@ -26,10 +34,13 @@ pub mod simulator_archive;
 #[path = "agent_execution/llm_agent/decision_flow/field_identity.rs"]
 pub mod llm_decision_field_identity;
 
+#[cfg(not(target_arch = "wasm32"))]
 use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, WorldError, WorldState};
+#[cfg(not(target_arch = "wasm32"))]
 use std::{path::Path, sync::Arc};
 
 /// Attach application capabilities after deterministic replay and validation have completed.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn install_runtime_capabilities(mut world: World) -> World {
     world.set_module_source_compiler(Arc::new(
         oasis7_world_service::module_source_compiler::HostModuleSourceCompiler,
@@ -38,6 +49,7 @@ pub fn install_runtime_capabilities(mut world: World) -> World {
 }
 
 /// Native application assembly. The returned value is the Runtime's original `World` type.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod world {
     use super::*;
     pub fn new_production_hardened_with_initial_module_visuals(
@@ -161,7 +173,7 @@ pub mod world {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 
