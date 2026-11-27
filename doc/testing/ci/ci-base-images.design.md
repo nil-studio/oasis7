@@ -140,6 +140,23 @@ runner until its canonical build can use an isolated Docker boundary.
 
 Worker的mold仍由原固定setup.py核对原SHA并执行真实ELF smoke，安装于原owned /opt/oasis7-mold/3.0.0-v1。此job停止写辅助mold archive，避免默认Node cwd变化污染原宿主同key；其它job的mold cache策略不变。源码/工具预检与准备均计入原12分钟，后续正式日志记录setup-seconds；单次观察不作因果提速结论。四种原工具root各执行host默认/container显式cwd四向实际SDK tar回归，缓存API/version/exact hit与实际main准入及sharedsave另行核对，自然exacthit跳过save不能冒签新上传。
 
+### Release Web 的 Node22 headed leaf
+
+#7342 的 `rust-release-web` 继承 `rust-viewer` 的 Rust、Chrome、字体和固定
+浏览器 npm 闭包，再复制同一固定 `custody-node-tools` Node22/npm 到
+`/opt/oasis7-node22`，并预置原门禁所需 netcat-openbsd/Xvfb/xauth。继承的
+Node24 action runtime 保留，生产脚本显式选择 Node22 CLI，不改变其它leaf。
+无daemon、socket或新增capability。构建接收实际Ubuntu/Node24/Node22/Rust
+父镜像digest及当前稳定/夜间工具链，保原可追溯labels。
+
+构建后在network-none、UID/GID1001的容器内执行真实Node22/npm检查、稳定
+wasm32编译和Xvfb中的headless=false Chrome页面回归；不以headless替代
+原发布headed门禁。原target扫描/同run构件和main可信发布链保持，新增
+release-web独立publish分组仍10分钟，避免给现app-wasm组合追加串行上传
+使其越原预算。此片只发布工具，不切换writer/readers或改变其资格/缓存；
+正式digest发布后再同批接入三个job，消费PR继续承担22/25/25分钟、历史
+tag工具兼容、独立digest缓存族及原20GB/保存准入验收。
+
 The trusted full-regression job uses the image for npm dependency
 installation, the original `full-extended` command, and the governance
 report. GitHub cache actions remain on the host for npm, Trunk,

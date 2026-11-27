@@ -32,7 +32,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust, api-runtime, rust-ordinary-builder, rust-custody-wasm, rust-viewer, rust-full-regression]
+        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust, api-runtime, rust-ordinary-builder, rust-custody-wasm, rust-viewer, rust-full-regression, rust-release-web]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -150,7 +150,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        group: [base, specialized, app-wasm]
+        group: [base, specialized, app-wasm, release-web]
     steps:
       - name: Log in to GHCR and prepare image publisher
         env:
@@ -255,6 +255,13 @@ jobs:
       - name: Publish verified trusted full regression image
         if: matrix.group == 'specialized'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-full-regression
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'release-web'
+        with:
+          name: ci-image-rust-release-web
+      - name: Publish verified Release Web image
+        if: matrix.group == 'release-web'
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-release-web
       - name: Log out of GHCR
         if: always()
         run: docker logout ghcr.io

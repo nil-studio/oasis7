@@ -2,6 +2,7 @@
 
 > 对应需求: `doc/world-simulator/launcher/game-client-launcher-feedback.prd.md`
 > 历史迁移、验证与 task 状态：GitHub task issue evidence。
+> **职责与承接边界**：本文承载 `oasis7_web_launcher` `/api/chain/feedback` 控制面代理边界、`#feedback-result-boundary` 上游结果隔离条款及自动诊断最小脱敏规则。
 
 ### 2.1 需求承接与分配表
 
@@ -39,9 +40,7 @@ Trace refs: O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1。仅承接[REQ-ENTRY-LA
 
 ## 代码与协议接点
 
-- native：`crates/oasis7_client_launcher/src/feedback_entry.rs`、`feedback_window.rs`。
-- Web：`crates/oasis7_client_launcher/src/feedback_window_web.rs`、`app_process_web.rs`。
-- 控制面/runtime：`/api/chain/feedback` -> `/v1/chain/feedback/submit`。
+- 活跃控制面/runtime：`oasis7_launcher_backend` `/api/chain/feedback` -> `/v1/chain/feedback/submit`。
 
 本设计保留当前结构，不新增字段、CTA、fallback 或端点。以下为既有诊断保护和本地文件保存所缺的实施边界与验收目标，不声明实现已经修复。
 

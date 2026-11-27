@@ -726,22 +726,38 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs
                                | ({'plan-image-component-cache'} if 'plan-image-component-cache' in cache_jobs else set())), 'incomplete cache producer layout'
+    family = 'release-web'
+    producer = cache_jobs.get('web-wasm-cache', '')
+    if '    container:' in producer.split('    steps:', 1)[0]:
+        image = 'ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59'
+        assert re.findall(r'^      image: (.+)$', producer.split('    steps:', 1)[0], re.M) == [image], 'unknown Web image writer'
+        header = producer.split('    steps:', 1)[0]
+        assert '      options: --user 1001:1001 --init\n' in header
+        assert '      RUST_RELEASE_WEB_IMAGE: ' + image + '\n' in header
+        assert 'volumes:' not in header and '--privileged' not in header
+        family = 'release-web-image'
+        namespace = 'ci-rust-release-web-' + image.split('@sha256:', 1)[1]
+        registered = (namespace, '.github/workflows/rust-cache.yml', 'web-wasm-cache')
+        assert families.get(family) == registered, 'Web image registry must match the exact image namespace'
+        assert [name for name, identity in families.items() if identity[0] == namespace] == [family]
     active = []
     for path, workflow, jobs in (('.github/workflows/rust-cache.yml', cache_workflow, cache_jobs),
                                  ('.github/workflows/release-packages.yml', release_workflow, release_jobs)):
         for name, job in jobs.items():
             for step in rust_cache_steps(job):
-                if 'shared-key: ' + namespace + '\n' not in step:
+                keys = re.findall(r'^          shared-key: (.+)$', step, re.M)
+                if not set(keys).intersection((namespace, 'release-packages-web-wasm-trusted-v3')):
                     continue
+                assert len(keys) == 1, 'one Web namespace per cache step required'
                 saves = re.findall(r'^          save-if: (.+)$', step, re.M)
                 assert len(saves) == 1, 'one explicit Web save policy required'
                 header = job.split('    steps:', 1)[0]
                 if saves[0] != 'false':
-                    active.append((namespace, path, name))
+                    active.append((keys[0], path, name))
                     assert 'cache-mode: read' not in header
                     assert ('cache-mode: write' in header or re.search(r'^cache-mode: write$',
                             workflow.split('\njobs:\n', 1)[0], re.M))
-                    assert 'OASIS7_DEPENDENCY_CACHE_FAMILY: release-web\n' in step
+                    assert 'OASIS7_DEPENDENCY_CACHE_FAMILY: ' + family + '\n' in step
                 else:
                     assert 'cache-mode: write' not in header
     assert active == [registered], 'Web cache must have exactly the registered sole writer'
@@ -999,6 +1015,21 @@ class Workflow(unittest.TestCase):
             return 'FAMILIES = ' + repr({'release-web': identity})
         self.assertFalse(web_cache_layout(native, old_release, source(old_identity)))
         self.assertTrue(web_cache_layout(new_cache, new_release, source(new_identity)))
+        image = 'ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59'
+        image_namespace = 'ci-rust-release-web-' + image.split('@sha256:', 1)[1]
+        image_identity = (image_namespace, new_identity[1], new_identity[2])
+        image_registry = 'FAMILIES = ' + repr({'release-web': new_identity, 'release-web-image': image_identity})
+        image_cache = new_cache.replace('    cache-mode: write\n', '    cache-mode: write\n    container:\n      image: ' + image + '\n      options: --user 1001:1001 --init\n    env:\n      RUST_RELEASE_WEB_IMAGE: ' + image + '\n').replace(
+            'OASIS7_DEPENDENCY_CACHE_FAMILY: release-web\n', 'OASIS7_DEPENDENCY_CACHE_FAMILY: release-web-image\n').replace(
+            'shared-key: ' + namespace, 'shared-key: ' + image_namespace)
+        self.assertTrue(web_cache_layout(image_cache, new_release, image_registry))
+        for bad_cache, bad_registry in (
+                (image_cache.replace(image, image.replace('ci-rust-release-web@', 'ci-rust-viewer@')), image_registry),
+                (image_cache.replace(image_namespace, namespace), image_registry),
+                (image_cache, source(new_identity)),
+                (image_cache + '  extra-writer:\n    steps:\n' + web_step, image_registry)):
+            with self.assertRaises(AssertionError):
+                web_cache_layout(bad_cache, new_release, bad_registry)
         for cache, release, registry in (
             (new_cache, old_release, source(new_identity)),
             (native, new_release, source(old_identity)),
@@ -1684,6 +1715,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                       'rust-image-native-cache': 'rust-image-native',
                       'rust-image-component-cache': '${{ matrix.family }}',
                       'web-wasm-cache': 'release-web'}[name]
+            if name == 'web-wasm-cache' and '    container:' in writer.split('    steps:', 1)[0]:
+                family = 'release-web-image'
             self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: ' + family + '\n', dependency_cache)
             self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
             without_admitted_uploads = without_admitted_uploads.replace(dependency_cache, '', 1)

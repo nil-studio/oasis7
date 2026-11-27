@@ -198,6 +198,7 @@ impl Libp2pNetwork {
             "/oasis7/bft/header-peer/3.0.0"
                 | "/oasis7/bft/private-candidate/1.0.0"
                 | "/oasis7/bft/private-candidate/2.0.0"
+                | "/oasis7/bft/admission-input/2.0.0"
         ) {
             return Err(rejected(
                 "authenticated handler requires dedicated BFT namespace",
@@ -231,6 +232,7 @@ pub(super) fn reserved(protocol: &str) -> bool {
         "/oasis7/bft/header-peer/3.0.0"
             | "/oasis7/bft/private-candidate/1.0.0"
             | "/oasis7/bft/private-candidate/2.0.0"
+            | "/oasis7/bft/admission-input/2.0.0"
     )
 }
 pub(super) fn install(

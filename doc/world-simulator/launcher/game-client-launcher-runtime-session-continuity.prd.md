@@ -2,18 +2,18 @@
 
 审计轮次: 5
 
-> 本文是 Launcher 托管 chain runtime、本地 execution-world 输出、受控恢复与 Web/WASM 会话连续性的当前专业 authority。它不定义玩家入口承诺、世界规则、共识算法、WASM ABI、LLM 凭据存储格式或发布 readiness。
+> 本文是无头 Launcher 后端（`oasis7_launcher_backend`）托管 chain runtime、本地 execution-world 输出、受控恢复与会话连续性的当前专业 authority。本文不定义玩家入口承诺、世界规则、共识算法、WASM ABI、LLM 凭据存储格式或发布 readiness。
 
 - 对应设计文档: `doc/world-simulator/launcher/game-client-launcher-runtime-session-continuity.design.md`
 - 历史迁移、验证与 task 状态：GitHub task issue evidence。
 
 ## 目标
 
-Launcher 负责配置和受控进程编排；`oasis7_chain_runtime` 负责链执行、执行世界持久化与运行时状态。托管的游戏与 Web Launcher 必须将 execution world 显式定向到 `output/chain-runtime/<node_id>/reward-runtime-execution-world`，不能依赖调用进程的 cwd。
+Launcher 后端负责配置和受控进程编排；`oasis7_chain_runtime` 负责链执行、执行世界持久化与运行时状态。托管的游戏与控制面进程（`oasis7_game_launcher`、`oasis7_web_launcher`）必须将 execution world 显式定向到 `output/chain-runtime/<node_id>/reward-runtime-execution-world`，不能依赖调用进程的 cwd。
 
 ## 范围
 
-本专题覆盖本地会话的进程责任、输出落位、状态错误分类、恢复建议，以及浏览器 Launcher 的平台兼容边界；不把这些实现细节提升为产品、网络、结算、持久化 SLA 或公开服务承诺。
+本专题覆盖本地会话的进程责任、输出落位、状态错误分类、恢复建议，以及浏览器消费控制面状态的兼容边界；不把这些实现细节提升为产品、网络、结算、持久化 SLA 或公开服务承诺。
 
 ## 当前专业合同
 
@@ -36,8 +36,8 @@ Launcher 负责配置和受控进程编排；`oasis7_chain_runtime` 负责链执
 
 ### Web/WASM 会话兼容
 
-- 浏览器 Launcher 的时间和状态刷新路径必须使用该目标可支持的实现，且状态刷新失败必须可诊断、不得令页面崩溃或无界并发堆积。
-- 受影响的 Web/WASM 改动须保留目标编译及真实浏览器的状态/控制台证据；具体时钟类型、轮询间隔、请求防抖字段、控制台签名和测试命令是实现与验证事实，不是本合同的稳定 API。
+- 浏览器消费控制面状态的计时与刷新路径必须使用该目标可支持的实现，且状态刷新失败必须可诊断、不得令页面崩溃或无界并发堆积。
+- 受影响的浏览器侧改动须保留目标构建及真实浏览器的状态/控制台证据；具体时钟类型、轮询间隔、请求防抖字段、控制台签名和测试命令是实现与验证事实，不是本合同的稳定 API。
 
 ## 接口 / 数据
 
@@ -59,7 +59,7 @@ Launcher 负责配置和受控进程编排；`oasis7_chain_runtime` 负责链执
 
 ## 追溯与验证
 
-- 实现入口：`crates/oasis7_client_launcher/`、`crates/oasis7_launcher_backend/src/bin/oasis7_{game_launcher,web_launcher}.rs`、`crates/oasis7_chain_runtime/src/host.rs` 及其拆分模块和测试。
+- 活跃实现入口：`crates/oasis7_launcher_backend/src/bin/oasis7_{game_launcher,web_launcher}.rs`、`crates/oasis7_chain_runtime/src/host.rs` 及其拆分模块和测试。
 - 运行时持久化、回放和存储的现行要求与验证方法：[存储治理 PRD](../../world-runtime/runtime/runtime-storage-footprint-governance.prd.md) 与[设计](../../world-runtime/runtime/runtime-storage-footprint-governance.design.md)。执行结果从对应 PR、CI 与评审记录追溯；旧专题项目记录已退出当前树，从该专题的 Git history 追溯，不能当作当前可打开的验证入口，也不由此推定旧候选或失败已经通过。
 - 文档变更验证：`./scripts/doc-governance-check.sh && ./scripts/readme-link-check.sh && git diff --check`。
 - 本稳定专题吸收的日期化 Launcher session 变更及其完成证据由 Git history 和 PR、实际 CI 与评审记录（Issue 按需） 追溯。

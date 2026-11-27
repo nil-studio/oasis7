@@ -720,17 +720,66 @@ for workflow in (release, mainnet):
                 path = fixture / "scripts" / filename
                 path.write_text('#!/bin/sh\n[ "${0##*/}" != "$TEST_FAIL_SCRIPT" ] || exit 23\n')
                 path.chmod(0o755)
-            for filename in filenames:
-                result = subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
-                                        cwd=fixture, env=dict(os.environ, TEST_FAIL_SCRIPT=filename),
-                                        capture_output=True, text=True)
-                assert result.returncode == 23, (name, filename, result.returncode, result.stdout, result.stderr)
+            lanes = ("false", "true") if name == "release_gate_runtime_sync" else ("false",)
+            launcher = fixture / "oasis7-runtime-sync-image.sh"
+            launcher.write_text('exec bash --noprofile --norc -e -o pipefail -s\n')
+            for lane in lanes:
+                for filename in filenames:
+                    result = subprocess.run(
+                        ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+                        cwd=fixture, env=dict(os.environ, TEST_FAIL_SCRIPT=filename,
+                                              USE_IMAGE=lane, RUNNER_TEMP=str(fixture)),
+                        capture_output=True, text=True)
+                    assert result.returncode == 23, (name, lane, filename, result.stdout, result.stderr)
+                    report = fixture / ".tmp/release_gate_runtime_sync/runtime-sync-checks.log"
+                    if name == "release_gate_runtime_sync":
+                        assert filename in report.read_text()
         if name != "release_gate_runtime_sync":
             assert "fetch-depth: 0" in body, "frozen fixture history must be available"
             assert 'scripts/doc-governance-requirements.txt' in body
             assert 'OASIS7_PRODUCT_DOC_BASE=' in body and 'OASIS7_PRODUCT_DOC_HEAD=' in body
             assert "git rev-parse --verify 'HEAD^1'" in body
             assert "git rev-parse --verify 'HEAD^{commit}'" in body
+
+launcher = root / "scripts/package-release-runtime-sync-image.sh"
+if any("Select runtime sync image" in workflow for workflow in (release, mainnet)):
+    with tempfile.TemporaryDirectory() as directory:
+        checkout = Path(directory)
+        subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+        toolchain = checkout / "rust-toolchain.toml"
+        toolchain.write_bytes((root / toolchain.name).read_bytes())
+        subprocess.run(["git", "add", toolchain.name], cwd=checkout, check=True)
+        subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "-c", "commit.gpgsign=false", "commit", "-qm", "toolchain"],
+                       cwd=checkout, check=True)
+        source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+        output = checkout / "github-output"
+        env = dict(os.environ, GITHUB_REPOSITORY="nil-studio/oasis7", GITHUB_JOB="release_gate_runtime_sync",
+                   GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_REF="refs/heads/main",
+                   GITHUB_WORKFLOW_REF="nil-studio/oasis7/.github/workflows/mainnet-packages.yml@refs/heads/main",
+                   GITHUB_SHA=source, GITHUB_WORKFLOW_SHA=source, EXPECTED_SHA=source,
+                   RUNNER_ENVIRONMENT="github-hosted", RUNNER_OS="Linux", RUNNER_ARCH="X64",
+                   GITHUB_OUTPUT=str(output))
+
+        def select(expected, **overrides):
+            output.write_text("")
+            subprocess.run(["bash", str(launcher), "--select"], cwd=checkout,
+                           env=env | overrides, check=True)
+            assert output.read_text() == f"enabled={expected}\n", overrides
+
+        select("true")
+        tag = "refs/tags/2026-11-26_v1"
+        push = dict(GITHUB_EVENT_NAME="push", GITHUB_REF=tag,
+                    GITHUB_WORKFLOW_REF=f"nil-studio/oasis7/.github/workflows/release-packages.yml@{tag}")
+        select("true", **push)
+        select("false", **(push | {"EXPECTED_SHA": "0" * 40}))
+        select("false", GITHUB_REPOSITORY="example/oasis7")
+        select("false", RUNNER_ENVIRONMENT="self-hosted")
+        select("false", GITHUB_REF="refs/heads/candidate")
+        select("false", GITHUB_EVENT_NAME="pull_request")
+        select("false", GITHUB_WORKFLOW_SHA="0" * 40)
+        toolchain.write_text(toolchain.read_text().replace("1.96.0", "1.92.0"))
+        select("false")
 
 print("ok: compatible cache readers share exclusive writers, old sources stay cold, and gate failures propagate")
 

@@ -6,12 +6,12 @@
 - 上位产品 PRD：[`prd.md`](prd.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-09-13
+- Last reviewed：2026-11-26
 - 专业域权威：[`Launcher 专业入口`](../../world-simulator/launcher/README.md)、[`world-runtime PRD`](../../world-runtime/prd.md)、[`testing PRD`](../../testing/prd.md)
 
 配对产品 PRD 的 canonical 路径为 `doc/product/player-entry-distribution/local-launch-session-continuity-and-recovery.prd.md`。
 
-本文定义跨 native/Web Launcher 的稳定玩家阅读与恢复顺序，不冻结任何进程、目录、配置字段、凭据、时钟或控件实现。
+本文定义受支持本地编排/控制面与 Web `viewer` 入口的稳定玩家阅读与恢复顺序，不冻结任何进程、目录、配置字段、凭据、时钟或控件实现。
 
 ## 0. 设计目标与代表性体验
 
@@ -31,7 +31,7 @@
 
 - 启动、停止、重试、修复、重新进入和安全返回使用可辨识的状态与结果；停止或重启不暗示世界回退、保存或重放。
 - 恢复界面必须说明恢复的是本地 session、连接或配置，而非自动恢复玩家 authority、世界进度或未完成行动。
-- 同一状态在 native 与 Web 可以用不同布局表达，但不得把一端的局部成功外推为另一端、另一模式或公开发行成功。
+- 同一状态在本地控制面/CLI 与浏览器表面可以用不同布局表达，但不得把一端的局部成功外推为另一端、另一模式或公开发行成功。
 
 <a id="21-状态动作结果恢复决策"></a>
 ### 2.1 状态—动作—结果—恢复决策

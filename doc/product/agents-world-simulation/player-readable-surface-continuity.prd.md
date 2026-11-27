@@ -10,7 +10,7 @@
 - 专业域权威：[`Viewer 手册`](../../world-simulator/viewer/viewer-manual.manual.md)、[`world-simulator PRD`](../../world-simulator/prd.md)、[`Web 语义测试 API`](../../world-simulator/viewer/viewer-web-semantic-test-api.prd.md)
 - Last reviewed：2026-10-12
 
-本文定义正式玩家表面在 viewport、信息密度、语言与连接状态变化时保持可理解、可操作和可恢复的长期产品承诺。它不冻结 Viewer 布局、组件、Web/EGUI/Bevy 实现、协议字段、缓存、字体资产或当前发布结论。
+本文定义正式玩家表面在 viewport、信息密度、语言与连接状态变化时保持可理解、可操作和可恢复的长期产品承诺。它不冻结 Viewer 布局、组件、Web/Bevy 实现、协议字段、缓存、字体资产或当前发布结论。
 
 本文的规范性条款是目标要求；`active` 表示产品语义权威，不表示每项能力已经实现或完成验收。实现范围和验证结论由对应专业合同、PR 与实际证据说明。
 
@@ -259,7 +259,7 @@ Trace refs: O7-REQ-f914fafa-e682-4216-aef2-23354792cf34；承接[REQ-AGENT-SURFA
 - PSC-2：信息密度或 panel 可见性改变后，玩家仍能找到主要决策面；隐藏次级内容不会制造权限、结果或世界事实变化。
 - PSC-3：受支持语言及其 fallback 中，关键意图、状态、错误和恢复语义等价，语言选择不改变权威结果。
 - PSC-4：断连与恢复样例明确区分连接状态、request acceptance 与权威进展；恢复或后台活动不代签成功。
-- PSC-5：证据来自当前 Viewer、runtime 与 QA 专业权威；历史 EGUI/Bevy/Web 完成记录、单张截图或本地 fallback 不能单独成立产品结论。
+- PSC-5：证据来自当前 Viewer、runtime 与 QA 专业权威；历史旧版 Viewer/Bevy/Web 完成记录、单张截图或本地 fallback 不能单独成立产品结论。
 - PSC-6：代表性模式转换或不支持行动样例能区分能力边界、断连、权限/规则阻塞与已接受请求，并提供真实替代或安全返回；自动推进或接口计数不代签权威世界结果。
 - PSC-7：代表性重叠状态（权威确认未结算+断连/恢复中、已送出且结果未知+查询受阻、未接受+权威不可用、不支持行动+断连、已拒绝+断连）按 4.1 的主语义显示唯一首要解释和可执行下一步；重连、刷新或跨入口重试不覆盖已确认结果、不把 pending 变成成功/失败/取消，也不产生第二次世界效果。
 
@@ -300,7 +300,7 @@ Trace refs: O7-REQ-f914fafa-e682-4216-aef2-23354792cf34；承接[REQ-AGENT-SURFA
 
 ## 9. 风险
 
-- 将旧 EGUI/Web 控件误写成当前能力。
+- 将早期退役面板或旧 Web 控件误写成当前能力。
 - 将连接恢复或 request acceptance 误写成世界已经推进。
 - 将语言、viewport 或本地偏好实现细节冻结为产品合同。
 - 删除仍承担协议真值的专业文档；本专题只允许删除已有代码、测试或当前专业文档承接的历史来源。

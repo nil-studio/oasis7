@@ -2,12 +2,13 @@
 
 > 对应需求: `doc/world-simulator/launcher/game-client-launcher-blockchain-explorer.prd.md`
 > 历史迁移、验收与 task 状态：GitHub task issue evidence。
+> **职责与承接边界**：本文承载 `oasis7_web_launcher` `/api/chain/explorer/*` 只读代理边界及查询参数/结果一致性条款，供活跃消费者与后端专业合同对齐。
 
 - 后端专业设计：[链 HTTP 提交与 Explorer P0 后端合同](../../p2p/blockchain/chain-http-submit-explorer-contract.design.md)。Node 身份、批次处置、状态合并、锁序和索引保留由该专题承接。
 
 ## 表现结构
 
-1. **共用承载层**：native 与 Web 继续复用 launcher 的同源 `egui` explorer 表面；Web 控制面只代理已有 `/api/chain/explorer/*` 只读请求。
+1. **只读代理承载层**：`oasis7_web_launcher` 控制面代理已有 `/api/chain/explorer/*` 只读请求。
 2. **概览与命令层**：顶部保留刷新、重置当前筛选、当前 tab 与请求/链可用状态；概览以已有 height、identity、hash 与状态计数形成可扫描分组，而不是把日志行当作主界面。
 3. **七视图层**：`Blocks`、`Txs`、`Contracts`、`Mempool` 使用已有列表到详情的选择路径；`Search` 显示查询和命中说明；`Address`、`Assets` 以 summary-first 卡片与次级列表呈现既有返回字段。
 4. **状态层**：`loading`、`empty`、`not_ready` 与结构化 `error_code + error` 留在当前 tab；筛选、分页、清空与选择严格复用既有请求参数和状态机，不在前端重算链结果。
@@ -21,9 +22,8 @@
 
 ## 代码与协议接点
 
-- launcher：`crates/oasis7_client_launcher/src/explorer_window.rs` 及其拆分的 `explorer_window_*` 视图模块。
-- Web 控制面：`/api/chain/explorer/*`，代理 runtime 的现有 `/v1/chain/explorer/*` 查询。
-- 本设计记录当前结构，不授权新增 endpoint、字段、轮询频率、索引保留策略或 DOM/UI 改动。
+- 活跃控制面代理：`oasis7_launcher_backend` 中的 `/api/chain/explorer/*`，代理 runtime 的现有 `/v1/chain/explorer/*` 查询。
+- 本设计记录现行只读代理边界，不授权新增 endpoint、字段、轮询频率、索引保留策略或 DOM/UI 改动。
 
 ## 查询一致性补充（目标设计）
 
