@@ -988,4 +988,5 @@ impl AsyncAgentRunner {
 }
 
 #[cfg(test)]
+#[path = "rejected_wait_tests.rs"]
 mod rejected_wait_tests;

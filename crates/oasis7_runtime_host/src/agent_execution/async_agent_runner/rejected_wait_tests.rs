@@ -709,4 +709,5 @@ fn combined_poll_preserves_production_and_compatibility_completions() {
     assert!(runner.poll_completed().unwrap().is_empty());
 }
 
+#[path = "terminal_budget_tests.rs"]
 mod terminal_budget_tests;
