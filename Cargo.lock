@@ -6746,6 +6746,7 @@ version = "0.1.0"
 dependencies = [
  "async-openai",
  "blake3",
+ "hex",
  "oasis7_agent_api",
  "oasis7_agent_harness",
  "oasis7_client_api",
