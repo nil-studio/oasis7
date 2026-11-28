@@ -40,6 +40,7 @@ fn prepared_bytes_are_single_use_and_unadmitted_codec_cannot_send() {
                 message: message(),
                 deadline: None,
                 exchange: Some(Arc::clone(&exchange)),
+                response_resources: Default::default(),
             };
             let first = codec.write_request(&protocol, &mut io, request()).await;
             assert_eq!(first.is_ok(), admitted);
