@@ -42,6 +42,14 @@ jobs:
       CARGO_HOME: /home/runner/.cargo
       XDG_CACHE_HOME: /home/runner/.cache
       RUSTUP_AUTO_INSTALL: "0"
+      RUST_TOOLCHAIN: 1.96.0
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+      CARGO_TERM_COLOR: always
+      CARGO_NET_RETRY: "10"
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
@@ -73,6 +81,7 @@ jobs:
           test "$(stat -c '%d:%i' "$PWD")" = "$(stat -c '%d:%i' "$GITHUB_WORKSPACE")"
           test "$(stat -c '%d:%i' "$RUNNER_TEMP")" = "$(stat -c '%d:%i' "$CARGO_HOME")"
           test "$(stat -c '%d:%i' "$RUNNER_TEMP")" = "$(stat -c '%d:%i' /home/runner/work/_temp)"
+          test -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}${DOCKER_CONFIG:-}"
           test ! -w /var/run/docker.sock
           python3 - <<'PY'
           import errno,socket
@@ -103,7 +112,25 @@ jobs:
           test -z "$(git status --porcelain)"
           python3 .github/actions/setup-linux-mold/setup.py --install-dir /opt/oasis7-mold/3.0.0-v1
           export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc
-          OASIS7_WASM_BUILD_STD=0 env -u RUSTC_WRAPPER cargo test --locked -p wasm_build_suite -p wasm_module_observe --all-targets
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+          rustup component list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -E '^rust-src( |$)'
+          test "$OASIS7_WASM_BUILD_STD/$OASIS7_WASM_BUILD_STD_COMPONENTS" = 1/std,panic_abort
+          # The full support driver explicitly disables build-std for only these two profile commands.
+          for package in wasm_build_suite wasm_module_observe; do
+            features=$(python3 - "$package" <<'PY_FEATURES'
+          import importlib, sys
+          sys.path.insert(0, 'scripts')
+          artifacts = importlib.import_module('ci-test-artifacts')
+          print(','.join(artifacts.package_features([sys.argv[1]], include_full=True)))
+          PY_FEATURES
+            )
+            arguments=()
+            if [[ -n "$features" ]]; then arguments=(--features "$features"); fi
+            OASIS7_WASM_BUILD_STD=0 env -u RUSTC_WRAPPER cargo test --locked -p "$package" --all-targets "${arguments[@]}"
+          done
+          # The runtime-host and remaining contracts inherit the original full build-std environment.
+          test "$OASIS7_WASM_BUILD_STD/$OASIS7_WASM_BUILD_STD_COMPONENTS" = 1/std,panic_abort
           env -u RUSTC_WRAPPER cargo test --locked -p oasis7_runtime_host --lib --features test_tier_full source_compiler_tests::compile_module_artifact_from_source -- --list | tee "$RUNNER_TEMP/source-compiler-list"
           test "$(grep -c '^source_compiler_tests::compile_module_artifact_from_source.*: test$' "$RUNNER_TEMP/source-compiler-list")" -gt 0
           env -u RUSTC_WRAPPER cargo test --locked -p oasis7_runtime_host --lib --features test_tier_full source_compiler_tests::compile_module_artifact_from_source
