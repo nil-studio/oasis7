@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -112,6 +113,16 @@ class ArchiveAdmission(unittest.TestCase):
         self.assertGreater(result['upload_bound_bytes'], result['measured_tar_bytes'])
         with self.assertRaisesRegex(ValueError, 'regular file'):
             C.upload_bound(self.root, self.environment, deadline, exact_file=True, **options)
+
+    def test_full_bindgen_version_probe_uses_remaining_deadline(self):
+        helper = importlib.import_module('ci-trusted-full-regression-cache')
+        with patch.object(helper.time, 'monotonic', return_value=100), \
+                patch.object(helper.subprocess, 'check_output', return_value='wasm-bindgen 0.2.127') as check:
+            helper.check_payload('wasm-bindgen', self.root, '0.2.127', 101.5)
+            self.assertEqual(check.call_args.kwargs['timeout'], 1.5)
+            with self.assertRaisesRegex(ValueError, 'deadline expired'):
+                helper.check_payload('wasm-bindgen', self.root, '0.2.127', 100)
+            check.assert_called_once()
 
     def test_exact_writer_platform_component_key_and_real_checkout_are_required(self):
         for changes in ({'GITHUB_REF': 'refs/pull/42/merge'},

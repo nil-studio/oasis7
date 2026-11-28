@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 
 from importlib import import_module
 
@@ -46,8 +47,11 @@ def check_payload(role, root, bindgen_version, deadline):
             if hashlib.file_digest(stream, 'sha256').hexdigest() != checksums[0]:
                 raise ValueError('Trunk cache archive checksum mismatch')
     elif role == 'wasm-bindgen':
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError('wasm-bindgen save admission deadline expired')
         binary = tool_cache.cache_root(root / 'bin/wasm-bindgen', label=role)
-        output = subprocess.check_output([str(binary), '--version'], text=True, timeout=min(5, deadline),
+        output = subprocess.check_output([str(binary), '--version'], text=True, timeout=min(5, remaining),
                                          env={'PATH': os.defpath})
         if output.strip() != f'wasm-bindgen {bindgen_version}':
             raise ValueError('wrong prepared wasm-bindgen version')

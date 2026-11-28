@@ -32,6 +32,7 @@ test('only the original trusted main full source is authorized', () => {
     GITHUB_RUN_ID: '1234',
     GITHUB_RUN_ATTEMPT: '1',
     GITHUB_EVENT_NAME: 'schedule',
+    RUNNER_ENVIRONMENT: 'github-hosted',
     RUNNER_OS: 'Linux',
     RUNNER_ARCH: 'X64',
     ACTIONS_CACHE_SERVICE_V2: 'True',
@@ -46,6 +47,7 @@ test('only the original trusted main full source is authorized', () => {
     ['GITHUB_JOB', 'candidate-full-regression'],
     ['GITHUB_WORKFLOW_SHA', digest.slice(0, 40)],
     ['RUNNER_ARCH', 'ARM64'],
+    ['RUNNER_ENVIRONMENT', 'self-hosted'],
     ['ACTIONS_CACHE_SERVICE_V2', 'false'],
     ['ACTIONS_CACHE_MODE', 'read'],
   ]) {

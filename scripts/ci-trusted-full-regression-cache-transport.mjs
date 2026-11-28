@@ -71,6 +71,7 @@ export function verifyFullCacheAuthority(environment, identity, operation, dispa
       !commit.test(sha) || sha !== environment.GITHUB_WORKFLOW_SHA || sha !== identity.head ||
       !positiveId.test(environment.GITHUB_RUN_ID || '') ||
       !positiveId.test(environment.GITHUB_RUN_ATTEMPT || '') ||
+      environment.RUNNER_ENVIRONMENT !== 'github-hosted' ||
       environment.RUNNER_OS !== 'Linux' || environment.RUNNER_ARCH !== 'X64' ||
       identity.platform !== 'linux' || identity.uid !== 1001 || identity.gid !== 1001 ||
       !['true', 'True'].includes(environment.ACTIONS_CACHE_SERVICE_V2) ||
