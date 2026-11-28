@@ -8,7 +8,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 OWNERS = {
-    'oasis7_newapi_bridge_service': ['oasis7_newapi_bridge_service'],
     'oasis7_provider_local_bridge': ['oasis7_provider_local_bridge'],
     'oasis7_provider_tools': ['oasis7_llm_agent_demo', 'oasis7_llm_provider_probe', 'oasis7_provider_parity_bench'],
     'oasis7_launcher_backend': ['oasis7_game_launcher', 'oasis7_web_launcher'],
@@ -610,8 +609,6 @@ class Ownership(unittest.TestCase):
         seen = set()
         for package, names in OWNERS.items():
             directory = ROOT / 'crates' / package
-            if package == 'oasis7_newapi_bridge_service' and not directory.exists():
-                continue
             data = manifest(package)
             declared = {item['name']: item for item in data.get('bin', [])}
             if (directory / 'src/main.rs').exists():
@@ -626,25 +623,7 @@ class Ownership(unittest.TestCase):
                 self.assertTrue((directory / target['path']).is_file(), name)
 
     def test_newapi_service_has_no_transitive_world_dependency(self):
-        if not (ROOT / 'crates/oasis7_newapi_bridge_service').exists():
-            return
-        visited = set()
-        pending = ['oasis7_newapi_bridge_service']
-        while pending:
-            package = pending.pop()
-            if package in visited:
-                continue
-            visited.add(package)
-            data = manifest(package)
-            tables = [data.get('dependencies', {})]
-            tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
-            for table in tables:
-                for name, dependency in table.items():
-                    if isinstance(dependency, dict) and 'path' in dependency:
-                        pending.append(dependency.get('package', name))
-        self.assertNotIn('oasis7', visited)
-        self.assertNotIn('oasis7_node', visited)
-        self.assertNotIn('oasis7_wasm_executor', visited)
+        self.assertFalse((ROOT / 'crates/oasis7_newapi_bridge_service').exists())
 
     def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
         for root, forbidden in (
@@ -992,10 +971,8 @@ class Ownership(unittest.TestCase):
                 self.assertTrue({'oasis7', 'oasis7_node'}.isdisjoint(table), package)
 
     def test_no_cross_package_source_borrowing_from_binary_directories(self):
-        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access', 'oasis7_letai_credit_adapter']:
+        for package in ['oasis7', *OWNERS, 'oasis7_hosted_access']:
             directory = ROOT / 'crates' / package
-            if package in ('oasis7_newapi_bridge_service', 'oasis7_letai_credit_adapter') and not directory.exists():
-                continue
             for source in (directory / 'src').rglob('*.rs'):
                 for relative in re.findall(r'#\[path\s*=\s*"([^"]+)"\]', source.read_text()):
                     target = (source.parent / relative).resolve()

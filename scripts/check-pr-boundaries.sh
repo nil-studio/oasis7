@@ -114,8 +114,7 @@ crate_to_ring() {
       ;;
     oasis7_world_state|oasis7_world_projection|oasis7_world_service|\
     oasis7_chain_runtime|oasis7_custody_worker|oasis7_dev_test_worker|\
-    oasis7_hosted_access|oasis7_letai_credit_adapter|\
-    oasis7_newapi_bridge_service|oasis7_provider_local_bridge)
+    oasis7_hosted_access|oasis7_provider_local_bridge)
       echo 2
       ;;
     oasis7_agent_*|oasis7_model_provider|oasis7_client_*|oasis7_game_client|\

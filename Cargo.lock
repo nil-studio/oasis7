@@ -6046,15 +6046,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oasis7_letai_credit_adapter"
-version = "0.1.0"
-dependencies = [
- "reqwest 0.13.5",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "oasis7_local_signer"
 version = "0.1.0"
 dependencies = [
@@ -6111,18 +6102,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tracing",
-]
-
-[[package]]
-name = "oasis7_newapi_bridge_service"
-version = "0.1.0"
-dependencies = [
- "oasis7_letai_credit_adapter",
- "oasis7_observability",
- "reqwest 0.13.5",
- "serde",
- "serde_json",
  "tracing",
 ]
 
