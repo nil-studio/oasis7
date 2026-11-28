@@ -419,8 +419,8 @@ fn real_original_admission_noise_is_bound_and_charged() {
         original.len() as u64,
         blake3::hash(&original).to_hex().to_string(),
     );
-    request.read.reference = pinned.clone();
     let unbound_request = request.clone();
+    request.read.reference = pinned.clone();
     request.read.requester_peer_id = client.peer_id().to_string();
     request.read.serving_peer_id = server.peer_id().to_string();
     let issuer = Issuer(ed25519_dalek::SigningKey::from_bytes(&[71; 32]));
