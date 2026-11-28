@@ -1,0 +1,148 @@
+name: Trusted full Cargo policy proof
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [task/engineering-trusted-full-cargo-policy]
+
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+
+jobs:
+  flags-parity:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.base_ref == 'task/engineering-trusted-full-cargo-policy' &&
+      github.head_ref == 'task/engineering-trusted-full-cargo-policy-probe' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.title == 'Trusted full Cargo profile proof a148f7 once'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: bash
+    env:
+      CODE_SHA: a148f7a9f72d022f5582b09609a8079f1b693a62
+      OLD_SHA: e3ed210b51fe5354e35b16333c06ff00236d08bd
+      IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Bind the old and fixed launcher sources
+        env:
+          CONTROLLER_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$CONTROLLER_SHA"
+          test "$(git rev-parse HEAD^1)" = "$CODE_SHA"
+          test "$(git rev-parse "$CODE_SHA^1")" = "$OLD_SHA"
+          test "$(git diff --name-only "$CODE_SHA" HEAD)" = .github/workflows/trusted-full-cargo-policy-proof.yml
+          git checkout --detach "$CODE_SHA"
+          test "$(git rev-parse HEAD)" = "$CODE_SHA"
+      - name: Prepare fixed native linker and original host Cargo
+        run: |
+          python3 .github/actions/setup-linux-mold/setup.py
+          rustup toolchain install 1.96.0 --profile minimal
+      - name: Pull the unchanged official image
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          config="$(mktemp -d "$RUNNER_TEMP/full-cargo-image.XXXXXX")"
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s\n' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$IMAGE"
+      - name: Compare actual rustc dev and test flags from host and both Docker argument builders
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import runpy
+          import subprocess
+          import tempfile
+
+          root = Path.cwd()
+          source = os.environ['CODE_SHA']
+          base = os.environ['OLD_SHA']
+          image = os.environ['IMAGE']
+          workflow = (root / '.github/workflows/rust.yml').read_text().split('\njobs:\n', 1)[0]
+          keys = ('CARGO_INCREMENTAL', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG',
+                  'CARGO_TERM_COLOR', 'CARGO_NET_RETRY', 'CARGO_REGISTRIES_CRATES_IO_PROTOCOL')
+          host = {key: re.search(rf'^  {key}: (.+)$', workflow, re.M)[1].strip('"') for key in keys}
+          assert [host[key] for key in keys[:3]] == ['0', '0', '0']
+          settings = dict(host, OASIS7_PRODUCT_DOC_HEAD=source, OASIS7_PRODUCT_DOC_BASE=base)
+          workload = '''
+          cd "$1"
+          cargo +1.96.0 generate-lockfile --offline
+          cargo +1.96.0 build --offline --locked -vv
+          cargo +1.96.0 test --no-run --offline --locked -vv
+          '''
+          baseline = subprocess.check_output(
+              ['git', 'show', f'{base}:scripts/ci-trusted-full-regression.py'])
+          launcher_file = root / 'scripts/ci-trusted-full-regression.py'
+
+          def fixture(location):
+              (location / 'src').mkdir(parents=True)
+              (location / 'Cargo.toml').write_text(
+                  '[package]\nname="capacity_parity"\nversion="0.0.0"\nedition="2024"\n')
+              (location / 'src/lib.rs').write_text('pub fn present() -> u32 { 7 }\n')
+
+          def trace(argv, location, environment, variant):
+              completed = subprocess.run(argv, env=environment, text=True, capture_output=True,
+                                         timeout=60, check=False)
+              if completed.returncode:
+                  raise RuntimeError(f'{variant} fixture failed: {completed.stderr[-3000:]}')
+              lines = [line for line in completed.stderr.splitlines()
+                       if '--crate-name capacity_parity ' in line]
+              result = {}
+              for label, commands in (
+                      ('dev', [line for line in lines if ' --test ' not in line]),
+                      ('test', [line for line in lines if ' --test ' in line])):
+                  assert commands and all(f'--out-dir {location}/target/debug/deps' in line for line in commands)
+                  result[label] = {
+                      'debug2': any('-C debuginfo=2' in line for line in commands),
+                      'incremental': any('-C incremental=' in line for line in commands),
+                      'target_debug_bytes': sum(item.stat().st_size for item in
+                                                (location / 'target/debug').rglob('*') if item.is_file()),
+                  }
+              return result
+
+          with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'], prefix='cargo-policy-proof-') as temporary:
+              owned = Path(temporary)
+              old = owned / 'historical-launcher.py'
+              old.write_bytes(baseline)
+              host_crate = owned / 'host/fixture'
+              fixture(host_crate)
+              observed = {'host': trace(['/usr/bin/bash', '-euo', 'pipefail', '-c', workload,
+                                         'cargo-policy', str(host_crate)], host_crate,
+                                        {'PATH': os.environ['PATH'], 'HOME': os.environ['HOME'], **host}, 'host')}
+              for label, launcher in (('old-image', old), ('fixed-image', launcher_file)):
+                  scratch = owned / label
+                  location = scratch / 'fixture'
+                  fixture(location)
+                  function = runpy.run_path(str(launcher))['image_command']
+                  # Fixture-specific registry root keeps the production tool cache out.
+                  function.__globals__['HOST_CARGO'] = owned / (label + '-cargo')
+                  argv = function('governance', source, scratch, 'oasis7-cargo-policy-' + label, settings)
+                  assert argv[:2] == ['docker', 'run']
+                  assert argv[-5:] == [image, 'python3', 'scripts/ci-trusted-full-regression.py',
+                                       '_inside', 'governance']
+                  assert '--group-add' not in argv and '/var/run/docker.sock' not in ' '.join(argv)
+                  invocation = argv[:2] + ['--network', 'none'] + argv[2:-4]
+                  invocation += ['/usr/bin/bash', '-euo', 'pipefail', '-c', workload, 'cargo-policy', str(location)]
+                  observed[label] = trace(invocation, location, {'PATH': os.environ['PATH']}, label)
+              for profile in ('dev', 'test'):
+                  assert observed['old-image'][profile]['debug2'] and observed['old-image'][profile]['incremental']
+                  for variant in ('host', 'fixed-image'):
+                      assert not observed[variant][profile]['debug2']
+                      assert not observed[variant][profile]['incremental']
+              print(json.dumps({'source': source, 'old_source': base, 'image': image, 'profiles': observed,
+                                'probe_only': True, 'full_suite_executed': False}, sort_keys=True))
+          PY
