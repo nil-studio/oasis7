@@ -840,7 +840,96 @@ def viewer_cache_kind(job):
     return 'native' if inputs == native else 'web'
 
 
+def full_regression_cache_token_steps(job):
+    token = '          GH_TOKEN: ${{ github.token }}\n'
+    action = '        uses: ./.github/actions/full-regression-cache\n'
+    if 'GH_TOKEN:' not in job:
+        return []
+    header, steps = job.split('    steps:\n', 1)
+    image = ('      image: ghcr.io/nil-studio/oasis7/ci-rust-full-regression'
+             '@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427\n')
+    assert image in header and '        --user 1001:1001 --init\n' in header
+    assert not any(option in header for option in ('--privileged', '--group-add', 'docker.sock'))
+    assert re.search(r'^    permissions:\n      contents: read\n      actions: read\n      packages: read\n(?=    [a-z])', header, re.M)
+    assert '    cache-mode: write\n' in header and '    timeout-minutes: 210\n' in header
+    assert '    needs: [select, full-regression-provider]\n' in header
+    condition = header.split('    if: >-\n', 1)[1].split('    runs-on:', 1)[0]
+    assert ' '.join(condition.split()) == (
+        "always() && !cancelled() && needs.select.result == 'success' && "
+        "needs.full-regression-provider.result == 'success' && github.workflow_sha == github.sha && "
+        "needs.select.outputs.trusted_source == 'true' && github.ref == 'refs/heads/main' && "
+        "(github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))"
+    )
+    exact_roles = [
+        ('Restore the locked npm downloads', 'restore', 'npm'),
+        ('Save prepared wasm-bindgen tool cache', 'save', 'wasm-bindgen'),
+        ('Cache pinned Trunk release archive', 'restore', 'trunk'),
+        ('Save trusted cache sentinel', 'save', 'sentinel'),
+    ]
+    found = []
+    for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S):
+        if 'GH_TOKEN:' not in step:
+            continue
+        assert step.count('GH_TOKEN:') == step.count(token) == 1 and step.count(action) == 1
+        assert action + '        env:\n' + token + '        with:\n' in step
+        name = re.findall(r'^      - name: (.+)$', step, re.M)
+        operation = re.findall(r'^          operation: (.+)$', step, re.M)
+        role = re.findall(r'^          role: (.+)$', step, re.M)
+        assert len(name) == len(operation) == len(role) == 1
+        found.append(((name[0], operation[0], role[0]), step))
+    assert [entry for entry, _ in found] == exact_roles
+    assert job.count('GH_TOKEN:') == len(exact_roles)
+    return [step for _, step in found]
+
+
 class Workflow(unittest.TestCase):
+    def test_full_cache_admission_tokens_are_limited_to_original_roles(self):
+        header = """    cache-mode: write
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    needs: [select, full-regression-provider]
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      needs.full-regression-provider.result == 'success' && github.workflow_sha == github.sha &&
+      needs.select.outputs.trusted_source == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+      options: >-
+        --user 1001:1001 --init
+    steps:
+"""
+        steps = []
+        for name, op, role in (
+            ('Restore the locked npm downloads', 'restore', 'npm'),
+            ('Save prepared wasm-bindgen tool cache', 'save', 'wasm-bindgen'),
+            ('Cache pinned Trunk release archive', 'restore', 'trunk'),
+            ('Save trusted cache sentinel', 'save', 'sentinel'),
+        ):
+            steps.append(f'      - name: {name}\n        uses: ./.github/actions/full-regression-cache\n'
+                         '        env:\n          GH_TOKEN: ${{ github.token }}\n        with:\n'
+                         f'          operation: {op}\n          role: {role}\n')
+        accepted = header + ''.join(steps)
+        self.assertEqual(full_regression_cache_token_steps(accepted), steps)
+        self.assertEqual(full_regression_cache_token_steps('    steps:\n'), [])
+        for changed in (
+            accepted.replace('actions: read', 'actions: write'),
+            accepted.replace('32f8b8cc', '02f8b8cc'),
+            accepted.replace('1001:1001', '0:0'),
+            accepted.replace('--init\n', '--init\n        --privileged\n'),
+            accepted.replace("github.ref == 'refs/heads/main'", "github.ref == 'refs/heads/other'"),
+            accepted.replace('role: npm', 'role: unknown'),
+            accepted.replace('operation: save', 'operation: restore'),
+            accepted.replace('        with:', '          GH_TOKEN: other\n        with:', 1),
+            accepted + steps[0].replace('Restore the locked npm downloads', 'Restore dependencies'),
+            accepted + steps[0].replace('./.github/actions/full-regression-cache', 'Swatinem/rust-cache@fake'),
+        ):
+            with self.assertRaises(AssertionError):
+                full_regression_cache_token_steps(changed)
+
     def test_trusted_regression_image_refuses_candidate_sources_and_foreign_docker(self):
         import runpy
         Launcher = runpy.run_path(str(ROOT / 'scripts/ci-trusted-full-regression.py'))
@@ -1735,6 +1824,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('ref: ${{ github.workflow_sha }}', admission)
         self.assertEqual(admission.count('GH_TOKEN: ${{ github.token }}'), 1)
         without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
+        for step in full_regression_cache_token_steps(JOBS['full-regression']):
+            without_admitted_uploads = without_admitted_uploads.replace(
+                step, step.replace('          GH_TOKEN: ${{ github.token }}\n', '', 1), 1)
         self.assertNotIn('GH_TOKEN:', without_admitted_uploads)
         cache_workflow, _ = self.shared_cache_workflow()
         without_admitted_uploads = cache_workflow
