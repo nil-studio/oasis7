@@ -344,9 +344,7 @@ def plan(args):
             # GitHub dependency-update data, also parsed by the Python coverage
             # guard. It is not executable Actions YAML.
             add('python-repo', path)
-        elif path in ISSUE_METADATA_INPUTS or path in (
-            'scripts/newapi-bridge-service/pricing-rules.example.env',
-        ):
+        elif path in ISSUE_METADATA_INPUTS:
             # GitHub renders these as form data or static service templates, not executable Actions YAML.
             pass
         elif path in WASM_CANDIDATE_INPUTS:
