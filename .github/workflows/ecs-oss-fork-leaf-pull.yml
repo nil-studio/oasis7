@@ -1,0 +1,58 @@
+name: ECS OSS fork leaf pull
+on:
+  pull_request:
+    types: [opened]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+jobs:
+  pull-leaf:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == 'eng-cc/oasis7-ci-validation' &&
+      github.head_ref == 'codex/engineering-ecs-oss-fork-leaf-pull' &&
+      github.base_ref == 'codex/ecs-oss-fork-leaf-base-20261128' &&
+      github.event.pull_request.base.sha == 'cdb2bfea7777c077440b96794d79ff31eb090c7b' &&
+      github.event.pull_request.draft &&
+      github.event.pull_request.title == 'ECS OSS readonly fork leaf pull 20261128-v1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Pull the exact published OSS SDK leaf with only the actual fork token
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = pull_request
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          image=ghcr.io/nil-studio/oasis7/ci-ecs-oss-publisher@sha256:524d6cd5cbeb5190ade258a4f4e6ae0c63dc6839fa84b6700f58f99884ae99a4
+          export DOCKER_CONFIG
+          DOCKER_CONFIG=$(mktemp -d)
+          trap 'rm -rf -- "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          unset GHCR_TOKEN
+          docker pull "$image"
+          docker image inspect --format '{{json .RepoDigests}}' "$image" | python3 -c 'import json,sys; assert "ghcr.io/nil-studio/oasis7/ci-ecs-oss-publisher@sha256:524d6cd5cbeb5190ade258a4f4e6ae0c63dc6839fa84b6700f58f99884ae99a4" in json.load(sys.stdin)'
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" = cdb2bfea7777c077440b96794d79ff31eb090c7b
+          docker run --rm -i --pull never --network none --user 1001:1001 --env HOME=/tmp "$image" bash -euo pipefail <<'SMOKE'
+          test "$(id -u):$(id -g)" = 1001:1001
+          /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node.split(".")[0], "24")'
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          gh --version | grep -E '^gh version 2[.]105[.]0( |$)'
+          /opt/oasis7-oss/bin/python3 -I -B /opt/oasis7-oss-proof/smoke.py
+          /opt/oasis7-oss/bin/python3 -I -B - <<'PYCRC'
+          import importlib,json
+          from crcmod.predefined import mkPredefinedCrcFun
+          extension=importlib.import_module('crcmod._crcfunext')
+          engine=importlib.import_module('crcmod.crcmod')
+          assert extension.__file__.endswith('.so')
+          assert engine._usingExtension is True
+          assert engine._crcfun is extension
+          assert mkPredefinedCrcFun('crc-32')(b'123456789') == 0xcbf43926
+          print(json.dumps({'active_crc_extension':True,'origin':extension.__file__,
+                            'known_vector':True,'production_authority':False},sort_keys=True))
+          PYCRC
+          SMOKE
+          printf 'actual_fork_token_leaf_pull=passed digest=524d6cd5cbeb5190ade258a4f4e6ae0c63dc6839fa84b6700f58f99884ae99a4 network_none_tools=passed no_build=true no_publish=true\n'
