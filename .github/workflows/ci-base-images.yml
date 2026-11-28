@@ -269,9 +269,6 @@ jobs:
       - name: Publish verified Release Web image
         if: matrix.group == 'release-web'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-release-web
-      - name: Log out of GHCR
-        if: always()
-        run: docker logout ghcr.io
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         if: matrix.group == 'ecs-oss'
         with:
@@ -279,3 +276,6 @@ jobs:
       - name: Publish verified ECS OSS SDK image
         if: matrix.group == 'ecs-oss'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" ecs-oss-publisher
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io

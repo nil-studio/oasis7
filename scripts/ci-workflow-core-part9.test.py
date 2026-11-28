@@ -196,6 +196,14 @@ def selected_source_steps(name):
     return steps
 
 
+def validate_publish_login_order(job):
+    login = '      - name: Log in to GHCR and prepare image publisher\n'
+    logout = '      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n'
+    assert job.count(login) == job.count(logout) == 1
+    pushes = list(re.finditer(r'^        run: bash "\$RUNNER_TEMP/publish-ci-image.sh" [a-z-]+$', job, re.M))
+    assert pushes and all(job.index(login) < push.start() < job.index(logout) for push in pushes)
+
+
 class WorkflowCorePart9(unittest.TestCase):
     def test_candidate_full_preserves_full_setup_and_execution(self):
         # Both lanes run the same full validation. Only the trusted main lane
@@ -445,6 +453,12 @@ class WorkflowCorePart9(unittest.TestCase):
         self.assertEqual(pushes, routes)
         self.assertEqual(re.findall(r'^          name: ci-image-([a-z-]+)$', publish_job, re.M), targets)
         self.assertEqual(publish_job.count('run: bash "$RUNNER_TEMP/publish-ci-image.sh"'), len(targets))
+        validate_publish_login_order(publish_job)
+        logout = '      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n'
+        early_logout = publish_job.replace(logout, '')
+        last_publish = early_logout.rfind('      - name: Publish verified ')
+        with self.assertRaises(AssertionError):
+            validate_publish_login_order(early_logout[:last_publish] + logout + early_logout[last_publish:])
         self.assertIn('      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n', publish_job)
 
         wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
