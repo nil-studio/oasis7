@@ -27,11 +27,7 @@ impl LocalCasStore {
 
     /// Validated CAS retention shard location for independent durable sync.
     /// The path conveys no signing authority; callers must still verify pins.
-    pub fn pin_scope_shard_path(
-        &self,
-        scope: &str,
-        shard: &str,
-    ) -> Result<PathBuf, WorldError> {
+    pub fn pin_scope_shard_path(&self, scope: &str, shard: &str) -> Result<PathBuf, WorldError> {
         validate_pin_path_component(shard, "pin scope shard")?;
         Ok(self.pin_scope_dir(scope)?.join(format!("{shard}.json")))
     }

@@ -39,7 +39,6 @@ impl Drop for Scratch {
     }
 }
 
-
 #[test]
 fn archive_publishes_one_scoped_pin_per_object_without_touching_legacy_pins() {
     let root = Scratch::new();
@@ -57,7 +56,10 @@ fn archive_publishes_one_scoped_pin_per_object_without_touching_legacy_pins() {
         .pin_scope_shard_path(SUCCESSOR_ARCHIVE_PIN_SCOPE, &reference.digest)
         .unwrap();
     let before = fs::read(&shard).unwrap();
-    assert_eq!(store.persist_object(b"scoped original", 1024).unwrap(), reference);
+    assert_eq!(
+        store.persist_object(b"scoped original", 1024).unwrap(),
+        reference
+    );
     assert_eq!(fs::read(&shard).unwrap(), before);
     assert_eq!(fs::read(cas.pins_path()).unwrap(), legacy_before);
     assert!(cas.prune_orphan_blobs().unwrap() > 0);
@@ -76,7 +78,10 @@ fn huge_sparse_legacy_pin_file_is_never_read_or_rewritten_by_archive_persist() {
     sparse.set_len(8 * 1024 * 1024 * 1024).unwrap();
     let original = b"new independent archive with huge legacy pins";
     let reference = root.store().persist_object(original, 256).unwrap();
-    assert_eq!(fs::metadata(cas.pins_path()).unwrap().len(), 8 * 1024 * 1024 * 1024);
+    assert_eq!(
+        fs::metadata(cas.pins_path()).unwrap().len(),
+        8 * 1024 * 1024 * 1024
+    );
     assert_eq!(root.store().load_object(&reference, 256).unwrap(), original);
     cas.verify_pin_scope_shard(
         SUCCESSOR_ARCHIVE_PIN_SCOPE,
