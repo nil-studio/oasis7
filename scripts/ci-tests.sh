@@ -1608,7 +1608,7 @@ run_full_required_superset() {
   run_oasis7_required_tier_clippy
   run_oasis7_required_tier_tests
   run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::
-  run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
+  run_cargo test -p oasis7_runtime_host --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
   run_scenario_regression_tests
   run_oasis7_consensus_clippy
   run_oasis7_consensus_tests
@@ -1738,7 +1738,7 @@ run_group() {
           run_oasis7_required_tier_tests
           if [[ -z "${OASIS7_CI_TEST_BUNDLE:-}" && -z "${required_plan:-}" ]]; then
             run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::
-            run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
+            run_cargo test -p oasis7_runtime_host --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
           fi
           ;;
       esac

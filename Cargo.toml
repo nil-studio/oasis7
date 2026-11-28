@@ -10,7 +10,6 @@ members = [
     "crates/oasis7_dev_test_worker",
     "crates/oasis7_agent_harness",
     "crates/oasis7_model_provider",
-    "crates/oasis7",
     "crates/oasis7_simulator",
     "crates/oasis7_runtime",
     "crates/oasis7_runtime_host",

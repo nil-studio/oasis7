@@ -445,7 +445,7 @@ pub fn mark(name: &str) {
                     else:
                         if selected.get('test_policy_changed') is True:
                             self.assertTrue(all((records / name).is_file() for name in (
-                                'ordinary_core', 'ordinary_viewer', 'core_snapshot_required', 'core_snapshot_default',
+                                'ordinary_core', 'ordinary_viewer', 'core_snapshot_required',
                                 'viewer_snapshot_required', 'viewer_snapshot_default', 'newly_added_full_case',
                                 *(f'full_scale_{index}' for index in range(5)))))
                             risk = [entry for entry in manifest['binaries'].values()

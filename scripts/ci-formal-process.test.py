@@ -485,9 +485,8 @@ class FastExecutionSelection(unittest.TestCase):
         self.assertEqual({name for name, _, _ in variants}, {'required', 'viewer', 'viewer-snapshot-tests'})
         manifest = dict(execution_plan=plan)
         self.assertEqual(artifacts.snapshot_regressions(manifest), (artifacts.DEFAULT_SNAPSHOT_REGRESSIONS[0],))
-        core = self.selection(('oasis7',))
-        self.assertEqual(artifacts.snapshot_regressions(dict(execution_plan=core)),
-                         (artifacts.DEFAULT_SNAPSHOT_REGRESSIONS[1],))
+        non_viewer = self.selection(('oasis7_chain_runtime',))
+        self.assertEqual(artifacts.snapshot_regressions(dict(execution_plan=non_viewer)), ())
 
     def test_old_planner_and_uncertain_scope_cannot_narrow_old_inventory(self):
         old = dict(groups=['oasis7_required'], scope='targeted')
@@ -872,7 +871,7 @@ def complete_partition_selection():
 
 def complete_partition_policy_selection():
     return complete_partition_selection() | dict(scope='targeted', test_policy_changed=True,
-        oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
+        oasis7_required_packages=['oasis7_runtime_host', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
         oasis7_required_wasm_packages=['oasis7_viewer_runtime'])
 
 

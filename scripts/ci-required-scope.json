@@ -508,18 +508,6 @@
         "codec_tests::pre_split_projection_and_response_fixtures_reencode_without_wire_drift"
       ]
     },
-    "oasis7-lib": {
-      "package": "oasis7",
-      "target_kind": "lib",
-      "target_name": "oasis7",
-      "default_features": false,
-      "features": [
-        "test_tier_required"
-      ],
-      "cases": [
-        "simulator::canonical_contract_owner_tests::old_simulator_exports_are_canonical_owner_contracts"
-      ]
-    },
     "viewer-codec-lib": {
       "package": "oasis7_viewer_codec",
       "target_kind": "lib",
@@ -845,18 +833,6 @@
     },
     {
       "match": [
-        "crates/oasis7/src/**"
-      ],
-      "exclude": [
-        "crates/oasis7/src/bin/**"
-      ],
-      "targets": [
-        "oasis7-lib"
-      ],
-      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7"
-    },
-    {
-      "match": [
         "crates/oasis7_viewer_codec/src/**"
       ],
       "exclude": [
@@ -892,7 +868,7 @@
     }
   ],
   "oasis7_required_packages": [
-    "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_runtime_host", "oasis7_world_state",
+    "oasis7_simulator", "oasis7_runtime", "oasis7_runtime_host", "oasis7_world_state",
     "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",
     "oasis7_chain_runtime", "oasis7_executable_image", "oasis7_client_cli", "oasis7_protocol_tools",
     "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
@@ -2289,7 +2265,6 @@
   ],
   "package_capabilities_version": 1,
   "package_capabilities": {
-    "oasis7": {"ordinary_package": true, "compact_non_runtime_excluded": true, "splittable_lib_harness": {"logical_alias": "oasis7-lib-tests", "universal_v2_anchor": false}},
     "oasis7_agent_api": {"ordinary_package": false, "required_wasm_build": true, "support_profile": {"profile_id": "oasis7_agent_api", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_agent_harness": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_agent_harness", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_browser_game_client": {"ordinary_package": true, "support_profile": {"profile_id": "oasis7_browser_game_client", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
@@ -2363,9 +2338,6 @@
     ],
     "oasis7_agent_harness": [
       "workspace_support"
-    ],
-    "oasis7": [
-      "oasis7_required"
     ],
     "oasis7_consensus": [
       "consensus",
