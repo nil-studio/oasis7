@@ -133,7 +133,12 @@ impl FormalEndpointServer {
     ) -> Result<(), FormalError> {
         wire::address(peer)?;
         wire::configure(stream, self.timeout)?;
-        let mut cancelled = || false;
+        // One absolute RPC window also fences the prepaid Store Query, response
+        // copy, CBOR encoding and physical write. The process-owned Work meter
+        // is never reset between requests; socket timeouts alone do not stop
+        // an otherwise continuously progressing sequence of short reads.
+        let request_deadline = Instant::now() + self.timeout;
+        let mut cancelled = || Instant::now() >= request_deadline;
         // Hold the original frame fee through signature validation and the
         // signed response write. This is frame admission, not a paid DTO owner.
         let (request, _paid_frame): (
@@ -141,8 +146,13 @@ impl FormalEndpointServer {
             Option<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>>,
         ) = match self.frame_admission.as_ref() {
             Some((memory, work)) => {
-                let (value, owner) =
-                    wire::read_prepaid_frame(stream, memory, work, &mut cancelled)?;
+                let (value, owner) = wire::read_prepaid_frame(
+                    stream,
+                    request_deadline,
+                    memory,
+                    work,
+                    &mut cancelled,
+                )?;
                 (value, Some(owner))
             }
             None => (wire::read(stream)?, None),
@@ -240,9 +250,14 @@ impl FormalEndpointServer {
             }
         };
         match self.frame_admission.as_ref() {
-            Some((memory, work)) => {
-                wire::write_prepaid_frame(stream, &response, memory, work, &mut cancelled)
-            }
+            Some((memory, work)) => wire::write_prepaid_frame_before_deadline(
+                stream,
+                &response,
+                request_deadline,
+                memory,
+                work,
+                &mut cancelled,
+            ),
             None => wire::write(stream, &response),
         }
     }

@@ -179,7 +179,15 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'web-wasm-cache': 22,
             },
         }
+        retiring = {
+            '.github/workflows/pr-fast-preview.yml',
+            '.github/workflows/command-center.yml',
+            '.github/workflows/native-cache-diagnostic.yml',
+            '.github/workflows/wasm-darwin-docker-evidence.yml',
+        }
         for rel_path, limits in expected_limits.items():
+            if rel_path in retiring and not (ROOT / rel_path).is_file():
+                continue
             jobs = workflow_jobs((ROOT / rel_path).read_text())
             for job_name, max_minutes in limits.items():
                 with self.subTest(workflow=rel_path, job=job_name):

@@ -75,6 +75,7 @@ pub(super) struct LocalRequest {
     pub(super) message: NetworkRequest,
     pub(super) deadline: Option<Instant>,
     pub(super) exchange: Option<Arc<super::encoded_exchange::Exchange>>,
+    pub(super) response_resources: super::authenticated_reply::ReplyResources,
 }
 
 pub(super) fn deadline_in(timeout: Duration) -> Instant {
@@ -117,6 +118,9 @@ pub(super) struct RequestCodec {
     // only when that instance writes an outbound application request.
     outbound_deadline: Option<Instant>,
     outbound_exchange: Option<Arc<super::encoded_exchange::Exchange>>,
+    // Inbound libp2p owns this codec until write_response AND stream.close
+    // finish, or its stream future is cancelled. Never reset on callback return.
+    inbound_response_resources: Option<super::authenticated_reply::ReplyResources>,
 }
 
 impl Clone for RequestCodec {
@@ -127,6 +131,7 @@ impl Clone for RequestCodec {
             inner: self.inner.clone(),
             outbound_deadline: None,
             outbound_exchange: None,
+            inbound_response_resources: None,
         }
     }
 }
@@ -165,10 +170,14 @@ impl Codec for RequestCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
+        let message = self.inner.read_request(protocol, io).await?;
+        let response_resources = super::authenticated_reply::ReplyResources::default();
+        self.inbound_response_resources = Some(response_resources.clone());
         Ok(LocalRequest {
-            message: self.inner.read_request(protocol, io).await?,
+            message,
             deadline: None,
             exchange: None,
+            response_resources,
         })
     }
 
@@ -321,6 +330,7 @@ mod tests {
                                 message: request(),
                                 deadline,
                                 exchange: None,
+                                response_resources: Default::default(),
                             },
                         )
                         .await
@@ -405,6 +415,7 @@ mod tests {
                             message: request(),
                             deadline: Some(deadline_in(Duration::from_millis(30))),
                             exchange: None,
+                            response_resources: Default::default(),
                         },
                     )
                     .await
@@ -412,6 +423,205 @@ mod tests {
                 assert!(error.get_ref().unwrap().is::<RequestDeadlineElapsed>());
                 assert_eq!(stream.bytes, 1);
                 assert_eq!(stream.close_calls, 0);
+            });
+    }
+
+    struct ResponseHold(Arc<std::sync::atomic::AtomicUsize>);
+    impl Drop for ResponseHold {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    fn held_response() -> (
+        RequestCodec,
+        super::super::authenticated_reply::ReplyGuard,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let protocol = StreamProtocol::new("/test/response-hold");
+        let mut encoded = Vec::new();
+        cbor::codec::Codec::<NetworkRequest, NetworkResponse>::default()
+            .write_request(&protocol, &mut encoded, request())
+            .now_or_never()
+            .unwrap()
+            .unwrap();
+        let mut codec = RequestCodec::default();
+        let request = codec
+            .read_request(&protocol, &mut futures::io::Cursor::new(encoded))
+            .now_or_never()
+            .unwrap()
+            .unwrap();
+        let guard = super::super::authenticated_reply::ReplyGuard::new(
+            Arc::new(AtomicBool::new(true)),
+            request.response_resources,
+        );
+        guard
+            .initialize(&NetworkRequestContext::new(
+                std::time::Instant::now() + Duration::from_secs(30),
+                Arc::new(AtomicBool::new(false)),
+            ))
+            .unwrap();
+        let drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        guard.retain(Box::new(ResponseHold(drops.clone()))).unwrap();
+        (codec, guard, drops)
+    }
+
+    struct ResponseWriter {
+        bytes: Vec<u8>,
+        drops: Arc<std::sync::atomic::AtomicUsize>,
+        close_ready: bool,
+        fail: bool,
+    }
+    impl AsyncWrite for ResponseWriter {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            assert_eq!(self.drops.load(std::sync::atomic::Ordering::SeqCst), 0);
+            if self.fail {
+                return Poll::Ready(Err(io::Error::other("response write failed")));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Poll::Ready(Ok(bytes.len()))
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            assert_eq!(self.drops.load(std::sync::atomic::Ordering::SeqCst), 0);
+            Poll::Ready(Ok(()))
+        }
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            assert_eq!(self.drops.load(std::sync::atomic::Ordering::SeqCst), 0);
+            if self.close_ready {
+                Poll::Ready(Ok(()))
+            } else {
+                Poll::Pending
+            }
+        }
+    }
+
+    #[test]
+    fn response_hold_survives_callback_encoding_and_pending_half_close() {
+        use std::sync::atomic::Ordering;
+        let (mut codec, guard, drops) = held_response();
+        let rejected = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        assert!(
+            guard
+                .retain(Box::new(ResponseHold(rejected.clone())))
+                .is_err()
+        );
+        assert_eq!(rejected.load(Ordering::SeqCst), 1);
+        let unrelated_stream = codec.clone();
+        drop(guard); // Callback and completion have returned; stream still owns the hold.
+        let protocol = StreamProtocol::new("/test/response-hold");
+        let response = NetworkResponse {
+            payload: vec![42; 4096],
+        };
+        let mut expected = Vec::new();
+        cbor::codec::Codec::<NetworkRequest, NetworkResponse>::default()
+            .write_response(&protocol, &mut expected, response.clone())
+            .now_or_never()
+            .unwrap()
+            .unwrap();
+        let mut writer = ResponseWriter {
+            bytes: Vec::new(),
+            drops: drops.clone(),
+            close_ready: false,
+            fail: false,
+        };
+        codec
+            .write_response(&protocol, &mut writer, response)
+            .now_or_never()
+            .unwrap()
+            .unwrap();
+        assert_eq!(writer.bytes, expected);
+        assert!(writer.close().now_or_never().is_none());
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        writer.close_ready = true;
+        writer.close().now_or_never().unwrap().unwrap();
+        drop(codec);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        drop(unrelated_stream); // A per-stream clone must not retain the old stream's hold.
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn response_hold_releases_after_write_error_and_last_worker_on_abort() {
+        use std::sync::atomic::Ordering;
+        let protocol = StreamProtocol::new("/test/response-hold");
+        let (mut codec, guard, drops) = held_response();
+        drop(guard);
+        let mut writer = ResponseWriter {
+            bytes: Vec::new(),
+            drops: drops.clone(),
+            close_ready: true,
+            fail: true,
+        };
+        assert!(
+            codec
+                .write_response(
+                    &protocol,
+                    &mut writer,
+                    NetworkResponse { payload: vec![42] }
+                )
+                .now_or_never()
+                .unwrap()
+                .is_err()
+        );
+        drop(codec);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+        let (mut codec, guard, drops) = held_response();
+        let worker = guard.clone();
+        drop(guard);
+        let mut writer = PartialWriter::default();
+        assert!(
+            codec
+                .write_response(
+                    &protocol,
+                    &mut writer,
+                    NetworkResponse {
+                        payload: vec![42; 4096]
+                    }
+                )
+                .now_or_never()
+                .is_none()
+        ); // Cancels a real codec write after one byte.
+        assert_eq!(writer.bytes, 1);
+        assert_eq!(writer.close_calls, 0);
+        drop(codec); // Stream timeout/abort cannot release a still-running worker.
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        drop(worker);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn response_hold_survives_partial_write_timeout_until_stream_drop() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let (mut codec, guard, drops) = held_response();
+                drop(guard);
+                let mut writer = PartialWriter::default();
+                let error = before_deadline(
+                    deadline_in(Duration::from_millis(30)),
+                    codec.write_response(
+                        &StreamProtocol::new("/test/response-hold"),
+                        &mut writer,
+                        NetworkResponse {
+                            payload: vec![42; 4096],
+                        },
+                    ),
+                )
+                .await
+                .unwrap_err();
+                assert!(error.get_ref().unwrap().is::<RequestDeadlineElapsed>());
+                assert_eq!(writer.bytes, 1);
+                assert_eq!(writer.close_calls, 0);
+                assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 0);
+                drop(codec);
+                assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 1);
             });
     }
 }

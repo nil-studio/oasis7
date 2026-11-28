@@ -17,7 +17,8 @@ from ci_engine import (  # noqa: E402
     assign_lpt_shards, classify_item_bodies, compute_artifact_partitions, compute_inline_partitions,
     compute_support_partitions, derive_ordinary_packages, derive_required_wasm_packages,
     derive_support_profiles, eval_cfg_expr, extract_source_inputs, reconcile_cross_version_members,
-    tokenize_rust_source, validate_package_capabilities_against_workspace, validate_package_capabilities_static,
+    scan_rust_source_inputs, supports_universal_v2, tokenize_rust_source,
+    validate_package_capabilities_against_workspace, validate_package_capabilities_static,
 )
 
 
@@ -55,16 +56,29 @@ class RustSourceGraphTests(unittest.TestCase):
         self.assertIs(eval_cfg_expr(toks, target_archs=frozenset({"wasm32"}), features=frozenset({"alpha"}), test=True), False)
         self.assertIs(eval_cfg_expr(toks, target_archs=frozenset(), features=frozenset({"alpha"}), test=True), None)
 
+    def test_full_fidelity_scan_rust_source_inputs(self):
+        src = '#[path = "mounted.rs"] mod m;\ne\u0301include_str!("skip.txt");\nstd::include!(concat!(env!("CARGO_MANIFEST_DIR"), "/frag.rs"));\nother::include_str!("raw.txt");\n'
+        lits, calls, unc, opaque, data_lits = scan_rust_source_inputs(src, with_module_paths=True, with_module_safety=True)
+        self.assertEqual((unc, opaque, "mounted.rs" in lits), (False, True, True))
+        self.assertEqual([(c["kind"], c["path"]) for c in calls], [("manifest", "/frag.rs"), ("unknown", None)])
+        self.assertEqual(data_lits, ("skip.txt", "CARGO_MANIFEST_DIR", "/frag.rs", "raw.txt"))
+        with self.assertRaises(ValueError):
+            scan_rust_source_inputs('const BAD: &str = "unterminated')
+
 
 class ShardSchedulerTests(unittest.TestCase):
     def test_inline_artifact_lpt_and_support_partitions(self):
         self.assertEqual(compute_inline_partitions(["pkg_b", "pkg_a"], frozenset({"pkg_a", "pkg_b"})), ("pkg_a", "pkg_b"))
         self.assertEqual(compute_inline_partitions(["pkg_a"], frozenset({"pkg_a", "pkg_b"})), ("all",))
-        self.assertEqual(compute_artifact_partitions(["pkg_a"], splittable_aliases={}, compact_excluded_packages=frozenset()), ("compact",))
+        self.assertTrue(supports_universal_v2({"pkg_anchor"}, anchor_packages={"pkg_anchor"}, harnesses=()))
         self.assertEqual(
-            compute_artifact_partitions(["pkg_heavy", "pkg_a"], splittable_aliases={"pkg_heavy": "heavy-tests"},
-                                        compact_excluded_packages=frozenset({"pkg_heavy"}), supports_universal_v2=True),
-            ("pkg_a", "heavy-tests:even", "heavy-tests:odd"),
+            compute_artifact_partitions(["pkg_a"], compact_excluded_packages=frozenset(), dynamic_enabled=True, strip_controls=True),
+            ("native-0", "native-1"),
+        )
+        self.assertEqual(
+            compute_artifact_partitions(["pkg_heavy", "pkg_a"], compact_excluded_packages=frozenset({"pkg_heavy"}),
+                                        dynamic_enabled=True, strip_controls=True),
+            ("native-0", "native-1", "native-2", "native-3"),
         )
         self.assertEqual(assign_lpt_shards({"a": 10, "b": 6, "c": 5, "d": 4}, 2), [["a", "d"], ["b", "c"]])
         sp = compute_support_partitions(["p_b", "p_a"], {
@@ -107,6 +121,17 @@ class CapabilitySchemaTests(unittest.TestCase):
             validate_package_capabilities_static({"a_pkg": {"ordinary_package": True, "host_docker_wasm_fixtures": ["builtin_test_modules"]}})
         with self.assertRaises(ValueError):
             validate_package_capabilities_static({"a_pkg": {"ordinary_package": False}})
+        with self.assertRaises(ValueError):
+            validate_package_capabilities_static({
+                "a_pkg": {"ordinary_package": False, "support_profile": {
+                    "profile_id": "other_id", "partition": "other", "requires_host_runner": False,
+                    "extra_features": [], "wasm_compile_feature_sets": []}},
+            })
+        with self.assertRaises(ValueError):
+            validate_package_capabilities_static({
+                "a_pkg": {"ordinary_package": True, "group_library_proof": {"group": "g1"}},
+                "b_pkg": {"ordinary_package": True, "group_library_proof": {"group": "g1"}},
+            }, known_groups={"g1"}, package_groups={"a_pkg": ["g1"], "b_pkg": ["g1"]})
         with self.assertRaises(ValueError):
             validate_package_capabilities_against_workspace(self._sample(), {"alpha_pkg"})
 

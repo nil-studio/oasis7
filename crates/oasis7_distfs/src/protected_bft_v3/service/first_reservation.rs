@@ -70,9 +70,21 @@ impl BftSignerServiceV3 {
         }
         let generation = snapshot.lease_generation;
         let token = &snapshot.lease_token_digest;
-        let observed = runtime
-            .backend
-            .read_first_reserve_for_lease(generation, token)?;
+        let envelope = if self.first_reserve_uses_original_envelope {
+            let whole = runtime
+                .backend
+                .read_original_operation_envelope_for_lease(generation, token)?;
+            whole.validate()?;
+            Some(whole)
+        } else {
+            None
+        };
+        let observed = match &envelope {
+            Some(whole) => whole.current.clone(),
+            None => runtime
+                .backend
+                .read_first_reserve_for_lease(generation, token)?,
+        };
         if observed.current.signer != snapshot || observed.current.marker != fresh.marker {
             return Err(invalid(
                 "first Reserve atomic inventory differs from leased source",
@@ -156,16 +168,34 @@ impl BftSignerServiceV3 {
             &next.current.signer.state,
         )?;
         check_deadline(deadline)?;
-        let committed = runtime
-            .backend
-            .compare_and_commit_first_reserve(&observed, &next)
-            .and_then(|()| {
-                runtime
-                    .backend
-                    .read_first_reserve_for_lease(generation, token)
-            });
+        let committed = if let Some(expected) = envelope {
+            // Preserve every historical signed byte and operation identity;
+            // only the existing first Reserve tuple and its spend advance.
+            let mut whole = expected.clone();
+            whole.current = next.clone();
+            whole.validate()?;
+            runtime
+                .backend
+                .compare_and_commit_original_operation_envelope(&expected, &whole)
+                .and_then(|()| {
+                    runtime
+                        .backend
+                        .read_original_operation_envelope_for_lease(generation, token)
+                })
+                .map(|readback| readback == whole)
+        } else {
+            runtime
+                .backend
+                .compare_and_commit_first_reserve(&observed, &next)
+                .and_then(|()| {
+                    runtime
+                        .backend
+                        .read_first_reserve_for_lease(generation, token)
+                })
+                .map(|readback| readback == next)
+        };
         match committed {
-            Ok(readback) if readback == next => {}
+            Ok(true) => {}
             _ => {
                 runtime.poisoned = true;
                 return Err(invalid("first Reserve atomic commit/readback uncertain"));

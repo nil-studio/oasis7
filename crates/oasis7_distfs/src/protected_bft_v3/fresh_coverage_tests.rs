@@ -166,6 +166,7 @@ fn native_fresh_retention_activates_atomically_and_cold_retry_returns_original()
         mismatched_readback: false,
         lose_commit_acknowledgement: false,
         activation_signs: Arc::new(AtomicUsize::new(0)),
+        original_envelope: None,
     }));
 
     let (provider, server) = native(&binding, &snapshot, None);
@@ -270,6 +271,7 @@ fn native_fresh_retention_mismatched_atomic_readback_never_releases_receipt() {
         mismatched_readback: true,
         lose_commit_acknowledgement: false,
         activation_signs: Arc::new(AtomicUsize::new(0)),
+        original_envelope: None,
     }));
     let writer = service(&binding, &snapshot, &slot, &marker, &role, true).unwrap();
     let (provider, server) = native_service_expected(&binding, writer, true);
@@ -312,6 +314,7 @@ fn native_fresh_retention_lost_commit_acknowledgement_recovers_only_after_fence(
         mismatched_readback: false,
         lose_commit_acknowledgement: true,
         activation_signs: Arc::new(AtomicUsize::new(0)),
+        original_envelope: None,
     }));
     let writer = service(&binding, &snapshot, &slot, &marker, &role, true).unwrap();
     let (provider, server) = native_service_expected(&binding, writer, true);

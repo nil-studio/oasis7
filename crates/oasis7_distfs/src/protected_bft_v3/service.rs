@@ -46,6 +46,7 @@ const MAX_SESSION_OPERATIONS_V3: u64 = 65_536;
 pub struct BftSignerServiceV3 {
     fresh_coverage: Option<BftFreshCoverageSupportV1>,
     first_reserve: Option<(Box<dyn BftFirstReserveSourceV1>, std::time::Duration)>,
+    first_reserve_uses_original_envelope: bool,
     candidate_read_policy: Option<BftCandidateReadPolicyV3>,
     pub(super) binding: BftSignerBindingV3,
     pub(super) provider_key: Box<dyn BftSigningKeyHandleV3>,
@@ -141,7 +142,21 @@ impl BftSignerServiceV3 {
             return Err(invalid("first Reserve requires a finite positive duration"));
         }
         self.first_reserve = Some((support, operation_timeout));
+        self.first_reserve_uses_original_envelope = false;
         Ok(self)
+    }
+
+    /// Keep first Reserve and its response spend in the same transaction as
+    /// previously retained original operations. Unsupported backends refuse
+    /// the operation; this configuration never falls back to the legacy CAS.
+    pub fn with_retained_first_reservation(
+        self,
+        support: Box<dyn BftFirstReserveSourceV1>,
+        operation_timeout: std::time::Duration,
+    ) -> Result<Self, BftSignerErrorV3> {
+        let mut service = self.with_first_reservation(support, operation_timeout)?;
+        service.first_reserve_uses_original_envelope = true;
+        Ok(service)
     }
 
     fn open_inner(
@@ -205,6 +220,7 @@ impl BftSignerServiceV3 {
         Ok(Self {
             fresh_coverage,
             first_reserve: None,
+            first_reserve_uses_original_envelope: false,
             candidate_read_policy: None,
             binding,
             provider_key,

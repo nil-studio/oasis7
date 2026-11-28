@@ -53,6 +53,13 @@ impl AuthenticatedPeerRequestContext {
     pub fn restrict_reply_while(&self, allowed: Arc<AtomicBool>) -> Result<(), WorldError> {
         self.reply.while_true(allowed)
     }
+    /// Transfer one composite resource hold to this actual inbound stream.
+    /// It survives callback return and queued/partial response writes, and is
+    /// released only after both the stream and handler/completion have ended.
+    /// This grants no read permission and does not change response-byte spend.
+    pub fn retain_reply_resource(&self, resource: Box<dyn Send + Sync>) -> Result<(), WorldError> {
+        self.reply.retain(resource)
+    }
     pub(super) fn new(
         base: NetworkRequestContext,
         peer: libp2p::PeerId,
