@@ -1,6 +1,9 @@
 //! Deliberate, same-owner original pending freeze and read-only verification.
 //! Neither a private owner candidate nor this CLI issues protected P/R authority.
-use super::super::formal_live_runtime::{self, FormalRuntimeOwnerSnapshotV1};
+use super::super::{
+    formal_live_recovery_original_adapter, 
+    formal_live_runtime::{self, FormalRuntimeOwnerSnapshotV1},
+};
 use std::{path::Path, time::Duration};
 
 pub(super) fn run(args: &[String]) -> Result<(), String> {
@@ -64,9 +67,14 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     }
 
     if let Some((independent_root, independent_count)) = external {
-        let original = formal_live_runtime::cold_read_original_pending_for_owner(
+        // Enter the *verified Host* cold-original consumer, not just the
+        // local owner byte-reader. The Host additionally checks original C0
+        // authority/World/config and rereads the exact shipping operation's
+        // private immutable source. Neither result is recovery permission.
+        let original = formal_live_recovery_original_adapter::cold_read_original_for_config(
             config,
             &supplied.instance,
+            &supplied.instance.authority_id,
             independent_root,
             independent_count,
         )?;
@@ -77,7 +85,7 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
             serde_json::json!({
                 "status": "original_bytes_only_not_protected_authority",
                 "root": independent_root,
-                "count": original.requests.len()
+                "count": original.pending().handoff().requests.len()
             })
         );
     } else {
