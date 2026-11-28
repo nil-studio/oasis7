@@ -680,6 +680,38 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unregistered input'):
             self.run_plan()
 
+    def test_ecs_oss_leaf_inputs_select_their_actual_consumers(self):
+        root = 'docker/ci-base/ecs-oss/'
+        for name in ('Dockerfile', 'build.sh', 'artifacts.json', 'prepare.py', 'prepare.test.py', 'smoke.py'):
+            self.write(root + name, 'fixture\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['actions-repo', 'python-repo'])
+        for name in ('Dockerfile', 'build.sh', 'artifacts.json'):
+            self.assertIn(root + name, plan['reasons']['actions-repo'])
+        for name in ('artifacts.json', 'prepare.py', 'prepare.test.py', 'smoke.py'):
+            self.assertIn(root + name, plan['reasons']['python-repo'])
+
+    def test_ecs_oss_leaf_metadata_does_not_register_neighbors_or_rename(self):
+        for path in ('docker/ci-base/ecs-oss/other.json', 'docker/ci-base/ecs-oss/nested/Dockerfile',
+                     'docker/ci-base/ecs-oss/artifacts.json.extra'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write(path, 'fixture\n'); self.commit()
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'unregistered input'):
+                self.run_plan()
+        self.base = self.git('rev-parse', 'HEAD')
+        self.write('docker/ci-base/ecs-oss/artifacts.json', '{}'); self.commit()
+        self.base = self.git('rev-parse', 'HEAD')
+        self.git('mv', 'docker/ci-base/ecs-oss/artifacts.json', 'docker/ci-base/ecs-oss/unowned.json')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
+            self.run_plan()
+        self.base = self.git('rev-parse', 'HEAD')
+        self.git('mv', 'docker/ci-base/ecs-oss/unowned.json', 'docker/ci-base/ecs-oss/artifacts.json')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
+            self.run_plan()
+
     def test_retired_oasis7_conformance_dockerfile_selects_actions(self):
         path = 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile'
         self.write(path, 'FROM scratch\n')
