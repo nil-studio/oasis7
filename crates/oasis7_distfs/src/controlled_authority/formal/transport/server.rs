@@ -133,7 +133,12 @@ impl FormalEndpointServer {
     ) -> Result<(), FormalError> {
         wire::address(peer)?;
         wire::configure(stream, self.timeout)?;
-        let mut cancelled = || false;
+        // One absolute RPC window also fences the prepaid Store Query, response
+        // copy, CBOR encoding and physical write. The process-owned Work meter
+        // is never reset between requests; socket timeouts alone do not stop
+        // an otherwise continuously progressing sequence of short reads.
+        let request_deadline = Instant::now() + self.timeout;
+        let mut cancelled = || Instant::now() >= request_deadline;
         // Hold the original frame fee through signature validation and the
         // signed response write. This is frame admission, not a paid DTO owner.
         let (request, _paid_frame): (

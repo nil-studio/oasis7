@@ -597,6 +597,67 @@ mod deadline_tests {
         prepaid_response_frame_preserves_wire_and_owner();
     }
 
+    #[test]
+    fn formal_rpc_prepaid_server_deadline_rejects_before_read_and_allocation() {
+        use oasis7_proto::memory_budget::MemoryBudget;
+
+        // The actual paid TCP reader must consume the server's original
+        // deadline callback before waiting for a first byte or allocating a
+        // raw Request frame. A connected peer deliberately sends nothing.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut inbound, _) = listener.accept().unwrap();
+        configure(&inbound, Duration::from_secs(1)).unwrap();
+
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
+        let before = work.remaining_steps();
+        let deadline = Instant::now() - Duration::from_millis(1);
+        let error = read_prepaid_frame::<u64>(&mut inbound, &memory, &work, &mut || {
+            Instant::now() >= deadline
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"), "{error:?}");
+        assert_eq!(memory.used(), 0);
+        assert_eq!(work.remaining_steps(), before);
+        drop(peer);
+    }
+
+    #[test]
+    fn formal_rpc_prepaid_server_deadline_is_not_renewed_by_short_reads() {
+        use oasis7_proto::memory_budget::MemoryBudget;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let sender = std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let payload = serde_cbor::to_vec(&serde_cbor::Value::Bytes(vec![7; 16])).unwrap();
+            let mut frame = (payload.len() as u32).to_be_bytes().to_vec();
+            frame.extend(payload);
+            for byte in frame {
+                if peer.write_all(&[byte]).is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(15));
+            }
+        });
+        let mut inbound = TcpStream::connect(address).unwrap();
+        configure(&inbound, Duration::from_secs(1)).unwrap();
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let work =
+            super::super::super::endpoint::FormalArchiveReadWorkV1::new(1000, 1 << 20).unwrap();
+        let deadline = Instant::now() + Duration::from_millis(60);
+        let error =
+            read_prepaid_frame::<serde_cbor::Value>(&mut inbound, &memory, &work, &mut || {
+                Instant::now() >= deadline
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("cancelled"), "{error:?}");
+        assert_eq!(memory.used(), 0);
+        drop(inbound);
+        sender.join().unwrap();
+    }
+
     fn prepaid_frame_is_charged_before_allocation_and_retained_across_decode() {
         use oasis7_proto::memory_budget::MemoryBudget;
         let wire = serde_cbor::to_vec(&42u64).unwrap();
