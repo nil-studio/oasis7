@@ -738,9 +738,12 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
             subject: &VerifiedAdmissionBatchSubjectV2,
             _deadline: Instant,
         ) -> Result<ProtectedOriginalAdmissionPartsV2, String> {
-            let parts = subject.read().ranges()?.iter().map(|part| {
-                vec![0x21; part.length as usize]
-            }).collect();
+            let parts = subject
+                .read()
+                .ranges()?
+                .iter()
+                .map(|part| vec![0x21; part.length as usize])
+                .collect();
             Ok(ProtectedOriginalAdmissionPartsV2 {
                 parts,
                 transport_hold: Box::new(()), // test-only, NOT protected memory.
@@ -813,7 +816,10 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     );
     let subject = request.verify_bound_subject(context).unwrap();
     let verified_context = authority.current_context(request).unwrap();
-    assert_eq!(verified_context.bound.schedule_digest, context.schedule_digest);
+    assert_eq!(
+        verified_context.bound.schedule_digest,
+        context.schedule_digest
+    );
     let source_parts = authority
         .read_authorized_parts(&subject, Instant::now() + Duration::from_secs(1))
         .unwrap();
