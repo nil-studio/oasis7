@@ -208,7 +208,7 @@ impl RemoteFormalEndpoint {
     ) -> Result<bool, FormalError> {
         let paid_digest;
         let legacy_digest;
-        let (paid_minimum_fee, response_digest, _paid_policy_clones) = match paid {
+        let (paid_minimum_fee, response_digest, mut paid_context) = match paid {
             Some((fee, ctx)) => {
                 paid_digest = paid_response_digest(&response.body, ctx)?;
                 verify_paid_response_signature(
@@ -217,18 +217,7 @@ impl RemoteFormalEndpoint {
                     &self.instance().endpoint_public_key,
                     ctx,
                 )?;
-                // Preserve the original missing-custody verdict. For signed
-                // protected responses, retain the fee across both policy
-                // clones (custody first, monotonic checkpoint later).
-                let policy_fee = if response.protected_signature.is_some() {
-                    Some(attestation::prepay_response_policy_clones(
-                        &self.authority,
-                        ctx,
-                    )?)
-                } else {
-                    None
-                };
-                (Some(fee), paid_digest.as_str(), policy_fee)
+                (Some(fee), paid_digest.as_str(), Some(ctx))
             }
             None => {
                 legacy_digest = hash(RESPONSE_DIGEST_DOMAIN, &response.body)?;
@@ -248,6 +237,7 @@ impl RemoteFormalEndpoint {
             &self.authority,
             self.role,
             response_digest,
+            paid_context.as_deref_mut(),
         )?;
         let body = &response.body;
         if body.schema_version != 1
@@ -268,20 +258,15 @@ impl RemoteFormalEndpoint {
         hash_hex(&body.head.record_id)?;
         let pending =
             super::super::endpoint::verify_formal_rpc_checkpoint(body, &self.authority, self.role)?;
-        fencing::verify_monotonic_checkpoint_evidence(
-            &body.provider,
-            self.instance(),
-            &body.checkpoint,
-            &fencing::TrustedFencingPolicyV1 {
-                provider_public_key: self.authority.policy().fencing_provider_public_key.clone(),
-                authorized_resource_bindings: self
-                    .authority
-                    .policy()
-                    .authorized_fencing_resource_bindings
-                    .clone(),
-            },
-        )
-        .map_err(super::super::endpoint::fencing_error)?;
+        attestation::with_response_policy(&self.authority, paid_context, |policy| {
+            fencing::verify_monotonic_checkpoint_evidence(
+                &body.provider,
+                self.instance(),
+                &body.checkpoint,
+                policy,
+            )
+            .map_err(super::super::endpoint::fencing_error)
+        })?;
         if body.checkpoint.head.position < body.head.position
             || body.checkpoint.head.position > body.head.position.saturating_add(1)
             || (!body.checkpoint.head.qualified
