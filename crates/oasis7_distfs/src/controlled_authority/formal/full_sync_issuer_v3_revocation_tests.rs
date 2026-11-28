@@ -160,6 +160,17 @@ fn real_witness_history_revocation_inventory_rejects_forks_and_reissued_targets(
     assert!(effective.effective);
     assert_eq!(effective.pending_lease_count, 0);
 
+    issuer = retained_original_fences_are_cold_read_by_the_live_issuer(
+        issuer,
+        &mut witness,
+        &inventory,
+        signed_fence(FullSyncFenceKindV1::TargetGateStopped, None),
+        signed_fence(
+            FullSyncFenceKindV1::InstanceCutoff,
+            inventory.leases.keys().next().cloned(),
+        ),
+    );
+
     assert!(
         issuer
             .read_revocation_status(&hash(255), &inventory, &mut witness)
@@ -214,4 +225,168 @@ fn real_witness_history_revocation_inventory_rejects_forks_and_reissued_targets(
             .read_revocation_status(&revoke_digest, &inventory, &mut witness)
             .is_err()
     );
+    assert!(
+        issuer
+            .retain_revocation_fence(
+                &revoke_digest,
+                &serde_json::to_vec(proven.target_gate_fence.as_ref().unwrap()).unwrap(),
+                &mut witness,
+            )
+            .is_err()
+    );
+}
+
+fn retained_original_fences_are_cold_read_by_the_live_issuer(
+    mut issuer: DurableFullSyncIssuerV3,
+    witness: &mut SimulatedWitness,
+    original: &FullSyncRevocationInventoryV1,
+    gate: SignedFullSyncRevocationFenceV1,
+    lease: SignedFullSyncRevocationFenceV1,
+) -> DurableFullSyncIssuerV3 {
+    let directory = issuer.directory.clone();
+    let minimum = issuer.minimum_anchor.clone();
+    let old_policy = issuer.v2_policy.clone();
+    let policy = issuer.policy.clone();
+    let reopen = |witness: &mut SimulatedWitness| {
+        DurableFullSyncIssuerV3::open_v3(
+            &directory,
+            old_policy.clone(),
+            policy.clone(),
+            key(7),
+            minimum.clone(),
+            witness,
+        )
+        .unwrap()
+    };
+    let digest = &original.revocation_record_digest;
+    let path = directory.join(retained_revocation::FENCES_FILE);
+    let gate_bytes = serde_json::to_vec_pretty(&gate).unwrap();
+    let lease_bytes = serde_json::to_vec_pretty(&lease).unwrap();
+    let commits = witness.event_commits;
+    let mut wrong = lease.clone();
+    wrong.body.original_lease.as_mut().unwrap().lease_id = hash(254);
+    assert!(
+        issuer
+            .retain_revocation_fence(digest, &serde_json::to_vec(&wrong).unwrap(), witness)
+            .is_err()
+    );
+    let mut preimage = b"oasis7.formal.full-sync-revocation.fence.v1\0".to_vec();
+    preimage.extend_from_slice(&serde_json::to_vec(&wrong.body).unwrap());
+    wrong.signature_hex = hex::encode(key(4).sign(&preimage).to_bytes());
+    assert!(
+        issuer
+            .retain_revocation_fence(digest, &serde_json::to_vec(&wrong).unwrap(), witness)
+            .is_err()
+    );
+    assert!(
+        issuer
+            .retain_revocation_fence(&hash(255), &gate_bytes, witness)
+            .is_err()
+    );
+    assert!(
+        issuer
+            .retain_revocation_fence(digest, &vec![b' '; 16 * 1024 + 1], witness)
+            .is_err()
+    );
+    assert!(!path.exists());
+    let pending = issuer
+        .retain_revocation_fence(digest, &gate_bytes, witness)
+        .unwrap();
+    assert!(!pending.effective);
+    assert_eq!(pending.pending_lease_count, 1);
+    let partial_bytes = fs::read(&path).unwrap();
+    issuer
+        .retain_revocation_fence(digest, &gate_bytes, witness)
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), partial_bytes);
+    // Even a semantically equal re-encoding cannot replace the retained bytes.
+    assert!(
+        issuer
+            .retain_revocation_fence(digest, &serde_json::to_vec(&gate).unwrap(), witness)
+            .is_err()
+    );
+    assert_eq!(fs::read(&path).unwrap(), partial_bytes);
+    // Discard the completed response, drop all issuer state, then retry the
+    // same original bytes. This is software reply-loss/cold-reopen coverage.
+    let _lost_reply = issuer
+        .retain_revocation_fence(digest, &lease_bytes, witness)
+        .unwrap();
+    let complete_bytes = fs::read(&path).unwrap();
+    let retained: serde_json::Value = serde_json::from_slice(&complete_bytes).unwrap();
+    assert_eq!(
+        retained["receipts"][0].as_str().unwrap().as_bytes(),
+        gate_bytes
+    );
+    assert_eq!(
+        retained["receipts"][1].as_str().unwrap().as_bytes(),
+        lease_bytes
+    );
+    drop(issuer);
+    issuer = reopen(witness);
+    assert!(
+        issuer
+            .retain_revocation_fence(digest, &lease_bytes, witness)
+            .unwrap()
+            .effective
+    );
+    assert_eq!(fs::read(&path).unwrap(), complete_bytes);
+    assert!(
+        issuer
+            .read_revocation_status(digest, original, witness)
+            .unwrap()
+            .effective
+    );
+    assert_eq!(witness.event_commits, commits);
+    // Local complete receipts cannot bypass an unavailable current witness.
+    let history = std::mem::take(&mut witness.new_entries);
+    assert!(
+        issuer
+            .read_revocation_status(digest, original, witness)
+            .is_err()
+    );
+    witness.new_entries = history;
+    fs::remove_file(&path).unwrap();
+    let absent = issuer
+        .read_revocation_status(digest, original, witness)
+        .unwrap();
+    assert!(!absent.effective);
+    assert_eq!(absent.pending_lease_count, 1);
+    for damaged in [b"{}".as_slice(), b"not json".as_slice()] {
+        atomic_bounded(&directory, &path, damaged, MAX_LEDGER_BYTES).unwrap();
+        assert!(
+            issuer
+                .read_revocation_status(digest, original, witness)
+                .is_err()
+        );
+    }
+    let mut altered = retained.clone();
+    let mut forged = lease;
+    forged.signature_hex = hex::encode([0; 64]);
+    altered["receipts"][1] = serde_json::to_string(&forged).unwrap().into();
+    let duplicate = serde_json::json!({
+        "schema_version": 1,
+        "receipts": [retained["receipts"][0], retained["receipts"][0]],
+    });
+    for damaged in [altered, duplicate] {
+        let bytes = serde_json::to_vec(&damaged).unwrap();
+        atomic_bounded(&directory, &path, &bytes, MAX_LEDGER_BYTES).unwrap();
+        assert!(
+            issuer
+                .read_revocation_status(digest, original, witness)
+                .is_err()
+        );
+    }
+    // Restoring the exact original cache does not create or re-sign a witness
+    // event; current signed history and every original fence are rechecked.
+    atomic_bounded(&directory, &path, &complete_bytes, MAX_LEDGER_BYTES).unwrap();
+    drop(issuer);
+    issuer = reopen(witness);
+    assert!(
+        issuer
+            .read_revocation_status(digest, original, witness)
+            .unwrap()
+            .effective
+    );
+    assert_eq!(witness.event_commits, commits);
+    issuer
 }

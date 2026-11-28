@@ -423,7 +423,8 @@ impl DurableFullSyncIssuerV3 {
     /// Serve a management-only original revocation result from the CURRENT
     /// independently witnessed V3 history, never a cached local phase/ACK.
     /// The caller must separately authenticate management access and provide
-    /// the original protected fence receipts; this does not issue a cutoff.
+    /// original protected receipts or retain them through `retain_revocation_fence`.
+    /// Retained files are untrusted caches; this does not issue a cutoff.
     /// The full exact lease set is rebuilt on every query, including cold open.
     pub fn read_revocation_status(
         &mut self,
@@ -437,7 +438,8 @@ impl DurableFullSyncIssuerV3 {
                 "V3 revocation query differs from original request".into(),
             ));
         }
-        protected_inventory.summary_verified(&state)
+        retained_revocation::read_inventory(&self.directory, &state, protected_inventory)?
+            .summary_verified(&state)
     }
 
     /// Issues a provider lease only through the shared V3 event CAS. The exact
@@ -944,6 +946,8 @@ impl DurableFullSyncIssuerV3 {
 
 #[path = "full_sync_issuer_v3_migration.rs"]
 mod migration;
+#[path = "full_sync_issuer_v3_retained_revocation.rs"]
+mod retained_revocation;
 #[path = "full_sync_issuer_v3_storage.rs"]
 mod storage;
 use migration::MigrationCoordinator;
