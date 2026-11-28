@@ -275,8 +275,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
         BftPrivateRetentionAdmissionInputV1, BftPrivateRetentionAdmissionReadGrantV1,
         BftPrivateRetentionInputObjectKindV1, BftPrivateRetentionInputObjectV1,
         BftPrivateRetentionKeyV1, BftPrivateRetentionSourceV1, BftSignerErrorV3,
-        BftSigningKeyHandleV3, BftSuccessorWindowArchiveRefV1,
-        LocalBftSuccessorArchiveStoreV1,
+        BftSigningKeyHandleV3, BftSuccessorWindowArchiveRefV1, LocalBftSuccessorArchiveStoreV1,
     };
     use oasis7_net::{Libp2pNetwork, Libp2pNetworkConfig};
     use std::sync::{
@@ -387,8 +386,14 @@ fn real_original_admission_noise_is_bound_and_charged() {
         },
         publication_reservation_bytes: 4 * CHUNK as u64 + 128,
         objects: vec![
-            object(BftPrivateRetentionInputObjectKindV1::OriginalData, vec![0x5a; 4 * CHUNK as usize + 7]),
-            object(BftPrivateRetentionInputObjectKindV1::PublicationMetadata, vec![0x19; 48]),
+            object(
+                BftPrivateRetentionInputObjectKindV1::OriginalData,
+                vec![0x5a; 4 * CHUNK as usize + 7],
+            ),
+            object(
+                BftPrivateRetentionInputObjectKindV1::PublicationMetadata,
+                vec![0x19; 48],
+            ),
         ],
     };
     original_input
@@ -558,7 +563,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
         }
     }
     let archive_root = ArchiveRoot(archive_root);
-    let archive = LocalBftSuccessorArchiveStoreV1::new(oasis7_cas::LocalCasStore::new(
+    let archive = LocalBftSuccessorArchiveStoreV1::new(oasis7_distfs::LocalCasStore::new(
         archive_root.0.join("cas"),
     ))
     .unwrap();
@@ -573,7 +578,10 @@ fn real_original_admission_noise_is_bound_and_charged() {
         )
         .unwrap();
     assert_eq!(verified_cold, original_input);
-    assert_eq!(archive.load_original_admission_input(&pinned).unwrap(), original_input);
+    assert_eq!(
+        archive.load_original_admission_input(&pinned).unwrap(),
+        original_input
+    );
     let reads_after_success = authority.reads.load(Ordering::SeqCst);
 
     // Wrong actual peer and wrong grant cannot initiate any part read.
