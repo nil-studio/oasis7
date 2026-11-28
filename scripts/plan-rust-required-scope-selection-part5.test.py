@@ -336,7 +336,7 @@ class SelectionPart5(unittest.TestCase):
 
     def test_agent_api_and_harness_route_through_support_and_oasis7_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7', 'oasis7_chain_runtime')
+        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_world_service', 'oasis7_chain_runtime')
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
@@ -344,9 +344,9 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         manifests = {name: (f'crates/{name}', {}) for name in packages}
         reverse = {
-            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7'},
-            'oasis7_agent_harness': {'oasis7'},
-            'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7_world_service'},
+            'oasis7_agent_harness': {'oasis7_world_service'},
+            'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
         }
         graph = (manifests, reverse, {})
         expected = {'baseline', 'rust_baseline', 'workspace_support',
@@ -416,7 +416,7 @@ class SelectionPart5(unittest.TestCase):
 
     def test_game_client_routes_through_support_and_server_consumer(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        packages = ('oasis7_client_api', 'oasis7_game_client', 'oasis7', 'oasis7_chain_runtime')
+        packages = ('oasis7_client_api', 'oasis7_game_client', 'oasis7_world_service', 'oasis7_chain_runtime')
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
@@ -424,8 +424,8 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         manifests = {name: (f'crates/{name}', {}) for name in packages}
         graph = (manifests, {
-            'oasis7_client_api': {'oasis7_game_client', 'oasis7'},
-            'oasis7_game_client': {'oasis7'}, 'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+            'oasis7_client_api': {'oasis7_game_client', 'oasis7_world_service'},
+            'oasis7_game_client': {'oasis7_world_service'}, 'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
         }, {})
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for package in ('oasis7_client_api', 'oasis7_game_client'):
@@ -443,7 +443,7 @@ class SelectionPart5(unittest.TestCase):
 
     def test_provider_tests_are_local_and_library_changes_reach_server_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        packages = ('oasis7_agent_harness', 'oasis7_model_provider', 'oasis7', 'oasis7_chain_runtime')
+        packages = ('oasis7_agent_harness', 'oasis7_model_provider', 'oasis7_world_service', 'oasis7_chain_runtime')
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
@@ -452,8 +452,8 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         manifests = {name: (f'crates/{name}', {}) for name in packages}
         graph = (manifests, {
-            'oasis7_agent_harness': {'oasis7_model_provider', 'oasis7'},
-            'oasis7_model_provider': {'oasis7'}, 'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+            'oasis7_agent_harness': {'oasis7_model_provider', 'oasis7_world_service'},
+            'oasis7_model_provider': {'oasis7_world_service'}, 'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
         }, {})
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for package, path in [('oasis7_model_provider', 'tests/transport.rs'),
@@ -474,7 +474,7 @@ class SelectionPart5(unittest.TestCase):
 
     def test_deleted_agent_harness_source_uses_base_consumer_graph(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7', 'oasis7_chain_runtime')
+        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_world_service', 'oasis7_chain_runtime')
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
@@ -482,12 +482,12 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         old_manifests = {name: (f'crates/{name}', {}) for name in packages}
         old_reverse = {
-            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7'},
-            'oasis7_agent_harness': {'oasis7'},
-            'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7_world_service'},
+            'oasis7_agent_harness': {'oasis7_world_service'},
+            'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
         }
-        new_manifests = {'oasis7': ('crates/oasis7', {}), 'oasis7_chain_runtime': ('crates/oasis7_chain_runtime', {})}
-        new_reverse = {'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set()}
+        new_manifests = {'oasis7_world_service': ('crates/oasis7_world_service', {}), 'oasis7_chain_runtime': ('crates/oasis7_chain_runtime', {})}
+        new_reverse = {'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set()}
         Path('crates/oasis7_agent_harness/src/lib.rs').unlink()
         head = self.commit()
 

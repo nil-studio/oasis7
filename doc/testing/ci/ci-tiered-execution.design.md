@@ -39,11 +39,9 @@ Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆
 | 独立输入 | 精确路径 | 普通验证组 |
 | --- | --- | --- |
 | GitHub Issue/PR 模板、评审说明与 Dependabot 配置 | `.github/ISSUE_TEMPLATE/*.yml`（6 个固定表单与 `config.yml`）、`.github/pull_request_template.md`、`.github/instructions/pr-review.instructions.md`、`.github/dependabot.yml` | baseline、workflow_governance |
-| 独立 CodeQL 扫描、诊断与平台观测 workflow | `.github/workflows/codeql.yml`、`codeql-rust-capacity.yml`、`codeql-rust-cargo-check.yml`、`codeql-rust-native-diagnostic.yml`、`codeql-rust-cfg-diagnostic.yml`、`codeql-rust-wasm-context.yml`、`codeql-rust-wasm-metadata.yml`、`codeql-platform-observation.yml` | baseline、workflow_governance |
+| 独立 CodeQL 扫描 workflow | `.github/workflows/codeql.yml` | baseline、workflow_governance |
 | 独立打包、缓存、预览、站点与确定性 workflow | `.github/workflows/ci-base-images.yml`、`ecs-packages.yml`、`mainnet-packages.yml`、`newapi-bridge-service-package.yml`、`release-packages.yml`、`rust-cache.yml`（以上含 `packaging_contracts`）；`testnet-packages.yml`（含 `packaging_contracts`、`operational_contracts`、`windows_rollout`）；`pages.yml`（含 `site_quality`）；`daily-github-release.yml`、`hosted-login-linux-build.yml`、`native-cache-diagnostic.yml`、`pr-fast-preview.yml`、`storage-acceptance.yml`、`wasm-darwin-docker-evidence.yml`、`wasm-determinism-gate.yml` | baseline、workflow_governance 及对应专项合同组 |
 | 独立非 Python CI/构建脚本与测试 | `scripts/ci-cache-diagnostic.README.md`、`ci-compile-metrics*.sh`、`ci-rust-cache-admission*.cjs`、`ci-rust-governance-report*.sh`、`ci-tests-warning-zero-contract.test.sh`、`ci-browser-tools/package*.json`、`build-viewer-software-safe.sh`、`build-game-launcher-bundle*.sh`、`build-wasm-module.test.sh`、`build-wasm-builder-workspace.test.sh`、`build-builtin-wasm-candidate-batch.test.sh` | baseline 及对应 `workflow_governance` / `packaging_contracts` / `operational_contracts` / `compile_metrics` / Viewer / `site_quality` 消费者组 |
-
-WASM Context、WASM Metadata 与 Platform Observation 的 YAML 准入、权限、固定输入、预算及失败/输出合同由 `workflow_governance` 中各自的 CodeQL 测试承接。对应脚本、测试与说明的独立修改保留这些检查；普通验证不启动诊断本体，也不改变其 main-only 手动入口或结果资格。
 
 精确分类只影响共享控制的全量判定，不提前结束该路径的分析，也不撤销 Cargo、嵌入输入、测试消费者或其他规则选择的组；混合修改取并集，删除与重命名两端分别判定。未列入表中的 `.github` 文件仍保守全量，包括新增或改名后的 workflow、共享 Actions、`command-center.yml` 及 `rust.yml`。`scripts/security/**` 继续使用既有 workflow_governance 规则，CodeQL 的独立扫描、运营开关与 required/advisory 边界不变。
 

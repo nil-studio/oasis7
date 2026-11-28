@@ -508,18 +508,6 @@
         "codec_tests::pre_split_projection_and_response_fixtures_reencode_without_wire_drift"
       ]
     },
-    "oasis7-lib": {
-      "package": "oasis7",
-      "target_kind": "lib",
-      "target_name": "oasis7",
-      "default_features": false,
-      "features": [
-        "test_tier_required"
-      ],
-      "cases": [
-        "simulator::canonical_contract_owner_tests::old_simulator_exports_are_canonical_owner_contracts"
-      ]
-    },
     "viewer-codec-lib": {
       "package": "oasis7_viewer_codec",
       "target_kind": "lib",
@@ -845,18 +833,6 @@
     },
     {
       "match": [
-        "crates/oasis7/src/**"
-      ],
-      "exclude": [
-        "crates/oasis7/src/bin/**"
-      ],
-      "targets": [
-        "oasis7-lib"
-      ],
-      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7"
-    },
-    {
-      "match": [
         "crates/oasis7_viewer_codec/src/**"
       ],
       "exclude": [
@@ -892,7 +868,7 @@
     }
   ],
   "oasis7_required_packages": [
-    "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_runtime_host", "oasis7_world_state",
+    "oasis7_simulator", "oasis7_runtime", "oasis7_runtime_host", "oasis7_world_state",
     "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",
     "oasis7_chain_runtime", "oasis7_executable_image", "oasis7_client_cli", "oasis7_protocol_tools",
     "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
@@ -1210,6 +1186,8 @@
     ".github/actions/portable-cache-transport/index.cjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/run.mjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/transport.test.cjs": ["workflow_governance"],
+    "scripts/ci-release-web-image.py": ["workflow_governance"],
+    "scripts/ci-release-web-image.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-job.py": ["workflow_governance"],
     "scripts/ci-portable-cache-job.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-archive.py": ["workflow_governance"],
@@ -1233,12 +1211,9 @@
     ".github/pull_request_template.md": ["workflow_governance"],
     ".github/workflows/codeql.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-capacity.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-cargo-check.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-native-diagnostic.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-wasm-context.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-wasm-metadata.yml": ["workflow_governance"],
-    ".github/workflows/codeql-platform-observation.yml": ["workflow_governance"],
     ".github/dependabot.yml": ["workflow_governance"],
     ".github/workflows/ci-base-images.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/daily-github-release.yml": ["workflow_governance"],
@@ -1397,6 +1372,7 @@
     "scripts/plan-rust-required-scope-selection-part6.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-release-web-image.test.py",
     "scripts/ci-engine-unit.test.py",
     "scripts/ci-portable-cache-job.test.py",
     "scripts/ci-portable-cache-container-contract.test.py",
@@ -1486,6 +1462,8 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-release-web-image.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
+    "scripts/ci-release-web-image.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
     "scripts/ci-portable-cache-job.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
     "scripts/ci-portable-cache-job.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
     "scripts/ci-trusted-full-regression.py": {"group": "workflow_governance", "tests": ["scripts/ci-workflow.test.py"]},
@@ -2289,7 +2267,6 @@
   ],
   "package_capabilities_version": 1,
   "package_capabilities": {
-    "oasis7": {"ordinary_package": true, "compact_non_runtime_excluded": true, "splittable_lib_harness": {"logical_alias": "oasis7-lib-tests", "universal_v2_anchor": false}},
     "oasis7_agent_api": {"ordinary_package": false, "required_wasm_build": true, "support_profile": {"profile_id": "oasis7_agent_api", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_agent_harness": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_agent_harness", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_browser_game_client": {"ordinary_package": true, "support_profile": {"profile_id": "oasis7_browser_game_client", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
@@ -2363,9 +2340,6 @@
     ],
     "oasis7_agent_harness": [
       "workspace_support"
-    ],
-    "oasis7": [
-      "oasis7_required"
     ],
     "oasis7_consensus": [
       "consensus",
@@ -2545,24 +2519,6 @@
         "workflow_governance"
       ],
       "reason": "git_submodule_manifest"
-    },
-    {
-      "match": [
-        "scripts/check-duplicate-dependency-baseline.test.sh",
-        "scripts/fix-precommit.sh",
-        "scripts/llm-switch-coverage-diff.sh",
-        "scripts/oasis7-node-wasm-metrics-monitor.test.sh",
-        "scripts/oasis7-runtime-storage-gate.sh",
-        "scripts/readme-reward-pr-intake-import-smoke.sh",
-        "scripts/readme-reward-pr-intake-import.py",
-        "scripts/readme-reward-pr-intake-round-scan-smoke.sh",
-        "scripts/readme-reward-pr-intake-round-scan.py",
-        "scripts/readme_reward_pr_intake_lib.py"
-      ],
-      "groups": [
-        "workflow_governance"
-      ],
-      "reason": "retired_scripts_cleanup_registration"
     },
     {
       "match": [
@@ -3080,8 +3036,7 @@
         "scripts/check-governance-hygiene*",
         "scripts/check-rust-hygiene*",
         "scripts/lint-skills*",
-        "skills-lock.json",
-        "scripts/pre-commit*"
+        "skills-lock.json"
       ],
       "groups": [
         "baseline"

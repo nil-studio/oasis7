@@ -1045,33 +1045,11 @@ run_workflow_governance_baseline_contract_tests() {
 }
 
 run_workflow_governance_operational_contract_tests() {
-  run python3 ./scripts/security/test_codeql_rust_resolver.py
-  run python3 ./scripts/security/codeql-rust-action-deadline.test.py
   run python3 ./scripts/security/codeql-rust-production.test.py
-  run python3 ./scripts/security/codeql-rust-candidate-workload.test.py
   run python3 ./scripts/security/codeql-plan.test.py
   run python3 ./scripts/security/codeql-workflow.test.py
-  run python3 ./scripts/security/codeql-rust-coverage.test.py
   run python3 ./scripts/security/codeql-rust-model-diagnostic.test.py
-  run python3 ./scripts/security/test_codeql_rust_trait_scope_plan.py
-  run python3 ./scripts/security/codeql-rust-refactored-source.test.py
-  run python3 ./scripts/security/codeql-rust-capacity.test.py
-  run python3 ./scripts/security/codeql-rust-native-diagnostic.test.py
   run python3 ./scripts/security/viewer-browser-install-diagnostic.test.py
-  run python3 ./scripts/security/codeql-rust-wasm-metadata.test.py
-  run python3 ./scripts/security/codeql-rust-wasm-context.test.py
-  run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
-  run python3 ./scripts/security/test_codeql_rust_candidate_profile.py
-  run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
-  run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
-  run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py
-  run python3 ./scripts/security/test_codeql_rust_cfg_graph.py
-  run python3 ./scripts/security/test_codeql_rust_callee_diagnostic.py
-  run python3 ./scripts/security/codeql-rust-cfg-workflow.test.py
-  run python3 ./scripts/security/codeql-health.test.py
-  run python3 ./scripts/security/codeql-upload-association.test.py
-  run python3 ./scripts/security/codeql-platform-observation.test.py
-  run python3 ./scripts/security/codeql-acceptance.test.py
   run python3 ./scripts/security/test_check_pr_boundaries.py
 }
 
@@ -1608,7 +1586,7 @@ run_full_required_superset() {
   run_oasis7_required_tier_clippy
   run_oasis7_required_tier_tests
   run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::
-  run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
+  run_cargo test -p oasis7_runtime_host --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
   run_scenario_regression_tests
   run_oasis7_consensus_clippy
   run_oasis7_consensus_tests
@@ -1738,7 +1716,7 @@ run_group() {
           run_oasis7_required_tier_tests
           if [[ -z "${OASIS7_CI_TEST_BUNDLE:-}" && -z "${required_plan:-}" ]]; then
             run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::
-            run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
+            run_cargo test -p oasis7_runtime_host --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
           fi
           ;;
       esac

@@ -372,7 +372,7 @@ class AdditiveGovernanceRegistrations(_ScopeFixtureBase):
 
     def test_addition_keeps_existing_tests_and_trusted_diagnostic_companions(self):
         self.candidate()
-        self.write('.github/workflows/codeql-rust-capacity.yml', '# already scoped diagnostic workflow\n')
+        self.write('.github/workflows/codeql.yml', '# already scoped diagnostic workflow\n')
         self.write('doc/readme.md', 'diagnostic documentation\n')
         plan = self.select(self.commit())
         self.assertEqual(plan['scope'], 'targeted')

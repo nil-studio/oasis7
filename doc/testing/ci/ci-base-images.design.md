@@ -129,6 +129,33 @@ moving their writers. Candidate full regression retains its current
 runner until its canonical build can use an isolated Docker boundary.
 
 
+#### 可信全量测试的宿主缓存兼容
+
+四个角色保留原宿主路径、SDK 归档成员和版本。归档安装工作目录固定为
+`/home/runner/work/oasis7/oasis7`，Linux X64 使用原 `zstd-without-long` 与
+`enableCrossOsArchive=false`。容器内路径或解包后的内容摘要不能替代 SDK
+版本输入。
+
+| 角色 | 原始缓存路径 | 键与保存条件 |
+| --- | --- | --- |
+| npm | `/home/runner/.npm` | 原 setup-node 对 Viewer lockfile 的 `glob.hashFiles` 结果，保留 `node-cache-Linux-x64-npm-`；原主键精确命中时跳过 post 保存 |
+| Trunk | `/home/runner/work/_temp/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz` | 原 Linux/X64、固定版本和安装脚本的 GitHub `hashFiles`；安装仍核 SHA 和实际工具版本 |
+| wasm-bindgen | `/home/runner/.cache/oasis7/wasm-bindgen-cli/<lock-version>` | 原 Rust、锁定 CLI 版本和两个工具定义文件的 GitHub `hashFiles`；原可信 main、未精确命中、准备成功后保存 |
+| sentinel | `/home/runner/work/_temp/cache-permission-sentinel` | 原固定 `oasis7-cache-permission-sentinel-trusted-v2`，只写入明确的可信 main 见证 |
+
+离线角色模块消费实际 metadata 提供的摘要和原主键，拒绝替换根及降级
+匹配；它不会计算 setup-node 的 lock 文件摘要或授权保存。后续接线要求
+以实际运行的原 metadata 生成器锁定这些值，再用 SDK V2 解包前检查逐角色
+限制成员类型、后缀和字节上限。每个真实 post 保存仍需绑定该 job、source、
+ref、原动作结果、实际归档大小和仓库预算，拒绝不能触发预约。离线 tar
+夹具不证明缓存 API、实际历史版本命中或正常 main 保存。
+
+完整容器入口需预置当前 Rust 稳定版和锁定夜间版、WASM targets/rust-src、
+Node22/npm、当前 mold、clang/LLVM、固定 cargo-deny、能执行原 venv 合同的
+Python，以及 Trunk 与 wasm-bindgen 的原版本校验。Provider 如从原可信
+宿主构建阶段交接，应同 run 锁定真实 source、canonical recipe、构件清单
+及 SHA，容器使用原 checker 验证后才接收；候选不获得该宿主权限。
+
 ### 有限归档 Adapter 的消费边界
 
 有限入口位于 `.github/actions/portable-cache-transport/`，直接导入上述固定 SDK，不另行安装依赖或打包自有逻辑。它只接受原 `worker-build` 与三种 `browser-archive` component，由原 metadata helper 派生 key、root、条目与字节上限；调用者不能指定 cwd、raw paths 或 fallback keys。SDK 使用固定宿主 canonical 工作根，保留原归档相对成员和缓存版本，不改 `GITHUB_*`。执行前核对实际 checkout HEAD、工作区和动作目录 inode、可信 main workflow/job、V2/read-write 模式与 UID/GID；save 仍依赖原 helper 的 REST/库存/20 GB 准入及测量结果，不新增授权路径。
@@ -157,6 +184,68 @@ release-web独立publish分组仍10分钟，避免给现app-wasm组合追加串�
 正式digest发布后再同批接入三个job，消费PR继续承担22/25/25分钟、历史
 tag工具兼容、独立digest缓存族及原20GB/保存准入验收。
 
+### Web 发布门禁与依赖 writer 的镜像批次
+
+以下为 #7342 实施合同；正式leaf已发布，三job接线仍是待合入候选。
+
+`rust-cache.yml::web-wasm-cache` 与 Release/Mainnet 的两个
+`release_gate_web` 是同一 Web 工具闭包的 producer/consumer：保留 Node22、
+Rust1.96、wasm32 target、Trunk0.21.14，以及原 Xvfb headed 门禁。writer
+预算22分钟、两个 reader 各25分钟；原构建、测试、报告和发布资格检查不变。
+本批不包含 shared-native writer 或其宿主消费者。实施和实际验收见 #7342。
+
+现 rust-viewer 包含 Chrome/浏览器闭包但为 Node24，不能冒称满足原 Node22
+要求。专用 rust-release-web leaf 复用该浏览器与 Rust底座，使用同源固定
+Node22/npm，并预置 netcat-openbsd、xvfb、xauth；不含 Docker socket、额外
+capability 或新的动态权限。正式发布不可变 digest 后才接生产消费。
+
+两个发布 reader 的镜像选择由执行工作流的可信 plan 决定：以精确
+checkoutSha 对照冻结镜像构建源的 rust-toolchain.toml、浏览器 helper/进程
+helper、浏览器构建时使用的 apt/DNS helper、浏览器 npm manifest/lock 与
+bindgen helper 的 Git blob。所有文件
+须为存在的普通文件，目标 commit 及输入须完整。材料变化、缺失、symlink
+或未知 commit 均继续既有 host 分支；仅产品源码变化可使用同一镜像。
+兼容检测不替代 sourcePlan、原资格核验或允许候选保存缓存。
+
+新镜像 writer 和兼容 reader 只能使用独立完整 digest 的 cache namespace
+及真实环境 hash，不沿原 release-packages-web-wasm-trusted-v3 声称同ABI。
+旧tag host分支继续只读原旧族，原对象按已有维护保护规则保留；切换后
+不再重复预热旧 Web 族。新增族必须贯通原 main/workflow/source/job guard、
+20GB库存、post保存准入及maintenance识别，不新增无界双warm或人为cache
+miss。原 finite portable-cache adapter 的四角色不包含 Cargo target。
+
+实际验收分列工具/真实 headed-WASM闭包、生产 writer 准入与保存、reader
+恢复后的原门禁及历史host fallback；短fixture或sharedcache exacthit导致的
+save跳过不得冒签新增上传。正式发布后的新命名空间首次miss如实报告。
+
+本批消费固定正式 `ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59`，
+镜像源 d5319297d754a9c7d4de347a2ce8e1a20ba43591、可信发布
+45965554793/release-web140396891588已成功，2m48/10m。源码兼容同时
+核 executing workflow 与目标tag的完整Docker/build/package清单、browser
+Chrome/字体/apt/DNS/npm材料与编译器三项env；不信
+候选自报兼容。SOURCEPLAN JSON及原资格核验保持，路由bool单独输出。
+
+镜像激活仍以Node24满足原browser helper合同，后续npm/Web业务选择
+Node22；native agent CLI从旧npx fallback0.37.1变为正式canonical0.43.0，
+须以未修改参数/断言的原headed Web业务验收，不能仅靠DOM工具smoke。
+历史材料不兼容保旧hostroute。镜像不执行宿主stable-only normalize，
+避免卸载其不可变nightly；原host分支保此步骤。三个镜像分支沿原Web
+完整hash选择集CARGO/CC/CFLAGS/CXX/CMAKE/RUST，并纳入完整
+RUST_RELEASE_WEB_IMAGE；host分支不注入哪怕空的新RUST变量，保原v3
+指纹。原Web直接stable Cargo不沿native无关的OASIS7_WASM扩展伪造命中。
+
+镜像只运行原固定mold setup.py/SHA/ELF验证，不从这些job写宿主mold
+辅助archive；host分支原composite不变。该非业务缓存策略变化需单列cold
+成本，原Web主族、20GB/post-preload及历史v3维护保护不变。有限portable
+adapter仍只承担原四种下载归档，不接受Cargo target。
+
+writer也必须在任何构建/cache之前通过与reader相同的冻结image-source材料
+校验；不能因固定镜像仍可运行就把漂移源码用旧工具写入同family。镜像
+分支first checkout使用完整历史/内容以取得实际发布commit；历史host分支
+继续原depth1+sparse linker checkout。镜像source不匹配直接拒绝，不能静默
+跨ABI保存。当前完整Docker/build文件采用保守整体比对，相关材料变化
+须更新受审镜像/pin；不得用省略工具输入换取命中。
+
 The trusted full-regression job uses the image for npm dependency
 installation, the original `full-extended` command, and the governance
 report. GitHub cache actions remain on the host for npm, Trunk,
@@ -169,29 +258,12 @@ original local Docker socket is bound for the trusted test command
 alone after checking the trusted execution identity. Candidate full
 regression continues through the original runner.
 
-### 可信全量测试的宿主缓存兼容
-
-四个角色保留原宿主路径、SDK 归档成员和版本。归档安装工作目录固定为
-`/home/runner/work/oasis7/oasis7`，Linux X64 使用原 `zstd-without-long` 与
-`enableCrossOsArchive=false`。容器内路径或解包后的内容摘要不能替代 SDK
-版本输入。
-
-| 角色 | 原始缓存路径 | 键与保存条件 |
-| --- | --- | --- |
-| npm | `/home/runner/.npm` | 原 setup-node 对 Viewer lockfile 的 `glob.hashFiles` 结果，保留 `node-cache-Linux-x64-npm-`；原主键精确命中时跳过 post 保存 |
-| Trunk | `/home/runner/work/_temp/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz` | 原 Linux/X64、固定版本和安装脚本的 GitHub `hashFiles`；安装仍核 SHA 和实际工具版本 |
-| wasm-bindgen | `/home/runner/.cache/oasis7/wasm-bindgen-cli/<lock-version>` | 原 Rust、锁定 CLI 版本和两个工具定义文件的 GitHub `hashFiles`；原可信 main、未精确命中、准备成功后保存 |
-| sentinel | `/home/runner/work/_temp/cache-permission-sentinel` | 原固定 `oasis7-cache-permission-sentinel-trusted-v2`，只写入明确的可信 main 见证 |
-
-离线角色模块消费实际 metadata 提供的摘要和原主键，拒绝替换根及降级
-匹配；它不会计算 setup-node 的 lock 文件摘要或授权保存。后续接线要求
-以实际运行的原 metadata 生成器锁定这些值，再用 SDK V2 解包前检查逐角色
-限制成员类型、后缀和字节上限。每个真实 post 保存仍需绑定该 job、source、
-ref、原动作结果、实际归档大小和仓库预算，拒绝不能触发预约。离线 tar
-夹具不证明缓存 API、实际历史版本命中或正常 main 保存。
-
-完整容器入口需预置当前 Rust 稳定版和锁定夜间版、WASM targets/rust-src、
-Node22/npm、当前 mold、clang/LLVM、固定 cargo-deny、能执行原 venv 合同的
-Python，以及 Trunk 与 wasm-bindgen 的原版本校验。Provider 如从原可信
-宿主构建阶段交接，应同 run 锁定真实 source、canonical recipe、构件清单
-及 SHA，容器使用原 checker 验证后才接收；候选不获得该宿主权限。
+镜像材料集合只包括实际构建/安装闭包：Dockerfile/build、两包清单、Rust
+工具链、viewer-context 内四个 Python helper 与 npm manifest/lock，以及
+bindgen 安装定义。`agent-browser-lib.sh` 与 `viewer-web-dist-contract.sh`
+没有复制进镜像：前者从当前完整 checkout 调用已激活的浏览器 CLI，后者
+描述同一产品源码生成的 Web 产物布局；两者由同一 tested SHA 构建/执行，
+不与镜像内一份旧脚本交换数据。因此其产品路径调整不属于工具镜像输入
+漂移，不以定向字符串规范化或更换发布来源规避检查。原 CLI 参数与功能
+合同继续由该 tested SHA 的原 headed 门禁核验；实际镜像输入任一变化、
+缺失或软链仍拒绝镜像，完整 Docker/build 保守比对及三编译器环境保留。
