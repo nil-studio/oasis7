@@ -56,7 +56,7 @@ class RealFormalComponents(unittest.TestCase):
         cls.root = cls.base / 'checkout'
         cls.root.mkdir()
         (cls.root / 'Cargo.toml').write_text(
-            '[workspace]\nmembers=["world","runtime","distfs"]\nresolver="2"\n')
+            '[workspace]\nmembers=["crates/oasis7","runtime","distfs"]\nresolver="2"\n')
         common = '''
 #[cfg(all(test, not(debug_assertions)))] compile_error!("test assertions were disabled");
 pub fn value() -> u8 { 7 }
@@ -85,7 +85,7 @@ fn rendezvous(name: &str, peer: &str) {
 #[test] fn formal_parallel_a() { rendezvous("a", "b"); }
 #[test] fn formal_parallel_b() { rendezvous("b", "a"); }
 '''
-        for directory, package in (('world', 'oasis7'), ('runtime', 'oasis7_chain_runtime'),
+        for directory, package in (('crates/oasis7', 'oasis7'), ('runtime', 'oasis7_chain_runtime'),
                                    ('distfs', 'oasis7_distfs')):
             member = cls.root / directory
             (member / 'src').mkdir(parents=True)
@@ -303,6 +303,44 @@ fn rendezvous(name: &str, peer: &str) {
         self.assertNotEqual(rejected.returncode, 0)
         self.assertFalse((self.case / 'wrong-plan').exists())
 
+    def test_real_native_owners_without_umbrella_keep_both_formal_component_roles(self):
+        checkout = self.case / 'native-checkout'
+        shutil.copytree(self.root, checkout, ignore=shutil.ignore_patterns('target'))
+        manifest_path = checkout / 'Cargo.toml'
+        manifest_path.write_text(manifest_path.read_text().replace('"crates/oasis7",', ''))
+        config_path = checkout / 'scripts/ci-formal-process-suites.json'
+        config = json.loads(config_path.read_text())
+        authority_path = self.case / 'old-authority.json'
+        authority_path.write_text(json.dumps(config))
+        alias = 'oasis7-lib-tests'
+        for key in ('binary_dependencies', 'environment_formal_batches', 'legacy_ignored_filters'):
+            del config[key][alias]
+        config['suites']['runtime-protocol'] = [
+            entry for entry in config['suites']['runtime-protocol'] if entry['binary'] != alias
+        ]
+        config_path.write_text(json.dumps(config))
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=checkout, check=True)
+        debug, endpoint, merged = (self.case / name for name in ('native-debug', 'native-endpoint', 'native-merged'))
+        with patch.object(artifacts, 'ROOT', checkout), patch.object(artifacts, 'CONFIG', config_path):
+            artifacts.build(debug, 'formal-debug')
+            artifacts.build(endpoint, 'formal-endpoint')
+            artifacts.merge_formal(debug, endpoint, merged)
+            manifest = json.loads((merged / 'manifest.json').read_text())
+            self.assertNotIn(alias, manifest['binaries'])
+            self.assertEqual({key for key in manifest['binaries'] if key in ('runtime', 'endpoint')},
+                             {'runtime', 'endpoint'})
+            self.assertEqual(manifest['suites'], artifacts.resolve_suites(config, manifest['binaries']))
+            stale = json.loads(authority_path.read_text())
+            stale['suites'] = copy.deepcopy(config['suites'])
+            stale['legacy_ignored_filters'] = copy.deepcopy(config['legacy_ignored_filters'])
+            for binary in (alias, 'unknown-formal-batch'):
+                with self.subTest(binary=binary):
+                    stale['environment_formal_batches'] = config['environment_formal_batches'] | {binary: 'runtime-protocol'}
+                    authority_path.write_text(json.dumps(stale))
+                    with patch.object(artifacts, 'FORMAL_AUTHORITY', authority_path):
+                        with self.assertRaisesRegex(ValueError, f'required Formal batch binary is missing: {binary}'):
+                            artifacts.resolve_suites(artifacts.formal_configuration(), manifest['binaries'])
+
     def test_observer_failure_cannot_turn_a_successful_real_build_into_failure(self):
         for mode in ('spawn-error', 'nonzero-exit'):
             observer, observed = self.failed_observer(mode)
@@ -320,7 +358,7 @@ fn rendezvous(name: &str, peer: &str) {
     def test_failed_real_cargo_records_its_exit_and_never_starts_later_variants(self):
         checkout = self.case / 'broken-checkout'
         shutil.copytree(self.root, checkout, ignore=shutil.ignore_patterns('target', '.git'))
-        (checkout / 'world/src/lib.rs').write_text('compile_error!("intentional build failure");\n')
+        (checkout / 'crates/oasis7/src/lib.rs').write_text('compile_error!("intentional build failure");\n')
         diagnostics, bundle = self.case / 'failed-diagnostics', self.case / 'failed-bundle'
         observer, observed = self.failed_observer('nonzero-exit')
         with patch.object(artifacts, 'ROOT', checkout), \

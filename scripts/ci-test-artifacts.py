@@ -1371,9 +1371,11 @@ def resolve_suites(config, binaries):
         actual = {name for owner, name in assigned if owner == binary}
         if expected != actual:
             raise ValueError(f'ignored coverage changed: {binary}: {expected ^ actual}')
-    # Preserve the three original formal commands with their binary environment.
+    # Preserve every configured Formal command with its original binary environment.
     # These are deliberately retained until equivalence to ordinary tests is proven.
     for binary, suite in config['environment_formal_batches'].items():
+        if binary not in binaries:
+            raise ValueError(f'required Formal batch binary is missing: {binary}')
         ordinary = set(binaries[binary]['tests']) - set(binaries[binary]['ignored_tests'])
         for name in sorted(ordinary):
             if 'formal' in name:
@@ -1479,7 +1481,9 @@ def build_variants(scope, plan=None, ordinary_partition=None):
         features = ['test_tier_required', 'ci_formal_required_features']
         if scope == 'storage-required':
             features.append('oasis7_chain_runtime/ci_storage_acceptance')
-        core = ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
+        members = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['members']
+        roots = ['-p', 'oasis7'] if 'crates/oasis7' in members else []
+        core = ('formal-required', ['test', *roots, '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(features), '--no-run'], features)
         result = [core, *(v for v in variants if v[0] in ('runtime', 'endpoint', 'distfs-tests'))]
         if scope in FORMAL_COMPONENTS:

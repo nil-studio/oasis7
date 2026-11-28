@@ -388,6 +388,7 @@ class BuildAndBundles(unittest.TestCase):
             expected_ordinary.add(artifacts.RUNTIME_WORKER_VARIANT)
         self.assertEqual({v[0] for v in ordinary}, expected_ordinary)
         args = next(args for name, args, _ in formal if name == 'formal-required')
+        self.assertEqual([args[i + 1] for i, arg in enumerate(args) if arg == '-p'], ['oasis7_chain_runtime'])
         self.assertIn('--bins', args)
         self.assertIn('--lib', args)
         self.assertNotIn('oasis7_viewer_runtime', args)
