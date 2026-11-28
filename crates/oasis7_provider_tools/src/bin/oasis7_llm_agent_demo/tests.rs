@@ -6,13 +6,6 @@ use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_simulator::{Action, AgentDecision, AgentDecisionTrace, LlmStepTrace, WorldEventKind};
 
-#[test]
-fn demo_original_archive_has_single_native_host_identity() {
-    use std::any::TypeId;
-    assert_eq!(TypeId::of::<WorldKernel>(), TypeId::of::<oasis7::simulator::WorldKernel>());
-    assert_eq!(TypeId::of::<WorldEvent>(), TypeId::of::<oasis7::simulator::WorldEvent>());
-}
-
 #[cfg(feature = "test_tier_full")]
 fn tracked_baseline_fixture_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

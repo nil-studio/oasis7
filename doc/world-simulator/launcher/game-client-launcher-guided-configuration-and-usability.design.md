@@ -36,12 +36,12 @@ Launcher 后端是 `viewer` / `pure_api` 路径的本地交付与控制支撑，
 
 | 当前接点 | 已核实的源行为 | 本交接处理 |
 | --- | --- | --- |
-| [main_app_shell.rs](../../../crates/oasis7_client_launcher/src/main_app_shell.rs)；`render_normal_dashboard`、`render_launcher_command_deck` | 状态栏、三张任务卡、预检/健康、快捷命令、More 与日志；正常布局按可用宽度 840/700 分流，底部按 820 分流；专家模式保留下一步而隐藏任务卡 | 保留这些功能与入口，重排主次；本节后的尺寸为目标样本，不声称等于当前断点 |
-| [config_ui.rs](../../../crates/oasis7_client_launcher/src/config_ui.rs) | 字段编辑置 dirty；缺项打开 Game/Chain 配置引导；修复完成只关闭窗口再明确启动；≤560 的引导字段纵排，provider token 为 password 输入 | 字段、错误与真实 CTA 同组；检查通过只表明本次检查，不表示已接受/运行 |
-| [self_guided.rs](../../../crates/oasis7_client_launcher/src/self_guided.rs)；[error cards](../../../crates/oasis7_client_launcher/src/self_guided_error_cards.rs) | 当前最近成功画像仍按 `game_running` 保存 `self.config`，Restore 未显式置 dirty；Chain 任务卡合并 Ready/Starting；“一键修复”实际只打开配置引导 | 原配置修复合同仍须实现；目标稿分层并准确命名，不把这些缺口写成已修复 |
-| [app_process.rs](../../../crates/oasis7_client_launcher/src/app_process.rs)、[app_process_web.rs](../../../crates/oasis7_client_launcher/src/app_process_web.rs) | native/Web 都有控制请求与状态 poll 代次；旧代次/控制在途的 poll 不应用；失败撤销 session 证据；dirty 不等于 snapshot 时保留编辑 | 表达请求结果与当前实例两条事实，保留迟到/失败/未知；不改代次或 HTTP 合同 |
-| [preflight](../../../crates/oasis7_client_launcher/src/self_guided_preflight.rs)、[blocked actions](../../../crates/oasis7_client_launcher/src/self_guided_blocked_actions.rs)、[reminder](../../../crates/oasis7_client_launcher/src/self_guided_onboarding_reminder.rs) | 已有重试状态探测、打开配置、显式启用链、继续/重置引导；引导可暂时关闭，普通模式继续提示 | 只编排这些已有动作；重置引导不重置配置、进程或世界 |
-| [main_ui_helpers.rs](../../../crates/oasis7_client_launcher/src/main_ui_helpers.rs) | 窗口尺寸存在 360×300 下限；已读配置/主 shell 未定义本次所需完整焦点返回与 Escape 顺序 | 窄屏/低高度与键盘是待实现目标，不能由窗口组件或静态稿存在推定已通过 |
+| `crates/oasis7_client_launcher/src/main_app_shell.rs`（已随 #7326 下线）；`render_normal_dashboard`、`render_launcher_command_deck` | 状态栏、三张任务卡、预检/健康、快捷命令、More 与日志；正常布局按可用宽度 840/700 分流，底部按 820 分流；专家模式保留下一步而隐藏任务卡 | 保留这些功能与入口，重排主次；本节后的尺寸为目标样本，不声称等于当前断点 |
+| `crates/oasis7_client_launcher/src/config_ui.rs`（已随 #7326 下线） | 字段编辑置 dirty；缺项打开 Game/Chain 配置引导；修复完成只关闭窗口再明确启动；≤560 的引导字段纵排，provider token 为 password 输入 | 字段、错误与真实 CTA 同组；检查通过只表明本次检查，不表示已接受/运行 |
+| `crates/oasis7_client_launcher/src/self_guided.rs`、`self_guided_error_cards.rs`（已随 #7326 下线） | 当前最近成功画像仍按 `game_running` 保存 `self.config`，Restore 未显式置 dirty；Chain 任务卡合并 Ready/Starting；“一键修复”实际只打开配置引导 | 原配置修复合同仍须实现；目标稿分层并准确命名，不把这些缺口写成已修复 |
+| `crates/oasis7_client_launcher/src/app_process.rs`、`app_process_web.rs`（已随 #7326 下线） | native/Web 都有控制请求与状态 poll 代次；旧代次/控制在途的 poll 不应用；失败撤销 session 证据；dirty 不等于 snapshot 时保留编辑 | 表达请求结果与当前实例两条事实，保留迟到/失败/未知；不改代次或 HTTP 合同 |
+| `crates/oasis7_client_launcher/src/self_guided_preflight.rs`、`self_guided_blocked_actions.rs`、`self_guided_onboarding_reminder.rs`（已随 #7326 下线） | 已有重试状态探测、打开配置、显式启用链、继续/重置引导；引导可暂时关闭，普通模式继续提示 | 只编排这些已有动作；重置引导不重置配置、进程或世界 |
+| `crates/oasis7_client_launcher/src/main_ui_helpers.rs`（已随 #7326 下线） | 窗口尺寸存在 360×300 下限；已读配置/主 shell 未定义本次所需完整焦点返回与 Escape 顺序 | 窄屏/低高度与键盘是待实现目标，不能由窗口组件或静态稿存在推定已通过 |
 
 ## 4. 控制与信息边界
 

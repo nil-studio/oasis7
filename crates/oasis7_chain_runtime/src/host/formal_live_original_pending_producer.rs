@@ -217,9 +217,19 @@ impl OriginalPendingProducerV1 {
         if self.phase != PendingPhase::Accepting {
             return Err("original pending owner frozen; cannot retire further actions".into());
         }
+        // Node Frozen supplies action bytes, not the originating signed HTTP
+        // identity. Different original requests may encode the SAME Node action;
+        // one Frozen occurrence cannot prove which request retired. Preserve
+        // every ambiguous original for exact cold recovery instead of dropping
+        // unrelated requests merely because their action bytes compare equal.
+        let mut binding_counts: BTreeMap<&[u8], usize> = BTreeMap::new();
+        for action in self.action_bindings.values() {
+            *binding_counts.entry(action.as_slice()).or_default() += 1;
+        }
         self.requests.retain(|original| {
             !self.action_bindings.get(&original.identity).is_some_and(|node_bytes| {
-                exact_frozen_actions.contains(&node_bytes.as_slice())
+                binding_counts.get(node_bytes.as_slice()) == Some(&1)
+                    && exact_frozen_actions.contains(&node_bytes.as_slice())
             })
         });
         self.action_bindings.retain(|identity, _| {
@@ -573,6 +583,38 @@ mod tests {
         assert!(producer
             .note_successful_frozen_actions(&[&[12, 13]])
             .is_err());
+        check_ambiguous_actions_remain_in_original_frozen_cold_read();
+    }
+
+    // Reuse the existing selected native case. Two distinct authenticated
+    // requests can carry identical Node action bytes; a successful Frozen
+    // occurrence must not retire both original request identities.
+    fn check_ambiguous_actions_remain_in_original_frozen_cold_read() {
+        let scratch = Scratch::new();
+        let mut producer = OriginalPendingProducerV1::open(&scratch.0, owner()).unwrap();
+        producer
+            .note_enqueued_with_action(identity("collision-a"), vec![0, 255], vec![21, 22])
+            .unwrap();
+        producer
+            .note_enqueued_with_action(identity("collision-b"), vec![1, 254], vec![21, 22])
+            .unwrap();
+        producer
+            .note_enqueued_with_action(identity("unique"), vec![2, 253], vec![31, 32])
+            .unwrap();
+        producer
+            .note_successful_frozen_actions(&[&[21, 22], &[31, 32]])
+            .unwrap();
+        assert_eq!(producer.requests.len(), 2);
+        let pin = producer.begin_freeze(&scratch.0).unwrap();
+        assert_eq!(pin.count, 2);
+        producer.finish_node_freeze(&scratch.0).unwrap();
+        let recovered =
+            cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, pin.count).unwrap();
+        assert_eq!(recovered.requests.len(), 2);
+        assert_eq!(recovered.requests[0].identity.request_id, "collision-a");
+        assert_eq!(recovered.requests[0].signed_request, [0, 255]);
+        assert_eq!(recovered.requests[1].identity.request_id, "collision-b");
+        assert_eq!(recovered.requests[1].signed_request, [1, 254]);
     }
 
     #[test]

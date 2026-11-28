@@ -159,7 +159,7 @@ for spec in "${expected_specs[@]}"; do
     exit 1
   fi
 
-  expected_ok="ok: oasis7_client_launcher dependency closure excludes $spec"
+  expected_ok="ok: oasis7_launcher_backend dependency closure excludes $spec"
   if [[ "$(grep -F -c -- "$expected_ok" "$run_output" || true)" -ne 1 ]]; then
     echo "missing preserved exclusion result for forbidden spec: $spec" >&2
     sed -n '1,120p' "$run_output" >&2

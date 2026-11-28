@@ -30,6 +30,7 @@ PLANNER_TEST = 'scripts/plan-rust-required-scope.test.py'
 EVOLVING_POLICY_TESTS = frozenset({
     PLANNER_TEST,
     'scripts/ci-bin-ownership.test.py',
+    'scripts/ci-engine-unit.test.py',
     'scripts/ci-formal-process.test.py',
     'scripts/ci-full-result.test.py',
     'scripts/ci-workflow.test.py',
@@ -72,6 +73,11 @@ FIXED_TESTS = {
         'Ownership.test_client_proof_library_has_no_normal_world_or_node_dependency',
         'Ownership.test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world',
         'Ownership.test_no_cross_package_source_borrowing_from_binary_directories',
+    ],
+    'scripts/ci-engine-unit.test.py': [
+        'AuthorityLauncherTests.test_launcher_isolates_cwd_allows_sibling_and_rejects_symlink',
+        'CapabilitySchemaTests.test_rejects_order_physical_and_orphan_violations',
+        'RustSourceGraphTests.test_uncertain_paths_and_cfg_three_valued',
     ],
     'scripts/ci-formal-process.test.py': [
         'Transition.test_selected_requires_real_success_and_not_selected_requires_skip',

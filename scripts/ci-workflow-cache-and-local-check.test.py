@@ -301,16 +301,6 @@ class LocalCheckDriverContract(unittest.TestCase):
                                      'clippy::correctness', '-D', 'clippy::suspicious'])
                     self.assertEqual(rows[3], cargo_prefix + verbose_args + ['fmt', '--all', '--', '--check'])
 
-    def test_local_newapi_accounting_uses_the_locked_cargo_path(self):
-        recorder = 'run() { "$ci_python" -c \'import json,sys; print(json.dumps(sys.argv[1:]))\' "$@"; }\n'
-        for mode in ('0', '1'):
-            result = self.shell(recorder + 'run_newapi_bridge_service_accounting_tests\n',
-                                OASIS7_LOCAL_CHECK=mode, CI_VERBOSE='0')
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), ['env', '-u', 'RUSTC_WRAPPER', 'cargo',
-                'test', *(['--locked'] if mode == '1' else []), '-p', 'oasis7_newapi_bridge_service',
-                '--bin', 'oasis7_newapi_bridge_service', '--', '--nocapture'])
-
     def test_local_cargo_deny_requires_the_installed_exact_version_without_installing(self):
         cases = [('1', None), ('1', '0.0.0'), ('1', '0.19.9'), ('0', None), ('0', '0.0.0')]
         for mode, version in cases:

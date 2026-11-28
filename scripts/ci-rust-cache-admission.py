@@ -43,8 +43,6 @@ FAMILIES = {
                              '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'rust-image-net': ('ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6',
                       '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
-    'rust-image-launcher': ('ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6',
-                           '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'rust-image-tooling': ('ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
                           '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'rust-image-support': ('ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2',
@@ -71,7 +69,7 @@ FAMILIES = {
                             '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
 }
 COMPONENT_IMAGE_FAMILIES = frozenset(('rust-image-components', 'rust-image-net',
-                                    'rust-image-launcher', 'rust-image-tooling', 'rust-image-support'))
+                                    'rust-image-tooling', 'rust-image-support'))
 PLATFORMS = {name: (('Linux', 'X64'),) for name in FAMILIES}
 PLATFORMS['release-windows'] = (('Windows', 'X64'),)
 PLATFORMS['release-macos'] = (('macOS', 'ARM64'), ('macOS', 'X64'))

@@ -1565,7 +1565,7 @@ class TrustTests(unittest.TestCase):
             env = dict(self.environment(), GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(event))
             api = Mock(repository='nil-studio/oasis7')
             api.request.return_value = dict(self.run_metadata(), event='workflow_dispatch')
-            for mode in ('', 'newapi_bridge_package', 'full'):
+            for mode in ('', 'other', 'full'):
                 event.write_text(json.dumps({'inputs': {'run_mode': mode}}))
                 if mode == 'full':
                     self.assertEqual(maintenance.trusted_run_start(api, env, bootstrap=True), START)
@@ -1633,7 +1633,7 @@ class TrustTests(unittest.TestCase):
             env = dict(self.environment(), GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(event))
             api = Mock(repository='nil-studio/oasis7')
             api.request.return_value = dict(self.run_metadata(), event='workflow_dispatch')
-            for mode in ('', 'newapi_bridge_package', 'full'):
+            for mode in ('', 'other', 'full'):
                 event.write_text(json.dumps({'inputs': {'run_mode': mode}}))
                 if mode == 'full':
                     self.assertEqual(maintenance.trusted_run_start(api, env, cache(3)['key']), START)

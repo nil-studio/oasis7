@@ -415,13 +415,11 @@ jobs:
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features test_tier_required --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features wasmtime --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_launcher_backend --bins
-          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_client_launcher --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --bins
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --features test_tier_required --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --target wasm32-unknown-unknown --lib
-          env -u RUSTC_WRAPPER cargo test --locked -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service --no-run
 
   rust-image-component-cache:
     cache-mode: write
@@ -450,7 +448,6 @@ jobs:
               {"profile":"native","family":"rust-image-components","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","namespace":"ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","options":"","mold-dir":""},
               {"profile":"node","family":"rust-image-components","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","namespace":"ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","options":"--user 1001:1001","mold-dir":"oasis7-node-mold"},
               {"profile":"net","family":"rust-image-net","image":"ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6","namespace":"ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6","options":"--user 1001:1001","mold-dir":"oasis7-net-mold"},
-              {"profile":"launcher","family":"rust-image-launcher","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6","namespace":"ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6","options":"","mold-dir":""},
               {"profile":"tooling","family":"rust-image-tooling","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc","namespace":"ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc","options":"","mold-dir":""},
               {"profile":"support","family":"rust-image-support","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2","namespace":"ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2","options":"","mold-dir":""}
             ]')
@@ -601,9 +598,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p output/release/viewer-optional-payload output/release/web-launcher-dist
+          mkdir -p output/release/viewer-optional-payload
           OASIS7_FORCE_VIEWER_SOFTWARE_SAFE_BUILD=1 ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload
-          (
-            cd crates/oasis7_client_launcher
-            env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist
-          )

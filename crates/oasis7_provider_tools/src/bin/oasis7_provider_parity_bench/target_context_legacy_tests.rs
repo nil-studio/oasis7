@@ -1,9 +1,11 @@
 use super::super::target_context::build_target_context;
 use super::sample_patrol_observation;
-use oasis7::simulator::{
-    ContinuousAgentResponseContextV1, DecisionProvider, DecisionResponse, ProviderLoopbackAdapter,
-    cognition_legacy_response_digest, golden_decision_provider_fixtures,
+use oasis7_agent_api::cognition_legacy_response_digest;
+use oasis7_runtime_host::decision_provider::{
+    DecisionProvider, DecisionResponse, golden_decision_provider_fixtures,
 };
+use oasis7_runtime_host::provider_loopback_adapter::ProviderLoopbackAdapter;
+use oasis7_runtime_host::provider_loopback_http::ContinuousAgentResponseContextV1;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 

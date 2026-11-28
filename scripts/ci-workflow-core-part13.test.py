@@ -138,6 +138,14 @@ class WorkflowCorePart13(unittest.TestCase):
         for name in ('plan-rust-required-scope.py', 'ci-required-scope.json', 'ci-required-result.py',
                      'ci-formal-plan.py', 'ci-formal-process-suites.json', 'ci-python-control-contracts.py'):
             (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+        if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
+            (repo / 'scripts/run-ci-authority-python.py').write_bytes(
+                (ROOT / 'scripts/run-ci-authority-python.py').read_bytes())
+        if (ROOT / 'scripts/ci_engine').is_dir():
+            for ef in sorted((ROOT / 'scripts/ci_engine').rglob('*.py')):
+                dst = repo / ef.relative_to(ROOT)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(ef.read_bytes())
         if policy_config is not None:
             (repo / 'scripts/ci-required-scope.json').write_text(json.dumps(policy_config))
         (repo / 'scripts/ci-full-result.py').write_text('# producer is not executed by selection\n')
@@ -222,13 +230,13 @@ class WorkflowCorePart13(unittest.TestCase):
                         self.assertEqual(profiles, ['support'])
                         self.assertEqual(rows, [row for row in full_rows if row['profile'] == 'support'])
                     else:
-                        self.assertEqual(profiles, ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+                        self.assertEqual(profiles, ['native', 'node', 'net', 'tooling', 'support'])
                         full_rows = rows
                 return
             self.assertNotIn('image-support', workflow.split('jobs:', 1)[0])
             self.assertIn('matrix:\n        include:\n', writer)
             self.assertEqual(re.findall(r'^          - profile: ([a-z]+)$', writer, re.M),
-                             ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+                             ['native', 'node', 'net', 'tooling', 'support'])
             return
         predicate = lambda job: ' '.join(job.split('    if: >-\n', 1)[1].split('\n    ', 1)[0].split())
         self.assertEqual(predicate(planner), predicate(writer))
@@ -613,7 +621,6 @@ class WorkflowCorePart13(unittest.TestCase):
                           (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
         else:
             self.assertIn('./scripts/ci-tests.sh full', JOBS['full-regression'])
-        self.assertIn('package-newapi-bridge-service.sh', JOBS['newapi-bridge-package'])
         report = JOBS['viewer-performance-report']
         self.assertIn('rustup default', report)
         self.assertIn('rustup target add wasm32-unknown-unknown', report)
