@@ -149,7 +149,13 @@ where
         .checked_add(ATTEMPT_LIMIT)
         .ok_or("original admission attempt deadline overflow")?;
     fetch_original_admission_input_v2_before_deadline(
-        network, peer, template, context, &mut sign_subject, sink, deadline,
+        network,
+        peer,
+        template,
+        context,
+        &mut sign_subject,
+        sink,
+        deadline,
     )
 }
 
@@ -173,7 +179,13 @@ where
         .checked_add(ATTEMPT_LIMIT)
         .ok_or("original admission attempt deadline overflow")?;
     let bytes = fetch_original_admission_input_v2_before_deadline(
-        network, peer, template, context, &mut sign_subject, Vec::new(), deadline,
+        network,
+        peer,
+        template,
+        context,
+        &mut sign_subject,
+        Vec::new(),
+        deadline,
     )?;
     if Instant::now() >= deadline {
         return Err("original admission attempt deadline exhausted before CAS".into());
