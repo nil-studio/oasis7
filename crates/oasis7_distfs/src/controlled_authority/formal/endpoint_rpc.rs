@@ -5,11 +5,16 @@ use super::super::transport::{
 use super::*;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1;
 use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
+#[path = "endpoint_rpc_minimum_paid.rs"]
+mod minimum_paid;
+use minimum_paid::MinimumSource;
+pub(crate) use minimum_paid::RpcReadBudget;
 
 pub(crate) struct RpcResponseOwner {
     // Drop the serialized fields before their source/copy reservations.
     response: Response,
     _checkpoint: Option<CheckpointRetention>,
+    _ancestry: Option<minimum_paid::AncestryRetention>,
 }
 impl RpcResponseOwner {
     pub(crate) fn response(&self) -> &Response {
@@ -96,10 +101,10 @@ impl FileFormalEndpoint {
         challenge: String,
         minimum: FormalHeadRefV1,
         command: &Command,
-        context: Option<&mut FormalBoundedContextV1<'_>>,
+        mut budget: Option<RpcReadBudget<'_>>,
     ) -> Result<RpcResponseOwner, FormalError> {
         let mut guard = self.guard()?;
-        let ancestry = self.minimum_witness_under_guard(&minimum)?;
+        let ancestry = self.minimum_witness_under_guard(&minimum, budget.as_mut())?;
         let result = match command {
             Command::Head => Ok(Value::Complete),
             Command::ArchiveChunk { id, offset, limit } => self
@@ -136,7 +141,7 @@ impl FileFormalEndpoint {
             result,
             ancestry,
             guard.as_mut(),
-            context,
+            budget,
         )
     }
 
@@ -146,16 +151,17 @@ impl FileFormalEndpoint {
         challenge: String,
         minimum: FormalHeadRefV1,
         result: Result<Value, FormalError>,
-        context: Option<&mut FormalBoundedContextV1<'_>>,
+        mut budget: Option<RpcReadBudget<'_>>,
     ) -> Result<RpcResponseOwner, FormalError> {
         let mut guard = self.guard()?;
-        let ancestry = self.store.minimum_witness(&minimum)?;
+        // The original second walk has no additional poison wrapper.
+        let ancestry = MinimumSource::load(&self.store, &minimum, budget.as_mut())?;
         self.sign_formal_rpc_response_with_guard(
             (request_digest, challenge, minimum),
             result,
             ancestry,
             guard.as_mut(),
-            context,
+            budget,
         )
     }
 
@@ -163,11 +169,17 @@ impl FileFormalEndpoint {
         &mut self,
         request_binding: (String, String, FormalHeadRefV1),
         result: Result<Value, FormalError>,
-        ancestry: Vec<Vec<u8>>,
+        ancestry: MinimumSource,
         guard: &mut dyn fencing::MonotonicEndpointGuard,
-        mut context: Option<&mut FormalBoundedContextV1<'_>>,
+        mut budget: Option<RpcReadBudget<'_>>,
     ) -> Result<RpcResponseOwner, FormalError> {
         let (request_digest, challenge, minimum) = request_binding;
+        // Copy after the original walk/command, outside the guarded poison wrapper.
+        let paid = ancestry.into_wire(budget.as_mut())?;
+        // Declare the fees first: every early return drops wire DATA before them.
+        let ancestry_retention = paid.retention;
+        let ancestry = paid.wire;
+        let mut context = budget.as_mut().map(RpcReadBudget::context);
         let mut checkpoint_retention = None;
         let body = ResponseBody {
             schema_version: 1,
@@ -179,7 +191,7 @@ impl FileFormalEndpoint {
             minimum,
             head: self.store.body.head.clone(),
             checkpoint: self.store.checkpoint.clone(),
-            checkpoint_bytes: match context.as_deref_mut() {
+            checkpoint_bytes: match context.as_mut() {
                 Some(ctx) => {
                     let (bytes, retention) = paid_checkpoint_copy(&self.store, ctx)?;
                     checkpoint_retention = Some(retention);
@@ -193,7 +205,7 @@ impl FileFormalEndpoint {
         };
         let legacy_digest;
         let paid_digest;
-        let response_digest = match context {
+        let response_digest = match context.as_mut() {
             Some(ctx) => {
                 paid_digest = paid_response_digest(&body, ctx)?;
                 &*paid_digest
@@ -243,19 +255,21 @@ impl FileFormalEndpoint {
                 protected_signature,
             },
             _checkpoint: checkpoint_retention,
+            _ancestry: ancestry_retention,
         })
     }
 
     fn minimum_witness_under_guard(
         &mut self,
         minimum: &FormalHeadRefV1,
-    ) -> Result<Vec<Vec<u8>>, FormalError> {
+        budget: Option<&mut RpcReadBudget<'_>>,
+    ) -> Result<MinimumSource, FormalError> {
         if minimum.position == 0 && minimum != &self.authority.definition().world.genesis_head()? {
             return Err(FormalError::Rollback(
                 "formal pinned genesis minimum fork".into(),
             ));
         }
-        let result = self.store.minimum_witness(minimum);
+        let result = MinimumSource::load(&self.store, minimum, budget);
         if matches!(&result, Err(FormalError::Invalid(_) | FormalError::Io(_))) {
             self.poisoned = true;
         }

@@ -17,6 +17,8 @@ const DOMAIN: &str = "oasis7.formal.endpoint_checkpoint.sign.v1";
 #[path = "endpoint_store_minimum_paid.rs"]
 mod minimum_paid;
 use minimum_paid::MinimumOps;
+pub(super) type PaidMinimumWitness =
+    oasis7_proto::memory_budget::ReservedValue<Vec<minimum_paid::PaidRaw>>;
 #[cfg(test)]
 pub(super) use minimum_paid::paid_minimum_read_count;
 static TEMP: AtomicU64 = AtomicU64::new(0);

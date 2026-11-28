@@ -69,7 +69,7 @@ pub use archive_transfer::{
     FormalArchiveSourceV1, SignedFormalArchiveTransferV1, VerifiedFormalArchiveTransferV1,
     verify_formal_archive_transfer,
 };
-pub(crate) use native_rpc::verify_formal_rpc_checkpoint;
+pub(crate) use native_rpc::{RpcReadBudget, verify_formal_rpc_checkpoint};
 #[cfg(test)]
 #[path = "endpoint_tests.rs"]
 mod tests;
