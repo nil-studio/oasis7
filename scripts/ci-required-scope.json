@@ -1194,6 +1194,8 @@
     ".github/actions/cache-sdk/provenance.json": ["workflow_governance"],
     ".github/actions/cache-sdk/sdk-patch.json": ["workflow_governance"],
     ".github/actions/cache-sdk/sdk.test.cjs": ["workflow_governance"],
+    ".github/actions/full-regression-cache/action.yml": ["workflow_governance"],
+    ".github/actions/full-regression-cache/run.mjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/action.yml": ["workflow_governance"],
     ".github/actions/portable-cache-transport/index.cjs": ["workflow_governance"],
     ".github/actions/portable-cache-transport/run.mjs": ["workflow_governance"],
@@ -1208,6 +1210,9 @@
     "scripts/ci-cache-sdk.test.py": ["workflow_governance"],
     "scripts/ci-trusted-full-regression-cache-roles.mjs": ["workflow_governance"],
     "scripts/ci-trusted-full-regression-cache-roles.test.mjs": ["workflow_governance"],
+    "scripts/ci-trusted-full-regression-cache.py": ["workflow_governance"],
+    "scripts/ci-trusted-full-regression-cache-transport.mjs": ["workflow_governance"],
+    "scripts/ci-trusted-full-regression-cache-transport.test.mjs": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
@@ -1459,6 +1464,7 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-trusted-full-regression-cache.py": {"group": "workflow_governance", "tests": ["scripts/ci-tool-cache.test.py"]},
     "scripts/ci-release-web-image.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
     "scripts/ci-release-web-image.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
     "scripts/ci-portable-cache-job.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
@@ -2879,7 +2885,9 @@
     {
       "match": [
         "scripts/ci-trusted-full-regression-cache-roles.mjs",
-        "scripts/ci-trusted-full-regression-cache-roles.test.mjs"
+        "scripts/ci-trusted-full-regression-cache-roles.test.mjs",
+        "scripts/ci-trusted-full-regression-cache-transport.mjs",
+        "scripts/ci-trusted-full-regression-cache-transport.test.mjs"
       ],
       "groups": [
         "workflow_governance"
