@@ -1,0 +1,153 @@
+name: Daily Release read-only image probe
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-daily-release-api-probe-base]
+    paths: [.github/workflows/daily-release-api-image-probe.yml]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+jobs:
+  replay:
+    if: >-
+      github.repository == 'nil-studio/oasis7' && github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.base_ref == 'codex/engineering-daily-release-api-probe-base' &&
+      github.head_ref == 'codex/engineering-daily-release-api-probe'
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [host, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    container:
+      image: ${{ matrix.lane == 'image' && 'ghcr.io/nil-studio/oasis7/ci-api-runtime@sha256:ba7c763f7b634b672c6dccef1384bce4daf7abd44a65d613696a748891e3c0ed' || '' }}
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      LOGIC: 4f18e25890e8362747a6369a734bb3ba023f3af4
+      SOURCE: 376528edf6300a149a39896d03b1e6917bc169b2
+      TAG_OBJECT: 31b3b5a601a7158efdd66a4ecc5c56b415c4f9a6
+      LANE: ${{ matrix.lane }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.LOGIC }}
+          path: logic
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE }}
+          fetch-depth: 0
+          path: release-source
+          persist-credentials: false
+      - name: Verify frozen sources and replay only original read operations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: nil-studio/oasis7
+        run: |
+          set -euo pipefail
+          for tree in logic release-source; do
+            git config --global --add safe.directory "$GITHUB_WORKSPACE/$tree"
+          done
+          test "$(git -C logic rev-parse HEAD)" = "$LOGIC"
+          test "$(git -C release-source rev-parse HEAD)" = "$SOURCE"
+          cd release-source
+          python3 - <<'PY'
+          from datetime import datetime
+          from hashlib import sha256
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import tempfile
+          import textwrap
+          from zoneinfo import ZoneInfo
+
+          source = os.environ["SOURCE"]
+          tag_object = os.environ["TAG_OBJECT"]
+          tree = Path.cwd()
+          workflow = (tree.parent / "logic/.github/workflows/daily-github-release.yml").read_text()
+          names = ("Verify preinstalled release tools", "Resolve release tag", "Check retry state")
+          steps = {}
+          for name in names:
+              step, = re.findall(r"(?m)^      - name: " + re.escape(name) + r"\n((?:        .*\n|\n)+)", workflow)
+              shell = textwrap.dedent(step.split("        run: |\n", 1)[1])
+              assert "$" + "{{" not in shell
+              steps[name] = shell
+
+          def run(argv, cwd=tree, **env):
+              return subprocess.run(argv, cwd=cwd, env=os.environ | env, text=True, capture_output=True)
+
+          def call(name, cwd=tree, **env):
+              result = run(["bash", "-e", "-o", "pipefail", "-c", steps[name]],
+                           cwd=cwd, GITHUB_OUTPUT=str(output), **env)
+              lines = output.read_text().splitlines() if output.exists() else []
+              output.unlink(missing_ok=True)
+              return result, dict(line.split("=", 1) for line in lines)
+
+          existing = "2026-11-28_v1"
+          absent = "2099-01-01_v1"
+          result = run(["git", "ls-remote", "--exit-code", "--tags", "origin",
+                        f"refs/tags/{existing}", f"refs/tags/{existing}^{{}}"])
+          assert result.returncode == 0 and set(result.stdout.splitlines()) == {
+              f"{tag_object}\trefs/tags/{existing}", f"{source}\trefs/tags/{existing}^{{}}"
+          }, (result.stdout, result.stderr)
+          release = run(["gh", "release", "view", existing, "--json", "tagName,isPrerelease,targetCommitish"])
+          assert release.returncode == 0 and json.loads(release.stdout) == {
+              "tagName": existing, "isPrerelease": True, "targetCommitish": source}, release.stderr
+          missing = run(["gh", "api", "--method", "GET", f"repos/nil-studio/oasis7/releases/tags/{absent}"])
+          assert missing.returncode != 0 and "HTTP 404" in missing.stderr, missing.stderr
+
+          with tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"], prefix="daily-read-replay-") as tmp:
+              output = Path(tmp) / "step.output"
+              if os.environ["LANE"] == "image":
+                  result, values = call(names[0])
+                  assert result.returncode == 0 and not values, result.stderr
+              explicit, values = call(names[1], RELEASE_DATE_INPUT="2026-11-28")
+              assert explicit.returncode == 0 and values == {
+                  "release_date": "2026-11-28", "tag": existing, "target_sha": source
+              }, (explicit.stderr, values)
+              zone = ZoneInfo("Asia/Shanghai")
+              before = datetime.now(zone).date().isoformat()
+              scheduled, clock = call(names[1], RELEASE_DATE_INPUT="")
+              after = datetime.now(zone).date().isoformat()
+              assert scheduled.returncode == 0 and clock["release_date"] in (before, after)
+              assert clock["tag"] == clock["release_date"] + "_v1" and clock["target_sha"] == source
+              failed, out = call(names[1], RELEASE_DATE_INPUT="not-a-date")
+              assert failed.returncode == 1 and not out and "must use YYYY-MM-DD" in failed.stderr
+              failed, out = call(names[2], TAG=existing, TARGET_SHA=source)
+              assert failed.returncode == 1 and not out and "release already exists" in failed.stderr
+              missing_retry, out = call(names[2], TAG=absent, TARGET_SHA=source)
+              assert missing_retry.returncode == 0 and out == {"tag_exists": "false"}, missing_retry.stderr
+
+              fixture = Path(tmp) / "local-tag-origin"
+              client = Path(tmp) / "local-tag-reader"
+              for dest, args in ((fixture, ["--bare"]), (client, [])):
+                  cloned = run(["git", "clone", "--shared", *args, str(tree), str(dest)])
+                  assert cloned.returncode == 0, cloned.stderr
+              annotated = run(["git", "-c", "user.name=diagnostic", "-c", "user.email=diagnostic@example.invalid",
+                               "tag", "-a", absent, source, "-m", "Temporary local retry fixture"], cwd=fixture)
+              assert annotated.returncode == 0, annotated.stderr
+              changed = run(["git", "remote", "set-url", "origin", str(fixture)], cwd=client)
+              assert changed.returncode == 0, changed.stderr
+              retry, found = call(names[2], cwd=client, TAG=absent, TARGET_SHA=source)
+              assert retry.returncode == 0 and found == {"tag_exists": "true"}, retry.stderr
+              wrong = run(["git", "rev-parse", f"{source}^"])
+              assert wrong.returncode == 0
+              failed, out = call(names[2], cwd=client, TAG=absent, TARGET_SHA=wrong.stdout.strip())
+              assert failed.returncode == 1 and not out and f"points at {source}, expected {wrong.stdout.strip()}" in failed.stderr
+
+          controls = {name: sha256(shell.encode()).hexdigest() for name, shell in steps.items()}
+          receipt = dict(source=source, tag_object=tag_object, release=values, clock=clock,
+                         live_existing="reject", live_missing="new-tag", local_matching=found,
+                         local_mismatch="reject", invalid_date="reject", read_steps_sha256=controls)
+          print("daily_release_replay=" + json.dumps(receipt, sort_keys=True))
+          PY
