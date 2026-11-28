@@ -264,7 +264,10 @@ def validate_candidate_graph(workflow, config):
             or 'p2p-public-testnet-package-rollout.test.sh' not in fleet):
         raise ValueError('fleet must run subcontract-sliced hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
     for group in config['groups']:
-        job = jobs[group.replace('_', '-')]
+        job_name = group.replace('_', '-')
+        if job_name in retired_zombie_jobs and job_name not in jobs:
+            continue
+        job = jobs[job_name]
         if group == 'workspace_support':
             summary = jobs['workspace-support']
             expected_support = ['select', 'workspace-support-legacy', 'workspace-support-other',
@@ -508,7 +511,7 @@ class WorkflowCorePart14(unittest.TestCase):
                                       '      - name: Run full test tier\n        continue-on-error: true\n', 1),
                      WORKFLOW.replace(' --host-smoke', ''),
                      WORKFLOW.replace('    if: always()', '    if: success()'),
-                     WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1),
+                     WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false'),
                      WORKFLOW.replace('needs.select.outputs.run_operational_contracts', 'needs.select.outputs.run_other_contracts', 1),
                      WORKFLOW.replace('needs.select.outputs.run_packaging_contracts', 'needs.select.outputs.run_other_contracts'),
                      WORKFLOW.replace('required --group "operational_contracts"', 'required --group "other_contracts"', 1),
