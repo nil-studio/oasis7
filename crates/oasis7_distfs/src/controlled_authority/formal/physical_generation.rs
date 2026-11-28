@@ -15,7 +15,9 @@ mod selected_read;
 mod transaction;
 use catalog::Catalogs;
 use retirement::retire;
-pub(crate) use selected_read::{GenerationSelectedReadWorkV1, with_selected_path_bounded_v1};
+pub(crate) use selected_read::{
+    GenerationSelectedReadWorkV1, read_opened_exact_bounded_v1, with_selected_path_bounded_v1,
+};
 const GENERATIONS: &str = ".generations-v1";
 const CURRENT: &str = ".generation-current-v1";
 const BUILD: &str = ".generation-build-v1.cbor";

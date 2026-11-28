@@ -126,7 +126,7 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
     drop(primary);
     let mut primary = open(EndpointRole::Primary, &primary_oracle);
     assert!(primary.freeze(pending_input, pending_material).is_ok());
-    let response = primary
+    let response_owner = primary
         .sign_formal_rpc_response(
             h(233),
             h(234),
@@ -135,6 +135,7 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
             None,
         )
         .unwrap();
+    let response = response_owner.response();
     assert!(
         super::super::native_rpc::verify_formal_rpc_checkpoint(
             &response.body,

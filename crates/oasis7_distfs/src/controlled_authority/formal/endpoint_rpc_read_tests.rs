@@ -16,6 +16,8 @@ use std::{
 #[path = "endpoint_rpc_read_test_server.rs"]
 mod owned_server;
 use owned_server::{OwnedRpcServer, RPC_TIMEOUT};
+#[path = "endpoint_rpc_checkpoint_tests.rs"]
+mod checkpoint_tests;
 
 struct CountingProvider {
     inner: Arc<dyn fencing::MonotonicEndpointProvider>,
@@ -111,7 +113,14 @@ fn prepaid_response_digest_refusal_precedes_protected_rpc_signature() {
     .unwrap();
     acquisitions.store(0, Ordering::SeqCst);
     signatures.store(0, Ordering::SeqCst);
-    let memory = oasis7_proto::memory_budget::MemoryBudget::new(0, 0).unwrap();
+    // Admit the new HOT original and copy, leaving no space for the digest
+    // payload. Keep this test targeted at the original digest failure stage.
+    let checkpoint = endpoint.store.checkpoint_bytes().unwrap();
+    let memory = oasis7_proto::memory_budget::MemoryBudget::new(
+        2 * (checkpoint.len() + std::mem::size_of::<Vec<u8>>()),
+        0,
+    )
+    .unwrap();
     let work = super::super::super::FormalArchiveReadWorkV1::new(1_000_000, 1 << 30).unwrap();
     let mut stop = || false;
     let error = endpoint

@@ -9,6 +9,66 @@ fn work() -> GenerationSelectedReadWorkV1 {
         remaining_read_bytes: 128 << 20,
     }
 }
+#[test]
+fn opened_metadata_kernel_charges_retries_short_reads_and_rejects_length_changes() {
+    struct Short {
+        bytes: std::io::Cursor<Vec<u8>>,
+        interrupted: bool,
+    }
+    impl Read for Short {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            let count = out.len().min(2);
+            self.bytes.read(&mut out[..count])
+        }
+    }
+    let memory = memory();
+    let mut w = work();
+    let before = (w.remaining_steps, w.remaining_read_bytes);
+    let out = read_opened_exact_bounded_v1(
+        &mut Short {
+            bytes: std::io::Cursor::new(vec![1, 2, 3, 4]),
+            interrupted: false,
+        },
+        4,
+        &memory,
+        &mut w,
+        &mut || false,
+    )
+    .unwrap();
+    assert_eq!(out.as_slice(), &[1, 2, 3, 4]);
+    assert_eq!(before.0 - w.remaining_steps, 4);
+    assert_eq!(before.1 - w.remaining_read_bytes, 11);
+    assert_eq!(memory.used(), out.reserved_bytes());
+    drop(out);
+    assert_eq!(memory.used(), 0);
+    for (length, message) in [(3, "metadata grew"), (5, "truncated metadata")] {
+        let error = read_opened_exact_bounded_v1(
+            &mut std::io::Cursor::new([1, 2, 3, 4]),
+            length,
+            &memory,
+            &mut w,
+            &mut || false,
+        )
+        .unwrap_err();
+        assert!(matches!(error, FormalError::Invalid(ref s) if s.contains(message)));
+        assert_eq!(memory.used(), 0);
+    }
+}
+#[test]
+fn shared_reader_keeps_generation_write_mode_rejection() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let path = f.0.join("metadata");
+    fs::write(&path, b"metadata").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
+    let memory = memory();
+    assert!(read_metadata(&path, 1024, &memory, &mut work(), &mut || false).is_err());
+    assert_eq!(memory.used(), 0);
+}
 fn finish(root: &Path) -> String {
     let mut session = GenerationSession::default();
     for _ in 0..100 {
