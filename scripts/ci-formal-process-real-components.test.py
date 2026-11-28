@@ -303,6 +303,44 @@ fn rendezvous(name: &str, peer: &str) {
         self.assertNotEqual(rejected.returncode, 0)
         self.assertFalse((self.case / 'wrong-plan').exists())
 
+    def test_real_native_owners_without_umbrella_keep_both_formal_component_roles(self):
+        checkout = self.case / 'native-checkout'
+        shutil.copytree(self.root, checkout, ignore=shutil.ignore_patterns('target'))
+        manifest_path = checkout / 'Cargo.toml'
+        manifest_path.write_text(manifest_path.read_text().replace('"world",', ''))
+        config_path = checkout / 'scripts/ci-formal-process-suites.json'
+        config = json.loads(config_path.read_text())
+        authority_path = self.case / 'old-authority.json'
+        authority_path.write_text(json.dumps(config))
+        alias = 'oasis7-lib-tests'
+        for key in ('binary_dependencies', 'environment_formal_batches', 'legacy_ignored_filters'):
+            del config[key][alias]
+        config['suites']['runtime-protocol'] = [
+            entry for entry in config['suites']['runtime-protocol'] if entry['binary'] != alias
+        ]
+        config_path.write_text(json.dumps(config))
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=checkout, check=True)
+        debug, endpoint, merged = (self.case / name for name in ('native-debug', 'native-endpoint', 'native-merged'))
+        with patch.object(artifacts, 'ROOT', checkout), patch.object(artifacts, 'CONFIG', config_path):
+            artifacts.build(debug, 'formal-debug')
+            artifacts.build(endpoint, 'formal-endpoint')
+            artifacts.merge_formal(debug, endpoint, merged)
+            manifest = json.loads((merged / 'manifest.json').read_text())
+            self.assertNotIn(alias, manifest['binaries'])
+            self.assertEqual({key for key in manifest['binaries'] if key in ('runtime', 'endpoint')},
+                             {'runtime', 'endpoint'})
+            self.assertEqual(manifest['suites'], artifacts.resolve_suites(config, manifest['binaries']))
+            stale = json.loads(authority_path.read_text())
+            stale['suites'] = copy.deepcopy(config['suites'])
+            stale['legacy_ignored_filters'] = copy.deepcopy(config['legacy_ignored_filters'])
+            for binary in (alias, 'unknown-formal-batch'):
+                with self.subTest(binary=binary):
+                    stale['environment_formal_batches'] = config['environment_formal_batches'] | {binary: 'runtime-protocol'}
+                    authority_path.write_text(json.dumps(stale))
+                    with patch.object(artifacts, 'FORMAL_AUTHORITY', authority_path):
+                        with self.assertRaisesRegex(ValueError, f'required Formal batch binary is missing: {binary}'):
+                            artifacts.resolve_suites(artifacts.formal_configuration(), manifest['binaries'])
+
     def test_observer_failure_cannot_turn_a_successful_real_build_into_failure(self):
         for mode in ('spawn-error', 'nonzero-exit'):
             observer, observed = self.failed_observer(mode)

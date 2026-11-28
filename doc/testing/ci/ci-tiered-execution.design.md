@@ -744,6 +744,8 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 
 原 `formal-test-build` / `formal-test-build-trusted` job 名保留，职责改为下载两路精确输出 artifact、执行 `merge-formal` 完整核验并分包，不编译或写 workspace 缓存。选中的合并入口须在对应两组件均 success、另一对均 skipped 后才可运行；任一必选组件失败、取消、缺失或跳过均阻断。矩阵和固定汇总继续要求两个合并入口恰有一项 success 且另一项 skipped，保持可信 BASE 汇总合同。
 
+退休 umbrella 的正式动态批次在最后一次真实构建中为空。新源码由 Chain 原生 harness 构建 core，专用 `ci_formal_required_features` 保留既有依赖 feature，普通构建默认不启用。Chain、DistFS 和 shell 继续执行原用例。合并和执行仍拒绝缺少可信 authority 要求的 executable 或批次。
+
 组件 manifest 明确区分 `formal-debug` 与 `formal-endpoint`，绑定同一 run/source/tested/checkout、计划、Formal 配置及 authority、工具链、平台和构建身份；`merge-formal` 按真实 Cargo target 库存核对 variant/package/kind/name、profile/features、文件摘要与实际测试列表，拒绝漏项、重复逻辑目标、跨角色或部分组件。相同字节的不同真实目标保留各自身份。组件不能直接进入完整 Formal 的 pack/run。全部核验通过才生成 `formal` 完整 bundle，合并不补编。
 
 组件 artifact 名包含实际 producer run/attempt，并通过 job outputs 传给合并入口。同 run、同源码失败重跑可组合较早 attempt 的成功组件；producer attempt 必须为正整数且不晚于当前 attempt，记录两路来源，拒绝跨 run、未来 attempt 或身份不一致。组件成功后可独立完成可信缓存维护，维护不等待分包、测试或 full-regression，也不影响 required/full 结论。

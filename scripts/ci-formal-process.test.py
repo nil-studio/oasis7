@@ -1529,11 +1529,12 @@ if os.environ['FAILED'] == action:
 
 class FormalBuildComponents(unittest.TestCase):
     def test_components_preserve_each_original_compile_context_once(self):
-        # Frozen command oracle from b3658f94, independent of the new splitter.
+        # The old umbrella emitted no Formal cases at retirement. The remaining
+        # four compile contexts still execute once while Chain owns the harness.
         required = ['test_tier_required']
         formal = ['test_tier_required', 'ci_formal_required_features']
         original = [
-            ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
+            ('formal-required', ['test', '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(formal), '--no-run'], formal),
             ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime',
                 '--features', 'test_tier_required'], required),
