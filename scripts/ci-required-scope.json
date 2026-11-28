@@ -1464,6 +1464,7 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-trusted-full-regression-cache.py": {"group": "workflow_governance", "tests": ["scripts/ci-tool-cache.test.py"]},
     "scripts/ci-release-web-image.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
     "scripts/ci-release-web-image.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
     "scripts/ci-portable-cache-job.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
