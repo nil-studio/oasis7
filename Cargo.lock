@@ -5689,6 +5689,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "hex",
+ "libc",
  "oasis7_proto",
  "serde",
  "serde_cbor_2",

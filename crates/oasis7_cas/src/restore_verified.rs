@@ -77,8 +77,7 @@ impl LocalCasStore {
             fs::File::open(&quarantine)?.sync_all()?;
             fs::File::open(&self.root)?.sync_all()?;
         }
-        let disk_bytes = self.maybe_encode_blob_for_disk(content_hash, bytes)?;
-        write_bytes_atomic(&path, &disk_bytes)?;
+        self.write_blob_atomic(&path, content_hash, bytes)?;
         self.get_verified(content_hash)?;
         Ok(Some(evidence))
     }

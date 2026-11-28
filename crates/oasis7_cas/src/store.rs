@@ -1,28 +1,73 @@
 use super::*;
-use std::borrow::Cow;
 
-/// A single optional disk encoding, bounded before every zstd write. Its
-/// capacity includes the header; an incompressible blob borrows its original.
-struct CompressionOutput {
-    bytes: Vec<u8>,
+/// Bound temporary disk output before each write, including the header.
+/// Only this explicit capacity failure permits raw fallback; I/O errors do not.
+struct CompressionOutput<W> {
+    writer: W,
+    written: usize,
     limit: usize,
     full: bool,
 }
-impl Write for CompressionOutput {
+impl<W: Write> Write for CompressionOutput<W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
+        if bytes.len() > self.limit.saturating_sub(self.written) {
             self.full = true;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WriteZero,
                 "compressed blob is not smaller than original",
             ));
         }
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
+        let written = self.writer.write(bytes)?;
+        self.written += written;
+        Ok(written)
     }
     fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+        self.writer.flush()
     }
+}
+
+fn open_existing_blob(path: &Path) -> std::io::Result<Option<fs::File>> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if !metadata.is_file() {
+        return Err(std::io::Error::other("CAS blob is not a regular file"));
+    }
+    #[cfg(any(unix, windows))]
+    {
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+        }
+        let file = options.open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Err(std::io::Error::other("CAS blob changed file type"));
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if metadata.file_attributes() & 0x400 != 0 {
+                return Err(std::io::Error::other("CAS blob is a reparse point"));
+            }
+        }
+        Ok(Some(file))
+    }
+    #[cfg(not(any(unix, windows)))]
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "CAS verified existing-file open requires nofollow support",
+    ))
 }
 
 impl LocalCasStore {
@@ -40,10 +85,9 @@ impl LocalCasStore {
             });
         }
         let path = self.blob_path(content_hash)?;
-        if path.exists() {
+        if let Some(mut file) = open_existing_blob(&path)? {
             // Existence is not proof that a previous publication survived intact.
             // Fail closed and preserve damaged bytes for explicit recovery.
-            let mut file = fs::File::open(&path)?;
             // Raw blobs may themselves start with the compression magic. Keep
             // their legacy meaning by comparing the original without decoding.
             if bytes.starts_with(COMPRESSED_BLOB_MAGIC)
@@ -65,18 +109,18 @@ impl LocalCasStore {
             }
             // Verify freshly opened bytes without retaining the whole disk
             // encoding and decoded original alongside the caller's original.
-            decode_local_blob_into(
+            decode_local_blob_with(
                 self.hash_algorithm,
                 content_hash,
                 file,
-                std::io::sink(),
                 bytes.len(),
+                // Every current/legacy local level-3 writer fits this bound.
+                Some(23),
+                |reader| std::io::copy(reader, &mut std::io::sink()),
             )?;
             return Ok(());
         }
-        let disk_bytes = self.maybe_encode_blob_for_disk(content_hash, bytes)?;
-        write_bytes_atomic(&path, disk_bytes.as_ref())?;
-        Ok(())
+        self.write_blob_atomic(&path, content_hash, bytes)
     }
 
     pub(super) fn put_bytes_without_retention_lock(
@@ -194,24 +238,40 @@ impl LocalCasStore {
         Ok(())
     }
 
-    pub(super) fn maybe_encode_blob_for_disk<'a>(
+    pub(super) fn write_blob_atomic(
+        &self,
+        path: &Path,
+        content_hash: &str,
+        bytes: &[u8],
+    ) -> Result<(), WorldError> {
+        write_file_atomic(path, |file| {
+            if !self.compress_blob_into(content_hash, bytes, &mut *file)? {
+                file.rewind()?;
+                file.set_len(0)?;
+                file.write_all(bytes)?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Output remains provisional. False requests raw fallback in the same
+    /// owned temp file; errors must abort publication. The pinned level-3
+    /// encoder owns bounded workspace and a fixed 32KiB output buffer.
+    pub(super) fn compress_blob_into<W: Write>(
         &self,
         content_hash: &str,
-        bytes: &'a [u8],
-    ) -> Result<Cow<'a, [u8]>, WorldError> {
+        bytes: &[u8],
+        writer: W,
+    ) -> std::io::Result<bool> {
         if bytes.len() < COMPRESSIBLE_BLOB_MIN_BYTES {
-            return Ok(Cow::Borrowed(bytes));
+            return Ok(false);
         }
         let mut output = CompressionOutput {
-            bytes: Vec::new(),
+            writer,
+            written: 0,
             limit: bytes.len(),
             full: false,
         };
-        output.bytes.try_reserve_exact(bytes.len()).map_err(|_| {
-            WorldError::DistributedValidationFailed {
-                reason: "compressed blob allocation exceeds available memory".into(),
-            }
-        })?;
         output.write_all(COMPRESSED_BLOB_MAGIC)?;
         output.write_all(&(bytes.len() as u64).to_le_bytes())?;
         output.write_all(content_hash.as_bytes())?;
@@ -223,15 +283,10 @@ impl LocalCasStore {
             Ok(())
         })();
         if output.full {
-            return Ok(Cow::Borrowed(bytes));
+            return Ok(false);
         }
-        compressed.map_err(|err| WorldError::DistributedValidationFailed {
-            reason: format!("compress blob for disk failed: {err}"),
-        })?;
-        if output.bytes.len() >= bytes.len() {
-            return Ok(Cow::Borrowed(bytes));
-        }
-        Ok(Cow::Owned(output.bytes))
+        compressed?;
+        Ok(output.written < bytes.len())
     }
 
     pub(super) fn decode_blob_from_disk(&self, content_hash: &str, disk_bytes: Vec<u8>) -> Vec<u8> {

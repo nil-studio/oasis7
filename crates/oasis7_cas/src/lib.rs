@@ -494,6 +494,19 @@ fn unique_atomic_temp_path(path: &Path) -> PathBuf {
 }
 
 fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), WorldError> {
+    write_file_atomic(path, |file| file.write_all(bytes))
+}
+
+fn write_file_atomic(
+    path: &Path,
+    write: impl FnOnce(&mut fs::File) -> std::io::Result<()>,
+) -> Result<(), WorldError> {
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
     for _ in 0..16 {
         let tmp = unique_atomic_temp_path(path);
         let mut file = match fs::OpenOptions::new()
@@ -505,8 +518,11 @@ fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), WorldError> {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
         };
+        // Own cleanup only after create_new succeeded. The closure owns and
+        // closes file before this guard runs, including error and unwind.
+        let _cleanup = Cleanup(tmp.clone());
         let result = (|| {
-            file.write_all(bytes)?;
+            write(&mut file)?;
             file.sync_all()?;
             drop(file);
             fs::rename(&tmp, path)?;
@@ -517,9 +533,6 @@ fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), WorldError> {
             }
             Ok::<(), std::io::Error>(())
         })();
-        if result.is_err() {
-            let _ = fs::remove_file(&tmp);
-        }
         return result.map_err(WorldError::from);
     }
     Err(std::io::Error::new(
