@@ -1194,6 +1194,8 @@
     "scripts/ci-portable-cache-container-contract.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-archive.test.py": ["workflow_governance"],
     "scripts/ci-cache-sdk.test.py": ["workflow_governance"],
+    "scripts/ci-trusted-full-regression-cache-roles.mjs": ["workflow_governance"],
+    "scripts/ci-trusted-full-regression-cache-roles.test.mjs": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
