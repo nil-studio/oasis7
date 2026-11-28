@@ -304,3 +304,13 @@ SOURCEPLAN与BUILDINFO绑定和最终softprops动作/文件清单。业务shell�
 原metadata格式后执行原checksum/tag检查；缺字段原逻辑应拒绝，不生成
 或升级receipt。受控错误source用例不授资格，不调用softprops、OIDC或
 发布。ECS依赖oss2/STS的供应链预制是独立后批，不在此作业现场pip安装。
+
+### ECS OSS publisher SDK leaf
+
+ECS `publish-preview` 的 OSS SDK 运行时采用独立 `ecs-oss-publisher` leaf，继承已发布 API runtime 的完整 digest；不改既有 Dockerfile/build.sh，避免改变 Release Web 的镜像材料身份。此供应链前置不接生产作业。统一 CI Base Images 增加唯一目标及独立发布组，保留原 12 个目标的构建、全部 OS 扫描、同 run 归档和可信发布，原 40 分钟构建及 10 分钟发布预算不变。
+
+`docker/ci-base/ecs-oss/artifacts.json` 固定 Python3.12/Linux amd64 的 15 个 SDK 发行物（包括 `oss2==2.19.1`、`crcmod==1.7`）和三个构建工具的完整版本、官方 PyPI URL、字节数及 SHA256。下载阶段逐项校验；其后的 wheel 构建和安装以 `RUN --network=none`、`--no-index --no-deps --no-build-isolation` 执行，不允许 PEP517 另取未锁工具。最终层只复制 SDK 专用只读 venv，不包含编译器、构建工具或 pip。
+
+私有父镜像仅由新目标使用只读 packages token 登录拉取；其余目标的 token 为空且不进入该登录分支。临时 Docker 客户端配置不进入上下文或 Docker ARG，构建前清除 token 环境。实际受控 fork PR #7509（head `eng-cc/oasis7-ci-validation`、base `nil-studio/oasis7`）以原 fork 的 Contents/Packages read token 成功拉取固定 ba7 父并离线验证 Node24/Python3.12/GH2.105；本地匿名或个人 token 的拒绝不作为 fork 兼容性的依据。正式 leaf 发布后仍须复核该模型下的 leaf 读取。
+
+非 root、无网络 smoke 验证全部 SDK 版本、真实 crcmod C 扩展和 CRC 已知向量、显式虚假 STS 凭据的纯本地签名；禁止构造 live `OssStore`，不访问 OSS、IMDS，不申请 OIDC。后续消费者 PR 只有取得正式 digest 后才接线，保留原资格、10 分钟、环境审批、短期凭据动作与 immutable/channel-last CAS；真实合法发布仍由原授权运行验收，供应链 smoke 不代签发布。
