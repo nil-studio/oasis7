@@ -355,6 +355,11 @@ fn envelope_fixture() -> (Fixture, Snapshot, Snapshot) {
     (f, before, after)
 }
 
+pub(super) fn pg_ready_envelopes() -> (Snapshot, Snapshot) {
+    let (_, before, after) = envelope_fixture();
+    (before, after)
+}
+
 #[test]
 fn ready_envelope_preserves_originals_and_exact_retry_across_new_lease() {
     let (f, before, after) = envelope_fixture();

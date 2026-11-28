@@ -170,6 +170,23 @@ impl Stored {
     pub fn has_retention(&self) -> bool {
         matches!(self.body, Body::Retention { .. })
     }
+    pub fn retention(&self) -> Result<&BftOriginalRetentionTxnSnapshotV1, BftSignerErrorV3> {
+        match &self.body {
+            Body::Retention { value } => Ok(value),
+            Body::State { .. } => Err(super::invalid("PG retention namespace not provisioned")),
+        }
+    }
+    pub fn replace_retention(
+        &mut self,
+        next: BftOriginalRetentionTxnSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        let old = self.retention()?;
+        if old.current_retention.is_some() && next.current_retention.is_none() {
+            return Err(super::invalid("PG cannot downgrade current retention"));
+        }
+        *self = Self::new(&self.namespace, next.current.current.signer.clone(), Some(next))?;
+        Ok(())
+    }
     fn validate(&self) -> Result<(), BftSignerErrorV3> {
         let signer = self.signer();
         super::validate_identity(&self.namespace, &self.binding_digest)?;

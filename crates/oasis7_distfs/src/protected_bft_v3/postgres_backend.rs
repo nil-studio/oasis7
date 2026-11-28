@@ -159,6 +159,176 @@ fn check_lease(
     }
     Ok(())
 }
+// These checks are storage transition guards, not a replacement for the
+// authenticated service's independent H, signature and material verification.
+fn check_retention_fence(
+    expected: &BftFreshCoverageSnapshotV1,
+    next: &BftFreshCoverageSnapshotV1,
+) -> Result<(), BftSignerErrorV3> {
+    let before = &expected.signer;
+    let after = &next.signer;
+    check_lease(before, after.lease_generation, &after.lease_token_digest)?;
+    if before.protected_time_floor_ms != after.protected_time_floor_ms
+        || before.state.binding_digest != after.state.binding_digest
+        || expected.marker != next.marker
+        || next.reserved_response_bytes <= expected.reserved_response_bytes
+    {
+        return Err(invalid("PG retention fence, floor, marker or spend differs"));
+    }
+    let head = after.state.private_retention.as_ref()
+        .ok_or_else(|| invalid("PG retention requires covered State"))?;
+    head.validate_supported_head(&after.state.binding_digest)?;
+    if head.source != next.marker.source
+        || head.retained_material_bytes
+            .and_then(|bytes| bytes.checked_add(next.reserved_response_bytes))
+            .is_none_or(|total| total > BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1)
+    {
+        return Err(invalid("PG retention source or namespace budget differs"));
+    }
+    Ok(())
+}
+
+fn check_receipt_transition(
+    before: &BftSignerBackendSnapshotV3,
+    after: &BftSignerBackendSnapshotV3,
+    body: &BftPrivateRetentionReceiptBodyV1,
+) -> Result<(), BftSignerErrorV3> {
+    let state = if body.head.schema_version == 3 {
+        before.state.with_first_ready_head(body.head.clone())?
+    } else {
+        before.state.with_original_coverage_head(body.head.clone())?
+    };
+    if state != after.state
+        || body.before_revision != before.state.revision
+        || body.before_state_digest != before.state.state_digest
+        || body.after_revision != after.state.revision
+        || body.after_state_digest != after.state.state_digest
+        || body.original_lease_generation != before.lease_generation
+    {
+        return Err(invalid("PG retention receipt predecessor differs"));
+    }
+    Ok(())
+}
+
+fn check_fresh_transition(
+    expected: &BftFreshCoverageSnapshotV1,
+    next: &BftFreshCoverageSnapshotV1,
+) -> Result<(), BftSignerErrorV3> {
+    check_retention_fence(expected, next)?;
+    let activation = next.original.as_ref()
+        .ok_or_else(|| invalid("PG Fresh original receipt absent"))?;
+    if let Some(original) = &expected.original {
+        if activation != original || next.signer.state != expected.signer.state {
+            return Err(invalid("PG Fresh retry changes original receipt or State"));
+        }
+    } else {
+        if expected.marker.initial_state_digest != expected.signer.state.state_digest {
+            return Err(invalid("PG Fresh marker predecessor differs"));
+        }
+        check_receipt_transition(&expected.signer, &next.signer, &activation.receipt.body)?;
+    }
+    Ok(())
+}
+
+fn check_reserve_transition(
+    expected: &BftFirstReserveSnapshotV1,
+    next: &BftFirstReserveSnapshotV1,
+) -> Result<(), BftSignerErrorV3> {
+    check_retention_fence(&expected.current, &next.current)?;
+    let activation = expected.current.original.as_ref()
+        .ok_or_else(|| invalid("PG Reserve requires original Fresh receipt"))?;
+    if next.current.original != expected.current.original {
+        return Err(invalid("PG Reserve changes original Fresh receipt"));
+    }
+    match (&expected.reservation, &next.reservation) {
+        (Some(original), Some(reservation)) if original == reservation
+            && expected.current.signer.state == next.current.signer.state => Ok(()),
+        (None, Some(reservation)) => {
+            let reference = reservation.input.descriptor()?;
+            let (ledger, state) = first_reservation::reserve_body(
+                &expected.current.signer.state,
+                activation,
+                &reference,
+                &reservation.input,
+                expected.current.signer.lease_generation,
+            )?;
+            if ledger.map != reservation.ledger.map
+                || ledger.receipt.body != reservation.ledger.receipt.body
+                || state != next.current.signer.state
+            {
+                return Err(invalid("PG first Reserve exact predecessor differs"));
+            }
+            check_receipt_transition(
+                &expected.current.signer,
+                &next.current.signer,
+                &reservation.ledger.receipt.body,
+            )
+        }
+        (None, None) if expected.current.signer.state == next.current.signer.state => Ok(()),
+        _ => Err(invalid("PG Reserve replaces original input, receipt or State")),
+    }
+}
+
+fn check_envelope_transition(
+    expected: &BftOriginalRetentionTxnSnapshotV1,
+    next: &BftOriginalRetentionTxnSnapshotV1,
+) -> Result<(), BftSignerErrorV3> {
+    expected.validate()?;
+    next.validate()?;
+    if next == expected {
+        return Ok(());
+    }
+    if expected.original_operations.iter().any(|(id, original)| {
+        next.original_operations.get(id) != Some(original)
+    }) {
+        return Err(invalid("PG original operation history changed"));
+    }
+    if next.original_operations == expected.original_operations {
+        if next.current_retention != expected.current_retention {
+            return Err(invalid("PG Ready requires the complete new original operation"));
+        }
+        return check_reserve_transition(&expected.current, &next.current);
+    }
+    let mut added = next.original_operations.iter()
+        .filter(|(id, _)| !expected.original_operations.contains_key(*id));
+    let (_, operation) = added.next().ok_or_else(|| invalid("PG original operation missing"))?;
+    if added.next().is_some() {
+        return Err(invalid("PG requires exactly one new original operation"));
+    }
+    if let Some(ready) = &next.current_retention {
+        if expected.current_retention.is_some()
+            || expected.current.reservation.is_none()
+            || next.current.reservation != expected.current.reservation
+            || next.current.current.original != expected.current.current.original
+        {
+            return Err(invalid("PG Ready replaces an original or current selection"));
+        }
+        check_retention_fence(&expected.current.current, &next.current.current)?;
+        let before = &expected.current.current.signer;
+        let after = &next.current.current.signer;
+        let body = &ready.ledger.receipt.body;
+        check_receipt_transition(before, after, body)?;
+        if operation.operation_id != format!("first-ready:{}", body.operation_digest)
+            || operation.original_lease_token_digest != before.lease_token_digest
+            || operation.cumulative_reserved_response_bytes != next.current.current.reserved_response_bytes
+        {
+            return Err(invalid("PG Ready original operation fence or spend differs"));
+        }
+        // validate() binds the exact Ready and Reserve record, reference and
+        // selection to their original receipts and the full current State.
+        Ok(())
+    } else {
+        if expected.current_retention.is_some() {
+            return Err(invalid("PG cannot downgrade Ready"));
+        }
+        check_reserve_transition(&expected.current, &next.current)?;
+        if expected.prepare_single_atomic_operation(next.current.clone(), operation.clone())? != *next {
+            return Err(invalid("PG complete original operation differs"));
+        }
+        Ok(())
+    }
+}
+
 impl BftSignerBackendV3 for PostgresBftSignerBackendV3 {
     fn load_provisioned(
         &mut self,
@@ -210,6 +380,83 @@ impl BftSignerBackendV3 for PostgresBftSignerBackendV3 {
         self.run(|stored| {
             check_lease(stored.signer(), generation, token)?;
             Ok(stored.signer().clone())
+        })
+    }
+    fn read_fresh_coverage_for_lease(
+        &mut self,
+        generation: u64,
+        token: &str,
+    ) -> Result<BftFreshCoverageSnapshotV1, BftSignerErrorV3> {
+        self.run(|stored| {
+            check_lease(stored.signer(), generation, token)?;
+            Ok(stored.retention()?.current.current.clone())
+        })
+    }
+    fn compare_and_commit_fresh_coverage(
+        &mut self,
+        expected: &BftFreshCoverageSnapshotV1,
+        next: &BftFreshCoverageSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        self.run(|stored| {
+            check_lease(stored.signer(), expected.signer.lease_generation, &expected.signer.lease_token_digest)?;
+            let mut whole = stored.retention()?.clone();
+            if whole.current.current != *expected {
+                return Err(invalid("PG Fresh expected tuple differs"));
+            }
+            check_fresh_transition(expected, next)?;
+            whole.current.current = next.clone();
+            stored.replace_retention(whole)
+        })
+    }
+    fn read_first_reserve_for_lease(
+        &mut self,
+        generation: u64,
+        token: &str,
+    ) -> Result<BftFirstReserveSnapshotV1, BftSignerErrorV3> {
+        self.run(|stored| {
+            check_lease(stored.signer(), generation, token)?;
+            Ok(stored.retention()?.current.clone())
+        })
+    }
+    fn compare_and_commit_first_reserve(
+        &mut self,
+        expected: &BftFirstReserveSnapshotV1,
+        next: &BftFirstReserveSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        self.run(|stored| {
+            check_lease(stored.signer(), expected.current.signer.lease_generation, &expected.current.signer.lease_token_digest)?;
+            let mut whole = stored.retention()?.clone();
+            if whole.current != *expected || next.reservation.is_none() {
+                return Err(invalid("PG FirstReserve expected tuple differs"));
+            }
+            check_reserve_transition(expected, next)?;
+            whole.current = next.clone();
+            stored.replace_retention(whole)
+        })
+    }
+    fn read_original_operation_envelope_for_lease(
+        &mut self,
+        generation: u64,
+        token: &str,
+    ) -> Result<BftOriginalRetentionTxnSnapshotV1, BftSignerErrorV3> {
+        self.run(|stored| {
+            check_lease(stored.signer(), generation, token)?;
+            Ok(stored.retention()?.clone())
+        })
+    }
+    fn compare_and_commit_original_operation_envelope(
+        &mut self,
+        expected: &BftOriginalRetentionTxnSnapshotV1,
+        next: &BftOriginalRetentionTxnSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        self.run(|stored| {
+            let signer = &expected.current.current.signer;
+            check_lease(stored.signer(), signer.lease_generation, &signer.lease_token_digest)?;
+            if stored.retention()? != expected {
+                return Err(invalid("PG whole retention expected envelope differs"));
+            }
+            check_envelope_transition(expected, next)?;
+            stored.replace_retention(next.clone())
         })
     }
     fn protected_time_ms(&mut self, _: u64, _: &str) -> Result<i64, BftSignerErrorV3> {
