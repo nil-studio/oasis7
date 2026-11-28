@@ -1,6 +1,9 @@
 use super::*;
 use crate::controlled_authority::formal::coordinator::FormalDurabilityEndpoint;
 use crate::controlled_authority::formal::crypto::invalid;
+use crate::controlled_authority::formal::endpoint::{
+    FormalArchiveReadWorkV1 as ReadWork, RpcReadBudget,
+};
 use ed25519_dalek::Signer;
 use std::{
     io::{Read, Write},
@@ -113,23 +116,32 @@ fn prepaid_response_digest_refusal_precedes_protected_rpc_signature() {
     .unwrap();
     acquisitions.store(0, Ordering::SeqCst);
     signatures.store(0, Ordering::SeqCst);
-    // Admit the new HOT original and copy, leaving no space for the digest
-    // payload. Keep this test targeted at the original digest failure stage.
+    // Admit ancestry and HOT originals/copies, leaving no digest payload room.
     let checkpoint = endpoint.store.checkpoint_bytes().unwrap();
+    let minimum = fixture.authority.definition().world.genesis_head().unwrap();
+    let work = ReadWork::new(1_000_000, 1 << 30).unwrap();
+    let probe = oasis7_proto::memory_budget::MemoryBudget::new(1 << 20, 0).unwrap();
+    let empty = endpoint
+        .store
+        .minimum_witness_bounded(&minimum, &probe, &work, &mut || false)
+        .unwrap();
+    assert!(empty.is_empty());
+    let ancestry_fee = empty.reserved_bytes() + std::mem::size_of::<Vec<Vec<u8>>>();
+    drop(empty);
+    assert_eq!(probe.used(), 0);
     let memory = oasis7_proto::memory_budget::MemoryBudget::new(
-        2 * (checkpoint.len() + std::mem::size_of::<Vec<u8>>()),
+        ancestry_fee + 2 * (checkpoint.len() + std::mem::size_of::<Vec<u8>>()),
         0,
     )
     .unwrap();
-    let work = super::super::super::FormalArchiveReadWorkV1::new(1_000_000, 1 << 30).unwrap();
     let mut stop = || false;
     let error = endpoint
         .sign_formal_rpc_response(
             h(21),
             h(22),
-            fixture.authority.definition().world.genesis_head().unwrap(),
+            minimum,
             Ok(super::super::super::super::transport::Value::Complete),
-            Some(&mut work.bounded_context(&memory, &mut stop)),
+            Some(RpcReadBudget::new(&memory, &work, &mut stop)),
         )
         .err()
         .expect("the original pool cannot admit the response digest payload");
@@ -662,11 +674,11 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
     server.finish().unwrap();
-    // Join before inspecting worker observations: each Query pays its first
-    // real walk; the following guarded Head remains for the response slice.
+    // Join before inspecting worker observations: each Query pays both real
+    // walks; guarded Head pays its single walk under the existing guard.
     assert_eq!(
         &server.diagnostics.minimum_reads.lock().unwrap()[..3],
-        &[1, 1, 0]
+        &[2, 2, 1]
     );
     drop(primary_oracle);
     drop(replica_oracle);
