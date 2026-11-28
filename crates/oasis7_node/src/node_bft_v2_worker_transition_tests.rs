@@ -473,17 +473,6 @@ fn identities() -> Vec<NodeIdentity> {
         .collect()
 }
 
-fn reserve_udp_addresses(count: usize) -> Vec<SocketAddr> {
-    (0..count)
-        .map(|_| {
-            UdpSocket::bind("127.0.0.1:0")
-                .expect("reserve BFT V2 UDP test address")
-                .local_addr()
-                .expect("read reserved BFT V2 UDP address")
-        })
-        .collect()
-}
-
 fn make_node(
     identity: &NodeIdentity,
     index: usize,

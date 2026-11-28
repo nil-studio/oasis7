@@ -76,6 +76,9 @@ impl ReservedMesh {
             .collect();
         Self { addresses, sockets }
     }
+    pub(super) fn address(&self, index: usize) -> SocketAddr {
+        self.addresses[index]
+    }
     pub(super) fn fresh(&mut self, index: usize) {
         let socket = UdpSocket::bind("127.0.0.1:0").expect("fresh Node incarnation socket");
         self.addresses[index] = socket.local_addr().unwrap();
