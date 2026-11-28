@@ -272,22 +272,19 @@ fn write_exact_prepaid(
     Ok(())
 }
 
-/// Explicit server-side admission of the original transport *frame* before
-/// allocating the 64 MiB raw body. This deliberately does not certify the
-/// subsequently decoded Request DTO, its signing, or an accepted GEN result.
-///
-/// One server-owned Ordinary pool and one monotonic Work meter are supplied at
-/// process startup, never minted or reset per RPC. The retained frame fee stays
-/// alive while the caller authenticates and signs its response.
+/// Admit the original transport frame before allocating its bounded raw body.
+/// Both paid client and server decoding use this same physical reader and
+/// retain its fee alongside the typed owner. The supplied pool and Work are
+/// never minted or reset per RPC.
 /// Every physical network read attempt consumes the same original Work.
 /// Short reads and Interrupted retries never evade the step/byte counter.
-pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
+fn read_prepaid_frame_bytes(
     stream: &mut TcpStream,
     deadline: Instant,
     memory: &oasis7_proto::memory_budget::MemoryBudget,
     work: &super::super::endpoint::FormalArchiveReadWorkV1,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(T, oasis7_proto::memory_budget::ReservedValue<Vec<u8>>), FormalError> {
+) -> Result<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>, FormalError> {
     use oasis7_proto::memory_budget::MemoryClass;
     let mut length = [0u8; 4];
     read_exact_paid_before_deadline(stream, &mut length, deadline, work, cancelled)?;
@@ -313,7 +310,19 @@ pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
         read_exact_paid_before_deadline(stream, chunk, deadline, work, cancelled)?;
     }
     remaining(deadline)?;
-    let paid = fee.retain(bytes);
+    Ok(fee.retain(bytes))
+}
+
+// Scalar frame/deadline fixtures still exercise the production physical reader.
+#[cfg(test)]
+pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
+    stream: &mut TcpStream,
+    deadline: Instant,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(T, oasis7_proto::memory_budget::ReservedValue<Vec<u8>>), FormalError> {
+    let paid = read_prepaid_frame_bytes(stream, deadline, memory, work, cancelled)?;
     work.consume_steps(1, cancelled)?;
     let request = serde_cbor::from_slice(paid.as_slice())
         .map_err(|_| invalid("formal RPC admitted frame decode"))?;
@@ -321,7 +330,6 @@ pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
     Ok((request, paid))
 }
 
-// Client-side original-caller paid raw frame and signed DTO decode.
 // Use the same absolute operation deadline; each network attempt is charged
 // before allocation/read, including short reads and Interrupted retries.
 fn read_exact_paid_before_deadline(
@@ -363,29 +371,7 @@ pub(super) fn read_paid_before_deadline<T: serde::de::DeserializeOwned>(
     use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
         BoundedCborDataErrorV1, CborDataLimitsV1, decode_closed_cbor_data_v1,
     };
-    use oasis7_proto::memory_budget::MemoryClass;
-    let mut header = [0u8; 4];
-    read_exact_paid_before_deadline(stream, &mut header, deadline, work, cancelled)?;
-    let len = u32::from_be_bytes(header) as usize;
-    if len == 0 || len > LIMIT {
-        return Err(invalid("formal RPC bounded frame"));
-    }
-    let allocation = len
-        .checked_add(std::mem::size_of::<Vec<u8>>())
-        .and_then(|n| n.checked_add(4096))
-        .ok_or_else(|| invalid("formal RPC paid response allocation"))?;
-    let fee = memory
-        .reserve(allocation, MemoryClass::Ordinary)
-        .map_err(|_| invalid("formal RPC paid response raw admission"))?;
-    let mut bytes = vec![0u8; len];
-    if bytes.capacity() > len + 4096 {
-        return Err(invalid("formal RPC paid response capacity"));
-    }
-    for chunk in bytes.chunks_mut(8192) {
-        read_exact_paid_before_deadline(stream, chunk, deadline, work, cancelled)?;
-    }
-    remaining(deadline)?;
-    let raw = fee.retain(bytes);
+    let raw = read_prepaid_frame_bytes(stream, deadline, memory, work, cancelled)?;
     let decoded = {
         let mut common = work.bounded_context(memory, cancelled);
         let limits = CborDataLimitsV1 {

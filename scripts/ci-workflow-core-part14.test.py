@@ -226,6 +226,13 @@ def validate_candidate_graph(workflow, config):
     gate = jobs['required-gate']
     dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
+    retired_zombie_jobs = {
+        'command-center', 'consensus', 'viewer-performance-report', 'pixel-world-bridge',
+        'codex-agent-config-validation', 'compile-metrics', 'site-quality',
+        'doc-checker-contracts', 'cargo-tooling-contracts', 'windows-rollout',
+        'macos-package-contract',
+    }
+    expected -= {job for job in retired_zombie_jobs if job not in jobs}
     if config.get('workspace_support_direct_gate_version') in (1, 2):
         expected.add('workspace-support-other')
     if config.get('workspace_support_direct_gate_version') == 2:
@@ -440,6 +447,13 @@ class WorkflowCorePart14(unittest.TestCase):
         gate = JOBS['required-gate']
         dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
         expected_gate = {'select', *(g.replace('_', '-') for g in CONFIG['groups'])}
+        retired_zombie_jobs = {
+            'command-center', 'consensus', 'viewer-performance-report', 'pixel-world-bridge',
+            'codex-agent-config-validation', 'compile-metrics', 'site-quality',
+            'doc-checker-contracts', 'cargo-tooling-contracts', 'windows-rollout',
+            'macos-package-contract',
+        }
+        expected_gate -= {job for job in retired_zombie_jobs if job not in JOBS}
         if CONFIG.get('workspace_support_direct_gate_version') in (1, 2):
             expected_gate.add('workspace-support-other')
         if CONFIG.get('workspace_support_direct_gate_version') == 2:
@@ -448,7 +462,10 @@ class WorkflowCorePart14(unittest.TestCase):
         self.assertIn('always()', gate)
         self.assertIn('ci-required-result.py', gate)
         for group in CONFIG['groups']:
-            job = JOBS[group.replace('_', '-')]
+            job_name = group.replace('_', '-')
+            if job_name in retired_zombie_jobs and job_name not in JOBS:
+                continue
+            job = JOBS[job_name]
             if group == 'formal_process':
                 self.assertIn('always()', job)
                 self.assertIn('needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]', job)

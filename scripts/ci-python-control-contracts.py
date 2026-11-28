@@ -802,7 +802,7 @@ def run_contracts(root, policy_sha, plan, *, governance=False):
             # safety, selected non-governance contracts, and newly added cases.
             candidate_tasks = {
                 path: None
-                for path in sorted((governed | set(selected) | set(FIXED_TESTS)) - retired_custody_governance)
+                for path in sorted((governed | set(selected) | set(FIXED_TESTS)) - retired_custody_governance - retired_governance_tests)
             }
         cases = 0
         cases += run_contract_batch(root, snapshot, baseline_tasks, retain=retain)

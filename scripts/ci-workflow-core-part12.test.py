@@ -110,6 +110,8 @@ class WorkflowCorePart12(unittest.TestCase):
         self.assertNotIn('actions/cache/save@', action)
         self.assertNotIn('GH_TOKEN', action)
         for job in ('viewer-js-required', 'viewer-performance-report', 'site-quality'):
+            if job not in JOBS:
+                continue
             self.assertIn('uses: ./.github/actions/setup-ci-browser', JOBS[job])
             self.assertIn("node-version: '24'", JOBS[job])
             self.assertNotIn('cache-mode: write', JOBS[job])

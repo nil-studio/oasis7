@@ -681,10 +681,20 @@ if plan_input:
         raise SystemExit('support job missing from plan')
     contract = plan.get('workspace_support_execution_contract')
     if contract is not None:
+        parts_map = contract.get('partitions') if isinstance(contract, dict) else None
+        feats_map = contract.get('complete_features_by_profile') if isinstance(contract, dict) else None
         if (not isinstance(contract, dict) or type(contract.get('version')) is not int or contract['version'] != 1
                 or not isinstance(contract.get('selected_profiles'), list)
-                or not isinstance(contract.get('host_profiles'), list)):
+                or not isinstance(contract.get('host_profiles'), list)
+                or not isinstance(parts_map, dict)
+                or not isinstance(feats_map, dict)
+                or any(not isinstance(k, str) or not k or not isinstance(v, list)
+                       or any(not isinstance(x, str) or not x for x in v) or len(set(v)) != len(v)
+                       for k, v in [*parts_map.items(), *feats_map.items()])):
             raise SystemExit('invalid workspace_support_execution_contract')
+        part_members = [x for v in parts_map.values() for x in v]
+        if len(part_members) != len(set(part_members)) or set(part_members) != set(contract['selected_profiles']):
+            raise SystemExit('workspace_support_execution_contract partitions do not cover selected_profiles exactly once')
         if 'workspace_support_profile_version' in plan and plan['workspace_support_profile_version'] != 1:
             raise SystemExit('unknown support profile plan version')
         if 'workspace_support_profiles' in plan and sorted(plan['workspace_support_profiles']) != sorted(contract['selected_profiles']):
@@ -722,17 +732,24 @@ if plan_input and plan.get('scope') == 'full':
     host_profiles = cand_host
 partition = sys.argv[3]
 if plan_input and ('workspace_support_partition_version' in plan or 'workspace_support_partitions' in plan):
-    expected_partitions = (
-        ['other'] if profiles else [],
-        sorted({'custody' if p == 'oasis7_custody_worker' else 'other' for p in profiles}),
-    )
+    if contract is not None and plan.get('scope') != 'full':
+        expected_partitions = [sorted(k for k, v in contract['partitions'].items() if v)]
+    else:
+        expected_partitions = [
+            ['other'] if profiles else [],
+            sorted({'custody' if p == 'oasis7_custody_worker' else 'other' for p in profiles}),
+        ]
     if (type(plan.get('workspace_support_partition_version')) is not int
             or plan['workspace_support_partition_version'] != 1
             or plan.get('workspace_support_partitions') not in expected_partitions
             or (partition != 'all' and partition not in plan['workspace_support_partitions'])):
         raise SystemExit('invalid complete workspace support partitions')
     if partition != 'all':
-        profiles = [profile for profile in profiles if 'other' == partition]
+        if contract is not None and plan.get('scope') != 'full':
+            allowed = set(contract['partitions'].get(partition, ()))
+            profiles = [profile for profile in profiles if profile in allowed]
+        else:
+            profiles = [profile for profile in profiles if 'other' == partition]
 elif partition != 'all':
     raise SystemExit('support partition requires a trusted capability')
 execution = sys.argv[4]
@@ -746,8 +763,14 @@ if expanded:
     artifacts = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(artifacts)
     artifacts.ROOT = Path.cwd()
+contract_features = contract['complete_features_by_profile'] if (plan_input and contract is not None and plan.get('scope') != 'full') else {}
 for profile in sorted(profiles):
-    features = artifacts.package_features([profile], plan) if expanded else []
+    features = list(artifacts.package_features([profile], plan)) if expanded else []
+    if expanded:
+        for feat in contract_features.get(profile, ()):
+            qualified = f'{profile}/{feat}' if '/' not in feat else feat
+            if qualified not in features:
+                features.append(qualified)
     print(profile + '|' + ('true' if expanded else 'false') + '|' + ','.join(features))
 PY
   ) || return 2

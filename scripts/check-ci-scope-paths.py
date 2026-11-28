@@ -665,8 +665,43 @@ def check_candidate_executors_zero_engine_imports(repo_root: Path) -> list[str]:
     return errors
 
 
+AST_WORKSPACE_PACKAGE_LITERAL_CEILINGS: dict[str, int] = {
+    "scripts/plan-rust-required-scope.py": 58,
+    "scripts/ci-test-artifacts.py": 58,
+}
+
+
+def collect_workspace_package_names(repo_root: Path) -> set[str]:
+    """Collect active Cargo [package].name values across crates/ and tools/."""
+    names: set[str] = set()
+    for base_name in ("crates", "tools"):
+        base_dir = repo_root / base_name
+        if not base_dir.is_dir():
+            continue
+        for manifest in base_dir.rglob("Cargo.toml"):
+            if "target" in manifest.parts or "third_party" in manifest.parts:
+                continue
+            try:
+                parsed = tomllib.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError, UnicodeError):
+                continue
+            pkg = parsed.get("package")
+            if isinstance(pkg, dict) and isinstance(pkg.get("name"), str) and pkg["name"] != "oasis7":
+                names.add(pkg["name"])
+    return names
+
+
+def count_ast_package_literals(source: str, filename: str, package_names: set[str]) -> int:
+    """Count AST string constants matching active workspace Cargo package names."""
+    tree = ast.parse(source, filename=filename)
+    return sum(
+        1 for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in package_names
+    )
+
+
 def check_executor_hardcoded_package_ratchet(repo_root: Path) -> list[str]:
-    """S5 ratchet: enforce 0 transitional S2 shims and 0 hardcoded support tuples in executors."""
+    """S5 ratchet: enforce 0 transitional S2 shims and quantitative AST package-literal ceilings."""
     errors: list[str] = []
     checks = (
         ("scripts/ci-tests.sh", ("_S2_FALLBACK_SUPPORT", "_S2_FALLBACK_HOST", "_s2_legacy_support_contract",
@@ -682,6 +717,22 @@ def check_executor_hardcoded_package_ratchet(repo_root: Path) -> list[str]:
         for token in forbidden_tokens:
             if token in text:
                 errors.append(f"{rel}: S5 ratchet violation: forbidden transitional/hardcoded token {token!r}")
+    pkg_names = collect_workspace_package_names(repo_root)
+    if pkg_names:
+        for rel, ceiling in AST_WORKSPACE_PACKAGE_LITERAL_CEILINGS.items():
+            path = repo_root / rel
+            if not path.is_file():
+                continue
+            try:
+                actual = count_ast_package_literals(path.read_text(encoding="utf-8"), rel, pkg_names)
+            except SyntaxError as exc:
+                errors.append(f"{rel}: syntax error during AST package-literal ratchet: {exc}")
+                continue
+            if actual > ceiling:
+                errors.append(
+                    f"{rel}: AST workspace-package-literal count {actual} exceeds ratchet ceiling {ceiling}; "
+                    f"declare package capabilities in scripts/ci-required-scope.json instead of hardcoding package names"
+                )
     return errors
 
 
