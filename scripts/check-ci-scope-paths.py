@@ -54,12 +54,68 @@ def is_exact_repo_path(value: str) -> bool:
     return top in REPO_TOP_DIRS
 
 
+def _postgres_prerequisite_paths(repo_root: Path, data: dict) -> set[tuple[str, str]]:
+    """Recognize the installed runner before its atomic product-source pair lands.
+
+    This is an existence check, not permission to skip the product test. The
+    planner and policy runner still prove required execution across Git refs.
+    """
+    if 'postgres_test_contract' not in data:
+        return set()
+    try:
+        planner = _load_planner_module(Path(__file__).with_name('plan-rust-required-scope.py'))
+        contract = planner.postgres_test_contract(data)
+        if contract is None:
+            return set()
+        module, source = (contract[key] for key in ('module', 'source'))
+        if any((repo_root / path).exists() for path in (module, source)):
+            return set()
+        target = contract['target']
+        crate = Path('crates') / target['package']
+        manifest = tomllib.loads((repo_root / crate / 'Cargo.toml').read_text())
+        library = manifest.get('lib', {})
+        lib_path = library.get('path', 'src/lib.rs')
+        if (manifest['package']['name'] != target['package']
+                or library.get('name', target['package'].replace('-', '_')) != target['target_name']
+                or library.get('test', True) is not True or library.get('required-features', [])
+                or not isinstance(lib_path, str) or Path(lib_path).is_absolute()
+                or '..' in Path(lib_path).parts or Path(lib_path).as_posix() != lib_path
+                or not (repo_root / crate / lib_path).is_file()):
+            return set()
+        lib_dir = crate / Path(lib_path).parent
+        relative = Path(module).relative_to(lib_dir)
+        prefix = '::'.join(relative.with_suffix('').parts) + '::tests::'
+        if (source != module[:-3] + '/tests.rs' or module == (crate / lib_path).as_posix()
+                or not (repo_root / module).parent.is_dir()
+                or not contract['case'].startswith(prefix)
+                or '::' in contract['case'][len(prefix):]):
+            return set()
+        runner_test = 'scripts/ci-postgres.test.py'
+        resources = (contract['runner'], runner_test, 'scripts/ci_process_runner.py')
+        for path in resources:
+            registration = data.get('python_control_contracts', {}).get(path, {})
+            tests = registration.get('tests')
+            if (not (repo_root / path).is_file()
+                    or data.get('scoped_control_paths', {}).get(path) != ['workflow_governance']
+                    or registration.get('group') != 'workflow_governance'
+                    or not isinstance(tests, list) or not tests
+                    or any(not isinstance(test, str) or not test.endswith('.test.py') or not is_exact_repo_path(test)
+                           or '..' in Path(test).parts or Path(test).as_posix() != test
+                           or not (repo_root / test).is_file() for test in tests)
+                    or (path in resources[:2] and runner_test not in tests)):
+                return set()
+        return {('postgres_test_contract', 'module'), ('postgres_test_contract', 'source')}
+    except (KeyError, TypeError, ValueError, OSError):
+        return set()
+
+
 def find_missing_scope_paths(repo_root: Path, scope_file: Path | None = None) -> list[tuple[str, str]]:
     scope_path = scope_file or (repo_root / "scripts/ci-required-scope.json")
     data = json.loads(scope_path.read_text(encoding="utf-8"))
     missing: list[tuple[str, str]] = []
+    prerequisites = _postgres_prerequisite_paths(repo_root, data)
 
-    def walk(obj: object, trail: str) -> None:
+    def walk(obj: object, trail: str, location: tuple = ()) -> None:
         if isinstance(obj, dict):
             for key, val in obj.items():
                 if key in SKIP_OBJECT_KEYS:
@@ -67,13 +123,16 @@ def find_missing_scope_paths(repo_root: Path, scope_file: Path | None = None) ->
                 if isinstance(key, str) and is_exact_repo_path(key):
                     if not (repo_root / key).exists():
                         missing.append((f"{trail}.{key} (key)", key))
-                walk(val, f"{trail}.{key}" if trail else str(key))
+                walk(val, f"{trail}.{key}" if trail else str(key), (*location, key))
         elif isinstance(obj, list):
             for idx, item in enumerate(obj):
-                walk(item, f"{trail}[{idx}]")
+                walk(item, f"{trail}[{idx}]", (*location, idx))
         elif isinstance(obj, str):
-            if is_exact_repo_path(obj) and not (repo_root / obj).exists():
-                missing.append((trail, obj))
+            if is_exact_repo_path(obj):
+                product_source = location in {('postgres_test_contract', 'module'), ('postgres_test_contract', 'source')}
+                absent = not (repo_root / obj).is_file() if product_source else not (repo_root / obj).exists()
+                if absent and location not in prerequisites:
+                    missing.append((trail, obj))
 
     walk(data, "")
     return missing

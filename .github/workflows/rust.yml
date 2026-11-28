@@ -3100,6 +3100,17 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
+    services:
+      postgres:
+        # Official PostgreSQL 17.12, isolated to this job's service network.
+        image: postgres:17.12-trixie@sha256:97fb53376be3e4fb1a8a61421daa69dcc3bf2fa39bda3259f5245f9a455af1a9
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s --health-timeout 5s --health-retries 15
     defaults:
       run:
         shell: bash
@@ -3164,6 +3175,30 @@ jobs:
             plan_args=(--plan "$selection")
           fi
           bash ./scripts/ci-tests.sh required --group "distfs" "${plan_args[@]}" --repo-root "$GITHUB_WORKSPACE"
+      - name: Run trusted PostgreSQL acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          selection="$RUNNER_TEMP/selection.json"
+          policy=$(python3 - "$selection" <<'PYCODE'
+          import json, re, sys
+          policy = json.load(open(sys.argv[1]))['policy_sha']
+          assert isinstance(policy, str) and re.fullmatch(r'[0-9a-f]{40}', policy)
+          print(policy)
+          PYCODE
+          )
+          authority=$(mktemp -d "$RUNNER_TEMP/postgres-authority.XXXXXX")
+          trap 'rm -rf "$authority"' EXIT
+          git show "$policy:scripts/ci_process_runner.py" > "$authority/ci_process_runner.py"
+          if git cat-file -e "$policy:scripts/ci-postgres.py" 2>/dev/null; then
+            git show "$policy:scripts/ci-postgres.py" > "$authority/ci-postgres.py"
+          else
+            # The old policy cannot authorize a product ignore. The runner
+            # independently proves every compared source predates the backend.
+            cp scripts/ci-postgres.py "$authority/ci-postgres.py"
+          fi
+          python3 "$authority/ci-postgres.py" --repo-root "$GITHUB_WORKSPACE" --plan "$selection"
+
 
   node:
     needs: [select, fast-preflight]

@@ -100,6 +100,16 @@ planner 及高频演进的工作流拓扑、架构所有权与全量汇总套件
 
 对照可信 BASE 与候选的标签、cfg 和实际清单。planner 按完整词法 module/函数归属比较选择属性，required 改 full 时标记 `test_policy_changed`，在有实际扩展 driver 且 manifest 声明 feature 的 package 上显式启用 required、full、wasmtime/viewer 等适用组合。条件表达式按实际执行组合求值；例如 `any(test, feature = "test-support")` 在测试 harness 中为真，不能只因另一个分支的 feature 未启用就拒绝。引用的 feature 仍须由真实 owner 声明，声明不等于已经启用；普通组合无法证明时才检查实际扩展 driver。无法证明的嵌套选择门控、未映射的新 ignore 和跨 binary 同名短函数均不能让用例消失。
 
+#### PostgreSQL 环境型测试的可信执行
+
+`postgres_test_contract` v1 登记真实 PostgreSQL 服务的完整 Cargo library/default-features/source/qualified-case 身份，授权来源是 `policy_sha`，候选配置不能授权自身新增 ignore。planner 复用实际 Cargo target、父模块和 cfg 证明，另解析逐层模块名；仅名称完整匹配且唯一可达的直接 ignored 函数可以登记，条件 ignore、错 package/binary、同短名、未知或失效挂载仍拒绝。普通必要组保留原全集，该环境用例追加到现有 DistFS job。
+
+运行器必须先于产品源码合入。静态 exact-path 检查只在完整 v1 合同的 `module/source` 两个 JSON 位置接受原子源码对同时缺席：其既有 Cargo lib、规范化路径与完整 case 身份必须一致，runner、实际单测、既有进程监督器必须存在并具有精确治理路径和非空实际测试合同。两文件齐备按普通规则检查，部分安装拒绝，其他 JSON 位置同值缺失也不豁免。静态快照不能区分首次预登记与后续一起删除；后者继续由下述跨 Git refs 的 required 证明与实际 harness 执行拒绝。这不增加 ignore 白名单或可配置的缺失路径开关。
+
+DistFS job 使用固定官方 PostgreSQL 17.12 镜像 digest 的 service。Actions 管理启动、健康检查和销毁，数据库仅在该 job 的服务网络提供临时 trust 认证，不映射主机端口，不给候选容器 Docker socket。runner 先经有界只读 SQL 核对实际 `server_version_num=170012`、`fsync=on` 和 `synchronous_commit=on`，随后按确切 Cargo target 构建并找到唯一真实 library harness；从它的 `--list --ignored` 库存核完整用例名，以 `--exact --ignored --nocapture` 执行且必须得到恰好一项通过、零失败、零 ignored。服务缺失、清单缺项、零执行、构建/子进程失败或超时均失败，复用既有 owned-process 清理。
+
+实际 runner 及进程监督器从 `policy_sha` 提取；runner 独立核 checkout 的 tested SHA、可信配置和 base/source/tested/policy 原 Git 对象。任一比较版本存在 backend module/source 时要求该产品用例，删除文件或伪造计划 `required=false` 不能降为 smoke。首次前置的旧 policy 尚无 runner/合同，只有所有比较版本均无 backend 源码时才可用候选 runner 验真实数据库 smoke，日志明确没有执行产品验收。固定历史 full 另有窄兼容：仅 source=tested、source 是 policy 的严格祖先且原源码中尚无 backend 时允许 smoke；新删除提交、普通 PR 和不同分支不能使用该例外。该能力只登记可丢弃数据库的软件验证，真实保护环境、HSM、时间连续性或物理故障资格另行验收。
+
 #### Authority 消费者与原场景分层
 
 可信基线登记 authority verifier、BFT V3 worker/startup、Controlled writer 的精确输入及实际消费者。仅当整个变更的相关输入都有可信映射、源码在指定 Cargo target/features 内可达、没有测试政策迁移或未知输入时，ordinary 使用 Chain 的 native `node-libp2p + wasmtime + test_tier_required` 库，consensus 变化另选既有 `pr_fast_incremental` 物理合同，避免将全部反向依赖的世界字段、内建 WASM 和业务旅程一起带入。consensus/node 仍由原独立组执行完整库合同；这些组不能被普通消费者映射移除，未能证明其执行能力时回到原必要范围。所有策略来自 BASE，候选不能借本轮新合同减少自己的 required 验证。

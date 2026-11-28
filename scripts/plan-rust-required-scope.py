@@ -1545,7 +1545,60 @@ def reverse_consumers(changed, reverse):
     return result
 
 
+def postgres_test_contract(config):
+    """A reviewed real-service runner, never a short-name ignore allowlist."""
+    contract = config.get('postgres_test_contract')
+    if contract is None:
+        return None
+    keys = {'version', 'group', 'runner', 'server_version_num', 'module', 'source', 'target', 'case'}
+    if not isinstance(contract, dict) or set(contract) != keys:
+        raise ValueError('invalid PostgreSQL test contract')
+    target = contract['target']
+    if (type(contract['version']) is not int or contract['version'] != 1
+            or contract['group'] != 'distfs' or contract['group'] not in config['groups']
+            or contract['runner'] != 'scripts/ci-postgres.py'
+            or type(contract['server_version_num']) is not int
+            or not 170000 <= contract['server_version_num'] < 180000
+            or not isinstance(target, dict)
+            or set(target) != {'package', 'target_kind', 'target_name', 'default_features', 'features'}
+            or target['target_kind'] != 'lib' or target['default_features'] is not True
+            or target['features'] != []
+            or any(not isinstance(target[key], str)
+                   or not re.fullmatch(r'[A-Za-z_][A-Za-z_0-9-]*', target[key])
+                   for key in ('package', 'target_name'))
+            or 'distfs' not in config['package_groups'].get(target['package'], ())
+            or not isinstance(contract['case'], str)
+            or not re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)+', contract['case'])):
+        raise ValueError('invalid PostgreSQL runner target or case')
+    for key in ('module', 'source'):
+        path = contract[key]
+        if (not isinstance(path, str) or not path.endswith('.rs') or path.startswith('/')
+                or posixpath.normpath(path) != path or '..' in path.split('/')
+                or any(char in path for char in '\\*?[]\x00')):
+            raise ValueError('invalid PostgreSQL source proof path')
+    return contract
+
+
+def postgres_execution_proof(config, plan):
+    contract = postgres_test_contract(config)
+    if contract is None:
+        return
+    refs = sorted({plan['architecture']['base'],
+                   *(plan[key] for key in ('source_sha', 'tested_sha', 'policy_sha'))})
+    paths = [contract[key] for key in ('module', 'source')]
+    present = {ref: bool(git('ls-tree', '--name-only', ref, '--', *paths)) for ref in refs}
+    source, tested, policy = (plan[key] for key in ('source_sha', 'tested_sha', 'policy_sha'))
+    # A fixed historical full run cannot contain tests introduced afterwards.
+    # A new deletion or an unrelated branch cannot use this compatibility path.
+    historical = (plan.get('execution_profile') in ('periodic-full', 'candidate-full')
+                  and source == tested and source != policy and not present[source]
+                  and git('merge-base', source, policy).decode().strip() == source)
+    plan['postgres_test_contract'] = dict(contract, required=any(present.values()) and not historical,
+                                         proof_refs=refs)
+
+
 def validate_config(config):
+    postgres_test_contract(config)
     groups = config['groups']
     if (not isinstance(groups, list) or len(groups) != len(set(groups))
             or not {'baseline', 'rust_baseline', *PLATFORM_GROUPS}.issubset(groups)):
@@ -2676,7 +2729,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         narrow_unavailable=None, selected_targets=None, required_source_paths=(),
                         portable_paths=None, worker_wasm_compile=False, native_root_deltas=None,
                         pixel_platform_driver=False, unit_test_targets=(), unit_test_sources=None,
-                        required_group_source_targets=None):
+                        required_group_source_targets=None, registered_ignored=None):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -3403,6 +3456,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                            for package, manifest in source_inputs.get('manifests', {}).items()}
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
     ordinary_structure_cache, inherited_cache, inline_reference_cache = {}, {}, {}
+    qualified_reference_cache = {}
     unit_cargo_roots = {}
 
     def selected_attribute(attribute, native, features):
@@ -3478,7 +3532,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             return parent_cache[key]
         owners = source_owners(path)
         candidates = candidate_parents(path)
-        references, provenance, inline_flags = [], [], []
+        references, provenance, inline_flags, qualified = [], [], [], []
         for parent in candidates:
             info = parsed(parent, native)
             annotations, tokens, closing, items, modules, context = info[6:12]
@@ -3587,10 +3641,12 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                          else ordinary_attribute(attribute, native))
                         for attribute in attributes_here), attributes_here))
                     inline_flags.append(bool(inline))
+                    qualified.append(owner[1] if kind == 'mod' else None)
                     provenance.append((parent, known, opaque, resolved, tuple(
                         attribute for attribute in attributes_here if attribute[0] in ('cfg', 'cfg_attr'))))
         reference_cache[key] = provenance
         inline_reference_cache[key] = tuple(inline_flags)
+        qualified_reference_cache[key] = tuple(qualified)
         parent_cache[key] = references
         return references
 
@@ -3773,6 +3829,37 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 break
         selected_context_cache[key] = result
         return result
+
+    def qualified_source_names(path, target, visiting=frozenset()):
+        root, features = selected_target_root(target), selected_target_features(target)
+        if path in visiting or root is None or features is None:
+            return set()
+        if path == root:
+            return {''}
+        references = parents(path, True, features, root)
+        names = qualified_reference_cache[(path, True, features, root)]
+        result = set()
+        for (parent, kind, known, _), name in zip(references, names):
+            if kind != 'mod' or not known or name is None:
+                return set()  # No include/macro/opaque alias may borrow a name.
+            result.update('::'.join(filter(None, (prefix, name)))
+                          for prefix in qualified_source_names(parent, target, visiting | {path}))
+        return result
+
+    def registered_ignored_owner(path, owner):
+        entry = registered_ignored
+        if (entry is None or path != entry['source'] or owner[0] != 'fn' or owner[2] != 0
+                or source_owners(path) != {entry['target']['package']}
+                or not selected_inherited_context(path, entry['target'])):
+            return False
+        info, features = parsed(path, True), selected_target_features(entry['target'])
+        if owner not in info[2] or any(
+                not enabled_gate(attribute, True, features)
+                for attribute, enclosing in info[6] if applies_to(enclosing, owner)
+                and attribute[0] in ('cfg', 'cfg_attr')):
+            return False
+        names = qualified_source_names(path, entry['target'])
+        return len(names) == 1 and '::'.join((*names, owner[1])) == entry['case']
 
     def selected_inherited_context(path, target):
         # The production and test mounts of a shared source are alternative
@@ -4234,7 +4321,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # A short function name does not establish a Cargo binary + qualified
         # case identity. Existing registered ignored cases are unchanged here;
         # a new ignore needs a separately provable runner mapping.
-        if conditional_ignore or newly_ignored:
+        if conditional_ignore or any(not registered_ignored_owner(path, owner) for owner in newly_ignored):
             raise TestPolicyError('new ignored test lacks a trusted execution mapping: ' + path
                                   + '; keep it executable or register its actual ignored-test runner')
         for attribute, owner in added_attrs:
@@ -4893,6 +4980,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         plan['formal_full_profiles_only_version'] = 1
         plan['formal_deferred_ordinary_cases'] = {}
     complete_ordinary_partitions(config, plan)
+    postgres_execution_proof(config, plan)
     return materialize_execution_contracts(config, plan)
 
 
@@ -4963,7 +5051,9 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             native_root_deltas=comparison_native_roots,
             pixel_platform_driver=('pixel_world_bridge' in chosen
                                    and 'pixel_world_bridge' in config['package_groups'].get('pixel_world_bridge', ())),
-            required_group_source_targets=group_source_targets)
+            required_group_source_targets=group_source_targets,
+            registered_ignored=(postgres_test_contract(config)
+                                if 'distfs' in chosen else None))
         native_root_comparisons.append(comparison_native_roots)
         policy_paths.update(changed_policy)
         ignored_risk |= changed_ignored
@@ -5378,6 +5468,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     plan.update(fleet_health_subcontracts(config, chosen, affected, path_rules,
                                           full=conservative, additions=additions))
+    postgres_execution_proof(config, plan)
     return materialize_execution_contracts(config, plan)
 
 
