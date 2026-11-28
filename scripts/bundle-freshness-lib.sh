@@ -54,8 +54,6 @@ scope = [
     "crates/oasis7_wasm_abi",
     "crates/oasis7_game_client/Cargo.toml",
     "crates/oasis7_game_client/src",
-    "crates/oasis7_launcher_config/Cargo.toml",
-    "crates/oasis7_launcher_config/src",
     "crates/oasis7_wasm_materializer/Cargo.toml",
     "crates/oasis7_wasm_materializer/src",
     "crates/oasis7_observability/Cargo.toml",
@@ -88,10 +86,6 @@ scope = [
     "scripts/copy-viewer-web-dist.sh",
     "scripts/viewer-web-dist-contract.sh",
     "scripts/service-readback",
-    "crates/oasis7_client_launcher/Cargo.toml",
-    "crates/oasis7_client_launcher/Trunk.toml",
-    "crates/oasis7_client_launcher/index.html",
-    "crates/oasis7_client_launcher/src",
 ]
 files: list[Path] = []
 for entry in scope:
@@ -190,9 +184,6 @@ pixel_world_webgl2_bindgen_wasm_path, pixel_world_webgl2_bindgen_wasm_sha256 = h
 )
 browser_game_js_path, browser_game_js_sha256 = hash_exact("web/browser-game-client/oasis7_browser_game_client.js")
 browser_game_wasm_path, browser_game_wasm_sha256 = hash_exact("web/browser-game-client/oasis7_browser_game_client_bg.wasm")
-launcher_index_path, launcher_index_sha256 = hash_exact("web-launcher/index.html")
-launcher_js_path, launcher_js_sha256 = hash_first("web-launcher/*.js")
-launcher_wasm_path, launcher_wasm_sha256 = hash_first("web-launcher/*.wasm")
 
 manifest = {
     "bundleSchemaVersion": 1,
@@ -217,12 +208,6 @@ manifest = {
         "pixelWorldWebgl2BindgenJsSha256": pixel_world_webgl2_bindgen_js_sha256,
         "pixelWorldWebgl2BindgenWasmPath": pixel_world_webgl2_bindgen_wasm_path,
         "pixelWorldWebgl2BindgenWasmSha256": pixel_world_webgl2_bindgen_wasm_sha256,
-        "launcherIndexPath": launcher_index_path,
-        "launcherIndexSha256": launcher_index_sha256,
-        "launcherJsPath": launcher_js_path,
-        "launcherJsSha256": launcher_js_sha256,
-        "launcherWasmPath": launcher_wasm_path,
-        "launcherWasmSha256": launcher_wasm_sha256,
     },
 }
 if build_profile:

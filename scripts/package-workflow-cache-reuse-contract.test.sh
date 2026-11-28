@@ -336,7 +336,6 @@ release = workflow_paths[2].read_text()
 mainnet = workflow_paths[1].read_text()
 rust = (root / ".github/workflows/rust.yml").read_text()
 native_cache = (root / ".github/workflows/rust-cache.yml").read_text()
-bridge = (root / ".github/workflows/newapi-bridge-service-package.yml").read_text()
 ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 
 # Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7.
@@ -486,8 +485,6 @@ for name in ("release_gate_runtime_core", "release_gate_runtime_support", "relea
         assert "save-if: false" in job_body(release, name)
         assert "    cache-mode: read\n" in job_body(release, name)
 assert cache_identity(mainnet, "package-native", True) == cache_identity(release, "package-native", True)
-assert cache_identity(rust, "newapi-bridge-package") == cache_identity(bridge, "package-linux-x86-64"), \
-    "NewAPI entrypoints must agree on Cargo environment and toolchain/path defaults, not just shared-key"
 
 web_identity = cache_identity(native_cache, "web-wasm-cache")
 assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"

@@ -1,14 +1,11 @@
-use oasis7::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, DecisionRequest,
-    GoalSnapshotInputV1, GoalSnapshotProjector,
-};
 use oasis7_agent_api::{
     BudgetContractV1, COGNITION_CAPABILITY_CATALOG_DOMAIN,
     COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR,
     CONTINUOUS_AGENT_CONTEXT_VERSION, CapabilityInvocationContext, ContinuationBudgetV1,
-    ContinuationProposalV1, Digest32, MemoryContextSnapshotV1, RuntimeBindingV1, WakeConditionV1,
-    h_v1,
+    ContinuationProposalV1, ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1,
+    DecisionRequest, Digest32, MemoryContextSnapshotV1, RuntimeBindingV1, WakeConditionV1, h_v1,
 };
+use oasis7_runtime_host::cognition_policy::{GoalSnapshotInputV1, GoalSnapshotProjector};
 use oasis7_simulator::Observation;
 use oasis7_wasm_abi::CapabilityCatalogSnapshot;
 use serde_json::json;
@@ -315,38 +312,4 @@ fn build_target_context_inner(
         continuation,
     };
     (turn_context, request_context)
-}
-
-#[cfg(test)]
-mod native_cognition_type_identity_tests {
-    use super::*;
-    use std::any::TypeId;
-
-    #[test]
-    fn parity_cognition_wire_types_are_the_canonical_agent_api_types() {
-        assert_eq!(
-            TypeId::of::<Digest32>(),
-            TypeId::of::<oasis7::simulator::Digest32>()
-        );
-        assert_eq!(
-            TypeId::of::<RuntimeBindingV1>(),
-            TypeId::of::<oasis7::simulator::RuntimeBindingV1>(),
-        );
-        assert_eq!(
-            TypeId::of::<MemoryContextSnapshotV1>(),
-            TypeId::of::<oasis7::simulator::MemoryContextSnapshotV1>(),
-        );
-        assert_eq!(
-            TypeId::of::<ContinuationBudgetV1>(),
-            TypeId::of::<oasis7::simulator::ContinuationBudgetV1>(),
-        );
-        assert_eq!(
-            TypeId::of::<ContinuationProposalV1>(),
-            TypeId::of::<oasis7::simulator::ContinuationProposalV1>(),
-        );
-        assert_eq!(
-            TypeId::of::<WakeConditionV1>(),
-            TypeId::of::<oasis7::simulator::WakeConditionV1>(),
-        );
-    }
 }

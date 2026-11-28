@@ -93,7 +93,7 @@ producer 先核当前连接的真实主体与 session/key、当前 Agent binding
 | runner 当前 effective | 对同一已注册 Builtin runner 的只读观察：runner/配置实例关联、最近实际消费的完整 profile 关联或初始化关联、三项实际 override 与 `effective_*` 解析结果 | 与 authority profile 分开；只有真实已消费/读取到的值可称该 runner 当前 effective。effective 是此层供后续 Prompt 组装使用的三项值，不代表在途模型请求已更改、完整 assembled Prompt、私有记忆或 canonical goal |
 | 来源与可用性 | 每字段的 config/profile/初始化来源及有权读取的值，完整读取、等待 runner 读回、不可用或 hidden 的原因；被隐藏/未实现不是合法 null | 初始化短期目标标明 `runtime_live_phase1_short_term_goal` 来源；显示层不能假称它是当前 config 默认或玩家配置。缺真实读取时给有界未确认原因，不伪造值 |
 
-真实接点是[配置与 effective 解析](../../../crates/oasis7/src/simulator/llm_agent/behavior_prompt.rs)、[配置/override 处理](../../../crates/oasis7/src/simulator/llm_agent.rs)、[runner 初始化与完整 profile 下发](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/llm_sidecar_runner.rs)、[当前 profile/history](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/prompt_profile.rs)及 current-player snapshot 构建。目标 Agent/runner adapter 在初始化时保留三项安全配置来源，在真正消费 Prompt 更新时记录对应 profile 关联，并提供只读返回；不能用“已 enqueue”补一份 fake runner ACK。原 source 尚无这份完整投影，这不免除该正常 producer 的实现义务。
+真实接点是[配置与 effective 解析](../../../crates/oasis7_runtime_host/src/agent_execution/llm_agent/behavior_prompt.rs)、[配置/override 处理](../../../crates/oasis7_runtime_host/src/agent_execution/llm_agent.rs)、[runner 初始化与完整 profile 下发](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/llm_sidecar_runner.rs)、[当前 profile/history](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/prompt_profile.rs)及 current-player snapshot 构建。目标 Agent/runner adapter 在初始化时保留三项安全配置来源，在真正消费 Prompt 更新时记录对应 profile 关联，并提供只读返回；不能用“已 enqueue”补一份 fake runner ACK。原 source 尚无这份完整投影，这不免除该正常 producer 的实现义务。
 
 ### 同一读取切点与当前配置
 

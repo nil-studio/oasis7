@@ -68,7 +68,7 @@ PY_VIEWER
 run_oasis7_package_tests() {
   local features="$1"
   shift
-  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
+  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
 }
 
 run_oasis7_test_tier_with_viewer() {
@@ -159,7 +159,7 @@ run_shared_native_cache_builds() {
 '''
 
 # Actual four ordinary build variants emitted by that BASE artifact helper.
-LEGACY_ORDINARY = [['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live', '--features', 'test_tier_required'], ['test', '-p', 'oasis7', '-p', 'oasis7_simulator', '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '-p', 'scenario_test_runner', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_client_cli', '-p', 'oasis7_protocol_tools', '-p', 'oasis7_launcher_backend', '-p', 'oasis7_newapi_bridge_service', '-p', 'oasis7_ops_tools', '-p', 'oasis7_provider_local_bridge', '-p', 'oasis7_provider_tools', '-p', 'oasis7_viewer_runtime', '-p', 'oasis7_viewer_codec', '-p', 'oasis7_observability', '-p', 'oasis7_hosted_access', '-p', 'oasis7_letai_credit_adapter', '-p', 'oasis7_launcher_config', '-p', 'oasis7_wasm_materializer', '-p', 'oasis7_game_client', '-p', 'oasis7_browser_game_client', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--tests', '--features', 'test_tier_required', '--no-run'], ['test', '-p', 'oasis7', '--lib', '--no-run'], ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run']]
+LEGACY_ORDINARY = [['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live', '--features', 'test_tier_required'], ['test', '-p', 'oasis7', '-p', 'oasis7_simulator', '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '-p', 'scenario_test_runner', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_client_cli', '-p', 'oasis7_protocol_tools', '-p', 'oasis7_launcher_backend', '-p', 'oasis7_newapi_bridge_service', '-p', 'oasis7_ops_tools', '-p', 'oasis7_provider_local_bridge', '-p', 'oasis7_provider_tools', '-p', 'oasis7_viewer_runtime', '-p', 'oasis7_viewer_codec', '-p', 'oasis7_observability', '-p', 'oasis7_hosted_access', '-p', 'oasis7_letai_credit_adapter', '-p', 'oasis7_wasm_materializer', '-p', 'oasis7_game_client', '-p', 'oasis7_browser_game_client', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--tests', '--features', 'test_tier_required', '--no-run'], ['test', '-p', 'oasis7', '--lib', '--no-run'], ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run']]
 
 FROZEN_FIXTURE_SMOKE = r'''
 #!/usr/bin/env bash
@@ -439,9 +439,9 @@ run() {
         # The frozen shell reads the current support-profile inventory, including
         # the Worker and Domain Types roots. Three fixture behaviors retain two
         # provider filters with one compile context: 35 full plus eight legacy calls.
-        self.assertEqual(len(calls), 43)
+        self.assertEqual(len(calls), 41)
         contexts = {compile_context(call) for call in calls}
-        self.assertEqual(len(contexts), 42)
+        self.assertEqual(len(contexts), 40)
         self.assertIn(('test', ('oasis7_dev_test_worker',), (('--all-targets', ''),),
                        True, (), 'default', '1'), contexts)
         return calls
@@ -493,8 +493,8 @@ run() {
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 55)
-                self.assertIn('cache_build_complete variants=55 verification=false', result.stdout)
+                self.assertEqual(len(named), 52)
+                self.assertIn('cache_build_complete variants=52 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
                                   if not name.startswith('fast-')}, expected)
                 self.assert_fast_inventory(named, self.config)
@@ -574,7 +574,7 @@ cd "$repo_root"
                                       '-D', 'clippy::suspicious'])
 
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52, 53, 54, 55):
+        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()
@@ -629,7 +629,7 @@ cd "$repo_root"
         result = self.build()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
-        self.assertEqual(len(named), 55)
+        self.assertEqual(len(named), 52)
         self.assert_fast_inventory(named, config)
         self.assertFalse(self.behaviors.exists())
 
@@ -665,7 +665,7 @@ cd "$repo_root"
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
         self.assert_fast_inventory(named, config)
-        self.assertEqual(sum(name.startswith('fast-') for name in named), 16)
+        self.assertEqual(sum(name.startswith('fast-') for name in named), 15)
 
 
 if __name__ == '__main__':

@@ -346,7 +346,7 @@ class WorkflowCorePart4(unittest.TestCase):
         setup = 'set -euo pipefail\nrun_provider_remote_https_smoke() { :; }\n'
         setup += 'run() { echo "$*"; if [[ -n "$FAIL_TEST" && "$*" == *"$FAIL_TEST"* ]]; then return 37; fi; }\n'
         calls = '\nrun_operational_contract_tests\nrun_packaging_contract_tests\necho contracts-complete\n'
-        tests = ('local-letai-provider-bridge.test.sh', 'build-wasm-module.test.sh')
+        tests = ('traffic-monitor-summary.test.sh', 'build-wasm-module.test.sh')
         for failing in ('', *tests):
             result = subprocess.run(['bash', '-c', setup + functions + calls], text=True,
                                     capture_output=True, env=dict(os.environ, FAIL_TEST=failing))
@@ -409,7 +409,7 @@ class WorkflowCorePart4(unittest.TestCase):
                 ['bash', '-c', setup + functions + '\nrun_operational_contract_tests\necho never\n'],
                 text=True, capture_output=True,
                 env=dict(os.environ, OASIS7_OPERATIONAL_CONTRACT_JOBS='4',
-                         FAIL_TEST='local-letai-provider-bridge.test.sh'),
+                         FAIL_TEST='traffic-monitor-summary.test.sh'),
             )
             self.assertEqual(failed.returncode, 41, failed.stdout + failed.stderr)
             self.assertNotIn('never', failed.stdout)
@@ -540,32 +540,6 @@ class WorkflowCorePart4(unittest.TestCase):
             self.assertEqual(max(serial_peaks), 1)
             self.assertIn('ci-python-control-contracts.py local-contract', serial.stdout)
 
-    def test_local_public_testnet_build_uses_selected_repo_in_dev_and_ci(self):
-        with tempfile.TemporaryDirectory() as directory:
-            temporary = Path(directory)
-            repo = (temporary / 'build repo').resolve()
-            (repo / 'scripts').mkdir(parents=True)
-            bin_dir = temporary / 'build-bin'
-            bin_dir.mkdir()
-            for path, mode in ((repo / 'scripts/cargo-dev.sh', 'wrapper'), (bin_dir / 'cargo', 'raw')):
-                path.write_text('#!/usr/bin/env bash\n{ printf "' + mode + '\\n"; printf "%s\\n" "$PWD" "$@"; } > "$BUILD_TRACE"\nexit "${BUILD_EXIT:-0}"\n')
-                path.chmod(0o755)
-            source = (ROOT / 'scripts/run-local-public-testnet-letai-test-environment.sh').read_text()
-            function = re.search(r'^build_bins\(\) \{\n.*?^\}', source, re.M | re.S).group()
-            script = 'set -euo pipefail\nROOT_DIR="$1"; source "$2"; BUILD=1; log() { :; }\n' + function + '\nbuild_bins\n'
-            for ci, raw in (('', '0'), ('1', '0'), ('true', '0'), ('', '1')):
-                trace = temporary / ('build-trace-' + (ci or 'dev') + raw)
-                env = dict(os.environ, CI=ci, OASIS7_FORCE_RAW_CARGO=raw,
-                           OASIS7_CARGO_DEV_REPO_ROOT=str(temporary / 'unrelated-repo'), BUILD_TRACE=str(trace),
-                           PATH=str(bin_dir) + os.pathsep + os.environ['PATH'])
-                for code in (0, 37):
-                    result = subprocess.run(['bash', '-c', script, '_', str(repo), str(ROOT / 'scripts/cargo-dev-lib.sh')],
-                                            cwd=temporary, env=dict(env, BUILD_EXIT=str(code)), capture_output=True, text=True)
-                    assert result.returncode == code, result.stderr
-                    records = trace.read_text().splitlines()
-                    assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
-                    assert 'oasis7_viewer_live' in records, records
-
     def test_engineering_observation_policy_is_exact_and_never_exempts_required_steps(self):
         import engineering_telemetry as bindings
         from unittest.mock import patch
@@ -681,7 +655,7 @@ class WorkflowCorePart4(unittest.TestCase):
     def test_stable_install_is_minimal_with_required_components(self):
         self.assertNotIn('--profile default', WORKFLOW)
         for name, job in JOBS.items():
-            if 'rustup toolchain install' in job and name != 'newapi-bridge-package':
+            if 'rustup toolchain install' in job:
                 if name in ('formal-test-build', 'formal-test-build-trusted'):
                     # Merge needs the real compiler identity but cannot run
                     # build/lint commands. Existing jobs retain their checks.

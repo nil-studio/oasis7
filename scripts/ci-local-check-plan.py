@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import math
 import os
@@ -10,6 +11,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
@@ -176,6 +178,34 @@ def plan(root, base_ref, timeout, result):
             for name in ('plan-rust-required-scope.py', 'ci-required-scope.json', 'ci-formal-process-suites.json'):
                 blobs[name] = git(root, 'show', f'{base}:scripts/{name}')
                 (temp / name).write_bytes(blobs[name])
+            if subprocess.run(
+                ['git', '-C', str(root), 'cat-file', '-e', f'{base}:scripts/run-ci-authority-python.py'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ).returncode == 0:
+                blobs['run-ci-authority-python.py'] = git(root, 'show', f'{base}:scripts/run-ci-authority-python.py')
+                (temp / 'run-ci-authority-python.py').write_bytes(blobs['run-ci-authority-python.py'])
+            if subprocess.run(
+                ['git', '-C', str(root), 'cat-file', '-e', f'{base}:scripts/ci_engine'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ).returncode == 0:
+                for line in git(root, 'ls-tree', '-r', f'{base}:scripts/ci_engine').decode('utf-8').splitlines():
+                    if not line:
+                        continue
+                    meta, rel = line.split('\t', 1)
+                    mode, obj_type, _ = meta.split(' ', 2)
+                    if mode not in ('100644', '100755') or obj_type != 'blob':
+                        raise Blocked(f'untrusted ci_engine tree entry at {base}: {mode} {rel}')
+                tar_bytes = git(root, 'archive', '--format=tar', f'{base}:scripts', 'ci_engine')
+                with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode='r:') as tar:
+                    for member in tar.getmembers():
+                        parts = Path(member.name).parts
+                        if (not (member.isfile() or member.isdir())
+                                or not member.name.startswith('ci_engine')
+                                or '..' in parts or Path(member.name).is_absolute()):
+                            raise Blocked(f'untrusted ci_engine archive member: {member.name}')
+                    tar.extractall(temp, filter='data')
+                for fp in sorted(p for p in (temp / 'ci_engine').rglob('*') if p.is_file()):
+                    blobs[fp.relative_to(temp).as_posix()] = fp.read_bytes()
             try:
                 config = json.loads(blobs['ci-required-scope.json'])
             except (ValueError, UnicodeDecodeError) as exc:
@@ -185,13 +215,23 @@ def plan(root, base_ref, timeout, result):
             known_groups = config.get('groups')
             if not isinstance(known_groups, list) or any(not isinstance(group, str) for group in known_groups):
                 raise Blocked('trusted configuration has no valid group inventory')
+            extra_hashes = {
+                name: hashlib.sha256(data).hexdigest()
+                for name, data in sorted(blobs.items())
+                if name.startswith('ci_engine/') or name == 'run-ci-authority-python.py'
+            }
             result['planner'].update(
                 sha256=hashlib.sha256(blobs['plan-rust-required-scope.py']).hexdigest(),
-                config_sha256={name: hashlib.sha256(data).hexdigest() for name, data in blobs.items() if name.endswith('.json')})
-            argv = [sys.executable, str(temp / 'plan-rust-required-scope.py'),
-                    '--base-ref', base, '--head-ref', before[0], '--policy-ref', base,
-                    '--profile', 'pr-fast', '--config', str(temp / 'ci-required-scope.json'),
-                    '--formal-config', str(temp / 'ci-formal-process-suites.json')]
+                config_sha256={name: hashlib.sha256(data).hexdigest() for name, data in blobs.items() if name.endswith('.json')},
+                **({'engine_sha256': extra_hashes} if extra_hashes else {}))
+            launcher = temp / 'run-ci-authority-python.py'
+            if launcher.is_file():
+                argv = [sys.executable, '-P', str(launcher), str(temp / 'plan-rust-required-scope.py')]
+            else:
+                argv = [sys.executable, str(temp / 'plan-rust-required-scope.py')]
+            argv += ['--base-ref', base, '--head-ref', before[0], '--policy-ref', base,
+                     '--profile', 'pr-fast', '--config', str(temp / 'ci-required-scope.json'),
+                     '--formal-config', str(temp / 'ci-formal-process-suites.json')]
             planned = run_planner(argv, root, timeout, result)
             if not isinstance(planned, dict):
                 raise Failed('trusted planner returned a non-object plan')

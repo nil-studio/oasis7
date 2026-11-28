@@ -1,13 +1,4 @@
 //! Dependency-light bounded World Service HTTP transport.
-#[cfg(unix)]
-#[allow(dead_code, unused_imports)] // retire: #7314 (removed in PR 3/3)
-mod custody_inbox;
-#[cfg(unix)]
-#[allow(dead_code, unused_imports)] // retire: #7314 (removed in PR 3/3)
-mod custody_tool_host;
-#[cfg(unix)]
-#[allow(dead_code, unused_imports)] // retire: #7314 (removed in PR 3/3)
-mod custody_transport;
 use oasis7_client_api::world_service::{self as authority, *};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{io::Read, time::Duration};

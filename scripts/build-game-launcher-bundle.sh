@@ -19,7 +19,6 @@ usage() {
 Usage: ./scripts/build-game-launcher-bundle.sh [options]
 
 Build a distributable launcher bundle:
-- bin/oasis7_client_launcher
 - bin/oasis7_game_launcher
 - bin/oasis7_web_launcher
 - bin/oasis7_viewer_live
@@ -249,14 +248,6 @@ fi
 if [[ -n "$WEB_DIST_SOURCE" ]]; then
   validate_web_dist_source "$WEB_DIST_SOURCE"
 fi
-if [[ -n "$WEB_LAUNCHER_DIST_SOURCE" && ! -d "$WEB_LAUNCHER_DIST_SOURCE" ]]; then
-  echo "error: --web-launcher-dist path does not exist: $WEB_LAUNCHER_DIST_SOURCE" >&2
-  exit 1
-fi
-if [[ -n "$WEB_LAUNCHER_DIST_SOURCE" ]]; then
-  validate_web_launcher_dist_source "$WEB_LAUNCHER_DIST_SOURCE"
-fi
-
 LAUNCHER_BIN_NAME="$(resolve_binary_name oasis7_game_launcher "$TARGET_TRIPLE")"
 WEB_LAUNCHER_BIN_NAME="$(resolve_binary_name oasis7_web_launcher "$TARGET_TRIPLE")"
 LIVE_BIN_NAME="$(resolve_binary_name oasis7_viewer_live "$TARGET_TRIPLE")"
@@ -264,7 +255,6 @@ CHAIN_BIN_NAME="$(resolve_binary_name oasis7_chain_runtime "$TARGET_TRIPLE")"
 WORLD_REPAIR_REBUILD_BIN_NAME="$(resolve_binary_name oasis7_world_repair_rebuild "$TARGET_TRIPLE")"
 GOVERNANCE_REGISTRY_IMPORT_BIN_NAME="$(resolve_binary_name oasis7_governance_registry_import "$TARGET_TRIPLE")"
 GOVERNANCE_REGISTRY_AUDIT_BIN_NAME="$(resolve_binary_name oasis7_governance_registry_audit "$TARGET_TRIPLE")"
-CLIENT_LAUNCHER_BIN_NAME="$(resolve_binary_name oasis7_client_launcher "$TARGET_TRIPLE")"
 TARGET_SUBDIR="$PROFILE"
 if [[ "$PROFILE" == "dev" ]]; then
   TARGET_SUBDIR="debug"
@@ -292,7 +282,6 @@ fi
 
 BUNDLE_BIN_DIR="$OUT_DIR/bin"
 BUNDLE_WEB_DIR="$OUT_DIR/web"
-BUNDLE_WEB_LAUNCHER_DIR="$OUT_DIR/web-launcher"
 if [[ -n "$OPS_OUT_DIR" ]]; then
   OPS_BIN_DIR="$OPS_OUT_DIR/bin"
 else
@@ -302,22 +291,20 @@ else
   OPS_BIN_DIR=""
 fi
 
-run mkdir -p "$BUNDLE_BIN_DIR" "$BUNDLE_WEB_DIR" "$BUNDLE_WEB_LAUNCHER_DIR"
+run mkdir -p "$BUNDLE_BIN_DIR" "$BUNDLE_WEB_DIR"
 if [[ -n "$OPS_OUT_DIR" ]]; then
   run mkdir -p "$OPS_BIN_DIR"
 fi
 
-# 1) Build native binaries for launcher/live/client launcher.
+# 1) Build native binaries for launcher/live/chain runtime.
 BUNDLE_NATIVE_BUILD_ARGS=(
   -p oasis7_chain_runtime
   -p oasis7_launcher_backend
   -p oasis7_viewer_runtime
-  -p oasis7_client_launcher
   --bin oasis7_game_launcher
   --bin oasis7_web_launcher
   --bin oasis7_viewer_live
   --bin oasis7_chain_runtime
-  --bin oasis7_client_launcher
 )
 if [[ -n "$OPS_OUT_DIR" ]]; then
   BUNDLE_NATIVE_BUILD_ARGS+=(-p oasis7_ops_tools --bin oasis7_world_repair_rebuild
@@ -346,7 +333,6 @@ CHAIN_SRC="$NATIVE_TARGET_DIR/$TARGET_OUTPUT_SUBDIR/$CHAIN_BIN_NAME"
 WORLD_REPAIR_REBUILD_SRC="$NATIVE_TARGET_DIR/$TARGET_OUTPUT_SUBDIR/$WORLD_REPAIR_REBUILD_BIN_NAME"
 GOVERNANCE_REGISTRY_IMPORT_SRC="$NATIVE_TARGET_DIR/$TARGET_OUTPUT_SUBDIR/$GOVERNANCE_REGISTRY_IMPORT_BIN_NAME"
 GOVERNANCE_REGISTRY_AUDIT_SRC="$NATIVE_TARGET_DIR/$TARGET_OUTPUT_SUBDIR/$GOVERNANCE_REGISTRY_AUDIT_BIN_NAME"
-CLIENT_LAUNCHER_SRC="$NATIVE_TARGET_DIR/$TARGET_OUTPUT_SUBDIR/$CLIENT_LAUNCHER_BIN_NAME"
 SERVICE_READBACK_SRC="$ROOT_DIR/scripts/service-readback"
 
 if [[ -n "$NATIVE_BINARIES" ]]; then
@@ -354,7 +340,6 @@ if [[ -n "$NATIVE_BINARIES" ]]; then
   WEB_LAUNCHER_SRC="$NATIVE_BINARIES/bin/$WEB_LAUNCHER_BIN_NAME"
   LIVE_SRC="$NATIVE_BINARIES/bin/$LIVE_BIN_NAME"
   CHAIN_SRC="$NATIVE_BINARIES/bin/$CHAIN_BIN_NAME"
-  CLIENT_LAUNCHER_SRC="$NATIVE_BINARIES/bin/$CLIENT_LAUNCHER_BIN_NAME"
   WORLD_REPAIR_REBUILD_SRC="$NATIVE_BINARIES/ops/bin/$WORLD_REPAIR_REBUILD_BIN_NAME"
   GOVERNANCE_REGISTRY_IMPORT_SRC="$NATIVE_BINARIES/ops/bin/$GOVERNANCE_REGISTRY_IMPORT_BIN_NAME"
   GOVERNANCE_REGISTRY_AUDIT_SRC="$NATIVE_BINARIES/ops/bin/$GOVERNANCE_REGISTRY_AUDIT_BIN_NAME"
@@ -370,14 +355,12 @@ if [[ "$DRY_RUN" != "1" ]]; then
     [[ -f "$GOVERNANCE_REGISTRY_IMPORT_SRC" ]] || { echo "error: oasis7_governance_registry_import binary not found: $GOVERNANCE_REGISTRY_IMPORT_SRC" >&2; exit 1; }
     [[ -f "$GOVERNANCE_REGISTRY_AUDIT_SRC" ]] || { echo "error: oasis7_governance_registry_audit binary not found: $GOVERNANCE_REGISTRY_AUDIT_SRC" >&2; exit 1; }
   fi
-  [[ -f "$CLIENT_LAUNCHER_SRC" ]] || { echo "error: client launcher binary not found: $CLIENT_LAUNCHER_SRC" >&2; exit 1; }
 fi
 
 replace_file "$LAUNCHER_SRC" "$BUNDLE_BIN_DIR/$LAUNCHER_BIN_NAME"
 replace_file "$WEB_LAUNCHER_SRC" "$BUNDLE_BIN_DIR/$WEB_LAUNCHER_BIN_NAME"
 replace_file "$LIVE_SRC" "$BUNDLE_BIN_DIR/$LIVE_BIN_NAME"
 replace_file "$CHAIN_SRC" "$BUNDLE_BIN_DIR/$CHAIN_BIN_NAME"
-replace_file "$CLIENT_LAUNCHER_SRC" "$BUNDLE_BIN_DIR/$CLIENT_LAUNCHER_BIN_NAME"
 if [[ -n "$OPS_OUT_DIR" ]]; then
   replace_file "$WORLD_REPAIR_REBUILD_SRC" "$OPS_BIN_DIR/$WORLD_REPAIR_REBUILD_BIN_NAME"
   replace_file "$GOVERNANCE_REGISTRY_IMPORT_SRC" "$OPS_BIN_DIR/$GOVERNANCE_REGISTRY_IMPORT_BIN_NAME"
@@ -405,43 +388,18 @@ else
   run "$ROOT_DIR/scripts/copy-viewer-web-dist.sh" --dist-dir "$BUNDLE_WEB_DIR"
 fi
 
-# 3) Prepare launcher web dist (prebuilt artifact preferred; trunk build fallback).
-if [[ -n "$WEB_LAUNCHER_DIST_SOURCE" ]]; then
-  run rm -rf "$BUNDLE_WEB_LAUNCHER_DIR"
-  run mkdir -p "$BUNDLE_WEB_LAUNCHER_DIR"
-  run cp -R "$WEB_LAUNCHER_DIST_SOURCE/." "$BUNDLE_WEB_LAUNCHER_DIR/"
-else
-  ensure_command trunk
-  ensure_command rustup
-  ACTIVE_RUST_TOOLCHAIN="$(active_rust_toolchain)"
-  ensure_rust_target_installed "wasm32-unknown-unknown" "$ACTIVE_RUST_TOOLCHAIN"
-
-  run rm -rf "$BUNDLE_WEB_LAUNCHER_DIR"
-  run mkdir -p "$BUNDLE_WEB_LAUNCHER_DIR"
-  if [[ "$PROFILE" == "dev" ]]; then
-    run bash -lc "cd '$ROOT_DIR/crates/oasis7_client_launcher' && env -u NO_COLOR trunk build --dist '$BUNDLE_WEB_LAUNCHER_DIR'"
-  else
-    # The native bundle profile is intentionally not forwarded to Trunk.
-    # Trunk must use Cargo's standard release profile for wasm-opt validation.
-    run bash -lc "cd '$ROOT_DIR/crates/oasis7_client_launcher' && env -u NO_COLOR trunk build --release --dist '$BUNDLE_WEB_LAUNCHER_DIR'"
-  fi
-fi
-
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "+ bundle_write_manifest $ROOT_DIR $OUT_DIR $PROFILE $TARGET_TRIPLE"
 else
   bundle_write_manifest "$ROOT_DIR" "$OUT_DIR" "$PROFILE" "$TARGET_TRIPLE"
 fi
 
-# 4) Generate desktop client wrapper + one-command CLI wrapper and readme.
+# 3) Generate one-command CLI/headless wrappers and readme.
 run bash -lc "cat > '$OUT_DIR/run-client.sh' <<'LAUNCH'
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
-OASIS7_GAME_LAUNCHER_BIN=\"\$ROOT_DIR/bin/$LAUNCHER_BIN_NAME\" \
-OASIS7_GAME_STATIC_DIR=\"\$ROOT_DIR/web\" \
-OASIS7_CHAIN_RUNTIME_BIN=\"\$ROOT_DIR/bin/$CHAIN_BIN_NAME\" \
-\"\$ROOT_DIR/bin/$CLIENT_LAUNCHER_BIN_NAME\" \"\$@\"
+exec \"\$ROOT_DIR/run-game.sh\" \"\$@\"
 LAUNCH"
 run chmod +x "$OUT_DIR/run-client.sh"
 
@@ -457,7 +415,6 @@ fi
 OASIS7_GAME_LAUNCHER_BIN=\"\$ROOT_DIR/bin/$LAUNCHER_BIN_NAME\" \
 OASIS7_GAME_STATIC_DIR=\"\$ROOT_DIR/web\" \
 OASIS7_CHAIN_RUNTIME_BIN=\"\$ROOT_DIR/bin/$CHAIN_BIN_NAME\" \
-OASIS7_WEB_LAUNCHER_STATIC_DIR=\"\$ROOT_DIR/web-launcher\" \
 \"\$ROOT_DIR/bin/$WEB_LAUNCHER_BIN_NAME\" \"\${CHAIN_STORAGE_PROFILE_ARGS[@]}\" \"\$@\"
 LAUNCH"
 run chmod +x "$OUT_DIR/run-web-launcher.sh"
@@ -492,12 +449,7 @@ run chmod +x "$OUT_DIR/run-game.sh"
 if [[ "$BUNDLE_PLATFORM_ID" == "windows-x64" ]]; then
   run bash -lc "cat > '$OUT_DIR/run-client.cmd' <<'LAUNCH'
 @echo off
-setlocal
-set \"ROOT_DIR=%~dp0\"
-set \"OASIS7_GAME_LAUNCHER_BIN=%ROOT_DIR%bin\\$LAUNCHER_BIN_NAME\"
-set \"OASIS7_GAME_STATIC_DIR=%ROOT_DIR%web\"
-set \"OASIS7_CHAIN_RUNTIME_BIN=%ROOT_DIR%bin\\$CHAIN_BIN_NAME\"
-\"%ROOT_DIR%bin\\$CLIENT_LAUNCHER_BIN_NAME\" %*
+call \"%~dp0run-game.cmd\" %*
 LAUNCH"
 
   run bash -lc "cat > '$OUT_DIR/run-web-launcher.cmd' <<'LAUNCH'
@@ -507,7 +459,6 @@ set \"ROOT_DIR=%~dp0\"
 set \"OASIS7_GAME_LAUNCHER_BIN=%ROOT_DIR%bin\\$LAUNCHER_BIN_NAME\"
 set \"OASIS7_GAME_STATIC_DIR=%ROOT_DIR%web\"
 set \"OASIS7_CHAIN_RUNTIME_BIN=%ROOT_DIR%bin\\$CHAIN_BIN_NAME\"
-set \"OASIS7_WEB_LAUNCHER_STATIC_DIR=%ROOT_DIR%web-launcher\"
 if defined OASIS7_CHAIN_STORAGE_PROFILE (
   \"%ROOT_DIR%bin\\$WEB_LAUNCHER_BIN_NAME\" --chain-storage-profile \"%OASIS7_CHAIN_STORAGE_PROFILE%\" %*
 ) else (
@@ -540,57 +491,18 @@ if defined OASIS7_CHAIN_STORAGE_PROFILE (
 LAUNCH"
 fi
 
-if [[ "$BUNDLE_PLATFORM_ID" == macos-x64 || "$BUNDLE_PLATFORM_ID" == macos-arm64 ]]; then
-  BUNDLE_MACOS_APP_DIR="$OUT_DIR/oasis7 Client Launcher.app"
-  run mkdir -p "$BUNDLE_MACOS_APP_DIR/Contents/MacOS" "$BUNDLE_MACOS_APP_DIR/Contents/Resources"
-  run bash -lc "cat > '$BUNDLE_MACOS_APP_DIR/Contents/Info.plist' <<'PLIST'
-<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleExecutable</key>
-  <string>oasis7-client-launcher</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.oasis7.client-launcher</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>oasis7 Client Launcher</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
-  <key>CFBundleVersion</key>
-  <string>1</string>
-</dict>
-</plist>
-PLIST"
-  run bash -lc "cat > '$BUNDLE_MACOS_APP_DIR/Contents/MacOS/oasis7-client-launcher' <<'LAUNCH'
-#!/usr/bin/env bash
-set -euo pipefail
-APP_ROOT=\"\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")/../../..\" && pwd)\"
-exec \"\$APP_ROOT/run-client.sh\" \"\$@\"
-LAUNCH"
-  run chmod +x "$BUNDLE_MACOS_APP_DIR/Contents/MacOS/oasis7-client-launcher"
-fi
-
 run bash -lc "cat > '$OUT_DIR/README.txt' <<'README'
 oasis7 Launcher Bundle
 
 Quick start:
-1) Desktop launcher: ./run-client.sh
-2) Web launcher (headless): ./run-web-launcher.sh --listen-bind 0.0.0.0:5410
-3) CLI launcher: ./run-game.sh
-4) Direct chain runtime: ./run-chain-runtime.sh
-5) Open URL printed by launcher (CLI path defaults auto-open browser).
-6) macOS DMG: open oasis7 Client Launcher.app when present.
-7) Windows bundle: use run-client.cmd / run-game.cmd when present.
+1) CLI launcher: ./run-game.sh
+2) Web launcher (headless JSON control plane): ./run-web-launcher.sh --listen-bind 0.0.0.0:5410
+3) Direct chain runtime: ./run-chain-runtime.sh
+4) Open URL printed by launcher (CLI path defaults auto-open browser).
+5) Windows bundle: use run-game.cmd / run-web-launcher.cmd when present.
 
 Optional:
-- Desktop launcher can start/stop game stack from GUI and open URL in one click.
-- Web launcher provides a browser control panel for headless server operation.
+- Web launcher provides an HTTP JSON control plane for headless server operation.
 - Enable LLM mode: ./run-game.sh --with-llm
 - Disable auto-open browser: ./run-game.sh --no-open-browser
 - Override chain storage profile without hardcoding wrapper defaults:
@@ -607,13 +519,11 @@ Upgrade policy (current truth):
 - On Windows, do not assume uninstall + reinstall preserves local state. The current uninstaller removes the install directory.
 
 Bundle layout:
-- bin/oasis7_client_launcher
 - bin/oasis7_game_launcher
 - bin/oasis7_web_launcher
 - bin/oasis7_viewer_live
 - bin/oasis7_chain_runtime
 - web/
-- web-launcher/
 - .oasis7-bundle-manifest.json
 - run-client.sh
 - run-web-launcher.sh
@@ -623,7 +533,6 @@ Bundle layout:
 - run-web-launcher.cmd (Windows bundle only)
 - run-game.cmd (Windows bundle only)
 - run-chain-runtime.cmd (Windows bundle only)
-- oasis7 Client Launcher.app (macOS bundle only)
 - Operator repair/recovery and read-only service tools are published separately
   in the optional oasis7-${BUNDLE_PLATFORM_ID}-ops-tools bundle when
   --ops-out-dir is used.
@@ -724,13 +633,11 @@ fi
 
 cat <<INFO
 Bundle ready: $OUT_DIR
-- client launcher: $BUNDLE_BIN_DIR/$CLIENT_LAUNCHER_BIN_NAME
 - launcher:        $BUNDLE_BIN_DIR/$LAUNCHER_BIN_NAME
 - web launcher:    $BUNDLE_BIN_DIR/$WEB_LAUNCHER_BIN_NAME
 - live:            $BUNDLE_BIN_DIR/$LIVE_BIN_NAME
 - chain runtime:   $BUNDLE_BIN_DIR/$CHAIN_BIN_NAME
 - web:             $BUNDLE_WEB_DIR
-- web launcher:    $BUNDLE_WEB_LAUNCHER_DIR
 - entries:         $OUT_DIR/run-client.sh, $OUT_DIR/run-web-launcher.sh, $OUT_DIR/run-game.sh, $OUT_DIR/run-chain-runtime.sh
 - platform:        $BUNDLE_PLATFORM_ID
 INFO

@@ -1,7 +1,7 @@
 //! Read-only bridge from Runtime's validated feedback outbox to the native
 //! runner's bounded replay/collision verifier.
 
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 #[cfg(test)]
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,7 +12,7 @@ pub(in crate::viewer::runtime_live) fn restore_agent_feedback_history(
     world: &RuntimeWorld,
     runner: &mut AsyncAgentRunner,
 ) -> Result<(), String> {
-    let authority = oasis7::runtime_host::harness_authority::RuntimeWorldAuthority::new(world);
+    let authority = oasis7_runtime_host::harness_authority::RuntimeWorldAuthority::new(world);
     runner
         .host_restore_feedback_history(&authority)
         .map_err(|error| format!("Runtime feedback verifier recovery failed: {error}"))

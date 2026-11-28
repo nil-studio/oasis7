@@ -40,14 +40,33 @@ impl OwnedRpcServer {
         endpoint: FileFormalEndpoint,
         keepalive: K,
     ) -> Result<Self, FormalError> {
+        Self::start_configured(endpoint, keepalive, None)
+    }
+    /// The same real signed RPC fixture, now with server-lifetime original
+    /// budget/work and the production paid Query dispatcher enabled.
+    pub(super) fn start_prepaid<K: Send + 'static>(
+        endpoint: FileFormalEndpoint,
+        keepalive: K,
+        limits: crate::controlled_authority::formal::transport::FormalRpcFrameAdmissionLimitsV1,
+    ) -> Result<Self, FormalError> {
+        Self::start_configured(endpoint, keepalive, Some(limits))
+    }
+    fn start_configured<K: Send + 'static>(
+        endpoint: FileFormalEndpoint,
+        keepalive: K,
+        limits: Option<
+            crate::controlled_authority::formal::transport::FormalRpcFrameAdmissionLimitsV1,
+        >,
+    ) -> Result<Self, FormalError> {
         let listener =
             TcpListener::bind("127.0.0.1:0").map_err(|error| invalid(error.to_string()))?;
         let address = listener
             .local_addr()
             .map_err(|error| invalid(error.to_string()))?;
-        let server = super::super::super::super::super::transport::FormalEndpointServer::new(
+        let server = crate::controlled_authority::formal::transport::FormalEndpointServer::new_with_frame_admission(
             endpoint,
             RPC_TIMEOUT,
+            limits,
         )?;
         let stop = Arc::new(AtomicBool::new(false));
         let diagnostics = Arc::new(Diagnostics::default());

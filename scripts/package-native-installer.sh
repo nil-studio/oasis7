@@ -293,7 +293,7 @@ EOF
     ensure_command pwsh
     ensure_command makensis
     require_bundle_path "$BUNDLE_DIR/run-client.cmd"
-    require_bundle_path "$BUNDLE_DIR/bin/oasis7_client_launcher.exe"
+    require_bundle_path "$BUNDLE_DIR/bin/oasis7_game_launcher.exe"
     BUNDLE_DIR_NATIVE="$(windows_native_path "$BUNDLE_DIR")"
     OUT_FILE_NATIVE="$(windows_native_path "$OUT_FILE")"
     NSIS_SCRIPT_NATIVE="$(windows_native_path "$ROOT_DIR/scripts/windows-release-installer.nsi")"

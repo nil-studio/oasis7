@@ -6,7 +6,7 @@ use crate::runtime::{
 #[cfg(target_arch = "wasm32")]
 use crate::simulator::ActionResult;
 use crate::simulator::FeedbackEnvelopeV1;
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 use oasis7_simulator::Action as SimulatorAction;
 use serde_json::Value as JsonValue;
 
@@ -339,7 +339,7 @@ impl RuntimeLlmSidecar {
                         agent_id,
                         feedback,
                         receipt,
-                        &oasis7::runtime_host::harness_authority::RuntimeWorldAuthority::new(world),
+                        &oasis7_runtime_host::harness_authority::RuntimeWorldAuthority::new(world),
                         &mut self.provider_memory_store,
                     )
                     .map_err(|error| {

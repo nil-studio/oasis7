@@ -115,7 +115,6 @@ require_path "$BUNDLE_DIR/bin" dir
 require_path "$BUNDLE_DIR/web/index.html" file
 require_path "$BUNDLE_DIR/web/viewer.js" file
 require_path "$BUNDLE_DIR/web/software_safe.js" file
-require_path "$BUNDLE_DIR/web-launcher/index.html" file
 require_path "$BUNDLE_DIR/README.txt" file
 require_path "$BUNDLE_DIR/.oasis7-bundle-manifest.json" file
 
@@ -138,7 +137,6 @@ case "$PLATFORM" in
     require_path "$BUNDLE_DIR/run-web-launcher.sh" executable
     require_path "$BUNDLE_DIR/run-game.sh" executable
     require_path "$BUNDLE_DIR/run-chain-runtime.sh" executable
-    require_path "$BUNDLE_DIR/bin/oasis7_client_launcher" executable
     require_path "$BUNDLE_DIR/bin/oasis7_game_launcher" executable
     require_path "$BUNDLE_DIR/bin/oasis7_web_launcher" executable
     require_path "$BUNDLE_DIR/bin/oasis7_viewer_live" executable
@@ -149,13 +147,10 @@ case "$PLATFORM" in
     require_path "$BUNDLE_DIR/run-web-launcher.sh" executable
     require_path "$BUNDLE_DIR/run-game.sh" executable
     require_path "$BUNDLE_DIR/run-chain-runtime.sh" executable
-    require_path "$BUNDLE_DIR/bin/oasis7_client_launcher" executable
     require_path "$BUNDLE_DIR/bin/oasis7_game_launcher" executable
     require_path "$BUNDLE_DIR/bin/oasis7_web_launcher" executable
     require_path "$BUNDLE_DIR/bin/oasis7_viewer_live" executable
     require_path "$BUNDLE_DIR/bin/oasis7_chain_runtime" executable
-    require_path "$BUNDLE_DIR/oasis7 Client Launcher.app/Contents/Info.plist" file
-    require_path "$BUNDLE_DIR/oasis7 Client Launcher.app/Contents/MacOS/oasis7-client-launcher" executable
     if [[ "$PLATFORM" == "macos-arm64" ]]; then
       if command -v file >/dev/null 2>&1; then
         runtime_architecture="$(file -b "$BUNDLE_DIR/bin/oasis7_chain_runtime")"
@@ -224,7 +219,6 @@ PY
     fi
     ;;
   windows-x64)
-    require_path "$BUNDLE_DIR/bin/oasis7_client_launcher.exe" file
     require_path "$BUNDLE_DIR/bin/oasis7_game_launcher.exe" file
     require_path "$BUNDLE_DIR/bin/oasis7_web_launcher.exe" file
     require_path "$BUNDLE_DIR/bin/oasis7_viewer_live.exe" file

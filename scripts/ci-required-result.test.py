@@ -168,7 +168,7 @@ class Results(unittest.TestCase):
                 result.validate_full(plan, needs, self.jobs, **args)
         for event, ref, mode in (('push', 'refs/heads/main', ''),
                                  ('schedule', 'refs/heads/candidate', ''),
-                                 ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package')):
+                                 ('workflow_dispatch', 'refs/heads/main', 'other')):
             plan, needs, args = self.full_fixture()
             args.update(event_name=event, ref=ref, run_mode=mode)
             with self.subTest(event=event, ref=ref, mode=mode), self.assertRaises(ValueError):

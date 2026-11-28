@@ -772,8 +772,8 @@ class InlineExecutionSelection(unittest.TestCase):
             self.assertEqual(artifacts.required_arguments(selected, 'baseline-checks'), [])
             self.assertEqual(artifacts.required_native_commands(selected),
                              artifacts.required_native_commands(FastTargetInventory().selection()))
-        selected = self.selection(['newapi_accounting'])
-        self.assertEqual(artifacts.required_arguments(selected, 'baseline-checks'), ['newapi_accounting'])
+        selected = self.selection(['standalone_tool_lockfiles'])
+        self.assertEqual(artifacts.required_arguments(selected, 'baseline-checks'), ['standalone_tool_lockfiles'])
         for selected in (None, {}, FastTargetInventory().selection(),
                          self.selection() | {'fast_execution_version': 2}):
             with self.subTest(legacy=selected):
@@ -1412,9 +1412,8 @@ if os.environ['FAILED'] == action:
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'selection.json'
-            for checks, failed in (([], ''), (['newapi_accounting'], ''),
+            for checks, failed in (([], ''),
                                    (list(artifacts.RUST_BASELINE_CHECKS), ''),
-                                   (list(artifacts.RUST_BASELINE_CHECKS), 'newapi_accounting'),
                                    (list(artifacts.RUST_BASELINE_CHECKS), 'standalone_tool_lockfiles'),
                                    (None, '')):
                 selected = InlineExecutionSelection().selection(checks)
@@ -1425,7 +1424,6 @@ if os.environ['FAILED'] == action:
                 script = 'set -euo pipefail\ntier=required; ci_python="$1"; driver_dir="$2"; repo_root="$3"; required_plan="$4"\n'
                 script += 'run() { printf "command:%s\\n" "$*"; }\nrun_cargo() { printf "cargo:%s\\n" "$*"; }\n'
                 script += 'run_rustsec_advisory_check() { echo advisories; }\n'
-                script += 'run_newapi_bridge_service_accounting_tests() { echo newapi_accounting; [[ "$FAILED" != newapi_accounting ]] || return 19; }\n'
                 script += 'run_standalone_tool_lockfiles_checks() { echo standalone_tool_lockfiles; [[ "$FAILED" != standalone_tool_lockfiles ]] || return 19; }\n'
                 script += 'run_oasis7_required_clippy_for_group() {\n' + bodies['run_oasis7_required_clippy_for_group'] + '}\n'
                 script += 'run_rust_baseline() {\n' + body + '}\nrun_rust_baseline\n'
@@ -1438,9 +1436,8 @@ if os.environ['FAILED'] == action:
                     self.assertIn('cargo:fetch --locked', result.stdout)
                     self.assertIn('cargo-dev-architecture.py', result.stdout)
                     self.assertIn('advisories', result.stdout)
-                    self.assertEqual('newapi_accounting' in result.stdout.splitlines(), 'newapi_accounting' in expected)
                     self.assertEqual('standalone_tool_lockfiles' in result.stdout.splitlines(),
-                                     'standalone_tool_lockfiles' in expected and failed != 'newapi_accounting')
+                                     'standalone_tool_lockfiles' in expected)
 
     def test_format_failure_precedes_fetch_architecture_and_clippy(self):
         body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}',
@@ -1470,7 +1467,6 @@ if os.environ['FAILED'] == action:
                     self.assertIn('cargo-dev-architecture.py', lines[2])
                     self.assertIn('run_rustsec_advisory_check', lines)
                     self.assertIn('run_oasis7_required_clippy_for_group', lines)
-                    self.assertIn('run_newapi_bridge_service_accounting_tests', lines)
                     self.assertIn('run_standalone_tool_lockfiles_checks', lines)
 
     def test_target_clippy_executes_every_command_and_propagates_each_failure(self):

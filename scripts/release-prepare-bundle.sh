@@ -83,10 +83,6 @@ if [[ -z "${WEB_DIST}" ]]; then
   echo "error: --web-dist is required" >&2
   exit 1
 fi
-if [[ -z "${WEB_LAUNCHER_DIST}" ]]; then
-  echo "error: --web-launcher-dist is required" >&2
-  exit 1
-fi
 if [[ -z "${OUT_DIR}" ]]; then
   echo "error: --out-dir is required" >&2
   exit 1
@@ -103,7 +99,7 @@ fi
 if [[ "${WEB_DIST}" != /* ]]; then
   WEB_DIST="${ROOT_DIR}/${WEB_DIST}"
 fi
-if [[ "${WEB_LAUNCHER_DIST}" != /* ]]; then
+if [[ -n "${WEB_LAUNCHER_DIST}" && "${WEB_LAUNCHER_DIST}" != /* ]]; then
   WEB_LAUNCHER_DIST="${ROOT_DIR}/${WEB_LAUNCHER_DIST}"
 fi
 if [[ "${OUT_DIR}" != /* ]]; then
@@ -114,7 +110,7 @@ if [[ ! -d "${WEB_DIST}" ]]; then
   echo "error: web dist path does not exist: ${WEB_DIST}" >&2
   exit 1
 fi
-if [[ ! -d "${WEB_LAUNCHER_DIST}" ]]; then
+if [[ -n "${WEB_LAUNCHER_DIST}" && ! -d "${WEB_LAUNCHER_DIST}" ]]; then
   echo "error: web launcher dist path does not exist: ${WEB_LAUNCHER_DIST}" >&2
   exit 1
 fi
@@ -130,7 +126,6 @@ mkdir -p "${OUT_DIR}"
   --profile "${PROFILE}" \
   --target-triple "${TARGET_TRIPLE}" \
   --web-dist "${WEB_DIST}" \
-  --web-launcher-dist "${WEB_LAUNCHER_DIST}" \
   --ops-out-dir "${OPS_BUNDLE_DIR}"
 
 [[ -f "${OPS_BUNDLE_DIR}/.oasis7-ops-tools-manifest.json" ]] || {

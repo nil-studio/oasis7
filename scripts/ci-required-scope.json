@@ -121,7 +121,6 @@
       {"package": "oasis7_hosted_access", "target_kind": "lib", "target_name": "oasis7_hosted_access", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 594},
       {"package": "oasis7_launcher_backend", "target_kind": "bin", "target_name": "oasis7_game_launcher", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8452},
       {"package": "oasis7_launcher_backend", "target_kind": "bin", "target_name": "oasis7_web_launcher", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 108},
-      {"package": "oasis7_launcher_config", "target_kind": "lib", "target_name": "oasis7_launcher_config", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2},
       {"package": "oasis7_letai_credit_adapter", "target_kind": "lib", "target_name": "oasis7_letai_credit_adapter", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 16},
       {"package": "oasis7_newapi_bridge_service", "target_kind": "bin", "target_name": "oasis7_newapi_bridge_service", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 653},
       {"package": "oasis7_observability", "target_kind": "lib", "target_name": "oasis7_observability", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2},
@@ -518,8 +517,7 @@
         "test_tier_required"
       ],
       "cases": [
-        "simulator::tests::persist::material_ledger_wire_strings_preserve_validation",
-        "simulator::tests::persist::starter_settled_outcome_wire_shape_is_platform_neutral"
+        "simulator::canonical_contract_owner_tests::old_simulator_exports_are_canonical_owner_contracts"
       ]
     },
     "viewer-codec-lib": {
@@ -578,18 +576,6 @@
         "executable_image::replacement_tests::expectations::platform_report_rejects_empty_output",
         "executable_image::replacement_tests::expectations::platform_report_accepts_the_platform_result",
         "executable_image::replacement_tests::expectations::report_matches_whole_lines_without_accepting_a_digest_prefix"
-      ]
-    },
-    "launcher-config-lib": {
-      "package": "oasis7_launcher_config",
-      "target_kind": "lib",
-      "target_name": "oasis7_launcher_config",
-      "default_features": false,
-      "features": [],
-      "cases": [
-        "tests::default_chain_replication_bootstrap_peers_match_official_anchor_domains",
-        "tests::parse_chain_replication_bootstrap_peer_accepts_valid_multiaddr",
-        "tests::parse_chain_replication_bootstrap_peer_rejects_non_multiaddr"
       ]
     }
   },
@@ -895,18 +881,6 @@
     },
     {
       "match": [
-        "crates/oasis7_launcher_config/src/**"
-      ],
-      "exclude": [
-        "crates/oasis7_launcher_config/src/bin/**"
-      ],
-      "targets": [
-        "launcher-config-lib"
-      ],
-      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_launcher_config"
-    },
-    {
-      "match": [
         "crates/oasis7_runtime/src/world/incremental_*.rs",
         "crates/oasis7_world_state/src/incremental_*.rs"
       ],
@@ -924,7 +898,7 @@
     "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
     "oasis7_provider_local_bridge", "oasis7_provider_tools", "oasis7_viewer_runtime",
     "oasis7_viewer_codec", "oasis7_observability", "oasis7_hosted_access",
-    "oasis7_letai_credit_adapter", "oasis7_launcher_config", "oasis7_wasm_materializer",
+    "oasis7_letai_credit_adapter", "oasis7_wasm_materializer",
     "oasis7_game_client", "oasis7_browser_game_client", "oasis7_cas", "oasis7_formal_protocol"
   ],
   "oasis7_required_wasm_packages": [
@@ -1169,12 +1143,7 @@
       "system_deps",
       "wasm_target"
     ],
-    "launcher_web": [
-      "rust_toolchain",
-      "system_deps",
-      "wasm_target",
-      "trunk"
-    ],
+    "launcher_web": [],
     "workspace_support": [
       "rust_toolchain",
       "node",
@@ -1277,7 +1246,6 @@
     ".github/workflows/hosted-login-linux-build.yml": ["workflow_governance"],
     ".github/workflows/mainnet-packages.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/native-cache-diagnostic.yml": ["workflow_governance"],
-    ".github/workflows/newapi-bridge-service-package.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/pages.yml": ["workflow_governance", "site_quality"],
     ".github/workflows/pr-boundary-gate.yml": ["workflow_governance"],
     ".github/workflows/pr-fast-preview.yml": ["workflow_governance"],
@@ -1402,7 +1370,13 @@
     "scripts/ci-workflow.test.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.test.py": ["workflow_governance"],
+    "scripts/ci-engine-unit.test.py": ["workflow_governance"],
+    "scripts/ci_engine/__init__.py": ["workflow_governance"],
+    "scripts/ci_engine/capability_schema.py": ["workflow_governance"],
+    "scripts/ci_engine/rust_source_graph.py": ["workflow_governance"],
+    "scripts/ci_engine/shard_scheduler.py": ["workflow_governance"],
     "scripts/ci_process_runner.py": ["workflow_governance"],
+    "scripts/run-ci-authority-python.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope-worker-local.test.py": ["workflow_governance"],
@@ -1423,6 +1397,7 @@
     "scripts/plan-rust-required-scope-selection-part6.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-engine-unit.test.py",
     "scripts/ci-portable-cache-job.test.py",
     "scripts/ci-portable-cache-container-contract.test.py",
     "scripts/ci-portable-cache-archive.test.py",
@@ -2116,6 +2091,52 @@
         "scripts/ci-workspace-cache.test.py"
       ]
     },
+    "scripts/ci-engine-unit.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py"
+      ]
+    },
+    "scripts/ci_engine/__init__.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci_engine/capability_schema.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci_engine/rust_source_graph.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci_engine/shard_scheduler.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/run-ci-authority-python.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-engine-unit.test.py",
+        "scripts/plan-rust-required-scope.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
     "scripts/ci_process_runner.py": {
       "group": "workflow_governance",
       "tests": [
@@ -2266,6 +2287,63 @@
       ]
     }
   ],
+  "package_capabilities_version": 1,
+  "package_capabilities": {
+    "oasis7": {"ordinary_package": true, "compact_non_runtime_excluded": true, "splittable_lib_harness": {"logical_alias": "oasis7-lib-tests", "universal_v2_anchor": false}},
+    "oasis7_agent_api": {"ordinary_package": false, "required_wasm_build": true, "support_profile": {"profile_id": "oasis7_agent_api", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_agent_harness": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_agent_harness", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_browser_game_client": {"ordinary_package": true, "support_profile": {"profile_id": "oasis7_browser_game_client", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_cas": {"ordinary_package": true},
+    "oasis7_chain_runtime": {"ordinary_package": true, "full_tier_requires_host_docker": true, "host_docker_wasm_fixtures": ["builtin_test_modules", "provider_preview_wasm"]},
+    "oasis7_client_api": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_client_api", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_client_cli": {"ordinary_package": true},
+    "oasis7_client_storage": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_client_storage", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_consensus": {"ordinary_package": false, "group_library_proof": {"group": "consensus"}},
+    "oasis7_context": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_context", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_custody_core": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_custody_core", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_custody_worker": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_custody_worker", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_dev_test_worker": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_dev_test_worker", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_distfs": {"ordinary_package": false, "group_library_proof": {"group": "distfs"}},
+    "oasis7_domain_types": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_domain_types", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_executable_image": {"ordinary_package": true},
+    "oasis7_formal_protocol": {"ordinary_package": true},
+    "oasis7_game_client": {"ordinary_package": true, "support_profile": {"profile_id": "oasis7_game_client", "partition": "other", "requires_host_runner": true, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_hosted_access": {"ordinary_package": true},
+    "oasis7_launcher_backend": {"ordinary_package": true},
+    "oasis7_letai_credit_adapter": {"ordinary_package": true},
+    "oasis7_local_signer": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_local_signer", "partition": "other", "requires_host_runner": true, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_model_provider": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_model_provider", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_net": {"ordinary_package": false},
+    "oasis7_newapi_bridge_service": {"ordinary_package": true},
+    "oasis7_node": {"ordinary_package": false, "group_library_proof": {"group": "node"}},
+    "oasis7_observability": {"ordinary_package": true},
+    "oasis7_ops_tools": {"ordinary_package": true},
+    "oasis7_proto": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_proto", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_protocol_tools": {"ordinary_package": true},
+    "oasis7_provider_local_bridge": {"ordinary_package": true},
+    "oasis7_provider_tools": {"ordinary_package": true},
+    "oasis7_runtime": {"ordinary_package": true, "inline_dedicated_partition": true, "full_tier_requires_host_docker": true, "host_docker_wasm_fixtures": ["builtin_test_modules"], "splittable_lib_harness": {"logical_alias": "runtime-tests", "universal_v2_anchor": true}},
+    "oasis7_runtime_host": {"ordinary_package": true},
+    "oasis7_secure_envelope": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_secure_envelope", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_signer_protocol": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_signer_protocol", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_simulator": {"ordinary_package": true, "required_wasm_build": true},
+    "oasis7_viewer_codec": {"ordinary_package": true, "required_wasm_build": true},
+    "oasis7_viewer_runtime": {"ordinary_package": true, "required_wasm_build": true},
+    "oasis7_wasm_abi": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_wasm_abi", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_wasm_build": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_wasm_build", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_wasm_executor": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_wasm_executor", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_wasm_materializer": {"ordinary_package": true},
+    "oasis7_wasm_router": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_wasm_router", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_wasm_sdk": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_wasm_sdk", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_wasm_store": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_wasm_store", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "oasis7_world_projection": {"ordinary_package": true},
+    "oasis7_world_service": {"ordinary_package": true},
+    "oasis7_world_state": {"ordinary_package": true, "inline_dedicated_partition": true, "compact_non_runtime_excluded": true},
+    "pixel_world_bridge": {"ordinary_package": false, "support_profile": {"profile_id": "pixel_world_bridge", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "scenario_test_runner": {"ordinary_package": true},
+    "wasm_build_suite": {"ordinary_package": false, "support_profile": {"profile_id": "wasm_build_suite", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
+    "wasm_module_observe": {"ordinary_package": false, "support_profile": {"profile_id": "wasm_module_observe", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}}
+  },
   "package_groups": {
     "oasis7_custody_core": ["workspace_support"],
     "oasis7_dev_test_worker": ["workspace_support"],
@@ -2311,17 +2389,8 @@
     "pixel_world_bridge": [
       "pixel_world_bridge"
     ],
-    "oasis7_client_launcher": [
-      "workspace_support",
-      "launcher_web"
-    ],
-    "oasis7_launcher_ui": [
-      "workspace_support",
-      "launcher_web"
-    ],
     "oasis7_proto": [
-      "workspace_support",
-      "launcher_web"
+      "workspace_support"
     ],
     "oasis7_wasm_abi": [
       "workspace_support"
@@ -2415,10 +2484,6 @@
     "oasis7_letai_credit_adapter": [
       "oasis7_required"
     ],
-    "oasis7_launcher_config": [
-      "oasis7_required",
-      "launcher_web"
-    ],
     "oasis7_wasm_materializer": [
       "oasis7_required"
     ],
@@ -2483,6 +2548,24 @@
     },
     {
       "match": [
+        "scripts/check-duplicate-dependency-baseline.test.sh",
+        "scripts/fix-precommit.sh",
+        "scripts/llm-switch-coverage-diff.sh",
+        "scripts/oasis7-node-wasm-metrics-monitor.test.sh",
+        "scripts/oasis7-runtime-storage-gate.sh",
+        "scripts/readme-reward-pr-intake-import-smoke.sh",
+        "scripts/readme-reward-pr-intake-import.py",
+        "scripts/readme-reward-pr-intake-round-scan-smoke.sh",
+        "scripts/readme-reward-pr-intake-round-scan.py",
+        "scripts/readme_reward_pr_intake_lib.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "retired_scripts_cleanup_registration"
+    },
+    {
+      "match": [
         "scripts/unified-world-code-terminology-scan.sh",
         "scripts/unified-world-code-terminology-scan.test.sh"
       ],
@@ -2537,7 +2620,6 @@
         "scripts/release-web-startup.test.py"
       ],
       "groups": [
-        "launcher_web",
         "operational_contracts"
       ],
       "reason": "web_fixture_process_consumers"
@@ -2556,7 +2638,7 @@
     },
     {
       "match": ["crates/oasis7_builtin_wasm_modules/m1_power_storage/src/**"],
-      "groups": ["rust_baseline", "oasis7_required", "formal_process", "launcher_web"],
+      "groups": ["rust_baseline", "oasis7_required", "formal_process"],
       "reason": "m1_storage_wasm_consumers"
     },
     {
@@ -2623,12 +2705,8 @@
         "scripts/public-testnet-faucet/package-public-testnet-faucet.sh",
         "scripts/check-active-llm-provider.sh",
         "scripts/governance-registry-live-drill.sh",
-        "scripts/run-local-letai-provider-bridge.sh",
-        "scripts/local-letai-provider-bridge.test.sh",
         "scripts/provider-parity-p0.sh",
         "scripts/oasis7-liveops-grant.sh",
-        "scripts/newapi-bridge-service/package-newapi-bridge-service.sh",
-        "scripts/run-local-public-testnet-letai-test-environment.sh",
         "scripts/runtime-module-routing-perf-harness.sh"
       ],
       "groups": [
@@ -2673,7 +2751,6 @@
         "scripts/run-launcher-stack-local-mock-lane.test.sh"
       ],
       "groups": [
-        "launcher_web",
         "operational_contracts"
       ],
       "reason": "launcher_and_release_web_runtime_callers"
@@ -2743,9 +2820,7 @@
         "scripts/traffic_monitor_freshness.py",
         "scripts/p2p-*",
         "scripts/provider-remote-https/**",
-        "scripts/ensure-letai-local-token-config.sh",
-        "scripts/with-letai-llm-config.sh",
-        "scripts/run-local-letai-game-test*",
+        "scripts/newapi-bridge-service/*",
         "scripts/game-world-state-sync*",
         "scripts/state-sync-closure*",
         "scripts/s10-*",
@@ -2903,8 +2978,7 @@
       ],
       "groups": [
         "workflow_governance",
-        "packaging_contracts",
-        "launcher_web"
+        "packaging_contracts"
       ],
       "reason": "ci_download_contracts"
     },
@@ -2973,7 +3047,6 @@
         "scripts/hosted-passkey-world-runtime-smoke.mjs"
       ],
       "groups": [
-        "launcher_web",
         "viewer_js_required"
       ],
       "reason": "hosted_identity_browser_smoke"
@@ -2984,8 +3057,7 @@
         "scripts/playwright-module-loader.test.mjs"
       ],
       "groups": [
-        "viewer_js_required",
-        "launcher_web"
+        "viewer_js_required"
       ],
       "reason": "shared_playwright_module_resolution"
     },
@@ -2995,7 +3067,7 @@
         "scripts/launcher-help*"
       ],
       "groups": [
-        "launcher_web"
+        "operational_contracts"
       ],
       "reason": "launcher_tools"
     },
@@ -3199,6 +3271,16 @@
         "workflow_governance"
       ],
       "reason": "split_python_control_test_suites"
+    },
+    {
+      "match": [
+        "scripts/ci_engine/**",
+        "scripts/run-ci-authority-python.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "ci_engine_and_authority_launcher"
     }
   ]
 }

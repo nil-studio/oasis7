@@ -187,6 +187,11 @@ impl FormalEndpointServer {
                 .verify_sealed_archive_grant_scope(grant, &body.minimum)?;
         }
         let request_digest = hash("oasis7.formal.endpoint.rpc.request_digest.v1", body)?;
+        // Retain the true paid five-state owner and response-copy lease
+        // through signing AND the common prepaid physical output writer.
+        let mut _paid_query_owner: Option<super::super::endpoint::PaidFormalRequestQueryV1> = None;
+        let mut _paid_query_copy_lease: Option<oasis7_proto::memory_budget::MemoryReservation> =
+            None;
         let response = match &body.command {
             Command::Head
             | Command::ArchiveChunk { .. }
@@ -199,7 +204,33 @@ impl FormalEndpointServer {
             )?,
             _ => {
                 self.endpoint.verify_minimum(&body.minimum)?;
-                let result = self.execute(body.command.clone());
+                let result = match (&body.command, self.frame_admission.as_ref()) {
+                    (Command::Query(key), Some((memory, work))) => {
+                        // The original process-owned Ordinary pool and continuing
+                        // Work serve Store Index -> all five typed Request states.
+                        self.endpoint
+                            .query_data_bounded(key, memory, work, &mut cancelled)
+                            .and_then(|paid| {
+                                use oasis7_proto::memory_budget::MemoryClass;
+                                let workspace = paid.response_copy_workspace()?;
+                                let fee = memory
+                                    .reserve(workspace, MemoryClass::Ordinary)
+                                    .map_err(|_| invalid("formal paid Query response admission"))?;
+                                work.consume_steps(1, &mut cancelled)?;
+                                let outcome = match paid.state() {
+                                    Some(state) => {
+                                        FormalQueryOutcomeV1::Recorded(Box::new(state.clone()))
+                                    }
+                                    None => FormalQueryOutcomeV1::NotRecorded,
+                                };
+                                _paid_query_copy_lease = Some(fee);
+                                _paid_query_owner = Some(paid);
+                                Ok(Value::Query(Box::new(outcome)))
+                            })
+                    }
+                    // No paid-mode fallback to the old unbounded query.
+                    _ => self.execute(body.command.clone()),
+                };
                 self.endpoint.sign_formal_rpc_response(
                     request_digest,
                     body.challenge.clone(),

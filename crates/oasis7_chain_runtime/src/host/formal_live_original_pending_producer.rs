@@ -115,10 +115,13 @@ impl OriginalPendingProducerV1 {
             PREPARED_PIN_FILE,
             FROZEN_PIN_FILE,
         ] {
-            if fs::symlink_metadata(owner_directory.join(leaf)).is_ok() {
-                return Err("original pending owner has unresolved prior freeze".into());
+            match fs::symlink_metadata(owner_directory.join(leaf)) {
+                Ok(_) => return Err("original pending owner has unresolved prior freeze".into()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.to_string()),
             }
         }
+        reject_orphan_immutable_writes(owner_directory)?;
         Ok(Self {
             owner,
             requests: Vec::new(),
@@ -217,9 +220,19 @@ impl OriginalPendingProducerV1 {
         if self.phase != PendingPhase::Accepting {
             return Err("original pending owner frozen; cannot retire further actions".into());
         }
+        // Node Frozen supplies action bytes, not the originating signed HTTP
+        // identity. Different original requests may encode the SAME Node action;
+        // one Frozen occurrence cannot prove which request retired. Preserve
+        // every ambiguous original for exact cold recovery instead of dropping
+        // unrelated requests merely because their action bytes compare equal.
+        let mut binding_counts: BTreeMap<&[u8], usize> = BTreeMap::new();
+        for action in self.action_bindings.values() {
+            *binding_counts.entry(action.as_slice()).or_default() += 1;
+        }
         self.requests.retain(|original| {
             !self.action_bindings.get(&original.identity).is_some_and(|node_bytes| {
-                exact_frozen_actions.contains(&node_bytes.as_slice())
+                binding_counts.get(node_bytes.as_slice()) == Some(&1)
+                    && exact_frozen_actions.contains(&node_bytes.as_slice())
             })
         });
         self.action_bindings.retain(|identity, _| {
@@ -349,6 +362,38 @@ pub(super) fn cold_read_exact_frozen(
     let exact_bytes = serde_cbor::to_vec(checked.handoff()).map_err(|err| err.to_string())?;
     ensure_exact_file(owner_directory, PREPARED_FILE, &exact_bytes)?;
     Ok(checked.handoff().clone())
+}
+
+/// An interrupted immutable write may have fsynced its private temporary
+/// bytes but died before linking the canonical prepared/owner leaf. That is
+/// an unknown freeze outcome, NOT evidence that no freeze ever started.
+/// Do not let a restarted owner silently re-open admission in that namespace.
+fn reject_orphan_immutable_writes(directory: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        for leaf in [ORIGINAL_FILE, PREPARED_FILE, PREPARED_PIN_FILE, FROZEN_PIN_FILE] {
+            let prefix = format!(".{leaf}.");
+            let Some(rest) = name.strip_prefix(&prefix) else {
+                continue;
+            };
+            let Some(ids) = rest.strip_suffix(".tmp") else {
+                continue;
+            };
+            if let Some((pid, sequence)) = ids.split_once('.')
+                && !pid.is_empty()
+                && !sequence.is_empty()
+                && pid.bytes().all(|byte| byte.is_ascii_digit())
+                && sequence.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return Err("original pending owner has unresolved immutable write".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_owned_directory(directory: &Path) -> Result<(), String> {
@@ -573,6 +618,38 @@ mod tests {
         assert!(producer
             .note_successful_frozen_actions(&[&[12, 13]])
             .is_err());
+        check_ambiguous_actions_remain_in_original_frozen_cold_read();
+    }
+
+    // Reuse the existing selected native case. Two distinct authenticated
+    // requests can carry identical Node action bytes; a successful Frozen
+    // occurrence must not retire both original request identities.
+    fn check_ambiguous_actions_remain_in_original_frozen_cold_read() {
+        let scratch = Scratch::new();
+        let mut producer = OriginalPendingProducerV1::open(&scratch.0, owner()).unwrap();
+        producer
+            .note_enqueued_with_action(identity("collision-a"), vec![0, 255], vec![21, 22])
+            .unwrap();
+        producer
+            .note_enqueued_with_action(identity("collision-b"), vec![1, 254], vec![21, 22])
+            .unwrap();
+        producer
+            .note_enqueued_with_action(identity("unique"), vec![2, 253], vec![31, 32])
+            .unwrap();
+        producer
+            .note_successful_frozen_actions(&[&[21, 22], &[31, 32]])
+            .unwrap();
+        assert_eq!(producer.requests.len(), 2);
+        let pin = producer.begin_freeze(&scratch.0).unwrap();
+        assert_eq!(pin.count, 2);
+        producer.finish_node_freeze(&scratch.0).unwrap();
+        let recovered =
+            cold_read_exact_frozen(&scratch.0, &owner(), &pin.root, pin.count).unwrap();
+        assert_eq!(recovered.requests.len(), 2);
+        assert_eq!(recovered.requests[0].identity.request_id, "collision-a");
+        assert_eq!(recovered.requests[0].signed_request, [0, 255]);
+        assert_eq!(recovered.requests[1].identity.request_id, "collision-b");
+        assert_eq!(recovered.requests[1].signed_request, [1, 254]);
     }
 
     #[test]
@@ -589,6 +666,34 @@ mod tests {
         assert!(!producer.is_frozen());
         assert!(producer.finish_node_freeze(&scratch.0).is_ok());
         assert!(producer.note_accepted_enqueue(identity("new"), vec![1]).is_err());
+        check_crashed_prepared_temporary_write_blocks_new_owner();
+    }
+
+    // Reuse this existing native regression entrypoint. A real writer fsyncs
+    // the temporary file before linking its canonical durable marker. Killing
+    // it at that gap must never make the next open appear freshly accepting.
+    fn check_crashed_prepared_temporary_write_blocks_new_owner() {
+        let scratch = Scratch::new();
+        for (index, leaf) in [
+            ORIGINAL_FILE,
+            PREPARED_FILE,
+            PREPARED_PIN_FILE,
+            FROZEN_PIN_FILE,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let temp = scratch.0.join(format!(".{leaf}.999.{}.tmp", index));
+            let mut write = File::create(&temp).unwrap();
+            write.write_all(b"unresolved original frozen bytes").unwrap();
+            write.sync_all().unwrap();
+            File::open(&scratch.0).unwrap().sync_all().unwrap();
+            assert!(OriginalPendingProducerV1::open(&scratch.0, owner()).is_err());
+            fs::remove_file(temp).unwrap();
+        }
+        // An unrelated temporary artifact is not a pending freeze marker.
+        fs::write(scratch.0.join(".unrelated.999.1.tmp"), b"unrelated").unwrap();
+        assert!(OriginalPendingProducerV1::open(&scratch.0, owner()).is_ok());
     }
 
     #[test]

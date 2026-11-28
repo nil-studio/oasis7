@@ -105,6 +105,11 @@ class GitFixture(unittest.TestCase):
             self.write('scripts/' + name, (HERE / name).read_text() if real else json.dumps({'groups': list(groups)}))
         if real:
             self.write('scripts/plan-rust-required-scope.py', (HERE / 'plan-rust-required-scope.py').read_text())
+            if (HERE / 'run-ci-authority-python.py').is_file():
+                self.write('scripts/run-ci-authority-python.py', (HERE / 'run-ci-authority-python.py').read_text())
+            if (HERE / 'ci_engine').is_dir():
+                for ef in sorted((HERE / 'ci_engine').rglob('*.py')):
+                    self.write('scripts/' + ef.relative_to(HERE).as_posix(), ef.read_text())
         else:
             self.write('scripts/plan-rust-required-scope.py',
                        'import json, pathlib, sys\n'
@@ -793,6 +798,9 @@ class SupportContracts(GitFixture):
         for name in ('ci-tests.sh', 'viewer-dependency-preflight.sh',
                      'plan-rust-required-scope.py'):
             self.write('scripts/' + name, (HERE / name).read_text(), True)
+        if (HERE / 'ci_engine').is_dir():
+            for ef in sorted((HERE / 'ci_engine').rglob('*.py')):
+                self.write('scripts/' + ef.relative_to(HERE).as_posix(), ef.read_text())
         self.write('scripts/find-python-with-module.sh',
                    f'#!/bin/sh\nprintf "%s\\n" "{sys.executable}"\n', True)
         self.calls = Path(self.temp.name) / 'cargo-calls.jsonl'
@@ -873,17 +881,17 @@ fi
     def test_native_profiles_keep_the_complete_canonical_command_chain(self):
         profiles = ('oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api',
                     'oasis7_model_provider', 'oasis7_client_storage', 'oasis7_signer_protocol',
-                    'oasis7_custody_core', 'oasis7_launcher_ui', 'oasis7_proto', 'oasis7_wasm_build',
+                    'oasis7_custody_core', 'oasis7_proto', 'oasis7_wasm_build',
                     'oasis7_wasm_sdk', 'oasis7_wasm_store', 'pixel_world_bridge',
-                    'oasis7_secure_envelope', 'oasis7_context', 'oasis7_client_launcher')
+                    'oasis7_secure_envelope', 'oasis7_context')
         before = self.state()
         result = self.result(profiles)
         self.execute(result)
         group = result['groups'][0]
         self.assertEqual(result['status'], 'passed')
         self.assertEqual(group['profiles'], list(profiles))
-        self.assertEqual(group['tests_executed'], 16)
-        self.assertEqual(len(group['commands']), 21)
+        self.assertEqual(group['tests_executed'], 14)
+        self.assertEqual(len(group['commands']), 19)
         self.assertIn('--support-plan-file', group['argv'])
         self.assertNotIn('--plan', group['argv'])
         calls = self.recorded_calls()
@@ -895,8 +903,6 @@ fi
                           'oasis7_client_storage', 'oasis7_model_provider', 'oasis7_signer_protocol'])
         for args in tests + clippy:
             self.assertIn('--locked', args)
-        self.assertIn(['test', '--locked', '-p', 'oasis7_client_launcher',
-                       '--bin', 'oasis7_client_launcher'], tests)
         for profile in ('oasis7_custody_core', 'oasis7_model_provider',
                         'oasis7_secure_envelope', 'oasis7_context'):
             selected = next(args for args in tests if args[args.index('-p') + 1] == profile)

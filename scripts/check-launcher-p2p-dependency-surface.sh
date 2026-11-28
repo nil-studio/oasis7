@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
-package="oasis7_client_launcher"
+package="oasis7_launcher_backend"
 forbidden_specs=(
   "libp2p"
   "ring@0.16.20"

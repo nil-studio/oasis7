@@ -147,7 +147,7 @@ fn authorize_request(
         let Some(token) = presented else {
             return Ok(None);
         };
-        return Ok(state.resolve_newapi_bridge_route_label(token));
+        return Ok(Some(token.to_string()));
     }
     let Some(expected) = state.options.auth_token.as_deref() else {
         return Ok(Some("default".to_string()));

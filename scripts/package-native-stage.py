@@ -15,7 +15,7 @@ def require(condition, message):
 def manifest(directory, repository, profile, target, platform, ops):
     suffix = '.exe' if platform == 'windows-x64' else ''
     names = ['oasis7_game_launcher', 'oasis7_web_launcher', 'oasis7_viewer_live',
-             'oasis7_chain_runtime', 'oasis7_client_launcher']
+             'oasis7_chain_runtime']
     paths = ['bin/' + name + suffix for name in names]
     if ops:
         paths += ['ops/bin/' + name + suffix for name in

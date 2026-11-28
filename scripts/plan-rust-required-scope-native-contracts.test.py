@@ -593,5 +593,60 @@ class AuthorityConsumerContracts(_ScopeFixtureBase):
         self.assertIn('#[cfg(test)] mod authority_commit_verifier_tests;', rule['added_declarations'])
 
 
+class PackageCapabilitiesAndContracts(unittest.TestCase):
+    def test_dual_domain_full_plan_and_materialized_contracts(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        selector.validate_config(config)
+        caps = config['package_capabilities']
+        for dual in ('oasis7_game_client', 'oasis7_browser_game_client'):
+            self.assertTrue(caps[dual]['ordinary_package'])
+            self.assertIsNotNone(caps[dual]['support_profile'])
+        head = subprocess.check_output(['git', '-C', str(HERE.parent), 'rev-parse', 'HEAD'], text=True).strip()
+        plan = selector.full_plan(config, 'periodic-full', head)
+        ord_c = plan['ordinary_execution_contract']
+        sup_c = plan['workspace_support_execution_contract']
+        self.assertEqual(ord_c['version'], 1)
+        self.assertFalse(ord_c['candidate_container_eligible'])
+        self.assertIn('builtin_test_modules', ord_c['required_host_docker_wasm_fixtures'])
+        self.assertEqual(ord_c['required_wasm_packages'], sorted(config['oasis7_required_wasm_packages']))
+        self.assertEqual(sup_c['version'], 1)
+        self.assertIn('oasis7_game_client', sup_c['host_profiles'])
+        self.assertIn('oasis7_browser_game_client', sup_c['image_profiles'])
+        self.assertEqual(sup_c['selected_profiles'], sorted(selector.SUPPORT_PROFILES))
+
+    def test_cross_version_add_remove_rename_and_legacy_equivalence(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        engine = selector._load_sibling_ci_engine()
+        self.assertIsNotNone(engine)
+        caps = config['package_capabilities']
+        cand_members = (set(caps) - {'oasis7_proto'}) | {'oasis7_new_crate', 'oasis7_proto_v2'}
+        diff = engine.reconcile_cross_version_members(caps, cand_members)
+        self.assertEqual(diff['added'], ('oasis7_new_crate', 'oasis7_proto_v2'))
+        self.assertEqual(diff['removed'], ('oasis7_proto',))
+        # Candidate cannot relax host-docker requirement on policy_sha contract.
+        risk_plan = {
+            'scope': 'full', 'execution_profile': 'pr-fast', 'fast_plan_version': 1,
+            'test_policy_changed': False,
+            'ordinary_risk_targets': [{'package': 'oasis7_chain_runtime', 'target_kind': 'test'}],
+            'oasis7_required_packages': ['oasis7_chain_runtime'], 'oasis7_required_wasm_packages': [],
+            'workspace_support_profiles': ['oasis7_game_client', 'oasis7_browser_game_client'],
+        }
+        out = selector.materialize_execution_contracts(config, dict(risk_plan))
+        self.assertFalse(out['ordinary_execution_contract']['candidate_container_eligible'])
+        self.assertIn('provider_preview_wasm', out['ordinary_execution_contract']['required_host_docker_wasm_fixtures'])
+        # Targeted inline plan keeps candidate_container_eligible=True and aligns with workflow-plan.
+        inline_plan = {
+            'scope': 'targeted', 'execution_profile': 'pr-fast', 'fast_plan_version': 1,
+            'test_policy_changed': False, 'ordinary_execution': 'inline',
+            'ordinary_partitions': ['oasis7_runtime', 'oasis7_world_state'],
+            'ordinary_fast_targets': [{'package': 'oasis7_runtime'}, {'package': 'oasis7_world_state'}],
+            'oasis7_required_packages': ['oasis7_runtime', 'oasis7_world_state'],
+            'oasis7_required_wasm_packages': [], 'workspace_support_profiles': [],
+        }
+        out_inline = selector.materialize_execution_contracts(config, dict(inline_plan))
+        self.assertTrue(out_inline['ordinary_execution_contract']['candidate_container_eligible'])
+        self.assertEqual(out_inline['ordinary_execution_contract']['partitions'], ['oasis7_runtime', 'oasis7_world_state'])
+
+
 if __name__ == '__main__':
     unittest.main()

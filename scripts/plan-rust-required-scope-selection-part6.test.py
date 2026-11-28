@@ -114,6 +114,11 @@ class SelectionPart6(unittest.TestCase):
         for name in ('plan-rust-required-scope.py', 'ci-required-result.py', 'ci-formal-plan.py',
                      'ci-formal-process-suites.json'):
             self.write('scripts/' + name, (HERE / name).read_text())
+        if (HERE / 'run-ci-authority-python.py').is_file():
+            self.write('scripts/run-ci-authority-python.py', (HERE / 'run-ci-authority-python.py').read_text())
+        if (HERE / 'ci_engine').is_dir():
+            for ef in sorted((HERE / 'ci_engine').rglob('*.py')):
+                self.write('scripts/' + ef.relative_to(HERE).as_posix(), ef.read_text())
         self.write('scripts/ci-required-scope.json', json.dumps(self.config))
         self.base = self.commit()
         self.write('unknown.file', 'unregistered input')

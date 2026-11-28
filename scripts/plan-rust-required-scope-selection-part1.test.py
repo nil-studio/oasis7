@@ -186,7 +186,7 @@ class SelectionPart1(unittest.TestCase):
     def test_ci_download_exact_registration_and_old_baseline(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         paths = ('scripts/install-ci-trunk.sh', 'scripts/install-ci-trunk.test.sh')
-        expected = {'baseline', 'workflow_governance', 'packaging_contracts', 'launcher_web',
+        expected = {'baseline', 'workflow_governance', 'packaging_contracts',
                     'macos_package_contract'}
         old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'ci_download_contracts'])
         with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
@@ -325,7 +325,7 @@ class SelectionPart1(unittest.TestCase):
             plan = selector.select(config, self.base, head)
             self.assertEqual(set(plan['groups']), {
                 'baseline', 'rust_baseline', 'oasis7_required', 'formal_process',
-                'launcher_web', 'workspace_support',
+                'workspace_support',
             })
             self.assertEqual(plan['workspace_support_profiles'], ['wasm_build_suite'])
             trusted_before_registration = dict(config, rules=[

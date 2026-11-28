@@ -8,19 +8,17 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 bundle="$TMP_DIR/bundle"
 mkdir -p \
   "$bundle/bin" \
-  "$bundle/web" \
-  "$bundle/web-launcher"
+  "$bundle/web"
 printf '<!doctype html><script type="module" src="./viewer.js"></script>\n' >"$bundle/web/index.html"
 printf 'console.log("canonical viewer");\n' >"$bundle/web/viewer.js"
 printf 'import "./viewer.js";\n' >"$bundle/web/software_safe.js"
-printf '<!doctype html>\n' >"$bundle/web-launcher/index.html"
 printf 'contract fixture\n' >"$bundle/README.txt"
 printf '{"schema":1}\n' >"$bundle/.oasis7-bundle-manifest.json"
 for launcher in run-client.sh run-web-launcher.sh run-game.sh run-chain-runtime.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$bundle/$launcher"
   chmod +x "$bundle/$launcher"
 done
-for binary in oasis7_client_launcher oasis7_game_launcher oasis7_web_launcher oasis7_viewer_live oasis7_chain_runtime; do
+for binary in oasis7_game_launcher oasis7_web_launcher oasis7_viewer_live oasis7_chain_runtime; do
   printf '#!/usr/bin/env bash\nexit 0\n' >"$bundle/bin/$binary"
   chmod +x "$bundle/bin/$binary"
 done

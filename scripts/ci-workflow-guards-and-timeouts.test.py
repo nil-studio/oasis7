@@ -110,7 +110,6 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'launcher-web': 10,
                 'viewer-js-required': 14,
                 'viewer-performance-report': 15,
-                'newapi-bridge-package': 10,
             },
             '.github/workflows/pr-boundary-gate.yml': {
                 'boundary-check': 3,
@@ -142,9 +141,6 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'build-metrics': 150,
                 'package': 20,
                 'publish-preview': 10,
-            },
-            '.github/workflows/newapi-bridge-service-package.yml': {
-                'package-linux-x86-64': 10,
             },
             '.github/workflows/hosted-login-linux-build.yml': {
                 'build-linux-x86-64': 30,
