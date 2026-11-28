@@ -186,6 +186,7 @@ fn original_noise_outer_response_charge_preserves_one_fenced_retention_tuple() {
     let mut first = current(2, 100);
     let material_limit = BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1 - 150;
     first.current.signer.state.private_retention = Some(BftPrivateRetentionHeadV1 {
+        selection_commitment: None,
         schema_version: 2,
         source: source(),
         capability_digest: hex_hash(20),
