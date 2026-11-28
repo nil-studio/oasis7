@@ -33,6 +33,7 @@ serde_cbor = { workspace = true }
 sha2 = "0.11"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+oasis7_runtime = { path = "../oasis7_runtime", default-features = false, features = ["test-support"] }
 async-openai = { version = "0.43.0", default-features = false, features = ["responses", "rustls"] }
 
 [features]

@@ -4,7 +4,7 @@
 //! world/player-visible memory, belief/preference correction and cognition
 //! billing are not part of this contract.
 
-use crate::simulator::{
+use crate::simulator_tests::{
     AgentBehavior, AgentDecision, AsyncAgentRunner, AsyncAgentTurnOutcome,
     ContinuousAgentTurnContextV1, MemoryContextSnapshotV1, MemoryCorrectionV1, MemoryWriteIntent,
     MemoryWriteIntentPolicyV1, MemoryWriteIntentV1, MemoryWritePolicyContextV1,
@@ -141,7 +141,7 @@ fn oasis_memory_policy_matches_harness_golden_contract() {
 
 #[test]
 fn oasis_goal_snapshot_adapter_matches_harness_projection_golden() {
-    let oasis_input = crate::simulator::GoalSnapshotInputV1 {
+    let oasis_input = crate::simulator_tests::GoalSnapshotInputV1 {
         revision: 7,
         short_term_summary: " short-term ".into(),
         long_term_summary: " e\u{301}-term ".into(),
@@ -150,7 +150,8 @@ fn oasis_goal_snapshot_adapter_matches_harness_projection_golden() {
     };
     let harness_input: oasis7_agent_harness::GoalSnapshotInputV1 =
         serde_json::from_value(serde_json::to_value(&oasis_input).unwrap()).unwrap();
-    let oasis = crate::simulator::GoalSnapshotProjector::project(Some(oasis_input), None).unwrap();
+    let oasis =
+        crate::simulator_tests::GoalSnapshotProjector::project(Some(oasis_input), None).unwrap();
     let harness =
         oasis7_agent_harness::GoalSnapshotProjector::project(Some(harness_input), None).unwrap();
     assert_eq!(
@@ -432,7 +433,7 @@ fn turn_context() -> ContinuousAgentTurnContextV1 {
         request_digest: serde_json::from_value(json!(REQUEST_DIGEST))
             .expect("decode request digest"),
         memory_snapshot: MemoryContextSnapshotV1::empty("turn_private"),
-        goal_snapshot: crate::simulator::GoalSnapshotV1::empty(),
+        goal_snapshot: crate::simulator_tests::GoalSnapshotV1::empty(),
         continuation: None,
     }
 }

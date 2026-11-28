@@ -1,13 +1,10 @@
 //! Tests for the simulator module.
 
-use super::*;
-use crate::geometry::GeoPos;
+mod prelude;
+pub use prelude::*;
 use std::fs;
 
-fn restore_runner_feedback_history(
-    runner: &mut crate::simulator::AsyncAgentRunner,
-    world: &crate::runtime::World,
-) {
+fn restore_runner_feedback_history(runner: &mut AsyncAgentRunner, world: &oasis7_runtime::World) {
     let history = world
         .runtime_feedback_outbox()
         .expect("read host-validated Runtime feedback history");
@@ -16,11 +13,9 @@ fn restore_runner_feedback_history(
         .expect("restore Runner replay fence from Runtime history");
 }
 
-fn provider_backed_runner_with_empty_runtime_history(
-    agent_id: &str,
-) -> crate::simulator::AsyncAgentRunner {
-    let mut runner = crate::simulator::AsyncAgentRunner::provider_backed_fixture(agent_id);
-    restore_runner_feedback_history(&mut runner, &crate::runtime::World::new());
+fn provider_backed_runner_with_empty_runtime_history(agent_id: &str) -> AsyncAgentRunner {
+    let mut runner = AsyncAgentRunner::provider_backed_fixture(agent_id);
+    restore_runner_feedback_history(&mut runner, &oasis7_runtime::World::new());
     runner
 }
 
@@ -82,7 +77,6 @@ mod agent_feedback_recovery;
 mod decision_provider;
 mod fine_grain_persistence;
 mod kernel_wasm_sandbox_bridge;
-mod memory;
 mod micro_depot_measured_supply;
 #[cfg(not(target_arch = "wasm32"))]
 mod model_provider;

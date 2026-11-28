@@ -4,13 +4,13 @@
 //! leave provider execution, Runtime admission, durable receipts, and World
 //! readback authority in their existing Oasis7 owners.
 
-use crate::runtime::{CognitionLeaseStatusV1, RuntimeReceiptLineageV1};
-use crate::simulator::{
+use crate::simulator_tests::{
     BudgetContractV1, CognitionError, ContinuationBudgetV1, ContinuationProposalV1,
     ContinuousAgentResponseContextV1, DecisionResponse, Digest32, FeedbackEnvelopeV1,
     GoalSnapshotV1, MemoryContextSnapshotV1, MemoryWriteIntentV1, NormalizedMemoryWriteIntentV1,
     ProviderExecutionMode, ResponseArtifactIdentityV1, RuntimeBindingV1, WakeConditionV1,
 };
+use oasis7_runtime::{CognitionLeaseStatusV1, RuntimeReceiptLineageV1};
 use serde_json::json;
 
 #[test]
@@ -82,7 +82,7 @@ fn request_wrapper_round_trip_preserves_wire_bytes_and_request_identities() {
         .validate()
         .expect("legacy request wrapper validates");
 
-    let api = super::super::agent_api_compat::request_context_to_api(&request);
+    let api = crate::agent_api_compat::request_context_to_api(&request);
     assert_eq!(
         serde_json::to_value(&api).expect("encode API request"),
         serde_json::to_value(&request).expect("encode Oasis7 request")
@@ -99,7 +99,7 @@ fn request_wrapper_round_trip_preserves_wire_bytes_and_request_identities() {
         api.provider_invocation_key()
     );
 
-    let round_trip = super::super::agent_api_compat::request_context_from_api(api);
+    let round_trip = crate::agent_api_compat::request_context_from_api(api);
     assert_eq!(round_trip, request);
     assert_eq!(round_trip.validate(), request.validate());
 }
@@ -108,8 +108,9 @@ fn request_wrapper_round_trip_preserves_wire_bytes_and_request_identities() {
 fn response_wrapper_round_trip_preserves_artifact_identity_and_wire_shape() {
     let response = ContinuousAgentResponseContextV1 {
         base_decision_response: DecisionResponse::wait("boundary-fixture-provider"),
-        context_discriminator: crate::simulator::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.into(),
-        context_version: crate::simulator::CONTINUOUS_AGENT_CONTEXT_VERSION,
+        context_discriminator: crate::simulator_tests::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR
+            .into(),
+        context_version: crate::simulator_tests::CONTINUOUS_AGENT_CONTEXT_VERSION,
         agent_session_id: "session-boundary".into(),
         agent_turn_id: "turn-boundary".into(),
         decision_request_id: "request-boundary".into(),
@@ -122,7 +123,7 @@ fn response_wrapper_round_trip_preserves_artifact_identity_and_wire_shape() {
             "blake3:2222222222222222222222222222222222222222222222222222222222222222",
         ),
     };
-    let api = super::super::agent_api_compat::response_context_to_api(&response);
+    let api = crate::agent_api_compat::response_context_to_api(&response);
     assert_eq!(
         serde_json::to_value(&api).expect("encode API response"),
         serde_json::to_value(&response).expect("encode Oasis7 response")
@@ -138,7 +139,7 @@ fn response_wrapper_round_trip_preserves_artifact_identity_and_wire_shape() {
         api.response_artifact_identity_payload()
             .expect("API identity payload")
     );
-    let round_trip = super::super::agent_api_compat::response_context_from_api(api);
+    let round_trip = crate::agent_api_compat::response_context_from_api(api);
     assert_eq!(round_trip, response);
 }
 
@@ -160,7 +161,7 @@ fn feedback_and_memory_intent_adapters_preserve_serialized_fields() {
         reject_reason: None,
         provenance: "runtime_authoritative".into(),
     };
-    let api_feedback = super::super::agent_api_compat::feedback_to_api(&feedback);
+    let api_feedback = crate::agent_api_compat::feedback_to_api(&feedback);
     assert_eq!(
         serde_json::to_value(api_feedback).expect("encode API feedback"),
         serde_json::to_value(&feedback).expect("encode Oasis7 feedback")
@@ -174,7 +175,7 @@ fn feedback_and_memory_intent_adapters_preserve_serialized_fields() {
         compatibility_reason: None,
     };
     let local: MemoryWriteIntentV1 = normalized.into();
-    let api = super::super::agent_api_compat::memory_write_intent_to_api(&local);
+    let api = crate::agent_api_compat::memory_write_intent_to_api(&local);
     assert_eq!(
         serde_json::to_value(api).expect("encode API memory intent"),
         serde_json::to_value(local).expect("encode Oasis7 memory intent")
@@ -225,7 +226,7 @@ fn typed_provider_decision_alias_keeps_generic_payloads_without_erasure() {
         oasis7_simulator::Action,
         oasis7_simulator::AgentQuery,
     > = oasis7_agent_api::ProviderDecision::Wait;
-    let _: crate::simulator::ProviderDecision = decision;
+    let _: crate::simulator_tests::ProviderDecision = decision;
 }
 
 #[test]
@@ -237,7 +238,7 @@ fn transport_attempt_and_legacy_timeout_stay_outside_request_identity() {
     request.transport_attempt += 5;
     request.base_decision_request.timeout_budget_ms += 120;
     assert_eq!(request.request_digest(), original_digest);
-    let api = super::super::agent_api_compat::request_context_to_api(&request);
+    let api = crate::agent_api_compat::request_context_to_api(&request);
     assert_eq!(original_digest, api.request_digest());
     assert_eq!(
         serde_json::to_value(api).expect("encode API request")["transport_attempt"],
@@ -259,7 +260,7 @@ fn scheduler_api_preserves_capability_digest_rejection_diagnostics() {
                 Digest32(format!("blake3:{}", "0".repeat(64)));
         }
         request.request_digest = request.request_digest();
-        let api = super::super::agent_api_compat::request_context_to_api(&request);
+        let api = crate::agent_api_compat::request_context_to_api(&request);
         let host_error = request
             .validate_production_lane()
             .expect_err("tampered digest");

@@ -222,3 +222,7 @@ mod tests {
         let _: World = install_runtime_capabilities(restored);
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "tests/mod.rs"]
+mod simulator_tests;

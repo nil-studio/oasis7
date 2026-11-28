@@ -517,8 +517,7 @@
         "test_tier_required"
       ],
       "cases": [
-        "simulator::tests::persist::material_ledger_wire_strings_preserve_validation",
-        "simulator::tests::persist::starter_settled_outcome_wire_shape_is_platform_neutral"
+        "simulator::canonical_contract_owner_tests::old_simulator_exports_are_canonical_owner_contracts"
       ]
     },
     "viewer-codec-lib": {

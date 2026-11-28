@@ -5,7 +5,7 @@ use super::agent_cognition_identity::{
     request_from_value,
 };
 use super::restore_runner_feedback_history;
-use crate::simulator::{
+use crate::simulator_tests::{
     AgentBehavior, AgentCognitionStore, AsyncAgentRunner, LlmAgentBehavior,
     OpenAiChatCompletionClient,
 };
@@ -65,8 +65,10 @@ fn cognition_budget_wire_rejects_missing_model_or_tool_limits() {
             .expect("budget contract object")
             .remove(field);
         let error =
-            serde_json::from_value::<crate::simulator::ContinuousAgentRequestContextV1>(fixture)
-                .expect_err("missing budget limit must be rejected at wire decode");
+            serde_json::from_value::<crate::simulator_tests::ContinuousAgentRequestContextV1>(
+                fixture,
+            )
+            .expect_err("missing budget limit must be rejected at wire decode");
         assert!(
             error.to_string().contains(field),
             "wire decode error must identify missing field {field}: {error}"
@@ -83,14 +85,13 @@ fn cognition_budget_wire_rejects_unknown_authority_fields() {
     ] {
         let mut fixture = request_fixture(0, 60_000);
         fixture["budget_contract"][field] = value;
-        let wire_error =
-            serde_json::from_value::<crate::simulator::ContinuousAgentRequestContextV1>(
-                fixture.clone(),
-            )
-            .expect_err("V1 must not discard an unknown budget authority field");
+        let wire_error = serde_json::from_value::<
+            crate::simulator_tests::ContinuousAgentRequestContextV1,
+        >(fixture.clone())
+        .expect_err("V1 must not discard an unknown budget authority field");
         assert!(wire_error.to_string().contains(field));
         let context_error =
-            crate::simulator::ContinuousAgentRequestContextV1::validate_value(&fixture)
+            crate::simulator_tests::ContinuousAgentRequestContextV1::validate_value(&fixture)
                 .expect_err("outer validation must reject the unknown nested budget field");
         assert_eq!(context_error.code(), "unknown_context_field");
     }
@@ -114,7 +115,7 @@ fn native_budget_diagnostics_capture_success_usage_before_next_request_bind() {
     AgentBehavior::set_continuous_request_context(&mut behavior, Some(&first_request));
     assert_eq!(
         behavior.decide(&production_observation("agent-1", 42)),
-        crate::simulator::AgentDecision::Wait
+        crate::simulator_tests::AgentDecision::Wait
     );
     AgentBehavior::set_continuous_request_context(&mut behavior, Some(&second_request));
     let first_trace = behavior
@@ -123,7 +124,7 @@ fn native_budget_diagnostics_capture_success_usage_before_next_request_bind() {
 
     assert_eq!(
         behavior.decide(&production_observation("agent-1", 43)),
-        crate::simulator::AgentDecision::Wait
+        crate::simulator_tests::AgentDecision::Wait
     );
     let second_trace = behavior
         .take_decision_trace()
@@ -168,7 +169,7 @@ fn native_budget_diagnostics_capture_one_category_exhaustion_before_next_request
     AgentBehavior::set_continuous_request_context(&mut behavior, Some(&first_request));
     assert_eq!(
         behavior.decide(&production_observation("agent-1", 42)),
-        crate::simulator::AgentDecision::Wait
+        crate::simulator_tests::AgentDecision::Wait
     );
     AgentBehavior::set_continuous_request_context(&mut behavior, Some(&second_request));
     let first_trace = behavior
@@ -188,7 +189,7 @@ fn native_budget_diagnostics_capture_one_category_exhaustion_before_next_request
 
     assert_eq!(
         behavior.decide(&production_observation("agent-1", 43)),
-        crate::simulator::AgentDecision::Wait
+        crate::simulator_tests::AgentDecision::Wait
     );
     let second_trace = behavior
         .take_decision_trace()
@@ -206,17 +207,21 @@ struct RetryCountingLlmClient {
     calls: Arc<AtomicUsize>,
 }
 
-impl crate::simulator::llm_agent::LlmCompletionClient for RetryCountingLlmClient {
+impl crate::simulator_tests::llm_agent::LlmCompletionClient for RetryCountingLlmClient {
     fn complete(
         &self,
-        request: &crate::simulator::llm_agent::LlmCompletionRequest,
-    ) -> Result<crate::simulator::llm_agent::LlmCompletionResult, crate::simulator::LlmClientError>
-    {
+        request: &crate::simulator_tests::llm_agent::LlmCompletionRequest,
+    ) -> Result<
+        crate::simulator_tests::llm_agent::LlmCompletionResult,
+        crate::simulator_tests::LlmClientError,
+    > {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(crate::simulator::llm_agent::LlmCompletionResult {
-            turns: vec![crate::simulator::llm_agent::LlmCompletionTurn::Decision {
-                payload: json!({"decision": "wait"}),
-            }],
+        Ok(crate::simulator_tests::llm_agent::LlmCompletionResult {
+            turns: vec![
+                crate::simulator_tests::llm_agent::LlmCompletionTurn::Decision {
+                    payload: json!({"decision": "wait"}),
+                },
+            ],
             output: "{\"decision\":\"wait\"}".to_string(),
             model: Some(request.model.clone()),
             prompt_tokens: Some(1),
@@ -235,24 +240,28 @@ struct SequenceBudgetLlmClient {
 #[derive(Clone)]
 struct ErrorBudgetLlmClient;
 
-impl crate::simulator::llm_agent::LlmCompletionClient for ErrorBudgetLlmClient {
+impl crate::simulator_tests::llm_agent::LlmCompletionClient for ErrorBudgetLlmClient {
     fn complete(
         &self,
-        _request: &crate::simulator::llm_agent::LlmCompletionRequest,
-    ) -> Result<crate::simulator::llm_agent::LlmCompletionResult, crate::simulator::LlmClientError>
-    {
-        Err(crate::simulator::LlmClientError::Http {
+        _request: &crate::simulator_tests::llm_agent::LlmCompletionRequest,
+    ) -> Result<
+        crate::simulator_tests::llm_agent::LlmCompletionResult,
+        crate::simulator_tests::LlmClientError,
+    > {
+        Err(crate::simulator_tests::LlmClientError::Http {
             message: "provider unavailable".to_string(),
         })
     }
 }
 
-impl crate::simulator::llm_agent::LlmCompletionClient for SequenceBudgetLlmClient {
+impl crate::simulator_tests::llm_agent::LlmCompletionClient for SequenceBudgetLlmClient {
     fn complete(
         &self,
-        request: &crate::simulator::llm_agent::LlmCompletionRequest,
-    ) -> Result<crate::simulator::llm_agent::LlmCompletionResult, crate::simulator::LlmClientError>
-    {
+        request: &crate::simulator_tests::llm_agent::LlmCompletionRequest,
+    ) -> Result<
+        crate::simulator_tests::llm_agent::LlmCompletionResult,
+        crate::simulator_tests::LlmClientError,
+    > {
         let index = self.calls.fetch_add(1, Ordering::SeqCst);
         let output = self
             .outputs
@@ -260,8 +269,8 @@ impl crate::simulator::llm_agent::LlmCompletionClient for SequenceBudgetLlmClien
             .cloned()
             .unwrap_or_else(|| r#"{"decision":"wait"}"#.to_string());
         let payload = serde_json::from_str(&output).expect("valid scripted budget payload");
-        Ok(crate::simulator::llm_agent::LlmCompletionResult {
-            turns: vec![crate::simulator::llm_agent::LlmCompletionTurn::Decision { payload }],
+        Ok(crate::simulator_tests::llm_agent::LlmCompletionResult {
+            turns: vec![crate::simulator_tests::llm_agent::LlmCompletionTurn::Decision { payload }],
             output,
             model: Some(request.model.clone()),
             prompt_tokens: Some(1),
@@ -271,8 +280,8 @@ impl crate::simulator::llm_agent::LlmCompletionClient for SequenceBudgetLlmClien
     }
 }
 
-fn retry_budget_llm_config() -> crate::simulator::LlmAgentConfig {
-    crate::simulator::LlmAgentConfig {
+fn retry_budget_llm_config() -> crate::simulator_tests::LlmAgentConfig {
+    crate::simulator_tests::LlmAgentConfig {
         model: "gpt-budget-test".to_string(),
         base_url: "https://example.invalid/v1".to_string(),
         api_key: "test-key".to_string(),
@@ -284,7 +293,7 @@ fn retry_budget_llm_config() -> crate::simulator::LlmAgentConfig {
         max_decision_steps: 4,
         max_repair_rounds: 1,
         prompt_max_history_items: 4,
-        prompt_profile: crate::simulator::llm_agent::LlmPromptProfile::Balanced,
+        prompt_profile: crate::simulator_tests::llm_agent::LlmPromptProfile::Balanced,
         force_replan_after_same_action: 4,
         harvest_max_amount_cap: 100,
         execute_until_auto_reenter_ticks: 4,
@@ -301,7 +310,7 @@ fn transport_retry_keeps_request_model_budget_consumed() {
     let request_context = request_from_value(fixture);
     let turn_context = production_turn_context(&request_context);
     let calls = Arc::new(AtomicUsize::new(0));
-    let behavior = crate::simulator::LlmAgentBehavior::new(
+    let behavior = crate::simulator_tests::LlmAgentBehavior::new(
         "agent-1",
         retry_budget_llm_config(),
         RetryCountingLlmClient {
@@ -310,7 +319,7 @@ fn transport_retry_keeps_request_model_budget_consumed() {
     );
     let mut runner = AsyncAgentRunner::new(16).expect("create target actor runner");
     runner.register(behavior).expect("register builtin actor");
-    let world = crate::runtime_host::world::new();
+    let world = crate::world::new();
     restore_runner_feedback_history(&mut runner, &world);
     let turn_id = runner
         .start_turn_with_request_context_and_observation(
@@ -333,7 +342,7 @@ fn transport_retry_keeps_request_model_budget_consumed() {
     };
     assert_eq!(
         first.decision,
-        Some(crate::simulator::AgentDecision::Wait),
+        Some(crate::simulator_tests::AgentDecision::Wait),
         "first outcome: {first:?}"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -359,14 +368,20 @@ fn transport_retry_keeps_request_model_budget_consumed() {
     };
     assert_eq!(
         retry.lifecycle,
-        crate::simulator::AsyncTurnLifecycle::Completed
+        crate::simulator_tests::AsyncTurnLifecycle::Completed
     );
-    assert_eq!(retry.feedback, crate::simulator::AsyncTurnFeedback::Wait);
+    assert_eq!(
+        retry.feedback,
+        crate::simulator_tests::AsyncTurnFeedback::Wait
+    );
     assert_eq!(
         retry.world_effect,
-        crate::simulator::AsyncWorldEffect::NoEffect
+        crate::simulator_tests::AsyncWorldEffect::NoEffect
     );
-    assert_eq!(retry.decision, Some(crate::simulator::AgentDecision::Wait));
+    assert_eq!(
+        retry.decision,
+        Some(crate::simulator_tests::AgentDecision::Wait)
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(
         retry
@@ -512,7 +527,7 @@ fn native_model_budget_caps_openai_internal_concurrency_retry() {
     let behavior = LlmAgentBehavior::new("agent-1", config, client);
     let mut runner = AsyncAgentRunner::new(16).expect("create target actor runner");
     runner.register(behavior).expect("register native actor");
-    let world = crate::runtime_host::world::new();
+    let world = crate::world::new();
     restore_runner_feedback_history(&mut runner, &world);
     let turn_id = runner
         .start_turn_with_request_context_and_observation(
@@ -557,7 +572,7 @@ fn budget_exhaustion_preserves_prior_native_trace_evidence() {
     fixture["budget_contract"]["max_tool_calls"] = json!(1);
     let request_context = request_from_value(fixture);
     let calls = Arc::new(AtomicUsize::new(0));
-    let behavior = crate::simulator::LlmAgentBehavior::new(
+    let behavior = crate::simulator_tests::LlmAgentBehavior::new(
         "agent-1",
         retry_budget_llm_config(),
         SequenceBudgetLlmClient {
@@ -568,14 +583,14 @@ fn budget_exhaustion_preserves_prior_native_trace_evidence() {
         },
     );
     let mut behavior = behavior;
-    crate::simulator::AgentBehavior::set_continuous_request_context(
+    crate::simulator_tests::AgentBehavior::set_continuous_request_context(
         &mut behavior,
         Some(&request_context),
     );
 
     assert_eq!(
         behavior.decide(&production_observation("agent-1", 42)),
-        crate::simulator::AgentDecision::Wait
+        crate::simulator_tests::AgentDecision::Wait
     );
     let trace = behavior
         .take_decision_trace()
@@ -623,14 +638,14 @@ fn native_provider_error_remains_failed_after_budget_wait_normalization() {
     fixture["budget_contract"]["max_tool_calls"] = json!(1);
     let request_context = request_from_value(fixture);
     let turn_context = production_turn_context(&request_context);
-    let behavior = crate::simulator::LlmAgentBehavior::new(
+    let behavior = crate::simulator_tests::LlmAgentBehavior::new(
         "agent-1",
         retry_budget_llm_config(),
         ErrorBudgetLlmClient,
     );
     let mut runner = AsyncAgentRunner::new(16).expect("create target actor runner");
     runner.register(behavior).expect("register builtin actor");
-    let world = crate::runtime_host::world::new();
+    let world = crate::world::new();
     restore_runner_feedback_history(&mut runner, &world);
     let turn_id = runner
         .start_turn_with_request_context_and_observation(
@@ -653,15 +668,15 @@ fn native_provider_error_remains_failed_after_budget_wait_normalization() {
     };
     assert_eq!(
         outcome.lifecycle,
-        crate::simulator::AsyncTurnLifecycle::Failed
+        crate::simulator_tests::AsyncTurnLifecycle::Failed
     );
     assert!(matches!(
         outcome.feedback,
-        crate::simulator::AsyncTurnFeedback::ProviderError { .. }
+        crate::simulator_tests::AsyncTurnFeedback::ProviderError { .. }
     ));
     assert!(outcome.decision.is_none());
     assert_eq!(
         outcome.world_effect,
-        crate::simulator::AsyncWorldEffect::NoEffect
+        crate::simulator_tests::AsyncWorldEffect::NoEffect
     );
 }

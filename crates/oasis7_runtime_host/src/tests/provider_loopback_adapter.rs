@@ -1,7 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use super::*;
-use crate::runtime::{
+use oasis7_runtime::{
     CapabilityAuthorizationAuditReceipt, CapabilityInvocationContext, WorldError,
 };
 use oasis7_wasm_abi::{AgentCommandResponse, CapabilityCatalogSnapshot, CapabilitySubject};

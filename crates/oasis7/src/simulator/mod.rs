@@ -14,8 +14,6 @@
 pub(crate) use oasis7_agent_harness as cognition_response_identity;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-pub(crate) use oasis7_runtime_host::agent_api_compat;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_execution::async_agent_runner;
 #[cfg(not(target_arch = "wasm32"))]
@@ -27,7 +25,12 @@ pub(crate) use oasis7_runtime_host::decision_provider;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::agent_execution::llm_agent;
-mod memory;
+pub mod memory {
+    pub use oasis7_simulator::{
+        AgentMemory, LongTermMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind,
+        ShortTermMemory,
+    };
+}
 #[path = "persist_host_facade.rs"]
 pub(crate) mod persist;
 #[cfg(not(target_arch = "wasm32"))]
@@ -42,9 +45,6 @@ pub(crate) use oasis7_runtime_host::provider_loopback_adapter;
 pub(crate) use oasis7_runtime_host::provider_loopback_http;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime_host::provider_material_capture;
-
-#[cfg(test)]
-mod tests;
 
 // The legacy public API must remain type-identical while the historical
 // one-line compatibility modules are retired in favor of canonical owners.
@@ -103,8 +103,6 @@ pub use agent::{
 pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::project_receipt_memory;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,

@@ -5,16 +5,16 @@
 //! this file is the immutable behavior contract for the implementation slice.
 
 use super::*;
-use crate::runtime::{
-    AgentContinuation, AgentDecisionEnvelopeV1, MvccValidator, WakeConditionV1,
-    WakeConditionValidator,
-};
-use crate::simulator::{
+use crate::simulator_tests::{
     AgentCognitionStore, AsyncAgentRunner, COGNITION_CAPABILITY_CATALOG_DOMAIN,
     COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, ContinuousAgentRequestContextV1,
     ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1, Digest32, FeedbackEnvelopeV1,
     FinalityBindingV1, GoalSnapshotV1, MemoryContextSnapshotV1, MemoryWriteIntentV1,
     RuntimeBindingV1, cognition_response_digest, h_v1,
+};
+use oasis7_runtime::{
+    AgentContinuation, AgentDecisionEnvelopeV1, MvccValidator, WakeConditionV1,
+    WakeConditionValidator,
 };
 use oasis7_wasm_abi::AgentCommandResponse;
 use serde_json::{Value, json};
@@ -176,7 +176,7 @@ pub(super) fn production_observation(agent_id: &str, time: u64) -> Observation {
     Observation {
         time,
         agent_id: agent_id.to_string(),
-        pos: crate::geometry::GeoPos::new(0, 0, 0),
+        pos: oasis7_simulator::GeoPos::new(0, 0, 0),
         self_resources: Default::default(),
         visibility_range_cm: 0,
         visible_agents: Vec::new(),
@@ -509,7 +509,7 @@ fn harness_finality_binding_rejects_unknown_status_and_missing_verified_hash() {
 #[test]
 fn runtime_finality_digest_type_rejects_unprefixed_block_hash() {
     let candidate = runtime_envelope_with_finality("verified", &"a".repeat(64));
-    let error = MvccValidator::validate(&crate::runtime_host::world::new(), &candidate)
+    let error = MvccValidator::validate(&crate::world::new(), &candidate)
         .expect_err("runtime must reject an untyped finality block hash");
     assert_eq!(error.code(), "recovery_pending");
 }
@@ -1083,7 +1083,7 @@ fn retry_awaiting_turn_rejects_after_terminal_feedback() {
         .consume_runtime_feedback(
             "agent-1",
             terminal,
-            &mut crate::simulator::MemoryWriteStore::default(),
+            &mut crate::simulator_tests::MemoryWriteStore::default(),
         )
         .expect("Runtime terminal feedback releases the turn");
 
@@ -1178,8 +1178,9 @@ fn legacy_feedback_without_committed_receipt_is_ambiguous() {
         "emitted_events": [],
         "world_delta_summary": "legacy response"
     });
-    let error = crate::simulator::continuous_agent_harness::feedback_v1_from_legacy_value(legacy)
-        .expect_err("legacy success without committed receipt is ambiguous");
+    let error =
+        crate::simulator_tests::continuous_agent_harness::feedback_v1_from_legacy_value(legacy)
+            .expect_err("legacy success without committed receipt is ambiguous");
     assert_eq!(error.code(), "legacy_feedback_ambiguous");
 }
 
