@@ -105,56 +105,6 @@ def validate_workerd_capture(node, summary):
         raise ValueError('workerd failure evidence must survive later attempts')
 
 
-class WorkerdFaultCapture(unittest.TestCase):
-    def test_prebuilt_custody_tools_require_pinning_and_preflight(self):
-        node = (f"    container:\n      image: ghcr.io/nil-studio/oasis7/ci-build@sha256:{'a' * 64}\n"
-                "      - run: gdb --version && gcc --version && pkg-config --version\n")
-        validate_custody_tools(node)
-        for bad in (node.replace('@sha256:', ':'), node.replace('gdb --version', 'true'),
-                    node + '      - run: sudo apt-get update\n'):
-            with self.assertRaises(ValueError):
-                validate_custody_tools(bad)
-
-    def test_evidence_upload_is_bounded_without_masking_failure(self):
-        node, summary = JOBS['custody-node'], JOBS['workspace-support']
-        marker = '      - name: Preserve workerd evidence for this attempt\n'
-        self.assertEqual(node.count(marker), 1)
-        before, upload = node.split(marker)
-        validate_workerd_capture(node, summary)
-        for replacement in ('', '        timeout-minutes: 0\n',
-                            '        timeout-minutes: 60\n',
-                            '        timeout-minutes: 5\n        continue-on-error: true\n'):
-            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
-                validate_workerd_capture(before + marker + upload.replace(
-                    '        timeout-minutes: 5\n', replacement, 1), summary)
-
-    def test_real_capture_and_attempt_scoped_artifacts_are_required(self):
-        validate_workerd_capture(JOBS['custody-node'], JOBS['workspace-support'])
-        for path in ('scripts/ci-custody-workerd-capture.py', 'scripts/ci-custody-workerd-gdb.py',
-                     'scripts/ci-custody-workerd-gdb-contracts.py',
-                     'scripts/ci-custody-workerd-capture.test.py'):
-            self.assertIn('scripts/ci-custody-workerd-capture.test.py',
-                          CONFIG['python_control_contracts'][path]['tests'])
-
-    def test_missing_capture_contracts_or_overwritten_failure_evidence_is_rejected(self):
-        node, summary = JOBS['custody-node'], JOBS['workspace-support']
-        for before, after in (
-                (' --capture-workerd-faults', ''),
-                ("OASIS7_REQUIRE_GDB_TESTS: '1'", "OASIS7_REQUIRE_GDB_TESTS: '0'"),
-                ('--failfast GdbContracts', 'Receipts'),
-                (('gdb --version && gcc --version && pkg-config --version'
-                  if re.search(r'^    container:', node, re.M) else '-- gdb gcc pkg-config'), '-- pkg-config'),
-                ('custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-',
-                 'custody-workerd-fault-${{ github.run_id }}-'),
-                ('name: custody-workerd-fault-', 'overwrite: true\n          name: custody-workerd-fault-'),
-                ('/workerd-fault-attempt-1/records.jsonl', '/workerd-fault-dropped/records.jsonl'),
-                ('/client-abuse.integration.test.mjs.attempt-1.log', '/client-abuse.dropped.log')):
-            with self.subTest(before=before), self.assertRaises(ValueError):
-                validate_workerd_capture(node.replace(before, after), summary)
-        with self.assertRaises(ValueError):
-            validate_workerd_capture(node, summary.replace(' --capture-workerd-faults', ''))
-
-
 class PortableCacheContainers(unittest.TestCase):
     def authority(self):
         import importlib.util

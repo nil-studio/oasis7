@@ -494,13 +494,33 @@ impl FileFormalEndpoint {
         Ok(self.store.body.head.clone())
     }
     pub fn verify_minimum(&mut self, minimum: &FormalHeadRefV1) -> Result<(), FormalError> {
+        self.verify_minimum_with(minimum, |store| store.verify_minimum(minimum))
+    }
+    pub(crate) fn verify_minimum_bounded(
+        &mut self,
+        minimum: &FormalHeadRefV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        self.verify_minimum_with(minimum, |store| {
+            store
+                .minimum_witness_bounded(minimum, memory, work, cancelled)
+                .map(drop)
+        })
+    }
+    fn verify_minimum_with(
+        &mut self,
+        minimum: &FormalHeadRefV1,
+        verify: impl FnOnce(&Store) -> Result<(), FormalError>,
+    ) -> Result<(), FormalError> {
         let _guard = self.guard()?;
         if minimum.position == 0 && minimum != &self.authority.definition().world.genesis_head()? {
             return Err(FormalError::Rollback(
                 "formal pinned genesis minimum fork".into(),
             ));
         }
-        let result = self.store.verify_minimum(minimum);
+        let result = verify(&self.store);
         if matches!(&result, Err(FormalError::Invalid(_) | FormalError::Io(_))) {
             self.poisoned = true;
         }

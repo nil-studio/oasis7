@@ -163,6 +163,10 @@ impl Stored {
             return Err(super::invalid("PG namespace version/binding/floor invalid"));
         }
         state::validate_digest(&signer.state.state_digest)?;
+        legacy_head(
+            signer.state.private_retention.as_ref(),
+            &self.binding_digest,
+        )?;
         if !signer.lease_token_digest.is_empty() {
             state::validate_digest(&signer.lease_token_digest)?;
         }
@@ -174,6 +178,22 @@ impl Stored {
             }
             if let Some(reservation) = &value.current.reservation {
                 reservation.input.validate()?;
+                reservation.ledger.map.require_reserved()?;
+            }
+            for head in [
+                value
+                    .current
+                    .current
+                    .original
+                    .as_ref()
+                    .map(|v| &v.receipt.body.head),
+                value
+                    .current
+                    .reservation
+                    .as_ref()
+                    .map(|v| &v.ledger.receipt.body.head),
+            ] {
+                legacy_head(head, &self.binding_digest)?;
             }
         }
         Ok(())
@@ -209,6 +229,18 @@ impl Stored {
         }
         Ok(value)
     }
+}
+fn legacy_head(
+    head: Option<&BftPrivateRetentionHeadV1>,
+    binding: &str,
+) -> Result<(), BftSignerErrorV3> {
+    if let Some(head) = head {
+        head.validate_supported_head(binding)?;
+        if head.schema_version != 2 {
+            return Err(super::invalid("PG schema-1 requires historical Head2"));
+        }
+    }
+    Ok(())
 }
 // Streaming encode/compare keeps Arc input borrowed; no second full encoding
 // or serde Value tree is allocated when validating a decoded namespace.

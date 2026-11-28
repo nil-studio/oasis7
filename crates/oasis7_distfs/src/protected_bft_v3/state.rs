@@ -152,6 +152,31 @@ impl BftSignerStateV3 {
             applied_installs: self.applied_installs.clone(),
         }
     }
+    pub(super) fn with_first_ready_head(
+        &self,
+        head: super::BftPrivateRetentionHeadV1,
+    ) -> Result<Self, BftSignerErrorV3> {
+        let old = self
+            .private_retention
+            .as_ref()
+            .ok_or_else(|| invalid("Ready lacks Reserve"))?;
+        head.validate_supported_head(&self.binding_digest)?;
+        if self.revision != 2
+            || old.schema_version != 2
+            || old.sequence != 2
+            || head.schema_version != 3
+            || head.source != old.source
+            || head.capability_digest != old.capability_digest
+            || head.retained_material_bytes <= old.retained_material_bytes
+        {
+            return Err(invalid("first Ready State predecessor differs"));
+        }
+        let mut state = self.clone();
+        state.revision = 3;
+        state.private_retention = Some(head);
+        state.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&state))?;
+        Ok(state)
+    }
     pub fn validate(
         &self,
         binding: &BftSignerBindingV3,

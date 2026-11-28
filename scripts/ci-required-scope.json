@@ -1264,12 +1264,6 @@
     "scripts/ci-cache-policy.test.py": ["workflow_governance"],
     "scripts/ci-contract-jobs.py": ["workflow_governance"],
     "scripts/ci-contract-jobs.test.py": ["workflow_governance"],
-    "scripts/ci-custody-platform.py": ["workflow_governance"],
-    "scripts/ci-custody-platform.test.py": ["workflow_governance"],
-    "scripts/ci-custody-workerd-capture.py": ["workflow_governance"],
-    "scripts/ci-custody-workerd-gdb.py": ["workflow_governance"],
-    "scripts/ci-custody-workerd-gdb-contracts.py": ["workflow_governance"],
-    "scripts/ci-custody-workerd-capture.test.py": ["workflow_governance"],
     "scripts/ci-browser-deps.py": ["workflow_governance", "viewer_js_required", "viewer_performance_report", "site_quality"],
     ".github/actions/setup-ci-browser/action.yml": ["workflow_governance", "viewer_js_required", "viewer_performance_report", "site_quality"],
     "scripts/ci-browser-deps.test.py": ["workflow_governance"],
@@ -1455,13 +1449,10 @@
     "scripts/ci-rust-cache-build.test.py",
     "scripts/ci-image-cache.test.py",
     "scripts/ci-support-profiles.test.py",
-    "scripts/ci-custody-platform.test.py",
-    "scripts/ci-custody-workerd-capture.test.py",
     "scripts/ci-browser-deps.test.py",
     "scripts/ci-browser-offline-apt.test.py",
     "scripts/ci-tool-cache.test.py",
     "scripts/ci-worker-build.test.py",
-    "crates/oasis7_custody_worker/scripts/verify-stages.test.py",
     "scripts/ci-local-signer-tests.test.py",
     "scripts/pr-review-threads.test.py",
     "scripts/ci-governance-preview.test.py"
@@ -1600,30 +1591,6 @@
       "tests": [
         "scripts/ci-contract-jobs.test.py"
       ]
-    },
-    "scripts/ci-custody-platform.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci-custody-platform.test.py"]
-    },
-    "scripts/ci-custody-platform.test.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci-custody-platform.test.py"]
-    },
-    "scripts/ci-custody-workerd-capture.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci-custody-workerd-capture.test.py"]
-    },
-    "scripts/ci-custody-workerd-gdb-contracts.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci-custody-workerd-capture.test.py", "scripts/ci-workflow.test.py"]
-    },
-    "scripts/ci-custody-workerd-gdb.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci-custody-workerd-capture.test.py"]
-    },
-    "scripts/ci-custody-workerd-capture.test.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci-custody-workerd-capture.test.py"]
     },
     "scripts/ci-browser-deps.py": {
       "group": "workflow_governance",
@@ -2121,7 +2088,6 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-local-check.test.py",
-        "scripts/ci-custody-platform.test.py",
         "scripts/ci-worker-build.test.py",
         "scripts/ci-formal-process.test.py",
         "scripts/ci-storage-acceptance.test.py",
@@ -2280,7 +2246,6 @@
     "oasis7_consensus": {"ordinary_package": false, "group_library_proof": {"group": "consensus"}},
     "oasis7_context": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_context", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_custody_core": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_custody_core", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
-    "oasis7_custody_worker": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_custody_worker", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_dev_test_worker": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_dev_test_worker", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
     "oasis7_distfs": {"ordinary_package": false},
     "oasis7_domain_types": {"ordinary_package": false, "support_profile": {"profile_id": "oasis7_domain_types", "partition": "other", "requires_host_runner": false, "extra_features": [], "wasm_compile_feature_sets": []}},
@@ -2324,7 +2289,6 @@
   "package_groups": {
     "oasis7_custody_core": ["workspace_support"],
     "oasis7_dev_test_worker": ["workspace_support"],
-    "oasis7_custody_worker": ["workspace_support"],
     "scenario_test_runner": ["oasis7_required"],
     "oasis7_world_state": ["oasis7_required"],
     "oasis7_world_projection": ["oasis7_required"],

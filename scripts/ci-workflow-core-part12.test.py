@@ -449,37 +449,6 @@ class WorkflowCorePart12(unittest.TestCase):
                                    RUNNER_TEMP=str(root), GITHUB_WORKSPACE='/__w/oasis7/oasis7'), capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
 
-    def test_custody_wasm_worker_rehomes_only_verified_cache_into_empty_runtime(self):
-        job = JOBS['custody-wasm-production']
-        if '    container:' not in job:
-            return
-        step = workflow_step_script(job, 'Prepare verified Worker build tool')
-        step = step.replace('restored=/.cache/oasis7/worker-build/0.7.5', 'restored="$FIXTURE_ARCHIVE_ROOT"')
-        for version, occupied, should_move in (('0.7.5', False, True),
-                                                ('wrong-version', False, False),
-                                                ('0.7.5', True, False)):
-            with self.subTest(version=version, occupied=occupied):
-                with tempfile.TemporaryDirectory() as temporary:
-                    root = Path(temporary).resolve()
-                    archive = root / 'archived-worker'
-                    cache = root / 'runtime-cache'
-                    runtime = cache / 'oasis7/worker-build/0.7.5'
-                    binary = archive / 'bin/worker-build'
-                    binary.parent.mkdir(parents=True)
-                    binary.write_text(f'#!/bin/bash\nprintf "%s\\n" "{version}"\n')
-                    binary.chmod(0o755)
-                    if occupied:
-                        runtime.mkdir(parents=True)
-                        (runtime / 'sentinel').write_text('untouched')
-                    result = subprocess.run(['bash', '-euo', 'pipefail', '-c', step], cwd=ROOT,
-                        env=dict(os.environ, TOOL_CACHE_HIT='true', XDG_CACHE_HOME=str(cache),
-                                 FIXTURE_ARCHIVE_ROOT=str(archive)), text=True, capture_output=True)
-                    self.assertEqual(result.returncode == 0, should_move, result.stderr)
-                    self.assertEqual((runtime / 'bin/worker-build').is_file(), should_move)
-                    self.assertEqual(archive.is_dir(), not should_move)
-                    if occupied:
-                        self.assertEqual((runtime / 'sentinel').read_text(), 'untouched')
-
     def test_consolidation_v4_runs_operational_contracts_in_workflow_governance_without_governance_overhead(self):
         gov_job = JOBS['workflow-governance']
         op_job = JOBS['operational-contracts']

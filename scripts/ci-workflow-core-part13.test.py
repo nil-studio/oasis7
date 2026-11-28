@@ -331,57 +331,6 @@ class WorkflowCorePart13(unittest.TestCase):
             self.assertNotEqual(invoke(projected).returncode, 0)
             self.assertFalse((root / 'transport-must-not-execute').exists())
 
-    def test_trusted_selection_projects_custody_proof_only_for_the_capable_baseline(self):
-        job_condition = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
-                                  JOBS['custody-native-contracts'], re.M | re.S)[1]
-        proof_step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
-                                                      JOBS['custody-native-contracts'], re.M | re.S)
-                          if 'name: Execute complete custody WASM compile proofs\n' in step)
-        step_condition = re.search(r'^        if: (.+)$', proof_step, re.M)[1]
-        legacy_capable = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
-                              custody_policy_tests_version=1, custody_node_shards_version=2)
-        for version in ('new', 'old-custody', 'legacy'):
-            policy = dict(legacy_capable)
-            if version != 'new':
-                del policy['custody_compile_proof_version']
-                del policy['custody_policy_tests_version']
-            if version == 'legacy':
-                del policy['custody_execution_version']
-            with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
-                result, outputs, plan, _, _ = self.run_selection(directory, policy_config=policy)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                projected = json.loads(outputs['plan'])
-                self.assertEqual('custody_compile_proof_version' in plan, version == 'new')
-                self.assertEqual('custody_compile_proof_version' in projected, version == 'new')
-                values = {'needs.select.result': 'success',
-                          'fromJSON(needs.select.outputs.plan).custody_execution_version': projected.get('custody_execution_version', 0),
-                          'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': projected.get('custody_compile_proof_version', 0)}
-                job_runs = effective_job_condition(job_condition, values, ['skipped', 'success'])
-                step_runs = job_runs and effective_job_condition(step_condition, values, [])
-                self.assertEqual(job_runs, version in ('new', 'old-custody'))
-                self.assertEqual(step_runs, version == 'new')
-
-    def test_current_workflow_preserves_the_fixed_historical_custody_source_protocol(self):
-        legacy_capable = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
-                              custody_policy_tests_version=1, custody_node_shards_version=2)
-        legacy_capable.pop('workspace_support_direct_gate_version', None)
-        old = {key: value for key, value in legacy_capable.items()
-               if key not in ('custody_compile_proof_version', 'custody_policy_tests_version')}
-        for event in ('workflow_dispatch', 'pull_request', 'push'):
-            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
-                result, outputs, plan, policy, source = self.run_selection(
-                    directory, event=event, source_ref='candidate' if event == 'workflow_dispatch' else '',
-                    candidate=event != 'workflow_dispatch', ref='refs/heads/main' if event == 'push' else None,
-                    policy_config=legacy_capable, candidate_config=old)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertNotEqual(source, policy)
-                self.assertEqual(plan['custody_execution_version'], 1)
-                self.assertNotIn('custody_compile_proof_version', plan)
-                projected = json.loads(outputs['plan'])
-                self.assertNotIn('custody_compile_proof_version', projected)
-                self.assertEqual(plan['tested_sha'], source)
-                self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
-
     def test_manual_and_scheduled_selection_expands_complete_fixed_inventory(self):
         for event in ('workflow_dispatch', 'schedule'):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:

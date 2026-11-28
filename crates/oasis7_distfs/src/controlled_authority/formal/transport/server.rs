@@ -33,8 +33,9 @@ impl FormalEndpointServer {
     }
     /// Both normal/recovery and healthy activation call this once at startup.
     /// Optional mode admits raw request/response frames, typed Request decoding
-    /// and Request authentication, plus Response checkpoint bytes and digest.
-    /// Remaining construction/signing, guard state and GEN proof are separate.
+    /// and Request authentication, pre-dispatch minimum history, and Response
+    /// checkpoint bytes/digest. Response ancestry, remaining signing, guard
+    /// state and GEN proof are separate.
     pub fn new_with_frame_admission(
         endpoint: FileFormalEndpoint,
         timeout: Duration,
@@ -254,7 +255,15 @@ impl FormalEndpointServer {
                 )?
             }
             _ => {
-                self.endpoint.verify_minimum(&body.minimum)?;
+                match self.frame_admission.as_ref() {
+                    Some((memory, work)) => self.endpoint.verify_minimum_bounded(
+                        &body.minimum,
+                        memory,
+                        work,
+                        &mut cancelled,
+                    ),
+                    None => self.endpoint.verify_minimum(&body.minimum),
+                }?;
                 let result = match (&body.command, self.frame_admission.as_ref()) {
                     (Command::Query(key), Some((memory, work))) => {
                         // The original process-owned Ordinary pool and continuing

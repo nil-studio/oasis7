@@ -419,17 +419,16 @@ class WorkflowCorePart7(unittest.TestCase):
             'command-center', 'baseline', 'rust-baseline', 'oasis7-test-build-candidate',
             'consensus', 'distfs', 'node', 'net', 'viewer-js-required',
             'viewer-performance-report', 'pixel-world-bridge', 'launcher-web',
-            'workspace-support-legacy', 'workspace-support-other', 'custody-native', 'custody-native-contracts',
-            'custody-wasm-production', 'custody-node',
+            'workspace-support-legacy', 'workspace-support-other',
             'scenario-regression', 'operational-contracts', 'packaging-contracts',
             'workflow-governance', 'codex-agent-config-validation', 'compile-metrics',
             'site-quality', 'doc-checker-contracts', 'cargo-tooling-contracts',
             'windows-rollout', 'macos-package-contract', 'fleet-health',
         )
-        self.assertEqual(len(names), 30)
+        self.assertEqual(len(names), 26)
         names = tuple(name for name in names if name in JOBS)
-        producers = ('custody-native', 'custody-wasm-production')
-        split_jobs = {*producers, 'custody-native-contracts', 'custody-node', 'workspace-support-other'}
+        producers = ()
+        split_jobs = {'workspace-support-other'}
         conditions = {name: re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
                                       JOBS[name], re.M | re.S)[1] for name in names}
 
@@ -554,16 +553,6 @@ class WorkflowCorePart7(unittest.TestCase):
             self.assertFalse(effective_job_condition(summary_if, direct_summary, ['skipped', 'success']))
             failed_select_summary = values_for('workspace-support-legacy', event, selected=False, select='failure', direct_support=1)
             self.assertTrue(effective_job_condition(summary_if, failed_select_summary, ['skipped', 'failure']))
-
-        # An explicit status function also bypasses implicit producer success.
-        # Every producer must therefore be checked by the actual Node job guard.
-        states = ('success', 'failure', 'cancelled', 'skipped')
-        for results in itertools.product(states, repeat=len(producers)):
-            values = values_for('custody-node', 'pull_request', results=dict(zip(producers, results)))
-            with self.subTest(producers=results):
-                self.assertEqual(effective_job_condition(conditions['custody-node'], values,
-                                                         ['skipped', 'success', *results]),
-                                 all(result == 'success' for result in results))
 
     def test_periodic_skips_only_no_full_and_keeps_select_failure_visible(self):
         for name in ('formal-process', 'explicit-full-gate'):
