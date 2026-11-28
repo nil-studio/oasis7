@@ -59,12 +59,17 @@ def checkout_sha(environment, repository_root):
 
 
 def trusted_writer(environment, api, key, root, *, repository_root, expected_key,
-                   writer_workflow, writer_job, label='tool', checkout_reader=None):
+                   writer_workflow, writer_job, label='tool', checkout_reader=None,
+                   allow_physical_workspace_alias=False):
     repository_root = Path(repository_root).resolve()
     sha, event, run_id = (environment.get(name, '') for name in
                          ('GITHUB_SHA', 'GITHUB_EVENT_NAME', 'GITHUB_RUN_ID'))
     if callable(expected_key):
         expected_key = expected_key(environment, root)
+    workspace = Path(environment.get('GITHUB_WORKSPACE', ''))
+    same_workspace = workspace.is_absolute() and workspace.resolve() == repository_root
+    if not same_workspace and allow_physical_workspace_alias and workspace.is_absolute():
+        same_workspace = cache_root(workspace, label=label).samefile(repository_root)
     if (environment.get('GITHUB_ACTIONS') != 'true'
             or (environment.get('RUNNER_OS'), environment.get('RUNNER_ARCH')) != ('Linux', 'X64')
             or environment.get('GITHUB_REPOSITORY') != api.repository
@@ -75,8 +80,7 @@ def trusted_writer(environment, api, key, root, *, repository_root, expected_key
             or event not in ('schedule', 'workflow_dispatch')
             or not re.fullmatch(r'[0-9a-f]{40}', sha)
             or not re.fullmatch(r'[1-9][0-9]*', run_id)
-            or not Path(environment.get('GITHUB_WORKSPACE', '')).is_absolute()
-            or Path(environment.get('GITHUB_WORKSPACE', '')).resolve() != repository_root
+            or not same_workspace
             or not isinstance(expected_key, str) or not expected_key or key != expected_key):
         raise ToolCacheError(f'{label} cache save requires the exact trusted main writer')
     if event == 'workflow_dispatch':
@@ -101,15 +105,17 @@ def trusted_writer(environment, api, key, root, *, repository_root, expected_key
         raise ToolCacheError(f'REST run identity does not match the {label} writer')
 
 
-def cache_snapshot(root, *, max_cache_bytes, max_entries, label='tool'):
+def cache_snapshot(root, *, max_cache_bytes, max_entries, label='tool', exact_file=False):
     root = cache_root(root, label=label)
-    if not root.is_dir():
+    if exact_file and not root.is_file():
+        raise ToolCacheError(f'{label} cache payload must be one regular file')
+    if not exact_file and not root.is_dir():
         raise ToolCacheError(f'{label} cache payload must be one directory')
     if (type(max_cache_bytes) is not int or max_cache_bytes <= 0
             or type(max_entries) is not int or max_entries <= 0):
         raise ToolCacheError('tool cache payload budgets must be positive integers')
     rows, raw_bytes = [], 0
-    for path in chain((root,), root.rglob('*')):
+    for path in ((root,) if exact_file else chain((root,), root.rglob('*'))):
         value = path.lstat()
         relative = path.relative_to(root).as_posix()
         if (path.is_symlink() or not (stat.S_ISDIR(value.st_mode) or stat.S_ISREG(value.st_mode))
@@ -144,7 +150,7 @@ def checked_process(command, cwd, evidence, name, timeout, *, environment, label
 
 
 def upload_bound(root, environment, deadline, *, repository_root, max_cache_bytes,
-                 max_entries, label='tool', process_runner=None):
+                 max_entries, label='tool', process_runner=None, exact_file=False):
     """Measure the pinned Linux cache action's exact one-directory tar input.
 
     actions/cache@55cc8345 resolves the literal root with implicitDescendants
@@ -156,7 +162,7 @@ def upload_bound(root, environment, deadline, *, repository_root, max_cache_byte
     if (environment.get('TAR_OPTIONS') or environment.get('GZIP')
             or any(char in str(root) for char in '*?[]!{}')):
         raise ToolCacheError('custom archive options or glob paths cannot authorize a tool cache save')
-    snapshot_options = dict(max_cache_bytes=max_cache_bytes, max_entries=max_entries, label=label)
+    snapshot_options = dict(max_cache_bytes=max_cache_bytes, max_entries=max_entries, label=label, exact_file=exact_file)
     before, raw_bytes = cache_snapshot(root, **snapshot_options)
     for command, marker in ((['tar', '--version'], 'GNU tar'), (['gzip', '--version'], 'Free Software Foundation')):
         remaining = deadline - time.monotonic()
@@ -195,7 +201,7 @@ def upload_bound(root, environment, deadline, *, repository_root, max_cache_byte
 def admit_save(root, key, environment, *, repository_root, expected_key, writer_workflow,
                writer_job, check_payload, max_cache_bytes=256 * 1024 ** 2, max_entries=128,
                api=None, label='tool', timeout_seconds=120, checkout_reader=None,
-               process_runner=None):
+               process_runner=None, exact_file=False, allow_physical_workspace_alias=False):
     """Return a save decision; optional cache failures never authorize a save.
 
     expected_key may be a string or a caller-owned function(environment, root).
@@ -224,9 +230,10 @@ def admit_save(root, key, environment, *, repository_root, expected_key, writer_
             api.deadline = min(api.deadline, deadline)
         trusted_writer(environment, api, key, root, repository_root=repository_root,
                        expected_key=expected_key, writer_workflow=writer_workflow,
-                       writer_job=writer_job, label=label, checkout_reader=checkout_reader)
+                       writer_job=writer_job, label=label, checkout_reader=checkout_reader,
+                       allow_physical_workspace_alias=allow_physical_workspace_alias)
         check_payload(root, deadline=deadline)
-        snapshot_options = dict(max_cache_bytes=max_cache_bytes, max_entries=max_entries, label=label)
+        snapshot_options = dict(max_cache_bytes=max_cache_bytes, max_entries=max_entries, label=label, exact_file=exact_file)
         measurement, before = upload_bound(root, environment, deadline,
             repository_root=repository_root, process_runner=process_runner, **snapshot_options)
         report.update(measurement)

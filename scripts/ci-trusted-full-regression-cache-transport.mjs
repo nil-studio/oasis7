@@ -105,14 +105,16 @@ export async function restoreFullCache(sdk, role, metadata, inspect) {
   return match === layout.key;
 }
 
+export function shouldSaveFullCache(role, state) {
+  const phase = ['npm', 'trunk'].includes(role) ? 'post' : 'before-full';
+  return state.phase === phase && state.success === true &&
+    (role === 'sentinel' || state.cacheHit === false) &&
+    (role !== 'wasm-bindgen' || state.prepareOutcome === 'success');
+}
+
 export async function saveFullCache(sdk, role, metadata, state, admission) {
   const layout = fullRegressionCacheLayout(role, metadata);
-  const phase = ['npm', 'trunk'].includes(role) ? 'post' : 'before-full';
-  if (state.phase !== phase || state.success !== true ||
-      (role !== 'sentinel' && state.cacheHit !== false) ||
-      (role === 'wasm-bindgen' && state.prepareOutcome !== 'success')) {
-    return false;
-  }
+  if (!shouldSaveFullCache(role, state)) return false;
   if (admission.allowed !== true || admission.key !== layout.key ||
       admission.repositoryBudgetBytes !== budget ||
       !Number.isSafeInteger(admission.uploadBoundBytes) || admission.uploadBoundBytes <= 0 ||

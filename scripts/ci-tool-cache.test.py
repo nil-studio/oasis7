@@ -100,6 +100,19 @@ class ArchiveAdmission(unittest.TestCase):
         self.assertEqual(self.archive.read_bytes(), original)
         self.assertEqual({method for method, _ in api.calls}, {'GET'})
 
+    def test_one_file_uses_original_tar_and_requires_explicit_mode(self):
+        options = dict(max_cache_bytes=4096, max_entries=1, repository_root=ROOT)
+        deadline = time.monotonic() + 10
+        with self.assertRaisesRegex(ValueError, 'one directory'):
+            C.upload_bound(self.archive, self.environment, deadline, **options)
+        result, snapshot = C.upload_bound(self.archive, self.environment, deadline, exact_file=True, **options)
+        self.assertEqual(result['raw_bytes'], self.archive.stat().st_size)
+        self.assertEqual(result['payload_entries'], 1)
+        self.assertEqual(snapshot[0][0], '.')
+        self.assertGreater(result['upload_bound_bytes'], result['measured_tar_bytes'])
+        with self.assertRaisesRegex(ValueError, 'regular file'):
+            C.upload_bound(self.root, self.environment, deadline, exact_file=True, **options)
+
     def test_exact_writer_platform_component_key_and_real_checkout_are_required(self):
         for changes in ({'GITHUB_REF': 'refs/pull/42/merge'},
                         {'GITHUB_JOB': 'worker-build-cache'},
