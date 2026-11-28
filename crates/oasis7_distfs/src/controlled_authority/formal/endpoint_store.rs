@@ -3,6 +3,7 @@
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::borrow::Borrow;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 #[cfg(unix)]
@@ -13,6 +14,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const LIMIT: usize = 64 * 1024 * 1024;
 const HOT: &str = "formal-checkpoint-v1.cbor";
 const DOMAIN: &str = "oasis7.formal.endpoint_checkpoint.sign.v1";
+#[path = "endpoint_store_minimum_paid.rs"]
+mod minimum_paid;
+use minimum_paid::MinimumOps;
+#[cfg(test)]
+pub(super) use minimum_paid::paid_minimum_read_count;
 static TEMP: AtomicU64 = AtomicU64::new(0);
 #[path = "endpoint_store_checkpoint_paid.rs"]
 mod checkpoint_paid;
@@ -608,11 +614,12 @@ impl Store {
             })
             .transpose()
     }
-    fn walk_minimum(
+    fn walk_minimum<O: MinimumOps>(
         body: &HotBody,
         minimum: &FormalHeadRefV1,
-        mut load: impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
-    ) -> Result<Vec<Vec<u8>>, FormalError> {
+        ops: &mut O,
+    ) -> Result<Vec<O::Raw>, FormalError> {
+        ops.charge(minimum.record_id.len())?;
         hash_hex(&minimum.record_id)?;
         if minimum.position > body.head.position {
             return Err(FormalError::Rollback("formal below minimum".into()));
@@ -620,20 +627,31 @@ impl Store {
         if minimum.position == 0 {
             return Ok(vec![]);
         }
+        ops.begin(body)?;
         let mut head = body.head.clone();
         let mut cursor = body.head_node.clone().or(body.imported_head_node.clone());
         let mut witness = Vec::new();
         while head.position > minimum.position {
+            ops.charge(0)?;
             if witness.len() >= 64 {
                 return Err(invalid("formal ancestry witness bound"));
             }
             let id = cursor.ok_or_else(|| invalid("formal minimum history unavailable"))?;
+            ops.charge(id.len())?;
             hash_hex(&id)?;
-            let bytes = load(&id)?;
-            if bytes.len() > 128 * 1024 || blake3::hash(&bytes).to_hex().as_str() != id {
+            let raw = ops.load(&id)?;
+            let bytes = raw.as_ref();
+            if bytes.len() > 128 * 1024 {
                 return Err(invalid("formal ancestry node checksum/bound"));
             }
-            let node: HistoryNode = decode(&bytes)?;
+            ops.charge(bytes.len())?;
+            if blake3::hash(bytes).to_hex().as_str() != id {
+                return Err(invalid("formal ancestry node checksum/bound"));
+            }
+            let owned = ops.decode(&raw)?;
+            let node: &HistoryNode = owned.borrow();
+            ops.charge(node.head.record_id.len())?;
+            ops.charge(head.record_id.len())?;
             if node.head != head || node.ancestors.is_empty() || node.ancestors.len() > 64 {
                 return Err(invalid("formal minimum node identity"));
             }
@@ -643,10 +661,13 @@ impl Store {
             if head.position.checked_sub(1u64 << used) != Some(link.head.position) {
                 return Err(invalid("formal minimum skip position"));
             }
+            ops.advance(link)?;
             head = link.head.clone();
             cursor = Some(link.node.clone());
-            witness.push(bytes);
+            ops.push(&mut witness, raw)?;
         }
+        ops.charge(head.record_id.len())?;
+        ops.charge(minimum.record_id.len())?;
         if &head != minimum {
             return Err(FormalError::Rollback(
                 "formal minimum canonical fork".into(),
@@ -655,7 +676,7 @@ impl Store {
         Ok(witness)
     }
     pub fn minimum_witness(&self, minimum: &FormalHeadRefV1) -> Result<Vec<Vec<u8>>, FormalError> {
-        Self::walk_minimum(&self.body, minimum, |id| {
+        Self::walk_minimum(&self.body, minimum, &mut |id: &str| {
             self.raw_object(id)?
                 .ok_or_else(|| invalid("formal ancestry object missing"))
         })
@@ -677,7 +698,7 @@ impl Store {
             return Err(invalid("formal RPC checkpoint version"));
         }
         let mut nodes = witness.iter();
-        Self::walk_minimum(&body, minimum, |_| {
+        Self::walk_minimum(&body, minimum, &mut |_: &str| {
             nodes
                 .next()
                 .cloned()
