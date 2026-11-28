@@ -113,17 +113,45 @@ jobs:
     if: inputs.retained_release == '' && (github.ref != 'refs/heads/main' || github.workflow_sha != github.sha)
     runs-on: ubuntu-24.04
     timeout-minutes: 135
+    cache-mode: read
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container: &ecs-native-container
+      image: &ecs-native-trusted-image ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env: &ecs-native-image-environment
+      # The workspace cache hashes the complete Rust configuration, including this digest.
+      RUST_ECS_NATIVE_IMAGE: *ecs-native-trusted-image
+      ECS_NATIVE_DEPENDENCY_NAMESPACE: oasis7-ecs-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
     steps: &native-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Verify preinstalled trusted Rust build environment
-        id: native-environment
-        if: github.job == 'native-trusted'
+      - name: Reject Docker daemon access in candidate native build
+        if: github.job == 'native'
         run: |
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -z "${DOCKER_HOST:-}"
+          test ! -w /var/run/docker.sock
+          test ! -w /run/docker.sock
+      - name: Verify preinstalled Rust build environment
+        id: native-environment
+        run: |
+          set -euo pipefail
           test "$(id -u):$(id -g)" = 1001:1001
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
           test "$(command -v rustc)" = /opt/oasis7-rust/bin/rustc
           test "$(rustc --version | cut -d' ' -f2)" = "$RUST_TOOLCHAIN"
@@ -140,36 +168,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-ecs-cache.py preflight --report "$RUNNER_TEMP/ecs-cache-preflight.json"
-      - name: Install Rust and system libraries
-        if: github.job == 'native'
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Normalize Rust cache toolchains
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
-        shell: bash
-        run: |
-          toolchains=("$RUST_TOOLCHAIN")
-          if [[ "$GITHUB_JOB" == 'native-trusted' ]]; then
-            toolchains+=("$OASIS7_WASM_TOOLCHAIN")
-          fi
-          python3 scripts/ci-rust-cache-toolchains.py "${toolchains[@]}"
-      - name: Install host dependency cache admission
-        id: dependency-cache-tools
-        if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-admission.py') != ''
-        continue-on-error: true
-        run: python3 scripts/ci-rust-cache-admission.py install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'
-        env:
-          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
-          OASIS7_DEPENDENCY_CACHE_FAMILY: ecs
-          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}
-          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Restore candidate image dependencies without saving
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: oasis7-ecs-native-linux-ecs-v2
+          shared-key: ${{ env.ECS_NATIVE_DEPENDENCY_NAMESPACE }}
+          cache-provider: github
           save-if: false
           cache-on-failure: false
       - name: Install trusted image dependency cache admission
@@ -294,22 +301,9 @@ jobs:
           name: ecs-native-stage
           path: output/native.tar.gz
           if-no-files-found: error
-      - name: Upload native Cargo timings
-        if: always() && github.job == 'native'
-        continue-on-error: true
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ecs-native-timings
-          path: |
-            target/cargo-timings/
-            ${{ runner.temp }}/ecs-reports/
-            ${{ runner.temp }}/ecs-cache-*.json
-            ${{ runner.temp }}/ecs-units.json
-          if-no-files-found: ignore
-
       - id: image-timings
         name: Stage the original native timing evidence for image upload
-        if: always() && github.job == 'native-trusted'
+        if: always()
         continue-on-error: true
         run: |
           root=$(mktemp -d "$RUNNER_TEMP/ecs-native-timings.XXXXXX")
@@ -345,20 +339,11 @@ jobs:
       contents: read
       actions: read
       packages: read
-    container:
-      image: &ecs-native-trusted-image ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
-      options: --user 1001:1001 --init
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
+    container: *ecs-native-container
     defaults:
       run:
         shell: bash
-    env:
-      # The workspace cache hashes the complete Rust configuration, including this digest.
-      RUST_ECS_NATIVE_IMAGE: *ecs-native-trusted-image
-      ECS_NATIVE_DEPENDENCY_NAMESPACE: oasis7-ecs-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
-      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+    env: *ecs-native-image-environment
     steps: *native-steps
 
   cache-maintenance:

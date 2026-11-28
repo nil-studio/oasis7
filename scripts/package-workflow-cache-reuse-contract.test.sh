@@ -345,7 +345,8 @@ repository_budget = '20000000000'
 budget_entries = {
     'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
     'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 4),
-    'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 2),
+    'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES',
+                         1 if 'container: &ecs-native-container' in ecs else 2),
     'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'testnet-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'hosted-login-linux-build.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
@@ -671,12 +672,19 @@ for workflow, names in ((release, (*native_gates, "release_gate_web", "build-web
         guarded = [step for step in steps if normalizer in step or "Swatinem/rust-cache@" in step]
         if workflow == ecs and name == "native":
             assert len(guarded) == 3, "ECS shared native steps require one normalizer and two exclusive cache paths"
-            normal, host, image = guarded
+            normal, candidate, image = guarded
             assert f"if: hashFiles('{normalizer}') != ''" in normal
-            assert "if [[ \"$GITHUB_JOB\" == 'native-trusted' ]]; then" in normal
-            assert 'toolchains+=("$OASIS7_WASM_TOOLCHAIN")' in normal
-            assert f"if: github.job == 'native' && hashFiles('{normalizer}') != ''" in host
-            assert "shared-key: oasis7-ecs-native-linux-ecs-v2" in host and "save-if: false" in host
+            assert f"if: github.job == 'native' && hashFiles('{normalizer}') != ''" in candidate
+            assert "save-if: false" in candidate
+            if 'container: &ecs-native-container' in body:
+                assert '"$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"' in normal
+                assert "shared-key: ${{ env.ECS_NATIVE_DEPENDENCY_NAMESPACE }}" in candidate
+                assert "cache-provider: github" in candidate
+                assert "GH_TOKEN" not in candidate
+            else:
+                assert "if [[ \"$GITHUB_JOB\" == 'native-trusted' ]]; then" in normal
+                assert 'toolchains+=("$OASIS7_WASM_TOOLCHAIN")' in normal
+                assert "shared-key: oasis7-ecs-native-linux-ecs-v2" in candidate
             assert f"if: github.job == 'native-trusted' && hashFiles('{normalizer}') != '' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'" in image
             assert "NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}" in image
             continue
