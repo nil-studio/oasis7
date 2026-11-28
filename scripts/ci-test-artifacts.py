@@ -914,8 +914,7 @@ def resolve_ordinary_execution_contract(plan):
                 'artifact_partitions', 'partitions', 'required_wasm_packages',
                 'required_host_docker_wasm_fixtures', 'delegated_clippy'))
             or any(not isinstance(fx, str) or fx not in ('builtin_test_modules', 'provider_preview_wasm')
-                   for fx in raw['required_host_docker_wasm_fixtures'])
-            or (raw['candidate_container_eligible'] and bool(raw['required_host_docker_wasm_fixtures']))):
+                   for fx in raw['required_host_docker_wasm_fixtures'])):
         raise ValueError('invalid or unsupported ordinary_execution_contract')
     if 'ordinary_partitions' in plan and list(plan['ordinary_partitions']) != list(raw['partitions']):
         raise ValueError('ordinary_execution_contract.partitions conflicts with ordinary_partitions')

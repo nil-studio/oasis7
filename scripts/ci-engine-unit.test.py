@@ -223,12 +223,33 @@ class ExecutorContractAndAstRatchetTests(unittest.TestCase):
             {"logical_harness_aliases": {"oasis7_synth": "../manifest.json"}},
             {"logical_harness_aliases": ["not-a-dict"]},
             {"logical_harness_aliases": {"a": "dup", "b": "dup"}},
-            {"candidate_container_eligible": True, "required_host_docker_wasm_fixtures": ["builtin_test_modules"]},
             {"candidate_container_eligible": False, "required_host_docker_wasm_fixtures": ["unknown_fixture"]},
         ):
             bad_plan = {"ordinary_execution_contract": {**contract_plan["ordinary_execution_contract"], **bad_override}}
             with self.subTest(bad_override=bad_override), self.assertRaises(ValueError):
                 art.resolve_ordinary_execution_contract(bad_plan)
+        # Verify real planner scope=full pr-fast contract (candidate_container_eligible=True + fixtures list) validates cleanly.
+        full_pr_fast = {
+            "fast_plan_version": 1, "execution_profile": "pr-fast", "scope": "full",
+            "groups": ["baseline", "rust_baseline", "oasis7_required"], "test_policy_changed": False,
+            "oasis7_required_packages": ["oasis7_chain_runtime", "oasis7_runtime"],
+            "oasis7_required_wasm_packages": [],
+            "ordinary_artifact_partition_version": 2, "ordinary_artifact_delivery_version": 2,
+            "ordinary_controls_in_rust_baseline_version": 1, "ordinary_clippy_group": "rust_baseline",
+            "ordinary_wasm_group": "rust_baseline",
+            "ordinary_partitions": ["native-0", "native-1", "native-2", "native-3"],
+            "ordinary_execution_contract": {
+                "version": 1, "mode": "artifact-v2", "supports_universal_v2": False,
+                "candidate_container_eligible": True,
+                "artifact_partitions": ["native-0", "native-1", "native-2", "native-3"],
+                "partitions": ["native-0", "native-1", "native-2", "native-3"],
+                "logical_harness_aliases": {"oasis7_chain_runtime": "runtime-tests"},
+                "required_wasm_packages": [],
+                "required_host_docker_wasm_fixtures": ["builtin_test_modules", "provider_preview_wasm"],
+                "deferred_cases": {}, "delegated_clippy": [],
+            },
+        }
+        self.assertIsNotNone(art.fast_plan(full_pr_fast))
 
     def test_ci_tests_consumes_support_contract_partitions_and_complete_features(self):
         import json
