@@ -179,6 +179,56 @@ impl BftOriginalRetentionTxnSnapshotV1 {
         Ok(())
     }
 
+    /// Prepare the COMPLETE protected retention tuple for one actual Noise
+    /// response's externally measured network bytes. No separately persisted
+    /// transfer counter or response WAL is permitted. A backend must compare
+    /// and commit this exact expected→next envelope in ONE fenced transaction,
+    /// then reread it before any original bytes are released to the peer.
+    /// A failed or unknown commit is never refunded or automatically retried.
+    pub fn prepare_original_response_charge(
+        &self,
+        lease_generation: u64,
+        lease_token_digest: &str,
+        exact_outer_bytes: u64,
+    ) -> Result<Self, BftSignerErrorV3> {
+        self.validate()?;
+        let signer = &self.current.current.signer;
+        if lease_generation == 0
+            || signer.lease_generation != lease_generation
+            || signer.lease_token_digest != lease_token_digest
+            || exact_outer_bytes == 0
+            || exact_outer_bytes > 128 * 1024
+        {
+            return Err(invalid("original response current lease or encoded size invalid"));
+        }
+        let head = signer
+            .state
+            .private_retention
+            .as_ref()
+            .ok_or_else(|| invalid("original response requires covered retention"))?;
+        head.validate_supported_head(&signer.state.binding_digest)?;
+        if head.source != self.current.current.marker.source {
+            return Err(invalid("original response source differs from protected marker"));
+        }
+        let total = self
+            .current
+            .current
+            .reserved_response_bytes
+            .checked_add(exact_outer_bytes)
+            .ok_or_else(|| invalid("original response spend overflow"))?;
+        if head
+            .retained_material_bytes
+            .and_then(|retained| retained.checked_add(total))
+            .is_none_or(|bytes| bytes > super::BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1)
+        {
+            return Err(invalid("original response exceeds protected namespace 4 GiB"));
+        }
+        let mut next = self.clone();
+        next.current.current.reserved_response_bytes = total;
+        next.validate()?;
+        Ok(next)
+    }
+
     /// Historical read identity uses the original request bytes. A newer
     /// current lease does NOT re-sign or replace an older operation result.
     pub fn lookup_original(
