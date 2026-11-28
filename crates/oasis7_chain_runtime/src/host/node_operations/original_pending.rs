@@ -1,7 +1,7 @@
 //! Deliberate, same-owner original pending freeze and read-only verification.
 //! Neither a private owner candidate nor this CLI issues protected P/R authority.
 use super::super::{
-    formal_live_recovery_original_adapter, 
+    formal_live_recovery_original_adapter,
     formal_live_runtime::{self, FormalRuntimeOwnerSnapshotV1},
 };
 use std::{path::Path, time::Duration};
