@@ -309,6 +309,46 @@ class WorkflowCorePart8(unittest.TestCase):
         with self.assertRaises(AssertionError):
             validate_mold_checkout_reuse(tools, '', source.replace('workflow_sha !=', 'workflow_sha =='))
 
+    def assert_release_web_linker_checkout(self, steps, setup):
+        tools_indices = [i for i, step in enumerate(steps)
+                         if 'uses: actions/checkout@' in step
+                         and 'ref: ${{ github.workflow_sha }}' in step]
+        source_indices = [i for i, step in enumerate(steps)
+                          if 'uses: actions/checkout@' in step
+                          and 'ref: ${{ needs.plan.outputs.checkoutSha }}' in step]
+        self.assertEqual(len(tools_indices), 1)
+        self.assertEqual(len(source_indices), 1)
+        tools_index, source_index = tools_indices[0], source_indices[0]
+        tools, source = steps[tools_index], steps[source_index]
+        self.assertLess(tools_index, setup)
+        self.assertLess(setup, source_index)
+        self.assertEqual(re.search(r'^        if: (.+)$', steps[setup], re.M)[1],
+                         "env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'")
+        self.assertIn("fetch-depth: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true' && '0' || '1' }}", tools)
+        self.assertIn("sparse-checkout: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && '.github/actions/setup-linux-mold' || '' }}", tools)
+        self.assertNotIn('sparse-checkout-cone-mode: false', tools)
+        self.assertIn('persist-credentials: false', tools)
+        self.assertIn('persist-credentials: false', source)
+        self.assertNotIn('sparse-checkout:', source)
+        preflight = next(i for i, step in enumerate(steps)
+                         if 'name: Verify the fixed Release Web image from trusted workflow tools\n' in step)
+        self.assertLess(tools_index, preflight)
+        self.assertLess(preflight, setup)
+        self.assertEqual(re.search(r'^        if: (.+)$', steps[preflight], re.M)[1],
+                         "env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'")
+        direct_indices = [i for i, step in enumerate(steps)
+                          if 'setup-linux-mold/setup.py' in step]
+        self.assertEqual(len(direct_indices), 1)
+        direct = direct_indices[0]
+        self.assertEqual(re.search(r'^        if: (.+)$', steps[direct], re.M)[1],
+                         "env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'")
+        self.assertIn('run: python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/release-web-mold"\n', steps[direct])
+        self.assertLess(preflight, direct)
+        self.assertLess(direct, source_index)
+        self.assertIn('--source "$EXPECTED_WORKFLOW_SHA"', steps[preflight])
+        self.assertIn('EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}', steps[preflight])
+        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"', steps[source_index + 1])
+
     def test_historical_source_builds_load_mold_from_the_workflow_revision(self):
         # A historical product checkout may predate the local action entirely.
         for filename in ('rust.yml', 'mainnet-packages.yml', 'release-packages.yml', 'testnet-packages.yml'):
@@ -322,31 +362,15 @@ class WorkflowCorePart8(unittest.TestCase):
                                  if 'uses: ./.github/actions/setup-linux-mold' in step)
                     if (filename in ('mainnet-packages.yml', 'release-packages.yml')
                             and name == 'release_gate_web' and '    container:' in job):
-                        tools_indices = [i for i, step in enumerate(steps)
-                                         if 'uses: actions/checkout@' in step
-                                         and 'ref: ${{ github.workflow_sha }}' in step]
-                        source_indices = [i for i, step in enumerate(steps)
-                                          if 'uses: actions/checkout@' in step
-                                          and 'ref: ${{ needs.plan.outputs.checkoutSha }}' in step]
-                        self.assertEqual(len(tools_indices), 1)
-                        self.assertEqual(len(source_indices), 1)
-                        tools_index, source_index = tools_indices[0], source_indices[0]
-                        tools, source = steps[tools_index], steps[source_index]
-                        self.assertLess(tools_index, setup)
-                        self.assertLess(setup, source_index)
-                        self.assertIn("if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'", steps[setup])
-                        self.assertIn("fetch-depth: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true' && '0' || '1' }}", tools)
-                        self.assertIn("sparse-checkout: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && '.github/actions/setup-linux-mold' || '' }}", tools)
-                        self.assertIn('persist-credentials: false', tools)
-                        self.assertIn('persist-credentials: false', source)
-                        self.assertNotIn('sparse-checkout:', source)
-                        preflight = next(i for i, step in enumerate(steps)
-                                         if 'name: Verify the fixed Release Web image from trusted workflow tools\n' in step)
-                        self.assertLess(tools_index, preflight)
-                        self.assertLess(preflight, setup)
-                        self.assertIn('--source "$EXPECTED_WORKFLOW_SHA"', steps[preflight])
-                        self.assertIn('EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}', steps[preflight])
-                        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"', steps[source_index + 1])
+                        self.assert_release_web_linker_checkout(steps, setup)
+                        direct = next(step for step in steps if 'setup-linux-mold/setup.py' in step)
+                        moved = [step for step in steps if step != direct] + [direct]
+                        widened = [step.replace("env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'",
+                                                "env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'")
+                                   if step == direct else step for step in steps]
+                        for broken in (moved, widened):
+                            with self.assertRaises(AssertionError):
+                                self.assert_release_web_linker_checkout(broken, setup)
                         continue
                     tools_index = setup - 1
                     if (filename == 'rust.yml' and name == 'oasis7-test-build-trusted'
