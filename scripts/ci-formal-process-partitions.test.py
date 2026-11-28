@@ -179,7 +179,7 @@ class CompleteArtifactPartitions(unittest.TestCase):
 
     def policy_selection(self):
         return self.selection() | dict(scope='targeted', test_policy_changed=True,
-            oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
+            oasis7_required_packages=['oasis7_runtime_host', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
             oasis7_required_wasm_packages=['oasis7_viewer_runtime'])
 
     def manifest(self, selected):
