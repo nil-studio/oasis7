@@ -2176,15 +2176,19 @@ class RustArchitectureSplitTests(unittest.TestCase):
                 self.assertEqual(out.exists(), accepted)
 
     def test_gate_checks_required_context_before_legacy_needs_validator(self):
-        script = workflow_step_script(JOBS['required-gate'], 'Validate Rust architecture handoff')
-        self.assertIn('NEEDS: ${{ steps.rust-architecture-handoff.outputs.legacy-needs }}', JOBS['required-gate'])
+        name = 'Validate Rust architecture handoff'
+        script = workflow_step_script(JOBS['required-gate'], name)
+        for gate in ('required-gate', 'explicit-full-gate'):
+            self.assertEqual(workflow_step_script(JOBS[gate], name), script)
+            self.assertIn('NEEDS: ${{ steps.rust-architecture-handoff.outputs.legacy-needs }}', JOBS[gate])
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / 'python3').symlink_to(sys.executable)
             output = root / 'output'
-            for scope, groups in (('full', ['baseline']), ('targeted', ['baseline', 'rust_baseline']),
+            for scope, groups in (('full', ['baseline']), ('explicit-full', ['baseline', 'rust_baseline']),
+                                  ('targeted', ['baseline', 'rust_baseline']),
                                   ('targeted', ['baseline'])):
-                selected = scope == 'full' or 'rust_baseline' in groups
+                selected = scope in ('full', 'explicit-full') or 'rust_baseline' in groups
                 plan = json.dumps(dict(scope=scope, groups=groups)).encode()
                 (root / 'selection.json').write_bytes(plan)
                 context = dict(schema=1, run='416', attempt='1', source='a' * 40, tested='b' * 40,

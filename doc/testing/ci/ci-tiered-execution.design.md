@@ -515,7 +515,7 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 ### Rust 基线的架构检查
 
-普通 required 流程中，`rust-architecture` 与 `rust-baseline` 使用相同选择、固定容器、只读缓存及 runner 路由，各有 32 分钟上限。架构作业按原可信计划执行常规完整或定向的依赖检查与 Cargo 检查。原基线仍执行格式、安全、卫生、Clippy、所选 WASM 检查和独立锁文件检查。显式本地及完整分层入口继续执行原组合。
+required 和 explicit-full 流程中，`rust-architecture` 与 `rust-baseline` 使用相同选择、固定容器、只读缓存及 runner 路由，各有 32 分钟上限。架构作业按原可信计划执行常规完整或定向的依赖检查与 Cargo 检查。原基线仍执行格式、安全、卫生、Clippy、所选 WASM 检查和独立锁文件检查。显式本地及完整分层入口继续执行原组合。
 
 汇总先根据受校验的选择确认两作业状态，并核对回执的运行号、来源、实测提交、树、计划摘要和编译环境。失败、缺失或选中作业被跳过会阻止 required gate。失败项重跑可使用同一运行、较早尝试的成功结果，要求原选择和执行身份仍匹配。旧版可信结果验证器继续核对它认识的原依赖。
 

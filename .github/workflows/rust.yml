@@ -4901,7 +4901,8 @@ jobs:
           if actual_identity != identities:
               raise ValueError('complete selection disagrees with independently selected identity')
           PY
-      - name: Validate Rust architecture handoff
+      - &validate-rust-architecture-handoff
+        name: Validate Rust architecture handoff
         id: rust-architecture-handoff
         env:
           NEEDS: ${{ toJSON(needs) }}
@@ -4915,7 +4916,7 @@ jobs:
           needs = json.loads(os.environ['NEEDS'])
           architecture = needs.pop('rust-architecture')
           baseline = needs['rust-baseline']
-          selected = plan['scope'] == 'full' or 'rust_baseline' in plan['groups']
+          selected = plan['scope'] in ('full', 'explicit-full') or 'rust_baseline' in plan['groups']
           expected_result = 'success' if selected else 'skipped'
           if architecture['result'] != expected_result or baseline['result'] != expected_result:
               raise ValueError('Rust architecture and baseline jobs did not both return the selected result')
@@ -5283,7 +5284,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    needs: [select, baseline, rust-baseline, oasis7-required, formal-process, distfs, node, net, viewer-js-required, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, fleet-health, oasis7-test-build-candidate, oasis7-test-build-trusted, full-regression, candidate-full-regression]
+    needs: [select, baseline, rust-baseline, rust-architecture, oasis7-required, formal-process, distfs, node, net, viewer-js-required, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, fleet-health, oasis7-test-build-candidate, oasis7-test-build-trusted, full-regression, candidate-full-regression]
     steps:
       - name: Require successful full planning
         env:
@@ -5307,6 +5308,7 @@ jobs:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
       - *validate-complete-selection
+      - *validate-rust-architecture-handoff
       - name: Require complete full inventory and exact source
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -5314,7 +5316,7 @@ jobs:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           RUN_MODE: ${{ inputs.run_mode }}
-          NEEDS: ${{ toJSON(needs) }}
+          NEEDS: ${{ steps.rust-architecture-handoff.outputs.legacy-needs }}
         run: |
           env -u PYTHONPATH python3 -P - <<'PY'
           import importlib.util, os, runpy, sys
