@@ -98,6 +98,14 @@ fn original_input(
 
 #[test]
 fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
+    for scenario in ["legacy", "envelope", "lost-ack", "mismatched-original"] {
+        first_reserve_and_cold_retry(scenario);
+    }
+}
+
+fn first_reserve_and_cold_retry(scenario: &str) {
+    let use_envelope = scenario != "legacy";
+    let uncertain = matches!(scenario, "lost-ack" | "mismatched-original");
     let binding = binding();
     let (marker, role) = configured_source(&binding);
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
@@ -115,6 +123,7 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
         mismatched_readback: false,
         lose_commit_acknowledgement: false,
         activation_signs: Arc::new(AtomicUsize::new(0)),
+        original_envelope: None,
     }));
     let (original, retained) = original_input(&marker);
     let mut repriced = original.clone();
@@ -135,6 +144,14 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
             hold: hold.clone(),
         })
     };
+    let configure = |service: BftSignerServiceV3, allowed| {
+        if use_envelope {
+            service.with_retained_first_reservation(with_reader(allowed), Duration::from_secs(20))
+        } else {
+            service.with_first_reservation(with_reader(allowed), Duration::from_secs(20))
+        }
+        .unwrap()
+    };
 
     let unsupported = service(&binding, &snapshot, &slot, &marker, &role, true).unwrap();
     let (provider, server) = native_service(&binding, unsupported);
@@ -150,14 +167,69 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
     drop(lease);
     server.join().unwrap();
 
-    let writer = service(&binding, &snapshot, &slot, &marker, &role, false)
+    // Opting in on a legacy-only backend must fail before reading originals,
+    // charging a response or falling back to the old transaction primitive.
+    if use_envelope {
+        let unsupported = configure(
+            service(&binding, &snapshot, &slot, &marker, &role, false).unwrap(),
+            vec![original.clone()],
+        );
+        let (provider, server) = native_service(&binding, unsupported);
+        let mut lease = provider.acquire(&binding).unwrap();
+        let spend = slot.lock().unwrap().reserved_response_bytes;
+        assert!(
+            lease
+                .reserve_first_private_retention(&role, &marker, &activation, &original)
+                .unwrap_err()
+                .to_string()
+                .contains("envelope unsupported")
+        );
+        assert_eq!(slot.lock().unwrap().reserved_response_bytes, spend);
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        drop(lease);
+        server.join().unwrap();
+        // Opaque historical bytes stand for an already verified operation;
+        // this fixture tests preservation, not original signature admission.
+        let request = b"original request\0\xff".to_vec();
+        let receipt = b" original receipt\n\xfe".to_vec();
+        let operation = BftRetainedOriginalOperationV1 {
+            schema_version: 1,
+            operation_id: "historical-raw".into(),
+            source: marker.source.clone(),
+            ledger_origin_digest: marker.ledger_origin_digest.clone(),
+            original_request_digest:
+                BftRetainedOriginalOperationV1::request_digest_from_original_bytes(&request),
+            signed_request_bytes: request,
+            before_revision: 0,
+            before_state_digest: marker.initial_state_digest.clone(),
+            after_revision: covered.revision,
+            after_state_digest: covered.state_digest.clone(),
+            original_lease_generation: activation.receipt.body.original_lease_generation,
+            original_lease_token_digest: hash(90),
+            input_refs: vec![original.descriptor().unwrap()],
+            original_receipt_digest:
+                BftRetainedOriginalOperationV1::receipt_digest_from_original_bytes(&receipt),
+            signed_receipt_bytes: receipt,
+            cumulative_reserved_response_bytes: 1,
+        };
+        slot.lock().unwrap().original_envelope = Some(OriginalEnvelope {
+            operations: [(operation.operation_id.clone(), operation)].into(),
+            lose_ack: scenario == "lost-ack",
+            mismatch_readback: scenario == "mismatched-original",
+            ..Default::default()
+        });
+    }
+    let historical = slot
+        .lock()
         .unwrap()
-        .with_first_reservation(
-            with_reader(vec![original.clone(), repriced.clone()]),
-            Duration::from_secs(20),
-        )
-        .unwrap();
-    let (provider, server) = native_service(&binding, writer);
+        .original_envelope
+        .as_ref()
+        .map(|e| e.operations.clone());
+    let writer = configure(
+        service(&binding, &snapshot, &slot, &marker, &role, false).unwrap(),
+        vec![original.clone(), repriced.clone()],
+    );
+    let (provider, server) = native_service_expected(&binding, writer, uncertain);
     let mut lease = provider.acquire(&binding).unwrap();
     assert!(
         lease
@@ -175,11 +247,33 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
     );
     assert!(slot.lock().unwrap().reservation.is_none());
     assert_eq!(lease.checkpoint().unwrap().state, covered);
-    let reserved = lease
-        .reserve_first_private_retention(&role, &marker, &activation, &original)
-        .unwrap();
+    let answer = lease.reserve_first_private_retention(&role, &marker, &activation, &original);
+    let reserved = slot
+        .lock()
+        .unwrap()
+        .reservation
+        .as_ref()
+        .unwrap()
+        .ledger
+        .clone();
+    if uncertain {
+        assert!(
+            answer
+                .unwrap_err()
+                .to_string()
+                .contains("commit/readback uncertain")
+        );
+        assert!(lease.checkpoint().is_err());
+        assert!(
+            lease
+                .reserve_first_private_retention(&role, &marker, &activation, &original)
+                .is_err()
+        );
+    } else {
+        assert_eq!(answer.unwrap(), reserved);
+    }
     let receipt_generation = reserved.receipt.body.original_lease_generation;
-    let state = lease.checkpoint().unwrap().state;
+    let state = snapshot.lock().unwrap().state.clone();
     assert_eq!(state.revision, 2);
     assert_eq!(
         state.private_retention.as_ref(),
@@ -195,14 +289,45 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
     assert_eq!(reservation.input, original);
     assert_eq!(reservation.ledger, reserved);
     assert_eq!(hold.load(Ordering::SeqCst), 0);
+    if let Some(expected) = &historical {
+        let persisted = slot.lock().unwrap();
+        let envelope = persisted.original_envelope.as_ref().unwrap();
+        assert_eq!(&envelope.operations, expected);
+        assert_eq!(envelope.commits, 1);
+    }
     assert!(lease.start_height_timer(2).is_err());
     drop(lease);
     server.join().unwrap();
 
-    let reader = service(&binding, &snapshot, &slot, &marker, &role, false)
-        .unwrap()
-        .with_first_reservation(with_reader(Vec::new()), Duration::from_secs(20))
+    if uncertain {
+        let fenced = snapshot.lock().unwrap().clone();
+        assert!(!fenced.lease_token_digest.is_empty());
+        let reader = configure(
+            service(&binding, &snapshot, &slot, &marker, &role, false).unwrap(),
+            Vec::new(),
+        );
+        let (provider, server) = native_service(&binding, reader);
+        assert!(provider.acquire(&binding).is_err());
+        server.join().unwrap();
+        assert_eq!(*snapshot.lock().unwrap(), fenced);
+        // An independent test backend fences the departed old writer. A
+        // production service must never clear an uncertain owner by itself.
+        Backend {
+            binding: binding.digest().unwrap(),
+            snapshot: snapshot.clone(),
+            fresh: Some(slot.clone()),
+        }
+        .release_lease(fenced.lease_generation, &fenced.lease_token_digest)
         .unwrap();
+        let mut persisted = slot.lock().unwrap();
+        let envelope = persisted.original_envelope.as_mut().unwrap();
+        envelope.lose_ack = false;
+        envelope.mismatch_readback = false;
+    }
+    let reader = configure(
+        service(&binding, &snapshot, &slot, &marker, &role, false).unwrap(),
+        Vec::new(),
+    );
     let (provider, server) = native_service(&binding, reader);
     let mut lease = provider.acquire(&binding).unwrap();
     assert_eq!(
@@ -220,6 +345,12 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
         2
     );
     assert!(slot.lock().unwrap().reserved_response_bytes > original_spend);
+    if let Some(expected) = &historical {
+        let persisted = slot.lock().unwrap();
+        let envelope = persisted.original_envelope.as_ref().unwrap();
+        assert_eq!(&envelope.operations, expected);
+        assert_eq!(envelope.commits, 2);
+    }
     assert!(
         lease
             .reserve_first_private_retention(&role, &marker, &activation, &repriced)
