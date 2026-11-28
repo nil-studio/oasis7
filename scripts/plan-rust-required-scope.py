@@ -52,6 +52,61 @@ def _load_sibling_ci_engine():
     _CACHED_CI_ENGINE = module
     return module
 
+def _load_default_capabilities():
+    scope_path = Path(__file__).with_name('ci-required-scope.json')
+    if scope_path.is_file() and not scope_path.is_symlink():
+        try:
+            caps = json.loads(scope_path.read_text(encoding='utf-8')).get('package_capabilities')
+            if isinstance(caps, dict):
+                return caps
+        except (OSError, ValueError, UnicodeError):
+            pass
+    return None
+
+
+def _caps_of(config):
+    return config['package_capabilities'] if isinstance(config, dict) and isinstance(config.get('package_capabilities'), dict) else None
+
+
+def _ordinary_packages(config):
+    caps = _caps_of(config)
+    return list(_load_sibling_ci_engine().derive_ordinary_packages(caps)) if caps is not None else list((config or {}).get('oasis7_required_packages', ()))
+
+
+def _required_wasm_packages(config):
+    caps = _caps_of(config)
+    return list(_load_sibling_ci_engine().derive_required_wasm_packages(caps)) if caps is not None else list((config or {}).get('oasis7_required_wasm_packages', ()))
+
+
+def _support_profiles(config):
+    caps = _caps_of(config)
+    if caps is not None:
+        return tuple(sorted(_load_sibling_ci_engine().derive_support_profiles(caps)))
+    if SUPPORT_PROFILES:
+        return SUPPORT_PROFILES
+    ord_set = set((config or {}).get('oasis7_required_packages', ()))
+    return tuple(sorted(p for p, gs in (config or {}).get('package_groups', {}).items()
+                        if isinstance(gs, list) and 'workspace_support' in gs and p not in ord_set))
+
+
+def _support_host_profiles(config):
+    caps = _caps_of(config)
+    return _load_sibling_ci_engine().derive_support_host_profiles(caps) if caps is not None else WORKSPACE_SUPPORT_HOST_PROFILES
+
+
+def _inline_partition_packages(config):
+    caps = _caps_of(config)
+    return _load_sibling_ci_engine().derive_inline_dedicated_packages(caps) if caps is not None else ORDINARY_PARTITION_PACKAGES
+
+
+def _group_libraries(config):
+    caps = _caps_of(config)
+    return _load_sibling_ci_engine().derive_group_library_map(caps) if caps is not None else ORDINARY_GROUP_LIBRARIES
+
+
+_DEFAULT_CAPS = _load_default_capabilities()
+_BOOT_ENGINE = _load_sibling_ci_engine() if _DEFAULT_CAPS is not None else None
+
 PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
 EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
 FAST_PLAN_VERSION = 1
@@ -62,10 +117,12 @@ FAST_EXECUTION_VERSION = 1
 # These independent groups execute complete default-feature lib tests and
 # Clippy in ci-tests.sh. Their targets are proof inputs, never duplicate builds
 # in the ordinary inventory.
-ORDINARY_GROUP_LIBRARIES = {'consensus': 'oasis7_consensus', 'node': 'oasis7_node'}
+ORDINARY_GROUP_LIBRARIES = (_BOOT_ENGINE.derive_group_library_map(_DEFAULT_CAPS)
+                            if _BOOT_ENGINE is not None else {'consensus': 'oasis7_consensus', 'node': 'oasis7_node'})
 ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION = 1
 ORDINARY_PARTITION_VERSION = 1
-ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
+ORDINARY_PARTITION_PACKAGES = (_BOOT_ENGINE.derive_inline_dedicated_packages(_DEFAULT_CAPS)
+                               if _BOOT_ENGINE is not None else frozenset(('oasis7_runtime', 'oasis7_world_state')))
 DISTFS_CLIPPY_CONTRACT_VERSION = 1
 DISTFS_CLIPPY_TARGETS = frozenset((
     ('oasis7_runtime', 'lib', 'oasis7_runtime'),
@@ -170,16 +227,7 @@ ADDITIVE_GOVERNANCE_ALLOWED_GITHUB_PREFIXES = (
     '.github/instructions/',
 )
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
-SUPPORT_PROFILES = (
-    'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
-    'oasis7_client_storage', 'oasis7_domain_types', 'oasis7_signer_protocol',
-    'oasis7_custody_core', 'oasis7_custody_worker', 'oasis7_dev_test_worker',
-    'oasis7_local_signer', 'oasis7_proto',
-    'oasis7_wasm_abi', 'oasis7_wasm_build', 'oasis7_wasm_router',
-    'oasis7_wasm_sdk', 'oasis7_wasm_store', 'pixel_world_bridge',
-    'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
-    'wasm_build_suite', 'wasm_module_observe',
-)
+SUPPORT_PROFILES = tuple(sorted(_BOOT_ENGINE.derive_support_profiles(_DEFAULT_CAPS))) if _BOOT_ENGINE is not None else ()
 # The distfs group runs these lib harnesses and the registered industry
 # integration target with Cargo defaults on Ubuntu.
 # This proves native target predicates only, never expanded feature activation.
@@ -1525,12 +1573,13 @@ def validate_config(config):
         if type(config.get('package_capabilities_version')) is not int or config['package_capabilities_version'] != 1:
             raise ValueError('invalid package_capabilities_version')
         engine = _load_sibling_ci_engine()
-        if engine is not None:
-            engine.validate_package_capabilities_static(
-                config.get('package_capabilities'),
-                package_groups=config.get('package_groups'),
-                known_groups=set(groups),
-            )
+        if engine is None:
+            raise ValueError('package_capabilities requires sibling ci_engine')
+        engine.validate_package_capabilities_static(
+            config.get('package_capabilities'),
+            package_groups=config.get('package_groups'),
+            known_groups=set(groups),
+        )
     for selected in config['package_groups'].values():
         if not selected or not set(selected).issubset(groups):
             raise ValueError('invalid package groups')
@@ -1543,8 +1592,9 @@ def validate_config(config):
     profile_paths = config.get('workspace_support_profile_paths', {})
     if not isinstance(profile_paths, dict) or (profile_paths and 'workspace_support' not in groups):
         raise ValueError('invalid workspace support profile paths')
+    allowed_support = set(_support_profiles(config))
     for profile, patterns in profile_paths.items():
-        if profile not in SUPPORT_PROFILES or not isinstance(patterns, list) or not patterns:
+        if profile not in allowed_support or not isinstance(patterns, list) or not patterns:
             raise ValueError('invalid workspace support profile mapping')
         if any(
                 not isinstance(pattern, str) or not pattern
@@ -1594,13 +1644,18 @@ def validate_config(config):
     if 'fast_scope_version' in config:
         if config['fast_scope_version'] != FAST_PLAN_VERSION:
             raise ValueError('unknown fast scope version')
+        has_caps = _caps_of(config) is not None
         for key in ('oasis7_required_packages', 'oasis7_required_wasm_packages'):
+            if has_caps and key not in config:
+                continue
             inventory = config.get(key)
             if (not isinstance(inventory, list) or not inventory
                     or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', name)
                            for name in inventory)
                     or len(inventory) != len(set(inventory))):
                 raise ValueError('invalid ' + key)
+        if has_caps and not _ordinary_packages(config):
+            raise ValueError('package_capabilities must declare at least one ordinary_package')
         risk_rules = config.get('formal_risk_rules')
         if not isinstance(risk_rules, list):
             raise ValueError('missing formal risk rules')
@@ -1774,7 +1829,7 @@ def validate_config(config):
         targets = {f'scale-{index}': target for index, target in enumerate(contract['targets'])}
         validate_fast_test_inventory(dict(fast_scope_version=FAST_PLAN_VERSION,
             fast_test_inventory_version=FAST_TEST_INVENTORY_VERSION,
-            oasis7_required_packages=config['oasis7_required_packages'], ordinary_fast_targets=targets,
+            oasis7_required_packages=_ordinary_packages(config), ordinary_fast_targets=targets,
             ordinary_fast_rules=[dict(paths=['crates/oasis7/tests/scale.rs'], targets=list(targets), reason='scale')]))
         if any(target['target_kind'] != 'test' or target['default_features'] is not True
                or target['features'] != ['test_tier_full'] for target in targets.values()):
@@ -1941,6 +1996,7 @@ def validate_fast_test_inventory(config):
     if (dedup_capability is not None
             and (type(dedup_capability) is not int or dedup_capability != 1)):
         raise ValueError('invalid shared incremental contract capability')
+    ordinary_pkgs = set(_ordinary_packages(config))
     identities = set()
     for key, target in targets.items():
         if (not isinstance(key, str) or not re.fullmatch(r'[a-z0-9_-]+', key)
@@ -1948,7 +2004,7 @@ def validate_fast_test_inventory(config):
                 or set(target) - {'package', 'target_kind', 'target_name', 'default_features', 'features', 'cases', 'case_prefixes'}
                 or not {'package', 'target_kind', 'target_name', 'default_features', 'features', 'cases'}.issubset(target)):
             raise ValueError('invalid fast test target')
-        if (target['package'] not in config['oasis7_required_packages']
+        if (target['package'] not in ordinary_pkgs
                 or target['target_kind'] not in ('lib', 'test')
                 or not isinstance(target['target_name'], str)
                 or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', target['target_name'])
@@ -2008,13 +2064,14 @@ def validate_fast_test_inventory(config):
             raise ValueError('static module additions require a complete component library target')
     contracts = config.get('ordinary_fast_group_contracts')
     if 'ordinary_fast_group_contract_version' in config or contracts is not None:
+        group_libs = _group_libraries(config)
         version = config.get('ordinary_fast_group_contract_version')
         if (type(version) is not int or version != 1
                 or not isinstance(contracts, dict) or not contracts
-                or set(contracts) - set(ORDINARY_GROUP_LIBRARIES)):
+                or set(contracts) - set(group_libs)):
             raise ValueError('invalid ordinary retained group contract')
         for group, paths in contracts.items():
-            package = ORDINARY_GROUP_LIBRARIES[group]
+            package = group_libs[group]
             if (group not in config.get('groups', ())
                     or group not in config.get('package_groups', {}).get(package, ())
                     or not isinstance(paths, list) or not paths
@@ -2158,13 +2215,14 @@ def validate_fast_support_contracts(config):
             or not isinstance(contracts, list) or not contracts):
         raise ValueError('invalid ordinary support contract capability')
     mappings = {path: rule for rule in config['ordinary_fast_rules'] for path in rule['paths']}
+    allowed_support = set(_support_profiles(config))
     owners = set()
     for contract in contracts:
         if not isinstance(contract, dict) or set(contract) != {
                 'package', 'source', 'entry', 'callers', 'tests', 'deferred_consumers'}:
             raise ValueError('invalid ordinary support contract')
         owner = contract['package']
-        if (not isinstance(owner, str) or owner not in SUPPORT_PROFILES or owner in owners
+        if (not isinstance(owner, str) or owner not in allowed_support or owner in owners
                 or 'workspace_support' not in config['package_groups'].get(owner, ())
                 or not isinstance(contract['source'], str)
                 or not re.fullmatch(re.escape('crates/' + owner + '/src/') + r'[a-z_]+\.rs', contract['source'])
@@ -2184,7 +2242,7 @@ def validate_fast_support_contracts(config):
                     re.escape('crates/' + owner + '/tests/') + r'[a-z_]+\.rs', path) for path in tests)
                 or len(tests) != len(set(tests))
                 or not isinstance(consumers, list)
-                or any(not isinstance(name, str) or name not in SUPPORT_PROFILES or name == owner
+                or any(not isinstance(name, str) or name not in allowed_support or name == owner
                        or 'workspace_support' not in config['package_groups'].get(name, ()) for name in consumers)
                 or len(consumers) != len(set(consumers))):
             raise ValueError('invalid ordinary support input or consumer inventory')
@@ -2425,8 +2483,9 @@ def ordinary_group_proof_targets(config, paths, groups):
                 if set(paths).intersection(registered)}
     if not set(retained).issubset(groups):
         return retained, []
-    return retained, [dict(package=ORDINARY_GROUP_LIBRARIES[group], target_kind='lib',
-                          target_name=ORDINARY_GROUP_LIBRARIES[group], default_features=True,
+    group_libs = _group_libraries(config)
+    return retained, [dict(package=group_libs[group], target_kind='lib',
+                          target_name=group_libs[group], default_features=True,
                           features=[], cases=[])
                       for group in sorted(retained)]
 
@@ -4246,15 +4305,18 @@ def _ordinary_packages_support_universal_v2(config, packages):
     )
 
 
-def _ordinary_runtime_full_requires_host_docker(plan):
+def _ordinary_runtime_full_requires_host_docker(plan, config=None):
+    caps = _caps_of(config)
+    docker_pkgs = (_load_sibling_ci_engine().derive_fixture_owner_packages(caps, 'builtin_test_modules')
+                   if caps is not None else frozenset({'oasis7_runtime'}))
     if (plan.get('test_policy_changed') is True
             and isinstance(plan.get('oasis7_required_packages'), list)
-            and 'oasis7_runtime' in plan['oasis7_required_packages']):
+            and bool(docker_pkgs.intersection(plan['oasis7_required_packages']))):
         return True
     risk_targets = plan.get('ordinary_risk_targets')
     return isinstance(risk_targets, list) and any(
         isinstance(target, dict)
-        and target.get('package') == 'oasis7_runtime'
+        and target.get('package') in docker_pkgs
         and target.get('target_kind') == 'lib'
         for target in risk_targets
     )
@@ -4417,7 +4479,7 @@ def complete_ordinary_partitions(config, plan):
         and all(package in plan['oasis7_required_packages'] for package in (
             'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
     )
-    runtime_full_requires_docker = _ordinary_runtime_full_requires_host_docker(plan)
+    runtime_full_requires_docker = _ordinary_runtime_full_requires_host_docker(plan, config)
     universal_v2 = (
         config.get('ordinary_universal_sharding_version') == ORDINARY_UNIVERSAL_SHARDING_VERSION
         and config.get('ordinary_artifact_delivery_version') == 2
@@ -4433,9 +4495,12 @@ def complete_ordinary_partitions(config, plan):
         and tested_source_supports_capability(
             plan, 'ordinary_universal_sharding_version', ORDINARY_UNIVERSAL_SHARDING_VERSION)
     )
+    caps = _caps_of(config)
+    v2_anchors = (_load_sibling_ci_engine().derive_universal_v2_anchors(caps)
+                  if caps is not None else frozenset({'oasis7_chain_runtime'}))
     if (config.get('ordinary_artifact_partition_version') in (1, 2)
-            and 'oasis7_required' in plan['groups']
-            and plan.get('ordinary_execution') != 'inline'):
+        and 'oasis7_required' in plan['groups']
+        and plan.get('ordinary_execution') != 'inline'):
         if (config.get('ordinary_artifact_partition_version') == 2
                 and not runtime_full_requires_docker
                 and ((
@@ -4444,7 +4509,7 @@ def complete_ordinary_partitions(config, plan):
                     and plan.get('execution_profile') in ('pr-fast', 'main-fast')
                     and plan.get('test_policy_changed') is False
                     and 'ordinary_fast_targets' not in plan and 'ordinary_full_fast_targets' not in plan
-                    and 'oasis7_chain_runtime' in plan.get('oasis7_required_packages', ())
+                    and bool(v2_anchors.intersection(plan.get('oasis7_required_packages', ())))
                 ) or universal_v2)):
             # The original producer and every target/feature remain unchanged.
             plan['ordinary_artifact_partition_version'] = 2
@@ -4505,7 +4570,7 @@ def complete_ordinary_partitions(config, plan):
                                                       CUSTODY_NODE_SHARDS_VERSION)
             ) else LEGACY_CUSTODY_NODE_SHARDS)
             plan.update(custody_execution_version=CUSTODY_EXECUTION_VERSION,
-                        custody_node_shards=list(shards))
+                         custody_node_shards=list(shards))
             if policy_tests:
                 plan['custody_policy_tests_version'] = 1
             if config.get('custody_compile_proof_version') == CUSTODY_COMPILE_PROOF_VERSION:
@@ -4524,7 +4589,7 @@ def complete_ordinary_partitions(config, plan):
                 and plan.get('fast_plan_version') == FAST_PLAN_VERSION
                 and plan.get('execution_profile') in ('pr-fast', 'main-fast')
                 and plan.get('workspace_support_partitions') == ['other']
-                and (not workspace_support_requires_host(plan)
+                and (not workspace_support_requires_host(plan, config)
                      or workspace_support_selects_signer_image(plan))):
             direct_ver = config['workspace_support_direct_gate_version']
             if direct_ver == 2 and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version', 2):
@@ -4601,13 +4666,18 @@ def custody_source_supports_compile_proof(plan, *, field='custody_compile_proof_
     return True
 
 
-WORKSPACE_SUPPORT_HOST_PROFILES = frozenset({'oasis7_game_client', 'oasis7_local_signer'})
+WORKSPACE_SUPPORT_HOST_PROFILES = (_BOOT_ENGINE.derive_support_host_profiles(_DEFAULT_CAPS)
+                                   if _BOOT_ENGINE is not None else frozenset({'oasis7_game_client', 'oasis7_local_signer'}))
 
 
-def workspace_support_requires_host(plan):
+def workspace_support_requires_host(plan, config=None):
     """Keep non-root native contracts and the full-profile fallback."""
-    return (plan.get('scope') == 'full'
-            or bool(WORKSPACE_SUPPORT_HOST_PROFILES.intersection(plan.get('workspace_support_profiles', ()))))
+    if plan.get('scope') == 'full' or plan.get('unregistered_candidate_packages'):
+        return True
+    contract = plan.get('workspace_support_execution_contract')
+    if isinstance(contract, dict) and isinstance(contract.get('host_profiles'), list):
+        return bool(contract['host_profiles'])
+    return bool(_support_host_profiles(config).intersection(plan.get('workspace_support_profiles', ())))
 
 
 def workspace_support_selects_signer_image(plan):
@@ -4672,11 +4742,13 @@ def fleet_health_subcontracts(config, chosen, affected, path_rules, *, full=Fals
 def materialize_execution_contracts(config, plan):
     """Materialize ordinary & workspace_support execution contracts via sibling ci_engine."""
     engine = _load_sibling_ci_engine()
-    caps = config.get('package_capabilities') if isinstance(config.get('package_capabilities'), dict) else None
+    caps = _caps_of(config)
     risk_targets = plan.get('ordinary_risk_targets')
+    unregistered_added = bool(plan.get('unregistered_candidate_packages'))
     if caps is not None and engine is not None:
         engine_eligible = (
-            type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+            not unregistered_added
+            and type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
             and plan.get('execution_profile') in ('pr-fast', 'main-fast')
             and plan.get('test_policy_changed') is False
             and 'ordinary_full_fast_targets' not in plan
@@ -4693,28 +4765,28 @@ def materialize_execution_contracts(config, plan):
                 )
             )
         )
-        if set(engine.derive_ordinary_packages(caps)) != set(config.get('oasis7_required_packages', ())):
+        if 'oasis7_required_packages' in config and set(engine.derive_ordinary_packages(caps)) != set(config['oasis7_required_packages']):
             raise ValueError('package_capabilities ordinary_package mismatch with oasis7_required_packages')
-        if set(engine.derive_required_wasm_packages(caps)) != set(config.get('oasis7_required_wasm_packages', ())):
+        if 'oasis7_required_wasm_packages' in config and set(engine.derive_required_wasm_packages(caps)) != set(config['oasis7_required_wasm_packages']):
             raise ValueError('package_capabilities required_wasm_build mismatch with oasis7_required_wasm_packages')
         support_map = engine.derive_support_profiles(caps)
-        if set(support_map) != set(SUPPORT_PROFILES):
-            raise ValueError('package_capabilities support_profile mismatch with SUPPORT_PROFILES')
-        dedicated_inline = frozenset(p for p, e in caps.items() if e.get('inline_dedicated_partition'))
+        dedicated_inline = engine.derive_inline_dedicated_packages(caps)
         logical_aliases = engine.derive_logical_harness_aliases(caps)
     else:
         engine_eligible = (
-            type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+            not unregistered_added
+            and type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
             and plan.get('execution_profile') in ('pr-fast', 'main-fast')
             and plan.get('test_policy_changed') is False
             and 'ordinary_full_fast_targets' not in plan
             and risk_targets is None
         )
+        host_set = _support_host_profiles(config)
         support_map = {p: {'package': p, 'profile_id': p, 'partition': 'other',
-                           'requires_host_runner': p in WORKSPACE_SUPPORT_HOST_PROFILES,
+                           'requires_host_runner': p in host_set,
                            'extra_features': [], 'wasm_compile_feature_sets': []}
-                       for p in SUPPORT_PROFILES}
-        dedicated_inline = ORDINARY_PARTITION_PACKAGES
+                       for p in _support_profiles(config)}
+        dedicated_inline = _inline_partition_packages(config)
         logical_aliases = {}
 
     mode = ('inline' if plan.get('ordinary_execution') == 'inline'
@@ -4750,7 +4822,9 @@ def materialize_execution_contracts(config, plan):
     )
     plan['ordinary_execution_contract'] = {
         'version': 1, 'mode': mode, 'supports_universal_v2': supports_v2,
-        'candidate_container_eligible': engine_eligible, 'artifact_partitions': art_partitions,
+        'candidate_container_eligible': engine_eligible,
+        'selected_packages': selected_ord,
+        'artifact_partitions': art_partitions,
         'partitions': partitions, 'logical_harness_aliases': logical_aliases,
         'required_wasm_packages': sorted(plan.get('oasis7_required_wasm_packages', ())),
         'required_host_docker_wasm_fixtures': req_fixtures,
@@ -4761,13 +4835,12 @@ def materialize_execution_contracts(config, plan):
     selected_support = sorted(plan.get('workspace_support_profiles', ()))
     if engine is not None and selected_support and set(selected_support) <= set(support_map):
         sp_part = engine.compute_support_partitions(selected_support, support_map)
-        if caps is not None and set(sp_part['host_profiles']) != (set(selected_support) & WORKSPACE_SUPPORT_HOST_PROFILES):
-            raise ValueError('workspace_support host_profiles mismatch between engine and legacy reference')
     else:
+        host_set = _support_host_profiles(config)
         sp_part = {
             'partitions': {'custody': [], 'other': list(selected_support)},
-            'host_profiles': [p for p in selected_support if p in WORKSPACE_SUPPORT_HOST_PROFILES],
-            'image_profiles': [p for p in selected_support if p not in WORKSPACE_SUPPORT_HOST_PROFILES],
+            'host_profiles': [p for p in selected_support if p in host_set],
+            'image_profiles': [p for p in selected_support if p not in host_set],
         }
     plan['workspace_support_execution_contract'] = {
         'version': 1, 'selected_profiles': selected_support,
@@ -4798,12 +4871,12 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         'resources': sorted({resource for group in groups for resource in config['resources'][group]}),
         'architecture': {'version': 1, 'mode': 'full', 'packages': [],
                          'base': policy, 'source': source, 'tested': tested},
-        'workspace_support_profile_version': 1, 'workspace_support_profiles': sorted(SUPPORT_PROFILES),
+        'workspace_support_profile_version': 1, 'workspace_support_profiles': sorted(_support_profiles(config)),
         'execution_profile': profile, 'fast_plan_version': FAST_PLAN_VERSION,
         'check_inventory_version': CHECK_INVENTORY_VERSION,
         'source_sha': source, 'tested_sha': tested, 'policy_sha': policy,
-        'oasis7_required_packages': sorted(config['oasis7_required_packages']),
-        'oasis7_required_wasm_packages': sorted(config['oasis7_required_wasm_packages']),
+        'oasis7_required_packages': sorted(_ordinary_packages(config)),
+        'oasis7_required_wasm_packages': sorted(_required_wasm_packages(config)),
         'formal_suites': sorted(suites), 'formal_shards': formal_shards(suites, formal_inventory),
         'command_center_package': True, 'test_policy_changed': False, 'test_policy_paths': [],
         'fast_plan_exceptions': [], 'reasons': ['complete trusted inventory; no changed-files filter'],
@@ -4839,7 +4912,11 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     if member_manifest_paths and not conservative:
         exceptions.append('workspace member Cargo manifest/lockfile changed; '
                           'full package and architecture profile coverage retained')
-    selected_core = affected & set(config['oasis7_required_packages'])
+    ord_pkgs = set(_ordinary_packages(config))
+    wasm_pkgs = set(_required_wasm_packages(config))
+    sup_pkgs = set(_support_profiles(config))
+    group_libs = _group_libraries(config)
+    selected_core = affected & ord_pkgs
     native_fast_candidate = None
     support_owners = {contract['package'] for contract in config.get('ordinary_fast_support_contracts', [])}
     if (not conservative and not member_manifest_paths and selected_core
@@ -4856,7 +4933,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     group_source_targets = {path: target
                             for group, inputs in retained_groups.items()
                             for target in group_proof_targets
-                            if target['package'] == ORDINARY_GROUP_LIBRARIES[group]
+                            if target['package'] == group_libs[group]
                             for path in inputs}
     narrow_features_by_path, narrow_unavailable = {}, set()
     execution_capable = config.get('fast_execution_version') == FAST_EXECUTION_VERSION
@@ -4873,7 +4950,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         comparison_native_roots = set()
         changed_policy, changed_ignored, production_cfg = changed_test_policy(
             before, after, paths, feature_owners or {},
-            set(config['oasis7_required_packages']) | set(SUPPORT_PROFILES),
+            ord_pkgs | sup_pkgs,
             (feature_manifests or {}).get(resolve_commit(after), {}),
             (test_target_roots or {}).get(resolve_commit(after), set()),
             (source_inputs or {}).get(resolve_commit(after), {}),
@@ -4944,7 +5021,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             chosen = set(config['groups'])
             plan['scope'] = 'full'
             plan['architecture']['mode'] = 'full'
-            plan['workspace_support_profiles'] = sorted(SUPPORT_PROFILES)
+            plan['workspace_support_profiles'] = sorted(sup_pkgs)
             plan['reasons'].extend('production cfg changed; conservative platform coverage: ' + path
                                    for path in sorted(production_cfg_paths))
     if conservative:
@@ -4956,7 +5033,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         # Independent integration inputs may originally select only support.
         # Promotion follows the same source/target/policy proof as library edits.
         chosen.update(('rust_baseline', 'oasis7_required'))
-    core_inventory = set(config['oasis7_required_packages'])
+    core_inventory = ord_pkgs
     selected_core = affected & core_inventory
     core_fallback = (conservative or 'oasis7_required' in additions
                      or any('oasis7_required' in groups for groups in path_rules.values())
@@ -4964,9 +5041,27 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     if 'oasis7_required' not in chosen:
         selected_core, wasm = set(), set()
     elif core_fallback:
-        selected_core, wasm = core_inventory, set(config['oasis7_required_wasm_packages'])
+        selected_core, wasm = set(core_inventory), set(wasm_pkgs)
     else:
-        wasm = affected & set(config['oasis7_required_wasm_packages'])
+        wasm = affected & wasm_pkgs
+    if (caps := _caps_of(config)) is not None and source_inputs:
+        base_m = set((source_inputs.get(resolve_commit(base)) or {}).get('manifests') or ())
+        pol_m = set((source_inputs.get(resolve_commit(policy_ref)) or {}).get('manifests') or ()) if policy_ref else set()
+        test_m = set((source_inputs.get(resolve_commit(tested or source)) or {}).get('manifests') or ())
+        prior_m = base_m | pol_m
+        if prior_m and test_m:
+            delta = _load_sibling_ci_engine().reconcile_cross_version_members(caps, test_m)
+            removed_cand = set(delta['removed']) & prior_m
+            added_cand = set(delta['added']) - prior_m
+            if removed_cand:
+                selected_core -= removed_cand
+                wasm -= removed_cand
+                if plan.get('workspace_support_profiles'):
+                    plan['workspace_support_profiles'] = [p for p in plan['workspace_support_profiles'] if p not in removed_cand]
+                    if not plan['workspace_support_profiles']:
+                        chosen.discard('workspace_support')
+            if added_cand:
+                plan['unregistered_candidate_packages'] = sorted(added_cand)
 
     native_fast = native_fast_candidate if not core_fallback and not policy_paths and not ignored_risk else None
     if native_fast is not None:
@@ -5062,7 +5157,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         for ref in sorted(refs):
             evidence = {}
             changed_test_policy(
-                ref, ref, paths, feature_owners or {}, set(config['oasis7_required_packages']),
+                ref, ref, paths, feature_owners or {}, ord_pkgs,
                 (feature_manifests or {}).get(ref, {}), (test_target_roots or {}).get(ref, set()),
                 (source_inputs or {}).get(ref, {}), unit_test_targets=targets, unit_test_sources=evidence)
             proofs.append(evidence)
@@ -5170,6 +5265,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             architecture['consumer_groups'] = consumer_groups
         plan['reasons'].append('all architecture inputs have mandatory fast targets; '
                                'extra profile compilation stays in full, all dependency graphs remain required')
+    inline_pkgs = _inline_partition_packages(config)
     if (config.get('ordinary_partition_version') == ORDINARY_PARTITION_VERSION
             and plan.get('fast_execution_version') == FAST_EXECUTION_VERSION
             and plan.get('ordinary_execution') == 'inline'
@@ -5178,9 +5274,9 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             and not plan['oasis7_required_wasm_packages']):
         packages = sorted({target['package'] for target in plan['ordinary_fast_targets']})
         plan.update(ordinary_partition_version=ORDINARY_PARTITION_VERSION,
-                    ordinary_partitions=packages if set(packages) == ORDINARY_PARTITION_PACKAGES else ['all'])
+                    ordinary_partitions=packages if set(packages) == inline_pkgs else ['all'])
     if (config.get('distfs_clippy_contract_version') == DISTFS_CLIPPY_CONTRACT_VERSION
-            and plan.get('ordinary_partitions') == sorted(ORDINARY_PARTITION_PACKAGES)
+            and plan.get('ordinary_partitions') == sorted(inline_pkgs)
             and architecture.get('build_policy') == 'ordinary-targets'
             and {'distfs', 'rust_baseline', 'oasis7_required'}.issubset(plan['groups'])
             and not plan['fast_plan_exceptions'] and not plan['formal_suites']
@@ -5232,7 +5328,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         and not any(actual_extra_groups.intersection(groups) for groups in path_rules.values())
     )
     wasm_packages = plan.get('oasis7_required_wasm_packages')
-    policy_wasm_set = set(config.get('oasis7_required_wasm_packages', ()))
+    policy_wasm_set = wasm_pkgs
     expected_closure_wasm = set(inputs) & policy_wasm_set
     for info in (source_inputs or {}).values():
         present_inputs = inputs.intersection(info.get('manifests', ()))
@@ -5385,6 +5481,8 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
 def _select(config, base, source_head, test_head=None, additions=(), profile=None,
             formal_inventory=None, policy_ref=None, snapshot=None):
     validate_config(config)
+    ord_pkg_set = set(_ordinary_packages(config))
+    sup_profiles = _support_profiles(config)
     python_inputs = python_control_inputs(config)
     groups = set(config['groups'])
     chosen = {'baseline'}
@@ -5460,7 +5558,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                     test_target_roots[resolve_commit(ref)] = {
                         path for path in sources for package, (directory, manifest) in graph[0].items()
                         if known_test_target_root(path, directory, manifest, integration_targets[package])
-                        and (package in config.get('oasis7_required_packages', ())
+                        and (package in ord_pkg_set
                              or (package == 'oasis7_distfs'
                                  and 'distfs' in config['package_groups'].get(package, ()) and any(
                                  name == 'incremental_industry_jobs' and path == root
@@ -5480,7 +5578,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                         'manifests': {package: manifest for package, (_, manifest) in graph[0].items()},
                         'default_features': {package: default_feature_closure(manifest)
                                              for package, (_, manifest) in graph[0].items()
-                                             if package in config.get('oasis7_required_packages', ())
+                                             if package in ord_pkg_set
                                              or package in NATIVE_DEFAULT_TEST_PACKAGES
                                              or package == 'pixel_world_bridge'},
                         'includes': graph[2].get('__rust_include_targets__', ()),
@@ -5744,8 +5842,9 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                             all_authorized = False
                             break
                         if isinstance(hist_support, dict):
+                            hist_sup_set = set(_support_profiles(hist_cfg)) | set(sup_profiles)
                             for support_profile, patterns in hist_support.items():
-                                if (support_profile in SUPPORT_PROFILES and isinstance(patterns, list)
+                                if (support_profile in hist_sup_set and isinstance(patterns, list)
                                         and any(isinstance(p, str) and fnmatch.fnmatchcase(path, p) for p in patterns)):
                                     hist_groups.add('workspace_support')
                                     hist_support_profiles.add(support_profile)
@@ -5784,14 +5883,14 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
     resources = sorted({resource for group in chosen for resource in config['resources'][group]})
     support_profiles = []
     if 'workspace_support' in chosen:
-        support_profiles = sorted(set(affected).intersection(SUPPORT_PROFILES) | path_support_profiles)
+        support_profiles = sorted(set(affected).intersection(sup_profiles) | path_support_profiles)
         # Non-package rules and explicit group requests retain the complete group.
         # Control/uncertain inputs must never narrow the old command inventory.
         unmapped_support = any(
             'workspace_support' in config['package_groups'].get(package, [])
-            and package not in SUPPORT_PROFILES for package in affected)
+            and package not in sup_profiles for package in affected)
         if full or support_rule or unmapped_support or not support_profiles or 'workspace_support' in additions:
-            support_profiles = sorted(SUPPORT_PROFILES)
+            support_profiles = sorted(sup_profiles)
     plan = {'groups': sorted(chosen), 'resources': resources,
             'architecture': {'version': 1, 'mode': 'full' if full or additions or any(
                 fnmatch.fnmatchcase(path, 'scripts/cargo-dev*') for path in paths) else 'targeted',
@@ -5899,7 +5998,7 @@ def main():
             if args.profile:
                 output.write('ordinary_partitions=' + json.dumps(plan.get('ordinary_partitions', ['all']), separators=(',', ':')) + '\n')
                 output.write('workspace_support_partitions=' + json.dumps(plan.get('workspace_support_partitions', ['all']), separators=(',', ':')) + '\n')
-                output.write('workspace_support_host=' + str(workspace_support_requires_host(plan)).lower() + '\n')
+                output.write('workspace_support_host=' + str(workspace_support_requires_host(plan, config)).lower() + '\n')
                 output.write('formal_shards=' + json.dumps(plan['formal_shards'], separators=(',', ':')) + '\n')
                 output.write('command_center_package=' + str(plan['command_center_package']).lower() + '\n')
     if args.explain_fallbacks:
