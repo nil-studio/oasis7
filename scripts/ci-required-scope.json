@@ -1,5 +1,21 @@
 {
   "fast_scope_version": 1,
+  "postgres_test_contract": {
+    "version": 1,
+    "group": "distfs",
+    "runner": "scripts/ci-postgres.py",
+    "server_version_num": 170012,
+    "module": "crates/oasis7_distfs/src/protected_bft_v3/postgres_backend.rs",
+    "source": "crates/oasis7_distfs/src/protected_bft_v3/postgres_backend/tests.rs",
+    "target": {
+      "package": "oasis7_distfs",
+      "target_kind": "lib",
+      "target_name": "oasis7_distfs",
+      "default_features": true,
+      "features": []
+    },
+    "case": "protected_bft_v3::postgres_backend::tests::pg_real_sql_and_native_signer_preserve_lease_and_unknown_commit"
+  },
   "ordinary_dynamic_partition_version": 1,
   "ordinary_universal_sharding_version": 1,
   "architecture_artifact_build_policy_version": 1,
@@ -1347,6 +1363,8 @@
     "scripts/ci_engine/rust_source_graph.py": ["workflow_governance"],
     "scripts/ci_engine/shard_scheduler.py": ["workflow_governance"],
     "scripts/ci_process_runner.py": ["workflow_governance"],
+    "scripts/ci-postgres.py": ["workflow_governance"],
+    "scripts/ci-postgres.test.py": ["workflow_governance"],
     "scripts/run-ci-authority-python.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"],
@@ -2030,6 +2048,14 @@
       "tests": [
         "scripts/ci-workflow-core-part14.test.py"
       ]
+    },
+    "scripts/ci-postgres.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-postgres.test.py"]
+    },
+    "scripts/ci-postgres.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-postgres.test.py"]
     },
     "scripts/ci-workflow-delivery-and-capacity.test.py": {
       "group": "workflow_governance",

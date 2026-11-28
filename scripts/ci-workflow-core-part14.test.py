@@ -611,5 +611,52 @@ class WorkflowCorePart14(unittest.TestCase):
                 validate_candidate_graph(candidate, CONFIG)
 
 
+def validate_postgres_service(workflow):
+    job = workflow_jobs(workflow)['distfs']
+    service = re.search(r'^    services:\n(.*?)^    defaults:', job, re.M | re.S)
+    if service is None:
+        raise ValueError('PostgreSQL service missing')
+    expected = ('postgres:17.12-trixie@sha256:'
+                '97fb53376be3e4fb1a8a61421daa69dcc3bf2fa39bda3259f5245f9a455af1a9')
+    if (f'image: {expected}\n' not in service[1]
+            or 'POSTGRES_HOST_AUTH_METHOD: trust' not in service[1]
+            or 'pg_isready -U postgres -d postgres' not in service[1]
+            or re.search(r'ports:|volumes:|privileged|network.host|docker.sock', service[1])):
+        raise ValueError('PostgreSQL service identity or isolation changed')
+    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+    runners = [step for step in steps if 'name: Run trusted PostgreSQL acceptance' in step]
+    if len(runners) != 1 or re.search(r'^\s+(if|continue-on-error):', runners[0], re.M):
+        raise ValueError('PostgreSQL required runner missing or bypassed')
+    step = runners[0]
+    for required in (
+        'set -euo pipefail', 'selection="$RUNNER_TEMP/selection.json"',
+        "policy = json.load(open(sys.argv[1]))['policy_sha']",
+        'git show "$policy:scripts/ci_process_runner.py" > "$authority/ci_process_runner.py"',
+        'if git cat-file -e "$policy:scripts/ci-postgres.py" 2>/dev/null; then',
+        'git show "$policy:scripts/ci-postgres.py" > "$authority/ci-postgres.py"',
+        'cp scripts/ci-postgres.py "$authority/ci-postgres.py"',
+        'python3 "$authority/ci-postgres.py" --repo-root "$GITHUB_WORKSPACE" --plan "$selection"',
+    ):
+        if required not in step:
+            raise ValueError('PostgreSQL trusted source execution changed')
+
+
+class PostgresServiceContract(unittest.TestCase):
+    def test_real_service_and_policy_bound_runner_are_mandatory(self):
+        validate_postgres_service(RAW_WORKFLOW)
+        mutations = [
+            ('    services:\n      postgres:', '    missing-services:\n      postgres:'),
+            ('image: postgres:17.12-trixie@sha256:', 'image: postgres:latest@sha256:'),
+            ('          POSTGRES_DB: postgres', '          POSTGRES_DB: postgres\n        ports: [5432:5432]'),
+            ('      - name: Run trusted PostgreSQL acceptance', '      - name: Run trusted PostgreSQL acceptance\n        if: false'),
+            ('git show "$policy:scripts/ci-postgres.py"', 'git show "HEAD:scripts/ci-postgres.py"'),
+            ('python3 "$authority/ci-postgres.py" --repo-root', 'true # --repo-root'),
+        ]
+        for before, after in mutations:
+            with self.subTest(before=before), self.assertRaisesRegex(ValueError, 'PostgreSQL'):
+                self.assertIn(before, RAW_WORKFLOW)
+                validate_postgres_service(RAW_WORKFLOW.replace(before, after))
+
+
 if __name__ == '__main__':
     unittest.main()

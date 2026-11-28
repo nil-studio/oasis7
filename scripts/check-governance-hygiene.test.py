@@ -75,6 +75,89 @@ class RustHygieneTests(unittest.TestCase):
 
 
 class ScopePathsTests(unittest.TestCase):
+    def postgres_fixture(self, root):
+        contract = json.loads((SCRIPTS_DIR / 'ci-required-scope.json').read_text())['postgres_test_contract']
+        paths = ['scripts/ci-postgres.py', 'scripts/ci-postgres.test.py', 'scripts/ci_process_runner.py']
+        data = {'postgres_test_contract': contract, 'groups': {'distfs': {}},
+                'package_groups': {'oasis7_distfs': ['distfs']},
+                'scoped_control_paths': {p: ['workflow_governance'] for p in paths},
+                'python_control_contracts': {p: {'group': 'workflow_governance', 'tests': [paths[1]]}
+                                             for p in paths}}
+        files = {p: '# installed\n' for p in paths}
+        files.update({'crates/oasis7_distfs/Cargo.toml': '[package]\nname="oasis7_distfs"\n[lib]\npath="src/lib.rs"\n',
+                      'crates/oasis7_distfs/src/lib.rs': 'pub mod protected_bft_v3;\n',
+                      'crates/oasis7_distfs/src/protected_bft_v3/mod.rs': '// backend pending\n'})
+        for path, contents in files.items():
+            destination = root / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(contents)
+        return data, paths
+
+    def missing_postgres_paths(self, root, data):
+        scope = root / 'scripts/ci-required-scope.json'
+        scope.write_text(json.dumps(data))
+        return scope_paths.find_missing_scope_paths(root, scope)
+
+    def test_postgres_prerequisite_requires_atomic_pair_and_only_its_json_positions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data, _ = self.postgres_fixture(root)
+            pair = [data['postgres_test_contract'][key] for key in ('module', 'source')]
+            self.assertEqual(self.missing_postgres_paths(root, data), [])
+            data['rules'] = [*pair, 'scripts/unrelated-missing.py']
+            self.assertEqual([path for _, path in self.missing_postgres_paths(root, data)], data['rules'])
+            del data['rules']
+            for key in ('postgres_test_contract.module', 'postgres_test_contract.source'):
+                data[key] = 'crates/unrelated/src/missing.rs'
+                self.assertEqual(self.missing_postgres_paths(root, data), [(key, data[key])])
+                del data[key]
+            for present, absent in (pair, pair[::-1]):
+                with self.subTest(present=present):
+                    file = root / present
+                    file.parent.mkdir(parents=True, exist_ok=True)
+                    file.write_text('// installed\n')
+                    self.assertEqual([path for _, path in self.missing_postgres_paths(root, data)], [absent])
+                    file.unlink()
+            for path in pair:
+                (root / path).write_text('// installed\n')
+            self.assertEqual(self.missing_postgres_paths(root, data), [])
+
+    def test_postgres_prerequisite_requires_real_resources_and_nonempty_governed_contracts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data, paths = self.postgres_fixture(root)
+            expected = {data['postgres_test_contract'][key] for key in ('module', 'source')}
+            for path in paths:
+                with self.subTest(resource=path):
+                    (root / path).unlink()
+                    self.assertTrue(expected <= {p for _, p in self.missing_postgres_paths(root, data)})
+                    (root / path).write_text('# installed\n')
+                for section in ('scoped_control_paths', 'python_control_contracts'):
+                    changed = json.loads(json.dumps(data))
+                    del changed[section][path]
+                    self.assertTrue(expected <= {p for _, p in self.missing_postgres_paths(root, changed)})
+                for tests in ([], ['scripts/missing.test.py'], ['scripts/ci_process_runner.py']):
+                    changed = json.loads(json.dumps(data))
+                    changed['python_control_contracts'][path]['tests'] = tests
+                    self.assertTrue(expected <= {p for _, p in self.missing_postgres_paths(root, changed)})
+
+    def test_postgres_prerequisite_rejects_wrong_contract_or_cargo_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data, _ = self.postgres_fixture(root)
+            mutations = [('version', 2), ('module', 'crates/oasis7_distfs/src/../bad.rs'),
+                         ('source', 'crates/oasis7_distfs/src/other/tests.rs'),
+                         ('case', 'unrelated::tests::same_name'),
+                         ('target', dict(data['postgres_test_contract']['target'], target_name='wrong'))]
+            for key, value in mutations:
+                with self.subTest(key=key):
+                    changed = json.loads(json.dumps(data))
+                    changed['postgres_test_contract'][key] = value
+                    self.assertTrue(self.missing_postgres_paths(root, changed))
+            for path in ('crates/oasis7_distfs/src/lib.rs', 'crates/oasis7_distfs/Cargo.toml'):
+                (root / path).unlink()
+                self.assertTrue(self.missing_postgres_paths(root, data))
+
     def test_flags_missing_exact_path_and_skips_globs_and_reserved_prefixes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
