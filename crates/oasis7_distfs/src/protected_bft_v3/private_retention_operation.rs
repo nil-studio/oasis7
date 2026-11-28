@@ -199,7 +199,9 @@ impl BftOriginalRetentionTxnSnapshotV1 {
             || exact_outer_bytes == 0
             || exact_outer_bytes > 128 * 1024
         {
-            return Err(invalid("original response current lease or encoded size invalid"));
+            return Err(invalid(
+                "original response current lease or encoded size invalid",
+            ));
         }
         let head = signer
             .state
@@ -208,7 +210,9 @@ impl BftOriginalRetentionTxnSnapshotV1 {
             .ok_or_else(|| invalid("original response requires covered retention"))?;
         head.validate_supported_head(&signer.state.binding_digest)?;
         if head.source != self.current.current.marker.source {
-            return Err(invalid("original response source differs from protected marker"));
+            return Err(invalid(
+                "original response source differs from protected marker",
+            ));
         }
         let total = self
             .current
@@ -221,7 +225,9 @@ impl BftOriginalRetentionTxnSnapshotV1 {
             .and_then(|retained| retained.checked_add(total))
             .is_none_or(|bytes| bytes > super::BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1)
         {
-            return Err(invalid("original response exceeds protected namespace 4 GiB"));
+            return Err(invalid(
+                "original response exceeds protected namespace 4 GiB",
+            ));
         }
         let mut next = self.clone();
         next.current.current.reserved_response_bytes = total;
