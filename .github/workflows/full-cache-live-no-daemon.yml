@@ -1,0 +1,137 @@
+name: Trusted full real cache and no-daemon proof
+on:
+  pull_request:
+    types: [opened]
+permissions:
+  contents: read
+  actions: read
+  packages: read
+cache-mode: read
+env:
+  PROBE_SOURCE: 0f803ebc5dc33ce0c8f89a41374990a06bca13bb
+jobs:
+  proof:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft &&
+      github.head_ref == 'codex/engineering-full-cache-live-no-daemon-proof-v2' &&
+      github.base_ref == 'task/engineering-full-regression-job-container' &&
+      github.event.pull_request.title == 'Trusted full real cache and no-daemon corrected proof once'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: >-
+        --user 1001:1001 --init
+        --tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec
+        --tmpfs /home/runner/.npm:uid=1001,gid=1001,mode=0700,size=512m
+        --tmpfs /home/runner/.cache/oasis7/wasm-bindgen-cli:uid=1001,gid=1001,mode=0700,size=128m,exec
+      volumes:
+        - ${{ github.workspace }}:/home/runner/work/oasis7/oasis7
+        - /home/runner/work/_temp:/home/runner/work/_temp
+        - /home/runner/work/_temp:/home/runner/.cargo
+    defaults:
+      run:
+        shell: bash
+        working-directory: /home/runner/work/oasis7/oasis7
+    env:
+      CARGO_HOME: /home/runner/.cargo
+      XDG_CACHE_HOME: /home/runner/.cache
+      RUSTUP_AUTO_INSTALL: "0"
+      RUST_TOOLCHAIN: 1.96.0
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+      CARGO_TERM_COLOR: always
+      CARGO_NET_RETRY: "10"
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Hold the frozen diagnostic action outside the business tree
+        env:
+          CONTROLLER: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /home/runner/work/oasis7/oasis7
+          test "$(git rev-parse HEAD)" = "$CONTROLLER"
+          test "$(git rev-parse 'HEAD^1')" = "$PROBE_SOURCE"
+          expected=$'.github/actions/full-cache-read-proof/action.yml\n.github/actions/full-cache-read-proof/run.mjs\n.github/workflows/full-cache-live-no-daemon.yml'
+          test "$(git diff --name-only "$PROBE_SOURCE" HEAD)" = "$expected"
+          cp -r .github/actions/full-cache-read-proof "$RUNNER_TEMP/full-cache-read-proof"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PROBE_SOURCE }}
+          persist-credentials: false
+      - name: Verify the fixed no-daemon lane and prepare only the original roots
+        run: |
+          test "$(git rev-parse HEAD)" = "$PROBE_SOURCE"
+          test "$(id -u):$(id -g)" = 1001:1001
+          test "$(stat -c '%d:%i' "$PWD")" = "$(stat -c '%d:%i' "$GITHUB_WORKSPACE")"
+          test "$(stat -c '%d:%i' "$RUNNER_TEMP")" = "$(stat -c '%d:%i' "$CARGO_HOME")"
+          test "$(stat -c '%d:%i' "$RUNNER_TEMP")" = "$(stat -c '%d:%i' /home/runner/work/_temp)"
+          test -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}${DOCKER_CONFIG:-}"
+          test ! -w /var/run/docker.sock
+          python3 - <<'PY'
+          import errno,socket
+          with socket.socket(socket.AF_UNIX) as channel:
+              try:
+                  channel.connect('/var/run/docker.sock')
+              except OSError as error:
+                  assert error.errno in (errno.ENOENT,errno.EACCES,errno.EPERM)
+              else:
+                  raise AssertionError('unexpected Docker daemon access')
+          PY
+          test -w /home/runner/.npm
+          test -w /home/runner/.cache/oasis7/wasm-bindgen-cli
+          mkdir /home/runner/work/_temp/ci-tools
+          cp -r "$RUNNER_TEMP/full-cache-read-proof" .github/actions/full-cache-read-proof
+      - name: Restore original npm and Trunk archives through the actual new SDK reader
+        id: existing
+        uses: ./.github/actions/full-cache-read-proof
+        with:
+          npm-digest: ${{ hashFiles('crates/oasis7_viewer/package-lock.json') }}
+          trunk-digest: ${{ hashFiles('scripts/install-ci-trunk.sh') }}
+      - name: Verify the restored Trunk artifact with the original installer
+        if: steps.existing.outputs.trunk-hit == 'true'
+        run: bash scripts/install-ci-trunk.sh "$RUNNER_TEMP/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz" "$RUNNER_TEMP/ci-tools/bin"
+      - name: Run scoped original WASM material and source-compiler tests without daemon
+        run: |
+          rm -r -- .github/actions/full-cache-read-proof
+          test -z "$(git status --porcelain)"
+          python3 .github/actions/setup-linux-mold/setup.py --install-dir /opt/oasis7-mold/3.0.0-v1
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+          rustup component list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -E '^rust-src( |$)'
+          test "$OASIS7_WASM_BUILD_STD/$OASIS7_WASM_BUILD_STD_COMPONENTS" = 1/std,panic_abort
+          # The full support driver explicitly disables build-std for only these two profile commands.
+          for package in wasm_build_suite wasm_module_observe; do
+            features=$(python3 - "$package" <<'PY_FEATURES'
+          import importlib, sys
+          sys.path.insert(0, 'scripts')
+          artifacts = importlib.import_module('ci-test-artifacts')
+          print(','.join(artifacts.package_features([sys.argv[1]], include_full=True)))
+          PY_FEATURES
+            )
+            arguments=()
+            if [[ -n "$features" ]]; then arguments=(--features "$features"); fi
+            OASIS7_WASM_BUILD_STD=0 env -u RUSTC_WRAPPER cargo test --locked -p "$package" --all-targets "${arguments[@]}"
+          done
+          # The runtime-host and remaining contracts inherit the original full build-std environment.
+          test "$OASIS7_WASM_BUILD_STD/$OASIS7_WASM_BUILD_STD_COMPONENTS" = 1/std,panic_abort
+          env -u RUSTC_WRAPPER cargo test --locked -p oasis7_runtime_host --lib --features test_tier_full source_compiler_tests::compile_module_artifact_from_source -- --list | tee "$RUNNER_TEMP/source-compiler-list"
+          test "$(grep -c '^source_compiler_tests::compile_module_artifact_from_source.*: test$' "$RUNNER_TEMP/source-compiler-list")" -gt 0
+          env -u RUSTC_WRAPPER cargo test --locked -p oasis7_runtime_host --lib --features test_tier_full source_compiler_tests::compile_module_artifact_from_source
+          bash scripts/build-wasm-module.test.sh

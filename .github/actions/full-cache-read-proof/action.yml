@@ -1,0 +1,17 @@
+name: Read-only trusted full cache rehearsal
+description: Validate real main cache archives with the finite V2 restore
+inputs:
+  npm-digest:
+    description: Runner hashFiles output for the frozen Viewer npm lock
+    required: true
+  trunk-digest:
+    description: Runner hashFiles output for the frozen Trunk installer
+    required: true
+outputs:
+  npm-hit:
+    description: The original npm archive was inspected and restored
+  trunk-hit:
+    description: The original Trunk archive was inspected and restored
+runs:
+  using: node24
+  main: run.mjs
