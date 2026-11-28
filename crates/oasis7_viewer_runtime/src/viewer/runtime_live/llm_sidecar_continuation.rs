@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn builtin_cognition_settings(

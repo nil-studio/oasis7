@@ -53,7 +53,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         )?;
         {
             let stored_request =
-                oasis7::simulator::provider_json_admission::decode_request_context(
+                oasis7_runtime_host::provider_json_admission::decode_request_context(
                     &mut Cursor::new(request_context.as_slice()),
                     MAX_CONTEXT_BYTES as u64,
                     &self.memory,
@@ -91,7 +91,7 @@ impl ProviderOriginalMaterialOwnerV1 {
         )?;
         {
             let stored_response =
-                oasis7::simulator::provider_json_admission::decode_response_context(
+                oasis7_runtime_host::provider_json_admission::decode_response_context(
                     &mut Cursor::new(response_context.as_slice()),
                     MAX_CONTEXT_BYTES as u64,
                     &self.memory,
@@ -112,7 +112,7 @@ impl ProviderOriginalMaterialOwnerV1 {
             MemoryClass::Ordinary,
         )?;
         {
-            let decoded = oasis7::simulator::provider_json_admission::decode_response_context(
+            let decoded = oasis7_runtime_host::provider_json_admission::decode_response_context(
                 &mut Cursor::new(response_body.as_slice()),
                 MAX_RESPONSE_BYTES,
                 &self.memory,

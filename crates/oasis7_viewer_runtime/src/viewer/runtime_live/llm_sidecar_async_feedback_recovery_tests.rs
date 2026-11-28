@@ -1,7 +1,7 @@
 //! Async provider feedback-history restoration and recovery admission proofs.
 use super::*;
 use crate::simulator::{AsyncAgentRunner, Digest32, FeedbackEnvelopeV1};
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 

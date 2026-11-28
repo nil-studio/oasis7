@@ -4,8 +4,44 @@ pub(crate) mod geometry {
     pub use oasis7_agent_api::world_geometry::space_distance_cm;
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use oasis7::runtime_host;
-pub(crate) use oasis7::simulator;
+#[allow(unused_imports)]
+pub(crate) mod runtime_host {
+    pub use oasis7_runtime_host::feedback;
+    pub mod archive {
+        pub use oasis7_runtime_host::simulator_archive::persist::*;
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(unused_imports)]
+pub(crate) mod simulator {
+    pub use oasis7_agent_harness::{BudgetContractV1, cognition_response_digest};
+    pub use oasis7_runtime_host::agent::*;
+    pub use oasis7_runtime_host::agent_execution::async_agent_runner::*;
+    pub use oasis7_runtime_host::agent_execution::continuous_agent_harness::*;
+    pub use oasis7_runtime_host::agent_execution::continuous_agent_harness::{
+        CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION,
+        ContinuousAgentResponseContextV1,
+    };
+    pub use oasis7_runtime_host::agent_execution::llm_agent::*;
+    pub use oasis7_runtime_host::agent_execution::runner::*;
+    pub use oasis7_runtime_host::cognition_policy::*;
+    pub use oasis7_runtime_host::decision_provider::*;
+    pub use oasis7_runtime_host::decision_provider::{
+        DecisionResponse, FeedbackEnvelope, ProviderDecision,
+    };
+    pub use oasis7_runtime_host::provider_json_admission;
+    pub use oasis7_runtime_host::provider_loopback_adapter::ProviderLoopbackAdapter;
+    pub use oasis7_runtime_host::provider_loopback_http::*;
+    pub use oasis7_runtime_host::provider_material_capture::*;
+    pub use oasis7_runtime_host::simulator_archive::archive::WorldEvent;
+    pub use oasis7_runtime_host::simulator_archive::kernel_host::{WorldKernel, initialize_kernel};
+    pub use oasis7_runtime_host::simulator_archive::persist::{
+        PlayerGameplayAction, PlayerGameplayCausalityKind, PlayerGameplayExecutionState,
+        PlayerGameplayGoalKind, PlayerGameplayRecentFeedback, PlayerGameplaySnapshot,
+        PlayerGameplayStageId, PlayerGameplayStageStatus, WorldJournal, WorldSnapshot,
+    };
+    pub use oasis7_simulator::*;
+}
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use oasis7_runtime as runtime;
 #[cfg(test)]

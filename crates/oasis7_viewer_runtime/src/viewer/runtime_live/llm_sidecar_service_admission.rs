@@ -1,8 +1,8 @@
 //! Durable fresh admission. No transport or actor callback is performed by apply.
 use super::*;
 use crate::viewer::runtime_live::agent_service_io::*;
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
 use oasis7_client_api::world_service::*;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(in crate::viewer::runtime_live) struct HostedAdmission {
