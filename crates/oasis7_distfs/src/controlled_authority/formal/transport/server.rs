@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 mod readiness;
 #[path = "server_request_admission.rs"]
 mod request_admission;
+#[path = "server_request_auth.rs"]
+mod request_auth;
 /// Explicit, process-lifetime server read-admission settings. These are not
 /// request-side GEN evidence and never authorize a Qualified transition.
 #[derive(Clone, Copy, serde::Deserialize)]
@@ -30,8 +32,9 @@ impl FormalEndpointServer {
         Self::new_with_frame_admission(endpoint, timeout, None)
     }
     /// Both normal/recovery and healthy activation call this once at startup.
-    /// Optional mode admits raw request/response frames and typed Request
-    /// decoding. Response construction, signing and GEN proof remain separate.
+    /// Optional mode admits raw request/response frames, typed Request decoding
+    /// and Request authentication. Response construction/signing and GEN proof
+    /// remain separate.
     pub fn new_with_frame_admission(
         endpoint: FileFormalEndpoint,
         timeout: Duration,
@@ -195,16 +198,39 @@ impl FormalEndpointServer {
                 return Err(invalid("sealed archive delegation cannot mutate"));
             }
             grant.verify(authority, self.endpoint.role())?;
-            grant.body.reader_public_key.clone()
+            grant.body.reader_public_key.as_str()
         } else {
-            authority.definition().writer_public_key.clone()
+            authority.definition().writer_public_key.as_str()
         };
-        verify(REQUEST_DOMAIN, body, &request.signature, &request_key)?;
+        match self.frame_admission.as_ref() {
+            Some((memory, work)) => request_auth::verify_request(
+                body,
+                &request.signature,
+                request_key,
+                &mut work.bounded_context(memory, &mut cancelled),
+            )?,
+            None => verify(REQUEST_DOMAIN, body, &request.signature, request_key)?,
+        }
         if let Some(grant) = &body.archive_read_grant {
             self.endpoint
                 .verify_sealed_archive_grant_scope(grant, &body.minimum)?;
         }
-        let request_digest = hash("oasis7.formal.endpoint.rpc.request_digest.v1", body)?;
+        // Declare the fee first so every early exit drops the digest before it.
+        let _paid_request_digest_fee;
+        let request_digest = match self.frame_admission.as_ref() {
+            Some((memory, work)) => {
+                let (digest, fee) = request_auth::request_digest(
+                    body,
+                    &mut work.bounded_context(memory, &mut cancelled),
+                )?;
+                _paid_request_digest_fee = Some(fee);
+                digest
+            }
+            None => {
+                _paid_request_digest_fee = None;
+                hash("oasis7.formal.endpoint.rpc.request_digest.v1", body)?
+            }
+        };
         // Retain the true paid five-state owner and response-copy lease
         // through signing AND the common prepaid physical output writer.
         let mut _paid_query_owner: Option<super::super::endpoint::PaidFormalRequestQueryV1> = None;
