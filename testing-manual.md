@@ -51,7 +51,7 @@ Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌�
 <a id="local-check-entry"></a>
 ## 显式本地检查：统一入口与验收范围
 
-普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。help 与本节均将其标为显式诊断。
+普通 `git commit` 不自动执行验证，也不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。help 与本节均将其标为显式诊断。
 
 | 当前目的 | 当前可执行入口 | 结果证明范围 |
 | --- | --- | --- |

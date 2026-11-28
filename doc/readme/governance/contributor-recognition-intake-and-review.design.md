@@ -36,8 +36,8 @@
 
 | 对象 | 固定基线事实 | 本文目标 | 尚需实际接线或运行验证 |
 | --- | --- | --- | --- |
-| PR import | [build_result](../../../scripts/readme_reward_pr_intake_lib.py) 仅以显式 yes 与 Reward Account 判定 ready/deferred；未申请或无效不生成 row | 保留原状态，候选导入后经过主记录/证据/当前版本接收 | ready 不证明证据、作者、账户或奖励资格已核验 |
-| round scan | [build_report](../../../scripts/readme-reward-pr-intake-round-scan.py) 逐 entry 生成行，Ledger ID 取前缀及 PR 号；输出不填 producer/distribution | 原导出只是 draft 输入，跨渠道合并后才形成 canonical 投影 | 跨库同号、跨轮次、不同渠道的语义去重尚非当前脚本能力 |
+| PR import | 历史 `readme_reward_pr_intake_lib.py::build_result`（已按 #7378 清退）仅以显式 yes 与 Reward Account 判定 ready/deferred；未申请或无效不生成 row | 保留原状态，候选导入后经过主记录/证据/当前版本接收 | ready 不证明证据、作者、账户或奖励资格已核验 |
+| round scan | 历史 `readme-reward-pr-intake-round-scan.py::build_report`（已按 #7378 清退）逐 entry 生成行，Ledger ID 取前缀及 PR 号；输出不填 producer/distribution | 原导出只是 draft 输入，跨渠道合并后才形成 canonical 投影 | 跨库同号、跨轮次、不同渠道的语义去重尚非当前脚本能力 |
 | 操作包与 ledger | 有 base、quality、band、approval/distribution 分列，§7.3 曾明确 ≥90 路径未决 | 本次首版完整评分选择及不可变事件、当前投影和原件恢复 | 不把模板新增字段当数据库、反馈接口或一次发放已实现 |
 | 历史轮次 | 原真实 round、批准及执行引用各按当时规则保存 | 只用准确 legacy 引用接收旧事实并防新重复 | 不重算历史分数、金额、日期或发放结果 |
 
