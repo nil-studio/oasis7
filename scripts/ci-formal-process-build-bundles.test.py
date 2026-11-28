@@ -414,7 +414,7 @@ class BuildAndBundles(unittest.TestCase):
         self.assertIn('--tests', required)
         shell = (HERE / 'ci-tests.sh').read_text()
         self.assertIn('run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::', shell)
-        self.assertIn('run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields', shell)
+        self.assertIn('run_cargo test -p oasis7_runtime_host --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields', shell)
 
     def test_formal_alias_requires_owning_package_and_exact_target_kind(self):
         classify = artifacts.artifact_logical_name
