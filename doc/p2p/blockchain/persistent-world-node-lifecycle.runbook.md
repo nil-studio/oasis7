@@ -246,9 +246,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --no-default-features --
 env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime --features node-libp2p,test_tier_required parse_options
 env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime --features node-libp2p,test_tier_required controlled_live -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7_wasm_executor --features wasmtime
-./scripts/p2p-triad-node-start.test.sh
 ./scripts/p2p-public-testnet-local-observer-sync.test.sh
-./scripts/p2p-public-testnet-local-observer-runtime-preflight.test.sh
 ./scripts/p2p-public-testnet-observer-triad-rollout.test.sh
 ```
 
