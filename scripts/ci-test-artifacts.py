@@ -829,7 +829,7 @@ def required_packages(plan=None):
     if 'oasis7' not in inventory and isinstance(plan.get('oasis7_required_packages'), list) and 'oasis7' in plan['oasis7_required_packages']:
         if plan.get('scope') in ('full', 'explicit-full'):
             plan = dict(plan, oasis7_required_packages=[pkg for pkg in plan['oasis7_required_packages'] if pkg != 'oasis7'])
-        elif plan.get('scope') == 'targeted' and ('fast_test_inventory_version' in plan or plan.get('ordinary_shared_incremental_contract_version') == 1):
+        elif plan.get('scope') == 'targeted' and ('fast_test_inventory_version' in plan or plan.get('ordinary_shared_incremental_contract_version') == 1 or (plan.get('test_policy_changed') is True and 'ordinary_artifact_delivery_version' in plan)):
             inventory = [*inventory, 'oasis7']
     selected = plan_list(plan, 'oasis7_required_packages', inventory)
     if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
