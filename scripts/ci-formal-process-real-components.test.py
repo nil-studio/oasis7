@@ -56,7 +56,7 @@ class RealFormalComponents(unittest.TestCase):
         cls.root = cls.base / 'checkout'
         cls.root.mkdir()
         (cls.root / 'Cargo.toml').write_text(
-            '[workspace]\nmembers=["crates/oasis7","runtime","distfs"]\nresolver="2"\n')
+            '[workspace]\nmembers=["world","runtime","distfs"]\nresolver="2"\n')
         common = '''
 #[cfg(all(test, not(debug_assertions)))] compile_error!("test assertions were disabled");
 pub fn value() -> u8 { 7 }
@@ -85,7 +85,7 @@ fn rendezvous(name: &str, peer: &str) {
 #[test] fn formal_parallel_a() { rendezvous("a", "b"); }
 #[test] fn formal_parallel_b() { rendezvous("b", "a"); }
 '''
-        for directory, package in (('crates/oasis7', 'oasis7'), ('runtime', 'oasis7_chain_runtime'),
+        for directory, package in (('world', 'oasis7'), ('runtime', 'oasis7_chain_runtime'),
                                    ('distfs', 'oasis7_distfs')):
             member = cls.root / directory
             (member / 'src').mkdir(parents=True)
@@ -307,7 +307,7 @@ fn rendezvous(name: &str, peer: &str) {
         checkout = self.case / 'native-checkout'
         shutil.copytree(self.root, checkout, ignore=shutil.ignore_patterns('target'))
         manifest_path = checkout / 'Cargo.toml'
-        manifest_path.write_text(manifest_path.read_text().replace('"crates/oasis7",', ''))
+        manifest_path.write_text(manifest_path.read_text().replace('"world",', ''))
         config_path = checkout / 'scripts/ci-formal-process-suites.json'
         config = json.loads(config_path.read_text())
         authority_path = self.case / 'old-authority.json'
@@ -358,7 +358,7 @@ fn rendezvous(name: &str, peer: &str) {
     def test_failed_real_cargo_records_its_exit_and_never_starts_later_variants(self):
         checkout = self.case / 'broken-checkout'
         shutil.copytree(self.root, checkout, ignore=shutil.ignore_patterns('target', '.git'))
-        (checkout / 'crates/oasis7/src/lib.rs').write_text('compile_error!("intentional build failure");\n')
+        (checkout / 'world/src/lib.rs').write_text('compile_error!("intentional build failure");\n')
         diagnostics, bundle = self.case / 'failed-diagnostics', self.case / 'failed-bundle'
         observer, observed = self.failed_observer('nonzero-exit')
         with patch.object(artifacts, 'ROOT', checkout), \

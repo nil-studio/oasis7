@@ -876,14 +876,21 @@ def required_wasm_packages(plan=None):
     return selected
 
 
-def package_features(packages, plan=None, *, include_full=False):
-    """Activate only features actually owned by a selected Cargo package."""
+def workspace_package_manifests():
     workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
+    excluded = {directory for pattern in workspace.get('exclude', []) for directory in ROOT.glob(pattern)}
     manifests = {}
     for member in workspace['members']:
         for directory in ROOT.glob(member):
-            manifest = tomllib.loads((directory / 'Cargo.toml').read_text())
-            manifests[manifest['package']['name']] = manifest
+            if directory not in excluded:
+                manifest = tomllib.loads((directory / 'Cargo.toml').read_text())
+                manifests[manifest['package']['name']] = manifest
+    return manifests
+
+
+def package_features(packages, plan=None, *, include_full=False):
+    """Activate only features actually owned by a selected Cargo package."""
+    manifests = workspace_package_manifests()
     expanded = include_full or (fast_plan(plan) is not None and plan.get('test_policy_changed', False))
     features = []
     for package in packages:
@@ -1481,8 +1488,7 @@ def build_variants(scope, plan=None, ordinary_partition=None):
         features = ['test_tier_required', 'ci_formal_required_features']
         if scope == 'storage-required':
             features.append('oasis7_chain_runtime/ci_storage_acceptance')
-        members = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']['members']
-        roots = ['-p', 'oasis7'] if 'crates/oasis7' in members else []
+        roots = ['-p', 'oasis7'] if 'oasis7' in workspace_package_manifests() else []
         core = ('formal-required', ['test', *roots, '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(features), '--no-run'], features)
         result = [core, *(v for v in variants if v[0] in ('runtime', 'endpoint', 'distfs-tests'))]
