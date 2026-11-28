@@ -250,3 +250,16 @@ opt-in 和 repository/event/main ref/workflowSHA=sourceSHA 四项拒绝脚本
 保持原样；预检确认实际非root Bash5。它只为后继运输探针做来源准入，
 不执行 Cargo/Storage 矩阵，不产生验收passed或授予新的写权限。镜像拉取
 成本记在该2分钟job内，独立shell夹具不代签自然main准入或Storage验收。
+
+### Pages 完整作业环境
+
+Pages 的单一 deploy job 使用固定 runtime49a、UID/GID1001/init，以及原
+Bash shell。四个站点质量脚本只需 Python标准库、Node离线测试和基础工具；
+configure-pages使用Node24，upload-pages-artifact使用GNU tar及其原隐藏文件/
+.git/.github排除规则。保留手动触发、github-pages环境/URL、5分钟、原
+contents/pages/id-token权限和四动作顺序、site路径及默认github-pages
+artifact名；仅增packages read拉取正式镜像，不扩大站点部署授权。
+
+迁移实测只用受审隔离host/image两lane、pages read、enablement:false和
+独立artifact名，核原site的内容、相对路径和mode。不得在该测试调用
+部署动作、索取OIDC或启用Pages；只读A/B运输不代签真实生产部署。
