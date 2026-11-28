@@ -4,7 +4,7 @@ use super::*;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
     BoundedCborDataErrorV1, CborDataLayoutV1, PaidCborDataV1,
 };
-use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::borrow::Borrow;
 use std::mem::size_of;
 
@@ -100,7 +100,26 @@ impl RemoteFormalEndpoint {
                 cancelled,
             )?;
         let verified: &Response = response.borrow();
-        self.verify_authenticated_response(verified, &signed, &digest, deadline)?;
+        // Verification advances the client's anti-rollback minimum even
+        // though this is data-only. Charge the persistent minimum head clone
+        // to the original caller pool/Work, not only the transient response.
+        // The fee moves into RemoteFormalEndpoint and is released when the
+        // minimum is replaced by a later authenticated RPC or on drop.
+        let minimum_bytes = size_of::<FormalHeadRefV1>()
+            .checked_add(verified.body.head.record_id.len())
+            .and_then(|n| n.checked_add(4096))
+            .ok_or_else(|| invalid("formal paid Query minimum owner layout"))?;
+        work.charge(1, minimum_bytes as u64, cancelled)?;
+        let minimum_fee = memory
+            .reserve(minimum_bytes, MemoryClass::Ordinary)
+            .map_err(|_| invalid("formal paid Query minimum owner admission"))?;
+        self.verify_authenticated_response(
+            verified,
+            &signed,
+            &digest,
+            deadline,
+            Some(minimum_fee),
+        )?;
         if !matches!(&verified.body.result, Ok(Value::Query(_)) | Err(_)) {
             return Err(invalid("formal paid Query response type"));
         }
