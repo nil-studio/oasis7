@@ -63,19 +63,23 @@ impl RemoteFormalEndpoint {
             .operation_deadline
             .unwrap_or_else(|| Instant::now() + self.timeout);
         let mut stream = wire::connect_and_write_before_deadline(&self.address, &signed, deadline)?;
-        // Closed Response has one outer body and an optional boxed Query state.
-        // A sequence element or map pair is NOT another full Response: applying
-        // the whole root size to every CBOR child exponentially over-admits
-        // scratch and falsely rejects authentic signed Qualified responses.
-        // Charge the actual closed container/box families plus the shared
-        // decoder's serde Content, allocation growth and nesting allowances.
+        // The signed Query carries exactly one boxed FormalRequestStateV1;
+        // that complete fixed-size root is included above. Its thousands of
+        // CBOR array elements are repeated small headers, String/Vec payload
+        // carriers and signed history head references, never thousands of
+        // independent complete FormalRequestStateV1 allocations. Applying
+        // size_of::<FormalRequestStateV1>() per sequence element multiplies
+        // 5,583 elements by the entire state and a 15-phase scratch bound,
+        // rejecting a genuine 22,397-byte Qualified signed response.
+        // Leave the complete state charge in the root and preserve the
+        // shared decoder's extra 4x per-element/serde Content/phase bounds.
         let root = size_of::<ResponseBody>()
             .saturating_add(size_of::<Response>())
             .saturating_add(size_of::<FormalQueryOutcomeV1>())
             .saturating_add(size_of::<FormalRequestStateV1>());
         let layout = CborDataLayoutV1 {
             root,
-            sequence_element: size_of::<FormalRequestStateV1>()
+            sequence_element: size_of::<FormalHeadRefV1>()
                 .max(size_of::<String>())
                 .max(size_of::<Vec<u8>>()),
             map_pair: size_of::<(String, String)>().max(size_of::<(String, Vec<u8>)>()),
