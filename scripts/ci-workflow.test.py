@@ -1573,9 +1573,15 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                       if 'uses: Swatinem/rust-cache@' in step]
             image = name in ('native', 'native-trusted') and len(caches) == 2
             if image:
-                host, cache = caches
-                self.assertIn("if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'\n", host)
-                self.assertIn('save-if: false\n', host)
+                candidate, cache = caches
+                if 'Restore candidate image dependencies without saving' in candidate:
+                    self.assertIn("if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != ''\n", candidate)
+                    self.assertIn('shared-key: ${{ env.ECS_NATIVE_DEPENDENCY_NAMESPACE }}\n', candidate)
+                    self.assertIn('cache-provider: github\n', candidate)
+                    self.assertNotIn('GH_TOKEN:', candidate)
+                else:
+                    self.assertIn("if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'\n", candidate)
+                self.assertIn('save-if: false\n', candidate)
                 self.assertIn("if: github.job == 'native-trusted' && hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'\n", cache)
                 self.assertIn('NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}', cache)
                 self.assertIn('OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.image-dependency-cache-tools.outputs.python }}', cache)
