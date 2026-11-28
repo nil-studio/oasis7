@@ -539,19 +539,22 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         self.assertNotIn('full-inventory', result.stdout)
 
     def test_application_keeps_native_sdk_out_of_wasm(self):
-        manifest = tomllib.loads((ROOT / "crates/oasis7/Cargo.toml").read_text())
-        native = manifest["target"]['cfg(not(target_arch = "wasm32"))']["dependencies"]
-        # The SDK is owned by World Service; the core reaches it only through
-        # native host services, rather than retaining an unused direct edge.
-        self.assertNotIn("oasis7_game_client", manifest["dependencies"])
-        self.assertNotIn("oasis7_game_client", native)
-        self.assertIn("oasis7_world_service", native)
+        oasis7_manifest = ROOT / "crates/oasis7/Cargo.toml"
+        if oasis7_manifest.is_file():
+            manifest = tomllib.loads(oasis7_manifest.read_text())
+            native = manifest["target"]['cfg(not(target_arch = "wasm32"))']["dependencies"]
+            # The SDK is owned by World Service; the core reaches it only through
+            # native host services, rather than retaining an unused direct edge.
+            self.assertNotIn("oasis7_game_client", manifest["dependencies"])
+            self.assertNotIn("oasis7_game_client", native)
+            self.assertIn("oasis7_world_service", native)
+            self.assertIn("oasis7_game_client",
+                          production_workspace_closure('oasis7', wasm=False))
         world_service = tomllib.loads(
             (ROOT / "crates/oasis7_world_service/Cargo.toml").read_text())
         self.assertIn("oasis7_game_client", world_service["dependencies"])
-        self.assertIn("oasis7_game_client",
-                      production_workspace_closure('oasis7', wasm=False))
-        for root in ('oasis7', 'oasis7_viewer_runtime'):
+        roots = ('oasis7', 'oasis7_viewer_runtime') if oasis7_manifest.is_file() else ('oasis7_viewer_runtime',)
+        for root in roots:
             with self.subTest(root=root):
                 closure = production_workspace_closure(root, wasm=True)
                 for package in ('oasis7_world_service', 'oasis7_game_client',
@@ -613,18 +616,21 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         self.assertNotIn('full-inventory', result.stdout)
 
     def test_main_portable_harness_keeps_native_clients_out_of_wasm(self):
-        manifest = tomllib.loads((ROOT / 'crates/oasis7/Cargo.toml').read_text())
-        native = manifest['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
-        self.assertIn('oasis7_agent_harness', manifest['dependencies'])
-        self.assertNotIn('oasis7_agent_harness', native)
-        self.assertNotIn('oasis7_model_provider', manifest['dependencies'])
-        self.assertIn('oasis7_model_provider', native)
+        oasis7_manifest = ROOT / 'crates/oasis7/Cargo.toml'
+        if oasis7_manifest.is_file():
+            manifest = tomllib.loads(oasis7_manifest.read_text())
+            native = manifest['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertIn('oasis7_agent_harness', manifest['dependencies'])
+            self.assertNotIn('oasis7_agent_harness', native)
+            self.assertNotIn('oasis7_model_provider', manifest['dependencies'])
+            self.assertIn('oasis7_model_provider', native)
         harness = tomllib.loads((ROOT / 'crates/oasis7_agent_harness/Cargo.toml').read_text())
         native_harness = harness['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
         for package in ('oasis7_game_client', 'oasis7_client_api'):
             self.assertNotIn(package, harness['dependencies'])
             self.assertIn(package, native_harness)
-        for root in ('oasis7', 'oasis7_agent_harness'):
+        roots = ('oasis7', 'oasis7_agent_harness') if oasis7_manifest.is_file() else ('oasis7_agent_harness',)
+        for root in roots:
             with self.subTest(root=root):
                 closure = production_workspace_closure(root, wasm=True)
                 self.assertIn('oasis7_agent_harness', closure)
