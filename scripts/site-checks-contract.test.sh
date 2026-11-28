@@ -37,7 +37,7 @@ for check in "${site_checks[@]}"; do
   fi
 done
 
-python3 - "$ci_tests" "$required_workflow" "$repo_root/scripts/ci-required-scope.json" <<'PYTHON'
+python3 - "$ci_tests" "$required_workflow" "$repo_root/scripts/ci-required-scope.json" "$pages_workflow" <<'PYTHON'
 import json
 from pathlib import Path
 import re
@@ -45,6 +45,64 @@ import sys
 
 driver, workflow = (Path(path).read_text() for path in sys.argv[1:3])
 config = json.loads(Path(sys.argv[3]).read_text())
+pages = Path(sys.argv[4]).read_text()
+
+def validate_pages(pages):
+    prefix, jobs = pages.split('\njobs:\n', 1)
+    assert re.findall(r'^  ([a-z][a-z-]*):\n', jobs, re.M) == ['deploy']
+    assert '  workflow_dispatch:\n' in prefix and '  push:' not in prefix
+    image = '    container:' in jobs
+    permissions = re.search(r'^permissions:\n(.*?)(?=^\S)', prefix, re.M | re.S)[1]
+    assert permissions.strip().splitlines() == [
+        'contents: read', '  pages: write', '  id-token: write',
+        *(['  packages: read'] if image else [])]
+    assert '    permissions:' not in jobs and '    env:' not in jobs
+    assert '    environment:\n      name: github-pages\n      url: ${{ steps.deployment.outputs.page_url }}\n' in jobs
+    assert '    runs-on: ubuntu-latest\n' in jobs and '    timeout-minutes: 5\n' in jobs
+    names = re.findall(r'^      - name: (.+)$', jobs, re.M)
+    expected = ['Checkout', 'Run Site Quality Gates', 'Setup Pages', 'Upload Pages artifact', 'Deploy to GitHub Pages']
+    if image:
+        expected.insert(1, 'Verify the preinstalled Pages tools')
+        container = jobs.split('    container:\n', 1)[1].split('    defaults:', 1)[0]
+        assert container == ('      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:49a7d25c4ffaae310799afb86bcbe793af02f9b1420ea204ef826bf843f1fafa\n'
+            '      credentials:\n        username: ${{ github.actor }}\n        password: ${{ github.token }}\n'
+            '      options: --user 1001:1001 --init\n')
+        assert '    defaults:\n      run:\n        shell: bash\n' in jobs
+        preflight = jobs.split('      - name: Verify the preinstalled Pages tools\n', 1)[1].split('      - name:', 1)[0]
+        for command in ('test "$EUID" -eq 1001', 'process.versions.node.split', 'sys.version_info[:2] == (3, 12)', "tar --version | grep -F 'tar (GNU tar)'"):
+            assert command in preflight
+        assert 'continue-on-error:' not in preflight and 'if:' not in preflight
+    assert names == expected
+    assert re.findall(r'^        uses: (.+)$', jobs, re.M) == [
+        'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+        'actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0',
+        'actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0',
+        'actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1']
+    assert '        id: deployment\n' in jobs
+    assert re.findall(r'^          path: (.+)$', jobs, re.M) == ['site']
+    assert '          name:' not in jobs  # Preserve original github-pages default.
+    assert 'enablement: true' not in jobs and 'continue-on-error:' not in jobs
+    quality = jobs.split('      - name: Run Site Quality Gates\n', 1)[1].split('      - name:', 1)[0]
+    assert re.findall(r'^          (.+)$', quality, re.M) == [
+        './scripts/site-link-check.sh', './scripts/site-homepage-claim-check.sh',
+        './scripts/site-manual-sync-check.sh', './scripts/site-download-check.sh']
+
+validate_pages(pages)
+if '    container:' in pages:
+    for broken in (
+            pages.replace('ci-runtime@sha256:', 'ci-rust-build@sha256:'),
+            pages.replace('--user 1001:1001 --init', '--user 0:0 --privileged'),
+            pages.replace('id-token: write', 'id-token: read'),
+            pages.replace('pages: write', 'pages: read'),
+            pages.replace('packages: read', 'packages: write'),
+            pages.replace('path: site', 'path: .'),
+            pages.replace('      - name: Setup Pages', '      - name: Deploy injected\n        run: echo bad\n      - name: Setup Pages')):
+        try:
+            validate_pages(broken)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('Pages environment/artifact/permission drift accepted')
 if not re.search(r'^\s*site_quality\)\s+run_site_contract_tests\s*;;', driver, re.M):
     raise SystemExit("site quality group does not execute its product checks")
 def validate_execution(workflow):
