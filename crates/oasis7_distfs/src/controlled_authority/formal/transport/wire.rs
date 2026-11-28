@@ -298,6 +298,89 @@ pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
     Ok((request, paid))
 }
 
+// Client-side original-caller paid raw frame and signed DTO decode.
+// Use the same absolute operation deadline; each network attempt is charged
+// before allocation/read, including short reads and Interrupted retries.
+fn read_exact_paid_before_deadline(
+    stream: &mut TcpStream,
+    mut target: &mut [u8],
+    deadline: Instant,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), FormalError> {
+    while !target.is_empty() {
+        work.charge(1, target.len() as u64, cancelled)?;
+        stream
+            .set_read_timeout(Some(remaining(deadline)?))
+            .map_err(io)?;
+        match stream.read(target) {
+            Ok(0) => return Err(io("formal RPC frame ended early")),
+            Ok(n) => target = &mut target[n..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(io(error)),
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn read_paid_before_deadline<T: serde::de::DeserializeOwned>(
+    stream: &mut TcpStream,
+    deadline: Instant,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    layout: oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::CborDataLayoutV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<
+    (
+        oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::PaidCborDataV1<T>,
+        oasis7_proto::memory_budget::ReservedValue<Vec<u8>>,
+    ),
+    FormalError,
+> {
+    use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
+        BoundedCborDataErrorV1, CborDataLimitsV1, decode_closed_cbor_data_v1,
+    };
+    use oasis7_proto::memory_budget::MemoryClass;
+    let mut header = [0u8; 4];
+    read_exact_paid_before_deadline(stream, &mut header, deadline, work, cancelled)?;
+    let len = u32::from_be_bytes(header) as usize;
+    if len == 0 || len > LIMIT {
+        return Err(invalid("formal RPC bounded frame"));
+    }
+    let allocation = len
+        .checked_add(std::mem::size_of::<Vec<u8>>())
+        .and_then(|n| n.checked_add(4096))
+        .ok_or_else(|| invalid("formal RPC paid response allocation"))?;
+    let fee = memory
+        .reserve(allocation, MemoryClass::Ordinary)
+        .map_err(|_| invalid("formal RPC paid response raw admission"))?;
+    let mut bytes = vec![0u8; len];
+    if bytes.capacity() > len + 4096 {
+        return Err(invalid("formal RPC paid response capacity"));
+    }
+    for chunk in bytes.chunks_mut(8192) {
+        read_exact_paid_before_deadline(stream, chunk, deadline, work, cancelled)?;
+    }
+    remaining(deadline)?;
+    let raw = fee.retain(bytes);
+    let decoded = {
+        let mut common = work.bounded_context(memory, cancelled);
+        let limits = CborDataLimitsV1 {
+            max_wire_bytes: LIMIT,
+            max_graph_bytes: LIMIT * 16,
+            max_depth: 128,
+        };
+        decode_closed_cbor_data_v1(raw.as_slice(), layout, &limits, &mut common)
+            .map_err(|error| match error {
+                BoundedCborDataErrorV1::Common(source) => source,
+                other => invalid(other.to_string()),
+            })?
+            .map_err(|refusal| invalid(refusal.message()))?
+    };
+    remaining(deadline)?;
+    Ok((decoded, raw))
+}
+
 pub(super) fn read<T: serde::de::DeserializeOwned>(
     stream: &mut TcpStream,
 ) -> Result<T, FormalError> {
