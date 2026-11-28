@@ -202,7 +202,10 @@ impl ProtectedOriginalAdmissionRetainedAuthorityV2 {
         source: Arc<dyn ProtectedOriginalAdmissionSourceV2>,
         response_charge: ProtectedOriginalResponseChargeV2,
     ) -> Self {
-        Self { source, response_charge }
+        Self {
+            source,
+            response_charge,
+        }
     }
 }
 
@@ -251,11 +254,8 @@ impl NodeBftOriginalAdmissionNoiseV2 {
         lease_generation: u64,
         lease_token_digest: String,
     ) -> Result<Self, String> {
-        let response_charge = ProtectedOriginalResponseChargeV2::new(
-            backend,
-            lease_generation,
-            lease_token_digest,
-        )?;
+        let response_charge =
+            ProtectedOriginalResponseChargeV2::new(backend, lease_generation, lease_token_digest)?;
         let authority = Arc::new(ProtectedOriginalAdmissionRetainedAuthorityV2::new(
             source,
             response_charge,
