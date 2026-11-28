@@ -197,9 +197,62 @@ def selected_source_steps(name):
 
 
 class WorkflowCorePart9(unittest.TestCase):
+    def assert_full_container_handoff(self, writer, candidate, producer):
+        pin = '32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427'
+        self.assertIn(f'ci-rust-full-regression@sha256:{pin}', writer)
+        self.assertIn('    timeout-minutes: 210', writer)
+        self.assertIn("--user 1001:1001 --init", writer)
+        for forbidden in ('--group-add', '--privileged', 'docker run', 'docker info'):
+            self.assertNotIn(forbidden, writer)
+        self.assertIn("channel.connect('/var/run/docker.sock')", writer)
+        self.assertIn("needs.full-regression-provider.result == 'success'", writer)
+        self.assertIn('artifact-ids: ${{ needs.full-regression-provider.outputs.artifact-id }}', writer)
+        self.assertIn('run-id: ${{ github.run_id }}', writer)
+        self.assertIn('OASIS7_TRUSTED_FULL_PROVIDER_ATTEMPT: ${{ needs.full-regression-provider.outputs.attempt }}', writer)
+        self.assertIn('OASIS7_TRUSTED_FULL_PROVIDER_SHA256: ${{ needs.full-regression-provider.outputs.digest }}', writer)
+        self.assertIn("github.workflow_sha == github.sha", producer)
+        self.assertIn("inputs.source_ref == ''", producer)
+        self.assertIn('run: bash scripts/ci-full-provider-producer.sh "$SOURCE_SHA"', producer)
+        self.assertIn('path: target/full-provider-transport', producer)
+        self.assertIn('name: full-regression-provider-${{ github.run_attempt }}', producer)
+        self.assertIn('    cache-mode: none', producer)
+        self.assertIn(f'shared-key: ci-rust-full-regression-{pin}-native-v1', writer)
+        self.assertIn('shared-key: ci-shared-native-trusted-v4', candidate)
+        for job in (writer, candidate):
+            self.assertIn('save-if: false', job)
+            self.assertIn('./scripts/ci-tests.sh full-extended', job)
+            self.assertIn('./scripts/ci-rust-governance-report.sh --out-dir output/rust-governance', job)
+            self.assertIn('name: rust-governance-report', job)
+            self.assertNotIn('cache-native', job)
+            self.assertNotIn('dependency-cache-tools', job)
+        self.assertNotIn('container:', candidate)
+        self.assertNotIn('full-regression-provider', candidate)
+        self.assertNotIn('full-regression-cache', candidate)
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', writer, re.M | re.S)
+        role_steps = [step for step in steps if 'uses: ./.github/actions/full-regression-cache' in step]
+        self.assertEqual([(re.search(r'operation: (.+)', step)[1], re.search(r'role: (.+)', step)[1])
+                          for step in role_steps], [('restore', 'npm'), ('restore', 'wasm-bindgen'),
+                          ('save', 'wasm-bindgen'), ('restore', 'trunk'), ('save', 'sentinel')])
+        self.assertIn("hashFiles('crates/oasis7_viewer/package-lock.json')", role_steps[0])
+        self.assertIn('cache-hit: ${{ steps.bindgen-cache.outputs.cache-hit }}', role_steps[2])
+        self.assertIn('prepare-outcome: ${{ steps.prepare-bindgen.outcome }}', role_steps[2])
+        self.assertIn("steps.prepare-bindgen.outcome == 'success'", role_steps[2])
+        self.assertIn("hashFiles('scripts/install-ci-trunk.sh')", role_steps[3])
+        self.assertIn('key: oasis7-cache-permission-sentinel-trusted-v2', role_steps[4])
+        for before, after in [('Verify the canonical Provider selection', 'Download only the canonical Provider'),
+                              ('Download only the canonical Provider', 'Run full test tier'),
+                              ('Cache pinned Trunk release archive', 'Install verified pinned Trunk'),
+                              ('Install verified pinned Trunk', 'Run full test tier'),
+                              ('Save trusted cache sentinel', 'Run full test tier')]:
+            self.assertLess(writer.index(before), writer.index(after))
+
     def test_candidate_full_preserves_full_setup_and_execution(self):
         # Both lanes run the same full validation. Only the trusted main lane
         # additionally saves its existing tool caches and sentinel.
+        if 'full-regression-provider' in JOBS:
+            self.assert_full_container_handoff(JOBS['full-regression'], JOBS['candidate-full-regression'],
+                                               JOBS['full-regression-provider'])
+            return
         writer = selected_source_steps('full-regression')
         candidate = selected_source_steps('candidate-full-regression')
         for job in (writer, candidate):
@@ -315,7 +368,15 @@ class WorkflowCorePart9(unittest.TestCase):
         for name in ('viewer-js-required', 'viewer-performance-report', 'full-regression'):
             job = JOBS[name]
             self.assertIn('source scripts/wasm-bindgen-cli-common.sh', job)
-            self.assertIn('uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25', job)
+            container_writer = name == 'full-regression' and 'full-regression-provider' in JOBS
+            if container_writer:
+                restore = job.split('name: Restore exact wasm-bindgen tool cache', 1)[1].split('      - ', 1)[0]
+                for token in ('uses: ./.github/actions/full-regression-cache', 'operation: restore', 'role: wasm-bindgen',
+                              'raw-path: ${{ steps.bindgen-meta.outputs.root }}',
+                              'bindgen-version: ${{ steps.bindgen-meta.outputs.version }}'):
+                    self.assertIn(token, restore)
+            else:
+                self.assertIn('uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25', job)
             self.assertIn('--ensure-cache --print-bin', job)
             self.assertIn('test -x "$bindgen_bin"', job)
             self.assertIn('test "$("$bindgen_bin" --version)" = "wasm-bindgen $WASM_BINDGEN_LOCK_VERSION"', job)
@@ -478,6 +539,12 @@ class WorkflowCorePart9(unittest.TestCase):
         self.assertLess(net.index(compiler_step), net.index('Execute selected group'))
         self.assertLess(net.index('llvm-ar --version'), net.index('Execute selected group'))
         writer = JOBS['full-regression']
+        if 'full-regression-provider' in JOBS:
+            self.assertIn('rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown', writer)
+            self.assertIn('RUSTUP_AUTO_INSTALL: "0"', writer)
+            for tool in ('clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
+                self.assertLess(writer.index(tool), writer.index('Run full test tier'))
+            return
         self.assertIn('rustup target add wasm32-unknown-unknown', writer)
         if 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in writer:
             launcher = (ROOT / 'scripts/ci-trusted-full-regression.py').read_text()

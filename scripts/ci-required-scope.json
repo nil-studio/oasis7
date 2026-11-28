@@ -1199,6 +1199,7 @@
     "scripts/ci-trusted-full-regression-cache.py": ["workflow_governance"],
     "scripts/ci-trusted-full-regression-cache-transport.mjs": ["workflow_governance"],
     "scripts/ci-trusted-full-regression-cache-transport.test.mjs": ["workflow_governance"],
+    "scripts/ci-full-provider-producer.sh": ["workflow_governance"],
     "scripts/ci-trusted-full-provider.py": ["workflow_governance"],
     "scripts/ci-trusted-full-provider.test.py": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],

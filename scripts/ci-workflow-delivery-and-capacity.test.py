@@ -358,7 +358,8 @@ class AptWorkflow(unittest.TestCase):
         if not rust_image_cache_namespace('net', JOBS['net']):
             expected['rust', 'net', 'Install WASM C compiler'] = ['clang', 'llvm']
         expected['rust', 'candidate-full-regression', 'Install system deps'] = ['clang', 'llvm', *self.NATIVE]
-        if 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in JOBS['full-regression']:
+        if ('scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in JOBS['full-regression']
+                or 'full-regression-provider' in JOBS):
             dockerfile = (ROOT / 'docker/ci-base/Dockerfile').read_text()
             self.assertIn('FROM rust-custody-wasm AS rust-full-regression\n', dockerfile)
             self.assertIn('apt-get install -y --no-install-recommends clang llvm', dockerfile)

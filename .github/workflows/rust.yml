@@ -6104,28 +6104,154 @@ jobs:
           PY
       - *engineering-job-observation
 
+  full-regression-provider:
+    cache-mode: none
+    permissions:
+      contents: read
+      packages: read
+    needs: select
+    if: >-
+      !cancelled() && needs.select.result == 'success' &&
+      needs.select.outputs.trusted_source == 'true' && github.ref == 'refs/heads/main' &&
+      github.workflow_sha == github.sha &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full' && inputs.source_ref == ''))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.pack.outputs.digest }}
+      attempt: ${{ steps.pack.outputs.attempt }}
+      source: ${{ steps.pack.outputs.source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Pull the fixed image for the canonical Provider
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image=ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+          config=$(mktemp -d "$RUNNER_TEMP/full-provider-docker.XXXXXX")
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s\n' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$image"
+      - name: Build and seal the canonical Provider
+        id: pack
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+        run: bash scripts/ci-full-provider-producer.sh "$SOURCE_SHA"
+      - name: Upload the canonical Provider
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: full-regression-provider-${{ github.run_attempt }}
+          path: target/full-provider-transport
+          if-no-files-found: error
+
   full-regression:
     cache-mode: write
     permissions:
       contents: read
       actions: read
       packages: read
-    needs: select
+    needs: [select, full-regression-provider]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      needs.full-regression-provider.result == 'success' && github.workflow_sha == github.sha &&
       needs.select.outputs.trusted_source == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     timeout-minutes: 210
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: >-
+        --user 1001:1001 --init
+        --tmpfs /opt/oasis7-mold:uid=1001,gid=1001,mode=0755,exec
+        --tmpfs /home/runner/.npm:uid=1001,gid=1001,mode=0700,size=512m
+        --tmpfs /home/runner/.cache/oasis7/wasm-bindgen-cli:uid=1001,gid=1001,mode=0700,size=128m,exec
+      volumes:
+        - ${{ github.workspace }}:/home/runner/work/oasis7/oasis7
+        - /home/runner/work/_temp:/home/runner/work/_temp
+        - /home/runner/work/_temp:/home/runner/.cargo
+    env:
+      XDG_CACHE_HOME: /home/runner/.cache
+      CARGO_HOME: /home/runner/.cargo
+      npm_config_cache: /home/runner/.npm
+      RUSTUP_AUTO_INSTALL: "0"
+    defaults:
+      run:
+        shell: bash
+        working-directory: /home/runner/work/oasis7/oasis7
     steps:
-      - *linux-mold-event-tools-checkout
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ github.sha == '' || github.workflow_sha != github.sha }}
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify fixed trusted full-regression tools and physical aliases
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /home/runner/work/oasis7/oasis7
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(stat -c '%d:%i' "$PWD")" = "$(stat -c '%d:%i' "$GITHUB_WORKSPACE")"
+          test "$(stat -c '%d:%i' "$RUNNER_TEMP")" = "$(stat -c '%d:%i' /home/runner/work/_temp)"
+          test "$(id -u):$(id -g)" = 1001:1001
+          python3 - <<'PY_SOCKET'
+          import errno, socket
+          with socket.socket(socket.AF_UNIX) as channel:
+              try:
+                  channel.connect('/var/run/docker.sock')
+              except OSError as error:
+                  if error.errno not in (errno.ENOENT, errno.EACCES, errno.EPERM):
+                      raise
+              else:
+                  raise SystemExit('trusted full consumer must not have Docker daemon access')
+          PY_SOCKET
+          test "$(stat -c '%d:%i' "$CARGO_HOME")" = "$(stat -c '%d:%i' "$RUNNER_TEMP")"
+          test -w "$CARGO_HOME"
+          mkdir -p /home/runner/work/_temp/ci-tools
+          for name in CARGO_INCREMENTAL CARGO_PROFILE_DEV_DEBUG CARGO_PROFILE_TEST_DEBUG CARGO_TERM_COLOR CARGO_NET_RETRY CARGO_REGISTRIES_CRATES_IO_PROTOCOL; do
+            test -n "${!name:-}"
+          done
+          printf '%s\n' /opt/oasis7-node22/bin /home/runner/work/_temp/ci-tools/bin >>"$GITHUB_PATH"
+          rustup toolchain list
+          test "$(rustup run "$RUST_TOOLCHAIN" rustc --version | cut -d ' ' -f2)" = "$RUST_TOOLCHAIN"
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+          rustup component list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -E '^rust-src( |$)'
+          clang --print-targets | grep -w wasm32
+          llvm-ar --version
+          pkg-config --exists wayland-client xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
+      - name: Configure mold for the fixed image
+        run: |
+          python3 .github/actions/setup-linux-mold/setup.py --install-dir /opt/oasis7-mold/3.0.0-v1
+          printf 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=%s\n' /opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc >>"$GITHUB_ENV"
+      - name: Verify the canonical Provider selection
+        env:
+          NEED_SOURCE: ${{ needs.full-regression-provider.outputs.source }}
+          NEED_DIGEST: ${{ needs.full-regression-provider.outputs.digest }}
+          NEED_ATTEMPT: ${{ needs.full-regression-provider.outputs.attempt }}
+          NEED_ARTIFACT_ID: ${{ needs.full-regression-provider.outputs.artifact-id }}
+        run: |
+          [[ "$NEED_ARTIFACT_ID" =~ ^[1-9][0-9]{0,18}$ ]]
+          [[ "$NEED_DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$NEED_ATTEMPT" =~ ^[1-9][0-9]{0,8}$ ]]
+          test "$NEED_ATTEMPT" -le "$GITHUB_RUN_ATTEMPT"
+          test "$NEED_SOURCE" = "$GITHUB_SHA"
+      - name: Download only the canonical Provider from the successful job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: ${{ needs.full-regression-provider.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          repository: nil-studio/oasis7
+          run-id: ${{ github.run_id }}
+          path: target/full-provider-transport
       - name: Resolve product-document gate range
         shell: bash
         run: |
@@ -6134,38 +6260,25 @@ jobs:
           head_oid="$(git rev-parse --verify 'HEAD^{commit}')"
           printf 'OASIS7_PRODUCT_DOC_BASE=%s\n' "$base_oid" >>"$GITHUB_ENV"
           printf 'OASIS7_PRODUCT_DOC_HEAD=%s\n' "$head_oid" >>"$GITHUB_ENV"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: crates/oasis7_viewer/package-lock.json
-      - name: Pull the fixed trusted full regression image
-        shell: bash
+      - name: Restore the locked npm downloads
+        uses: ./.github/actions/full-regression-cache
         env:
-          GHCR_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          operation: restore
+          role: npm
+          raw-path: /home/runner/.npm
+          key: node-cache-Linux-x64-npm-${{ hashFiles('crates/oasis7_viewer/package-lock.json') }}
+          lock-digest: ${{ hashFiles('crates/oasis7_viewer/package-lock.json') }}
+      - name: Install viewer web dependencies
         run: |
-          set -euo pipefail
-          image=ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
-          config=$(mktemp -d "$RUNNER_TEMP/full-regression-docker.XXXXXX")
-          trap 'rm -rf -- "$config"' EXIT
-          printf '%s\n' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          docker --config "$config" pull "$image"
-      - name: Install viewer web dependencies in the fixed image
-        run: python3 scripts/ci-trusted-full-regression.py npm "$GITHUB_SHA"
-      - name: Install pinned Rust toolchains
-        run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
-          rustup default "${RUST_TOOLCHAIN}"
-          rustup toolchain install "${OASIS7_WASM_TOOLCHAIN}" --profile minimal --component rust-src
-          rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
-          rustup target add wasm32-unknown-unknown
+          test "$(node -p 'process.versions.node.split(".")[0]')" = 22
+          test "$(npm config get cache)" = /home/runner/.npm
+          npm ci --prefix crates/oasis7_viewer
       - name: Install cargo-deny
         uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2
         with:
           tool: cargo-deny@0.19.9
-      - name: Stabilize Rust cache toolchains
-        shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: ci-rust-full-regression-32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427-native-v1
@@ -6181,9 +6294,13 @@ jobs:
           printf 'version=%s\nroot=%s\n' "$WASM_BINDGEN_LOCK_VERSION" "$WASM_BINDGEN_CACHE_ROOT" >> "$GITHUB_OUTPUT"
       - name: Restore exact wasm-bindgen tool cache
         id: bindgen-cache
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: ./.github/actions/full-regression-cache
         with:
-          path: ${{ steps.bindgen-meta.outputs.root }}
+          operation: restore
+          role: wasm-bindgen
+          raw-path: ${{ steps.bindgen-meta.outputs.root }}
+          bindgen-version: ${{ steps.bindgen-meta.outputs.version }}
+          bindgen-helpers-digest: ${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
           key: wasm-bindgen-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ steps.bindgen-meta.outputs.version }}-${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
       - name: Prepare exact wasm-bindgen tool directory
         id: prepare-bindgen
@@ -6211,14 +6328,28 @@ jobs:
             steps.bindgen-cache.outputs.cache-hit != 'true' &&
             steps.prepare-bindgen.outcome == 'success'
           }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/full-regression-cache
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
-          path: ${{ steps.bindgen-meta.outputs.root }}
+          operation: save
+          role: wasm-bindgen
+          raw-path: ${{ steps.bindgen-meta.outputs.root }}
+          bindgen-version: ${{ steps.bindgen-meta.outputs.version }}
+          bindgen-helpers-digest: ${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
+          cache-hit: ${{ steps.bindgen-cache.outputs.cache-hit }}
+          prepare-outcome: ${{ steps.prepare-bindgen.outcome }}
           key: wasm-bindgen-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ steps.bindgen-meta.outputs.version }}-${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
       - name: Cache pinned Trunk release archive
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/full-regression-cache
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
-          path: ${{ runner.temp }}/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz
+          operation: restore
+          role: trunk
+          raw-path: /home/runner/work/_temp/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz
+          trunk-version: ${{ env.TRUNK_VERSION }}
+          installer-digest: ${{ hashFiles('scripts/install-ci-trunk.sh') }}
           key: trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ hashFiles('scripts/install-ci-trunk.sh') }}
       - name: Install verified pinned Trunk
         shell: bash
@@ -6231,18 +6362,32 @@ jobs:
           printf 'trusted-v2\n' > "$RUNNER_TEMP/cache-permission-sentinel/sentinel"
       - name: Save trusted cache sentinel
         if: github.ref == 'refs/heads/main'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/full-regression-cache
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
-          path: ${{ runner.temp }}/cache-permission-sentinel
+          operation: save
+          role: sentinel
+          raw-path: /home/runner/work/_temp/cache-permission-sentinel
           key: oasis7-cache-permission-sentinel-trusted-v2
       - name: Run full test tier
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
-        run: python3 scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"
+          OASIS7_TRUSTED_FULL_PROVIDER_ARCHIVE: /home/runner/work/oasis7/oasis7/target/full-provider-transport/provider.tar
+          OASIS7_TRUSTED_FULL_PROVIDER_ARTIFACT_ID: ${{ needs.full-regression-provider.outputs.artifact-id }}
+          OASIS7_TRUSTED_FULL_PROVIDER_ATTEMPT: ${{ needs.full-regression-provider.outputs.attempt }}
+          OASIS7_TRUSTED_FULL_PROVIDER_SHA256: ${{ needs.full-regression-provider.outputs.digest }}
+        run: |
+          test "$(find target/full-provider-transport -mindepth 1 -maxdepth 1 -printf '%f\n')" = provider.tar
+          test "$(cargo-deny --version)" = "cargo-deny 0.19.9"
+          venv=$(mktemp -d "$RUNNER_TEMP/full-doc-venv.XXXXXX")
+          python3 -m venv "$venv"
+          "$venv/bin/python" -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          PATH="$venv/bin:$PATH" CI_VERBOSE=1 ./scripts/ci-tests.sh full-extended
 
       - name: Run Rust governance report
         if: always()
-        run: python3 scripts/ci-trusted-full-regression.py governance "$GITHUB_SHA"
+        run: ./scripts/ci-rust-governance-report.sh --out-dir output/rust-governance
 
       - name: Append Rust governance summary
         if: always()

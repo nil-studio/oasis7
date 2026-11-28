@@ -299,6 +299,8 @@ class WorkflowCorePart7(unittest.TestCase):
                             'needs.oasis7-test-build-candidate.result': result,
                             'needs.oasis7-test-build-trusted.result': 'skipped',
                             'needs.select.result': 'success' if name == 'oasis7-required' else result,
+                            'needs.full-regression-provider.result': result,
+                            'github.workflow_sha': 'source', 'github.sha': 'source',
                             'needs.select.outputs.run_oasis7_required': 'false',
                             'fromJSON(needs.select.outputs.plan).scope': scope,
                             'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),

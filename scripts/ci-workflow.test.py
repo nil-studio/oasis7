@@ -1563,8 +1563,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     )
                     self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job, name)
                     continue
-                if name == 'full-regression' and 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in job:
-                    image = re.search(r'(?m)^          image=ghcr[.]io/nil-studio/oasis7/ci-rust-full-regression@sha256:([0-9a-f]{64})$', job)
+                if name == 'full-regression' and ('scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in job
+                                                  or 'full-regression-provider' in JOBS):
+                    image = re.search(r'(?m)^(?:          image=|      image: )ghcr[.]io/nil-studio/oasis7/ci-rust-full-regression@sha256:([0-9a-f]{64})$', job)
                     self.assertIsNotNone(image)
                     keys = re.findall(r'(?m)^          shared-key: ([^\n]+)$', job)
                     self.assertEqual(keys, [f'ci-rust-full-regression-{image[1]}-native-v1'])
@@ -1632,6 +1633,13 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertIn('npm --version', custody_wasm)
         else:
             expected.add('custody-wasm-production')
+        if 'full-regression-provider' in JOBS:
+            expected.remove('full-regression')
+            job = JOBS['full-regression']
+            self.assertIn('role: npm', job)
+            self.assertIn("lock-digest: ${{ hashFiles('crates/oasis7_viewer/package-lock.json') }}", job)
+            self.assertIn('test "$(npm config get cache)" = /home/runner/.npm', job)
+            self.assertIn('npm ci --prefix crates/oasis7_viewer', job)
         self.assertEqual(node_jobs, expected)
         if 'launcher-web' in JOBS:
             self.assertNotIn('oasis7_viewer', JOBS['launcher-web'])
@@ -1658,7 +1666,13 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 self.assertLess(job.index(preparation), job.index('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2'))
         for name in (n for n in ('launcher-web', 'full-regression') if n in JOBS):
             job=JOBS[name]
-            self.assertIn('uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',job)
+            if name == 'full-regression' and 'full-regression-provider' in JOBS:
+                step = job.split('      - name: Cache pinned Trunk release archive', 1)[1].split('      - ', 1)[0]
+                for token in ('uses: ./.github/actions/full-regression-cache', 'operation: restore', 'role: trunk',
+                              'raw-path: /home/runner/work/_temp/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz'):
+                    self.assertIn(token, step)
+            else:
+                self.assertIn('uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',job)
             self.assertIn("hashFiles('scripts/install-ci-trunk.sh')",job)
             self.assertNotIn('cargo install trunk',job)
             self.assertNotIn('restore-keys:',job)

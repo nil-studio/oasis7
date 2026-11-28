@@ -114,6 +114,21 @@ dispatch 的 attempt_release_host_reference 默认 false；启用时新增同源
 
 ### Trusted full regression
 
+可信完整回归在固定 32f 镜像中以 UID/GID 1001 执行原 210 分钟
+`full-extended`。同工作流内只有独立 Provider producer 有原宿主
+Docker socket 访问，它运行 canonical recipe 并经官方 artifact 输出
+精确 ID、源、原产出 attempt 和 tar 摘要。consumer 在开发前拒失效
+need、跨 run 或未来 attempt，按官方精确 artifact ID 取同 run 文件，
+复用原 checker 和树哈希验证并生成原两个环境值。之前成功 producer
+的同 run artifact 可以供失败 job 重跑。消费材料不包括原 shell 文件。
+
+npm、Trunk、wasm-bindgen 和 sentinel 的适配复用原缓存几何与
+V2 SDK。npm lock 来自同源实际 runner hashFiles，对照固定 setup-node
+原文件摘要。npm/Trunk 的 success post、bindgen/sentinel 的原 early
+保存、20 GB 容量和权限由专用 action 保持。独立数据验证与无 daemon
+抽样在整套正式运行之前，后者仍需实际完整可信全量结果。
+
+
 `rust-full-regression` extends `rust-custody-wasm` with clang, LLVM, and
 the pinned Docker and Buildx clients from `rust-ordinary-builder`. The
 image carries no Docker daemon. Publication uses the existing specialized
