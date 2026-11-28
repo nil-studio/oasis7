@@ -47,7 +47,7 @@ API_RETRY_DELAYS = (0.5, 1.0)
 COLLECTION_READ_ATTEMPTS = 3
 ACTIVE_STATUSES = {"queued", "in_progress", "waiting", "pending", "requested"}
 POLICY_FILES = (
-    WORKFLOW, ".github/workflows/command-center.yml",
+    WORKFLOW,
     "scripts/ci-required-scope.json", "scripts/plan-rust-required-scope.py",
     "scripts/ci-tests.sh", "scripts/ci-test-artifacts.py",
     "scripts/ci-formal-process-suites.json", "scripts/ci-formal-plan.py",

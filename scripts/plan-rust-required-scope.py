@@ -210,7 +210,6 @@ ORDINARY_SCOPE_SLICE_KEYS = frozenset((
 ))
 FORBIDDEN_SCOPED_CONTROL_PATHS = frozenset((
     '.github/workflows/rust.yml',
-    '.github/workflows/command-center.yml',
     'scripts/ci-tests.sh',
     'scripts/ci-required-scope.json',
     'scripts/ci-formal-process-suites.json',
