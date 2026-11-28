@@ -4931,24 +4931,6 @@ def materialize_execution_contracts(config, plan):
     engine = _load_sibling_ci_engine()
     caps = config.get('package_capabilities') if isinstance(config.get('package_capabilities'), dict) else None
     risk_targets = plan.get('ordinary_risk_targets')
-    legacy_eligible = (
-        type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
-        and plan.get('execution_profile') in ('pr-fast', 'main-fast')
-        and plan.get('test_policy_changed') is False
-        and 'ordinary_full_fast_targets' not in plan
-        and (
-            risk_targets is None
-            or (
-                isinstance(risk_targets, list)
-                and all(
-                    isinstance(t, dict) and t.get('target_kind') == 'test'
-                    and (t.get('package') != 'oasis7_chain_runtime'
-                         or plan.get('scope') not in ('full', 'explicit-full'))
-                    for t in risk_targets
-                )
-            )
-        )
-    )
     if caps is not None and engine is not None:
         engine_eligible = (
             type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
@@ -4968,8 +4950,6 @@ def materialize_execution_contracts(config, plan):
                 )
             )
         )
-        if engine_eligible != legacy_eligible:
-            raise ValueError('ordinary candidate_container_eligible mismatch between engine and legacy reference')
         if set(engine.derive_ordinary_packages(caps)) != set(config.get('oasis7_required_packages', ())):
             raise ValueError('package_capabilities ordinary_package mismatch with oasis7_required_packages')
         if set(engine.derive_required_wasm_packages(caps)) != set(config.get('oasis7_required_wasm_packages', ())):
@@ -4982,7 +4962,13 @@ def materialize_execution_contracts(config, plan):
                            for p, e in sorted(caps.items()) if e.get('splittable_lib_harness')}
         compact_excl = frozenset(p for p, e in caps.items() if e.get('compact_non_runtime_excluded'))
     else:
-        engine_eligible = legacy_eligible
+        engine_eligible = (
+            type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+            and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+            and plan.get('test_policy_changed') is False
+            and 'ordinary_full_fast_targets' not in plan
+            and risk_targets is None
+        )
         support_map = {p: {'package': p, 'profile_id': p, 'partition': 'other',
                            'requires_host_runner': p in WORKSPACE_SUPPORT_HOST_PROFILES,
                            'extra_features': [], 'wasm_compile_feature_sets': []}

@@ -604,6 +604,26 @@ def check_candidate_executors_zero_engine_imports(repo_root: Path) -> list[str]:
     return errors
 
 
+def check_executor_hardcoded_package_ratchet(repo_root: Path) -> list[str]:
+    """S5 ratchet: enforce 0 transitional S2 shims and 0 hardcoded support tuples in executors."""
+    errors: list[str] = []
+    checks = (
+        ("scripts/ci-tests.sh", ("_S2_FALLBACK_SUPPORT", "_S2_FALLBACK_HOST", "_s2_legacy_support_contract",
+                                 "SUPPORT_PROFILES", "WORKSPACE_SUPPORT_HOST_PROFILES")),
+        ("scripts/ci-test-artifacts.py", ("_s2_legacy_ordinary_contract",)),
+        ("scripts/plan-rust-required-scope.py", ("legacy_eligible",)),
+    )
+    for rel, forbidden_tokens in checks:
+        path = repo_root / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            if token in text:
+                errors.append(f"{rel}: S5 ratchet violation: forbidden transitional/hardcoded token {token!r}")
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Check exact paths and fast-path anti-fallback invariants in scripts/ci-required-scope.json."
@@ -644,10 +664,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {err}", file=sys.stderr)
         return 1
 
-    executor_errors = check_candidate_executors_zero_engine_imports(repo_root)
+    executor_errors = check_candidate_executors_zero_engine_imports(repo_root) + check_executor_hardcoded_package_ratchet(repo_root)
     if executor_errors:
         print(
-            "check-ci-scope-paths: FAIL: candidate executor imports ci_engine or planner:",
+            "check-ci-scope-paths: FAIL: candidate executor import or S5 ratchet violation(s):",
             file=sys.stderr,
         )
         for err in executor_errors:
