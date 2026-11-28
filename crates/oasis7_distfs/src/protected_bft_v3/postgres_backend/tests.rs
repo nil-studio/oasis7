@@ -109,6 +109,7 @@ fn retained(binding: &BftSignerBindingV3) -> BftOriginalRetentionTxnSnapshotV1 {
         cumulative_reserved_response_bytes: 123,
     };
     BftOriginalRetentionTxnSnapshotV1 {
+        current_retention: None,
         current: BftFirstReserveSnapshotV1 {
             current: BftFreshCoverageSnapshotV1 {
                 signer,

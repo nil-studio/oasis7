@@ -203,6 +203,7 @@ impl FreshSlot {
             .as_ref()
             .ok_or_else(|| invalid("test original envelope unsupported"))?;
         Ok(BftOriginalRetentionTxnSnapshotV1 {
+            current_retention: None,
             current: BftFirstReserveSnapshotV1 {
                 current: self.with_signer(signer),
                 reservation: self.reservation.clone(),
