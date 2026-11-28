@@ -1,7 +1,7 @@
 name: ECS native candidate image probe
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
     branches: [codex/engineering-ecs-native-candidate-probe-base]
     paths: [.github/workflows/ecs-native-candidate-image-probe.yml]
 permissions:
@@ -47,10 +47,11 @@ jobs:
           python3 - <<'PY'
           import os, pathlib, re, shlex, subprocess, textwrap
           workflow = pathlib.Path(".github/workflows/ecs-packages.yml").read_text()
+          native, = re.findall(r"(?ms)^    steps: &native-steps\n(.*?)(?=^  native-trusted:$)", workflow)
           env = dict(os.environ, GITHUB_SHA=os.environ["SOURCE"])
           for name in ("Reject Docker daemon access in candidate native build",
                        "Verify preinstalled Rust build environment"):
-              step = re.findall(r"(?m)^      - name: " + re.escape(name) + r"\n((?:        .*\n)+)", workflow)
+              step = re.findall(r"(?m)^      - name: " + re.escape(name) + r"\n((?:        .*\n)+)", native)
               assert len(step) == 1, name
               shell = textwrap.dedent(step[0].split("        run: |\n", 1)[1])
               assert "$" + "{{" not in shell
@@ -58,7 +59,7 @@ jobs:
               if name.startswith("Reject"):
                   assert subprocess.run(["bash", "-c", shell],
                                         env=env | {"DOCKER_HOST": "tcp://localhost:1"}).returncode == 1
-          command, = re.findall(r"(?m)^        run: (python3 scripts/ci-rust-cache-toolchains\.py[^\n]+)$", workflow)
+          command, = re.findall(r"(?m)^        run: (python3 scripts/ci-rust-cache-toolchains\.py[^\n]+)$", native)
           assert shlex.split(command)[-2:] == ["$RUST_TOOLCHAIN", "$OASIS7_WASM_TOOLCHAIN"]
           before = subprocess.check_output(["rustup", "toolchain", "list"])
           subprocess.run(["bash", "-e", "-c", command], check=True)
@@ -90,7 +91,8 @@ jobs:
           python3 - <<'PY'
           import os, pathlib, re, subprocess, textwrap
           workflow = pathlib.Path(".github/workflows/ecs-packages.yml").read_text()
-          stage, = re.findall(r"(?m)^      - id: image-timings\n((?:        .*\n)+)", workflow)
+          native, = re.findall(r"(?ms)^    steps: &native-steps\n(.*?)(?=^  native-trusted:$)", workflow)
+          stage, = re.findall(r"(?m)^      - id: image-timings\n((?:        .*\n)+)", native)
           shell = textwrap.dedent(stage.split("        run: |\n", 1)[1])
           assert "$" + "{{" not in shell
           subprocess.run(["bash", "-e", "-o", "pipefail", "-c", shell], check=True)
