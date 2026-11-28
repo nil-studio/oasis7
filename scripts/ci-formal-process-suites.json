@@ -10,7 +10,6 @@
   },
   "binary_dependencies": {
     "runtime-tests": ["runtime", "endpoint"],
-    "oasis7-lib-tests": ["runtime", "endpoint"],
     "distfs-tests": ["endpoint"]
   },
   "script_dependencies": {
@@ -175,7 +174,6 @@
     ]
   },
   "environment_formal_batches": {
-    "oasis7-lib-tests": "runtime-protocol",
     "runtime-tests": "runtime-protocol",
     "distfs-tests": "storage-recovery"
   },

@@ -67,7 +67,7 @@ class BoundedReader:
         return data
 
 
-def inspect_archive(archive, compression, layout):
+def inspect_archive(archive, compression, layout, *, exact_file=False):
     if compression != 'zstd-without-long':
         raise ValueError('portable archives require the original zstd-without-long method')
     no_symlinks(Path(layout['root']))
@@ -100,7 +100,8 @@ def inspect_archive(archive, compression, layout):
                 if suffix and any(part in ('', '.', '..') for part in suffix.split('/')):
                     raise ValueError('unsafe archive member suffix')
                 if (name in seen or not (entry.isdir() or entry.isreg()) or entry.sparse is not None
-                        or (not suffix and not entry.isdir())
+                        or (exact_file and (suffix or not entry.isreg()))
+                        or (not exact_file and not suffix and not entry.isdir())
                         or (entry.isreg() and any(item.startswith(name + '/') for item in seen))):
                     raise ValueError('duplicate or unsupported archive member')
                 for ancestor in PurePosixPath(suffix).parents:

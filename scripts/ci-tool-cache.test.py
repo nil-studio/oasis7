@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -99,6 +100,44 @@ class ArchiveAdmission(unittest.TestCase):
         self.assertIsNone(report['saved_confirmed'])
         self.assertEqual(self.archive.read_bytes(), original)
         self.assertEqual({method for method, _ in api.calls}, {'GET'})
+
+    def test_one_file_uses_original_tar_and_requires_explicit_mode(self):
+        options = dict(max_cache_bytes=4096, max_entries=1, repository_root=ROOT)
+        deadline = time.monotonic() + 10
+        with self.assertRaisesRegex(ValueError, 'one directory'):
+            C.upload_bound(self.archive, self.environment, deadline, **options)
+        result, snapshot = C.upload_bound(self.archive, self.environment, deadline, exact_file=True, **options)
+        self.assertEqual(result['raw_bytes'], self.archive.stat().st_size)
+        self.assertEqual(result['payload_entries'], 1)
+        self.assertEqual(snapshot[0][0], '.')
+        self.assertGreater(result['upload_bound_bytes'], result['measured_tar_bytes'])
+        with self.assertRaisesRegex(ValueError, 'regular file'):
+            C.upload_bound(self.root, self.environment, deadline, exact_file=True, **options)
+
+    def test_full_trunk_save_checks_the_pinned_regular_archive(self):
+        helper = importlib.import_module('ci-trusted-full-regression-cache')
+        scripts = self.directory / 'scripts'
+        scripts.mkdir()
+        (scripts / 'install-ci-trunk.sh').write_text(f'checksum={self.digest}\n')
+        with patch.object(helper, 'REPO', self.directory):
+            helper.check_payload('trunk', self.archive, '', time.monotonic() + 5)
+            alias = self.root / 'alias'
+            alias.symlink_to(self.archive)
+            with self.assertRaises(OSError):
+                helper.check_payload('trunk', alias, '', time.monotonic() + 5)
+            self.archive.write_bytes(b'wrong bytes')
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                helper.check_payload('trunk', self.archive, '', time.monotonic() + 5)
+
+    def test_full_bindgen_version_probe_uses_remaining_deadline(self):
+        helper = importlib.import_module('ci-trusted-full-regression-cache')
+        with patch.object(helper.time, 'monotonic', return_value=100), \
+                patch.object(helper.subprocess, 'check_output', return_value='wasm-bindgen 0.2.127') as check:
+            helper.check_payload('wasm-bindgen', self.root, '0.2.127', 101.5)
+            self.assertEqual(check.call_args.kwargs['timeout'], 1.5)
+            with self.assertRaisesRegex(ValueError, 'deadline expired'):
+                helper.check_payload('wasm-bindgen', self.root, '0.2.127', 100)
+            check.assert_called_once()
 
     def test_exact_writer_platform_component_key_and_real_checkout_are_required(self):
         for changes in ({'GITHUB_REF': 'refs/pull/42/merge'},

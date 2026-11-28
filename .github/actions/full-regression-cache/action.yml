@@ -1,0 +1,39 @@
+name: Trusted full-regression cache
+description: The original four cache roles with explicit legacy archive geometry
+inputs:
+  operation:
+    description: Restore or save a finite cache role
+    required: true
+  role:
+    description: npm, trunk, wasm-bindgen or sentinel
+    required: true
+  key:
+    description: Original exact cache key
+    required: true
+  raw-path:
+    description: Original exact cache root
+    required: true
+  lock-digest:
+    description: Original pinned setup-node lock digest
+  trunk-version:
+    description: Original workflow Trunk release
+  installer-digest:
+    description: Original hashFiles value for the Trunk installer
+  bindgen-version:
+    description: Original wasm-bindgen lock version
+  bindgen-helpers-digest:
+    description: Original hashFiles value for the wasm-bindgen helpers
+  cache-hit:
+    description: Result of the original exact restore for explicit early save
+  prepare-outcome:
+    description: Original wasm-bindgen preparation outcome
+outputs:
+  cache-hit:
+    description: Validated exact restore match
+  saved:
+    description: The explicit save has been confirmed by the SDK
+runs:
+  using: node24
+  main: run.mjs
+  post: run.mjs
+  post-if: success()

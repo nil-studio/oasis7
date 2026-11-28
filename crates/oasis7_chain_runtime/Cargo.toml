@@ -49,6 +49,20 @@ reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], defau
 toml = "0.9.12"
 tracing = "0.1"
 
+# Preserve the native Formal/Storage bundle's former umbrella feature roots.
+# These aliases are only enabled in the specialized CI harness build.
+ci_formal_hyper_rustls = { package = "hyper-rustls", version = "0.27", default-features = false, features = ["ring", "webpki-tokio"], optional = true }
+ci_formal_idna = { package = "idna", version = "1", optional = true }
+ci_formal_rand_chacha = { package = "rand_chacha", version = "0.9", optional = true }
+ci_formal_sha2 = { package = "sha2", version = "0.10", optional = true }
+ci_formal_tokio_rustls = { package = "tokio-rustls", version = "0.26", default-features = false, features = ["ring"], optional = true }
+ci_formal_url = { package = "url", version = "2", features = ["serde"], optional = true }
+ci_formal_uuid = { package = "uuid", version = "1", features = ["serde", "v4"], optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
+ci_formal_host_bitflags = { package = "bitflags", version = "2", features = ["std"], optional = true }
+ci_formal_host_indexmap = { package = "indexmap", version = "2", optional = true }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 
@@ -66,6 +80,19 @@ wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7_runtime/wasmtime", "oasis7_
 # Unlike the old umbrella, these are explicit and must not be lost on cutover.
 test_tier_required = ["oasis7_runtime_host/test_tier_required", "oasis7_simulator/test_tier_required", "oasis7_runtime/test_tier_required", "oasis7_world_service/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7_runtime_host/test_tier_full", "oasis7_simulator/test_tier_full", "oasis7_runtime/test_tier_full", "oasis7_world_service/test_tier_full"]
+ci_formal_required_features = [
+    "dep:ci_formal_host_bitflags",
+    "dep:ci_formal_host_indexmap",
+    "dep:ci_formal_hyper_rustls",
+    "dep:ci_formal_idna",
+    "dep:ci_formal_rand_chacha",
+    "dep:ci_formal_sha2",
+    "dep:ci_formal_tokio_rustls",
+    "dep:ci_formal_url",
+    "dep:ci_formal_uuid",
+    "rustls/logging",
+    "tokio/full",
+]
 # Compile the existing capacity smoke for the standalone Storage producer.
 ci_storage_acceptance = []
 

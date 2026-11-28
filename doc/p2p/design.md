@@ -375,6 +375,8 @@ Ready/Selection 新产生的 State 及写入瞬间所需 State 上界、map、�
 
 本决定首先约束首个 Fresh 原件的软件事务与实际消费者；默认旧构造器不因此获得 Ready/Selection 能力。多候选及全部 alternatives、Received 成为本地候选时的显式首次选择、完整选择操作链与 Seal2、全部 T+1 Some、跨窗原结果及实际 Runtime carry 仍须各自完成。后续 Seal 必须保留原选择链、首次价格和全部原件，不能由 live/sealed union、当前 anchor 或新扫描追认；历史无选择不能补签，有选择历史不能降为无选择的 Seal。本设计及其纯类型实现不表示这些后继能力或独立保护资格已经验收。
 
+**successor archive 本地有界 pin 发布。** 实际 `LocalBftSuccessorArchiveStoreV1::persist_object` 在内容 BLAKE3/原长度校验的 CAS 对象落盘后，以 `pin_scopes/successor-archive-v1/<digest>.json` 的单对象 singleton shard 发布精确 pin，持久同步该 shard 文件、新建作用域目录和祖先，并在独立 fresh descriptor 中核原件逐字 exact readback；重复发布只能接受同一精确 shard。既有全局 `pins.json` 不在单次归档写入中整读、重写或迁移，旧全局与新作用域 shard 继续同时由既有 effective-pins GC 识别；损坏、过大、非普通文件、异常链接及缺失对象不得静默修复为已发布。此项只约束**归档发布的元数据有界开销**，不宣称 GC 全局扫描、首个 Noise 入站分配、Node/Runtime 接收持有或物理故障域与完整双向 132 MiB 预算已经验收，交付跟踪见 [#5522](https://github.com/nil-studio/oasis7/issues/5522)。
+
 **具名实现组合与支持状态。** 当前实现选型为 Thales Luna Network HSM 7 / PKCS#11 `CKM_EDDSA` 不可导出 Ed25519 key、独立 PostgreSQL `SERIALIZABLE` 原 namespace 事务，以及按本节对象边界独立配置的不可变 BLAKE3/长度 CAS。数据库服务端时钟沿本节既有合同提供，先核连续性与实际样本不早于持久 floor，再单调推进；不能用取极大掩盖已观察到的回退，也不另加外部签名 UTC 服务作为接口前提。实际设备/client/数据库/对象端版本、原 namespace、隔离与时间连续性须由具体部署证明，目标型号和 SQL 原子性不构成这些证明。
 
 已实现的 Luna key handle、Fresh/首笔 Reserve 与原 operation/响应费用的软件事务能力可复用；具体 PostgreSQL adapter、Ready/Selection、生产 factory、HSM 持久签名意图及隔离环境的冷重开/回滚/fencing 仍须按各自消费者完成实现和验收。PostgreSQL adapter 使用显式配置的 native 连接，不让数据库依赖进入 WASM；其状态/lease 软件片不自动获得受保护时间或生产资格。当前实现与验收记录由 [#5516](https://github.com/nil-studio/oasis7/issues/5516) 和 [#5518](https://github.com/nil-studio/oasis7/issues/5518) 承接，原完整后继窗口和保护义务保持。

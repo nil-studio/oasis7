@@ -513,6 +513,12 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 <a id="ci-cache-budget-validation"></a>
 [容量治理回归](../../../scripts/ci-cache-maintenance.test.py)覆盖保存未确认后的补偿、多页 API 完整性重读、同兼容组两代/压力下一代、Release 平台/架构分组、严格源码祖先退休、current 与稳定恢复锚点、族/ref/version 归属、活动访问保护、两次计划交集、身份变化、歧义和未知项保留、后页失败零删除、部分删除及幂等；[容量准入回归](../../../scripts/ci-cache-policy.test.py)回放高压库存、workspace 和依赖上传先后以及 full 的轮换空间。[workflow 接线回归](../../../scripts/ci-workflow.test.py)核对无新保存仍执行可信补偿维护、候选无删除权限、固定维护并发及必要 CI 结果不变。[发布缓存回归](../../../scripts/package-workflow-cache-reuse-contract.test.sh)核对实际工具链/环境 hash 与 writer/reader 对应关系。真实 hosted 保存、删除后库存和冷热构建收益分别由实际运行记录证明。
 
+### Rust 基线的架构检查
+
+required 和 explicit-full 流程中，`rust-architecture` 与 `rust-baseline` 使用相同选择、固定容器、只读缓存及 runner 路由，各有 32 分钟上限。架构作业按原可信计划执行常规完整或定向的依赖检查与 Cargo 检查。原基线仍执行格式、安全、卫生、Clippy、所选 WASM 检查和独立锁文件检查。显式本地及完整分层入口继续执行原组合。
+
+汇总先根据受校验的选择确认两作业状态，并核对回执的运行号、来源、实测提交、树、计划摘要和编译环境。失败、缺失或选中作业被跳过会阻止 required gate。失败项重跑可使用同一运行、较早尝试的成功结果，要求原选择和执行身份仍匹配。旧版可信结果验证器继续核对它认识的原依赖。
+
 <a id="ci-install-apt-design"></a>
 ## 6. apt 的有界安装
 
@@ -737,6 +743,8 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 两路构建为每个 Cargo 上下文输出开始、持续进度和结束状态，并启用稳定的 `--timings` HTML 报告。进度包含已耗时长和可取得的编译进程 CPU/RSS、主机内存及 swap 摘要，不读取或输出进程环境；未知指标保留为空。诊断按本轮独立目录保存，已产生的摘要与 timing 在成功或失败后上传，不能把旧缓存中的报告冒充本轮数据。观察器退出或缺少指标不改写 Cargo 的实际退出结果；心跳只表示观察器与进程状态，不证明编译有进展。缓存仍按实际 profile 隔离，不以新建缓存族或 rerun 次数作为预热证据。
 
 原 `formal-test-build` / `formal-test-build-trusted` job 名保留，职责改为下载两路精确输出 artifact、执行 `merge-formal` 完整核验并分包，不编译或写 workspace 缓存。选中的合并入口须在对应两组件均 success、另一对均 skipped 后才可运行；任一必选组件失败、取消、缺失或跳过均阻断。矩阵和固定汇总继续要求两个合并入口恰有一项 success 且另一项 skipped，保持可信 BASE 汇总合同。
+
+退休 umbrella 的正式动态批次在最后一次真实构建中为空。新源码由 Chain 原生 harness 构建 core，专用 `ci_formal_required_features` 保留既有依赖 feature，普通构建默认不启用。Chain、DistFS 和 shell 继续执行原用例。合并和执行仍拒绝缺少可信 authority 要求的 executable 或批次。
 
 组件 manifest 明确区分 `formal-debug` 与 `formal-endpoint`，绑定同一 run/source/tested/checkout、计划、Formal 配置及 authority、工具链、平台和构建身份；`merge-formal` 按真实 Cargo target 库存核对 variant/package/kind/name、profile/features、文件摘要与实际测试列表，拒绝漏项、重复逻辑目标、跨角色或部分组件。相同字节的不同真实目标保留各自身份。组件不能直接进入完整 Formal 的 pack/run。全部核验通过才生成 `formal` 完整 bundle，合并不补编。
 

@@ -4,7 +4,7 @@
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image] [--full-support-phase before-cross-uid|after-cross-uid]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image] [--full-support-phase before-cross-uid|after-cross-uid] [--rust-baseline-phase checks]
 
   commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -1687,15 +1687,17 @@ run_rust_baseline() {
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
-  local architecture_args=()
-  if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
-    architecture_args=(--plan-file "$required_plan")
-  elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN_FILE:-}" ]]; then
-    architecture_args=(--plan-file "$OASIS7_CI_ARCHITECTURE_PLAN_FILE")
-  elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN:-}" ]]; then
-    architecture_args=(--plan "$OASIS7_CI_ARCHITECTURE_PLAN")
+  if [[ "${rust_baseline_phase:-all}" == all ]]; then
+    local architecture_args=()
+    if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
+      architecture_args=(--plan-file "$required_plan")
+    elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN_FILE:-}" ]]; then
+      architecture_args=(--plan-file "$OASIS7_CI_ARCHITECTURE_PLAN_FILE")
+    elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN:-}" ]]; then
+      architecture_args=(--plan "$OASIS7_CI_ARCHITECTURE_PLAN")
+    fi
+    run python3 ./scripts/cargo-dev-architecture.py "${architecture_args[@]}"
   fi
-  run python3 ./scripts/cargo-dev-architecture.py "${architecture_args[@]}"
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh
@@ -1793,6 +1795,7 @@ ordinary_partition=""
 support_partition="all"
 support_execution="all"
 full_support_phase="all"
+rust_baseline_phase="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo-root)
@@ -1840,6 +1843,11 @@ while [[ $# -gt 0 ]]; do
       full_support_phase="$2"
       shift 2
       ;;
+    --rust-baseline-phase)
+      [[ $# -ge 2 && "$rust_baseline_phase" == all && "$2" == checks ]] || { usage; exit 2; }
+      rust_baseline_phase="$2"
+      shift 2
+      ;;
     --ordinary-partition)
       [[ $# -ge 2 && -n "$2" && -z "$ordinary_partition" ]] || { usage; exit 2; }
       ordinary_partition="$2"
@@ -1878,6 +1886,10 @@ if [[ "$full_support_phase" != all &&
 fi
 if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline && "$group" != distfs ) ) ]]; then
   echo '--plan requires required --group oasis7_required, rust_baseline or distfs' >&2
+  exit 2
+fi
+if [[ "$rust_baseline_phase" != all && ( "$tier" != required || "$group" != rust_baseline || -z "$required_plan" ) ]]; then
+  echo '--rust-baseline-phase requires required --group rust_baseline --plan' >&2
   exit 2
 fi
 if [[ -n "$ordinary_partition" && ( "$tier" != required || "$group" != oasis7_required || -z "$required_plan" ) ]]; then

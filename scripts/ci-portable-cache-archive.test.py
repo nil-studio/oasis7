@@ -53,6 +53,26 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(result, dict(files=1, payload_bytes=5, entries=3))
         self.assertFalse(Path(self.layout['root']).exists())
 
+    def test_exact_single_file_does_not_change_original_directory_mode(self):
+        prefix = '../../_temp/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz'
+        layout = self.layout | dict(member=prefix, max_files=1)
+        valid = [(prefix, tarfile.REGTYPE, b'archive')]
+        archive = self.archive(valid)
+        with self.assertRaises(ValueError):
+            inspector.inspect_archive(archive, 'zstd-without-long', layout)
+        self.assertEqual(inspector.inspect_archive(archive, 'zstd-without-long', layout, exact_file=True),
+                         dict(files=1, entries=1, payload_bytes=7))
+        for entries in (
+            [(prefix, tarfile.DIRTYPE, b'')],
+            [(prefix, tarfile.SYMTYPE, b'')],
+            [(prefix, tarfile.LNKTYPE, b'')],
+            [(prefix + '/nested', tarfile.REGTYPE, b'data')],
+            valid * 2,
+            [*valid, (prefix + '-other', tarfile.REGTYPE, b'data')],
+        ):
+            with self.subTest(entries=entries), self.assertRaises(ValueError):
+                inspector.inspect_archive(self.archive(entries), 'zstd-without-long', layout, exact_file=True)
+
     def test_outside_absolute_traversal_controls_and_duplicate_rejected(self):
         prefix = self.layout['member']
         for name in ('/etc/passwd', '../outside', prefix + '/../../escape', prefix + '/./alias', prefix + '//alias', prefix + '/bad\nname', prefix + '/bad\\name'):
