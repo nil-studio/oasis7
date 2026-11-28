@@ -77,6 +77,7 @@ fn legacy_state_extension_absence_preserves_original_cbor_and_digest_input() {
     exact_single_protected_transaction_retains_original_bytes_and_idempotent_result();
     original_whole_tuple_refuses_stale_lease_floor_spend_and_changed_identity();
     cold_history_keeps_original_operation_across_new_lease_and_rejects_corruption();
+    original_noise_outer_response_charge_preserves_one_fenced_retention_tuple();
 }
 #[test]
 fn membership_receipts_declared_capacity_rejected_before_first_entry() {
@@ -176,6 +177,58 @@ fn operation() -> BftRetainedOriginalOperationV1 {
         signed_receipt_bytes,
         cumulative_reserved_response_bytes: 100,
     }
+}
+
+// This fixture proves same-namespace *preparation*, never a provisioned HSM
+// or physical DB fence. The production backend is required to CAS/reread the
+// entire expected/next envelope before releasing any original bytes.
+fn original_noise_outer_response_charge_preserves_one_fenced_retention_tuple() {
+    let mut first = current(2, 100);
+    let material_limit = BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1 - 150;
+    first.current.signer.state.private_retention = Some(BftPrivateRetentionHeadV1 {
+        schema_version: 2,
+        source: source(),
+        capability_digest: hex_hash(20),
+        sequence: 1,
+        map_digest: hex_hash(21),
+        map_byte_hash: hex_hash(22),
+        entry_count: 0,
+        previous_receipt_digest: None,
+        retained_material_bytes: Some(material_limit),
+    });
+    let original = operation();
+    let mut original_operations = BTreeMap::new();
+    original_operations.insert(original.operation_id.clone(), original.clone());
+    let snapshot = BftOriginalRetentionTxnSnapshotV1 {
+        current: first,
+        original_operations,
+    };
+    let charged = snapshot
+        .prepare_original_response_charge(7, &hex_hash(4), 50)
+        .unwrap();
+    assert_eq!(charged.current.current.reserved_response_bytes, 150);
+    assert_eq!(charged.current.current.signer, snapshot.current.current.signer);
+    assert_eq!(charged.current.reservation, snapshot.current.reservation);
+    assert_eq!(charged.original_operations, snapshot.original_operations);
+    assert_eq!(
+        charged
+            .lookup_original(&original.operation_id, &original.signed_request_bytes)
+            .unwrap(),
+        Some(&original)
+    );
+    assert!(charged.prepare_original_response_charge(7, &hex_hash(4), 1).is_err());
+    assert!(snapshot.prepare_original_response_charge(7, &hex_hash(4), 51).is_err());
+    assert!(snapshot.prepare_original_response_charge(8, &hex_hash(4), 1).is_err());
+    assert!(snapshot.prepare_original_response_charge(7, &hex_hash(5), 1).is_err());
+    assert!(snapshot.prepare_original_response_charge(7, &hex_hash(4), 0).is_err());
+    assert!(
+        snapshot
+            .prepare_original_response_charge(7, &hex_hash(4), 128 * 1024 + 1)
+            .is_err()
+    );
+    let mut uncovered = snapshot.clone();
+    uncovered.current.current.signer.state.private_retention = None;
+    assert!(uncovered.prepare_original_response_charge(7, &hex_hash(4), 1).is_err());
 }
 
 fn exact_single_protected_transaction_retains_original_bytes_and_idempotent_result() {
