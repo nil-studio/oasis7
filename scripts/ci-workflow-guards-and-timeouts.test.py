@@ -245,7 +245,9 @@ class DependabotCoverageGuardTests(unittest.TestCase):
         '/.github/actions/cache-sdk': 'vendored fixed actions/cache 55cc SDK closure; update patch/provenance together',
     }
     EXCLUDED_CARGO_DIRECTORIES = {
-        '/crates/oasis7': 'retired umbrella crate removed from workspace members (#6152); pending physical deletion',
+        **({
+            '/crates/oasis7': 'retired umbrella crate removed from workspace members (#6152); pending physical deletion',
+        } if (ROOT / 'crates/oasis7/Cargo.toml').is_file() else {}),
         '/tools/wasm_build_suite/templates/minimal_module': 'zero-dependency minimal template',
         '/vendor/if-watch-3.2.2': 'vendored crate patched by root Cargo.toml',
         '/vendor/libp2p-quic-0.15.0': 'vendored crate patched by root Cargo.toml',
