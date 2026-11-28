@@ -610,16 +610,12 @@ mod deadline_tests {
         configure(&inbound, Duration::from_secs(1)).unwrap();
 
         let memory = MemoryBudget::new(1 << 20, 0).unwrap();
-        let work =
-            super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
+        let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
         let before = work.remaining_steps();
         let deadline = Instant::now() - Duration::from_millis(1);
-        let error = read_prepaid_frame::<u64>(
-            &mut inbound,
-            &memory,
-            &work,
-            &mut || Instant::now() >= deadline,
-        )
+        let error = read_prepaid_frame::<u64>(&mut inbound, &memory, &work, &mut || {
+            Instant::now() >= deadline
+        })
         .unwrap_err();
         assert!(error.to_string().contains("cancelled"), "{error:?}");
         assert_eq!(memory.used(), 0);
@@ -651,13 +647,11 @@ mod deadline_tests {
         let work =
             super::super::super::endpoint::FormalArchiveReadWorkV1::new(1000, 1 << 20).unwrap();
         let deadline = Instant::now() + Duration::from_millis(60);
-        let error = read_prepaid_frame::<serde_cbor::Value>(
-            &mut inbound,
-            &memory,
-            &work,
-            &mut || Instant::now() >= deadline,
-        )
-        .unwrap_err();
+        let error =
+            read_prepaid_frame::<serde_cbor::Value>(&mut inbound, &memory, &work, &mut || {
+                Instant::now() >= deadline
+            })
+            .unwrap_err();
         assert!(error.to_string().contains("cancelled"), "{error:?}");
         assert_eq!(memory.used(), 0);
         drop(inbound);
