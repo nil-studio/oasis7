@@ -114,6 +114,21 @@ class ArchiveAdmission(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'regular file'):
             C.upload_bound(self.root, self.environment, deadline, exact_file=True, **options)
 
+    def test_full_trunk_save_checks_the_pinned_regular_archive(self):
+        helper = importlib.import_module('ci-trusted-full-regression-cache')
+        scripts = self.directory / 'scripts'
+        scripts.mkdir()
+        (scripts / 'install-ci-trunk.sh').write_text(f'checksum={self.digest}\n')
+        with patch.object(helper, 'REPO', self.directory):
+            helper.check_payload('trunk', self.archive, '', time.monotonic() + 5)
+            alias = self.root / 'alias'
+            alias.symlink_to(self.archive)
+            with self.assertRaises(OSError):
+                helper.check_payload('trunk', alias, '', time.monotonic() + 5)
+            self.archive.write_bytes(b'wrong bytes')
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                helper.check_payload('trunk', self.archive, '', time.monotonic() + 5)
+
     def test_full_bindgen_version_probe_uses_remaining_deadline(self):
         helper = importlib.import_module('ci-trusted-full-regression-cache')
         with patch.object(helper.time, 'monotonic', return_value=100), \
