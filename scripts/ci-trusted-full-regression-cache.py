@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
+import stat
 import subprocess
 import time
 
@@ -41,9 +43,13 @@ def check_payload(role, root, bindgen_version, deadline):
     if role == 'trunk':
         source = (REPO / 'scripts/install-ci-trunk.sh').read_text(encoding='utf-8')
         checksums = re.findall(r'^checksum=([a-f0-9]{64})$', source, re.M)
-        if len(checksums) != 1 or root.stat().st_size > ROLE_LIMITS['trunk'][1]:
-            raise ValueError('Trunk cache payload has no valid pinned checksum or exceeds its bound')
-        with root.open('rb') as stream:
+        if len(checksums) != 1:
+            raise ValueError('Trunk cache payload has no valid pinned checksum')
+        fd = os.open(root, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= ROLE_LIMITS['trunk'][1]:
+                raise ValueError('Trunk cache payload must be a bounded regular file')
             if hashlib.file_digest(stream, 'sha256').hexdigest() != checksums[0]:
                 raise ValueError('Trunk cache archive checksum mismatch')
     elif role == 'wasm-bindgen':
@@ -73,6 +79,9 @@ def main():
     if args.operation == 'inspect':
         if args.role == 'sentinel' or args.archive is None:
             parser.error('archive is required and sentinel cannot be restored')
+        signal.signal(signal.SIGTERM, archive.interrupted)
+        signal.signal(signal.SIGALRM, archive.interrupted)
+        signal.alarm(60)
         result = archive.inspect_archive(args.archive, 'zstd-without-long', layout, exact_file=args.role == 'trunk')
     else:
         if not args.key:
