@@ -10,17 +10,47 @@ const budget = 20_000_000_000;
 
 const npmLock = 'crates/oasis7_viewer/package-lock.json';
 
-export async function verifiedNpmLockDigest(workspace, hashFiles) {
-  if (!path.isAbsolute(workspace) || path.normalize(workspace) !== workspace) {
-    throw new Error('invalid workspace for setup-node lock');
+async function physicalPath(value, allowMissingLeaf = false) {
+  if (typeof value !== 'string' || !path.isAbsolute(value) ||
+      path.normalize(value) !== value || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error('invalid cache filesystem path');
   }
-  for (let directory = path.dirname(path.join(workspace, npmLock)); ; directory = path.dirname(directory)) {
+  for (let directory = path.dirname(value); ; directory = path.dirname(directory)) {
     if (!(await lstat(directory)).isDirectory()) {
-      throw new Error('setup-node lock ancestor is not a physical directory');
+      throw new Error('cache path ancestor is not a physical directory');
     }
     if (directory === path.dirname(directory)) break;
   }
-  if (!(await lstat(path.join(workspace, npmLock))).isFile()) {
+  try {
+    const info = await lstat(value);
+    if (info.isSymbolicLink()) throw new Error('cache path uses a symlink');
+    return info;
+  } catch (error) {
+    if (allowMissingLeaf && error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function sameDirectory(canonical, mapped) {
+  const [first, second] = await Promise.all([physicalPath(canonical), physicalPath(mapped)]);
+  return first.isDirectory() && second.isDirectory() &&
+    first.dev === second.dev && first.ino === second.ino;
+}
+
+export async function verifyFullCacheGeometry(environment, layout) {
+  if (!(await sameDirectory(layout.archiveWorkingDirectory, environment.GITHUB_WORKSPACE)) ||
+      !(await sameDirectory('/home/runner/work/_temp', environment.RUNNER_TEMP))) {
+    throw new Error('cache workspace or temporary directory alias differs');
+  }
+  const root = await physicalPath(layout.rawPaths[0], true);
+  if (root && (root.uid !== 1001 || root.gid !== 1001 ||
+      !(layout.role === 'trunk' ? root.isFile() : root.isDirectory()))) {
+    throw new Error('cache root has an incompatible type or owner');
+  }
+}
+
+export async function verifiedNpmLockDigest(workspace, hashFiles) {
+  if (!(await physicalPath(path.join(workspace, npmLock))).isFile()) {
     throw new Error('setup-node lock is not a regular file');
   }
   const digest = await hashFiles(path.join(workspace, npmLock), workspace);

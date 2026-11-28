@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
   restoreFullCache,
   saveFullCache,
   verifyFullCacheAuthority,
+  verifiedNpmLockDigest,
 } from './ci-trusted-full-regression-cache-transport.mjs';
 
 const sha = 'a'.repeat(40);
@@ -118,4 +122,34 @@ test('bindgen and sentinel keep their original in-job save gates', async () => {
   assert.equal(await saveFullCache(sdk, 'sentinel', sentinel, {phase:'before-full',success:true}, admission(sentinel)), true);
   await assert.rejects(restoreFullCache({}, 'sentinel', sentinel), /write-only/);
   assert.deepEqual(saves, [bindgen,sentinel].map(m => ({paths:[m.actualRawPath],key:m.actualKey})));
+});
+
+
+test('only a regular checked-in Viewer lock is handed to upstream hashing', async () => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'full-cache-lock-'));
+  const directory = path.join(workspace, 'crates/oasis7_viewer');
+  const lock = path.join(directory, 'package-lock.json');
+  try {
+    await fs.mkdir(directory, {recursive:true});
+    let checks = 0;
+    const hashFiles = async (filename, root) => {
+      assert.equal(filename, lock);
+      assert.equal(root, workspace);
+      checks += 1;
+      return digest;
+    };
+    await assert.rejects(verifiedNpmLockDigest(workspace, hashFiles), {code:'ENOENT'});
+    await fs.writeFile(lock, '{}');
+    assert.equal(await verifiedNpmLockDigest(workspace, hashFiles),digest);
+    await fs.unlink(lock);
+    await fs.symlink('/does-not-exist',lock);
+    await assert.rejects(verifiedNpmLockDigest(workspace, hashFiles),/symlink/);
+    await fs.unlink(lock);
+    await fs.rmdir(directory);
+    await fs.symlink('/does-not-exist',directory);
+    await assert.rejects(verifiedNpmLockDigest(workspace, hashFiles),/ancestor/);
+    assert.equal(checks,1);
+  } finally {
+    await fs.rm(workspace,{force:true,recursive:true});
+  }
 });
