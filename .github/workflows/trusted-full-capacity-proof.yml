@@ -1,0 +1,239 @@
+name: Trusted full regression capacity proof
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [task/engineering-trusted-full-capacity-proof]
+
+permissions:
+  contents: read
+  packages: read
+cache-mode: read
+
+jobs:
+  capacity:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.base_ref == 'task/engineering-trusted-full-capacity-proof' &&
+      github.head_ref == 'task/engineering-trusted-full-capacity-controller' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.title == 'Trusted full capacity probe 233925bb once'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      HISTORICAL_SOURCE: 233925bb0499d8d4ad18e5eb6779371ef311ef46
+      TOOL_SHA: 68e13f6a5c5c1f9f9505c9115d9982ae6ff9e32f
+      RUST_TOOLCHAIN: 1.96.0
+      TRUNK_VERSION: 0.21.14
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 68e13f6a5c5c1f9f9505c9115d9982ae6ff9e32f
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Stage fixed diagnostic tools outside the historical checkout
+        env:
+          CONTROL_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TOOL_SHA"
+          git fetch origin "$CONTROL_SHA" --depth=1
+          test "$(git diff --name-only "$TOOL_SHA" "$CONTROL_SHA")" = .github/workflows/trusted-full-capacity-proof.yml
+          proof="$RUNNER_TEMP/trusted-full-capacity"
+          mkdir -m 0700 "$proof"
+          for file in ci-trusted-full-capacity-proof.py ci-trusted-full-reclaim.py ci-candidate-capacity.py; do
+            git show "$TOOL_SHA:scripts/$file" > "$proof/$file"
+            chmod 0400 "$proof/$file"
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 233925bb0499d8d4ad18e5eb6779371ef311ef46
+          persist-credentials: false
+      - name: Observe original host before any tool preparation
+        run: timeout --kill-after=5s 55s /usr/bin/python3 "$RUNNER_TEMP/trusted-full-capacity/ci-trusted-full-capacity-proof.py" pre-tools
+      - name: Prepare original mold without the auxiliary cache post step
+        run: python3 .github/actions/setup-linux-mold/setup.py
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Observe host before the first image pull
+        run: timeout --kill-after=5s 55s /usr/bin/python3 "$RUNNER_TEMP/trusted-full-capacity/ci-trusted-full-capacity-proof.py" pre-pull
+      - name: Pull the fixed trusted full regression image
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image=ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+          config=$(mktemp -d "$RUNNER_TEMP/full-regression-docker.XXXXXX")
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s\n' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$image"
+      - name: Observe the image footprint before Rust preparation
+        run: timeout --kill-after=5s 55s /usr/bin/python3 "$RUNNER_TEMP/trusted-full-capacity/ci-trusted-full-capacity-proof.py" post-pull
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup toolchain install "${OASIS7_WASM_TOOLCHAIN}" --profile minimal --component rust-src
+          rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
+          rustup target add wasm32-unknown-unknown
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2
+        with:
+          tool: cargo-deny@0.19.9
+      - name: Stabilize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: ci-rust-full-regression-32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427-native-v1
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          save-if: false
+          cache-on-failure: false
+      - name: Resolve wasm-bindgen tool cache metadata
+        id: bindgen-meta
+        shell: bash
+        run: |
+          source scripts/wasm-bindgen-cli-common.sh
+          printf 'version=%s\nroot=%s\n' "$WASM_BINDGEN_LOCK_VERSION" "$WASM_BINDGEN_CACHE_ROOT" >> "$GITHUB_OUTPUT"
+      - name: Restore exact wasm-bindgen tool cache
+        id: bindgen-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ steps.bindgen-meta.outputs.root }}
+          key: wasm-bindgen-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ steps.bindgen-meta.outputs.version }}-${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
+      - name: Prepare exact wasm-bindgen tool directory
+        id: prepare-bindgen
+        shell: bash
+        env:
+          BINDGEN_CACHE_HIT: ${{ steps.bindgen-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          source scripts/wasm-bindgen-cli-common.sh
+          if [[ "$BINDGEN_CACHE_HIT" == true ]]; then
+            bindgen_bin="$WASM_BINDGEN_CACHE_ROOT/bin/wasm-bindgen"
+            test -x "$bindgen_bin"
+            test "$("$bindgen_bin" --version)" = "wasm-bindgen $WASM_BINDGEN_LOCK_VERSION"
+          else
+            bindgen_bin="$(bash scripts/ensure-wasm-bindgen-cli.sh --ensure-cache --print-bin)"
+          fi
+          test -x "$bindgen_bin"
+          test "$("$bindgen_bin" --version)" = "wasm-bindgen $WASM_BINDGEN_LOCK_VERSION"
+          printf 'WASM_BINDGEN_BIN=%s\n' "$bindgen_bin" >> "$GITHUB_ENV"
+      - name: Restore pinned Trunk release archive
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz
+          key: trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ hashFiles('scripts/install-ci-trunk.sh') }}
+      - name: Install verified pinned Trunk
+        shell: bash
+        run: bash scripts/install-ci-trunk.sh "$RUNNER_TEMP/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz" "$RUNNER_TEMP/ci-tools/bin"
+      - name: Observe disk after original restore-only Trunk and bindgen preparation
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/trusted-full-capacity"
+          timeout --kill-after=5s 55s /usr/bin/python3 "$proof/ci-trusted-full-capacity-proof.py" post-restore | tee "$proof/before.json"
+      - name: Apply only the reviewed SDK recipe on this disposable diagnostic runner
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = nil-studio/oasis7
+          test "$GITHUB_EVENT_NAME" = pull_request
+          test "$GITHUB_JOB" = capacity
+          test "$GITHUB_BASE_REF" = task/engineering-trusted-full-capacity-proof
+          test "$GITHUB_HEAD_REF" = task/engineering-trusted-full-capacity-controller
+          test "$(git rev-parse HEAD)" = "$HISTORICAL_SOURCE"
+          test "$(pwd -P)" = /home/runner/work/oasis7/oasis7
+          test "$(id -u):$(id -g)" = 1001:1001
+          proof="$RUNNER_TEMP/trusted-full-capacity"
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_REF,GITHUB_WORKFLOW_REF,GITHUB_JOB,GITHUB_SHA,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,RUNNER_ARCH,RUNNER_OS,GITHUB_WORKSPACE,RUNNER_TEMP,GITHUB_EVENT_NAME \
+            /usr/bin/timeout --kill-after=5s 180s /usr/bin/python3 -I - "$proof" "$HISTORICAL_SOURCE" <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import stat
+          import sys
+          import types
+
+          directory = Path(sys.argv[1])
+          expected_source = sys.argv[2]
+          if directory.resolve(strict=True) != directory:
+              raise RuntimeError('diagnostic tool directory is not canonical')
+
+          def load_verified(name, digest):
+              file = directory / name
+              fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+              with os.fdopen(fd, 'rb') as stream:
+                  if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                      raise RuntimeError('expected a regular staged source blob')
+                  raw = stream.read(1024 * 1024)
+                  if len(raw) == 1024 * 1024 or hashlib.sha256(raw).hexdigest() != digest:
+                      raise RuntimeError('diagnostic code does not match the frozen source')
+              module = types.ModuleType(name)
+              module.__file__ = str(file)
+              exec(compile(raw, str(file), 'exec'), module.__dict__)
+              return module
+
+          release = Path('/etc/os-release').read_text().splitlines()
+          reclaim = load_verified('ci-trusted-full-reclaim.py', '3c8df92ef074ffe522ac925bb57132f178d12db845b0f64abfdedb2d38e8739a')
+          capacity = load_verified('ci-candidate-capacity.py', '48ed68cb0ef4aa6b80d20a68407f2ed8bb9770b4935029dfc61d3034a7578752')
+          try:
+              reclaim.check_authority(os.environ, expected_source, release,
+                                      platform=sys.platform, uid=os.geteuid())
+          except ValueError as error:
+              if 'requires the exact protected hosted full-regression' not in str(error):
+                  raise
+              print('Actual production profile rejected the diagnostic PR', flush=True)
+          else:
+              raise RuntimeError('production reclamation accepted the diagnostic PR')
+          reclaim.load_capacity = lambda: capacity  # Reuse the already verified source bytes.
+          paths, _ = reclaim.owned_sdk_paths(capacity)
+          print('SDK owner, device, mount and ancestor validation accepted for '
+                + ' '.join(str(path) for path in paths), flush=True)
+          reclaim.reclaim_owned_sdk(apply=True, min_free_bytes=1, min_free_inodes=1)
+          PY
+          timeout --kill-after=5s 55s /usr/bin/python3 "$proof/ci-trusted-full-capacity-proof.py" post-reclaim | tee "$proof/after.json"
+          python3 - "$proof/before.json" "$proof/after.json" <<'PY'
+          import json
+          import sys
+
+          before, after = (json.load(open(path)) for path in sys.argv[1:])
+          gained = after['filesystem']['workspace']['free_bytes'] - before['filesystem']['workspace']['free_bytes']
+          if gained <= 0 or not all(item['state'] == 'absent' for item in after['runner_sdk'].values()):
+              raise RuntimeError('trusted runner SDK proof did not release measured workspace bytes')
+          print(json.dumps({'reclaimed_workspace_bytes': gained,
+                            'historical_source': after['historical_source'],
+                            'production_authority_tested': False,
+                            'product_suite_executed': False}, sort_keys=True))
+          PY
+      - name: Verify retained original host tools and fixed image tools
+        run: |
+          set -euo pipefail
+          test "$(node --version | cut -d. -f1)" = v22
+          test "$(cargo-deny --version)" = 'cargo-deny 0.19.9'
+          test "$(trunk --version)" = 'trunk 0.21.14'
+          test "$("$WASM_BINDGEN_BIN" --version)" = 'wasm-bindgen 0.2.127'
+          test -x "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          rustup component list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx rust-src
+          docker run --rm --init --pull never --network none --user 1001:1001 \
+            ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427 \
+            bash -euo pipefail -c '
+              test "$(id -u):$(id -g)" = 1001:1001
+              /opt/oasis7-node22/bin/node --version
+              rustc --version
+              clang --print-targets | grep -w wasm32
+              llvm-ar --version
+              docker buildx version
+            '
+          git diff --exit-code
+          git diff --cached --exit-code
