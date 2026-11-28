@@ -654,38 +654,22 @@ run_selected_workspace_support() {
   local selected profile expand_targets expanded_features complete_targets
   local -a expanded_args
   selected=$("$ci_python" - "$support_profiles" "$driver_dir" "${support_partition:-all}" "${support_execution:-all}" <<'PY'
-import importlib.util, json, sys
+import importlib.util, json, os, sys
 from pathlib import Path
 driver_dir = Path(sys.argv[2])
+local_check = os.environ.get('OASIS7_LOCAL_CHECK') == '1'
 scope_json = driver_dir / 'ci-required-scope.json'
-_S2_FALLBACK_SUPPORT = (
-    'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api',
-    'oasis7_game_client', 'oasis7_model_provider', 'oasis7_client_storage', 'oasis7_domain_types',
-    'oasis7_signer_protocol', 'oasis7_custody_core', 'oasis7_custody_worker', 'oasis7_dev_test_worker',
-    'oasis7_local_signer', 'oasis7_proto', 'oasis7_wasm_abi', 'oasis7_wasm_build',
-    'oasis7_wasm_router', 'oasis7_wasm_sdk', 'oasis7_wasm_store', 'pixel_world_bridge',
-    'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
-    'wasm_build_suite', 'wasm_module_observe',
-)
-_S2_FALLBACK_HOST = frozenset({'oasis7_game_client', 'oasis7_local_signer'})
 if scope_json.is_file():
     _caps = json.loads(scope_json.read_text(encoding='utf-8')).get('package_capabilities', {})
-    cand_profiles = sorted(sp['profile_id'] for e in _caps.values() if isinstance(sp := e.get('support_profile'), dict)) or list(_S2_FALLBACK_SUPPORT)
-    cand_host = frozenset(sp['profile_id'] for e in _caps.values() if isinstance(sp := e.get('support_profile'), dict) and sp.get('requires_host_runner')) or _S2_FALLBACK_HOST
+    cand_profiles = sorted(sp['profile_id'] for e in _caps.values() if isinstance(sp := e.get('support_profile'), dict))
+    cand_host = frozenset(sp['profile_id'] for e in _caps.values() if isinstance(sp := e.get('support_profile'), dict) and sp.get('requires_host_runner'))
+    if not cand_profiles:
+        raise SystemExit('ci-required-scope.json has no support_profile entries in package_capabilities')
+elif local_check:
+    cand_profiles = None
+    cand_host = frozenset()
 else:
-    cand_profiles, cand_host = list(_S2_FALLBACK_SUPPORT), _S2_FALLBACK_HOST
-
-def _s2_legacy_support_contract(plan, known_profiles, known_host):
-    if 'workspace_support_profile_version' not in plan:
-        profs = list(known_profiles)
-    elif plan['workspace_support_profile_version'] != 1:
-        raise SystemExit('unknown support profile plan version')
-    else:
-        profs = plan.get('workspace_support_profiles')
-    return {'version': 1, 'selected_profiles': profs,
-            'partitions': {'custody': [], 'other': list(profs) if isinstance(profs, list) else []},
-            'host_profiles': [p for p in (profs or ()) if p in known_host],
-            'image_profiles': [p for p in (profs or ()) if p not in known_host]}
+    raise SystemExit('missing scripts/ci-required-scope.json for workspace support capabilities')
 
 raw = sys.argv[1]
 plan_input = raw.startswith(('plan:', 'plan-file:'))
@@ -701,12 +685,22 @@ if plan_input:
                 or not isinstance(contract.get('selected_profiles'), list)
                 or not isinstance(contract.get('host_profiles'), list)):
             raise SystemExit('invalid workspace_support_execution_contract')
+        if 'workspace_support_profile_version' in plan and plan['workspace_support_profile_version'] != 1:
+            raise SystemExit('unknown support profile plan version')
         if 'workspace_support_profiles' in plan and sorted(plan['workspace_support_profiles']) != sorted(contract['selected_profiles']):
             raise SystemExit('workspace_support_execution_contract conflicts with workspace_support_profiles')
         profiles = list(contract['selected_profiles'])
         host_profiles = frozenset(contract['host_profiles']) | cand_host
+    elif raw.startswith('plan-file:') and not local_check:
+        raise SystemExit('missing required workspace_support_execution_contract v1 (S2 plans are unsupported in S5)')
+    elif 'workspace_support_profile_version' not in plan:
+        if cand_profiles is None:
+            raise SystemExit('missing workspace_support_profile_version')
+        profiles = list(cand_profiles)
+    elif plan['workspace_support_profile_version'] != 1:
+        raise SystemExit('unknown support profile plan version')
     else:
-        profiles = _s2_legacy_support_contract(plan, cand_profiles, cand_host)['selected_profiles']
+        profiles = plan.get('workspace_support_profiles')
 else:
     profiles = json.loads(raw)
 full_policy_transition = (
@@ -715,13 +709,15 @@ full_policy_transition = (
 if (not isinstance(profiles, list) or not profiles or
         any(not isinstance(p, str) or not p for p in profiles) or
         len(set(profiles)) != len(profiles) or
-        (not full_policy_transition and not set(profiles).issubset(cand_profiles))):
+        (not full_policy_transition and cand_profiles is not None and not set(profiles).issubset(cand_profiles))):
     raise SystemExit('invalid or missing workspace support profiles')
 # A trusted base planner cannot name newly extracted packages or drop retired
 # ones during a policy transition. Full scope always expands to the candidate
 # inventory after validating its shape, so an additive or retiring profile
 # never narrows or breaks the full support job.
 if plan_input and plan.get('scope') == 'full':
+    if cand_profiles is None:
+        raise SystemExit('missing scripts/ci-required-scope.json for full workspace support scope')
     profiles = list(cand_profiles)
     host_profiles = cand_host
 partition = sys.argv[3]

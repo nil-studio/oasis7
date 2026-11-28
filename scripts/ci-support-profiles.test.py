@@ -187,6 +187,13 @@ after(()=>{assert.equal(completed,2);record('finish');});
                         workspace_support_profiles=['oasis7_context'],
                         workspace_support_partition_version=1,
                         workspace_support_partitions=['other'],
+                        workspace_support_execution_contract={
+                            'version': 1, 'selected_profiles': ['oasis7_context'],
+                            'partitions': {'custody': [], 'other': ['oasis7_context']},
+                            'host_profiles': [], 'image_profiles': ['oasis7_context'],
+                            'expanded_targets_by_profile': {}, 'complete_features_by_profile': {},
+                            'wasm_compile_checks': {},
+                        },
                         reasons=["quoted ' \" \\\n$(touch transport-must-not-execute)\nPY\n" * 4000])
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -928,7 +935,7 @@ class MaterializedDualContractAndZeroEngineImportTests(unittest.TestCase):
             driver = DRIVER.replace(marker, '  run_cargo() { printf "cargo %s\\n" "$*"; }\n  run_cargo_clippy() { :; }\n' + marker)
             (scripts / 'ci-tests.sh').write_text(driver, encoding='utf-8')
 
-            # 1. Test ci-test-artifacts.py S2 -> S4 shim, S3/S4 -> S4 direct read, and conflict rejection.
+            # 1. Test ci-test-artifacts.py S2 -> S5 fail-closed rejection and S5 direct contract read.
             import importlib.util
             spec = importlib.util.spec_from_file_location('sandbox_artifacts', scripts / 'ci-test-artifacts.py')
             art = importlib.util.module_from_spec(spec)
@@ -937,48 +944,52 @@ class MaterializedDualContractAndZeroEngineImportTests(unittest.TestCase):
                        'fast_plan_version': 1, 'check_inventory_version': 1,
                        'source_sha': 'a' * 40, 'tested_sha': 'a' * 40, 'policy_sha': 'a' * 40,
                        'test_policy_changed': False, 'oasis7_required_wasm_packages': ['oasis7_agent_api']}
-            self.assertTrue(art.ordinary_candidate_image_eligible(s2_plan))
-            self.assertEqual(art.required_wasm_packages(s2_plan), ['oasis7_agent_api'])
-            s4_plan = dict(s2_plan, ordinary_execution_contract={
+            with self.assertRaisesRegex(ValueError, 'missing required ordinary_execution_contract v1'):
+                art.resolve_ordinary_execution_contract(s2_plan)
+            s5_plan = dict(s2_plan, ordinary_execution_contract={
                 'version': 1, 'mode': 'artifact-v2', 'supports_universal_v2': True,
                 'candidate_container_eligible': False, 'artifact_partitions': ['compact'],
                 'partitions': ['all'], 'logical_harness_aliases': {},
                 'required_wasm_packages': ['oasis7_agent_api'], 'required_host_docker_wasm_fixtures': [],
                 'deferred_cases': {}, 'delegated_clippy': [],
             })
-            self.assertFalse(art.ordinary_candidate_image_eligible(s4_plan))
+            self.assertFalse(art.ordinary_candidate_image_eligible(s5_plan))
+            self.assertEqual(art.required_wasm_packages(s5_plan), ['oasis7_agent_api'])
             with self.assertRaises(ValueError):
                 art.resolve_ordinary_execution_contract(dict(s2_plan, ordinary_execution_contract={'version': 99}))
             with self.assertRaises(ValueError):
-                art.resolve_ordinary_execution_contract(dict(s4_plan, ordinary_execution='inline'))
+                art.resolve_ordinary_execution_contract(dict(s5_plan, ordinary_execution='inline'))
 
-            # 2. Test ci-tests.sh --support-plan-file with S2 (no contract) and S4 (with contract) without planner/ci_engine.
-            for label, plan in (
-                ('S2->S4', {'groups': ['workspace_support'], 'scope': 'targeted',
-                            'workspace_support_profile_version': 1,
-                            'workspace_support_profiles': ['oasis7_proto', 'oasis7_game_client'],
-                            'workspace_support_partition_version': 1, 'workspace_support_partitions': ['other']}),
-                ('S4->S4', {'groups': ['workspace_support'], 'scope': 'targeted',
-                            'workspace_support_profile_version': 1,
-                            'workspace_support_profiles': ['oasis7_proto', 'oasis7_game_client'],
-                            'workspace_support_partition_version': 1, 'workspace_support_partitions': ['other'],
-                            'workspace_support_execution_contract': {
-                                'version': 1, 'selected_profiles': ['oasis7_game_client', 'oasis7_proto'],
-                                'partitions': {'custody': [], 'other': ['oasis7_game_client', 'oasis7_proto']},
-                                'host_profiles': ['oasis7_game_client'], 'image_profiles': ['oasis7_proto'],
-                                'expanded_targets_by_profile': {}, 'complete_features_by_profile': {},
-                                'wasm_compile_checks': {},
-                            }}),
-            ):
-                pf = root / f'{label.replace(">", "_")}.json'
-                pf.write_text(json.dumps(plan), encoding='utf-8')
-                res = subprocess.run(
-                    ['bash', str(scripts / 'ci-tests.sh'), 'required', '--group', 'workspace_support',
-                     '--support-plan-file', str(pf), '--support-partition', 'other', '--support-execution', 'image'],
-                    cwd=root, text=True, capture_output=True)
-                self.assertEqual(res.returncode, 0, f'{label}: {res.stdout}{res.stderr}')
-                self.assertIn('+ support profile: oasis7_proto', res.stdout)
-                self.assertNotIn('+ support profile: oasis7_game_client', res.stdout)
+            # 2. Test ci-tests.sh --support-plan-file: S2 -> S5 fail-closed rejected; S5 -> S5 succeeds without planner/ci_engine.
+            s2_support = {'groups': ['workspace_support'], 'scope': 'targeted',
+                          'workspace_support_profile_version': 1,
+                          'workspace_support_profiles': ['oasis7_proto', 'oasis7_game_client'],
+                          'workspace_support_partition_version': 1, 'workspace_support_partitions': ['other']}
+            s2_pf = root / 'S2_S5.json'
+            s2_pf.write_text(json.dumps(s2_support), encoding='utf-8')
+            s2_res = subprocess.run(
+                ['bash', str(scripts / 'ci-tests.sh'), 'required', '--group', 'workspace_support',
+                 '--support-plan-file', str(s2_pf), '--support-partition', 'other', '--support-execution', 'image'],
+                cwd=root, text=True, capture_output=True)
+            self.assertNotEqual(s2_res.returncode, 0, 'S2 plan without workspace_support_execution_contract must fail-closed in S5')
+            self.assertIn('missing required workspace_support_execution_contract v1', s2_res.stderr)
+
+            s5_support = dict(s2_support, workspace_support_execution_contract={
+                'version': 1, 'selected_profiles': ['oasis7_game_client', 'oasis7_proto'],
+                'partitions': {'custody': [], 'other': ['oasis7_game_client', 'oasis7_proto']},
+                'host_profiles': ['oasis7_game_client'], 'image_profiles': ['oasis7_proto'],
+                'expanded_targets_by_profile': {}, 'complete_features_by_profile': {},
+                'wasm_compile_checks': {},
+            })
+            s5_pf = root / 'S5_S5.json'
+            s5_pf.write_text(json.dumps(s5_support), encoding='utf-8')
+            s5_res = subprocess.run(
+                ['bash', str(scripts / 'ci-tests.sh'), 'required', '--group', 'workspace_support',
+                 '--support-plan-file', str(s5_pf), '--support-partition', 'other', '--support-execution', 'image'],
+                cwd=root, text=True, capture_output=True)
+            self.assertEqual(s5_res.returncode, 0, f'S5->S5: {s5_res.stdout}{s5_res.stderr}')
+            self.assertIn('+ support profile: oasis7_proto', s5_res.stdout)
+            self.assertNotIn('+ support profile: oasis7_game_client', s5_res.stdout)
 
 
 if __name__ == '__main__':
