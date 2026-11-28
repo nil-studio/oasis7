@@ -1,0 +1,137 @@
+name: Trusted full cache Linux geometry
+on:
+  pull_request:
+    types: [opened]
+permissions:
+  contents: read
+  actions: read
+  packages: read
+cache-mode: read
+env:
+  PROOF_SOURCE: 9f030268a2c512fef9afd32f39e3e1f9f3c2b76e
+jobs:
+  live-lock:
+    if: &owned >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == true &&
+      github.head_ref == 'task/engineering-full-regression-cache-linux-proof' &&
+      github.base_ref == 'task/engineering-full-regression-cache-adapter' &&
+      github.event.pull_request.title == 'Trusted full cache Linux read-only proof 9f0302 once'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      key: ${{ steps.node.outputs.cache-primary-key }}
+      digest: ${{ steps.digest.outputs.value }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PROOF_SOURCE }}
+          persist-credentials: false
+      - name: Check the exact Viewer lock source
+        run: |
+          test "$(git rev-parse HEAD)" = "$PROOF_SOURCE"
+          git ls-files --error-unmatch crates/oasis7_viewer/package-lock.json
+          test -f crates/oasis7_viewer/package-lock.json
+          for path in crates crates/oasis7_viewer crates/oasis7_viewer/package-lock.json; do
+            test ! -L "$path"
+          done
+      - name: Check out the original setup-node action bundle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: actions/setup-node
+          ref: 949feb2413d6458794dcd2491c4babbbce0c15c1
+          path: .oasis7-proof-setup-node
+          persist-credentials: false
+      - name: Remove only the cache-save post hook from the original action
+        run: |
+          set -euo pipefail
+          action=.oasis7-proof-setup-node
+          test "$(git -C "$action" rev-parse HEAD)" = 949feb2413d6458794dcd2491c4babbbce0c15c1
+          for file in action.yml dist/setup/index.js; do
+            test "$(git -C "$action" hash-object "$file")" = "$(git -C "$action" rev-parse "HEAD:$file")"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.oasis7-proof-setup-node/action.yml')
+          original = path.read_bytes()
+          post = b"  post: 'dist/cache-save/index.js'\n  post-if: success()\n"
+          assert original.endswith(post) and original.count(post) == 1
+          assert b"  main: 'dist/setup/index.js'\n" in original
+          path.write_bytes(original.removesuffix(post))
+          PY
+          test "$(git -C "$action" diff --name-only)" = action.yml
+          test "$(git -C "$action" hash-object dist/setup/index.js)" = "$(git -C "$action" rev-parse HEAD:dist/setup/index.js)"
+          echo 'probe-only: unchanged setup-node main bundle; cache-save post unregistered'
+      - name: Run the original setup-node main without a cache-save post
+        uses: ./.oasis7-proof-setup-node
+        id: node
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: crates/oasis7_viewer/package-lock.json
+      - name: Compare actual setup-node and runner key metadata
+        id: digest
+        env:
+          PINNED_ACTION_PRIMARY_KEY: ${{ steps.node.outputs.cache-primary-key }}
+          RUNNER_LOCK_DIGEST: ${{ hashFiles('crates/oasis7_viewer/package-lock.json') }}
+        run: |
+          [[ "$RUNNER_LOCK_DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          test "$PINNED_ACTION_PRIMARY_KEY" = "node-cache-Linux-x64-npm-$RUNNER_LOCK_DIGEST"
+          printf 'value=%s\n' "$RUNNER_LOCK_DIGEST" >>"$GITHUB_OUTPUT"
+  fixed-image:
+    if: *owned
+    needs: [live-lock]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: --user 1001:1001 --init
+      volumes:
+        - ${{ github.workspace }}:/home/runner/work/oasis7/oasis7
+        - /home/runner/work/_temp:/home/runner/work/_temp
+    defaults:
+      run:
+        shell: bash
+        working-directory: /home/runner/work/oasis7/oasis7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.PROOF_SOURCE }}
+          persist-credentials: false
+      - name: Verify physical aliases and non-main rejection
+        env:
+          EXPECTED_KEY: ${{ needs.live-lock.outputs.key }}
+          EXPECTED_DIGEST: ${{ needs.live-lock.outputs.digest }}
+          IMAGE_DIGEST: ${{ hashFiles('crates/oasis7_viewer/package-lock.json') }}
+        run: |
+          set -euo pipefail
+          git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD | grep -Fx "$PROOF_SOURCE"
+          test "$EXPECTED_DIGEST" = "$IMAGE_DIGEST"
+          test "$(stat -c '%d:%i' "$GITHUB_WORKSPACE")" = "$(stat -c '%d:%i' /home/runner/work/oasis7/oasis7)"
+          test "$(stat -c '%d:%i' "$RUNNER_TEMP")" = "$(stat -c '%d:%i' /home/runner/work/_temp)"
+          test "$(id -u):$(id -g)" = 1001:1001
+          test ! -w /var/run/docker.sock
+          command -v zstd
+          command -v zstdmt
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {verifyFullCacheAuthority} from './scripts/ci-trusted-full-regression-cache-transport.mjs';
+          import {fullRegressionCacheLayout} from './scripts/ci-trusted-full-regression-cache-roles.mjs';
+          const env=process.env;
+          assert.throws(() => verifyFullCacheAuthority(env, {
+            head:env.PROOF_SOURCE, platform:process.platform, uid:process.getuid(), gid:process.getgid()
+          }, 'restore'), /exact trusted Linux main job/);
+          const role=fullRegressionCacheLayout('npm', {
+            setupNodeLockDigest:env.IMAGE_DIGEST, actualKey:env.EXPECTED_KEY, actualRawPath:'/home/runner/.npm'
+          });
+          console.log(JSON.stringify({probe_only:true, source:env.PROOF_SOURCE, key:role.key, version:role.version, main_authority:false}));
+          JS
+      - name: Run real SDK loopback and archive rejection contracts
+        run: |
+          python3 scripts/ci-cache-sdk.test.py
+          python3 scripts/ci-portable-cache-archive.test.py
+          python3 scripts/ci-tool-cache.test.py
