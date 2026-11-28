@@ -827,7 +827,10 @@ def required_packages(plan=None):
             raise ValueError('invalid execution selection: oasis7_required_packages')
         return inventory
     if 'oasis7' not in inventory and isinstance(plan.get('oasis7_required_packages'), list) and 'oasis7' in plan['oasis7_required_packages']:
-        plan = dict(plan, oasis7_required_packages=[pkg for pkg in plan['oasis7_required_packages'] if pkg != 'oasis7'])
+        if plan.get('scope') in ('full', 'explicit-full'):
+            plan = dict(plan, oasis7_required_packages=[pkg for pkg in plan['oasis7_required_packages'] if pkg != 'oasis7'])
+        elif plan.get('scope') == 'targeted' and ('fast_test_inventory_version' in plan or plan.get('ordinary_shared_incremental_contract_version') == 1):
+            inventory = [*inventory, 'oasis7']
     selected = plan_list(plan, 'oasis7_required_packages', inventory)
     if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
         return inventory
