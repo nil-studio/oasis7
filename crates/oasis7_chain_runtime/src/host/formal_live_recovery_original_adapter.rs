@@ -226,6 +226,25 @@ mod tests {
                 .unwrap();
         assert_eq!(reopened.pending().handoff(), &original);
         check_actual_owner_frozen_directory_preserves_same_signed_original();
+        // Exercise the existing shipping CLI from this already selected Host
+        // native test, without enlarging the 1200-line node_operations test.
+        assert!(
+            super::super::node_operations::run(
+                [
+                    "formal-original-verify",
+                    "--config",
+                    "/unavailable/formal.json",
+                    "--owner-snapshot",
+                    "/unavailable/owner.json",
+                    "--root",
+                    "noncanonical-original-root",
+                    "--count",
+                    "1",
+                ]
+                .into_iter(),
+            )
+            .is_err()
+        );
     }
 
     // Reuse the existing selected native test: the real owner writes its
