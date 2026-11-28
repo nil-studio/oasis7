@@ -3,6 +3,8 @@ use std::net::TcpListener;
 use std::time::{Duration, Instant};
 #[path = "readiness.rs"]
 mod readiness;
+#[path = "server_request_admission.rs"]
+mod request_admission;
 /// Explicit, process-lifetime server read-admission settings. These are not
 /// request-side GEN evidence and never authorize a Qualified transition.
 #[derive(Clone, Copy, serde::Deserialize)]
@@ -28,8 +30,8 @@ impl FormalEndpointServer {
         Self::new_with_frame_admission(endpoint, timeout, None)
     }
     /// Both normal/recovery and healthy activation call this once at startup.
-    /// Optional mode admits raw request and response frames. Request/response
-    /// DTO construction, signing work and GEN proof cutover remain separate.
+    /// Optional mode admits raw request/response frames and typed Request
+    /// decoding. Response construction, signing and GEN proof remain separate.
     pub fn new_with_frame_admission(
         endpoint: FileFormalEndpoint,
         timeout: Duration,
@@ -139,23 +141,29 @@ impl FormalEndpointServer {
         // an otherwise continuously progressing sequence of short reads.
         let request_deadline = Instant::now() + self.timeout;
         let mut cancelled = || Instant::now() >= request_deadline;
-        // Hold the original frame fee through signature validation and the
-        // signed response write. This is frame admission, not a paid DTO owner.
-        let (request, _paid_frame): (
-            Request,
-            Option<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>>,
-        ) = match self.frame_admission.as_ref() {
+        // Both original-pool owners remain live through authentication,
+        // dispatch, response signing and physical output. Borrow the DTO.
+        let legacy_request;
+        let paid_request;
+        let _paid_frame;
+        let request: &Request = match self.frame_admission.as_ref() {
             Some((memory, work)) => {
-                let (value, owner) = wire::read_prepaid_frame(
+                let (value, frame) = wire::read_paid_before_deadline::<Request>(
                     stream,
                     request_deadline,
                     memory,
                     work,
+                    request_admission::layout(),
                     &mut cancelled,
                 )?;
-                (value, Some(owner))
+                paid_request = value;
+                _paid_frame = frame;
+                std::borrow::Borrow::borrow(&paid_request)
             }
-            None => (wire::read(stream)?, None),
+            None => {
+                legacy_request = wire::read(stream)?;
+                &legacy_request
+            }
         };
         let body = &request.body;
         hash_hex(&body.challenge)?;

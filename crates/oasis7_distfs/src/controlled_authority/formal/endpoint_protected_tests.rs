@@ -773,6 +773,46 @@ mod durable_set_seal_tests;
 #[path = "endpoint_durable_set_install_tests.rs"]
 mod durable_set_install_tests;
 
+#[test]
+fn signed_rpc_server_rejects_request_dto_when_raw_frame_alone_fits() {
+    use super::super::super::transport::{
+        FormalEndpointServer, FormalRpcFrameAdmissionLimitsV1, RemoteFormalEndpoint,
+    };
+    let fixture = Fixture::new();
+    let (endpoint, _oracle) = native_rpc_endpoint(&fixture);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let mut server = FormalEndpointServer::new_with_frame_admission(
+            endpoint,
+            Duration::from_secs(3),
+            Some(FormalRpcFrameAdmissionLimitsV1 {
+                ordinary_bytes: 16 * 1024,
+                work_steps: 100_000_000,
+                work_bytes: 1 << 34,
+            }),
+        )
+        .unwrap();
+        let error = server.serve_one(&listener).unwrap_err();
+        // The raw frame fit; the shared typed decoder refused before dispatch.
+        assert!(
+            error.to_string().contains("memory reservation"),
+            "{error:?}"
+        );
+    });
+    let mut client = RemoteFormalEndpoint::new(
+        address,
+        Duration::from_secs(3),
+        fixture.authority.clone(),
+        EndpointRole::Primary,
+        key(4),
+        fixture.authority.definition().world.genesis_head().unwrap(),
+    )
+    .unwrap();
+    assert!(client.query(&h(250)).is_err());
+    server.join().unwrap();
+}
+
 /// Test-only oracle custody; this supplies no real physical-domain evidence.
 pub(super) fn native_rpc_endpoint(fixture: &Fixture) -> (FileFormalEndpoint, impl Drop) {
     let oracle = Oracle::start(fixture, EndpointRole::Primary);
