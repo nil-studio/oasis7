@@ -23,7 +23,7 @@ const COMPRESSED_BLOB_ZSTD_LEVEL: i32 = 3;
 const COMPRESSED_RANGE_CACHE_ENTRY_MAX_BYTES: u64 = compressed_range_cache::ENTRY_MAX_BYTES;
 pub mod frame_codec;
 mod local_blob_codec;
-pub use local_blob_codec::{BlobReadReceipt, decode_local_blob_into};
+pub use local_blob_codec::{BlobReadReceipt, decode_local_blob_into, decode_local_blob_with};
 mod challenge;
 mod challenge_scheduler;
 mod compressed_range_cache;
