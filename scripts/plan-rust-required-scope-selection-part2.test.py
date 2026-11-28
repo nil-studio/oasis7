@@ -303,7 +303,8 @@ class SelectionPart2(unittest.TestCase):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         self.config['oasis7_required_packages'].append('oasis7')
         self.config['package_groups']['oasis7'] = ['oasis7_required']
-        self.config['package_capabilities']['oasis7'] = {'ordinary_package': True}
+        self.config['package_capabilities'] = dict(sorted(
+            {**self.config['package_capabilities'], 'oasis7': {'ordinary_package': True}}.items()))
         self.write('crates/oasis7/Cargo.toml', '[package]\nname="oasis7"\nversion="0.1.0"\n')
         self.write('crates/oasis7/src/lib.rs', '')
         self.write('crates/oasis7_chain_runtime/Cargo.toml', '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\n[dependencies]\noasis7={path="../oasis7",default-features=false}\n')
