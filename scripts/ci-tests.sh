@@ -1640,8 +1640,18 @@ prepare_full_provider_artifact() {
   mkdir -p "$repo_root/target"
   provider_bundle=$(mktemp -d "$repo_root/target/ci-preview-provider.XXXXXX")
   provider_env="$provider_bundle/environment.sh"
-  run "$ci_python" "$driver_dir/ci-test-artifacts.py" prepare-provider --repo-root "$repo_root" \
-    --bundle "$provider_bundle" --output "$provider_env"
+  if [[ -n "${OASIS7_TRUSTED_FULL_PROVIDER_ARCHIVE:-}" ]]; then
+    run "$ci_python" "$driver_dir/ci-trusted-full-provider.py" consume \
+      --root "$repo_root" --bundle "$provider_bundle/imported" \
+      --archive "$OASIS7_TRUSTED_FULL_PROVIDER_ARCHIVE" --source "${SOURCE_SHA:?}" \
+      --run-id "${GITHUB_RUN_ID:?}" --attempt "${GITHUB_RUN_ATTEMPT:?}" \
+      --artifact-id "${OASIS7_TRUSTED_FULL_PROVIDER_ARTIFACT_ID:?}" \
+      --producer-attempt "${OASIS7_TRUSTED_FULL_PROVIDER_ATTEMPT:?}" \
+      --sha256 "${OASIS7_TRUSTED_FULL_PROVIDER_SHA256:?}" --output "$provider_env" || return
+  else
+    run "$ci_python" "$driver_dir/ci-test-artifacts.py" prepare-provider --repo-root "$repo_root" \
+      --bundle "$provider_bundle" --output "$provider_env" || return
+  fi
   source "$provider_env"
 }
 

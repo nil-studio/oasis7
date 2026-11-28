@@ -1044,8 +1044,6 @@
     },
     {
       "match": [
-        "crates/oasis7/src/runtime_host.rs",
-        "crates/oasis7/src/runtime_host/**",
         "crates/oasis7_world_service/src/consensus_action_payload*.rs"
       ],
       "suites": [
@@ -1201,6 +1199,8 @@
     "scripts/ci-trusted-full-regression-cache.py": ["workflow_governance"],
     "scripts/ci-trusted-full-regression-cache-transport.mjs": ["workflow_governance"],
     "scripts/ci-trusted-full-regression-cache-transport.test.mjs": ["workflow_governance"],
+    "scripts/ci-trusted-full-provider.py": ["workflow_governance"],
+    "scripts/ci-trusted-full-provider.test.py": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
@@ -1406,6 +1406,7 @@
     "scripts/ci-formal-process-build-bundles.test.py",
     "scripts/ci-formal-process-workspace-cache.test.py",
     "scripts/ci-formal-process-targeted-artifact-process.test.py",
+    "scripts/ci-trusted-full-provider.test.py",
     "scripts/ci-formal-process-real-components.test.py",
     "scripts/ci-formal-process-ordinary-delivery.test.py",
     "scripts/ci-formal-process-parallel-native.test.py",
@@ -1465,6 +1466,8 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-trusted-full-provider.py": {"group": "workflow_governance", "tests": ["scripts/ci-trusted-full-provider.test.py"]},
+    "scripts/ci-trusted-full-provider.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-trusted-full-provider.test.py"]},
     "scripts/ci-release-web-image.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
     "scripts/ci-release-web-image.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-release-web-image.test.py"]},
     "scripts/ci-portable-cache-job.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-portable-cache-job.test.py"]},
@@ -2787,10 +2790,7 @@
         "scripts/traffic-monitor-*",
         "scripts/traffic_monitor_freshness.py",
         "scripts/p2p-*",
-        "scripts/network-tier-chain-proof-evidence-lane.test.sh",
-        "scripts/network-tier-light-client-continuity-window.test.sh",
         "scripts/network-tier-manifest-smoke.sh",
-        "scripts/public-testnet-resource-delta-replay-check.py",
         "scripts/provider-remote-https/**",
         "scripts/newapi-bridge-service/*",
         "scripts/game-world-state-sync*",

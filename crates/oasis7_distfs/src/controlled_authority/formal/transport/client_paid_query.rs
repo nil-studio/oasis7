@@ -4,8 +4,9 @@ use super::*;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
     BoundedCborDataErrorV1, CborDataLayoutV1, PaidCborDataV1,
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
 use std::borrow::Borrow;
+use std::io::Write;
 use std::mem::size_of;
 
 pub struct PaidRemoteFormalQueryV1 {
@@ -46,6 +47,73 @@ impl PaidRemoteFormalQueryV1 {
     }
 }
 impl RemoteFormalEndpoint {
+    // Admission for the signed Query DTO before any RequestBody clone, digest
+    // CBOR, signing preimage, or TCP connection. Count the immutable source
+    // fields by streaming into a non-allocating writer; keep the admitted
+    // Ordinary fee until the original response has been authenticated.
+    // This is conservative heap/phase admission, not authority or GEN proof.
+    fn prepay_signed_query_request(
+        &self,
+        request: &str,
+        memory: &MemoryBudget,
+        work: &super::super::super::endpoint::FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<MemoryReservation, FormalError> {
+        struct Count(usize);
+        impl Write for Count {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0 = self
+                    .0
+                    .checked_add(bytes.len())
+                    .ok_or_else(|| std::io::Error::other("signed Query source too large"))?;
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        fn encoded_len<T: serde::Serialize>(value: &T) -> Result<usize, FormalError> {
+            let mut count = Count(0);
+            serde_cbor::to_writer(&mut count, value).map_err(|error| invalid(error.to_string()))?;
+            Ok(count.0)
+        }
+        work.consume_steps(1, cancelled)?;
+        let grant_bytes = match &self.archive_read_grant {
+            Some(grant) => encoded_len(grant)?,
+            None => 0,
+        };
+        let sources = [
+            encoded_len(&self.authority.definition().world)?,
+            encoded_len(&self.minimum)?,
+            grant_bytes,
+            request.len(),
+            // Wire tags, authority/instance/challenge, digest, signature, and
+            // fixed Request/RequestBody/Command allocations.
+            size_of::<Request>() + size_of::<RequestBody>() + size_of::<Command>() + 4096,
+        ];
+        let base = sources
+            .into_iter()
+            .try_fold(0usize, |sum, n| sum.checked_add(n))
+            .ok_or_else(|| invalid("formal paid signed Query size overflow"))?;
+        if base > 64 * 1024 * 1024 {
+            return Err(invalid("formal paid signed Query source frame bound"));
+        }
+        // Includes cloned source graphs, transient hash/signature CBOR and
+        // signed preimages, and their possible Vec capacity growth. Distinct
+        // outbound TCP encoding has its own independently held fee.
+        let signing_capacity = base
+            .checked_mul(24)
+            .ok_or_else(|| invalid("formal paid signed Query capacity overflow"))?;
+        let work_bytes = base
+            .checked_mul(3)
+            .and_then(|n| u64::try_from(n).ok())
+            .ok_or_else(|| invalid("formal paid signed Query work overflow"))?;
+        work.charge(6, work_bytes, cancelled)?;
+        memory
+            .reserve(signing_capacity, MemoryClass::Ordinary)
+            .map_err(|_| invalid("formal paid signed Query pre-admission"))
+    }
+
     /// Opt-in real remote Query with one caller-provided Ordinary pool,
     /// continuing Work, cancellation, original signed provenance and paid
     /// response ownership through caller inspection. The legacy query trait
@@ -58,10 +126,12 @@ impl RemoteFormalEndpoint {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<PaidRemoteFormalQueryV1, FormalError> {
         work.consume_steps(1, cancelled)?;
-        let (signed, digest) = self.signed_request(Command::Query(request.to_owned()))?;
         let deadline = self
             .operation_deadline
             .unwrap_or_else(|| Instant::now() + self.timeout);
+        let _signed_request_owner =
+            self.prepay_signed_query_request(request, memory, work, cancelled)?;
+        let (signed, digest) = self.signed_request(Command::Query(request.to_owned()))?;
         let mut stream = wire::connect_and_write_paid_before_deadline(
             &self.address,
             &signed,

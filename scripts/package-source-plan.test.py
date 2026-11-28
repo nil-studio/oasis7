@@ -369,3 +369,76 @@ if soak_selector.is_file():
         missing_executable = commit_fixture()
         soak_result(missing_executable, "false")
     print("ok: soak image selects the verified Git object and rejects unsafe or incompatible sources")
+
+# The publisher only consumes already-qualified assets. Its image must not
+# change source qualification or the final write action/asset selection.
+import re
+
+def validate_release_publisher(text):
+    job = text.split('  publish-release:\n', 1)[1]
+    header, steps = job.split('    steps:\n', 1)
+    assert 'needs: [plan, package-native]\n' in header
+    assert ("if: >-\n      always() && !cancelled() && needs.plan.result == 'success' &&\n"
+            "      needs.package-native.result == 'success'\n") in header
+    assert '    cache-mode: none\n' in header and '    timeout-minutes: 10\n' in header
+    assert '    runs-on: ubuntu-24.04\n' in header and '    env:' not in header
+    image = '    container:' in header
+    if image:
+        assert ('    permissions:\n      contents: write\n      packages: read\n') in header
+        assert header.split('    container:\n',1)[1] == (
+            '      image: ghcr.io/nil-studio/oasis7/ci-api-runtime@sha256:ba7c763f7b634b672c6dccef1384bce4daf7abd44a65d613696a748891e3c0ed\n'
+            '      credentials:\n        username: ${{ github.actor }}\n        password: ${{ github.token }}\n'
+            '      options: --user 1001:1001 --init\n'
+            '    defaults:\n      run:\n        shell: bash\n')
+        preflight, steps = steps.split('      - name: Download packaged assets\n',1)
+        assert preflight.startswith('      - name: Verify the preinstalled publisher tools\n')
+        for command in ('test "$(id -u):$(id -g)" = 1001:1001',
+                        'test "$(command -v gh)" = /usr/local/bin/gh',
+                        "gh --version | grep -E '^gh version 2[.]105[.]0( |$)'",
+                        '/usr/local/bin/node -e', 'jq -ne', "sha256sum --version | grep -F 'sha256sum (GNU coreutils)'"):
+            assert command in preflight
+        assert 'if:' not in preflight and 'continue-on-error:' not in preflight
+        steps = '      - name: Download packaged assets\n' + steps
+    else:
+        assert '    permissions:\n      contents: write\n' in header
+        assert '      packages:' not in header
+    assert 'id-token:' not in header and 'actions: write' not in header
+    assert re.findall(r'^      - name: (.+)$', steps, re.M) == [
+        'Download packaged assets', 'Download viewer web delivery', 'Generate checksums',
+        'Verify release tag still matches plan', 'Publish GitHub release']
+    assert 'uses: actions/checkout@' not in steps
+    assert re.findall(r'^        uses: (.+)$', steps, re.M) == [
+        'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2',
+        'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2',
+        'softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3']
+    assert 'pattern: release-asset-*\n          path: output/release/assets\n          merge-multiple: true' in steps
+    assert 'name: release-viewer-web-delivery\n          path: output/release/assets' in steps
+    assert 'test "$kind" = commit' in steps and 'test "$object" = "$PLANNED_SHA"' in steps
+    assert "'.checkoutSha == $sha'" in steps
+    assert 'grep -Fqx "commit=$PLANNED_SHA"' in steps
+    assert 'while [[ "$kind" == tag ]]; do' in steps
+    assert 'tag_name: ${{ steps.tag.outputs.value }}' in steps
+    assert 'generate_release_notes: true' in steps
+    assert 'continue-on-error:' not in steps
+    files = steps.split('          files: |\n',1)[1]
+    assert files.splitlines() == ['            output/release/assets/' + name for name in (
+        '*-SOURCEPLAN.json', '*-BUILDINFO', 'oasis7-linux-x64.deb', 'oasis7-macos-x64.dmg',
+        'oasis7-windows-x64.exe', 'oasis7-linux-x64-ops-tools.tar.gz', 'oasis7-macos-x64-ops-tools.tar.gz',
+        'oasis7-windows-x64-ops-tools.tar.gz', 'oasis7-viewer-web-delivery.tar.gz', 'oasis7-checksums.txt')]
+
+publisher_text = (Path(__file__).resolve().parent.parent / '.github/workflows/release-packages.yml').read_text()
+validate_release_publisher(publisher_text)
+if '    container:' in publisher_text.split('  publish-release:\n',1)[1]:
+    for broken in (
+            publisher_text.replace('ci-api-runtime@sha256:', 'ci-runtime@sha256:'),
+            publisher_text.replace('--user 1001:1001 --init', '--user 0:0 --privileged'),
+            publisher_text.replace('      packages: read', '      packages: write'),
+            publisher_text.replace('      contents: write', '      contents: read'),
+            publisher_text.replace('timeout-minutes: 10', 'timeout-minutes: 11'),
+            publisher_text.replace('test "$object" = "$PLANNED_SHA"', ':'),
+            publisher_text.replace('pattern: release-asset-*', 'pattern: *'),
+            publisher_text.replace('            output/release/assets/oasis7-checksums.txt\n', '')):
+        try: validate_release_publisher(broken)
+        except AssertionError: pass
+        else: raise AssertionError('publisher source/image/permission/asset drift accepted')
+print('ok: publisher fixed API tools preserve original source, checksum and final release boundary')

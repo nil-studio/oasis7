@@ -703,9 +703,9 @@ but are deliberately deferred and are not runtime promises in the current
 design.
 
 <a id="module-layering-and-core-contracts"></a>
-### 6.5 Module Layering, Bounded-Context Submodules, and Core Abstraction Contracts (Target)
+### 6.5 Module Layering, Bounded-Context Submodules, and Core Abstraction Contracts (Current / Target)
 
-承接 [Workspace 五层依赖拓扑](../engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology)、上文 `§6.2` `ExecutionTransaction` / `CommandStateOverlay` 与 `§6.4` 渐进子系统封装，本节固化四项长期演进契约与 `crates/oasis7` 伞包退役矩阵（均属目标设计，当前未落地，由 `#6025` 及其后续实现子任务分阶段推进）。
+承接 [Workspace 五层依赖拓扑](../engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology)、上文 `§6.2` `ExecutionTransaction` / `CommandStateOverlay` 与 `§6.4` 渐进子系统封装，本节固化四项演进契约与 `crates/oasis7` 伞包退役矩阵：其中 `crates/oasis7` 兼容伞包退役及 `L3` / `L4` 依赖清零已随 `#6152`（含 `#7440`）落地完成，其余运行期抽象契约随 `#6025` 对应实现子任务分阶段推进与验收。
 
 ```mermaid
 flowchart TB
@@ -826,15 +826,15 @@ flowchart TB
 | `AuthorityCommitVerifier` | Trait 端口与结果类型归 `oasis7_consensus`（`L1`）；单权威与 BFT 验证实现归 `oasis7_consensus` / `oasis7_node`（包装 `VerifiedFormalCommitV1` / `VerifiedBftHeaderCertificateV3`）；`oasis7_runtime` 仅消费 `VerifiedAuthorityCommit` | 输入：可信历史锚点（高度/epoch/激活清单）、候选提交引用、权威证明（Controlled 侧 decision 签名 + Writer Epoch + P/R proof-complete receipts，或 BFT 侧高度/轮次 + `floor(2W/3)+1` 预提交证书）；输出：保留 decision / qualified commit 语义区分、已核验高度与激活边界（`H / H+1`）的 `VerifiedAuthorityCommit` | 在节点提交接入与恢复闸门（`Stage 2`）调用；纯证明验证（含 P/R receipts 校验）失败返回确定性 `AuthorityCommitReject`；发起持久写入与处理本地 `StatusUnknown` 由外层持久闸门独立负责，不得由纯验签器绕过。 |
 
 <a id="crates-oasis7-retirement-matrix"></a>
-#### 6.5.3 `crates/oasis7` 兼容伞包退役与测试归位矩阵
+#### 6.5.3 `crates/oasis7` 兼容伞包退役与测试归位矩阵（已完成，Refs #6152）
 
-配合 [`testing-manual.md`](../../testing-manual.md) 的测试分层、`scripts/cargo-dev-architecture.py` 的依赖隔离门禁与 `scripts/plan-rust-required-scope.py` 的变更影响面收敛，`crates/oasis7` 当前真实残留源码与测试按以下职责矩阵逐步移交至合法 owner crate，期间禁止向 `crates/oasis7` 新增业务实现或跨组件集成测试：
+配合 [`testing-manual.md`](../../testing-manual.md) 的测试分层、`scripts/cargo-dev-architecture.py` 的依赖隔离门禁与 `scripts/plan-rust-required-scope.py` 的变更影响面收敛，`crates/oasis7` 原有源码与测试已按以下职责矩阵完成向合法 owner crate 的迁移，且 `crates/oasis7` 已于 `#7440`（`#6152 PR 9/10`）从根 `Cargo.toml` `workspace.members`、`Cargo.lock` 与 `scripts/ci-required-scope.json` 正式退役移除；严禁在仓库中重新引入对 `oasis7` 伞包的依赖或向 `crates/oasis7` 新增业务实现与测试：
 
-| 现存真实路径与职责切片（`crates/oasis7`） | 迁移目标宿主 Crate / Tool | 目标层级 | 验收回归门禁 |
+| 原职责切片（`crates/oasis7`） | 现行宿主 Crate / Tool | 架构层级 | 现状与验收门禁 |
 | --- | --- | --- | --- |
-| `crates/oasis7/src/simulator/` 中不感知 World/Kernel 的 actor、continuation、provider 泛型原语 | `oasis7_agent_harness`（严守 `DES-AGC-001`，不引入 Runtime/Simulator/Service 依赖） | `L3` | `cargo test -p oasis7_agent_harness`、`scripts/cargo-dev-architecture.py` 及 `scripts/check-rust-file-size.sh` |
-| `crates/oasis7/src/simulator/` 中仅依赖 Simulator 自身状态的确定性内核辅助 | `oasis7_simulator`（不含 host archives、agent runners 与模型 I/O） | `L2` | `cargo test -p oasis7_simulator`、`scripts/cargo-dev-architecture.py` 及 `scripts/check-rust-file-size.sh` |
-| `crates/oasis7/src/simulator/` 中涉及 Runtime/`WorldKernel` 接线、lease/receipt 适配与混合 snapshot/archive（如 `async_agent_runner.rs` 接线部分、`persist.rs`） | `oasis7_world_service`、`oasis7_chain_runtime` 或组合宿主层（实施前按真实消费者确定唯一 owner） | `L3` / `L4` | 对应 owner crate 定向回归及 `scripts/cargo-dev-architecture.py` 边界检查 |
-| 已迁移的 `consensus_action_payload`、decode 适配器与签名/来源测试 | `oasis7_world_service::consensus_action_payload`；Chain、Viewer 与工具直接消费，具体 Runtime/Simulator 动作适配留在 L3，L0 wire grammar 仍由 ClientAPI 拥有；伞包旧实现及导出已移除 | `L3` | 原签名向量、版本/来源拒绝、typed decode 中止测试及 `runtime-protocol` / `lifecycle-cli` 回归；ProtocolTools 仅 dev 依赖此 owner |
-| `crates/oasis7/src/runtime_host*`、`world_service*` 等剩余宿主实现；`module_source_compiler` 已归位 WorldService | `oasis7_world_service`、`oasis7_chain_runtime`、`oasis7_runtime`（按各自所有权分流；迁往 `chain_runtime` 时须先切换消费者，避免与 `chain_runtime -> oasis7` 形成环） | `L3` / `L2` | 对应 owner crate 定向回归及 `scripts/cargo-dev-architecture.py` 边界检查；剩余宿主及 Chain normal/dev 伞包依赖尚未清零 |
-| 原 `crates/oasis7/tests/*.rs` 集成测试（已迁至 owner crate，当前该目录仅留世界服务手册）及剩余 `crates/oasis7/src/simulator/tests/` | 对应 owner crate 集成测试目录（`oasis7_world_state`、`oasis7_runtime`、`oasis7_world_service`）或 `tools/scenario_test_runner` | `L2` / `L3` / `L4` | 保留 `required`/`full`/`wasmtime` 等 feature 条件与实际 test discovery，并经 `scripts/plan-rust-required-scope.py` 与 `scripts/cargo-dev-architecture.py` 验收 |
+| 原 `simulator/` 中不感知 World/Kernel 的 actor、continuation、provider 泛型原语 | `oasis7_agent_harness`（严守 `DES-AGC-001`，不引入 Runtime/Simulator/Service 依赖） | `L3` | **已归位**；由 `cargo test -p oasis7_agent_harness`、`scripts/cargo-dev-architecture.py` 及 `scripts/check-rust-file-size.sh` 守护 |
+| 原 `simulator/` 中仅依赖 Simulator 自身状态的确定性内核辅助 | `oasis7_simulator`（不含 host archives、agent runners 与模型 I/O） | `L2` | **已归位**；由 `cargo test -p oasis7_simulator`、`scripts/cargo-dev-architecture.py` 及 `scripts/check-rust-file-size.sh` 守护 |
+| 原 `simulator/` 与 `runtime_host*` 中涉及 Runtime/`WorldKernel` 接线、lease/receipt 适配、`harness_authority`、`runner`、`feedback`、`async_agent_runner` 与 `persist.rs` | `oasis7_runtime_host`（`#6149` / `#6151`） | `L3` | **已归位**；由 `oasis7_runtime_host` 定向回归及 `scripts/cargo-dev-architecture.py` 边界检查守护 |
+| 原 `consensus_action_payload`、`correlation`、decode 适配器、`module_source_compiler` 与 `world_service*` | `oasis7_world_service`（`#6607`、`#6613` 等） | `L3` | **已归位**；由 `oasis7_world_service`、`runtime-protocol` / `lifecycle-cli` 回归及 `scripts/cargo-dev-architecture.py` 守护 |
+| 原 `L4` / `L3` 消费者（`protocol_tools`、`chain_runtime`、`ops_tools`、`client_cli`、`model_provider`、`viewer_codec`、`provider_tools`、`viewer_runtime`）的 `oasis7` 伞包依赖 | 各自直连原生 owner（`oasis7_world_service`、`oasis7_runtime_host`、`oasis7_simulator`、`oasis7_agent_harness`、`oasis7_agent_api` 等） | `L4` / `L3` | **已清零并锁定**；`scripts/cargo-dev-architecture.json` 已为上述全部 crate 锁定对 `oasis7` 的禁止边 |
+| 原 `crates/oasis7/tests/*.rs` 集成测试与 `crates/oasis7/src/simulator/tests/`；根 `Cargo.toml` 成员与 CI 范围 | 对应 owner crate 集成测试目录（`oasis7_world_state`、`oasis7_runtime`、`oasis7_runtime_host`、`oasis7_world_service`）与 `tools/scenario_test_runner` | `L2` / `L3` / `L4` | **已归位并退役**；`crates/oasis7` 已于 `#7440` 从 `Cargo.toml` `workspace.members`、`Cargo.lock` 与 `scripts/ci-required-scope.json` 移除 |
