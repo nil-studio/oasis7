@@ -2159,6 +2159,11 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         }
         if 'launcher-web' in JOBS:
             priority_jobs.add('launcher-web')
+        if not (ROOT / 'crates/oasis7_custody_worker').exists():
+            priority_jobs -= {
+                'custody-native-contracts', 'custody-native',
+                'custody-wasm-production', 'custody-node',
+            }
         excluded_jobs = {
             'operational-contracts', 'packaging-contracts',
             'pr-fast-preview-plan', 'pr-fast-preview',
