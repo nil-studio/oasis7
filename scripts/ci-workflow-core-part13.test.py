@@ -482,10 +482,18 @@ class WorkflowCorePart13(unittest.TestCase):
         ecs_jobs = workflow_jobs(ecs_text)
         cache_workflow, shared_writer = self.shared_cache_workflow()
         dual_ecs = 'OASIS7_DEPENDENCY_CACHE_FAMILY: ecs-image\n' in ecs_jobs['native-trusted']
-        lanes = [
-            (shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
-            (ecs_jobs['native'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'),
-        ]
+        lanes = [(shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES')]
+        candidate = ecs_jobs['native']
+        if 'container: &ecs-native-container' in candidate:
+            self.assertIn('cache-mode: read', candidate)
+            restore, = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', candidate, re.M | re.S)
+                        if 'uses: Swatinem/rust-cache@' in step and "if: github.job == 'native' &&" in step]
+            self.assertIn('uses: Swatinem/rust-cache@' + revision[1], restore)
+            self.assertIn('save-if: false', restore)
+            self.assertIn('cache-on-failure: false', restore)
+            self.assertNotIn('GH_TOKEN:', restore)
+        else:
+            lanes.append((candidate, 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
         if not dual_ecs:
             lanes.append((ecs_jobs['native-trusted'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
         else:
