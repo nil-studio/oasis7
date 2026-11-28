@@ -363,6 +363,16 @@ pub(super) fn read_paid_before_deadline<T: serde::de::DeserializeOwned>(
     }
     remaining(deadline)?;
     let raw = fee.retain(bytes);
+    // Only the existing protected signed Query regression emits size metrics.
+    // They identify the precise bounded-CBOR admission cause without recording
+    // request identity, private response bytes or protected signatures.
+    #[cfg(test)]
+    {
+        let mut common = work.bounded_context(memory, cancelled);
+        use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::probe_cbor_data_shape_v1;
+        let shape = probe_cbor_data_shape_v1(raw.as_slice(), 128, &mut common);
+        eprintln!("paid RPC signed response frame len={len} shape={shape:?}");
+    }
     let decoded = {
         let mut common = work.bounded_context(memory, cancelled);
         let limits = CborDataLimitsV1 {
