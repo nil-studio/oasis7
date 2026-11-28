@@ -2525,24 +2525,6 @@
     },
     {
       "match": [
-        "scripts/check-duplicate-dependency-baseline.test.sh",
-        "scripts/fix-precommit.sh",
-        "scripts/llm-switch-coverage-diff.sh",
-        "scripts/oasis7-node-wasm-metrics-monitor.test.sh",
-        "scripts/oasis7-runtime-storage-gate.sh",
-        "scripts/readme-reward-pr-intake-import-smoke.sh",
-        "scripts/readme-reward-pr-intake-import.py",
-        "scripts/readme-reward-pr-intake-round-scan-smoke.sh",
-        "scripts/readme-reward-pr-intake-round-scan.py",
-        "scripts/readme_reward_pr_intake_lib.py"
-      ],
-      "groups": [
-        "workflow_governance"
-      ],
-      "reason": "retired_scripts_cleanup_registration"
-    },
-    {
-      "match": [
         "scripts/unified-world-code-terminology-scan.sh",
         "scripts/unified-world-code-terminology-scan.test.sh"
       ],
@@ -3047,8 +3029,7 @@
         "scripts/check-governance-hygiene*",
         "scripts/check-rust-hygiene*",
         "scripts/lint-skills*",
-        "skills-lock.json",
-        "scripts/pre-commit*"
+        "skills-lock.json"
       ],
       "groups": [
         "baseline"
