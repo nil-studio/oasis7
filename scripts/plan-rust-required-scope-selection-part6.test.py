@@ -519,5 +519,125 @@ class SelectionPart6(unittest.TestCase):
         self.assertIn('other', plan['groups'])
         self.assertEqual(plan['scope'], 'full')  # unverifiable merge topology
 
+class PostgresExecution(unittest.TestCase):
+    tearDown = SelectionPart6.tearDown
+    git = SelectionPart6.git
+    write = SelectionPart6.write
+    commit = SelectionPart6.commit
+
+    def setUp(self):
+        SelectionPart6.setUp(self)
+        manifest = Path('crates/consumer/Cargo.toml')
+        manifest.write_text(manifest.read_text().replace(',optional=true', ''))
+        self.base = self.commit()
+
+    def configuration(self):
+        config = copy.deepcopy(self.config)
+        for group in ('oasis7_required', 'formal_process', 'command_center', 'distfs'):
+            config['groups'].append(group)
+            config['resources'][group] = []
+        config.update(fast_scope_version=1, oasis7_required_packages=['core', 'consumer', 'other'],
+                      oasis7_required_wasm_packages=['core', 'other'], formal_risk_rules=[],
+                      command_center_fast_paths=['tools/oasis7-command-center/ui/src/**'])
+        config['package_groups'] = {name: ['oasis7_required'] for name in ('core', 'consumer', 'other')}
+        config['package_groups']['core'].append('distfs')
+        config['postgres_test_contract'] = {
+            'version': 1, 'group': 'distfs', 'runner': 'scripts/ci-postgres.py',
+            'server_version_num': 170012, 'module': 'crates/core/src/backend.rs',
+            'source': 'crates/core/src/backend/tests.rs',
+            'target': {'package': 'core', 'target_kind': 'lib', 'target_name': 'core',
+                       'default_features': True, 'features': []},
+            'case': 'backend::tests::acceptance'}
+        return config
+
+    def candidate(self, *, root='mod backend;', parent='#[cfg(test)] mod tests;',
+                  body='#[test] #[ignore] fn acceptance() {}'):
+        self.write('crates/core/src/lib.rs', root)
+        self.write('crates/core/src/backend.rs', parent)
+        self.write('crates/core/src/backend/tests.rs', body)
+        return self.commit()
+
+    def test_registered_real_target_and_qualified_case_execute_in_cargo(self):
+        config = self.configuration()
+        head = self.candidate()
+        plan = selector.select(config, self.base, head, profile='pr-fast')
+        proof = plan['postgres_test_contract']
+        self.assertTrue(proof['required'])
+        self.assertEqual(set(proof['proof_refs']), {self.base, head})
+        self.assertIn('distfs', plan['groups'])
+        env = dict(os.environ)
+        env.pop('RUSTC_WRAPPER', None)
+        result = subprocess.run(['cargo', 'test', '--offline', '-p', 'core', '--lib',
+                                 proof['case'], '--', '--exact', '--ignored'],
+                                text=True, capture_output=True, env=env, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('1 passed; 0 failed; 0 ignored;', result.stdout)
+
+    def test_candidate_cannot_self_enrol_or_borrow_a_short_name(self):
+        config = self.configuration()
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        head = self.candidate()
+        untrusted = copy.deepcopy(config)
+        del untrusted['postgres_test_contract']
+        with self.assertRaisesRegex(selector.TestPolicyError, 'trusted execution mapping'):
+            selector.select(untrusted, self.base, head, profile='pr-fast')
+        for key, value in [('case', 'elsewhere::acceptance'), ('source', 'crates/core/src/elsewhere.rs')]:
+            altered = copy.deepcopy(config)
+            altered['postgres_test_contract'][key] = value
+            with self.subTest(key=key), self.assertRaisesRegex(selector.TestPolicyError, 'trusted execution mapping'):
+                selector.select(altered, self.base, head, profile='pr-fast')
+        for target in [
+            dict(config['postgres_test_contract']['target'], target_name='missing'),
+            dict(config['postgres_test_contract']['target'], package='other', target_name='other'),
+        ]:
+            altered = copy.deepcopy(config)
+            altered['package_groups']['other'].append('distfs')
+            altered['postgres_test_contract']['target'] = target
+            with self.subTest(target=target), self.assertRaisesRegex(selector.TestPolicyError, 'trusted execution mapping'):
+                selector.select(altered, self.base, head, profile='pr-fast')
+
+    def test_conditions_missing_mount_aliases_and_extra_ignore_stay_rejected(self):
+        config = self.configuration()
+        cases = [
+            {'root': ''},
+            {'parent': '#[cfg(any())] mod tests;'},
+            {'parent': '#[cfg(feature="test_tier_full")] mod tests;'},
+            {'root': '#[path="backend.rs"] mod alias;'},
+            {'root': 'mod backend; #[path="backend.rs"] mod duplicate;'},
+            {'body': '#[test] #[cfg_attr(all(), ignore)] fn acceptance() {}'},
+            {'body': '#[cfg(feature="test_tier_full")] #[test] #[ignore] fn acceptance() {}'},
+            {'body': '#[test] #[ignore] fn acceptance() {} #[test] #[ignore] fn other() {}'},
+            {'body': 'mod nested { #[test] #[ignore] fn acceptance() {} }'},
+        ]
+        for case in cases:
+            with self.subTest(case=case):
+                head = self.candidate(**case)
+                with self.assertRaisesRegex(selector.TestPolicyError, 'trusted execution mapping|validated test feature'):
+                    selector.select(config, self.base, head, profile='pr-fast')
+
+    def test_absence_deletion_and_historical_full_keep_distinct_proofs(self):
+        config = self.configuration()
+        self.write('doc/readme.md', 'pre-registration')
+        empty = self.commit()
+        absent = selector.select(config, self.base, empty, profile='pr-fast')
+        self.assertFalse(absent['postgres_test_contract']['required'])
+        populated = self.candidate()
+        self.write('crates/core/src/lib.rs', '')
+        Path(config['postgres_test_contract']['module']).unlink()
+        Path(config['postgres_test_contract']['source']).unlink()
+        deleted = self.commit()
+        removal = selector.select(config, populated, deleted, profile='pr-fast')
+        self.assertTrue(removal['postgres_test_contract']['required'])
+        historical = selector.full_plan(config, 'candidate-full', empty, policy_ref=populated)
+        self.assertFalse(historical['postgres_test_contract']['required'])
+        new_full = selector.full_plan(config, 'candidate-full', deleted, policy_ref=populated)
+        self.assertTrue(new_full['postgres_test_contract']['required'])
+        self.git('checkout', '-qb', 'unrelated', self.base)
+        self.write('doc/readme.md', 'unrelated branch')
+        unrelated = self.commit()
+        fork = selector.full_plan(config, 'candidate-full', unrelated, policy_ref=populated)
+        self.assertTrue(fork['postgres_test_contract']['required'])
+
+
 if __name__ == '__main__':
     unittest.main()

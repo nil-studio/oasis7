@@ -1,5 +1,93 @@
 use super::super::transport::{Command, RESPONSE_DOMAIN, Response, ResponseBody, Value};
 use super::*;
+use oasis7_formal_protocol::controlled_authority::formal::{
+    bounded_context::FormalBoundedContextV1, context_wire::encode_paid,
+};
+use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
+
+const RESPONSE_DIGEST_DOMAIN: &str = "oasis7.formal.endpoint.rpc.response_body.v1";
+
+pub(crate) struct RpcResponseOwner {
+    // Drop the serialized fields before their source/copy reservations.
+    response: Response,
+    _checkpoint: Option<CheckpointRetention>,
+}
+impl RpcResponseOwner {
+    pub(crate) fn response(&self) -> &Response {
+        &self.response
+    }
+}
+struct CheckpointRetention {
+    _original: ReservedValue<Vec<u8>>,
+    _copy_fee: MemoryReservation,
+}
+fn paid_checkpoint_copy(
+    store: &Store,
+    ctx: &mut FormalBoundedContextV1<'_>,
+) -> Result<(Vec<u8>, CheckpointRetention), FormalError> {
+    let original = store.checkpoint_bytes_bounded(ctx)?;
+    let allocation = original
+        .len()
+        .checked_add(std::mem::size_of::<Vec<u8>>())
+        .ok_or_else(|| invalid("formal RPC checkpoint copy layout"))?;
+    ctx.consume_steps(1)?;
+    let copy_fee = ctx
+        .memory()
+        .reserve(allocation, MemoryClass::Ordinary)
+        .map_err(|_| invalid("formal RPC checkpoint copy admission"))?;
+    let mut bytes = Vec::with_capacity(original.len());
+    if bytes.capacity() > original.len() {
+        return Err(invalid("formal RPC checkpoint copy capacity"));
+    }
+    for chunk in original.chunks(8192) {
+        ctx.charge(1, chunk.len() as u64)?;
+        bytes.extend_from_slice(chunk);
+    }
+    Ok((
+        bytes,
+        CheckpointRetention {
+            _original: original,
+            _copy_fee: copy_fee,
+        },
+    ))
+}
+
+fn paid_response_digest(
+    body: &ResponseBody,
+    ctx: &mut FormalBoundedContextV1<'_>,
+) -> Result<ReservedValue<String>, FormalError> {
+    let payload = encode_paid(
+        body,
+        64 << 20,
+        ctx,
+        "formal encoding exceeds byte bound",
+        "formal RPC response body encoding",
+    )?;
+    ctx.consume_steps(1)?;
+    // Admit the digest while its input payload is still live in the same pool.
+    let fee = ctx
+        .memory()
+        .reserve(64 + std::mem::size_of::<String>(), MemoryClass::Ordinary)
+        .map_err(|_| invalid("formal RPC response digest admission"))?;
+    let mut hash = blake3::Hasher::new();
+    for part in [
+        &(RESPONSE_DIGEST_DOMAIN.len() as u64).to_be_bytes()[..],
+        RESPONSE_DIGEST_DOMAIN.as_bytes(),
+        payload.as_slice(),
+    ] {
+        for chunk in part.chunks(8192) {
+            ctx.charge(1, chunk.len() as u64)?;
+            hash.update(chunk);
+        }
+    }
+    ctx.charge(1, 64)?;
+    let digest = hash.finalize().to_hex().to_string();
+    if digest.capacity() != 64 {
+        return Err(invalid("formal RPC response digest capacity"));
+    }
+    Ok(fee.retain(digest))
+}
+
 pub(crate) fn verify_formal_rpc_checkpoint(
     response: &ResponseBody,
     authority: &VerifiedAuthorityV1,
@@ -45,7 +133,8 @@ impl FileFormalEndpoint {
         challenge: String,
         minimum: FormalHeadRefV1,
         command: &Command,
-    ) -> Result<Response, FormalError> {
+        context: Option<&mut FormalBoundedContextV1<'_>>,
+    ) -> Result<RpcResponseOwner, FormalError> {
         let mut guard = self.guard()?;
         let ancestry = self.minimum_witness_under_guard(&minimum)?;
         let result = match command {
@@ -80,12 +169,11 @@ impl FileFormalEndpoint {
             ));
         }
         self.sign_formal_rpc_response_with_guard(
-            request_digest,
-            challenge,
-            minimum,
+            (request_digest, challenge, minimum),
             result,
             ancestry,
             guard.as_mut(),
+            context,
         )
     }
 
@@ -95,28 +183,29 @@ impl FileFormalEndpoint {
         challenge: String,
         minimum: FormalHeadRefV1,
         result: Result<Value, FormalError>,
-    ) -> Result<Response, FormalError> {
+        context: Option<&mut FormalBoundedContextV1<'_>>,
+    ) -> Result<RpcResponseOwner, FormalError> {
         let mut guard = self.guard()?;
         let ancestry = self.store.minimum_witness(&minimum)?;
         self.sign_formal_rpc_response_with_guard(
-            request_digest,
-            challenge,
-            minimum,
+            (request_digest, challenge, minimum),
             result,
             ancestry,
             guard.as_mut(),
+            context,
         )
     }
 
     fn sign_formal_rpc_response_with_guard(
         &mut self,
-        request_digest: String,
-        challenge: String,
-        minimum: FormalHeadRefV1,
+        request_binding: (String, String, FormalHeadRefV1),
         result: Result<Value, FormalError>,
         ancestry: Vec<Vec<u8>>,
         guard: &mut dyn fencing::MonotonicEndpointGuard,
-    ) -> Result<Response, FormalError> {
+        mut context: Option<&mut FormalBoundedContextV1<'_>>,
+    ) -> Result<RpcResponseOwner, FormalError> {
+        let (request_digest, challenge, minimum) = request_binding;
+        let mut checkpoint_retention = None;
         let body = ResponseBody {
             schema_version: 1,
             request_digest,
@@ -127,13 +216,33 @@ impl FileFormalEndpoint {
             minimum,
             head: self.store.body.head.clone(),
             checkpoint: self.store.checkpoint.clone(),
-            checkpoint_bytes: self.store.checkpoint_bytes()?,
+            checkpoint_bytes: match context.as_deref_mut() {
+                Some(ctx) => {
+                    let (bytes, retention) = paid_checkpoint_copy(&self.store, ctx)?;
+                    checkpoint_retention = Some(retention);
+                    bytes
+                }
+                None => self.store.checkpoint_bytes()?,
+            },
             ancestry,
             provider: guard.evidence().map_err(fencing_error)?,
             result,
         };
-        let response_digest = hash("oasis7.formal.endpoint.rpc.response_body.v1", &body)?;
-        let preimage = bytes(RESPONSE_DOMAIN, &response_digest)?;
+        let legacy_digest;
+        let paid_digest;
+        let response_digest = match context {
+            Some(ctx) => {
+                paid_digest = paid_response_digest(&body, ctx)?;
+                &*paid_digest
+            }
+            None => {
+                legacy_digest = hash(RESPONSE_DIGEST_DOMAIN, &body)?;
+                &legacy_digest
+            }
+        };
+        // The digest owner spans the original preimage/signing operations.
+        // Response DTO/source reads and signer workspace are separate phases.
+        let preimage = bytes(RESPONSE_DOMAIN, response_digest)?;
         let (signature, protected_signature) = if self.key.is_some() {
             (
                 self.sign_at_checkpoint(
@@ -164,10 +273,13 @@ impl FileFormalEndpoint {
             .map_err(fencing_error)?;
             (signature, Some(signed))
         };
-        Ok(Response {
-            body,
-            signature,
-            protected_signature,
+        Ok(RpcResponseOwner {
+            response: Response {
+                body,
+                signature,
+                protected_signature,
+            },
+            _checkpoint: checkpoint_retention,
         })
     }
 
@@ -187,3 +299,7 @@ impl FileFormalEndpoint {
         result
     }
 }
+
+#[cfg(test)]
+#[path = "endpoint_rpc_response_digest_tests.rs"]
+mod response_digest_tests;

@@ -118,7 +118,7 @@ pub(crate) fn decode_bounded<T: DeserializeOwned + Serialize>(
 
 /// Rejects indefinite CBOR and impossible container declarations before the
 /// deserializer can reserve attacker-selected vector/map capacities.
-fn scan_cbor_bounds(bytes: &[u8]) -> Result<(), BftSignerErrorV3> {
+pub(super) fn scan_cbor_bounds(bytes: &[u8]) -> Result<(), BftSignerErrorV3> {
     let mut offset = 0usize;
     scan_item(bytes, &mut offset, 0)?;
     if offset != bytes.len() {

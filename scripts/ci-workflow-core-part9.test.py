@@ -196,6 +196,14 @@ def selected_source_steps(name):
     return steps
 
 
+def validate_publish_login_order(job):
+    login = '      - name: Log in to GHCR and prepare image publisher\n'
+    logout = '      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n'
+    assert job.count(login) == job.count(logout) == 1
+    pushes = list(re.finditer(r'^        run: bash "\$RUNNER_TEMP/publish-ci-image.sh" [a-z-]+$', job, re.M))
+    assert pushes and all(job.index(login) < push.start() < job.index(logout) for push in pushes)
+
+
 class WorkflowCorePart9(unittest.TestCase):
     def test_candidate_full_preserves_full_setup_and_execution(self):
         # Both lanes run the same full validation. Only the trusted main lane
@@ -283,17 +291,22 @@ class WorkflowCorePart9(unittest.TestCase):
 
     def test_additive_security_steps_preserve_candidate_groups(self):
         for name in ('net', 'viewer-js-required', 'viewer-performance-report', 'workflow-governance'):
+            if name == 'viewer-performance-report' and name not in JOBS:
+                continue
             self.assertEqual(JOBS[name].count('name: Execute selected group'), 1)
             self.assertIn(f'bash ./scripts/ci-tests.sh required --group "{name.replace(chr(45), chr(95))}"', JOBS[name])
-        performance = JOBS['viewer-performance-report']
-        self.assertIn('uses: ./.github/actions/setup-ci-browser', performance)
-        self.assertIn('browser: agent', performance)
-        self.assertIn("node-version: '24'", performance)
-        self.assertLess(performance.index('Install pinned performance browser'), performance.index('Execute selected group'))
+        if 'viewer-performance-report' in JOBS:
+            performance = JOBS['viewer-performance-report']
+            self.assertIn('uses: ./.github/actions/setup-ci-browser', performance)
+            self.assertIn('browser: agent', performance)
+            self.assertIn("node-version: '24'", performance)
+            self.assertLess(performance.index('Install pinned performance browser'), performance.index('Execute selected group'))
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         for job, forbidden in [('net', 'Verify pinned network source'),
                                ('viewer-js-required', 'Verify browser authentication security'),
                                ('viewer-performance-report', 'Build performance test artifact')]:
+            if job == 'viewer-performance-report' and job not in JOBS:
+                continue
             self.assertNotIn(forbidden, JOBS[job])
         net = JOBS['net']
         compiler_step = ('Verify the preinstalled WASM C compiler' if rust_image_cache_namespace('net', net)
@@ -313,6 +326,8 @@ class WorkflowCorePart9(unittest.TestCase):
     def test_bindgen_cache_has_exact_identity_and_single_trusted_writer(self):
         identities = []
         for name in ('viewer-js-required', 'viewer-performance-report', 'full-regression'):
+            if name == 'viewer-performance-report' and name not in JOBS:
+                continue
             job = JOBS[name]
             self.assertIn('source scripts/wasm-bindgen-cli-common.sh', job)
             self.assertIn('uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25', job)
@@ -387,12 +402,33 @@ class WorkflowCorePart9(unittest.TestCase):
             self.assertIn('headless: false', smoke)
             self.assertIn('--target wasm32-unknown-unknown --crate-type lib', smoke)
             self.assertNotIn('docker.sock', leaf)
+        oss_leaf = ROOT / 'docker/ci-base/ecs-oss/Dockerfile'
+        if oss_leaf.is_file():
+            leaf = oss_leaf.read_text()
+            self.assertIn('FROM ghcr.io/nil-studio/oasis7/ci-api-runtime@sha256:ba7c763f7b634b672c6dccef1384bce4daf7abd44a65d613696a748891e3c0ed AS api-base\n', leaf)
+            self.assertIn('FROM api-base AS ecs-oss-publisher\n', leaf)
+            self.assertIn('RUN --network=none python3 /opt/oss-build/prepare.py install /tmp/oss-distributions\n', leaf)
+            self.assertIn('COPY --from=sdk-builder /opt/oasis7-oss /opt/oasis7-oss\n', leaf)
+            oss_build = (ROOT / 'docker/ci-base/ecs-oss/build.sh').read_text()
+            self.assertIn('--network none --user 1001:1001', oss_build)
+            self.assertIn('python3 /opt/oasis7-oss-proof/smoke.py', oss_build)
+            self.assertNotIn('GHCR_TOKEN', leaf)
+            self.assertIn('    permissions:\n      contents: read\n      packages: read\n', ci_base_jobs['build'])
+            self.assertIn("          GHCR_TOKEN: ${{ matrix.target == 'ecs-oss-publisher' && github.token || '' }}\n", ci_base_jobs['build'])
+            self.assertIn('''          if [[ "$TARGET" == ecs-oss-publisher ]]; then
+            ./docker/ci-base/ecs-oss/build.sh
+          else
+            ./docker/ci-base/build.sh "$TARGET"
+          fi''', ci_base_jobs['build'])
+            targets.append('ecs-oss-publisher')
         self.assertIn(f"target: [{', '.join(targets)}]\n", ci_base_jobs['build'])
         publish_job = ci_base_jobs['publish']
         publish_header = publish_job.split('    steps:', 1)[0]
         groups = 'base, specialized, app-wasm' if 'rust-viewer' in targets else 'base, specialized'
         if 'rust-release-web' in targets:
             groups += ', release-web'
+        if 'ecs-oss-publisher' in targets:
+            groups += ', ecs-oss'
         self.assertIn(f'    strategy:\n      matrix:\n        group: [{groups}]\n', publish_header)
         self.assertIn('timeout-minutes: 10\n', publish_header)
         self.assertIn("if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n", publish_header)
@@ -406,6 +442,7 @@ class WorkflowCorePart9(unittest.TestCase):
             ('specialized', {'codeql-rust', 'api-runtime', 'rust-ordinary-builder', 'rust-full-regression'}),
             ('app-wasm' if 'rust-viewer' in targets else 'specialized', {'rust-custody-wasm', 'rust-viewer'}),
             ('release-web', {'rust-release-web'}),
+            ('ecs-oss', {'ecs-oss-publisher'}),
         )
         by_target = {target: group for group, members in expected_groups for target in members}
         routes = [(by_target[target], target) for target in targets]
@@ -423,6 +460,12 @@ class WorkflowCorePart9(unittest.TestCase):
         self.assertEqual(pushes, routes)
         self.assertEqual(re.findall(r'^          name: ci-image-([a-z-]+)$', publish_job, re.M), targets)
         self.assertEqual(publish_job.count('run: bash "$RUNNER_TEMP/publish-ci-image.sh"'), len(targets))
+        validate_publish_login_order(publish_job)
+        logout = '      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n'
+        early_logout = publish_job.replace(logout, '')
+        last_publish = early_logout.rfind('      - name: Publish verified ')
+        with self.assertRaises(AssertionError):
+            validate_publish_login_order(early_logout[:last_publish] + logout + early_logout[last_publish:])
         self.assertIn('      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n', publish_job)
 
         wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()

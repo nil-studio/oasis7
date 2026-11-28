@@ -52,7 +52,9 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: docker
-    directory: "/docker/wasm-builder"
+    directories:
+      - "/docker/wasm-builder"
+      - "/docker/ci-base/ecs-oss"
     schedule:
       interval: cron
       cronjob: "0 9 * * 1,3"

@@ -17,6 +17,8 @@ mod luna_key;
 #[cfg(feature = "protected-bft-luna-key")]
 pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod postgres_backend;
 mod private_retention_alternatives;
 mod private_retention_input;
 mod private_retention_input_authorization;

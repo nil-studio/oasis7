@@ -95,6 +95,99 @@ fn independent_reopen_keeps_exact_original_bytes_and_duplicate_publication() {
 }
 
 #[test]
+fn exact_streaming_readback_rejects_wrong_bytes_lengths_and_fresh_disk_changes() {
+    let root = Scratch::new();
+    let store = root.store();
+    for original in [b"raw original".to_vec(), vec![63; 128 * 1024]] {
+        let reference = store.persist_object(&original, original.len()).unwrap();
+        store
+            .verify_object_bytes(&reference, &original, original.len())
+            .unwrap();
+        let mut wrong = original.clone();
+        *wrong.last_mut().unwrap() ^= 1;
+        assert!(
+            store
+                .verify_object_bytes(&reference, &wrong, original.len())
+                .is_err()
+        );
+        assert!(
+            store
+                .verify_object_bytes(&reference, &original[..original.len() - 1], original.len())
+                .is_err()
+        );
+        assert!(
+            store
+                .verify_object_bytes(&reference, &original, original.len() - 1)
+                .is_err()
+        );
+        let mut forged = reference.clone();
+        forged.bytes += 1;
+        assert!(
+            store
+                .verify_object_bytes(&forged, &original, original.len() + 1)
+                .is_err()
+        );
+        let path = root.blob(&reference);
+        let disk = fs::read(&path).unwrap();
+        for broken in [&disk[..disk.len() - 1], b"changed disk bytes".as_slice()] {
+            fs::write(&path, broken).unwrap();
+            assert!(
+                store
+                    .verify_object_bytes(&reference, &original, original.len())
+                    .is_err()
+            );
+            assert_eq!(fs::read(&path).unwrap(), broken);
+        }
+    }
+}
+
+#[test]
+fn near_capacity_original_cas_readback_keeps_exact_buffer_capacity() {
+    let root = Scratch::new();
+    let mut original = vec![33; 66 * 1024 * 1024 - 17];
+    for compressible in [true, false] {
+        if !compressible {
+            let mut state = 0x3141_5926_5358_9793u64;
+            for chunk in original.chunks_mut(8) {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                chunk.copy_from_slice(&state.to_le_bytes()[..chunk.len()]);
+            }
+        }
+        let reference = root
+            .store()
+            .persist_object(&original, original.len())
+            .unwrap();
+        let path = root.blob(&reference);
+        assert_eq!(
+            fs::metadata(&path).unwrap().len() < original.len() as u64,
+            compressible
+        );
+        let reopened = root.store();
+        let reread = reopened.load_object(&reference, original.len()).unwrap();
+        assert_eq!(reread, original);
+        assert_eq!(
+            reread.capacity(),
+            original.len(),
+            "cold read must not grow to 128 MiB"
+        );
+        drop(reread);
+        assert_eq!(
+            reopened.persist_object(&original, original.len()).unwrap(),
+            reference
+        );
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let truncated = file.metadata().unwrap().len() - 1;
+        file.set_len(truncated).unwrap();
+        drop(file);
+        assert!(reopened.load_object(&reference, original.len()).is_err());
+        assert!(reopened.persist_object(&original, original.len()).is_err());
+        assert_eq!(fs::metadata(&path).unwrap().len(), truncated);
+    }
+}
+
+#[test]
 fn corrupt_existing_hash_path_is_not_accepted_or_silently_repaired_by_put() {
     let root = Scratch::new();
     let original = b"exact original public bytes";

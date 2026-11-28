@@ -7,7 +7,7 @@ use libp2p::request_response;
 use libp2p::swarm::Swarm;
 use libp2p::{Multiaddr, PeerId};
 use oasis7_proto::distributed_dht::PeerRecord;
-use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
+use oasis7_proto::distributed_net::NetworkResponse;
 
 use crate::error::WorldError;
 
@@ -82,7 +82,7 @@ pub(super) fn admit_inbound_handler(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn dispatch_inbound_request(
-    request: NetworkRequest,
+    request: super::request_deadline::LocalRequest,
     channel: request_response::ResponseChannel<NetworkResponse>,
     peer: PeerId,
     handlers: &HashMap<String, HandlerRegistration>,
@@ -101,6 +101,11 @@ pub(super) fn dispatch_inbound_request(
     allow_loopback_external_addrs_for_testing: bool,
     discovered_peer_records: &PeerRecordCache,
 ) {
+    let super::request_deadline::LocalRequest {
+        message: request,
+        response_resources,
+        ..
+    } = request;
     let dispatch_now_ms = now_ms();
     record_request_inbound(
         traffic_metrics,
@@ -177,10 +182,9 @@ pub(super) fn dispatch_inbound_request(
             );
             return;
         }
-        let release = registration
-            .authenticated
-            .as_ref()
-            .map(|auth| super::authenticated_reply::ReplyGuard::new(auth.alive.clone()));
+        let release = registration.authenticated.as_ref().map(|auth| {
+            super::authenticated_reply::ReplyGuard::new(auth.alive.clone(), response_resources)
+        });
         let selected = if let Some(auth) = &registration.authenticated {
             if !auth.alive.load(std::sync::atomic::Ordering::Acquire) {
                 Err(super::authenticated_requests::rejected(

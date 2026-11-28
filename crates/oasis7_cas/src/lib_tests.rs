@@ -65,6 +65,31 @@ fn concurrent_atomic_writers_publish_complete_files() {
 }
 
 #[test]
+fn failed_or_panicking_atomic_writer_preserves_publication_and_cleans_temp() {
+    let dir = temp_dir("failed-atomic-writer");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("original");
+    fs::write(&path, b"published original").unwrap();
+    for panic in [false, true] {
+        let result = std::panic::catch_unwind(|| {
+            write_file_atomic(&path, |file| {
+                file.write_all(b"partial replacement")?;
+                assert!(!panic, "injected writer unwind");
+                Err(std::io::Error::other("injected disk failure"))
+            })
+        });
+        if panic {
+            assert!(result.is_err(), "the callback must actually unwind");
+        } else {
+            assert!(matches!(result, Ok(Err(_))));
+        }
+        assert_eq!(fs::read(&path).unwrap(), b"published original");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn cas_roundtrip_and_pin() {
     let dir = temp_dir("cas");
     let store = LocalCasStore::new(&dir);
@@ -310,6 +335,9 @@ fn cas_does_not_misdecode_raw_blob_that_looks_like_compressed_payload() {
 
     assert_eq!(store.get(&hash).expect("get"), bytes);
     assert_eq!(store.get_verified(&hash).expect("verified get"), bytes);
+    store
+        .put(&hash, &bytes)
+        .expect("same raw magic-prefixed original");
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -767,4 +795,199 @@ fn duplicate_put_accepts_verified_compressed_and_raw_blobs() {
         assert_eq!(store.get_verified(&hash).expect("verified read"), original);
     }
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn near_capacity_disk_encoding_streams_compressed_or_rewrites_exact_raw() {
+    let dir = temp_dir("bounded-encoding");
+    let store = LocalCasStore::new(&dir);
+    let mut original = vec![42; 66 * 1024 * 1024 - 17];
+    for compressible in [true, false] {
+        if !compressible {
+            let mut state = 0x2718_2818_2845_9045u64;
+            for chunk in original.chunks_mut(8) {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                chunk.copy_from_slice(&state.to_le_bytes()[..chunk.len()]);
+            }
+        }
+        let hash = store.hash_hex(&original);
+        store.put(&hash, &original).unwrap();
+        let path = store.blob_path(&hash).unwrap();
+        let mut file = fs::File::open(&path).unwrap();
+        let disk_len = file.metadata().unwrap().len() as usize;
+        assert!(disk_len <= original.len());
+        assert_eq!(disk_len < original.len(), compressible);
+        let mut prefix = [0; 8];
+        file.read_exact(&mut prefix).unwrap();
+        assert_eq!(&prefix == COMPRESSED_BLOB_MAGIC, compressible);
+        file.rewind().unwrap();
+        let (count, receipt) = decode_local_blob_with(
+            HashAlgorithm::Blake3,
+            &hash,
+            file,
+            original.len(),
+            Some(23),
+            |reader| std::io::copy(reader, &mut std::io::sink()),
+        )
+        .unwrap();
+        assert_eq!(count, original.len() as u64);
+        assert_eq!(receipt.decoded_bytes, original.len());
+        assert_eq!(receipt.content_hash, hash);
+        store.put(&hash, &original).unwrap();
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn compression_handles_partial_writes_and_does_not_hide_real_io_errors() {
+    struct Writer {
+        total: usize,
+        largest: usize,
+        fail: Option<std::io::ErrorKind>,
+    }
+    impl Write for Writer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.largest = self.largest.max(bytes.len());
+            if self.total >= COMPRESSED_BLOB_HEADER_LEN
+                && let Some(kind) = self.fail
+            {
+                return Err(std::io::Error::new(kind, "injected disk error"));
+            }
+            let count = bytes.len().min(7);
+            self.total += count;
+            Ok(count)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let store = LocalCasStore::new(temp_dir("streaming-writer"));
+    let mut raw = vec![0; 512 * 1024];
+    let mut state = 0x1234_5678_9abc_def0u64;
+    for chunk in raw[..256 * 1024].chunks_mut(8) {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        chunk.copy_from_slice(&state.to_le_bytes());
+    }
+    raw.copy_within(..256 * 1024, 256 * 1024);
+    let hash = store.hash_hex(&raw);
+    let mut writer = Writer {
+        total: 0,
+        largest: 0,
+        fail: None,
+    };
+    assert!(store.compress_blob_into(&hash, &raw, &mut writer).unwrap());
+    assert!(writer.total > 32 * 1024 && writer.total < raw.len());
+    assert!(writer.largest <= 32 * 1024, "pinned zio output buffer");
+    for kind in [std::io::ErrorKind::WriteZero, std::io::ErrorKind::Other] {
+        let mut writer = Writer {
+            total: 0,
+            largest: 0,
+            fail: Some(kind),
+        };
+        let error = store
+            .compress_blob_into(&hash, &raw, &mut writer)
+            .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            kind,
+            "real I/O error cannot request raw fallback"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn duplicate_put_rejects_symlink_dangling_fifo_and_directory_leaves() {
+    use std::os::unix::{ffi::OsStrExt, fs::symlink};
+    let dir = temp_dir("nofollow-existing");
+    let store = LocalCasStore::new(&dir);
+    let raw = b"original nofollow content";
+    let hash = store.put_bytes(raw).unwrap();
+    let path = store.blob_path(&hash).unwrap();
+    let target = dir.join("target");
+    fs::write(&target, raw).unwrap();
+    fs::remove_file(&path).unwrap();
+    for destination in [&target, &dir.join("missing-target")] {
+        symlink(destination, &path).unwrap();
+        assert!(store.put(&hash, raw).is_err());
+        assert!(
+            fs::symlink_metadata(&path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        fs::remove_file(&path).unwrap();
+    }
+    assert_eq!(fs::read(&target).unwrap(), raw);
+    assert!(!dir.join("missing-target").exists());
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: name owns a NUL-terminated path for the entire call; mode is a
+    // valid permission mask. mkfifo neither retains nor writes this pointer.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    assert!(store.put(&hash, raw).is_err());
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    assert!(store.put(&hash, raw).is_err());
+    assert!(path.is_dir());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn duplicate_put_bounds_decoder_history_without_changing_generic_cold_read() {
+    let dir = temp_dir("bounded-history");
+    let store = LocalCasStore::new(&dir);
+    let raw = vec![71; 9 * 1024 * 1024];
+    let hash = store.put_bytes(&raw).unwrap();
+    let path = store.blob_path(&hash).unwrap();
+    for window in [23, 24] {
+        let mut disk = COMPRESSED_BLOB_MAGIC.to_vec();
+        disk.extend_from_slice(&(raw.len() as u64).to_le_bytes());
+        disk.extend_from_slice(hash.as_bytes());
+        let mut encoder = zstd::stream::write::Encoder::new(&mut disk, 3).unwrap();
+        encoder.window_log(window).unwrap();
+        encoder.write_all(&raw).unwrap();
+        encoder.finish().unwrap();
+        fs::write(&path, &disk).unwrap();
+        assert_eq!(store.put(&hash, &raw).is_ok(), window == 23);
+        assert_eq!(fs::read(&path).unwrap(), disk);
+        assert_eq!(store.get_verified(&hash).unwrap(), raw);
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn duplicate_put_streams_both_hashes_and_rejects_damaged_encoded_headers() {
+    for algorithm in [HashAlgorithm::Blake3, HashAlgorithm::Sha256] {
+        let dir = temp_dir("stream-verified-duplicate");
+        let store = LocalCasStore::new_with_hash_algorithm(&dir, algorithm);
+        let original = vec![77; 256 * 1024 + 3];
+        let hash = store.put_bytes(&original).unwrap();
+        let path = store.blob_path(&hash).unwrap();
+        let encoded = fs::read(&path).unwrap();
+        assert!(encoded.starts_with(COMPRESSED_BLOB_MAGIC));
+        store.put(&hash, &original).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), encoded);
+        for malformed in [
+            encoded[..encoded.len() - 1].to_vec(),
+            {
+                let mut b = encoded.clone();
+                b[8..16].copy_from_slice(&(original.len() as u64 + 1).to_le_bytes());
+                b
+            },
+            {
+                let mut b = encoded.clone();
+                b[16] ^= 1;
+                b
+            },
+        ] {
+            fs::write(&path, &malformed).unwrap();
+            assert!(store.put(&hash, &original).is_err());
+            assert_eq!(fs::read(&path).unwrap(), malformed);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

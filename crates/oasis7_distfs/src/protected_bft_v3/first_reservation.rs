@@ -274,10 +274,38 @@ pub(super) fn prepare_first_reservation(
     generation: u64,
     key: &dyn BftSigningKeyHandleV3,
 ) -> Result<(BftFirstReservedOriginalV1, BftSignerStateV3), BftSignerErrorV3> {
+    prepare_first_reservation_checked(
+        before,
+        activation,
+        reference,
+        input,
+        generation,
+        key,
+        |_, _| Ok(()),
+    )
+}
+
+pub(super) fn prepare_first_reservation_checked(
+    before: &BftSignerStateV3,
+    activation: &BftPrivateRetentionActivationV1,
+    reference: &BftPrivateRetentionAdmissionInputRefV1,
+    input: Arc<BftPrivateRetentionAdmissionInputV1>,
+    generation: u64,
+    key: &dyn BftSigningKeyHandleV3,
+    preflight: impl FnOnce(
+        &BftFirstReservedOriginalV1,
+        &BftSignerStateV3,
+    ) -> Result<(), BftSignerErrorV3>,
+) -> Result<(BftFirstReservedOriginalV1, BftSignerStateV3), BftSignerErrorV3> {
     let (mut ledger, after) = reserve_body(before, activation, reference, &input, generation)?;
     check_namespace_budget(&ledger.receipt.body, 0)?;
-    ledger.receipt.signature_hex = sign_preimage(key, RECEIPT_DOMAIN, &ledger.receipt.body)?;
-    Ok((BftFirstReservedOriginalV1 { ledger, input }, after))
+    // Only a bounded, unsigned sizing candidate. It never reaches the backend.
+    ledger.receipt.signature_hex = "0".repeat(128);
+    let mut original = BftFirstReservedOriginalV1 { ledger, input };
+    preflight(&original, &after)?;
+    original.ledger.receipt.signature_hex =
+        sign_preimage(key, RECEIPT_DOMAIN, &original.ledger.receipt.body)?;
+    Ok((original, after))
 }
 
 pub(super) fn verify_first_reservation(

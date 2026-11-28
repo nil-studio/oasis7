@@ -30,9 +30,10 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
+      packages: read
     strategy:
       matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust, api-runtime, rust-ordinary-builder, rust-custody-wasm, rust-viewer, rust-full-regression, rust-release-web]
+        target: [runtime, build, browser, rust-build, rust-wasm-build, codeql-rust, api-runtime, rust-ordinary-builder, rust-custody-wasm, rust-viewer, rust-full-regression, rust-release-web, ecs-oss-publisher]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -41,7 +42,13 @@ jobs:
       - name: Build and smoke test
         env:
           TARGET: ${{ matrix.target }}
-        run: ./docker/ci-base/build.sh "$TARGET"
+          GHCR_TOKEN: ${{ matrix.target == 'ecs-oss-publisher' && github.token || '' }}
+        run: |
+          if [[ "$TARGET" == ecs-oss-publisher ]]; then
+            ./docker/ci-base/ecs-oss/build.sh
+          else
+            ./docker/ci-base/build.sh "$TARGET"
+          fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         if: github.event_name == 'pull_request' && matrix.target == 'build'
         with:
@@ -150,7 +157,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        group: [base, specialized, app-wasm, release-web]
+        group: [base, specialized, app-wasm, release-web, ecs-oss]
     steps:
       - name: Log in to GHCR and prepare image publisher
         env:
@@ -262,6 +269,13 @@ jobs:
       - name: Publish verified Release Web image
         if: matrix.group == 'release-web'
         run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-release-web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: matrix.group == 'ecs-oss'
+        with:
+          name: ci-image-ecs-oss-publisher
+      - name: Publish verified ECS OSS SDK image
+        if: matrix.group == 'ecs-oss'
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" ecs-oss-publisher
       - name: Log out of GHCR
         if: always()
         run: docker logout ghcr.io

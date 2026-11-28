@@ -65,7 +65,8 @@ def build_variants(root):
         add('support-' + package, args, environment)
     # The fixture's two provider filters share one exact compile context. Its
     # actual three behavior checks and the production guard remain in full.
-    add('fixture-world', ['test', '-p', 'oasis7', '--features', 'test_tier_full', '--no-run'])
+    add('fixture-world', ['test', '-p', 'oasis7_runtime_host', '--lib',
+                          '--features', 'test_tier_full', '--no-run'])
     add('fixture-provider', ['test', '-p', 'oasis7_provider_tools', '--bin',
                             'oasis7_llm_agent_demo', '--features', 'test_tier_full', '--no-run'])
     add('production-native', ['build', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_launcher_backend',

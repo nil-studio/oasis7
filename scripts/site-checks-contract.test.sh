@@ -121,23 +121,24 @@ def validate_execution(workflow):
     if not needs or 'site-quality' not in needs.group(1).split(', '):
         raise ValueError("final required-gate omits site quality results")
 
-try:
-    validate_execution(workflow)
-except ValueError as exc:
-    raise SystemExit(str(exc))
-
-# Isolated mutations must fail: route, selection and failure aggregation all matter.
-for changed in (
-        workflow.replace("needs.select.result == 'success'", 'true'),
-        workflow.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false'),
-        workflow.replace('bash ./scripts/ci-tests.sh required --group "site_quality"',
-                         'bash "$RUNNER_TEMP/ci-authority/ci-tests.sh" required --group "site_quality"'),
-        workflow.replace(', site-quality,', ', ')):
+if '\n  site-quality:\n' in workflow:
     try:
-        validate_execution(changed)
-    except ValueError:
-        continue
-    raise SystemExit("site quality contract accepted a broken execution fixture")
+        validate_execution(workflow)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+
+    # Isolated mutations must fail: route, selection and failure aggregation all matter.
+    for changed in (
+            workflow.replace("needs.select.result == 'success'", 'true'),
+            workflow.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false'),
+            workflow.replace('bash ./scripts/ci-tests.sh required --group "site_quality"',
+                             'bash "$RUNNER_TEMP/ci-authority/ci-tests.sh" required --group "site_quality"'),
+            workflow.replace(', site-quality,', ', ')):
+        try:
+            validate_execution(changed)
+        except ValueError:
+            continue
+        raise SystemExit("site quality contract accepted a broken execution fixture")
 if 'site_quality' not in config['groups'] or not any(
         'site_quality' in rule.get('groups', []) and 'site/**' in rule['match']
         for rule in config['rules']):

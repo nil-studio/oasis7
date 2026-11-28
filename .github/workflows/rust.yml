@@ -888,7 +888,7 @@ jobs:
           retention-days: 14
 
   pr-fast-preview-plan:
-    if: github.event_name == 'pull_request' && github.event.action != 'labeled' && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
+    if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci-fast-preview') && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -1098,18 +1098,6 @@ jobs:
           path: ${{ steps.report.outputs.path }}
           retention-days: 14
           if-no-files-found: error
-
-  command-center:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).command_center_offline_version != 1 &&
-      (needs.select.outputs.run_command_center == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    uses: ./.github/workflows/command-center.yml
-    with:
-      source_sha: ${{ needs.select.outputs.tested_sha }}
-      package_app: ${{ needs.select.outputs.command_center_package == 'true' }}
 
   baseline:
     needs: select
@@ -3020,69 +3008,6 @@ jobs:
           fi
       - *engineering-job-observation
 
-  consensus:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_consensus == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - *linux-mold-tools-checkout
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Trust the checked-out workspace path in the job container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Verify the preinstalled Rust toolchains
-        run: |
-          set -euo pipefail
-          rustc +"$RUST_TOOLCHAIN" -vV
-          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
-          cargo +"$RUST_TOOLCHAIN" clippy --version
-          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
-      - name: Stabilize Rust cache toolchains
-        shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          save-if: false
-          shared-key: ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
-          add-rust-environment-hash-key: true
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          cache-on-failure: false
-      - name: Execute selected group
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "consensus" --repo-root "$GITHUB_WORKSPACE"
-
   distfs:
     needs: [select, fast-preflight]
     if: >-
@@ -3100,6 +3025,17 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
+    services:
+      postgres:
+        # Official PostgreSQL 17.12, isolated to this job's service network.
+        image: postgres:17.12-trixie@sha256:97fb53376be3e4fb1a8a61421daa69dcc3bf2fa39bda3259f5245f9a455af1a9
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s --health-timeout 5s --health-retries 15
     defaults:
       run:
         shell: bash
@@ -3164,6 +3100,30 @@ jobs:
             plan_args=(--plan "$selection")
           fi
           bash ./scripts/ci-tests.sh required --group "distfs" "${plan_args[@]}" --repo-root "$GITHUB_WORKSPACE"
+      - name: Run trusted PostgreSQL acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          selection="$RUNNER_TEMP/selection.json"
+          policy=$(python3 - "$selection" <<'PYCODE'
+          import json, re, sys
+          policy = json.load(open(sys.argv[1]))['policy_sha']
+          assert isinstance(policy, str) and re.fullmatch(r'[0-9a-f]{40}', policy)
+          print(policy)
+          PYCODE
+          )
+          authority=$(mktemp -d "$RUNNER_TEMP/postgres-authority.XXXXXX")
+          trap 'rm -rf "$authority"' EXIT
+          git show "$policy:scripts/ci_process_runner.py" > "$authority/ci_process_runner.py"
+          if git cat-file -e "$policy:scripts/ci-postgres.py" 2>/dev/null; then
+            git show "$policy:scripts/ci-postgres.py" > "$authority/ci-postgres.py"
+          else
+            # The old policy cannot authorize a product ignore. The runner
+            # independently proves every compared source predates the backend.
+            cp scripts/ci-postgres.py "$authority/ci-postgres.py"
+          fi
+          python3 "$authority/ci-postgres.py" --repo-root "$GITHUB_WORKSPACE" --plan "$selection"
+
 
   node:
     needs: [select, fast-preflight]
@@ -3596,225 +3556,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-
-  viewer-performance-report:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_viewer_performance_report == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ${{ needs.select.outputs.viewer_image_compatible == 'true' && 'ghcr.io/nil-studio/oasis7/ci-rust-viewer@sha256:24c8784c4d8f85b0b9e651f632cece06bb9259affe915fe281896290137e4e45' || '' }}
-      options: --user 1001:1001 --init
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    env:
-      VIEWER_IMAGE_COMPATIBLE: ${{ needs.select.outputs.viewer_image_compatible }}
-    steps:
-      - *linux-mold-tools-checkout
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-        with:
-          install-dir: ${{ needs.select.outputs.viewer_image_compatible == 'true' && format('{0}/oasis7-viewer-mold', runner.temp) || '' }}
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: crates/oasis7_viewer/package-lock.json
-      - name: Verify the preinstalled Viewer toolchain
-        if: env.VIEWER_IMAGE_COMPATIBLE == 'true'
-        shell: bash
-        env:
-          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
-        run: |
-          test "$(id -u):$(id -g)" = 1001:1001
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
-          test "$GITHUB_WORKSPACE" = /__w/oasis7/oasis7
-          test -w /.cache/oasis7
-          python3 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
-          node -e 'if (!process.version.startsWith("v24.")) process.exit(1)'
-          npm --version
-          rustc +"$RUST_TOOLCHAIN" --version
-          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
-          pkg-config --exists wayland-client wayland-protocols xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
-      - name: Install viewer dependencies
-        run: npm ci --prefix crates/oasis7_viewer
-      - name: Install pinned Rust toolchain
-        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
-        shell: bash
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
-          rustup default "$RUST_TOOLCHAIN"
-          rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
-      - name: Stabilize Rust cache toolchains
-        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
-        shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          save-if: false
-          shared-key: ${{ env.VIEWER_IMAGE_COMPATIBLE == 'true' && 'ci-rust-viewer-24c8784c4d8f85b0b9e651f632cece06bb9259affe915fe281896290137e4e45' || 'release-packages-web-wasm-trusted-v3' }}
-          add-rust-environment-hash-key: true
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST
-          cache-on-failure: false
-      - name: Resolve wasm-bindgen tool cache metadata
-        id: bindgen-meta
-        shell: bash
-        run: |
-          if [[ "$VIEWER_IMAGE_COMPATIBLE" == true ]]; then
-            export XDG_CACHE_HOME=/home/runner/.cache
-          fi
-          source scripts/wasm-bindgen-cli-common.sh
-          printf 'version=%s\nroot=%s\n' "$WASM_BINDGEN_LOCK_VERSION" "$WASM_BINDGEN_CACHE_ROOT" >> "$GITHUB_OUTPUT"
-      - name: Restore exact wasm-bindgen tool cache
-        id: bindgen-cache
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ${{ steps.bindgen-meta.outputs.root }}
-          key: wasm-bindgen-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ steps.bindgen-meta.outputs.version }}-${{ hashFiles('scripts/ensure-wasm-bindgen-cli.sh', 'scripts/wasm-bindgen-cli-common.sh') }}
-      - name: Prepare exact wasm-bindgen tool directory
-        id: prepare-bindgen
-        shell: bash
-        env:
-          BINDGEN_CACHE_HIT: ${{ steps.bindgen-cache.outputs.cache-hit }}
-        run: |
-          set -euo pipefail
-          if [[ "$VIEWER_IMAGE_COMPATIBLE" == true ]]; then
-            export XDG_CACHE_HOME=/.cache
-          fi
-          source scripts/wasm-bindgen-cli-common.sh
-          if [[ "$BINDGEN_CACHE_HIT" == true ]]; then
-            bindgen_bin="$WASM_BINDGEN_CACHE_ROOT/bin/wasm-bindgen"
-            test -x "$bindgen_bin"
-            test "$("$bindgen_bin" --version)" = "wasm-bindgen $WASM_BINDGEN_LOCK_VERSION"
-          else
-            bindgen_bin="$(bash scripts/ensure-wasm-bindgen-cli.sh --ensure-cache --print-bin)"
-          fi
-          test -x "$bindgen_bin"
-          test "$("$bindgen_bin" --version)" = "wasm-bindgen $WASM_BINDGEN_LOCK_VERSION"
-          printf 'WASM_BINDGEN_BIN=%s\n' "$bindgen_bin" >> "$GITHUB_ENV"
-      - name: Install native libraries
-        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
-        shell: bash
-        timeout-minutes: 11
-        run: |
-          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - name: Install pinned performance browser
-        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'
-        uses: ./.github/actions/setup-ci-browser
-        timeout-minutes: 11
-        with:
-          browser: agent
-      - name: Activate the preinstalled Viewer Chrome
-        id: viewer-image-browser
-        if: env.VIEWER_IMAGE_COMPATIBLE == 'true'
-        shell: bash
-        timeout-minutes: 2
-        run: |
-          python3 /opt/oasis7-viewer-browser/scripts/ci-browser-deps.py activate --prebuilt --browser agent \
-            --work-dir "$RUNNER_TEMP/oasis7-ci-browser-agent" --github-env "$GITHUB_ENV"
-      - name: Execute selected group
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "viewer_performance_report" --repo-root "$GITHUB_WORKSPACE"
-      - name: Upload Viewer performance evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: viewer-performance-${{ github.run_id }}-${{ github.run_attempt }}
-          path: output/ci/viewer-performance/**
-          if-no-files-found: error
-          retention-days: 7
-
-  pixel-world-bridge:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_pixel_world_bridge == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - *linux-mold-tools-checkout
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Trust the checked-out workspace path in the job container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Verify the preinstalled Rust toolchains
-        run: |
-          set -euo pipefail
-          rustc +"$RUST_TOOLCHAIN" -vV
-          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
-          cargo +"$RUST_TOOLCHAIN" clippy --version
-          cargo +"$RUST_TOOLCHAIN" fmt --version
-          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
-          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
-      - name: Stabilize Rust cache toolchains
-        shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          save-if: false
-          shared-key: ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
-          add-rust-environment-hash-key: true
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          cache-on-failure: false
-      - name: Execute selected group
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "pixel_world_bridge" --repo-root "$GITHUB_WORKSPACE"
 
   launcher-web:
     needs: [select, fast-preflight]
@@ -5329,391 +5070,6 @@ jobs:
           trap 'rm -rf -- "$TMPDIR"' EXIT
           bash ./scripts/ci-tests.sh required --group "operational_contracts" --repo-root "$GITHUB_WORKSPACE"
 
-  codex-agent-config-validation:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Verify the preinstalled Python
-        run: python3 -c 'import sys, tomllib; assert sys.version_info[:2] == (3, 12)'
-      - name: Execute selected group
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "codex_agent_config_validation" --repo-root "$GITHUB_WORKSPACE"
-
-  compile-metrics:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_compile_metrics == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:3395596ee4a090242b77a42ec9f67a5b1b1758b707bed70907107bdfbdc932bf
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - *linux-mold-tools-checkout
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Trust the checked-out workspace path in the job container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Verify preinstalled Rust for build measurement contract fixtures
-        run: |
-          set -euo pipefail
-          rustc +"$RUST_TOOLCHAIN" -vV
-          cargo +"$RUST_TOOLCHAIN" --version
-          cargo +"$RUST_TOOLCHAIN" fmt --version
-          cargo +"$RUST_TOOLCHAIN" clippy --version
-      - name: Execute selected group
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "compile_metrics" --repo-root "$GITHUB_WORKSPACE"
-
-  site-quality:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_site_quality == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-browser@sha256:60ff26345b28212994d2a9754e249383ab1ca25d2a9015e82a91a527efffc016
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Trust the checked-out workspace path in the job container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24'
-      - name: Install pinned deck security browser
-        uses: ./.github/actions/setup-ci-browser
-        timeout-minutes: 4
-        with:
-          browser: playwright
-          prebuilt: "true"
-      - name: Execute selected group
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "site_quality" --repo-root "$GITHUB_WORKSPACE"
-      - name: Upload deck browser evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: site-deck-security-${{ github.job }}-${{ github.sha }}-${{ github.run_attempt }}
-          path: output/site-deck-security-qa/
-          if-no-files-found: warn
-          retention-days: 7
-
-  doc-checker-contracts:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_doc_checker_contracts == 'true' ||
-       ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
-        needs.select.outputs.run_compile_metrics == 'true') ||
-       ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
-        needs.select.outputs.run_packaging_contracts == 'true') ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - *linux-mold-tools-checkout
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Trust the checked-out workspace path in the job container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Verify preinstalled jq for package source contracts
-        run: |
-          jq --version
-          jq -e '.ready == true' <<< '{"ready":true}' >/dev/null
-      - name: Prepare the Markdown runtime with preinstalled Python
-        if: >-
-          needs.select.outputs.run_doc_checker_contracts == 'true' ||
-          fromJSON(needs.select.outputs.plan).scope == 'full' ||
-          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
-        run: |
-          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
-          python3 -m venv "$RUNNER_TEMP/doc-checker-venv"
-          "$RUNNER_TEMP/doc-checker-venv/bin/python3" -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
-          printf '%s\n' "$RUNNER_TEMP/doc-checker-venv/bin" >> "$GITHUB_PATH"
-      - name: Execute selected group
-        if: >-
-          needs.select.outputs.run_doc_checker_contracts == 'true' ||
-          fromJSON(needs.select.outputs.plan).scope == 'full' ||
-          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "doc_checker_contracts" --repo-root "$GITHUB_WORKSPACE"
-      - name: Verify preinstalled Rust and Ruby for build measurement and packaging contract fixtures
-        if: >-
-          ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
-            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
-            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
-           (needs.select.outputs.run_compile_metrics == 'true' ||
-            fromJSON(needs.select.outputs.plan).scope == 'full' ||
-            fromJSON(needs.select.outputs.plan).scope == 'explicit-full')) ||
-          ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
-           needs.select.outputs.run_packaging_contracts == 'true')
-        run: |
-          set -euo pipefail
-          python3 -c 'import sys, tomllib; assert sys.version_info[:2] == (3, 12)'
-          ruby -ryaml -rjson -e 'exit 0'
-          rustc +"$RUST_TOOLCHAIN" -vV
-          cargo +"$RUST_TOOLCHAIN" --version
-          cargo +"$RUST_TOOLCHAIN" fmt --version
-          cargo +"$RUST_TOOLCHAIN" clippy --version
-      - name: Execute consolidated compile metrics group
-        if: >-
-          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 ||
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
-          (needs.select.outputs.run_compile_metrics == 'true' ||
-           fromJSON(needs.select.outputs.plan).scope == 'full' ||
-           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "compile_metrics" --repo-root "$GITHUB_WORKSPACE"
-      - name: Execute consolidated packaging contracts group
-        if: >-
-          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 3 ||
-           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 4) &&
-          (needs.select.outputs.run_packaging_contracts == 'true' ||
-           fromJSON(needs.select.outputs.plan).scope == 'full' ||
-           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "packaging_contracts" --repo-root "$GITHUB_WORKSPACE"
-
-  cargo-tooling-contracts:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_cargo_tooling_contracts == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - *linux-mold-tools-checkout
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Trust the checked-out workspace path in the job container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Verify the preinstalled Rust toolchains
-        run: |
-          set -euo pipefail
-          rustc +"$RUST_TOOLCHAIN" -vV
-          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
-          cargo +"$RUST_TOOLCHAIN" clippy --version
-          cargo +"$RUST_TOOLCHAIN" fmt --version
-          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
-          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
-      - name: Stabilize Rust cache toolchains
-        shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          save-if: false
-          shared-key: ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
-          add-rust-environment-hash-key: true
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          cache-on-failure: false
-      - name: Execute selected group
-        shell: bash
-        env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "cargo_tooling_contracts" --repo-root "$GITHUB_WORKSPACE"
-
-  windows-rollout:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_windows_rollout == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: windows-2022
-    timeout-minutes: 7
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Execute selected group
-        shell: bash
-        env:
-          OASIS7_WINDOWS_POWERSHELL_BEHAVIOR_TEST: "1"
-        run: bash ./scripts/p2p-public-testnet-package-rollout.test.sh
-
-  macos-package-contract:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 4 &&
-      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 5 &&
-      (needs.select.outputs.run_macos_package_contract == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Verify preinstalled Python
-        shell: bash
-        run: python3 -c 'import sys; sys.exit(sys.version_info[:2] != (3, 12))'
-      - name: Verify preinstalled Mach-O identification utility
-        shell: bash
-        run: file --version
-      - name: Execute selected group
-        shell: bash
-        run: bash ./scripts/testnet-packages-macos-arm64-contract.test.sh
-
   fleet-health:
     needs: select
     if: >-
@@ -5884,7 +5240,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, workspace-support-other, custody-native-contracts, custody-native, custody-wasm-production, custody-node, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health]
+    needs: [select, baseline, rust-baseline, oasis7-required, formal-process, distfs, node, net, viewer-js-required, launcher-web, workspace-support, workspace-support-other, custody-native-contracts, custody-native, custody-wasm-production, custody-node, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, fleet-health]
     steps:
       - name: Require successful scope planning
         env:
@@ -6420,7 +5776,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health, oasis7-test-build-candidate, oasis7-test-build-trusted, full-regression, candidate-full-regression]
+    needs: [select, baseline, rust-baseline, oasis7-required, formal-process, distfs, node, net, viewer-js-required, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, fleet-health, oasis7-test-build-candidate, oasis7-test-build-trusted, full-regression, candidate-full-regression]
     steps:
       - name: Require successful full planning
         env:

@@ -3,6 +3,10 @@ use std::net::TcpListener;
 use std::time::{Duration, Instant};
 #[path = "readiness.rs"]
 mod readiness;
+#[path = "server_request_admission.rs"]
+mod request_admission;
+#[path = "server_request_auth.rs"]
+mod request_auth;
 /// Explicit, process-lifetime server read-admission settings. These are not
 /// request-side GEN evidence and never authorize a Qualified transition.
 #[derive(Clone, Copy, serde::Deserialize)]
@@ -28,8 +32,9 @@ impl FormalEndpointServer {
         Self::new_with_frame_admission(endpoint, timeout, None)
     }
     /// Both normal/recovery and healthy activation call this once at startup.
-    /// Optional mode admits raw request and response frames. Request/response
-    /// DTO construction, signing work and GEN proof cutover remain separate.
+    /// Optional mode admits raw request/response frames, typed Request decoding
+    /// and Request authentication, plus Response checkpoint bytes and digest.
+    /// Remaining construction/signing, guard state and GEN proof are separate.
     pub fn new_with_frame_admission(
         endpoint: FileFormalEndpoint,
         timeout: Duration,
@@ -133,19 +138,35 @@ impl FormalEndpointServer {
     ) -> Result<(), FormalError> {
         wire::address(peer)?;
         wire::configure(stream, self.timeout)?;
-        let mut cancelled = || false;
-        // Hold the original frame fee through signature validation and the
-        // signed response write. This is frame admission, not a paid DTO owner.
-        let (request, _paid_frame): (
-            Request,
-            Option<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>>,
-        ) = match self.frame_admission.as_ref() {
+        // One absolute RPC window also fences the prepaid Store Query, response
+        // copy, CBOR encoding and physical write. The process-owned Work meter
+        // is never reset between requests; socket timeouts alone do not stop
+        // an otherwise continuously progressing sequence of short reads.
+        let request_deadline = Instant::now() + self.timeout;
+        let mut cancelled = || Instant::now() >= request_deadline;
+        // Both original-pool owners remain live through authentication,
+        // dispatch, response signing and physical output. Borrow the DTO.
+        let legacy_request;
+        let paid_request;
+        let _paid_frame;
+        let request: &Request = match self.frame_admission.as_ref() {
             Some((memory, work)) => {
-                let (value, owner) =
-                    wire::read_prepaid_frame(stream, memory, work, &mut cancelled)?;
-                (value, Some(owner))
+                let (value, frame) = wire::read_paid_before_deadline::<Request>(
+                    stream,
+                    request_deadline,
+                    memory,
+                    work,
+                    request_admission::layout(),
+                    &mut cancelled,
+                )?;
+                paid_request = value;
+                _paid_frame = frame;
+                std::borrow::Borrow::borrow(&paid_request)
             }
-            None => (wire::read(stream)?, None),
+            None => {
+                legacy_request = wire::read(stream)?;
+                &legacy_request
+            }
         };
         let body = &request.body;
         hash_hex(&body.challenge)?;
@@ -177,16 +198,39 @@ impl FormalEndpointServer {
                 return Err(invalid("sealed archive delegation cannot mutate"));
             }
             grant.verify(authority, self.endpoint.role())?;
-            grant.body.reader_public_key.clone()
+            grant.body.reader_public_key.as_str()
         } else {
-            authority.definition().writer_public_key.clone()
+            authority.definition().writer_public_key.as_str()
         };
-        verify(REQUEST_DOMAIN, body, &request.signature, &request_key)?;
+        match self.frame_admission.as_ref() {
+            Some((memory, work)) => request_auth::verify_request(
+                body,
+                &request.signature,
+                request_key,
+                &mut work.bounded_context(memory, &mut cancelled),
+            )?,
+            None => verify(REQUEST_DOMAIN, body, &request.signature, request_key)?,
+        }
         if let Some(grant) = &body.archive_read_grant {
             self.endpoint
                 .verify_sealed_archive_grant_scope(grant, &body.minimum)?;
         }
-        let request_digest = hash("oasis7.formal.endpoint.rpc.request_digest.v1", body)?;
+        // Declare the fee first so every early exit drops the digest before it.
+        let _paid_request_digest_fee;
+        let request_digest = match self.frame_admission.as_ref() {
+            Some((memory, work)) => {
+                let (digest, fee) = request_auth::request_digest(
+                    body,
+                    &mut work.bounded_context(memory, &mut cancelled),
+                )?;
+                _paid_request_digest_fee = Some(fee);
+                digest
+            }
+            None => {
+                _paid_request_digest_fee = None;
+                hash("oasis7.formal.endpoint.rpc.request_digest.v1", body)?
+            }
+        };
         // Retain the true paid five-state owner and response-copy lease
         // through signing AND the common prepaid physical output writer.
         let mut _paid_query_owner: Option<super::super::endpoint::PaidFormalRequestQueryV1> = None;
@@ -196,12 +240,19 @@ impl FormalEndpointServer {
             Command::Head
             | Command::ArchiveChunk { .. }
             | Command::ArchiveObject(_)
-            | Command::BusinessIndexPath { .. } => self.endpoint.sign_formal_rpc_read_response(
-                request_digest,
-                body.challenge.clone(),
-                body.minimum.clone(),
-                &body.command,
-            )?,
+            | Command::BusinessIndexPath { .. } => {
+                let mut context = self
+                    .frame_admission
+                    .as_ref()
+                    .map(|(memory, work)| work.bounded_context(memory, &mut cancelled));
+                self.endpoint.sign_formal_rpc_read_response(
+                    request_digest,
+                    body.challenge.clone(),
+                    body.minimum.clone(),
+                    &body.command,
+                    context.as_mut(),
+                )?
+            }
             _ => {
                 self.endpoint.verify_minimum(&body.minimum)?;
                 let result = match (&body.command, self.frame_admission.as_ref()) {
@@ -231,19 +282,29 @@ impl FormalEndpointServer {
                     // No paid-mode fallback to the old unbounded query.
                     _ => self.execute(body.command.clone()),
                 };
+                let mut context = self
+                    .frame_admission
+                    .as_ref()
+                    .map(|(memory, work)| work.bounded_context(memory, &mut cancelled));
                 self.endpoint.sign_formal_rpc_response(
                     request_digest,
                     body.challenge.clone(),
                     body.minimum.clone(),
                     result,
+                    context.as_mut(),
                 )?
             }
         };
         match self.frame_admission.as_ref() {
-            Some((memory, work)) => {
-                wire::write_prepaid_frame(stream, &response, memory, work, &mut cancelled)
-            }
-            None => wire::write(stream, &response),
+            Some((memory, work)) => wire::write_prepaid_frame_before_deadline(
+                stream,
+                response.response(),
+                request_deadline,
+                memory,
+                work,
+                &mut cancelled,
+            ),
+            None => wire::write(stream, response.response()),
         }
     }
     fn execute(&mut self, command: Command) -> Result<Value, FormalError> {

@@ -648,5 +648,116 @@ class PackageCapabilitiesAndContracts(unittest.TestCase):
         self.assertEqual(out_inline['ordinary_execution_contract']['partitions'], ['oasis7_runtime', 'oasis7_world_state'])
 
 
+class ZeroPythonEditAndCrossVersionReconciliation(_ScopeFixtureBase):
+    def test_zero_python_edit_crate_add_and_retire_via_package_capabilities(self):
+        raw_cfg = json.loads((HERE / 'ci-required-scope.json').read_text())
+        raw_cfg.pop('oasis7_required_packages', None)
+        raw_cfg.pop('oasis7_required_wasm_packages', None)
+        caps = dict(raw_cfg['package_capabilities'])
+        for retired in ('oasis7_proto', 'oasis7_client_cli'):
+            caps.pop(retired, None)
+            raw_cfg['package_groups'].pop(retired, None)
+        raw_cfg['ordinary_harness_costs']['harnesses'] = [
+            row for row in raw_cfg['ordinary_harness_costs']['harnesses'] if row['package'] != 'oasis7_client_cli'
+        ]
+        caps['oasis7_synthetic_ordinary'] = {
+            'ordinary_package': True,
+            'required_wasm_build': True,
+        }
+        caps['oasis7_synthetic_support'] = {
+            'ordinary_package': False,
+            'support_profile': {
+                'profile_id': 'oasis7_synthetic_support',
+                'partition': 'other',
+                'requires_host_runner': True,
+                'extra_features': ['synth_feat'],
+                'wasm_compile_feature_sets': [],
+            },
+        }
+        raw_cfg['package_capabilities'] = {k: caps[k] for k in sorted(caps)}
+        raw_cfg['package_groups']['oasis7_synthetic_ordinary'] = ['oasis7_required']
+        raw_cfg['package_groups']['oasis7_synthetic_support'] = ['workspace_support']
+        raw_cfg['rules'].append({
+            'match': ['crates/oasis7_synthetic_ordinary/**', 'crates/oasis7_synthetic_support/**'],
+            'groups': [],
+            'reason': 'synthetic crates',
+        })
+        selector.validate_config(raw_cfg)
+        full = selector.full_plan(raw_cfg, 'periodic-full', self.base)
+        self.assertIn('oasis7_synthetic_ordinary', full['oasis7_required_packages'])
+        self.assertIn('oasis7_synthetic_ordinary', full['oasis7_required_wasm_packages'])
+        self.assertNotIn('oasis7_client_cli', full['oasis7_required_packages'])
+        self.assertNotIn('oasis7_proto', full['workspace_support_profiles'])
+        self.assertIn('oasis7_synthetic_support', full['workspace_support_profiles'])
+        self.assertIn('oasis7_synthetic_support', full['workspace_support_execution_contract']['host_profiles'])
+        self.assertEqual(
+            full['workspace_support_execution_contract']['complete_features_by_profile']['oasis7_synthetic_support'],
+            ['synth_feat'],
+        )
+        self.assertTrue(selector.workspace_support_requires_host(full, raw_cfg))
+        for pkg in ('oasis7_synthetic_ordinary', 'oasis7_synthetic_support'):
+            self.write(
+                f'crates/{pkg}/Cargo.toml',
+                f'[package]\nname="{pkg}"\nversion="0.1.0"\n[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\nsynth_feat=[]\n',
+            )
+            self.write(f'crates/{pkg}/src/lib.rs', 'pub fn v() -> u32 { 1 }\n')
+        base_sha = self.commit()
+        self.write('crates/oasis7_synthetic_support/src/lib.rs', 'pub fn v() -> u32 { 2 }\n')
+        sup_sha = self.commit()
+        sup_plan = selector.select(raw_cfg, base_sha, sup_sha, profile='pr-fast')
+        self.assertEqual(sup_plan['workspace_support_profiles'], ['oasis7_synthetic_support'])
+        self.assertTrue(selector.workspace_support_requires_host(sup_plan, raw_cfg))
+        self.assertEqual(sup_plan['workspace_support_execution_contract']['host_profiles'], ['oasis7_synthetic_support'])
+
+    def test_cross_version_member_reconciliation_prunes_deleted_and_flags_unregistered(self):
+        raw_cfg = json.loads((HERE / 'ci-required-scope.json').read_text())
+        raw_cfg['rules'].append({'match': ['crates/oasis7_unregistered_new/**'], 'groups': ['oasis7_required'], 'reason': 'new crate'})
+        self.write(
+            'Cargo.toml',
+            '[workspace]\nmembers=["crates/*"]\n[workspace.dependencies]\ncore={path="crates/core"}\noasis7_viewer_codec={path="crates/oasis7_viewer_codec"}\n',
+        )
+        for pkg in ('oasis7_proto', 'oasis7_viewer_codec', 'oasis7_game_client', 'oasis7_consensus'):
+            deps = '[dependencies]\noasis7_viewer_codec={workspace=true}\n' if pkg == 'oasis7_consensus' else ''
+            self.write(
+                f'crates/{pkg}/Cargo.toml',
+                f'[package]\nname="{pkg}"\nversion="0.1.0"\n{deps}[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n',
+            )
+            self.write(f'crates/{pkg}/src/lib.rs', 'pub fn ok() {}\n')
+        base_sha = self.commit()
+        # Case A: candidate PR deletes ordinary+wasm oasis7_viewer_codec and support oasis7_proto while keeping reverse consumer oasis7_consensus.
+        self.write(
+            'Cargo.toml',
+            '[workspace]\nmembers=["crates/*"]\n[workspace.dependencies]\ncore={path="crates/core"}\n',
+        )
+        self.write(
+            'crates/oasis7_consensus/Cargo.toml',
+            '[package]\nname="oasis7_consensus"\nversion="0.1.0"\n[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n',
+        )
+        for pkg in ('oasis7_proto', 'oasis7_viewer_codec'):
+            Path(f'crates/{pkg}/src/lib.rs').unlink()
+            Path(f'crates/{pkg}/Cargo.toml').unlink()
+        del_sha = self.commit()
+        del_plan = selector.select(raw_cfg, base_sha, del_sha, profile='pr-fast')
+        self.assertNotIn('oasis7_viewer_codec', del_plan['oasis7_required_packages'])
+        self.assertNotIn('oasis7_viewer_codec', del_plan['oasis7_required_wasm_packages'])
+        self.assertNotIn('oasis7_viewer_codec', del_plan['ordinary_execution_contract']['selected_packages'])
+        self.assertNotIn('oasis7_proto', del_plan['workspace_support_profiles'])
+        self.assertNotIn('oasis7_proto', del_plan['workspace_support_execution_contract']['selected_profiles'])
+        self.assertIn('oasis7_consensus', del_plan['affected_packages'])
+        self.assertIn('consensus', del_plan['groups'])
+        # Case B: candidate PR introduces an unregistered workspace member crate.
+        self.git('checkout', '-q', base_sha)
+        self.write(
+            'crates/oasis7_unregistered_new/Cargo.toml',
+            '[package]\nname="oasis7_unregistered_new"\nversion="0.1.0"\n',
+        )
+        self.write('crates/oasis7_unregistered_new/src/lib.rs', 'pub fn fresh() {}\n')
+        add_sha = self.commit()
+        add_plan = selector.select(raw_cfg, base_sha, add_sha, profile='pr-fast')
+        self.assertEqual(add_plan.get('unregistered_candidate_packages'), ['oasis7_unregistered_new'])
+        self.assertFalse(add_plan['ordinary_execution_contract']['candidate_container_eligible'])
+        self.assertTrue(selector.workspace_support_requires_host(add_plan, raw_cfg))
+
+
 if __name__ == '__main__':
     unittest.main()

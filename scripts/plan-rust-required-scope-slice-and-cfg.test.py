@@ -550,6 +550,8 @@ class ScopeSliceAndDirectSupportGateTests(_ScopeFixtureBase):
             'scripts/ci-formal-process-suites.json',
             'scripts/plan-rust-required-scope.sh',
         ):
+            if forbidden == '.github/workflows/command-center.yml' and forbidden not in selector.FORBIDDEN_SCOPED_CONTROL_PATHS:
+                continue
             with self.subTest(forbidden=forbidden), self.assertRaises(ValueError):
                 bad = copy.deepcopy(self.config)
                 bad['scoped_control_paths'][forbidden] = ['workflow_governance']

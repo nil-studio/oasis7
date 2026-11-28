@@ -406,9 +406,9 @@ class BuildAndBundles(unittest.TestCase):
         self.assertEqual(required_packages, scope_required_packages)
         self.assertCountEqual(required_packages, [
             'oasis7_simulator', 'oasis7_runtime', 'oasis7_runtime_host', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_executable_image', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
-            'oasis7_newapi_bridge_service', 'oasis7_ops_tools', 'oasis7_provider_local_bridge',
+            'oasis7_ops_tools', 'oasis7_provider_local_bridge',
             'oasis7_provider_tools', 'oasis7_viewer_runtime', 'oasis7_viewer_codec', 'oasis7_observability',
-            'oasis7_hosted_access', 'oasis7_letai_credit_adapter',
+            'oasis7_hosted_access',
             'oasis7_wasm_materializer', 'oasis7_game_client', 'oasis7_browser_game_client', 'oasis7_cas', 'oasis7_formal_protocol',
         ])
         self.assertIn('--tests', required)
