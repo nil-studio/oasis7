@@ -39,6 +39,102 @@ impl Drop for Scratch {
     }
 }
 
+
+#[test]
+fn archive_publishes_one_scoped_pin_per_object_without_touching_legacy_pins() {
+    let root = Scratch::new();
+    let store = root.store();
+    let cas = LocalCasStore::new(root.path().join("cas"));
+    let old = cas.put_bytes(b"legacy protected blob").unwrap();
+    cas.pin(&old).unwrap();
+    let legacy_before = fs::read(cas.pins_path()).unwrap();
+    let orphan = cas.put_bytes(b"unreferenced old blob").unwrap();
+    let reference = store.persist_object(b"scoped original", 1024).unwrap();
+    let expected = std::collections::BTreeSet::from([reference.digest.clone()]);
+    cas.verify_pin_scope_shard(SUCCESSOR_ARCHIVE_PIN_SCOPE, &reference.digest, &expected)
+        .unwrap();
+    let shard = cas
+        .pin_scope_shard_path(SUCCESSOR_ARCHIVE_PIN_SCOPE, &reference.digest)
+        .unwrap();
+    let before = fs::read(&shard).unwrap();
+    assert_eq!(store.persist_object(b"scoped original", 1024).unwrap(), reference);
+    assert_eq!(fs::read(&shard).unwrap(), before);
+    assert_eq!(fs::read(cas.pins_path()).unwrap(), legacy_before);
+    assert!(cas.prune_orphan_blobs().unwrap() > 0);
+    assert!(cas.has(&old).unwrap());
+    assert!(cas.has(&reference.digest).unwrap());
+    assert!(!cas.has(&orphan).unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn huge_sparse_legacy_pin_file_is_never_read_or_rewritten_by_archive_persist() {
+    let root = Scratch::new();
+    let cas = LocalCasStore::new(root.path().join("cas"));
+    fs::create_dir_all(cas.root()).unwrap();
+    let sparse = fs::File::create(cas.pins_path()).unwrap();
+    sparse.set_len(8 * 1024 * 1024 * 1024).unwrap();
+    let original = b"new independent archive with huge legacy pins";
+    let reference = root.store().persist_object(original, 256).unwrap();
+    assert_eq!(fs::metadata(cas.pins_path()).unwrap().len(), 8 * 1024 * 1024 * 1024);
+    assert_eq!(root.store().load_object(&reference, 256).unwrap(), original);
+    cas.verify_pin_scope_shard(
+        SUCCESSOR_ARCHIVE_PIN_SCOPE,
+        &reference.digest,
+        &std::collections::BTreeSet::from([reference.digest.clone()]),
+    )
+    .unwrap();
+}
+
+#[test]
+fn damaged_existing_archive_pin_is_not_silently_repaired() {
+    let root = Scratch::new();
+    let store = root.store();
+    let data = b"original retained object";
+    let reference = store.persist_object(data, 1024).unwrap();
+    let pin = store
+        .store
+        .pin_scope_shard_path(SUCCESSOR_ARCHIVE_PIN_SCOPE, &reference.digest)
+        .unwrap();
+    for corrupted in [b"{bad".to_vec(), vec![b' '; 8192]] {
+        fs::write(&pin, &corrupted).unwrap();
+        assert!(store.persist_object(data, 1024).is_err());
+        assert_eq!(fs::read(&pin).unwrap(), corrupted);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn archive_rejects_aliased_existing_pin_and_parent_without_writing_targets() {
+    use std::os::unix::fs::symlink;
+    let root = Scratch::new();
+    let external = Scratch::new();
+    let store = root.store();
+    let data = b"object with original pin";
+    let reference = store.persist_object(data, 1024).unwrap();
+    let pin = store
+        .store
+        .pin_scope_shard_path(SUCCESSOR_ARCHIVE_PIN_SCOPE, &reference.digest)
+        .unwrap();
+    let target = external.path().join("outside.json");
+    fs::write(&target, b"keep external bytes").unwrap();
+    fs::remove_file(&pin).unwrap();
+    symlink(&target, &pin).unwrap();
+    assert!(store.persist_object(data, 1024).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"keep external bytes");
+    fs::remove_file(&pin).unwrap();
+    fs::hard_link(&target, &pin).unwrap();
+    assert!(store.persist_object(data, 1024).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"keep external bytes");
+    fs::remove_file(&pin).unwrap();
+    let scope = pin.parent().unwrap();
+    let saved = root.path().join("detached-scope");
+    fs::rename(scope, &saved).unwrap();
+    symlink(external.path(), scope).unwrap();
+    assert!(store.persist_object(b"another object", 1024).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"keep external bytes");
+}
+
 #[test]
 fn typed_raw_objects_keep_caller_limits_and_fresh_reopen_without_state_authority() {
     let root = Scratch::new();

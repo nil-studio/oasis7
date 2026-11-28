@@ -25,7 +25,9 @@ impl LocalCasStore {
         Ok(self.root.join(PIN_SCOPES_DIR).join(scope))
     }
 
-    pub(super) fn pin_scope_shard_path(
+    /// Validated CAS retention shard location for independent durable sync.
+    /// The path conveys no signing authority; callers must still verify pins.
+    pub fn pin_scope_shard_path(
         &self,
         scope: &str,
         shard: &str,
