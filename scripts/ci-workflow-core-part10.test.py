@@ -307,118 +307,6 @@ worker-build() { echo "0.7.5"; }
         self.assertIn('cargo test --locked -p oasis7_context -p oasis7_secure_envelope --all-targets', validation)
         self.assertIn('cargo test --locked -p oasis7_local_signer --test context_cli', validation)
 
-    def test_custody_approval_step_initializes_real_driver_and_propagates_compile_failure(self):
-        scripts_by_component = {
-            'wasm-approval': workflow_step_script(JOBS['custody-wasm-production'], 'Build and verify the complete custody approval WASM component'),
-            'wasm-contracts': workflow_step_script(JOBS['custody-native-contracts'], 'Execute complete custody WASM compile proofs'),
-        }
-        self.assertEqual(*(script.split('bash crates/', 1)[1].rstrip() for script in scripts_by_component.values()))
-        features = ('identity', 'owner', 'executor', 'recovery-fence',
-                    'owner,approval-harness', 'identity,native-runtime-harness')
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            scripts = root / 'scripts'
-            scripts.mkdir()
-            for name in ('ci-tests.sh', 'find-python-with-module.sh', 'plan-rust-required-scope.py',
-                         'ci-custody-platform.py', 'ci-custody-workerd-capture.py', 'ci_process_runner.py'):
-                (scripts / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
-            if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
-                (scripts / 'run-ci-authority-python.py').write_bytes(
-                    (ROOT / 'scripts/run-ci-authority-python.py').read_bytes())
-            if (ROOT / 'scripts/ci_engine').is_dir():
-                for ef in sorted((ROOT / 'scripts/ci_engine').rglob('*.py')):
-                    dst = root / ef.relative_to(ROOT)
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    dst.write_bytes(ef.read_bytes())
-            worker = root / 'crates/oasis7_custody_worker'
-            (worker / 'scripts').mkdir(parents=True)
-            names = sorted({name for profile in features for name in profile.split(',')})
-            (worker / 'Cargo.toml').write_text('[features]\ndefault = []\n'
-                + ''.join(name + ' = []\n' for name in names))
-            (worker / 'tests').mkdir()
-            (worker / 'tests/fixture.test.mjs').write_text('// complete inventory fixture\n')
-            (root / 'rust-toolchain.toml').write_text('[toolchain]\nchannel="1.96.0"\n')
-            (worker / 'scripts/verify.sh').write_text(
-                '#!/bin/bash\nprintf "%s\\n" "$*" >> "$VERIFY_CAPTURE"\n'
-                '[[ "$*" == "--stage $EXPECTED_STAGE" ]] || exit 2\n'
-                'exit "${VERIFY_RESULT:-0}"\n')
-            binary = root / 'bin'
-            binary.mkdir()
-            capture = root / 'commands'
-            cargo = binary / 'cargo'
-            cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\n'
-                '[ "$WORKER_COMPILE_RESULT" = 0 ] || exit "$WORKER_COMPILE_RESULT"\n'
-                'case "$*" in *"--features executor,execution-signer-harness "*) ;;\n'
-                '*execution-signer-harness*) echo "execution-signer-harness requires executor and is not a deployment profile"; exit 1;; esac\n')
-            cargo.chmod(0o755)
-            def git(*args):
-                return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
-            git('init', '-q')
-            git('add', '.')
-            git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'stage fixture')
-            verify_capture = root / 'verify-commands'
-            plan = dict(source_sha='a' * 40, tested_sha=git('rev-parse', 'HEAD'), policy_sha='b' * 40,
-                groups=['workspace_support'], custody_execution_version=1, custody_node_shards=[0, 1, 2, 3],
-                workspace_support_profile_version=1, workspace_support_profiles=['oasis7_custody_worker'],
-                workspace_support_partition_version=1, workspace_support_partitions=['custody'], test_policy_changed=False)
-            selection = root / 'selection.json'
-            environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
-                               GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), GITHUB_RUN_ID='71', GITHUB_RUN_ATTEMPT='1',
-                               VERIFY_CAPTURE=str(verify_capture),
-                               **{'OASIS7_SUPPORT_' + key.upper(): plan[key] for key in ('source_sha', 'tested_sha', 'policy_sha')},
-                               WORKER_COMPILE_CAPTURE=str(capture), WORKER_COMPILE_RESULT='0')
-            current_helper = (scripts / 'ci-custody-platform.py').read_text()
-            def invoke(extra=None):
-                capture.unlink(missing_ok=True)
-                verify_capture.unlink(missing_ok=True)
-                script = (
-                    'set -euo pipefail\n'
-                    'run_worker_wasm_compile_profiles() { printf "compile-profiles\\n" >> "$WORKER_COMPILE_CAPTURE"; return "${WORKER_COMPILE_RESULT:-0}"; }\n'
-                    + scripts_by_component[environment['CUSTODY_COMPONENT']]
-                )
-                return subprocess.run(['bash', '-c', script], cwd=root, env=environment | (extra or {}),
-                                      text=True, capture_output=True)
-            for signer in (False, True):
-                if signer:
-                    with (worker / 'Cargo.toml').open('a') as manifest:
-                        manifest.write('execution-signer-harness = []\n')
-                    git('add', 'crates/oasis7_custody_worker/Cargo.toml')
-                    git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'signer profile')
-                    plan['tested_sha'] = git('rev-parse', 'HEAD')
-                    environment['OASIS7_SUPPORT_TESTED_SHA'] = plan['tested_sha']
-                for proof, component, stage in [(False, 'wasm-approval', 'wasm-approval'),
-                                                (True, 'wasm-approval', 'wasm-approval-artifacts'),
-                                                (True, 'wasm-contracts', 'wasm-contracts')]:
-                    with self.subTest(signer=signer, proof=proof, component=component):
-                        current = plan | ({'custody_compile_proof_version': 1} if proof else {})
-                        selection.write_text(json.dumps(current))
-                        environment.update(CUSTODY_COMPONENT=component, EXPECTED_STAGE=stage,
-                                           CUSTODY_COMPILE_PROOF_VERSION='1' if proof else '',
-                                           CUSTODY_SELECTION_SHA256=hashlib.sha256(selection.read_bytes()).hexdigest())
-                        # The old source's helper has no stage CLI. Its complete
-                        # approval path must not try that optional new interface.
-                        (scripts / 'ci-custody-platform.py').write_text(current_helper if proof else
-                            "raise SystemExit('legacy helper does not support stage')\n")
-                        result = invoke()
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        self.assertEqual(verify_capture.read_text().splitlines(), ['--stage ' + stage])
-                        actual = capture.read_text().splitlines() if capture.exists() else []
-                        self.assertEqual(actual, [] if stage == 'wasm-approval-artifacts' else ['compile-profiles'])
-                        failed = invoke({'VERIFY_RESULT': '37'})
-                        self.assertEqual(failed.returncode, 37)
-                        self.assertFalse(capture.exists())
-                        if stage != 'wasm-approval-artifacts':
-                            failed = invoke({'WORKER_COMPILE_RESULT': '42'})
-                            self.assertEqual(failed.returncode, 42)
-                            self.assertEqual(capture.read_text().splitlines(), ['compile-profiles'])
-                        invalid_contexts = ({'CUSTODY_SELECTION_SHA256': '0' * 64},
-                                            {'OASIS7_SUPPORT_POLICY_SHA': 'c' * 40}) if proof else ()
-                        for invalid in invalid_contexts:
-                            failed = invoke(invalid)
-                            self.assertNotEqual(failed.returncode, 0)
-                            self.assertFalse(verify_capture.exists())
-                            self.assertFalse(capture.exists())
-
     def test_concurrency_is_per_pr_and_per_non_pr_run(self):
         self.assertIn("format('pr-{0}', github.event.pull_request.number)", WORKFLOW)
         self.assertIn("format('push-{0}', github.ref)", WORKFLOW)
@@ -496,6 +384,8 @@ worker-build() { echo "0.7.5"; }
                      'formal-endpoint-build', 'formal-endpoint-build-trusted', 'oasis7-required',
                      'formal-process-tests', 'workspace-support', 'full-regression', 'candidate-full-regression',
                      'windows-rollout', 'fleet-health'):
+            if name == 'windows-rollout' and name not in JOBS:
+                continue
             with self.subTest(job=name):
                 self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', selected_source_steps(name))
         for name in ('oasis7-test-build-candidate', 'formal-test-build', 'formal-test-build-trusted',
@@ -523,14 +413,16 @@ worker-build() { echo "0.7.5"; }
             self.assertNotIn('full-extended --plan', JOBS[name])
             self.assertNotIn('OASIS7_CI_TEST_BUNDLE', JOBS[name])
             self.assertNotIn('name: native-tests-', JOBS[name])
-        center = (ROOT / '.github/workflows/command-center.yml').read_text()
-        self.assertIn('ref: ${{ inputs.source_sha }}', center)
-        self.assertIn('package_app: ${{ needs.select.outputs.command_center_package', JOBS['command-center'])
-        self.assertIn('- name: Package development App\n        if: inputs.package_app', center)
-        host = center.split('      - name: Check desktop host\n', 1)[1].split('      - name:', 1)[0]
-        self.assertNotIn('if:', host)
-        self.assertIn('--workspace --all-targets', host)
-        self.assertIn('cancel-in-progress: false', center)
+        center_path = ROOT / '.github/workflows/command-center.yml'
+        if center_path.is_file():
+            center = center_path.read_text()
+            self.assertIn('ref: ${{ inputs.source_sha }}', center)
+            self.assertIn('package_app: ${{ needs.select.outputs.command_center_package', JOBS['command-center'])
+            self.assertIn('- name: Package development App\n        if: inputs.package_app', center)
+            host = center.split('      - name: Check desktop host\n', 1)[1].split('      - name:', 1)[0]
+            self.assertNotIn('if:', host)
+            self.assertIn('--workspace --all-targets', host)
+            self.assertIn('cancel-in-progress: false', center)
 
     def test_token_regression_is_witnessed_in_governance_and_full_only(self):
         entry = 'scripts/main-token-regression.sh'

@@ -19,6 +19,121 @@ def manifest(source=A, run=1):
     return dict(schema_version=1, release_id=rid, source_sha=source, archive_key=f"{PREFIX}/releases/{rid}/bundle.tar.gz", archive_sha256=hashlib.sha256(b"qualified bundle").hexdigest(), platform="linux-x64", components=["player"], compatibility=dict(program_contract="v1", persistence_contract="v1", identity_contract="v1"))
 
 
+
+# Original host publisher contract, with only the former install step removed
+# during normalization. Compare the complete sequence rather than dropping an
+# arbitrary prefix or checking presence of isolated strings.
+ORIGINAL_PUBLISHER = r'''  publish-preview:
+    needs: [package, native-trusted]
+    if: >-
+      always() && !cancelled() && inputs.publish_preview && !inputs.measure_builds &&
+      github.repository == 'nil-studio/oasis7' && github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      ((inputs.retained_release == '' && needs.package.result == 'success' && needs.native-trusted.result == 'success') ||
+       (inputs.retained_release != '' && needs.package.result == 'skipped' && needs.native-trusted.result == 'skipped'))
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    concurrency:
+      group: ecs-preview-channel-publisher
+      cancel-in-progress: false
+    environment: ecs-preview-publisher
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.retained_release == ''
+        with:
+          name: oasis7-ecs-linux-x64
+          path: output/qualified
+      - name: Install pinned OSS transport
+        run: python3 -m pip install 'oss2==2.19.1'
+      - name: Obtain short-lived OSS publisher credentials
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.ECS_PREVIEW_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.ECS_PREVIEW_PUBLISH_ROLE_ARN }}
+          audience: sts.aliyuncs.com
+          role-session-expiration: 1800
+      - name: Publish immutable objects and advance channel last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OSS_ENDPOINT: ${{ vars.ECS_PREVIEW_OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ vars.ECS_PREVIEW_OSS_BUCKET }}
+          OSS_PREFIX: ${{ vars.ECS_PREVIEW_OSS_PREFIX }}
+          PROGRAM_CONTRACT: ${{ vars.ECS_PREVIEW_PROGRAM_CONTRACT }}
+          PERSISTENCE_CONTRACT: ${{ vars.ECS_PREVIEW_PERSISTENCE_CONTRACT }}
+          IDENTITY_CONTRACT: ${{ vars.ECS_PREVIEW_IDENTITY_CONTRACT }}
+          COMPONENTS: ${{ vars.ECS_PREVIEW_COMPONENTS }}
+          RETAINED_RELEASE: ${{ inputs.retained_release }}
+          ROLLBACK: ${{ inputs.rollback_preview }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--endpoint "$OSS_ENDPOINT" --bucket "$OSS_BUCKET" --prefix "$OSS_PREFIX")
+          if [[ -n "$RETAINED_RELEASE" ]]; then
+            args+=(--retained-release "$RETAINED_RELEASE")
+          else
+            archives=(output/qualified/*.tar.gz)
+            [[ ${#archives[@]} == 1 && -f "${archives[0]}" ]]
+            args+=(--archive "${archives[0]}" --program-contract "$PROGRAM_CONTRACT"
+                   --persistence-contract "$PERSISTENCE_CONTRACT" --identity-contract "$IDENTITY_CONTRACT"
+                   --components "${COMPONENTS:-player}")
+          fi
+          if [[ "$ROLLBACK" == true ]]; then args+=(--rollback); fi
+          python3 scripts/ecs-preview-release.py "${args[@]}"
+'''
+PUBLISHER_CONTAINER = r'''    container:
+      image: ghcr.io/nil-studio/oasis7/ci-ecs-oss-publisher@sha256:524d6cd5cbeb5190ade258a4f4e6ae0c63dc6839fa84b6700f58f99884ae99a4
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: --user 1001:1001 --init
+    defaults:
+      run:
+        shell: bash
+'''
+PUBLISHER_PREFLIGHT = r'''      - name: Verify the preinstalled OSS publisher and trusted checkout
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(id -u):$(id -g)" = 1001:1001
+          test "$(command -v python3)" = /opt/oasis7-oss/bin/python3
+          test ! -w /opt/oasis7-oss
+          /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node.split(".")[0], "24")'
+          gh --version | grep -E '^gh version 2[.]105[.]0( |$)'
+          python3 -I -B /opt/oasis7-oss-proof/smoke.py
+          python3 -I -B -c 'import importlib; engine=importlib.import_module("crcmod.crcmod"); native=importlib.import_module("crcmod._crcfunext"); assert engine._usingExtension is True and engine._crcfun is native'
+'''
+OLD_OSS_INSTALL = r'''      - name: Install pinned OSS transport
+        run: python3 -m pip install 'oss2==2.19.1'
+'''
+
+
+def validate_publisher_image(text):
+    import re
+    match = re.search(r'^  publish-preview:\n.*?(?=^  [a-z][a-z0-9_-]*:\n|\Z)', text, re.M | re.S)
+    assert match
+    job = match.group(0)
+    permission = '      packages: read\n'
+    assert job.count(permission) == job.count(PUBLISHER_CONTAINER) == job.count(PUBLISHER_PREFLIGHT) == 1
+    assert '    permissions:\n      contents: read\n      actions: read\n      id-token: write\n      packages: read\n' in job
+    checkout = ORIGINAL_PUBLISHER.split('    steps:\n', 1)[1].split('      - uses: actions/download-artifact@', 1)[0]
+    download = '      - uses: actions/download-artifact@'
+    assert checkout + PUBLISHER_PREFLIGHT + download in job
+    normalized = job.replace(permission, '', 1).replace(PUBLISHER_CONTAINER, '', 1).replace(PUBLISHER_PREFLIGHT, '', 1)
+    assert normalized.rstrip() == ORIGINAL_PUBLISHER.replace(OLD_OSS_INSTALL, '', 1).rstrip()
+
+
 class Missing(Exception):
     status = 404
 
@@ -200,6 +315,32 @@ class ReleaseTests(unittest.TestCase):
         for gate in ("inputs.publish_preview", "!inputs.measure_builds", "github.workflow_sha == github.sha", "needs.package.result == 'success'", "needs.native-trusted.result == 'success'", "id-token: write", "fetch-depth: 0"):
             self.assertIn(gate, publisher)
         self.assertNotIn("id-token: write", text.split("  publish-preview:\n")[0])
+
+
+    def test_publisher_image_preserves_original_authority_and_every_business_step(self):
+        text = (Path(__file__).resolve().parent.parent / '.github/workflows/ecs-packages.yml').read_text()
+        validate_publisher_image(text)
+        publisher = text.split('  publish-preview:\n', 1)[1]
+        for old, new in (
+            ('524d6cd5cbeb5190ade258a4f4e6ae0c63dc6839fa84b6700f58f99884ae99a4', '0' * 64),
+            ('--user 1001:1001 --init', '--privileged'),
+            ('packages: read', 'packages: write'),
+            ('timeout-minutes: 10', 'timeout-minutes: 11'),
+            ('inputs.publish_preview && !inputs.measure_builds', 'inputs.publish_preview'),
+            ('test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"', 'true'),
+            ('role-session-expiration: 1800', 'role-session-expiration: 3600'),
+            ('[[ ${#archives[@]} == 1 && -f "${archives[0]}" ]]', 'true'),
+            ('--components "${COMPONENTS:-player}"', '--components player'),
+        ):
+            with self.subTest(old=old), self.assertRaises(AssertionError):
+                validate_publisher_image('  publish-preview:\n' + publisher.replace(old, new, 1))
+        misplaced_permission = text.replace('      id-token: write\n      packages: read\n', '      id-token: write\n').replace('    concurrency:\n', '    concurrency:\n      packages: read\n')
+        with self.assertRaises(AssertionError):
+            validate_publisher_image(misplaced_permission)
+        with self.assertRaises(AssertionError):
+            validate_publisher_image(text.replace(PUBLISHER_PREFLIGHT, '') + PUBLISHER_PREFLIGHT)
+        with self.assertRaises(AssertionError):
+            validate_publisher_image(text.replace(PUBLISHER_PREFLIGHT, PUBLISHER_PREFLIGHT + OLD_OSS_INSTALL))
 
 
 if __name__ == "__main__":

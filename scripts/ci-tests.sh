@@ -4,7 +4,7 @@
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image] [--full-support-phase before-cross-uid|after-cross-uid]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image] [--full-support-phase before-cross-uid|after-cross-uid] [--rust-baseline-phase checks]
 
   commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -681,10 +681,20 @@ if plan_input:
         raise SystemExit('support job missing from plan')
     contract = plan.get('workspace_support_execution_contract')
     if contract is not None:
+        parts_map = contract.get('partitions') if isinstance(contract, dict) else None
+        feats_map = contract.get('complete_features_by_profile') if isinstance(contract, dict) else None
         if (not isinstance(contract, dict) or type(contract.get('version')) is not int or contract['version'] != 1
                 or not isinstance(contract.get('selected_profiles'), list)
-                or not isinstance(contract.get('host_profiles'), list)):
+                or not isinstance(contract.get('host_profiles'), list)
+                or not isinstance(parts_map, dict)
+                or not isinstance(feats_map, dict)
+                or any(not isinstance(k, str) or not k or not isinstance(v, list)
+                       or any(not isinstance(x, str) or not x for x in v) or len(set(v)) != len(v)
+                       for k, v in [*parts_map.items(), *feats_map.items()])):
             raise SystemExit('invalid workspace_support_execution_contract')
+        part_members = [x for v in parts_map.values() for x in v]
+        if len(part_members) != len(set(part_members)) or set(part_members) != set(contract['selected_profiles']):
+            raise SystemExit('workspace_support_execution_contract partitions do not cover selected_profiles exactly once')
         if 'workspace_support_profile_version' in plan and plan['workspace_support_profile_version'] != 1:
             raise SystemExit('unknown support profile plan version')
         if 'workspace_support_profiles' in plan and sorted(plan['workspace_support_profiles']) != sorted(contract['selected_profiles']):
@@ -722,17 +732,24 @@ if plan_input and plan.get('scope') == 'full':
     host_profiles = cand_host
 partition = sys.argv[3]
 if plan_input and ('workspace_support_partition_version' in plan or 'workspace_support_partitions' in plan):
-    expected_partitions = (
-        ['other'] if profiles else [],
-        sorted({'custody' if p == 'oasis7_custody_worker' else 'other' for p in profiles}),
-    )
+    if contract is not None and plan.get('scope') != 'full':
+        expected_partitions = [sorted(k for k, v in contract['partitions'].items() if v)]
+    else:
+        expected_partitions = [
+            ['other'] if profiles else [],
+            sorted({'custody' if p == 'oasis7_custody_worker' else 'other' for p in profiles}),
+        ]
     if (type(plan.get('workspace_support_partition_version')) is not int
             or plan['workspace_support_partition_version'] != 1
             or plan.get('workspace_support_partitions') not in expected_partitions
             or (partition != 'all' and partition not in plan['workspace_support_partitions'])):
         raise SystemExit('invalid complete workspace support partitions')
     if partition != 'all':
-        profiles = [profile for profile in profiles if 'other' == partition]
+        if contract is not None and plan.get('scope') != 'full':
+            allowed = set(contract['partitions'].get(partition, ()))
+            profiles = [profile for profile in profiles if profile in allowed]
+        else:
+            profiles = [profile for profile in profiles if 'other' == partition]
 elif partition != 'all':
     raise SystemExit('support partition requires a trusted capability')
 execution = sys.argv[4]
@@ -746,8 +763,14 @@ if expanded:
     artifacts = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(artifacts)
     artifacts.ROOT = Path.cwd()
+contract_features = contract['complete_features_by_profile'] if (plan_input and contract is not None and plan.get('scope') != 'full') else {}
 for profile in sorted(profiles):
-    features = artifacts.package_features([profile], plan) if expanded else []
+    features = list(artifacts.package_features([profile], plan)) if expanded else []
+    if expanded:
+        for feat in contract_features.get(profile, ()):
+            qualified = f'{profile}/{feat}' if '/' not in feat else feat
+            if qualified not in features:
+                features.append(qualified)
     print(profile + '|' + ('true' if expanded else 'false') + '|' + ','.join(features))
 PY
   ) || return 2
@@ -763,7 +786,6 @@ PY
       oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib; run_game_client_cli_contracts ;;
       oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
-      oasis7_custody_worker) echo "+ support profile offboarded: $profile"; complete_targets=true; expand_targets=false ;;
       oasis7_wasm_executor)
         # Run the actual Linux worker binary, process/FD and regex integration
         # tests alongside the library tests. This crate's sole nondefault
@@ -1665,15 +1687,17 @@ run_rust_baseline() {
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
-  local architecture_args=()
-  if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
-    architecture_args=(--plan-file "$required_plan")
-  elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN_FILE:-}" ]]; then
-    architecture_args=(--plan-file "$OASIS7_CI_ARCHITECTURE_PLAN_FILE")
-  elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN:-}" ]]; then
-    architecture_args=(--plan "$OASIS7_CI_ARCHITECTURE_PLAN")
+  if [[ "${rust_baseline_phase:-all}" == all ]]; then
+    local architecture_args=()
+    if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
+      architecture_args=(--plan-file "$required_plan")
+    elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN_FILE:-}" ]]; then
+      architecture_args=(--plan-file "$OASIS7_CI_ARCHITECTURE_PLAN_FILE")
+    elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN:-}" ]]; then
+      architecture_args=(--plan "$OASIS7_CI_ARCHITECTURE_PLAN")
+    fi
+    run python3 ./scripts/cargo-dev-architecture.py "${architecture_args[@]}"
   fi
-  run python3 ./scripts/cargo-dev-architecture.py "${architecture_args[@]}"
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh
@@ -1771,6 +1795,7 @@ ordinary_partition=""
 support_partition="all"
 support_execution="all"
 full_support_phase="all"
+rust_baseline_phase="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo-root)
@@ -1818,6 +1843,11 @@ while [[ $# -gt 0 ]]; do
       full_support_phase="$2"
       shift 2
       ;;
+    --rust-baseline-phase)
+      [[ $# -ge 2 && "$rust_baseline_phase" == all && "$2" == checks ]] || { usage; exit 2; }
+      rust_baseline_phase="$2"
+      shift 2
+      ;;
     --ordinary-partition)
       [[ $# -ge 2 && -n "$2" && -z "$ordinary_partition" ]] || { usage; exit 2; }
       ordinary_partition="$2"
@@ -1856,6 +1886,10 @@ if [[ "$full_support_phase" != all &&
 fi
 if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline && "$group" != distfs ) ) ]]; then
   echo '--plan requires required --group oasis7_required, rust_baseline or distfs' >&2
+  exit 2
+fi
+if [[ "$rust_baseline_phase" != all && ( "$tier" != required || "$group" != rust_baseline || -z "$required_plan" ) ]]; then
+  echo '--rust-baseline-phase requires required --group rust_baseline --plan' >&2
   exit 2
 fi
 if [[ -n "$ordinary_partition" && ( "$tier" != required || "$group" != oasis7_required || -z "$required_plan" ) ]]; then

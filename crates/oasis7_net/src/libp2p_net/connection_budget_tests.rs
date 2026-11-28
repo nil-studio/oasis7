@@ -673,7 +673,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
         wire_bytes::Libp2pWireByteCounters,
     };
     use libp2p::request_response::{Event, Message, OutboundFailure};
-    use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
+    use oasis7_proto::distributed_net::NetworkRequest;
 
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -712,7 +712,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                     protocol: "/test/window-deadline".into(),
                     payload: payload.to_vec(),
                 };
-                let expired = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"expired"), deadline: None, exchange: None });
+                let expired = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"expired"), deadline: None, exchange: None, response_resources: Default::default(), memory: None });
                 loop {
                     match select(client.select_next_some(), server.select_next_some()).await {
                         Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
@@ -734,7 +734,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                 // The seeded full charge must be gone even if control I/O ran.
                 assert!(window.snapshot().unwrap().charged_bytes.total < 16_384);
 
-                let fresh = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"fresh"), deadline: None, exchange: None });
+                let fresh = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"fresh"), deadline: None, exchange: None, response_resources: Default::default(), memory: None });
                 loop {
                     match select(client.select_next_some(), server.select_next_some()).await {
                         Either::Right((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
@@ -742,7 +742,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                         )), _)) => {
                             assert_eq!(request.message.payload, b"fresh", "expired request was revived");
                             server.behaviour_mut().request_response
-                                .send_response(channel, NetworkResponse { payload: b"ack".to_vec() })
+                                .send_response(channel, super::super::HeldBytes::unheld(b"ack".to_vec()))
                                 .unwrap();
                         }
                         Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(

@@ -26,6 +26,10 @@ use durable_peer_record_publisher::LocalPeerRecordPublisher;
 pub(crate) mod error_mapping;
 mod inbound_dispatch;
 mod kad_queries;
+mod memory_hold;
+pub use memory_hold::{
+    HeldBytes, TRANSPORT_MEMORY_DIRECTION_BYTES, TransportMemoryDirection, TransportMemoryHold,
+};
 mod peer_discovery_observations;
 mod peer_manager;
 mod peer_manager_active_set;

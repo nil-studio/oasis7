@@ -1,5 +1,6 @@
 //! Compact protocol framing only: these vectors do not prove World execution,
 //! current issuer permission, provider custody, or active membership.
+use super::super::{package, staging::PrivateStage};
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use oasis7_client_api::{
@@ -12,6 +13,7 @@ use oasis7_proto::distributed_bft::{
     v2::{BftScopeV2, BftValidatorTransitionV2, BftValidatorV2},
     v3::BftBlockHeaderV3,
 };
+use std::{io::Write, time::Duration};
 
 fn hash(n: u8) -> String {
     format!("{n:02x}").repeat(32)
@@ -209,4 +211,111 @@ fn compact_wire2_rejects_old_domain_schema_noncanonical_and_trailing() {
     assert!(decode_frame::<Request>(&trailing).is_err());
     assert!(decode_frame::<u64>(&[0x18, 0x01]).is_err());
     assert_eq!(decode_frame::<u64>(&[0x01]).unwrap(), 1);
+}
+
+pub(in super::super) fn candidate_fixture(
+    actions: &[crate::NodeConsensusAction],
+) -> NodeBftPrivateCandidatePackageV3 {
+    let mut value = large_transition_value();
+    let actions_cbor = encode(&actions).unwrap();
+    value.execution_commitment.action_root = crate::compute_consensus_action_root(actions).unwrap();
+    value.header.execution_commitment_hash = value.execution_commitment.digest().unwrap();
+    value.header.actions_cbor_digest =
+        oasis7_proto::distributed_bft::v3::actions_cbor_digest_v3(&actions_cbor).unwrap();
+    NodeBftPrivateCandidatePackageV3 {
+        candidate: crate::NodeBftPrivateCandidateV3 {
+            public_value: value,
+            actions_cbor,
+        },
+        dependency_nodes: vec![],
+    }
+}
+pub(in super::super) fn stage(bytes: &[u8]) -> (PrivateStage, Manifest) {
+    let mut stage =
+        PrivateStage::new(bytes.len(), Instant::now() + Duration::from_secs(60)).unwrap();
+    stage.write_all(bytes).unwrap();
+    (
+        stage,
+        Manifest {
+            package_digest: package::package_digest(bytes),
+            total_bytes: bytes.len() as u64,
+            chunk_size: CHUNK,
+            total_chunks: bytes.len().div_ceil(CHUNK as usize) as u32,
+        },
+    )
+}
+#[test]
+fn staged_candidate_accepts_maximum_public_value_and_near_capacity_closure() {
+    use oasis7_distfs::controlled_authority::formal::business_index::{
+        BusinessIndexLeafKindV1, BusinessIndexLeafV1, BusinessIndexNodeV1,
+    };
+    let actions =
+        [
+            crate::NodeConsensusAction::from_payload(1, "staging", vec![0; 1024 * 1024 - 512])
+                .unwrap(),
+        ];
+    let mut p = candidate_fixture(&actions);
+    for index in 0u32..4096 {
+        let bytes = BusinessIndexNodeV1::leaf(BusinessIndexLeafV1 {
+            key_digest: blake3::hash(&index.to_be_bytes()).to_hex().to_string(),
+            kind: BusinessIndexLeafKindV1::Outcome,
+            canonical_value: vec![42; 16 * 1024 - 128],
+        })
+        .unwrap()
+        .encode()
+        .unwrap();
+        p.dependency_nodes
+            .push((blake3::hash(&bytes).to_hex().to_string(), bytes));
+    }
+    p.dependency_nodes.sort_by(|a, b| a.0.cmp(&b.0));
+    let expected = p.candidate.public_value.clone();
+    let bytes = package::encode_package(&p).unwrap();
+    assert!(bytes.len() > 65 * 1024 * 1024 && bytes.len() < MAX_PACKAGE);
+    let (stage, manifest) = stage(&bytes);
+    drop(bytes);
+    drop(p);
+    let decoded = package::decode_staged(stage, &manifest).unwrap();
+    assert_eq!(decoded.candidate.public_value, expected);
+    assert_eq!(decoded.dependency_nodes.len(), 4096);
+    let payload_capacity: usize = decoded
+        .dependency_nodes
+        .iter()
+        .map(|(_, b)| b.capacity())
+        .sum();
+    assert!(payload_capacity <= 64 * 1024 * 1024);
+    assert!(decoded.candidate.actions_cbor.len() > 1024 * 1024 - 1024);
+}
+#[test]
+fn staged_candidate_rejects_wrong_original_and_noncanonical_fields() {
+    let bytes = package::encode_package(&candidate_fixture(&[])).unwrap();
+    for field in 0..3 {
+        let (stage, mut manifest) = stage(&bytes);
+        match field {
+            0 => manifest.package_digest = hash(99),
+            1 => manifest.total_bytes -= 1,
+            _ => manifest.total_bytes += 1,
+        }
+        assert!(package::decode_staged(stage, &manifest).is_err());
+    }
+    let mut cases = vec![bytes[..bytes.len() - 1].to_vec()];
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    cases.push(trailing);
+    for key in ["unknown", "schema_version"] {
+        let mut extra = bytes.clone();
+        assert_eq!(extra[0], 0xa5);
+        extra[0] = 0xa6;
+        extra.extend(encode(&key).unwrap());
+        extra.push(1);
+        cases.push(extra);
+    }
+    let key = b"schema_version";
+    let offset = bytes.windows(key.len()).position(|v| v == key).unwrap() + key.len();
+    let mut noncanonical = bytes;
+    noncanonical.splice(offset..offset + 1, [0x18, 0x01]);
+    cases.push(noncanonical);
+    for bytes in cases {
+        let (stage, manifest) = stage(&bytes);
+        assert!(package::decode_staged(stage, &manifest).is_err());
+    }
 }

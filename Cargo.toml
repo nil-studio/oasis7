@@ -6,7 +6,6 @@ members = [
     "crates/oasis7_agent_api",
     "crates/oasis7_domain_types",
     "crates/oasis7_custody_core",
-    "crates/oasis7_custody_worker",
     "crates/oasis7_dev_test_worker",
     "crates/oasis7_agent_harness",
     "crates/oasis7_model_provider",
@@ -20,8 +19,6 @@ members = [
     "crates/oasis7_executable_image",
     "crates/oasis7_observability",
     "crates/oasis7_wasm_materializer",
-    "crates/oasis7_letai_credit_adapter",
-    "crates/oasis7_newapi_bridge_service",
     "crates/oasis7_provider_local_bridge",
     "crates/oasis7_provider_tools",
     "crates/oasis7_launcher_backend",
@@ -54,7 +51,7 @@ members = [
     "tools/wasm_build_suite",
     "tools/wasm_module_observe",
 ]
-exclude = ["vendor/if-watch-3.2.2", "vendor/libp2p-quic-0.15.0", "vendor/libp2p-swarm-0.49.0", "tools/oasis7-command-center", "docker/wasm-builder"]
+exclude = ["vendor/if-watch-3.2.2", "vendor/libp2p-quic-0.15.0", "tools/oasis7-command-center", "docker/wasm-builder"]
 resolver = "2"
 
 # Shared values are opt-in; package versions and publication policy stay local.
@@ -103,7 +100,6 @@ if-watch = { path = "vendor/if-watch-3.2.2" }
 
 [patch."https://github.com/libp2p/rust-libp2p"]
 libp2p-quic = { path = "vendor/libp2p-quic-0.15.0" }
-libp2p-swarm = { path = "vendor/libp2p-swarm-0.49.0" }
 
 # Lifecycle image qualification repeatedly hashes complete executable files.
 # Keep the shipping hash checks affordable in local debug/test builds.

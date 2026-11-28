@@ -47,7 +47,7 @@ API_RETRY_DELAYS = (0.5, 1.0)
 COLLECTION_READ_ATTEMPTS = 3
 ACTIVE_STATUSES = {"queued", "in_progress", "waiting", "pending", "requested"}
 POLICY_FILES = (
-    WORKFLOW, ".github/workflows/command-center.yml",
+    WORKFLOW,
     "scripts/ci-required-scope.json", "scripts/plan-rust-required-scope.py",
     "scripts/ci-tests.sh", "scripts/ci-test-artifacts.py",
     "scripts/ci-formal-process-suites.json", "scripts/ci-formal-plan.py",
@@ -232,7 +232,8 @@ def validate_plan(plan, needs, config, context):
     jobs = (module.configured_group_jobs(config, plan)
             if hasattr(module, "configured_group_jobs")
             else {name: name.replace("_", "-") for name in config["groups"]})
-    retired = module.retired_group_jobs(config, plan) if hasattr(module, "retired_group_jobs") else ()
+    retired = ({job for job in module.retired_group_jobs(config, plan) if job in needs}
+               if hasattr(module, "retired_group_jobs") else ())
     extra = {"retired_jobs": retired} if retired else {}
     module.validate_full(
         plan, needs, jobs, event_name=context["event_name"], ref=context["ref"],

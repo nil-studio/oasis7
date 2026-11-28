@@ -49,7 +49,7 @@ Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆
 
 可信 scope 配置的 `workspace_support_profile_paths` 可逐 profile 登记跨 package 的真实测试输入路径；命中时在原 Cargo/目录选择之上追加 `workspace_support` 与该 profile，不把整个 support 组扩大。该映射不登记新输入的 ownership，未知路径仍失败，profile 名称及路径必须通过配置验证。现有非 package support 规则、显式整组请求及共享控制/不确定输入继续保留全部 support profiles。
 
-custody Worker 的 CI 执行及 54 条跨 crate `workspace_support_profile_paths` 触发规则已下线：`hosted_identity` 等跨 crate 文件不再触发 `oasis7_custody_worker` 平台测试，其他 backend 功能也不因此增加该平台测试；`oasis7_custody_worker` 仅在 `package_groups` 保留轻量映射以避免在 crate 物理删除前触发未知输入回退。
+custody Worker（`crates/oasis7_custody_worker/`）及其 CI 执行与 54 条跨 crate `workspace_support_profile_paths` 触发规则均已下线并物理删除：`hosted_identity` 等跨 crate 文件不再触发 custody 平台测试，其他 backend 功能也不因此增加该平台测试。
 
 `./scripts/ci-tests.sh required` 是普通必要测试的本地入口；`full` 保留广覆盖回归。Rust workflow 的四小时完整回归按[当前分层接口](#ci-fast-pr-periodic-full-design)执行；真实产品测试、WASM 确定性、共识、持久化、安全、升级恢复和跨平台打包继续保留。
 
@@ -343,7 +343,7 @@ Release / Mainnet native gate 在 job 范围对齐 Cargo 重试、registry 协�
 
 registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档；合并 native 族减少重复库存，但各小 gate 会恢复更大的归档，恢复/解压成本与编译收益必须由实际 hosted 数据分别评估。
 
-> **当前状态（Custody CI 下线）：** `oasis7_custody_worker` 的 CI 执行已下线——`scripts/ci-required-scope.json` 移除 `custody_execution_version`、`custody_compile_proof_version`、`custody_policy_tests_version`、`custody_node_shards_version` 及 54 条跨 crate `workspace_support_profile_paths` 规则；`support_partitions` 将所有 profile 归入 `other`，`scripts/ci-tests.sh` 不再执行 `verify.sh --platform` 或 `run_worker_wasm_compile_profiles`，`.github/workflows/rust.yml` 中的 4 个 `custody-*` job 壳保持条件 `skipped`，而 `workspace-support-other`（含 `oasis7_dev_test_worker`、`oasis7_custody_core` 等）继续独立正常运行。以下为历史分阶段执行与 `policy_sha` 兼容结构说明。
+> **当前状态（Custody CI 下线与物理删除）：** `crates/oasis7_custody_worker/`、`scripts/ci-custody-*` 及 `.github/workflows/rust.yml` 中的 4 个 `custody-*` job 均已下线并物理删除——`scripts/ci-required-scope.json` 移除 `custody_execution_version`、`custody_compile_proof_version`、`custody_policy_tests_version`、`custody_node_shards_version`、`oasis7_custody_worker` 及 54 条跨 crate `workspace_support_profile_paths` 规则；`support_partitions` 将所有 profile 归入 `other`，`scripts/ci-tests.sh` 不再执行 `verify.sh --platform` 或 `run_worker_wasm_compile_profiles`，而 `workspace-support-other`（含 `oasis7_dev_test_worker`、`oasis7_custody_core` 等）继续独立正常运行。以下为历史分阶段执行与 `policy_sha` 兼容结构说明。
 
 `workspace-support-legacy` 在可信计划声明版本化分区时，按 `other` 分区执行活跃支持包命令；旧 BASE 仍可能出现 custody / other 两路 matrix。custody worker 的原 verifier 与 WASM 编译检查已在当前 driver 下线；其他支持包（含 `oasis7_dev_test_worker`、`oasis7_custody_core` 等）继续独立执行。full 在分区前扩展候选完整 profile 库存，缺失、重复、未知分区及任何失败均阻断。本地未指定 `--support-partition` 时，校验完整计划后执行全部选中 profile；显式 other 仍按计划核对并收窄。旧 BASE 保留 all，矩阵 `fail-fast: false`，最终 required/full gate 经稳定 support 汇总（或直连门禁）等待选中任务的真实终态。
 
@@ -512,6 +512,12 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 <a id="ci-cache-budget-validation"></a>
 [容量治理回归](../../../scripts/ci-cache-maintenance.test.py)覆盖保存未确认后的补偿、多页 API 完整性重读、同兼容组两代/压力下一代、Release 平台/架构分组、严格源码祖先退休、current 与稳定恢复锚点、族/ref/version 归属、活动访问保护、两次计划交集、身份变化、歧义和未知项保留、后页失败零删除、部分删除及幂等；[容量准入回归](../../../scripts/ci-cache-policy.test.py)回放高压库存、workspace 和依赖上传先后以及 full 的轮换空间。[workflow 接线回归](../../../scripts/ci-workflow.test.py)核对无新保存仍执行可信补偿维护、候选无删除权限、固定维护并发及必要 CI 结果不变。[发布缓存回归](../../../scripts/package-workflow-cache-reuse-contract.test.sh)核对实际工具链/环境 hash 与 writer/reader 对应关系。真实 hosted 保存、删除后库存和冷热构建收益分别由实际运行记录证明。
+
+### Rust 基线的架构检查
+
+required 和 explicit-full 流程中，`rust-architecture` 与 `rust-baseline` 使用相同选择、固定容器、只读缓存及 runner 路由，各有 32 分钟上限。架构作业按原可信计划执行常规完整或定向的依赖检查与 Cargo 检查。原基线仍执行格式、安全、卫生、Clippy、所选 WASM 检查和独立锁文件检查。显式本地及完整分层入口继续执行原组合。
+
+汇总先根据受校验的选择确认两作业状态，并核对回执的运行号、来源、实测提交、树、计划摘要和编译环境。失败、缺失或选中作业被跳过会阻止 required gate。失败项重跑可使用同一运行、较早尝试的成功结果，要求原选择和执行身份仍匹配。旧版可信结果验证器继续核对它认识的原依赖。
 
 <a id="ci-install-apt-design"></a>
 ## 6. apt 的有界安装

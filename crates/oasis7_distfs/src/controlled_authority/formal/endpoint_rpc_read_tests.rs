@@ -1,6 +1,9 @@
 use super::*;
 use crate::controlled_authority::formal::coordinator::FormalDurabilityEndpoint;
 use crate::controlled_authority::formal::crypto::invalid;
+use crate::controlled_authority::formal::endpoint::{
+    FormalArchiveReadWorkV1 as ReadWork, RpcReadBudget,
+};
 use ed25519_dalek::Signer;
 use std::{
     io::{Read, Write},
@@ -16,10 +19,54 @@ use std::{
 #[path = "endpoint_rpc_read_test_server.rs"]
 mod owned_server;
 use owned_server::{OwnedRpcServer, RPC_TIMEOUT};
+#[path = "endpoint_rpc_checkpoint_tests.rs"]
+mod checkpoint_tests;
 
 struct CountingProvider {
     inner: Arc<dyn fencing::MonotonicEndpointProvider>,
     acquisitions: Arc<AtomicUsize>,
+    signatures: Arc<AtomicUsize>,
+}
+
+struct CountingGuard {
+    inner: Box<dyn fencing::MonotonicEndpointGuard>,
+    signatures: Arc<AtomicUsize>,
+}
+
+impl fencing::MonotonicEndpointGuard for CountingGuard {
+    fn sign_endpoint(
+        &mut self,
+        request: fencing::ProtectedEndpointSigningRequestV1,
+    ) -> Result<fencing::ProtectedEndpointSignatureV1, fencing::FencingError> {
+        if request.purpose == fencing::ProtectedEndpointSignaturePurposeV1::RpcResponse {
+            self.signatures.fetch_add(1, Ordering::SeqCst);
+        }
+        self.inner.sign_endpoint(request)
+    }
+    fn protected_native_checkpoint(&self) -> Option<&[u8]> {
+        self.inner.protected_native_checkpoint()
+    }
+    fn durable_set_state(&self) -> Option<&fencing::DurableSetProviderStateV1> {
+        self.inner.durable_set_state()
+    }
+    fn checkpoint(&self) -> &fencing::EndpointCheckpointBindingV1 {
+        self.inner.checkpoint()
+    }
+    fn pending(&self) -> Option<&fencing::CheckpointIntentV1> {
+        self.inner.pending()
+    }
+    fn seal(&self) -> Option<&fencing::EpochSealBodyV1> {
+        self.inner.seal()
+    }
+    fn begin(&mut self, intent: fencing::CheckpointIntentV1) -> Result<(), fencing::FencingError> {
+        self.inner.begin(intent)
+    }
+    fn finish(&mut self) -> Result<(), fencing::FencingError> {
+        self.inner.finish()
+    }
+    fn evidence(&self) -> Result<fencing::MonotonicProviderEvidenceV1, fencing::FencingError> {
+        self.inner.evidence()
+    }
 }
 
 impl fencing::MonotonicEndpointProvider for CountingProvider {
@@ -37,8 +84,77 @@ impl fencing::MonotonicEndpointProvider for CountingProvider {
         checkpoint: &fencing::EndpointCheckpointBindingV1,
     ) -> Result<Box<dyn fencing::MonotonicEndpointGuard>, fencing::FencingError> {
         self.acquisitions.fetch_add(1, Ordering::SeqCst);
-        self.inner.acquire(instance, checkpoint)
+        Ok(Box::new(CountingGuard {
+            inner: self.inner.acquire(instance, checkpoint)?,
+            signatures: Arc::clone(&self.signatures),
+        }))
     }
+}
+
+#[test]
+fn prepaid_response_digest_refusal_precedes_protected_rpc_signature() {
+    let fixture = Fixture::new();
+    let oracle = Oracle::start(&fixture, EndpointRole::Primary);
+    let acquisitions = Arc::new(AtomicUsize::new(0));
+    let signatures = Arc::new(AtomicUsize::new(0));
+    let mut endpoint = FileFormalEndpoint::open_protected(
+        &fixture.pdir,
+        FormalEndpointAuthorizationV1 {
+            authority: fixture.authority.clone(),
+            original: fixture.authority.clone(),
+            recovery: None,
+            parent: None,
+        },
+        EndpointRole::Primary,
+        Arc::new(CountingProvider {
+            inner: oracle.provider(&fixture),
+            acquisitions: Arc::clone(&acquisitions),
+            signatures: Arc::clone(&signatures),
+        }),
+        None,
+    )
+    .unwrap();
+    acquisitions.store(0, Ordering::SeqCst);
+    signatures.store(0, Ordering::SeqCst);
+    // Admit ancestry and HOT originals/copies, leaving no digest payload room.
+    let checkpoint = endpoint.store.checkpoint_bytes().unwrap();
+    let minimum = fixture.authority.definition().world.genesis_head().unwrap();
+    let work = ReadWork::new(1_000_000, 1 << 30).unwrap();
+    let probe = oasis7_proto::memory_budget::MemoryBudget::new(1 << 20, 0).unwrap();
+    let empty = endpoint
+        .store
+        .minimum_witness_bounded(&minimum, &probe, &work, &mut || false)
+        .unwrap();
+    assert!(empty.is_empty());
+    let ancestry_fee = empty.reserved_bytes() + std::mem::size_of::<Vec<Vec<u8>>>();
+    drop(empty);
+    assert_eq!(probe.used(), 0);
+    let memory = oasis7_proto::memory_budget::MemoryBudget::new(
+        ancestry_fee + 2 * (checkpoint.len() + std::mem::size_of::<Vec<u8>>()),
+        0,
+    )
+    .unwrap();
+    let mut stop = || false;
+    let error = endpoint
+        .sign_formal_rpc_response(
+            h(21),
+            h(22),
+            minimum,
+            Ok(super::super::super::super::transport::Value::Complete),
+            Some(RpcReadBudget::new(&memory, &work, &mut stop)),
+        )
+        .err()
+        .expect("the original pool cannot admit the response digest payload");
+    assert!(
+        matches!(&error, FormalError::Invalid(message)
+            if message.starts_with("formal RPC response body encoding:")),
+        "{error:?}"
+    );
+    assert_eq!(acquisitions.load(Ordering::SeqCst), 1);
+    assert_eq!(signatures.load(Ordering::SeqCst), 0);
+    assert!(work.remaining_steps() < 1_000_000);
+    assert!(work.remaining_read_bytes() < 1 << 30);
+    assert_eq!(memory.used(), 0);
 }
 
 fn signed_rpc(
@@ -208,6 +324,7 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     let counting_provider = Arc::new(CountingProvider {
         inner: primary_oracle.provider(&fixture),
         acquisitions: Arc::clone(&acquisitions),
+        signatures: Arc::new(AtomicUsize::new(0)),
     });
     let endpoint = FileFormalEndpoint::open_protected(
         &fixture.pdir,
@@ -300,6 +417,8 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
         })
         .unwrap();
     assert_eq!(recorded.body.minimum, first_commit.head());
+    assert!(recorded.body.head.position > recorded.body.minimum.position);
+    assert_eq!(recorded.body.ancestry.len(), 1);
     assert!(matches!(
         recorded.body.result,
         Ok(super::super::super::super::transport::Value::Query(query))
@@ -316,6 +435,8 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
             )
         })
         .unwrap();
+    assert!(absent.body.head.position > absent.body.minimum.position);
+    assert_eq!(absent.body.ancestry.len(), 1);
     assert!(matches!(
         absent.body.result,
         Ok(super::super::super::super::transport::Value::Query(query))
@@ -553,6 +674,12 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
     server.finish().unwrap();
+    // Join before inspecting worker observations: each Query pays both real
+    // walks; guarded Head pays its single walk under the existing guard.
+    assert_eq!(
+        &server.diagnostics.minimum_reads.lock().unwrap()[..3],
+        &[2, 2, 1]
+    );
     drop(primary_oracle);
     drop(replica_oracle);
 }

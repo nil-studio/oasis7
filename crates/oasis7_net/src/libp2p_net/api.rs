@@ -48,6 +48,7 @@ pub struct Libp2pNetwork {
     pub(super) peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
     pub(super) discovery_clock: super::peer_record_time::DiscoveryClock,
     pub(super) resource_budget: Option<ActiveResourceBudget>,
+    pub(super) memory_pool: Arc<super::memory_hold::MemoryPool>,
     pub(super) _shutdown_guard: Arc<super::drop_support::ShutdownGuard>,
 }
 const LIBP2P_COMMAND_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -290,6 +291,29 @@ impl Libp2pNetwork {
         deadline: Option<tokio::time::Instant>,
         exchange: Option<Arc<super::encoded_exchange::Exchange>>,
     ) -> Result<Vec<u8>, WorldError> {
+        self.request_to_peer_local(
+            protocol,
+            payload,
+            peer,
+            timeout,
+            super::request_deadline::OutboundContext {
+                deadline,
+                exchange,
+                memory: None,
+            },
+        )?
+        .into_unheld()
+    }
+
+    pub(super) fn request_to_peer_local(
+        &self,
+        protocol: &str,
+        payload: &[u8],
+        peer: PeerId,
+        timeout: Duration,
+        context: super::request_deadline::OutboundContext,
+    ) -> Result<super::HeldBytes, WorldError> {
+        let deadline = context.deadline;
         let contextualize =
             |error| command_failure_context(error, FailureOrigin::LocalTransport, Some(protocol));
         super::request_deadline::check_dispatch_deadline(deadline).map_err(contextualize)?;
@@ -298,8 +322,7 @@ impl Libp2pNetwork {
             protocol: protocol.to_string(),
             payload: payload.to_vec(),
             peer,
-            deadline,
-            exchange,
+            context,
             response: sender,
         })?;
         let operation = format!("request_to_peer protocol={protocol} peer={peer}");
@@ -547,9 +570,11 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pNetwork {
         let remaining = deadline.map_or(LIBP2P_COMMAND_RESPONSE_TIMEOUT, |deadline| {
             deadline.saturating_duration_since(tokio::time::Instant::now())
         });
-        block_on_command_response_with_timeout(receiver, operation.as_str(), remaining).map_err(
-            |err| command_failure_context(err, FailureOrigin::ProviderRouting, Some(protocol)),
-        )
+        block_on_command_response_with_timeout(receiver, operation.as_str(), remaining)
+            .and_then(super::HeldBytes::into_unheld)
+            .map_err(|err| {
+                command_failure_context(err, FailureOrigin::ProviderRouting, Some(protocol))
+            })
     }
 
     fn register_handler(

@@ -293,12 +293,19 @@ fn real_original_admission_noise_is_bound_and_charged() {
             Ok(self.0.sign(bytes).to_bytes())
         }
     }
+    struct SourceHold(Arc<AtomicUsize>);
+    impl Drop for SourceHold {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
     struct Authority {
         bound: AdmissionInputBoundContextV2,
         bytes: Vec<u8>,
         generation: Arc<AtomicU64>,
         permitted: Arc<AtomicBool>,
         reads: AtomicUsize,
+        holds: Arc<AtomicUsize>,
         charges: AtomicU64,
         deny_charge: AtomicBool,
     }
@@ -337,9 +344,10 @@ fn real_original_admission_noise_is_bound_and_charged() {
                     self.bytes[r.offset as usize..r.offset as usize + r.length as usize].to_vec()
                 })
                 .collect();
+            self.holds.fetch_add(1, Ordering::SeqCst);
             Ok(ProtectedOriginalAdmissionPartsV2 {
                 parts,
-                transport_hold: Box::new(()), // Test fixture, never production custody.
+                transport_hold: Box::new(SourceHold(self.holds.clone())), // Drop probe, not custody.
             })
         }
         fn reserve_encoded_response_and_readback(
@@ -347,6 +355,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
             _: &VerifiedAdmissionBatchSubjectV2,
             outer: u64,
         ) -> Result<(), String> {
+            assert!(self.holds.load(Ordering::SeqCst) > 0);
             if outer == 0 || self.deny_charge.load(Ordering::SeqCst) {
                 return Err("protected original charge/readback refused".into());
             }
@@ -453,6 +462,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
         generation: Arc::new(AtomicU64::new(7)),
         permitted: Arc::new(AtomicBool::new(true)),
         reads: AtomicUsize::new(0),
+        holds: Arc::new(AtomicUsize::new(0)),
         charges: AtomicU64::new(0),
         deny_charge: AtomicBool::new(false),
     });
@@ -489,6 +499,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
     );
     assert_eq!(authority.reads.load(Ordering::SeqCst), 1);
     assert!(authority.charges.load(Ordering::SeqCst) > answer.len() as u64);
+    wait_connected(|| authority.holds.load(Ordering::SeqCst) == 0);
 
     let previous_charge = authority.charges.load(Ordering::SeqCst);
     let mut tampered = request.clone();
@@ -536,6 +547,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
     // not by a manually issued one-off Batch. Keep the *same* issuer grant,
     // nonce and subject identity for Manifest + both exact original batches.
     authority.deny_charge.store(false, Ordering::SeqCst);
+    wait_connected(|| authority.holds.load(Ordering::SeqCst) == 0);
     let staged = super::super::admission_input_client_v2::fetch_original_admission_input_v2(
         &client,
         server.peer_id(),
@@ -583,6 +595,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
         original_input
     );
     let reads_after_success = authority.reads.load(Ordering::SeqCst);
+    wait_connected(|| authority.holds.load(Ordering::SeqCst) == 0);
 
     // Wrong actual peer and wrong grant cannot initiate any part read.
     let mut wrong_peer = request.clone();
@@ -765,6 +778,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     }))
     .unwrap();
     signer_state.private_retention = Some(BftPrivateRetentionHeadV1 {
+        selection_commitment: None,
         schema_version: 2,
         source: reference.source.clone(),
         capability_digest: "cd".repeat(32),
@@ -777,6 +791,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     });
     let token = "da".repeat(32);
     let snapshot = BftOriginalRetentionTxnSnapshotV1 {
+        current_retention: None,
         current: BftFirstReserveSnapshotV1 {
             current: BftFreshCoverageSnapshotV1 {
                 signer: BftSignerBackendSnapshotV3 {

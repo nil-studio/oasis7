@@ -186,6 +186,7 @@ fn original_noise_outer_response_charge_preserves_one_fenced_retention_tuple() {
     let mut first = current(2, 100);
     let material_limit = BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1 - 150;
     first.current.signer.state.private_retention = Some(BftPrivateRetentionHeadV1 {
+        selection_commitment: None,
         schema_version: 2,
         source: source(),
         capability_digest: hex_hash(20),
@@ -200,6 +201,7 @@ fn original_noise_outer_response_charge_preserves_one_fenced_retention_tuple() {
     let mut original_operations = BTreeMap::new();
     original_operations.insert(original.operation_id.clone(), original.clone());
     let snapshot = BftOriginalRetentionTxnSnapshotV1 {
+        current_retention: None,
         current: first,
         original_operations,
     };
@@ -260,6 +262,7 @@ fn original_noise_outer_response_charge_preserves_one_fenced_retention_tuple() {
 
 fn exact_single_protected_transaction_retains_original_bytes_and_idempotent_result() {
     let before = BftOriginalRetentionTxnSnapshotV1 {
+        current_retention: None,
         current: current(1, 0),
         original_operations: BTreeMap::new(),
     };
@@ -302,6 +305,7 @@ fn exact_single_protected_transaction_retains_original_bytes_and_idempotent_resu
 
 fn original_whole_tuple_refuses_stale_lease_floor_spend_and_changed_identity() {
     let before = BftOriginalRetentionTxnSnapshotV1 {
+        current_retention: None,
         current: current(1, 0),
         original_operations: BTreeMap::new(),
     };
@@ -360,6 +364,7 @@ fn original_whole_tuple_refuses_stale_lease_floor_spend_and_changed_identity() {
 
 fn cold_history_keeps_original_operation_across_new_lease_and_rejects_corruption() {
     let first = BftOriginalRetentionTxnSnapshotV1 {
+        current_retention: None,
         current: current(1, 0),
         original_operations: BTreeMap::new(),
     };

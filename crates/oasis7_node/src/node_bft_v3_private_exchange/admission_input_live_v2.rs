@@ -37,8 +37,9 @@ pub struct ProtectedOriginalAdmissionContextV2 {
 }
 
 /// The hold remains alive throughout binary encoding, protected byte-spend CAS
-/// and exact readback. It is not a claim that an arbitrary local buffer is safe
-/// to release without the authority's independent source verification.
+/// and exact readback, then through the actual Net response write/close. This
+/// does not authorize releasing a local buffer without the authority's
+/// independent source verification.
 pub struct ProtectedOriginalAdmissionPartsV2 {
     pub parts: Vec<Vec<u8>>,
     pub transport_hold: Box<dyn Send + Sync>,
@@ -409,6 +410,8 @@ fn handle(
     {
         return Err("original admission authority changed before reply".into());
     }
-    let _hold_until_verified_charge = original.transport_hold;
+    transport
+        .retain_reply_resource(original.transport_hold)
+        .map_err(|_| "original admission response hold handoff rejected")?;
     Ok(encoded)
 }

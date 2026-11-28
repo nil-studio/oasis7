@@ -166,7 +166,7 @@ class CompileContexts(unittest.TestCase):
         full_plan = dict(scope='full', groups=['workspace_support'],
                          workspace_support_profile_version=1,
                          workspace_support_profiles=['oasis7_context', 'oasis7_wasm_executor'],
-                         workspace_support_partition_version=1, workspace_support_partitions=['custody', 'other'])
+                         workspace_support_partition_version=1, workspace_support_partitions=['other'])
         baseline_commands = image_commands(baseline_plan)
         allowed_commands = image_commands(full_plan)
         # dev_test_worker invokes Cargo inside its own verify.sh / build.sh scripts.

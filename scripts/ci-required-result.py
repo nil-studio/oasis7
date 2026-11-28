@@ -252,13 +252,14 @@ def main():
     config = json.loads(Path(args.config).read_text())
     plan = json.loads(args.plan)
     jobs = configured_group_jobs(config, plan)
-    retired = retired_group_jobs(config, plan)
+    needs = json.loads(args.needs)
+    retired = {job for job in retired_group_jobs(config, plan) if job in needs}
     if args.full:
-        validate_full(plan, json.loads(args.needs), jobs,
+        validate_full(plan, needs, jobs,
                       event_name=args.event_name, ref=args.ref, workflow_sha=args.workflow_sha,
                       source_sha=args.source_sha, run_mode=args.run_mode, retired_jobs=retired)
     else:
-        validate(plan, json.loads(args.needs), jobs, retired_jobs=retired)
+        validate(plan, needs, jobs, retired_jobs=retired)
     print('All selected CI groups succeeded.')
 
 

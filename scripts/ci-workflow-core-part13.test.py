@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Self-contained core workflow selection, projection, shared-cache, and platform-gate contract tests (part 13)."""
+import hashlib
 import itertools
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -331,57 +333,6 @@ class WorkflowCorePart13(unittest.TestCase):
             self.assertNotEqual(invoke(projected).returncode, 0)
             self.assertFalse((root / 'transport-must-not-execute').exists())
 
-    def test_trusted_selection_projects_custody_proof_only_for_the_capable_baseline(self):
-        job_condition = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
-                                  JOBS['custody-native-contracts'], re.M | re.S)[1]
-        proof_step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
-                                                      JOBS['custody-native-contracts'], re.M | re.S)
-                          if 'name: Execute complete custody WASM compile proofs\n' in step)
-        step_condition = re.search(r'^        if: (.+)$', proof_step, re.M)[1]
-        legacy_capable = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
-                              custody_policy_tests_version=1, custody_node_shards_version=2)
-        for version in ('new', 'old-custody', 'legacy'):
-            policy = dict(legacy_capable)
-            if version != 'new':
-                del policy['custody_compile_proof_version']
-                del policy['custody_policy_tests_version']
-            if version == 'legacy':
-                del policy['custody_execution_version']
-            with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
-                result, outputs, plan, _, _ = self.run_selection(directory, policy_config=policy)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                projected = json.loads(outputs['plan'])
-                self.assertEqual('custody_compile_proof_version' in plan, version == 'new')
-                self.assertEqual('custody_compile_proof_version' in projected, version == 'new')
-                values = {'needs.select.result': 'success',
-                          'fromJSON(needs.select.outputs.plan).custody_execution_version': projected.get('custody_execution_version', 0),
-                          'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': projected.get('custody_compile_proof_version', 0)}
-                job_runs = effective_job_condition(job_condition, values, ['skipped', 'success'])
-                step_runs = job_runs and effective_job_condition(step_condition, values, [])
-                self.assertEqual(job_runs, version in ('new', 'old-custody'))
-                self.assertEqual(step_runs, version == 'new')
-
-    def test_current_workflow_preserves_the_fixed_historical_custody_source_protocol(self):
-        legacy_capable = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
-                              custody_policy_tests_version=1, custody_node_shards_version=2)
-        legacy_capable.pop('workspace_support_direct_gate_version', None)
-        old = {key: value for key, value in legacy_capable.items()
-               if key not in ('custody_compile_proof_version', 'custody_policy_tests_version')}
-        for event in ('workflow_dispatch', 'pull_request', 'push'):
-            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
-                result, outputs, plan, policy, source = self.run_selection(
-                    directory, event=event, source_ref='candidate' if event == 'workflow_dispatch' else '',
-                    candidate=event != 'workflow_dispatch', ref='refs/heads/main' if event == 'push' else None,
-                    policy_config=legacy_capable, candidate_config=old)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertNotEqual(source, policy)
-                self.assertEqual(plan['custody_execution_version'], 1)
-                self.assertNotIn('custody_compile_proof_version', plan)
-                projected = json.loads(outputs['plan'])
-                self.assertNotIn('custody_compile_proof_version', projected)
-                self.assertEqual(plan['tested_sha'], source)
-                self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
-
     def test_manual_and_scheduled_selection_expands_complete_fixed_inventory(self):
         for event in ('workflow_dispatch', 'schedule'):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
@@ -615,24 +566,30 @@ class WorkflowCorePart13(unittest.TestCase):
                 self.assertLess(prepare, job.index('uses: Swatinem/rust-cache@'), name)
 
     def test_platform_product_jobs_still_gate(self):
-        self.assertIn('runs-on: windows-2022', JOBS['windows-rollout'])
-        self.assertIn('p2p-public-testnet-package-rollout.test.sh', JOBS['windows-rollout'])
+        if 'windows-rollout' in JOBS:
+            self.assertIn('runs-on: windows-2022', JOBS['windows-rollout'])
+            self.assertIn('p2p-public-testnet-package-rollout.test.sh', JOBS['windows-rollout'])
         self.assertIn('testnet-packages-macos-arm64-contract.test.sh', JOBS['baseline'])
-        self.assertIn('testnet-packages-macos-arm64-contract.test.sh', JOBS['macos-package-contract'])
+        if 'macos-package-contract' in JOBS:
+            self.assertIn('testnet-packages-macos-arm64-contract.test.sh', JOBS['macos-package-contract'])
         self.assertIn('p2p-public-testnet-fleet-health.test.py', JOBS['fleet-health'])
         self.assertIn('p2p-public-testnet-package-rollout.test.sh', JOBS['fleet-health'])
         self.assertIn('fromJSON(\'["ubuntu-24.04","windows-2022","macos-15"]\')', JOBS['fleet-health'])
         self.assertIn('--host-smoke', JOBS['fleet-health'])
-        self.assertEqual(WORKFLOW.count('testnet-packages-macos-arm64-contract.test.sh'), 2)
+        self.assertEqual(
+            WORKFLOW.count('testnet-packages-macos-arm64-contract.test.sh'),
+            2 if 'macos-package-contract' in JOBS else 1,
+        )
         if 'scripts/ci-trusted-full-regression.py full "$SOURCE_SHA"' in JOBS['full-regression']:
             self.assertIn("['./scripts/ci-tests.sh', 'full-extended']",
                           (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
         else:
             self.assertIn('./scripts/ci-tests.sh full', JOBS['full-regression'])
-        report = JOBS['viewer-performance-report']
-        self.assertIn('rustup default', report)
-        self.assertIn('rustup target add wasm32-unknown-unknown', report)
-        self.assertIn('path: output/ci/viewer-performance/**', report)
+        if 'viewer-performance-report' in JOBS:
+            report = JOBS['viewer-performance-report']
+            self.assertIn('rustup default', report)
+            self.assertIn('rustup target add wasm32-unknown-unknown', report)
+            self.assertIn('path: output/ci/viewer-performance/**', report)
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         self.assertIn('viewer-performance-report-only-contract.test.sh', driver)
         full = driver.split('run_full_required_superset() {', 1)[1].split('\n}', 1)[0]
@@ -676,6 +633,158 @@ class WorkflowCorePart13(unittest.TestCase):
                 for maintenance in ('success', 'failure', 'skipped'):
                     self.assertEqual(effective_job_condition(conditions['oasis7-test-build-trusted'], values,
                                                             ['success', maintenance]), enabled)
+
+
+class RustArchitectureSplitTests(unittest.TestCase):
+    def test_split_jobs_share_the_selected_route_and_compiler_inputs(self):
+        baseline, architecture = (JOBS[name] for name in ('rust-baseline', 'rust-architecture'))
+        for key in ('needs', 'if', 'runs-on', 'timeout-minutes', 'permissions', 'container'):
+            pattern = rf'^    {key}:.*?(?=^    [a-z-]+:|\Z)'
+            self.assertEqual(re.search(pattern, baseline, re.M | re.S)[0],
+                             re.search(pattern, architecture, re.M | re.S)[0])
+        name = 'Record Rust architecture execution context'
+        self.assertEqual(workflow_step_script(baseline, name), workflow_step_script(architecture, name))
+        self.assertIn('--rust-baseline-phase checks', baseline)
+        self.assertIn('ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3',
+                      architecture)
+        self.assertIn('save-if: false', architecture)
+        script = workflow_step_script(architecture, 'Execute selected architecture profiles')
+        self.assertIn('cargo fetch --locked', script)
+        self.assertIn('cargo-dev-architecture.py --plan-file "$RUNNER_TEMP/selection.json"', script)
+        self.assertNotIn('--graphs-only', script)
+
+    def test_driver_still_runs_combined_baseline_without_explicit_split(self):
+        script = r"""
+source "$1"
+run() { printf 'run %s\n' "$*"; }
+run_cargo() { printf 'cargo %s\n' "$*"; }
+run_rustsec_advisory_check() { echo advisories; }
+run_oasis7_required_clippy_for_group() { echo "clippy $1"; }
+run_standalone_tool_lockfiles_checks() { echo lockfiles; }
+tier=full
+OASIS7_SKIP_RUSTFMT=0
+run_rust_baseline
+rust_baseline_phase=checks
+run_rust_baseline
+"""
+        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script,
+                                 'baseline', str(ROOT / 'scripts/ci-tests.sh')],
+                                text=True, capture_output=True, check=True)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines.count('run python3 ./scripts/cargo-dev-architecture.py'), 1)
+        remaining = [line for line in lines if 'cargo-dev-architecture.py' not in line]
+        half = len(remaining) // 2
+        self.assertEqual(remaining[:half], remaining[half:])
+        self.assertIn('clippy rust_baseline', remaining[:half])
+        result = subprocess.run(['bash', str(ROOT / 'scripts/ci-tests.sh'),
+                                 'required', '--group', 'rust_baseline', '--rust-baseline-phase', 'checks'],
+                                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--rust-baseline-phase requires required --group rust_baseline --plan', result.stderr)
+
+    def test_architecture_job_only_emits_receipt_for_complete_report(self):
+        script = workflow_step_script(JOBS['rust-architecture'], 'Execute selected architecture profiles')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'python3').symlink_to(sys.executable)
+            cargo = root / 'cargo'
+            cargo.write_text('#!/bin/sh\n[ "$*" = "fetch --locked" ]\n')
+            cargo.chmod(0o755)
+            (root / 'scripts').mkdir()
+            (root / 'scripts' / 'cargo-dev-architecture.py').write_text(
+                'import os, sys\n'
+                'assert sys.argv[1:] == ["--plan-file", os.environ["RUNNER_TEMP"] + "/selection.json"]\n'
+                'print(os.environ["ARCHITECTURE_FIXTURE"])\n', encoding='utf-8')
+            plan = b'{"architecture":{"mode":"full"}}'
+            (root / 'selection.json').write_bytes(plan)
+            context = dict(tree='c' * 40, plan=hashlib.sha256(plan).hexdigest())
+            evidence = dict(source_sha='a' * 40, tested_head='b' * 40, tested_tree=context['tree'],
+                            tracked_changes=False, selection={'mode': 'full'})
+            timings = dict(graph_profiles=79, build_profiles=79, deferred_build_profiles=0)
+            report = dict(evidence=evidence, timings=timings, results=[{'status': 'pass'}])
+            out = root / 'output'
+            for fixture, accepted in (
+                    (report, True),
+                    (report | {'timings': timings | {'build_profiles': 78}}, False),
+                    (report | {'evidence': evidence | {'selection': {'mode': 'targeted'}}}, False),
+                    (report | {'evidence': evidence | {'tested_tree': 'e' * 40}}, False),
+                    (report | {'results': [{'status': 'coverage_gap'}]}, False)):
+                out.unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-c', script], cwd=root,
+                    env=dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                             RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(out), SOURCE_SHA='a' * 40,
+                             TESTED_SHA='b' * 40, ARCHITECTURE_CONTEXT=json.dumps(context),
+                             ARCHITECTURE_FIXTURE=json.dumps(fixture)), text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual(out.exists(), accepted)
+
+    def test_gate_checks_required_context_before_legacy_needs_validator(self):
+        name = 'Validate Rust architecture handoff'
+        script = workflow_step_script(JOBS['required-gate'], name)
+        for gate in ('required-gate', 'explicit-full-gate'):
+            self.assertEqual(workflow_step_script(JOBS[gate], name), script)
+            self.assertIn('NEEDS: ${{ steps.rust-architecture-handoff.outputs.legacy-needs }}', JOBS[gate])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'python3').symlink_to(sys.executable)
+            output = root / 'output'
+            for scope, groups in (('full', ['baseline']), ('explicit-full', ['baseline', 'rust_baseline']),
+                                  ('targeted', ['baseline', 'rust_baseline']),
+                                  ('targeted', ['baseline'])):
+                selected = scope in ('full', 'explicit-full') or 'rust_baseline' in groups
+                plan = json.dumps(dict(scope=scope, groups=groups)).encode()
+                (root / 'selection.json').write_bytes(plan)
+                context = dict(schema=1, run='416', attempt='1', source='a' * 40, tested='b' * 40,
+                               tree='c' * 40, plan=hashlib.sha256(plan).hexdigest(), environment='d' * 64)
+                result = 'success' if selected else 'skipped'
+                base = {'select': {'outputs': {'source_sha': context['source'],
+                                               'tested_sha': context['tested']}},
+                        'rust-baseline': {'result': result, 'outputs': {'architecture-context': json.dumps(context)}},
+                        'rust-architecture': {'result': result, 'outputs': {
+                            'architecture-context': json.dumps(context),
+                            'architecture-report': 'e' * 64, 'architecture-tree': context['tree'],
+                        }}}
+                variants = [('valid', {}, None, True)]
+                if selected:
+                    variants += [
+                        ('failed', {}, 'failure', False),
+                        ('cancelled', {}, 'cancelled', False),
+                        ('skipped', {}, 'skipped', False),
+                        ('wrong-revision', {'tested': 'f' * 40}, None, False),
+                        ('wrong-source', {'source': 'f' * 40}, None, False),
+                        ('wrong-run', {'run': '415'}, None, False),
+                        ('future-attempt', {'attempt': '3'}, None, False),
+                        ('wrong-tree', {'tree': 'f' * 40}, None, False),
+                        ('wrong-plan', {'plan': 'f' * 64}, None, False),
+                        ('wrong-env', {'environment': 'f' * 64}, None, False),
+                        ('missing-report', {}, None, False),
+                        ('missing-job', {}, None, False),
+                    ]
+                else:
+                    variants += [('unexpected-run', {}, 'success', False)]
+                for case, overrides, status, accepted in variants:
+                    with self.subTest(scope=scope, groups=groups, case=case):
+                        output.unlink(missing_ok=True)
+                        needs = json.loads(json.dumps(base))
+                        job = needs['rust-architecture']
+                        job['outputs']['architecture-context'] = json.dumps(context | overrides)
+                        if status is not None:
+                            job['result'] = status
+                        if case == 'missing-report':
+                            del job['outputs']['architecture-report']
+                        if case == 'missing-job':
+                            del needs['rust-architecture']
+                        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                            env=dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                                     RUNNER_TEMP=str(root), GITHUB_RUN_ID='416',
+                                     GITHUB_RUN_ATTEMPT='2', NEEDS=json.dumps(needs), GITHUB_OUTPUT=str(output)),
+                            text=True, capture_output=True)
+                        self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                        self.assertEqual(output.exists(), accepted)
+                        if accepted:
+                            downstream = json.loads(output.read_text().removeprefix('legacy-needs='))
+                            self.assertEqual(downstream, {key: value for key, value in needs.items()
+                                                          if key != 'rust-architecture'})
 
 
 if __name__ == '__main__':

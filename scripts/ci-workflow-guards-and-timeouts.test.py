@@ -97,14 +97,10 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 13,
                 'doc-checker-contracts': 10,
                 'workflow-governance': 16,
-                'custody-native-contracts': 12,
                 'consensus': 5,
                 'net': 10,
                 'node': 10,
                 'pixel-world-bridge': 5,
-                'custody-node': 19,
-                'custody-native': 17,
-                'custody-wasm-production': 25,
                 'distfs': 16,
                 'rust-baseline': 32,
                 'launcher-web': 10,
@@ -179,9 +175,25 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'web-wasm-cache': 22,
             },
         }
+        retiring = {
+            '.github/workflows/pr-fast-preview.yml',
+            '.github/workflows/command-center.yml',
+            '.github/workflows/native-cache-diagnostic.yml',
+            '.github/workflows/wasm-darwin-docker-evidence.yml',
+        }
+        retiring_rust_jobs = {
+            'command-center', 'consensus', 'viewer-performance-report', 'pixel-world-bridge',
+            'codex-agent-config-validation', 'compile-metrics', 'site-quality',
+            'doc-checker-contracts', 'cargo-tooling-contracts', 'windows-rollout',
+            'macos-package-contract',
+        }
         for rel_path, limits in expected_limits.items():
+            if rel_path in retiring and not (ROOT / rel_path).is_file():
+                continue
             jobs = workflow_jobs((ROOT / rel_path).read_text())
             for job_name, max_minutes in limits.items():
+                if rel_path == '.github/workflows/rust.yml' and job_name in retiring_rust_jobs and job_name not in jobs:
+                    continue
                 with self.subTest(workflow=rel_path, job=job_name):
                     self.assertIn(job_name, jobs)
                     match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
@@ -251,7 +263,6 @@ class DependabotCoverageGuardTests(unittest.TestCase):
         '/tools/wasm_build_suite/templates/minimal_module': 'zero-dependency minimal template',
         '/vendor/if-watch-3.2.2': 'vendored crate patched by root Cargo.toml',
         '/vendor/libp2p-quic-0.15.0': 'vendored crate patched by root Cargo.toml',
-        '/vendor/libp2p-swarm-0.49.0': 'vendored crate patched by root Cargo.toml',
     }
     EXCLUDED_DOCKER_DIRECTORIES = {
         '/docker/ci-base': 'UBUNTU_BASE ARG is workflow-supplied with no Dockerfile default',

@@ -190,12 +190,16 @@ impl RemoteFormalEndpoint {
         let minimum_fee = memory
             .reserve(minimum_bytes, MemoryClass::Ordinary)
             .map_err(|_| invalid("formal paid Query minimum owner admission"))?;
+        let mut auth_cancelled = || cancelled() || Instant::now() >= deadline;
         self.verify_authenticated_response(
             verified,
             &signed,
             &digest,
             deadline,
-            Some(minimum_fee),
+            Some((
+                minimum_fee,
+                &mut work.bounded_context(memory, &mut auth_cancelled),
+            )),
         )?;
         if !matches!(&verified.body.result, Ok(Value::Query(_)) | Err(_)) {
             return Err(invalid("formal paid Query response type"));

@@ -81,71 +81,22 @@ def production_workspace_closure(package, *, wasm):
 
 
 class Profiles(unittest.TestCase):
-    def test_custody_node_files_are_bounded_isolated_complete_and_propagate_failure(self):
-        command = json.loads((ROOT / 'crates/oasis7_custody_worker/package.json').read_text())['scripts']['test']
-        checker, runner = command.split(' && ')
-        self.assertTrue(checker.startswith('tsc --noEmit --strict '))
-        arguments = shlex.split(runner)
-        self.assertEqual(arguments, ['node', '--test', '--test-concurrency=2', 'tests/*.test.mjs'])
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / 'tests').mkdir()
-            source = '''import {test, after} from 'node:test';
-import assert from 'node:assert/strict';
-import {appendFileSync} from 'node:fs';
-const record = kind => appendFileSync(process.env.EVENTS, JSON.stringify({kind,pid:process.pid})+'\\n');
-record('start');
-let active=0, completed=0;
-for (const name of ['first', 'second']) test(name, async () => {
-  assert.equal(active,0,'same-file cases must remain serial');
-  active++;
-  await new Promise(resolve=>setTimeout(resolve,60));
-  active--; completed++;
-  assert.notEqual(process.env.FAIL_FILE,import.meta.url.split('/').pop());
-});
-after(()=>{assert.equal(completed,2);record('finish');});
-'''
-            for index in range(3):
-                (root / 'tests' / f'{index}.test.mjs').write_text(source)
-            files = sorted(str(path.relative_to(root)) for path in (root / 'tests').glob('*.test.mjs'))
-            for fail_file in ('', '1.test.mjs'):
-                events = root / 'events.jsonl'
-                events.unlink(missing_ok=True)
-                result = subprocess.run([*arguments[:-1], '--test-reporter=tap', *files], cwd=root,
-                    env=dict(os.environ, EVENTS=str(events), FAIL_FILE=fail_file), text=True, capture_output=True)
-                self.assertEqual(result.returncode, 1 if fail_file else 0, result.stdout + result.stderr)
-                self.assertIn('# tests 6', result.stdout)
-                active, identities = set(), set()
-                for line in events.read_text().splitlines():
-                    event = json.loads(line)
-                    if event['kind'] == 'start':
-                        self.assertNotIn(event['pid'], identities)
-                        identities.add(event['pid']); active.add(event['pid'])
-                        self.assertLessEqual(len(active), 2)
-                    else:
-                        active.remove(event['pid'])
-                self.assertEqual(len(identities), 3)
-                self.assertEqual(active, set())
-
     def test_support_partitions_preserve_complete_profiles_and_reject_missing_owners(self):
         selected = dict(scope='targeted', groups=['workspace_support'],
                         workspace_support_profile_version=1,
-                        workspace_support_profiles=['oasis7_custody_worker', 'oasis7_context'],
+                        workspace_support_profiles=['oasis7_custody_core', 'oasis7_context'],
                         workspace_support_partition_version=1,
-                        workspace_support_partitions=['custody', 'other'])
-        custody = self.invoke('plan:' + json.dumps(selected), environment={'support_partition': 'custody'})
-        self.assertEqual(custody.returncode, 0, custody.stderr)
-        self.assertEqual([line for line in custody.stdout.splitlines() if line.startswith('+ support profile: ')], [])
+                        workspace_support_partitions=['other'])
         other = self.invoke('plan:' + json.dumps(selected), environment={'support_partition': 'other'})
         self.assertEqual(other.returncode, 0, other.stderr)
         self.assertCountEqual(
             [line for line in other.stdout.splitlines() if line.startswith('+ support profile: ')],
-            ['+ support profile: oasis7_custody_worker', '+ support profile: oasis7_context'],
+            ['+ support profile: oasis7_custody_core', '+ support profile: oasis7_context'],
         )
         for change in ({'workspace_support_partition_version': True}, {'workspace_support_partitions': ['custody']},
                        {'workspace_support_partitions': ['custody', 'custody']}, {'workspace_support_partitions': ['all']}):
             with self.subTest(change=change):
-                result = self.invoke('plan:' + json.dumps(selected | change), environment={'support_partition': 'custody'})
+                result = self.invoke('plan:' + json.dumps(selected | change), environment={'support_partition': 'other'})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn('+ support profile: ', result.stdout)
         result = self.invoke('plan:' + json.dumps(selected), fail=True, environment={'support_partition': 'other'})
@@ -158,12 +109,12 @@ after(()=>{assert.equal(completed,2);record('finish');});
     def test_other_support_host_and_image_cover_the_exact_selected_profiles(self):
         plan = dict(scope='targeted', groups=['workspace_support'],
                     workspace_support_profile_version=1,
-                    workspace_support_profiles=['oasis7_custody_worker', 'oasis7_context', 'oasis7_game_client', 'oasis7_local_signer'],
+                    workspace_support_profiles=['oasis7_custody_core', 'oasis7_context', 'oasis7_game_client', 'oasis7_local_signer'],
                     workspace_support_partition_version=1,
-                    workspace_support_partitions=['custody', 'other'])
+                    workspace_support_partitions=['other'])
         planned = 'plan:' + json.dumps(plan)
         for mode, profiles in [('host', ['oasis7_game_client', 'oasis7_local_signer']),
-                               ('image', ['oasis7_context', 'oasis7_custody_worker'])]:
+                               ('image', ['oasis7_context', 'oasis7_custody_core'])]:
             with self.subTest(mode=mode):
                 result = self.invoke(planned, environment={'support_partition': 'other',
                                                           'support_execution': mode})
@@ -175,7 +126,7 @@ after(()=>{assert.equal(completed,2);record('finish');});
                                                       'support_execution': mode})
             self.assertNotEqual(result.returncode, 0)
             self.assertNotIn('+ support profile: ', result.stdout)
-        plan['workspace_support_profiles'] = ['oasis7_custody_worker', 'oasis7_context']
+        plan['workspace_support_profiles'] = ['oasis7_custody_core', 'oasis7_context']
         result = self.invoke('plan:' + json.dumps(plan), environment={'support_partition': 'other',
                                                                      'support_execution': 'host'})
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -249,7 +200,7 @@ after(()=>{assert.equal(completed,2);record('finish');});
 
     def test_unpartitioned_support_plan_runs_all_profiles_and_keeps_validation(self):
         for profiles, partitions in ((['oasis7_context'], ['other']),
-                                     (['oasis7_custody_worker', 'oasis7_context'], ['custody', 'other'])):
+                                     (['oasis7_custody_core', 'oasis7_context'], ['other'])):
             selected = dict(scope='targeted', groups=['workspace_support'],
                             workspace_support_profile_version=1, workspace_support_profiles=profiles,
                             workspace_support_partition_version=1, workspace_support_partitions=partitions)
@@ -482,33 +433,6 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         full = DRIVER.split('run_full_extended_tier_tests() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('run_workspace_support_full_feature_tests', full)
 
-    def test_custody_worker_runs_platform_proof_in_isolation(self):
-        result = self.invoke(json.dumps(['oasis7_custody_worker']))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('support profile offboarded: oasis7_custody_worker', result.stdout)
-        self.assertIn('support profile completed: oasis7_custody_worker', result.stdout)
-        self.assertNotIn('verify.sh', result.stdout)
-        self.assertNotIn('cargo ', result.stdout)
-        self.assertNotIn('full-inventory', result.stdout)
-
-    def test_selected_worker_profile_runs_real_compile_helper_and_propagates_failure(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            binary = root / 'bin'
-            binary.mkdir()
-            capture = root / 'worker-compile-argv'
-            cargo = binary / 'cargo'
-            cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\nexit 42\n')
-            cargo.chmod(0o755)
-            environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
-                               WORKER_COMPILE_CAPTURE=str(capture))
-            result = self.invoke('["oasis7_custody_worker"]', real_worker_compile=True,
-                                 cwd=root, environment=environment)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertFalse(capture.exists())
-            self.assertIn('support profile offboarded: oasis7_custody_worker', result.stdout)
-            self.assertIn('support profile completed: oasis7_custody_worker', result.stdout)
-
     def test_dev_test_worker_runs_actual_platform_and_propagates_failure(self):
         result = self.invoke(json.dumps(['oasis7_dev_test_worker']))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -521,13 +445,6 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         result = self.invoke(json.dumps(['oasis7_custody_core']))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('cargo test -p oasis7_custody_core --all-targets --locked', result.stdout)
-        self.assertNotIn('verify.sh', result.stdout)
-
-    def test_custody_platform_failure_stops_profile_completion(self):
-        result = self.invoke(json.dumps(['oasis7_custody_worker']), fail_protocol=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('support profile offboarded: oasis7_custody_worker', result.stdout)
-        self.assertIn('support profile completed: oasis7_custody_worker', result.stdout)
         self.assertNotIn('verify.sh', result.stdout)
 
     def test_harness_isolated_and_strict(self):
@@ -703,7 +620,7 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         # Independent old full entry is retained: profiles must cover every package
         # in it, not merely agree with their own inventory constant.
         self.assertEqual(set(module.SUPPORT_PROFILES),
-                         set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_custody_worker', 'oasis7_dev_test_worker'})
+                         set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_dev_test_worker'})
         self.assertNotIn('oasis7_custody_worker', legacy)
         self.assertIn('run_dev_test_worker_checks', legacy)
         # The Linux worker's executable and process/FD/regex integration tests

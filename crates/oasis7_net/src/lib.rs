@@ -121,14 +121,15 @@ pub use libp2p_net::{
     AUTHENTICATED_REQUEST_MAX_BYTES, AUTHENTICATED_RESPONSE_MAX_BYTES,
     AuthenticatedHandlerRegistration, AuthenticatedPeerAdmission, AuthenticatedPeerHandler,
     AuthenticatedPeerRequestContext, ConnectionBudgetSnapshot, DiscoveryWorkMetricsSnapshot,
-    Libp2pControlPlaneMetricsSnapshot, Libp2pNetwork, Libp2pNetworkConfig,
+    HeldBytes, Libp2pControlPlaneMetricsSnapshot, Libp2pNetwork, Libp2pNetworkConfig,
     Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot, LiveAutoNatStatus,
     LiveHolePunchState, LivePublicPortReachability, LiveTransportKind, LiveTransportTransition,
     LiveTransportTransitionCounters, PeerManagerBlockArtifact, PeerManagerHealthIssue,
     PeerManagerHealthStatus, PeerManagerPeerHealth, PeerManagerPolicy,
     PeerRecordPublicationTransition, PeerRecordReceiverConfig, PeerRecordReceiverMode,
     ResourceBudgetRejection, ResourceBudgetSnapshot, ResourceByteBudgetSnapshot,
-    ResourceByteCounts, TrafficDirectionMetricsSnapshot, TrafficLaneMetricsSnapshot,
+    ResourceByteCounts, TRANSPORT_MEMORY_DIRECTION_BYTES, TrafficDirectionMetricsSnapshot,
+    TrafficLaneMetricsSnapshot, TransportMemoryDirection, TransportMemoryHold,
     WireByteDirectionMetricsSnapshot, WireByteLaneMetricsSnapshot,
 };
 

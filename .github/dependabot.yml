@@ -25,7 +25,6 @@ updates:
     directories:
       - "/crates/oasis7_viewer"
       - "/crates/oasis7_agent_api/protocol_conformance"
-      - "/crates/oasis7_custody_worker"
       - "/crates/oasis7_dev_test_worker"
       - "/scripts/ci-browser-tools"
       - "/tools/oasis7-command-center/ui"
@@ -52,7 +51,9 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: docker
-    directory: "/docker/wasm-builder"
+    directories:
+      - "/docker/wasm-builder"
+      - "/docker/ci-base/ecs-oss"
     schedule:
       interval: cron
       cronjob: "0 9 * * 1,3"
