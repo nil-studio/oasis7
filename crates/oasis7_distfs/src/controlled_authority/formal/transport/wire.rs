@@ -369,7 +369,9 @@ pub(super) fn read_paid_before_deadline<T: serde::de::DeserializeOwned>(
     #[cfg(test)]
     {
         let mut common = work.bounded_context(memory, cancelled);
-        use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::probe_cbor_data_shape_v1;
+        use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
+            probe_cbor_data_shape_v1,
+        };
         let shape = probe_cbor_data_shape_v1(raw.as_slice(), 128, &mut common);
         eprintln!("paid RPC signed response frame len={len} shape={shape:?}");
     }
