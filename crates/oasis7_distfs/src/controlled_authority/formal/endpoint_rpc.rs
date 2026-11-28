@@ -3,9 +3,54 @@ use super::*;
 use oasis7_formal_protocol::controlled_authority::formal::{
     bounded_context::FormalBoundedContextV1, context_wire::encode_paid,
 };
-use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
 
 const RESPONSE_DIGEST_DOMAIN: &str = "oasis7.formal.endpoint.rpc.response_body.v1";
+
+pub(crate) struct RpcResponseOwner {
+    // Drop the serialized fields before their source/copy reservations.
+    response: Response,
+    _checkpoint: Option<CheckpointRetention>,
+}
+impl RpcResponseOwner {
+    pub(crate) fn response(&self) -> &Response {
+        &self.response
+    }
+}
+struct CheckpointRetention {
+    _original: ReservedValue<Vec<u8>>,
+    _copy_fee: MemoryReservation,
+}
+fn paid_checkpoint_copy(
+    store: &Store,
+    ctx: &mut FormalBoundedContextV1<'_>,
+) -> Result<(Vec<u8>, CheckpointRetention), FormalError> {
+    let original = store.checkpoint_bytes_bounded(ctx)?;
+    let allocation = original
+        .len()
+        .checked_add(std::mem::size_of::<Vec<u8>>())
+        .ok_or_else(|| invalid("formal RPC checkpoint copy layout"))?;
+    ctx.consume_steps(1)?;
+    let copy_fee = ctx
+        .memory()
+        .reserve(allocation, MemoryClass::Ordinary)
+        .map_err(|_| invalid("formal RPC checkpoint copy admission"))?;
+    let mut bytes = Vec::with_capacity(original.len());
+    if bytes.capacity() > original.len() {
+        return Err(invalid("formal RPC checkpoint copy capacity"));
+    }
+    for chunk in original.chunks(8192) {
+        ctx.charge(1, chunk.len() as u64)?;
+        bytes.extend_from_slice(chunk);
+    }
+    Ok((
+        bytes,
+        CheckpointRetention {
+            _original: original,
+            _copy_fee: copy_fee,
+        },
+    ))
+}
 
 fn paid_response_digest(
     body: &ResponseBody,
@@ -89,7 +134,7 @@ impl FileFormalEndpoint {
         minimum: FormalHeadRefV1,
         command: &Command,
         context: Option<&mut FormalBoundedContextV1<'_>>,
-    ) -> Result<Response, FormalError> {
+    ) -> Result<RpcResponseOwner, FormalError> {
         let mut guard = self.guard()?;
         let ancestry = self.minimum_witness_under_guard(&minimum)?;
         let result = match command {
@@ -139,7 +184,7 @@ impl FileFormalEndpoint {
         minimum: FormalHeadRefV1,
         result: Result<Value, FormalError>,
         context: Option<&mut FormalBoundedContextV1<'_>>,
-    ) -> Result<Response, FormalError> {
+    ) -> Result<RpcResponseOwner, FormalError> {
         let mut guard = self.guard()?;
         let ancestry = self.store.minimum_witness(&minimum)?;
         self.sign_formal_rpc_response_with_guard(
@@ -157,9 +202,10 @@ impl FileFormalEndpoint {
         result: Result<Value, FormalError>,
         ancestry: Vec<Vec<u8>>,
         guard: &mut dyn fencing::MonotonicEndpointGuard,
-        context: Option<&mut FormalBoundedContextV1<'_>>,
-    ) -> Result<Response, FormalError> {
+        mut context: Option<&mut FormalBoundedContextV1<'_>>,
+    ) -> Result<RpcResponseOwner, FormalError> {
         let (request_digest, challenge, minimum) = request_binding;
+        let mut checkpoint_retention = None;
         let body = ResponseBody {
             schema_version: 1,
             request_digest,
@@ -170,7 +216,14 @@ impl FileFormalEndpoint {
             minimum,
             head: self.store.body.head.clone(),
             checkpoint: self.store.checkpoint.clone(),
-            checkpoint_bytes: self.store.checkpoint_bytes()?,
+            checkpoint_bytes: match context.as_deref_mut() {
+                Some(ctx) => {
+                    let (bytes, retention) = paid_checkpoint_copy(&self.store, ctx)?;
+                    checkpoint_retention = Some(retention);
+                    bytes
+                }
+                None => self.store.checkpoint_bytes()?,
+            },
             ancestry,
             provider: guard.evidence().map_err(fencing_error)?,
             result,
@@ -220,10 +273,13 @@ impl FileFormalEndpoint {
             .map_err(fencing_error)?;
             (signature, Some(signed))
         };
-        Ok(Response {
-            body,
-            signature,
-            protected_signature,
+        Ok(RpcResponseOwner {
+            response: Response {
+                body,
+                signature,
+                protected_signature,
+            },
+            _checkpoint: checkpoint_retention,
         })
     }
 

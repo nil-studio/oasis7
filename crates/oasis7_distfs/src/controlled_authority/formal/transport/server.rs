@@ -33,8 +33,8 @@ impl FormalEndpointServer {
     }
     /// Both normal/recovery and healthy activation call this once at startup.
     /// Optional mode admits raw request/response frames, typed Request decoding
-    /// and Request authentication, plus the ResponseBody signature digest.
-    /// Response construction/remaining signing and GEN proof remain separate.
+    /// and Request authentication, plus Response checkpoint bytes and digest.
+    /// Remaining construction/signing, guard state and GEN proof are separate.
     pub fn new_with_frame_admission(
         endpoint: FileFormalEndpoint,
         timeout: Duration,
@@ -298,13 +298,13 @@ impl FormalEndpointServer {
         match self.frame_admission.as_ref() {
             Some((memory, work)) => wire::write_prepaid_frame_before_deadline(
                 stream,
-                &response,
+                response.response(),
                 request_deadline,
                 memory,
                 work,
                 &mut cancelled,
             ),
-            None => wire::write(stream, &response),
+            None => wire::write(stream, response.response()),
         }
     }
     fn execute(&mut self, command: Command) -> Result<Value, FormalError> {

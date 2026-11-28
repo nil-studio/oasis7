@@ -14,6 +14,8 @@ const LIMIT: usize = 64 * 1024 * 1024;
 const HOT: &str = "formal-checkpoint-v1.cbor";
 const DOMAIN: &str = "oasis7.formal.endpoint_checkpoint.sign.v1";
 static TEMP: AtomicU64 = AtomicU64::new(0);
+#[path = "endpoint_store_checkpoint_paid.rs"]
+mod checkpoint_paid;
 #[path = "endpoint_store_durable_set.rs"]
 pub(super) mod durable_set;
 #[path = "endpoint_store_native.rs"]
