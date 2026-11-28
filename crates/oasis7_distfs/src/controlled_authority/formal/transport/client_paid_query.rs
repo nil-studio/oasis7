@@ -5,8 +5,8 @@ use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
     BoundedCborDataErrorV1, CborDataLayoutV1, PaidCborDataV1,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
-use std::io::Write;
 use std::borrow::Borrow;
+use std::io::Write;
 use std::mem::size_of;
 
 pub struct PaidRemoteFormalQueryV1 {
@@ -74,8 +74,7 @@ impl RemoteFormalEndpoint {
         }
         fn encoded_len<T: serde::Serialize>(value: &T) -> Result<usize, FormalError> {
             let mut count = Count(0);
-            serde_cbor::to_writer(&mut count, value)
-                .map_err(|error| invalid(error.to_string()))?;
+            serde_cbor::to_writer(&mut count, value).map_err(|error| invalid(error.to_string()))?;
             Ok(count.0)
         }
         work.consume_steps(1, cancelled)?;
