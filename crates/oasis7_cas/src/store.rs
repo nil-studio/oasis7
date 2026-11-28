@@ -1,4 +1,29 @@
 use super::*;
+use std::borrow::Cow;
+
+/// A single optional disk encoding, bounded before every zstd write. Its
+/// capacity includes the header; an incompressible blob borrows its original.
+struct CompressionOutput {
+    bytes: Vec<u8>,
+    limit: usize,
+    full: bool,
+}
+impl Write for CompressionOutput {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
+            self.full = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "compressed blob is not smaller than original",
+            ));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 impl LocalCasStore {
     pub(super) fn put_without_retention_lock(
@@ -18,11 +43,39 @@ impl LocalCasStore {
         if path.exists() {
             // Existence is not proof that a previous publication survived intact.
             // Fail closed and preserve damaged bytes for explicit recovery.
-            self.get_verified(content_hash)?;
+            let mut file = fs::File::open(&path)?;
+            // Raw blobs may themselves start with the compression magic. Keep
+            // their legacy meaning by comparing the original without decoding.
+            if bytes.starts_with(COMPRESSED_BLOB_MAGIC)
+                && file.metadata()?.len() == bytes.len() as u64
+            {
+                let mut same = true;
+                let mut buffer = [0; 16 * 1024];
+                for original in bytes.chunks(buffer.len()) {
+                    file.read_exact(&mut buffer[..original.len()])?;
+                    if &buffer[..original.len()] != original {
+                        same = false;
+                        break;
+                    }
+                }
+                if same && file.read(&mut [0])? == 0 {
+                    return Ok(());
+                }
+                file.rewind()?;
+            }
+            // Verify freshly opened bytes without retaining the whole disk
+            // encoding and decoded original alongside the caller's original.
+            decode_local_blob_into(
+                self.hash_algorithm,
+                content_hash,
+                file,
+                std::io::sink(),
+                bytes.len(),
+            )?;
             return Ok(());
         }
         let disk_bytes = self.maybe_encode_blob_for_disk(content_hash, bytes)?;
-        write_bytes_atomic(&path, disk_bytes.as_slice())?;
+        write_bytes_atomic(&path, disk_bytes.as_ref())?;
         Ok(())
     }
 
@@ -141,30 +194,44 @@ impl LocalCasStore {
         Ok(())
     }
 
-    pub(super) fn maybe_encode_blob_for_disk(
+    pub(super) fn maybe_encode_blob_for_disk<'a>(
         &self,
         content_hash: &str,
-        bytes: &[u8],
-    ) -> Result<Vec<u8>, WorldError> {
+        bytes: &'a [u8],
+    ) -> Result<Cow<'a, [u8]>, WorldError> {
         if bytes.len() < COMPRESSIBLE_BLOB_MIN_BYTES {
-            return Ok(bytes.to_vec());
+            return Ok(Cow::Borrowed(bytes));
         }
-        let compressed = zstd_encode_all(bytes, COMPRESSED_BLOB_ZSTD_LEVEL).map_err(|err| {
+        let mut output = CompressionOutput {
+            bytes: Vec::new(),
+            limit: bytes.len(),
+            full: false,
+        };
+        output.bytes.try_reserve_exact(bytes.len()).map_err(|_| {
             WorldError::DistributedValidationFailed {
-                reason: format!("compress blob for disk failed: {err}"),
+                reason: "compressed blob allocation exceeds available memory".into(),
             }
         })?;
-        let encoded_len = COMPRESSED_BLOB_HEADER_LEN.saturating_add(compressed.len());
-        if encoded_len >= bytes.len() {
-            return Ok(bytes.to_vec());
+        output.write_all(COMPRESSED_BLOB_MAGIC)?;
+        output.write_all(&(bytes.len() as u64).to_le_bytes())?;
+        output.write_all(content_hash.as_bytes())?;
+        let compressed = (|| -> std::io::Result<()> {
+            let mut encoder =
+                zstd::stream::write::Encoder::new(&mut output, COMPRESSED_BLOB_ZSTD_LEVEL)?;
+            encoder.write_all(bytes)?;
+            encoder.finish()?;
+            Ok(())
+        })();
+        if output.full {
+            return Ok(Cow::Borrowed(bytes));
         }
-
-        let mut encoded = Vec::with_capacity(encoded_len);
-        encoded.extend_from_slice(COMPRESSED_BLOB_MAGIC);
-        encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-        encoded.extend_from_slice(content_hash.as_bytes());
-        encoded.extend_from_slice(compressed.as_slice());
-        Ok(encoded)
+        compressed.map_err(|err| WorldError::DistributedValidationFailed {
+            reason: format!("compress blob for disk failed: {err}"),
+        })?;
+        if output.bytes.len() >= bytes.len() {
+            return Ok(Cow::Borrowed(bytes));
+        }
+        Ok(Cow::Owned(output.bytes))
     }
 
     pub(super) fn decode_blob_from_disk(&self, content_hash: &str, disk_bytes: Vec<u8>) -> Vec<u8> {
