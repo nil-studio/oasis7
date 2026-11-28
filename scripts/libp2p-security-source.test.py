@@ -26,10 +26,11 @@ class NetworkSourceContract(unittest.TestCase):
             self.assertEqual(packages[0]["source"], f"git+{URL}?rev={REVISION}#{REVISION}")
         root = tomllib.loads((ROOT / "Cargo.toml").read_text())
         self.assertNotIn("libp2p-rendezvous", root["patch"][URL])
+        self.assertNotIn("libp2p-swarm", root["patch"][URL])
         self.assertEqual(list(ROOT.glob("vendor-*")), [])
         self.assertEqual(
             sorted(p.name for p in (ROOT / "vendor").iterdir() if p.is_dir()),
-            ["actions-cache-explicit-context", "if-watch-3.2.2", "libp2p-quic-0.15.0", "libp2p-swarm-0.49.0"],
+            ["actions-cache-explicit-context", "if-watch-3.2.2", "libp2p-quic-0.15.0"],
         )
         timers = [p for p in lock["package"] if p["name"] == "futures-timer"]
         self.assertTrue(all(tuple(map(int, p["version"].split("."))) >= (3, 0, 4) for p in timers))
@@ -43,7 +44,7 @@ class NetworkSourceContract(unittest.TestCase):
         self.assertNotIn("!Cargo.toml", context_policy)
         self.assertNotIn("!Cargo.lock", context_policy)
         paths = [root["patch"][URL][name]["path"]
-                 for name in ("libp2p-swarm", "libp2p-quic")]
+                 for name in ("libp2p-quic",)]
         paths.append(root["patch"]["crates-io"]["if-watch"]["path"])
         for patch in paths:
             self.assertTrue((ROOT / patch / "Cargo.toml").is_file())
@@ -74,24 +75,6 @@ class NetworkSourceContract(unittest.TestCase):
         self.assertFalse(any(p["name"] == "paste" for p in lock))
         core = [p for p in lock if p["name"] == "netlink-packet-core"]
         self.assertEqual([p["version"] for p in core], ["0.9.0"])
-
-    def test_swarm_snapshot_matches_upstream_sources(self):
-        vendor = ROOT / "vendor/libp2p-swarm-0.49.0"
-        hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
-        actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
-                  for p in (vendor / "src").rglob("*.rs")}
-        self.assertEqual(len(hashes), 31)
-        self.assertEqual(actual, hashes)
-        self.assertFalse((vendor / "src/transport_attempt.rs").exists())
-        self.assertFalse((vendor / "OASIS7-PATCH.md").exists())
-        manifest = tomllib.loads((vendor / "Cargo.toml").read_text())
-        self.assertIn("workspace", manifest)
-        self.assertEqual(manifest["package"]["version"], "0.49.0")
-        self.assertEqual(manifest["package"]["metadata"]["oasis7-compat"]["upstream-revision"], REVISION)
-        self.assertEqual(manifest["dependencies"]["futures-timer"]["version"], "3.0.4")
-        self.assertEqual(manifest["target"]['cfg(target_family="wasm")']["dependencies"]["wasm-bindgen-futures"]["version"], "0.4")
-        packages = tomllib.loads((vendor / "Cargo.lock").read_text())["package"]
-        self.assertFalse(any(p["name"] == "paste" for p in packages))
 
     def test_quic_patch_provenance_and_minimal_surface(self):
         vendor = ROOT / "vendor/libp2p-quic-0.15.0"
