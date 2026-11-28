@@ -597,6 +597,36 @@ mod deadline_tests {
         prepaid_response_frame_preserves_wire_and_owner();
     }
 
+    #[test]
+    fn formal_rpc_prepaid_server_deadline_rejects_before_read_and_allocation() {
+        use oasis7_proto::memory_budget::MemoryBudget;
+
+        // The actual paid TCP reader must consume the server's original
+        // deadline callback before waiting for a first byte or allocating a
+        // raw Request frame. A connected peer deliberately sends nothing.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut inbound, _) = listener.accept().unwrap();
+        configure(&inbound, Duration::from_secs(1)).unwrap();
+
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let work =
+            super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
+        let before = work.remaining_steps();
+        let deadline = Instant::now() - Duration::from_millis(1);
+        let error = read_prepaid_frame::<u64>(
+            &mut inbound,
+            &memory,
+            &work,
+            &mut || Instant::now() >= deadline,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"), "{error:?}");
+        assert_eq!(memory.used(), 0);
+        assert_eq!(work.remaining_steps(), before);
+        drop(peer);
+    }
+
     fn prepaid_frame_is_charged_before_allocation_and_retained_across_decode() {
         use oasis7_proto::memory_budget::MemoryBudget;
         let wire = serde_cbor::to_vec(&42u64).unwrap();
