@@ -400,7 +400,7 @@ class ProcessPart2(unittest.TestCase):
                 artifacts.load(bundle)
 
     def test_coalesce_build_invocations_merges_only_both_default_snapshot_libs(self):
-        variants = artifacts.build_variants('ordinary')
+        variants = [*artifacts.build_variants('ordinary'), ('snapshot-tests', ['test', '-p', 'oasis7', '--lib', '--no-run'], [])]
         invocations = artifacts.coalesce_build_invocations(variants)
         self.assertEqual([name for name, _, _, _ in invocations], ['viewer', 'required', 'snapshot-tests'])
         _, args, features, pkg_map = invocations[2]

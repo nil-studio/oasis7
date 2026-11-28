@@ -383,7 +383,7 @@ class BuildAndBundles(unittest.TestCase):
         formal = artifacts.build_variants('formal')
         ordinary = artifacts.build_variants('ordinary')
         self.assertEqual({v[0] for v in formal}, {'formal-required', 'runtime', 'endpoint', 'distfs-tests'})
-        expected_ordinary = {'viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests'}
+        expected_ordinary = {'viewer', 'required', 'viewer-snapshot-tests'}
         if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
             expected_ordinary.add(artifacts.RUNTIME_WORKER_VARIANT)
         self.assertEqual({v[0] for v in ordinary}, expected_ordinary)
@@ -396,7 +396,7 @@ class BuildAndBundles(unittest.TestCase):
         for variant, command, features in [*ordinary, *formal[1:], *artifacts.build_variants('all')]:
             self.assertNotIn('ci_formal_required_features', features, variant)
             self.assertFalse(any('ci_formal_required_features' in arg for arg in command), variant)
-        for owner, package in [('snapshot-tests', 'oasis7'), ('viewer-snapshot-tests', 'oasis7_viewer_runtime')]:
+        for owner, package in [('viewer-snapshot-tests', 'oasis7_viewer_runtime')]:
             snapshot = next(args for name, args, _ in ordinary if name == owner)
             self.assertEqual(snapshot, ['test', '-p', package, '--lib', '--no-run'])
             self.assertEqual(next(features for name, _, features in ordinary if name == owner), [])
@@ -405,7 +405,7 @@ class BuildAndBundles(unittest.TestCase):
         scope_required_packages = json.loads((HERE / 'ci-required-scope.json').read_text(encoding='utf-8'))['oasis7_required_packages']
         self.assertEqual(required_packages, scope_required_packages)
         self.assertCountEqual(required_packages, [
-            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_runtime_host', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_executable_image', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
+            'oasis7_simulator', 'oasis7_runtime', 'oasis7_runtime_host', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_executable_image', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
             'oasis7_newapi_bridge_service', 'oasis7_ops_tools', 'oasis7_provider_local_bridge',
             'oasis7_provider_tools', 'oasis7_viewer_runtime', 'oasis7_viewer_codec', 'oasis7_observability',
             'oasis7_hosted_access', 'oasis7_letai_credit_adapter',
