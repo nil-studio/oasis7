@@ -136,6 +136,7 @@ impl BftRetainedOriginalOperationV1 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BftOriginalRetentionTxnSnapshotV1 {
     pub current: BftFirstReserveSnapshotV1,
+    pub current_retention: Option<super::BftCurrentRetentionV1>,
     pub original_operations: BTreeMap<String, BftRetainedOriginalOperationV1>,
 }
 
@@ -148,6 +149,30 @@ impl BftOriginalRetentionTxnSnapshotV1 {
         &self,
         maximum_bytes: usize,
     ) -> Result<(), BftSignerErrorV3> {
+        if let Some(current) = &self.current_retention {
+            if self.current.current.original.is_none() {
+                return Err(invalid("Ready Fresh original absent"));
+            }
+            current.validate_current(&self.current)?;
+            let original = self
+                .current
+                .reservation
+                .as_ref()
+                .ok_or_else(|| invalid("Ready original absent"))?;
+            let reference = original.input.descriptor()?;
+            self.check_record("first-reserve", &original.ledger.receipt, &reference)?;
+            self.check_record("first-ready", &current.ledger.receipt, &reference)?;
+        } else if self
+            .current
+            .current
+            .signer
+            .state
+            .private_retention
+            .as_ref()
+            .is_some_and(|head| head.schema_version == 3)
+        {
+            return Err(invalid("Head3 current retention absent"));
+        }
         if self.original_operations.len() > MAX_ORIGINAL_OPERATIONS {
             return Err(invalid("original operation index capacity exceeded"));
         }
@@ -264,10 +289,80 @@ impl BftOriginalRetentionTxnSnapshotV1 {
         next_current: BftFirstReserveSnapshotV1,
         new_operation: BftRetainedOriginalOperationV1,
     ) -> Result<Self, BftSignerErrorV3> {
+        if self.current_retention.is_some()
+            && !self
+                .original_operations
+                .contains_key(&new_operation.operation_id)
+        {
+            return Err(invalid("legacy operation cannot advance current Ready"));
+        }
+        self.prepare_complete(next_current, self.current_retention.clone(), new_operation)
+    }
+
+    /// One prepared tuple only: no signing, persistence or response release.
+    pub fn prepare_first_ready_operation(
+        &self,
+        binding: &super::BftSignerBindingV3,
+        attestor: &super::BftPrivateRetentionAttestorV1,
+        next_current: BftFirstReserveSnapshotV1,
+        retention: super::BftCurrentRetentionV1,
+        new_operation: BftRetainedOriginalOperationV1,
+    ) -> Result<Self, BftSignerErrorV3> {
+        retention.verify(binding, attestor, &next_current)?;
+        if self
+            .current_retention
+            .as_ref()
+            .is_some_and(|old| old != &retention)
+            || new_operation.operation_id
+                != format!(
+                    "first-ready:{}",
+                    retention.ledger.receipt.body.operation_digest
+                )
+        {
+            return Err(invalid("first Ready replaces original selection/operation"));
+        }
+        self.prepare_complete(next_current, Some(retention), new_operation)
+    }
+
+    fn check_record(
+        &self,
+        prefix: &str,
+        receipt: &super::BftPrivateRetentionReceiptV1,
+        reference: &BftPrivateRetentionAdmissionInputRefV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        let body = &receipt.body;
+        let operation = self
+            .original_operations
+            .get(&format!("{prefix}:{}", body.operation_digest))
+            .ok_or_else(|| invalid("current retention original operation absent"))?;
+        if operation.signed_receipt_bytes
+            != super::crypto::encode_bounded(receipt, MAX_ORIGINAL_BYTES)?
+            || operation.input_refs.as_slice() != std::slice::from_ref(reference)
+            || operation.source != body.head.source
+            || operation.before_revision != body.before_revision
+            || operation.before_state_digest != body.before_state_digest
+            || operation.after_revision != body.after_revision
+            || operation.after_state_digest != body.after_state_digest
+            || operation.original_lease_generation != body.original_lease_generation
+        {
+            return Err(invalid("retention original receipt/record differs"));
+        }
+        Ok(())
+    }
+
+    fn prepare_complete(
+        &self,
+        next_current: BftFirstReserveSnapshotV1,
+        current_retention: Option<super::BftCurrentRetentionV1>,
+        new_operation: BftRetainedOriginalOperationV1,
+    ) -> Result<Self, BftSignerErrorV3> {
         self.validate()?;
         new_operation.validate()?;
         if let Some(previous) = self.original_operations.get(&new_operation.operation_id) {
-            if previous != &new_operation || next_current != self.current {
+            if previous != &new_operation
+                || next_current != self.current
+                || current_retention != self.current_retention
+            {
                 return Err(invalid("original retry attempts to alter protected result"));
             }
             return Ok(self.clone());
@@ -309,6 +404,7 @@ impl BftOriginalRetentionTxnSnapshotV1 {
 
         let mut next = Self {
             current: next_current,
+            current_retention,
             original_operations: self.original_operations.clone(),
         };
         next.original_operations

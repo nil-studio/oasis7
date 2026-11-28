@@ -165,6 +165,11 @@ def validate_candidate_graph(workflow, config):
     expected -= {job for job in retired_zombie_jobs if job not in jobs}
     if config.get('workspace_support_direct_gate_version') in (1, 2):
         expected.add('workspace-support-other')
+    if 'rust-architecture' in jobs or '--rust-baseline-phase checks' in jobs['rust-baseline']:
+        if ('rust-architecture' not in jobs or '--rust-baseline-phase checks' not in jobs['rust-baseline']
+                or '${{ steps.rust-architecture-handoff.outputs.legacy-needs }}' not in gate):
+            raise ValueError('gate dependencies must cover the Rust architecture split')
+        expected.add('rust-architecture')
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):

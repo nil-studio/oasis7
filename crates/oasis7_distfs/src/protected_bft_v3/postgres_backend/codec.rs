@@ -1,4 +1,4 @@
-//! Private schema-1 storage encoding. Original signed byte vectors are opaque.
+//! Explicit schema-1/2 storage. Original signed byte vectors remain opaque.
 use super::super::*;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{collections::BTreeMap, io::Write, sync::Arc};
@@ -105,6 +105,17 @@ struct Envelope {
     #[serde(with = "First")]
     current: BftFirstReserveSnapshotV1,
     original_operations: BTreeMap<String, BftRetainedOriginalOperationV1>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "read_current"
+    )]
+    current_retention: Option<BftCurrentRetentionV1>,
+}
+fn read_current<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<BftCurrentRetentionV1>, D::Error> {
+    BftCurrentRetentionV1::deserialize(d).map(Some)
 }
 
 impl Stored {
@@ -114,6 +125,14 @@ impl Stored {
         retained: Option<BftOriginalRetentionTxnSnapshotV1>,
     ) -> Result<Self, BftSignerErrorV3> {
         let binding_digest = signer.state.binding_digest.clone();
+        let schema_version = if retained
+            .as_ref()
+            .is_some_and(|value| value.current_retention.is_some())
+        {
+            2
+        } else {
+            1
+        };
         let body = match retained {
             Some(value) if value.current.current.signer == signer => Body::Retention {
                 value: Box::new(value),
@@ -128,7 +147,7 @@ impl Stored {
             },
         };
         let stored = Self {
-            schema_version: 1,
+            schema_version,
             namespace: namespace.into(),
             binding_digest,
             body,
@@ -154,7 +173,13 @@ impl Stored {
     fn validate(&self) -> Result<(), BftSignerErrorV3> {
         let signer = self.signer();
         super::validate_identity(&self.namespace, &self.binding_digest)?;
-        if self.schema_version != 1
+        let supported = match (&self.body, self.schema_version) {
+            (Body::State { .. }, 1) => true,
+            (Body::Retention { value }, 1) => value.current_retention.is_none(),
+            (Body::Retention { value }, 2) => value.current_retention.is_some(),
+            _ => false,
+        };
+        if !supported
             || signer.state.schema_version != 3
             || signer.state.binding_digest != self.binding_digest
             || signer.lease_generation == 0
@@ -163,10 +188,14 @@ impl Stored {
             return Err(super::invalid("PG namespace version/binding/floor invalid"));
         }
         state::validate_digest(&signer.state.state_digest)?;
-        legacy_head(
-            signer.state.private_retention.as_ref(),
-            &self.binding_digest,
-        )?;
+        if self.schema_version == 1 {
+            legacy_head(
+                signer.state.private_retention.as_ref(),
+                &self.binding_digest,
+            )?;
+        } else if let Some(head) = &signer.state.private_retention {
+            head.validate_supported_head(&self.binding_digest)?;
+        }
         if !signer.lease_token_digest.is_empty() {
             state::validate_digest(&signer.lease_token_digest)?;
         }
@@ -237,7 +266,9 @@ fn legacy_head(
     if let Some(head) = head {
         head.validate_supported_head(binding)?;
         if head.schema_version != 2 {
-            return Err(super::invalid("PG schema-1 requires historical Head2"));
+            return Err(super::invalid(
+                "PG original/legacy checkpoint requires Head2",
+            ));
         }
     }
     Ok(())
