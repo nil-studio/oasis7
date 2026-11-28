@@ -208,7 +208,7 @@ impl RemoteFormalEndpoint {
     ) -> Result<bool, FormalError> {
         let paid_digest;
         let legacy_digest;
-        let (paid_minimum_fee, response_digest) = match paid {
+        let (paid_minimum_fee, response_digest, _paid_policy_clones) = match paid {
             Some((fee, ctx)) => {
                 paid_digest = paid_response_digest(&response.body, ctx)?;
                 verify_paid_response_signature(
@@ -217,7 +217,18 @@ impl RemoteFormalEndpoint {
                     &self.instance().endpoint_public_key,
                     ctx,
                 )?;
-                (Some(fee), paid_digest.as_str())
+                // Preserve the original missing-custody verdict. For signed
+                // protected responses, retain the fee across both policy
+                // clones (custody first, monotonic checkpoint later).
+                let policy_fee = if response.protected_signature.is_some() {
+                    Some(attestation::prepay_response_policy_clones(
+                        &self.authority,
+                        ctx,
+                    )?)
+                } else {
+                    None
+                };
+                (Some(fee), paid_digest.as_str(), policy_fee)
             }
             None => {
                 legacy_digest = hash(RESPONSE_DIGEST_DOMAIN, &response.body)?;
@@ -227,7 +238,7 @@ impl RemoteFormalEndpoint {
                     &response.signature,
                     &self.instance().endpoint_public_key,
                 )?;
-                (None, legacy_digest.as_str())
+                (None, legacy_digest.as_str(), None)
             }
         };
         // Custody must verify precisely the same immutable response preimage.
