@@ -26,6 +26,41 @@ import tomllib
 
 import shlex
 
+
+def _load_scope_capabilities(scope_config=None):
+    config_path = Path(scope_config) if scope_config is not None else Path(__file__).resolve().parent / 'ci-required-scope.json'
+    if not config_path.is_file():
+        return {}
+    caps = json.loads(config_path.read_text(encoding='utf-8')).get('package_capabilities')
+    return caps if isinstance(caps, dict) else {}
+
+
+_DEFAULT_CAPS = _load_scope_capabilities()
+_BUILTIN_TEST_FIXTURE_OWNERS = frozenset(
+    pkg for pkg, cap in _DEFAULT_CAPS.items()
+    if isinstance(cap, dict) and 'builtin_test_modules' in (cap.get('host_docker_wasm_fixtures') or ())
+)
+_PREVIEW_PROVIDER_FIXTURE_OWNERS = frozenset(
+    pkg for pkg, cap in _DEFAULT_CAPS.items()
+    if isinstance(cap, dict) and 'provider_preview_wasm' in (cap.get('host_docker_wasm_fixtures') or ())
+)
+_DEFAULT_LOGICAL_ALIASES = {
+    pkg: slh['logical_alias']
+    for pkg, cap in _DEFAULT_CAPS.items()
+    if isinstance(cap, dict) and isinstance(slh := cap.get('splittable_lib_harness'), dict)
+    and isinstance(slh.get('logical_alias'), str)
+}
+_COMPACT_EXCLUDED_PACKAGES = frozenset(
+    pkg for pkg, cap in _DEFAULT_CAPS.items()
+    if isinstance(cap, dict) and cap.get('compact_non_runtime_excluded') is True
+)
+_UNIVERSAL_V2_ANCHORS = frozenset(
+    pkg for pkg, cap in _DEFAULT_CAPS.items()
+    if isinstance(cap, dict) and isinstance(slh := cap.get('splittable_lib_harness'), dict)
+    and slh.get('universal_v2_anchor') is True
+)
+
+
 class ProviderArtifact:
     subprocess = subprocess
     MODULE = 'module.runtime.local-test-provider'
@@ -185,8 +220,12 @@ class BuiltinTestArtifact(ProviderArtifact):
 
     @staticmethod
     def required(manifest):
+        plan = manifest.get('execution_plan')
+        if isinstance(plan, dict) and 'ordinary_execution_contract' in plan:
+            if 'builtin_test_modules' not in resolve_ordinary_execution_contract(plan)['required_host_docker_wasm_fixtures']:
+                return False
         included = manifest.get('included_binaries', manifest.get('binaries', {}))
-        return any(name in included and binary.get('package') == 'oasis7_runtime' and binary.get('test')
+        return any(name in included and binary.get('package') in _BUILTIN_TEST_FIXTURE_OWNERS and binary.get('test')
                    and binary.get('target_kind', ['lib']) == ['lib']
                    and {'wasmtime', 'test_tier_full'} <= set(binary.get('features', []))
                    for name, binary in manifest.get('binaries', {}).items())
@@ -295,10 +334,13 @@ provider_artifact = ProviderArtifact
 
 def preview_provider_required(manifest):
     plan = manifest.get('execution_plan') or {}
-    expanded = plan.get('test_policy_changed', False) or plan.get('scope') in ('full', 'explicit-full') or plan.get('execution_profile') in ('periodic-full', 'candidate-full')
+    if isinstance(plan, dict) and 'ordinary_execution_contract' in plan:
+        expanded = 'provider_preview_wasm' in resolve_ordinary_execution_contract(plan)['required_host_docker_wasm_fixtures']
+    else:
+        expanded = plan.get('test_policy_changed', False) or plan.get('scope') in ('full', 'explicit-full') or plan.get('execution_profile') in ('periodic-full', 'candidate-full')
     selection = manifest.get('selection')
     ordinary = selection == {'suite': 'ordinary'} or (selection is None and manifest.get('scope') == 'ordinary')
-    provider_consumer = any(binary.get("package") == "oasis7_chain_runtime"
+    provider_consumer = any(binary.get("package") in _PREVIEW_PROVIDER_FIXTURE_OWNERS
                             and binary.get("test")
                             and "test_tier_full" in binary.get("features", [])
                             for binary in manifest.get("binaries", {}).values())
@@ -313,14 +355,20 @@ SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery'
 DEFAULT_SNAPSHOT_REGRESSIONS = (
     ('viewer-snapshot-tests', 'snapshot_progress::'),
 )
-PORTABLE_REQUIRED_PACKAGES = ('oasis7_agent_api', 'oasis7_simulator', 'oasis7_viewer_codec', 'oasis7_viewer_runtime')
+PORTABLE_REQUIRED_PACKAGES = tuple(
+    pkg for pkg, cap in _DEFAULT_CAPS.items()
+    if isinstance(cap, dict) and cap.get('required_wasm_build') is True
+)
 # These roots contain shipped Viewer subprocess consumers or their integration
 # fixtures. Other roots do not need a second, unrelated Viewer binary build.
 VIEWER_REQUIRED_CONSUMERS = frozenset(('oasis7', 'oasis7_simulator', 'oasis7_chain_runtime',
                                      'oasis7_launcher_backend', 'oasis7_viewer_runtime'))
 FAST_PROFILES = frozenset(('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'))
 RUST_BASELINE_CHECKS = ('standalone_tool_lockfiles',)
-ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
+ORDINARY_PARTITION_PACKAGES = frozenset(
+    pkg for pkg, cap in _DEFAULT_CAPS.items()
+    if isinstance(cap, dict) and cap.get('inline_dedicated_partition') is True
+)
 DISTFS_CLIPPY_TARGETS = frozenset((
     ('oasis7_runtime', 'lib', 'oasis7_runtime'),
     ('oasis7_runtime', 'test', 'pr_fast_incremental'),
@@ -352,13 +400,13 @@ def targeted_ordinary_artifact_partitions(plan):
             and isinstance(plan.get('ordinary_harness_costs'), dict)
             and isinstance(plan.get('oasis7_required_packages'), list)):
         selected = set(plan['oasis7_required_packages'])
-        if not {'oasis7', 'oasis7_world_state'}.intersection(selected):
+        if not ({'oasis7'} | _COMPACT_EXCLUDED_PACKAGES).intersection(selected):
             non_runtime_ms = sum(
                 row['elapsed_ms'] for row in plan['ordinary_harness_costs']['harnesses']
                 if row['package'] in selected
-                and not (row['package'] == 'oasis7_chain_runtime'
+                and not (row['package'] in _UNIVERSAL_V2_ANCHORS
                          and row['target_kind'] == 'lib'
-                         and row['target_name'] == 'oasis7_chain_runtime'
+                         and row['target_name'] == row['package']
                          and row['variant'] == 'required'
                          and row['mode'] == 'batch')
             )
@@ -554,9 +602,12 @@ def validate_distfs_clippy_handoff(plan):
     """Only the complete native parent may move the two original lint calls."""
     architecture = plan.get('architecture')
     targets = plan.get('ordinary_fast_targets')
+    expected_delegated = sorted(f'{p}:{k}:{n}' for p, k, n in DISTFS_CLIPPY_TARGETS)
+    contract = resolve_ordinary_execution_contract(plan) if 'ordinary_execution_contract' in plan else None
     if (type(plan.get('distfs_clippy_contract_version')) is not int
             or plan['distfs_clippy_contract_version'] != 1
             or plan.get('distfs_clippy_group') != 'rust_baseline'
+            or (contract is not None and contract['delegated_clippy'] != expected_delegated)
             or plan.get('fast_execution_version') != 1
             or plan.get('ordinary_execution') != 'inline'
             or plan.get('ordinary_clippy_group') != 'rust_baseline'
@@ -592,7 +643,7 @@ def _ordinary_packages_support_universal_v2(plan):
     if not isinstance(packages, list) or not packages:
         return False
     selected = set(packages)
-    if 'oasis7_chain_runtime' in selected:
+    if _UNIVERSAL_V2_ANCHORS.intersection(selected):
         return True
     harnesses = plan.get('ordinary_harness_costs', {}).get('harnesses', ())
     return sum(1 for row in harnesses if row['package'] in selected) >= 4
@@ -601,12 +652,12 @@ def _ordinary_packages_support_universal_v2(plan):
 def _ordinary_runtime_full_requires_host_docker(plan):
     if (plan.get('test_policy_changed') is True
             and isinstance(plan.get('oasis7_required_packages'), list)
-            and 'oasis7_runtime' in plan['oasis7_required_packages']):
+            and bool(_BUILTIN_TEST_FIXTURE_OWNERS.intersection(plan['oasis7_required_packages']))):
         return True
     risk_targets = plan.get('ordinary_risk_targets')
     return isinstance(risk_targets, list) and any(
         isinstance(target, dict)
-        and target.get('package') == 'oasis7_runtime'
+        and target.get('package') in _BUILTIN_TEST_FIXTURE_OWNERS
         and target.get('target_kind') == 'lib'
         for target in risk_targets
     )
@@ -616,6 +667,7 @@ def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
     # Match the trusted planner's bounded v1 policy-migration layout without
     # calling required_packages(), which re-enters fast_plan validation.
+    contract = resolve_ordinary_execution_contract(plan) if 'ordinary_execution_contract' in plan else None
     targeted_policy = (
         plan.get('scope') == 'targeted'
         and plan.get('execution_profile') in ('pr-fast', 'main-fast')
@@ -624,8 +676,8 @@ def validate_ordinary_partitions(plan):
                  'ordinary_fast_targets', 'ordinary_full_fast_targets'}.intersection(plan)
         and isinstance(plan.get('oasis7_required_packages'), list)
         and ('oasis7_runtime_host' in plan['oasis7_required_packages'] or 'oasis7' in plan['oasis7_required_packages'])
-        and all(package in plan['oasis7_required_packages'] for package in (
-            'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+        and bool(_UNIVERSAL_V2_ANCHORS.intersection(plan['oasis7_required_packages']))
+        and 'oasis7_viewer_runtime' in plan['oasis7_required_packages']
     )
     if 'ordinary_controls_in_rust_baseline_version' in plan or 'ordinary_wasm_group' in plan:
         if (type(plan.get('ordinary_controls_in_rust_baseline_version')) is not int
@@ -661,6 +713,8 @@ def validate_ordinary_partitions(plan):
                 or not _ordinary_packages_support_universal_v2(plan)):
             raise ValueError('invalid ordinary universal sharding capability')
         universal_v2 = True
+    if contract is not None and contract['supports_universal_v2'] != universal_v2:
+        raise ValueError('ordinary_execution_contract.supports_universal_v2 conflicts with plan capabilities')
     if 'ordinary_artifact_delivery_version' in plan:
         if (type(plan['ordinary_artifact_delivery_version']) is not int
                 or plan['ordinary_artifact_delivery_version'] not in (1, 2)
@@ -679,6 +733,7 @@ def validate_ordinary_partitions(plan):
                 or plan.get('ordinary_execution') == 'inline'
                 or 'oasis7_required' not in plan.get('groups', [])
                 or plan.get('ordinary_partitions') != expected
+                or (contract is not None and list(contract['artifact_partitions']) != expected)
                 or (version == 1 and plan.get('scope') not in ('full', 'explicit-full') and not targeted_policy)
                 or (version == 2 and (
                     (plan.get('scope') != 'targeted' and not (
@@ -688,7 +743,7 @@ def validate_ordinary_partitions(plan):
                     or _ordinary_runtime_full_requires_host_docker(plan)
                     or 'ordinary_fast_targets' in plan or 'ordinary_full_fast_targets' in plan
                     or not isinstance(plan.get('oasis7_required_packages'), list)
-                    or ('oasis7_chain_runtime' not in plan.get('oasis7_required_packages', []) and not universal_v2)))):
+                    or (not _UNIVERSAL_V2_ANCHORS.intersection(plan.get('oasis7_required_packages', [])) and not universal_v2)))):
             raise ValueError('invalid complete ordinary artifact partitions')
         return
     targets = plan.get('ordinary_fast_targets')
@@ -844,13 +899,22 @@ def resolve_ordinary_execution_contract(plan):
     raw = plan.get('ordinary_execution_contract')
     if raw is None:
         raise ValueError('missing required ordinary_execution_contract v1 (S2 plans are unsupported in S5)')
+    aliases = raw.get('logical_harness_aliases') if isinstance(raw, dict) else None
     if (not isinstance(raw, dict) or type(raw.get('version')) is not int or raw['version'] != 1
             or raw.get('mode') not in ('inline', 'artifact-v1', 'artifact-v2')
             or type(raw.get('candidate_container_eligible')) is not bool
             or type(raw.get('supports_universal_v2')) is not bool
+            or not isinstance(aliases, dict)
+            or any(not isinstance(k, str) or not isinstance(v, str)
+                   or re.fullmatch(r'[A-Za-z0-9_-]+', k) is None
+                   or re.fullmatch(r'[A-Za-z0-9_-]+', v) is None
+                   for k, v in aliases.items())
+            or len(set(aliases.values())) != len(aliases)
             or any(not isinstance(raw.get(k), list) for k in (
                 'artifact_partitions', 'partitions', 'required_wasm_packages',
-                'required_host_docker_wasm_fixtures', 'delegated_clippy'))):
+                'required_host_docker_wasm_fixtures', 'delegated_clippy'))
+            or any(not isinstance(fx, str) or fx not in ('builtin_test_modules', 'provider_preview_wasm')
+                   for fx in raw['required_host_docker_wasm_fixtures'])):
         raise ValueError('invalid or unsupported ordinary_execution_contract')
     if 'ordinary_partitions' in plan and list(plan['ordinary_partitions']) != list(raw['partitions']):
         raise ValueError('ordinary_execution_contract.partitions conflicts with ordinary_partitions')
@@ -1420,7 +1484,19 @@ BUILD_COMPONENTS = (*FORMAL_COMPONENTS, *STORAGE_COMPONENTS)
 def load_oasis7_required_packages(scope_config=None):
     config_path = Path(scope_config) if scope_config is not None else Path(__file__).resolve().parent / 'ci-required-scope.json'
     data = json.loads(config_path.read_text(encoding='utf-8'))
-    packages = data.get('oasis7_required_packages')
+    caps = data.get('package_capabilities')
+    if isinstance(caps, dict):
+        derived = [pkg for pkg, cap in caps.items() if isinstance(cap, dict) and cap.get('ordinary_package') is True]
+        if 'oasis7_required_packages' in data:
+            legacy = data.get('oasis7_required_packages')
+            if (not isinstance(legacy, list) or not legacy
+                    or any(not isinstance(pkg, str) or not pkg or any(ch.isspace() for ch in pkg) for pkg in legacy)
+                    or len(legacy) != len(set(legacy)) or set(legacy) != set(derived)):
+                raise ValueError('invalid oasis7_required_packages in ' + str(config_path))
+            return list(legacy)
+        packages = derived
+    else:
+        packages = data.get('oasis7_required_packages')
     if (not isinstance(packages, list) or not packages
             or any(not isinstance(pkg, str) or not pkg or any(ch.isspace() for ch in pkg) for pkg in packages)
             or len(packages) != len(set(packages))):
@@ -1491,25 +1567,25 @@ def build_variants(scope, plan=None, ordinary_partition=None):
     raise ValueError('unknown build scope: ' + scope)
 
 
-def artifact_logical_name(variant, package, target, test):
+def artifact_logical_name(variant, package, target, test, plan=None):
     """Formal aliases identify package, target kind and name, never name alone."""
     name, kinds = target['name'], tuple(target['kind'])
     if variant == 'storage-libs':
         return 'storage-lib-' + name
     if variant.startswith(('required-full-fast-', 'required-risk-')):
         # Preserve both feature variants of a package/target in full bundles.
-        return variant + '-' + artifact_logical_name('required', package, target, test)
+        return variant + '-' + artifact_logical_name('required', package, target, test, plan=plan)
     if variant.startswith('required-fast-'):
-        return artifact_logical_name('required', package, target, test)
+        return artifact_logical_name('required', package, target, test, plan=plan)
     if variant not in ('required', 'formal-required'):
         return variant
     if test:
-        aliases = {
-            ('oasis7_chain_runtime', ('lib',), 'oasis7_chain_runtime'): 'runtime-tests',
-            ('oasis7', ('lib',), 'oasis7'): 'oasis7-lib-tests',
-        }
-        return aliases.get((package, kinds, name),
-                           'required-test-' + package + '-' + '-'.join(kinds) + '-' + name)
+        alias_map = {'oasis7': 'oasis7-lib-tests', **_DEFAULT_LOGICAL_ALIASES}
+        if isinstance(plan, dict) and 'ordinary_execution_contract' in plan:
+            alias_map.update(resolve_ordinary_execution_contract(plan)['logical_harness_aliases'])
+        if kinds == ('lib',) and name == package and package in alias_map:
+            return alias_map[package]
+        return 'required-test-' + package + '-' + '-'.join(kinds) + '-' + name
     return 'required-executable-' + package + '-' + '-'.join(kinds) + '-' + name
 
 
@@ -1930,7 +2006,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                     if len(matching) != 1:
                         raise ValueError('unexpected test target in Cargo build: ' + variant)
                     artifact_variant = matching[0]
-                logical = artifact_logical_name(artifact_variant, package, target, test)
+                logical = artifact_logical_name(artifact_variant, package, target, test, plan=plan)
                 if logical in binaries:
                     raise ValueError(f'duplicate executable: {logical}')
                 source = Path(executable)
