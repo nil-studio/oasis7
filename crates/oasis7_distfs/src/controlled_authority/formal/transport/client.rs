@@ -30,7 +30,7 @@ pub struct RemoteFormalEndpoint {
     last_native_context: Option<VerifiedNativeRpcContextV1>,
     // Only the original caller-paid Query path retains an authenticated
     // minimum across calls. This fee follows the minimum for its lifetime.
-    last_paid_minimum_fee: Option<oasis7_proto::memory_budget::MemoryReservation>,
+    _paid_minimum_fee: Option<oasis7_proto::memory_budget::MemoryReservation>,
     archive_read_grant: Option<SignedArchiveReadGrantV1>,
     #[cfg(test)]
     last_native_restore_source_reads: usize,
@@ -100,7 +100,7 @@ impl RemoteFormalEndpoint {
             minimum,
             last_checkpoint: None,
             last_native_context: None,
-            last_paid_minimum_fee: None,
+            _paid_minimum_fee: None,
             archive_read_grant,
             #[cfg(test)]
             last_native_restore_source_reads: 0,
@@ -253,7 +253,7 @@ impl RemoteFormalEndpoint {
         // reserved the real String clone before verification; retain that fee
         // in the endpoint until the next authenticated call or endpoint drop.
         self.minimum = body.head.clone();
-        self.last_paid_minimum_fee = paid_minimum_fee;
+        self._paid_minimum_fee = paid_minimum_fee;
         Ok(pending)
     }
     fn complete(&mut self, command: Command) -> Result<(), FormalError> {
