@@ -158,5 +158,178 @@ class AuthorityLauncherTests(unittest.TestCase):
             self.assertNotEqual(bad.returncode, 0)
 
 
+class ExecutorContractAndAstRatchetTests(unittest.TestCase):
+    def _load_mod(self, name: str, filename: str):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(name, HERE / filename)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_artifacts_consumes_materialized_contract_and_capabilities(self):
+        import json
+        art = self._load_mod("_art_test", "ci-test-artifacts.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "scope.json"
+            cfg_path.write_text(json.dumps({
+                "package_capabilities": {
+                    "pkg_a": {"ordinary_package": True},
+                    "pkg_b": {"ordinary_package": False},
+                },
+            }), encoding="utf-8")
+            self.assertEqual(art.load_oasis7_required_packages(cfg_path), ["pkg_a"])
+            cfg_path.write_text(json.dumps({
+                "package_capabilities": {"pkg_a": {"ordinary_package": True}},
+                "oasis7_required_packages": ["pkg_other"],
+            }), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                art.load_oasis7_required_packages(cfg_path)
+        contract_plan = {
+            "ordinary_execution_contract": {
+                "version": 1, "mode": "artifact-v2", "supports_universal_v2": True,
+                "candidate_container_eligible": True, "artifact_partitions": ["native-0", "native-1"],
+                "partitions": ["all"], "logical_harness_aliases": {"oasis7_synth": "synth-lib-tests"},
+                "required_wasm_packages": [], "required_host_docker_wasm_fixtures": [],
+                "deferred_cases": {}, "delegated_clippy": [],
+            },
+        }
+        self.assertEqual(
+            art.artifact_logical_name("required", "oasis7_synth", {"name": "oasis7_synth", "kind": ["lib"]}, True, plan=contract_plan),
+            "synth-lib-tests",
+        )
+        manifest = {
+            "selection": {"suite": "ordinary"},
+            "execution_plan": contract_plan,
+            "binaries": {
+                "rt": {"package": "oasis7_runtime", "test": True, "target_kind": ["lib"], "features": ["wasmtime", "test_tier_full"]},
+                "ch": {"package": "oasis7_chain_runtime", "test": True, "target_kind": ["lib"], "features": ["test_tier_full"]},
+            },
+        }
+        self.assertFalse(art.BuiltinTestArtifact.required(manifest))
+        self.assertFalse(art.preview_provider_required(manifest))
+        with_fx = {
+            **manifest,
+            "execution_plan": {
+                "ordinary_execution_contract": {
+                    **contract_plan["ordinary_execution_contract"],
+                    "candidate_container_eligible": False,
+                    "required_host_docker_wasm_fixtures": ["builtin_test_modules", "provider_preview_wasm"],
+                },
+            },
+        }
+        self.assertTrue(art.BuiltinTestArtifact.required(with_fx))
+        self.assertTrue(art.preview_provider_required(with_fx))
+        for bad_override in (
+            {"logical_harness_aliases": {"oasis7_synth": "../manifest.json"}},
+            {"logical_harness_aliases": ["not-a-dict"]},
+            {"logical_harness_aliases": {"a": "dup", "b": "dup"}},
+            {"candidate_container_eligible": True, "required_host_docker_wasm_fixtures": ["builtin_test_modules"]},
+            {"candidate_container_eligible": False, "required_host_docker_wasm_fixtures": ["unknown_fixture"]},
+        ):
+            bad_plan = {"ordinary_execution_contract": {**contract_plan["ordinary_execution_contract"], **bad_override}}
+            with self.subTest(bad_override=bad_override), self.assertRaises(ValueError):
+                art.resolve_ordinary_execution_contract(bad_plan)
+
+    def test_ci_tests_consumes_support_contract_partitions_and_complete_features(self):
+        import json
+        import shutil
+        driver = (HERE / "ci-tests.sh").read_text(encoding="utf-8")
+        marker = '  run_group "$group"\n'
+        stubbed = driver.replace(marker, '  run_cargo() { printf "cargo %s\\n" "$*"; }\n  run_cargo_clippy() { :; }\n' + marker)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            for fname in ("ci-test-artifacts.py", "ci-required-scope.json", "find-python-with-module.sh", "viewer-dependency-preflight.sh"):
+                shutil.copyfile(HERE / fname, scripts / fname)
+            (scripts / "ci-tests.sh").write_text(stubbed, encoding="utf-8")
+            (root / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\n', encoding="utf-8")
+            for pkg in ("oasis7_custody_core", "oasis7_proto"):
+                pdir = root / "crates" / pkg
+                pdir.mkdir(parents=True)
+                (pdir / "Cargo.toml").write_text(
+                    f'[package]\nname = "{pkg}"\nversion = "0.1.0"\n[features]\ntest_tier_required = []\nextra_policy_feat = []\n',
+                    encoding="utf-8",
+                )
+            plan = {
+                "groups": ["workspace_support"], "scope": "targeted", "execution_profile": "pr-fast",
+                "fast_plan_version": 1,
+                "test_policy_changed": True, "workspace_support_profile_version": 1,
+                "workspace_support_profiles": ["oasis7_custody_core", "oasis7_proto"],
+                "workspace_support_partition_version": 1, "workspace_support_partitions": ["custody", "other"],
+                "workspace_support_execution_contract": {
+                    "version": 1,
+                    "selected_profiles": ["oasis7_custody_core", "oasis7_proto"],
+                    "partitions": {"custody": ["oasis7_custody_core"], "other": ["oasis7_proto"]},
+                    "host_profiles": [], "image_profiles": ["oasis7_custody_core", "oasis7_proto"],
+                    "expanded_targets_by_profile": {},
+                    "complete_features_by_profile": {"oasis7_proto": ["extra_policy_feat"]},
+                    "wasm_compile_checks": {},
+                },
+            }
+            pf = root / "support.json"
+            pf.write_text(json.dumps(plan), encoding="utf-8")
+            custody_res = subprocess.run(
+                ["bash", str(scripts / "ci-tests.sh"), "required", "--group", "workspace_support",
+                 "--support-plan-file", str(pf), "--support-partition", "custody", "--support-execution", "all"],
+                cwd=root, text=True, capture_output=True,
+            )
+            self.assertEqual(custody_res.returncode, 0, custody_res.stderr)
+            self.assertIn("+ support profile: oasis7_custody_core", custody_res.stdout)
+            self.assertNotIn("+ support profile: oasis7_proto", custody_res.stdout)
+            other_res = subprocess.run(
+                ["bash", str(scripts / "ci-tests.sh"), "required", "--group", "workspace_support",
+                 "--support-plan-file", str(pf), "--support-partition", "other", "--support-execution", "image"],
+                cwd=root, text=True, capture_output=True,
+            )
+            self.assertEqual(other_res.returncode, 0, other_res.stderr)
+            self.assertIn("+ support profile: oasis7_proto", other_res.stdout)
+            self.assertIn("oasis7_proto/extra_policy_feat", other_res.stdout)
+            self.assertNotIn("+ support profile: oasis7_custody_core", other_res.stdout)
+            for tampered in (
+                {**plan, "workspace_support_partitions": ["other"]},
+                {**plan, "workspace_support_execution_contract": {
+                    **plan["workspace_support_execution_contract"],
+                    "partitions": {"custody": [], "other": ["oasis7_proto"]},
+                }},
+                {**plan, "workspace_support_execution_contract": {
+                    **plan["workspace_support_execution_contract"],
+                    "partitions": {"custody": "oasis7_custody_core", "other": ["oasis7_proto"]},
+                }},
+                {**plan, "workspace_support_execution_contract": {
+                    **plan["workspace_support_execution_contract"],
+                    "complete_features_by_profile": {"oasis7_proto": "extra_policy_feat"},
+                }},
+            ):
+                pf.write_text(json.dumps(tampered), encoding="utf-8")
+                bad_res = subprocess.run(
+                    ["bash", str(scripts / "ci-tests.sh"), "required", "--group", "workspace_support",
+                     "--support-plan-file", str(pf), "--support-partition", "other", "--support-execution", "all"],
+                    cwd=root, text=True, capture_output=True,
+                )
+                self.assertNotEqual(bad_res.returncode, 0)
+
+    def test_quantitative_ast_package_literal_ratchet_blocks_new_hardcoding(self):
+        gate = self._load_mod("_scope_gate", "check-ci-scope-paths.py")
+        repo_root = HERE.parent
+        self.assertEqual(gate.check_executor_hardcoded_package_ratchet(repo_root), [])
+        with tempfile.TemporaryDirectory() as tmp:
+            sandbox = Path(tmp)
+            (sandbox / "crates/oasis7_proto").mkdir(parents=True)
+            (sandbox / "crates/oasis7_proto/Cargo.toml").write_text('[package]\nname = "oasis7_proto"\nversion = "0.1.0"\n', encoding="utf-8")
+            (sandbox / "scripts").mkdir()
+            limit = gate.AST_WORKSPACE_PACKAGE_LITERAL_CEILINGS["scripts/ci-test-artifacts.py"]
+            (sandbox / "scripts/ci-test-artifacts.py").write_text(
+                "X = [" + ", ".join("'oasis7_proto'" for _ in range(limit + 1)) + "]\n",
+                encoding="utf-8",
+            )
+            errs = gate.check_executor_hardcoded_package_ratchet(sandbox)
+            self.assertEqual(len(errs), 1)
+            self.assertIn("exceeds ratchet ceiling", errs[0])
+            # Deleting the crate shrinks active package names monotonically without tripping the ceiling.
+            (sandbox / "crates/oasis7_proto/Cargo.toml").unlink()
+            self.assertEqual(gate.check_executor_hardcoded_package_ratchet(sandbox), [])
+
+
 if __name__ == "__main__":
     unittest.main()
