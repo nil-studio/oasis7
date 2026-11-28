@@ -128,6 +128,30 @@ fn pg_whole_namespace_codec_preserves_original_input_and_signed_bytes() {
     let signer = envelope.current.current.signer.clone();
     let stored = codec::Stored::new("codec", signer.clone(), Some(envelope.clone())).unwrap();
     let bytes = stored.encode().unwrap();
+    // Fixed from the actual schema-1 codec at main49e0a1b8 before this change.
+    let state_bytes = codec::Stored::new("codec", initial(&binding()), None)
+        .unwrap()
+        .encode()
+        .unwrap();
+    for (original, length, digest) in [
+        (
+            &bytes,
+            8709,
+            "8e63363219e5610a6ff7ed72680f560a23adb36089c3f3f083f93429f9ec1dfe",
+        ),
+        (
+            &state_bytes,
+            1457,
+            "f8d36280c29059199847f0dee36162cf19a21d869ccce46c5c1e4745d05937d0",
+        ),
+    ] {
+        assert_eq!(original.len(), length);
+        assert_eq!(blake3::hash(original).to_hex().as_str(), digest);
+        assert_eq!(
+            &codec::Stored::decode(original).unwrap().encode().unwrap(),
+            original
+        );
+    }
     assert_eq!(codec::Stored::decode(&bytes).unwrap(), stored);
     assert!(codec::Stored::decode(&bytes[..bytes.len() - 1]).is_err());
     let mut trailing = bytes.clone();
@@ -145,6 +169,9 @@ fn pg_whole_namespace_codec_preserves_original_input_and_signed_bytes() {
     let noncanonical = serde_cbor::value::to_value(stored).unwrap();
     assert!(codec::Stored::decode(&serde_cbor::to_vec(&noncanonical).unwrap()).is_err());
 }
+
+#[path = "../private_retention_ready_tests.rs"]
+mod first_ready;
 
 fn connect() -> Client {
     let url = std::env::var("OASIS7_POSTGRES_TEST_URL")

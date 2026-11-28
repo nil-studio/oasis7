@@ -778,6 +778,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     }))
     .unwrap();
     signer_state.private_retention = Some(BftPrivateRetentionHeadV1 {
+        selection_commitment: None,
         schema_version: 2,
         source: reference.source.clone(),
         capability_digest: "cd".repeat(32),

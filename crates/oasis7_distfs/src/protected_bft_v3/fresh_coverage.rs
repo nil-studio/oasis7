@@ -105,6 +105,12 @@ pub struct BftPrivateRetentionEmptyMapV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftPrivateRetentionHeadV1 {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "read_commitment"
+    )]
+    pub selection_commitment: Option<super::BftPrivateRetentionSelectionCommitmentV1>,
     pub schema_version: u32,
     pub source: BftPrivateRetentionSourceV1,
     pub capability_digest: String,
@@ -117,7 +123,24 @@ pub struct BftPrivateRetentionHeadV1 {
     pub retained_material_bytes: Option<u64>,
 }
 
+fn read_commitment<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<super::BftPrivateRetentionSelectionCommitmentV1>, D::Error> {
+    super::BftPrivateRetentionSelectionCommitmentV1::deserialize(d).map(Some)
+}
+
 impl BftPrivateRetentionHeadV1 {
+    pub fn digest(&self) -> Result<String, BftSignerErrorV3> {
+        self.validate_supported_head(&self.source.binding_digest)?;
+        digest_hex(
+            if self.schema_version == 3 {
+                "oasis7.bft.private-retention.head.v3"
+            } else {
+                "oasis7.bft.private-retention.head.v1"
+            },
+            self,
+        )
+    }
     pub(super) fn validate_supported_head(
         &self,
         binding_digest: &str,
@@ -130,16 +153,28 @@ impl BftPrivateRetentionHeadV1 {
         ] {
             validate_digest(hash)?;
         }
-        if self.schema_version != 2
-            || self.source.binding_digest != binding_digest
-            || !matches!(
+        let supported = match (&self.selection_commitment, self.schema_version) {
+            (None, 2) => matches!(
                 (
                     self.sequence,
                     self.entry_count,
                     &self.previous_receipt_digest
                 ),
                 (1, 0, None) | (2, 1, Some(_))
-            )
+            ),
+            (Some(choice), 3) => {
+                validate_digest(&choice.root)?;
+                self.sequence == 3
+                    && self.entry_count == 1
+                    && self.previous_receipt_digest.is_some()
+                    && choice.count == 1
+                    && choice.sequence == 1
+                    && (1..=1024 * 1024).contains(&choice.encoded_bytes)
+            }
+            _ => false,
+        };
+        if !supported
+            || self.source.binding_digest != binding_digest
             || self
                 .retained_material_bytes
                 .is_none_or(|bytes| bytes > NAMESPACE_LIMIT || bytes == 0)
@@ -256,6 +291,7 @@ pub(super) fn activation_body(
     };
     let bytes = encode_bounded(&map, 1024 * 1024)?;
     let mut head = BftPrivateRetentionHeadV1 {
+        selection_commitment: None,
         schema_version: 2,
         source: map.source.clone(),
         capability_digest: attestor.digest()?,

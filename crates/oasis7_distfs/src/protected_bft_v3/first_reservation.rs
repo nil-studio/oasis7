@@ -33,6 +33,7 @@ enum Fact {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum Lifecycle {
     ReservedPending,
+    Ready,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +52,20 @@ pub struct BftPrivateRetentionMapV1 {
     coverage_start_height: u64,
     previous_seal_receipt_digest: Option<String>,
     entries: [BftPrivateRetentionEntryV1; 1],
+}
+impl BftPrivateRetentionMapV1 {
+    pub(super) fn require_reserved(&self) -> Result<(), BftSignerErrorV3> {
+        if self.entries[0].lifecycle != Lifecycle::ReservedPending {
+            return Err(invalid("first Ready requires original ReservedPending"));
+        }
+        Ok(())
+    }
+    pub(super) fn first_ready(&self) -> Result<Self, BftSignerErrorV3> {
+        self.require_reserved()?;
+        let mut next = self.clone();
+        next.entries[0].lifecycle = Lifecycle::Ready;
+        Ok(next)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,7 +185,7 @@ pub(super) fn original_activation_state(
     Ok(after)
 }
 
-fn reserve_body(
+pub(super) fn reserve_body(
     before: &BftSignerStateV3,
     activation: &BftPrivateRetentionActivationV1,
     reference: &BftPrivateRetentionAdmissionInputRefV1,
