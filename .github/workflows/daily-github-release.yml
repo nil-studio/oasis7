@@ -14,6 +14,9 @@ on:
 permissions:
   actions: write
   contents: write
+  packages: read
+
+cache-mode: none
 
 concurrency:
   group: daily-github-release
@@ -24,11 +27,28 @@ jobs:
     name: create-date-release
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-api-runtime@sha256:ba7c763f7b634b672c6dccef1384bce4daf7abd44a65d613696a748891e3c0ed
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
+
+      - name: Verify preinstalled release tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = 1001:1001
+          test "$(command -v gh)" = /usr/local/bin/gh
+          read -r program label version _ <<< "$(gh --version)"
+          test "$program $label $version" = "gh version 2.105.0"
+          test "$(TZ=Asia/Shanghai date +%z)" = +0800
+          git rev-parse --verify HEAD
 
       - name: Resolve release tag
         id: tag
