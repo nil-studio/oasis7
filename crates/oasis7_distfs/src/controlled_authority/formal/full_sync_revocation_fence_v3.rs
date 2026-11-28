@@ -157,6 +157,16 @@ impl FullSyncRevocationInventoryV1 {
         receipt: SignedFullSyncRevocationFenceV1,
     ) -> Result<(), FormalError> {
         self.verify_inventory(state)?;
+        self.record_after_history_verification(state, receipt)
+    }
+
+    // A cold reader verifies the original inventory once, then each receipt,
+    // avoiding quadratic re-verification of the already checked signatures.
+    pub(super) fn record_after_history_verification(
+        &mut self,
+        state: &VerifiedFullSyncIssuerStateV3,
+        receipt: SignedFullSyncRevocationFenceV1,
+    ) -> Result<(), FormalError> {
         receipt.verify_for_inventory(
             self,
             state.anchor().revision,
