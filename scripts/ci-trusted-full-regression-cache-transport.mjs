@@ -10,23 +10,27 @@ const budget = 20_000_000_000;
 
 const npmLock = 'crates/oasis7_viewer/package-lock.json';
 
-async function physicalPath(value, allowMissingLeaf = false) {
+export async function physicalPath(value, allowMissing = false) {
   if (typeof value !== 'string' || !path.isAbsolute(value) ||
       path.normalize(value) !== value || /[\u0000-\u001f\u007f]/.test(value)) {
     throw new Error('invalid cache filesystem path');
   }
+  const ancestors = [];
   for (let directory = path.dirname(value); ; directory = path.dirname(directory)) {
-    if (!(await lstat(directory)).isDirectory()) {
-      throw new Error('cache path ancestor is not a physical directory');
-    }
+    ancestors.push(directory);
     if (directory === path.dirname(directory)) break;
   }
   try {
+    for (const directory of ancestors.reverse()) {
+      if (!(await lstat(directory)).isDirectory()) {
+        throw new Error('cache path ancestor is not a physical directory');
+      }
+    }
     const info = await lstat(value);
     if (info.isSymbolicLink()) throw new Error('cache path uses a symlink');
     return info;
   } catch (error) {
-    if (allowMissingLeaf && error.code === 'ENOENT') return null;
+    if (allowMissing && error.code === 'ENOENT') return null;
     throw error;
   }
 }

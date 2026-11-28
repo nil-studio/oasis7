@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  physicalPath,
   restoreFullCache,
   saveFullCache,
   verifyFullCacheAuthority,
@@ -128,7 +129,7 @@ test('bindgen and sentinel keep their original in-job save gates', async () => {
 
 
 test('only a regular checked-in Viewer lock is handed to upstream hashing', async () => {
-  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'full-cache-lock-'));
+  const workspace = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'full-cache-lock-'));
   const directory = path.join(workspace, 'crates/oasis7_viewer');
   const lock = path.join(directory, 'package-lock.json');
   try {
@@ -153,5 +154,22 @@ test('only a regular checked-in Viewer lock is handed to upstream hashing', asyn
     assert.equal(checks,1);
   } finally {
     await fs.rm(workspace,{force:true,recursive:true});
+  }
+});
+
+test('cold destination permits absent directories but rejects unsafe existing ancestors', async () => {
+  const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'full-cache-cold-'));
+  const directory = path.join(root, 'tools');
+  const payload = path.join(directory, 'nested', 'archive.tar.gz');
+  try {
+    assert.equal(await physicalPath(payload, true), null);
+    await assert.rejects(physicalPath(payload), {code:'ENOENT'});
+    await fs.symlink('/does-not-exist',directory);
+    await assert.rejects(physicalPath(payload, true), /ancestor/);
+    await fs.unlink(directory);
+    await fs.writeFile(directory, 'not a directory');
+    await assert.rejects(physicalPath(payload, true), /ancestor/);
+  } finally {
+    await fs.rm(root,{force:true,recursive:true});
   }
 });
