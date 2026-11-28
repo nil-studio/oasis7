@@ -1447,6 +1447,7 @@
     "scripts/ci-workflow-core-part12.test.py",
     "scripts/ci-workflow-core-part13.test.py",
     "scripts/ci-workflow-core-part14.test.py",
+    "scripts/ci-postgres.test.py",
     "scripts/ci-workflow-delivery-and-capacity.test.py",
     "scripts/ci-workflow-guards-and-timeouts.test.py",
     "scripts/ci-workflow.test.py",

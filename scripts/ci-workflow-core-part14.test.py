@@ -660,6 +660,7 @@ def validate_postgres_service(workflow):
 
 class PostgresServiceContract(unittest.TestCase):
     def test_real_service_and_policy_bound_runner_are_mandatory(self):
+        self.assertEqual(CONFIG['workflow_governance_python_tests'].count('scripts/ci-postgres.test.py'), 1)
         validate_postgres_service(RAW_WORKFLOW)
         mutations = [
             ('    services:\n      postgres:', '    missing-services:\n      postgres:'),
