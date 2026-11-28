@@ -5643,47 +5643,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oasis7"
-version = "0.1.0"
-dependencies = [
- "async-openai",
- "bitflags 2.13.1",
- "blake3",
- "ed25519-dalek",
- "hex",
- "hyper-rustls",
- "idna",
- "indexmap",
- "oasis7_agent_api",
- "oasis7_agent_harness",
- "oasis7_client_api",
- "oasis7_domain_types",
- "oasis7_formal_protocol",
- "oasis7_hosted_access",
- "oasis7_model_provider",
- "oasis7_proto",
- "oasis7_runtime",
- "oasis7_runtime_host",
- "oasis7_simulator",
- "oasis7_wasm_abi",
- "oasis7_world_service",
- "rand_chacha",
- "reqwest 0.13.5",
- "rustls",
- "serde",
- "serde_cbor_2",
- "serde_json",
- "sha2 0.10.9",
- "sha2 0.11.0",
- "tokio",
- "tokio-rustls",
- "toml",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "oasis7_agent_api"
 version = "0.1.0"
 dependencies = [

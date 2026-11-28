@@ -484,10 +484,10 @@ class WorkflowCorePart13(unittest.TestCase):
         dual_ecs = 'OASIS7_DEPENDENCY_CACHE_FAMILY: ecs-image\n' in ecs_jobs['native-trusted']
         lanes = [(shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES')]
         candidate = ecs_jobs['native']
-        if 'Restore candidate image dependencies without saving' in candidate:
+        if 'container: &ecs-native-container' in candidate:
             self.assertIn('cache-mode: read', candidate)
             restore, = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', candidate, re.M | re.S)
-                        if 'Restore candidate image dependencies without saving' in step]
+                        if 'uses: Swatinem/rust-cache@' in step and "if: github.job == 'native' &&" in step]
             self.assertIn('uses: Swatinem/rust-cache@' + revision[1], restore)
             self.assertIn('save-if: false', restore)
             self.assertIn('cache-on-failure: false', restore)

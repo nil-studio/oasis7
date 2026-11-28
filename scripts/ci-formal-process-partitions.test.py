@@ -179,7 +179,7 @@ class CompleteArtifactPartitions(unittest.TestCase):
 
     def policy_selection(self):
         return self.selection() | dict(scope='targeted', test_policy_changed=True,
-            oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
+            oasis7_required_packages=['oasis7_runtime_host', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
             oasis7_required_wasm_packages=['oasis7_viewer_runtime'])
 
     def manifest(self, selected):
@@ -208,7 +208,7 @@ class CompleteArtifactPartitions(unittest.TestCase):
         self.assertEqual(groups['controls'], [])
         self.assertEqual([entry['binary'] for entry in groups['runtime']], ['runtime-tests'])
         self.assertEqual([entry['binary'] for entry in groups['component-libs']], ['component', 'oasis7-lib-tests', 'supplement'])
-        self.assertEqual(len(groups['integrations-0']), 2)
+        self.assertEqual(len(groups['integrations-0']), 1)
         self.assertEqual(len(groups['integrations-1']), 1)
         self.assertCountEqual([entry for values in groups.values() for entry in values],
                               artifacts.ordinary_entries(manifest))

@@ -397,7 +397,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
                                  ['runtime', 'component-libs', 'integrations-0', 'integrations-1'])
 
     def test_targeted_policy_change_partitions_preserve_the_complete_original_plan(self):
-        for package in ('oasis7', 'oasis7_viewer_runtime'):
+        for package in ('oasis7_runtime_host', 'oasis7_viewer_runtime'):
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n'
                        '[dependencies]\noasis7_chain_runtime={path="../oasis7_chain_runtime"}\n'
@@ -423,7 +423,7 @@ class TargetedRuntimePartitionPlans(_ScopeFixtureBase):
                 self.assertEqual(selected['scope'], 'targeted')
                 self.assertIs(selected['test_policy_changed'], True)
                 self.assertEqual(selected['oasis7_required_packages'],
-                                 ['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'])
+                                 ['oasis7_chain_runtime', 'oasis7_runtime_host', 'oasis7_viewer_runtime'])
                 self.assertEqual(selected['ordinary_universal_sharding_version'], 1)
                 self.assertEqual(selected['ordinary_artifact_partition_version'], 2)
                 self.assertEqual(selected['ordinary_artifact_delivery_version'], 2)

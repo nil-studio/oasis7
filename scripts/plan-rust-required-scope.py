@@ -4671,8 +4671,9 @@ def complete_ordinary_partitions(config, plan):
         and not {'fast_execution_version', 'ordinary_partition_version',
                  'ordinary_fast_targets', 'ordinary_full_fast_targets'}.intersection(plan)
         and isinstance(plan.get('oasis7_required_packages'), list)
+        and ('oasis7_runtime_host' in plan['oasis7_required_packages'] or 'oasis7' in plan['oasis7_required_packages'])
         and all(package in plan['oasis7_required_packages'] for package in (
-            'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+            'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
     )
     runtime_full_requires_docker = _ordinary_runtime_full_requires_host_docker(plan)
     universal_v2 = (

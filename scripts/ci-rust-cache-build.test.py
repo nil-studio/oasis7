@@ -484,8 +484,11 @@ run() {
         whole_package = {context for context in legacy
                          if 'oasis7' in context[1] and 'oasis7_chain_runtime' in context[1]}
         self.assertEqual(len(whole_package), 4)
-        expected = legacy - whole_package | {
-            (context[0], tuple(sorted((*context[1], 'oasis7_executable_image', 'oasis7_runtime_host'))), *context[2:])
+        expected = {
+            (context[0], tuple(p for p in context[1] if p != 'oasis7') if len(context[1]) > 1 else context[1], *context[2:])
+            for context in (legacy - whole_package) if not (context[1] == ('oasis7',) and context[2] == (('--lib', ''),))
+        } | {
+            (context[0], tuple(sorted(p for p in (*context[1], 'oasis7_executable_image', 'oasis7_runtime_host') if p != 'oasis7')), *context[2:])
             for context in whole_package}
         for verbose in ('0', '1'):
             with self.subTest(verbose=verbose):
@@ -493,8 +496,8 @@ run() {
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 52)
-                self.assertIn('cache_build_complete variants=52 verification=false', result.stdout)
+                self.assertEqual(len(named), 50)
+                self.assertIn('cache_build_complete variants=50 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
                                   if not name.startswith('fast-')}, expected)
                 self.assert_fast_inventory(named, self.config)
@@ -539,7 +542,7 @@ run() {
         roots = {context[1] for context in legacy
                  if 'oasis7' in context[1] and 'oasis7_chain_runtime' in context[1]}
         self.assertEqual(len(roots), 1)
-        expected = sorted((*roots.pop(), 'oasis7_executable_image', 'oasis7_runtime_host'))
+        expected = sorted(p for p in (*roots.pop(), 'oasis7_executable_image', 'oasis7_runtime_host') if p != 'oasis7')
         script = r'''set -euo pipefail
 source "$1"
 repo_root="$2"; driver_dir="$3"; ci_python="$4"
@@ -574,7 +577,7 @@ cd "$repo_root"
                                       '-D', 'clippy::suspicious'])
 
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52):
+        for number in (1, 27, 29, 32, 40, 41, 49, 50):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()
@@ -629,7 +632,7 @@ cd "$repo_root"
         result = self.build()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
-        self.assertEqual(len(named), 52)
+        self.assertEqual(len(named), 50)
         self.assert_fast_inventory(named, config)
         self.assertFalse(self.behaviors.exists())
 
@@ -665,7 +668,7 @@ cd "$repo_root"
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
         self.assert_fast_inventory(named, config)
-        self.assertEqual(sum(name.startswith('fast-') for name in named), 15)
+        self.assertEqual(sum(name.startswith('fast-') for name in named), 14)
 
 
 if __name__ == '__main__':

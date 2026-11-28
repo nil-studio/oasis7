@@ -1574,7 +1574,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             image = name in ('native', 'native-trusted') and len(caches) == 2
             if image:
                 candidate, cache = caches
-                if 'Restore candidate image dependencies without saving' in candidate:
+                if 'container: &ecs-native-container' in ecs_jobs['native']:
                     self.assertIn("if: github.job == 'native' && hashFiles('scripts/ci-rust-cache-toolchains.py') != ''\n", candidate)
                     self.assertIn('shared-key: ${{ env.ECS_NATIVE_DEPENDENCY_NAMESPACE }}\n', candidate)
                     self.assertIn('cache-provider: github\n', candidate)

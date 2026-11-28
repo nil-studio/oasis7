@@ -6,7 +6,15 @@ fn late_validator_installs_from_historical_confirmation_at_current_tip() {
 
     let root = PrivateRoot::new();
     let identities = identities();
-    let addresses = reserve_udp_addresses(identities.len());
+    let mut mesh = socket_handoff::ReservedMesh::new(identities.len());
+    let late_index = 5;
+    assert_eq!(
+        UdpSocket::bind(mesh.address(late_index))
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::AddrInUse,
+        "the offline validator must retain its UDP reservation"
+    );
 
     // Run only the genesis-set participants and the already-installed new
     // validator. Validator 16 remains offline past the h+1 confirmation.
@@ -14,7 +22,7 @@ fn late_validator_installs_from_historical_confirmation_at_current_tip() {
         .iter()
         .take(5)
         .enumerate()
-        .map(|(index, identity)| make_node(identity, index, &addresses, root.path()))
+        .map(|(index, identity)| mesh.node(identity, index, root.path()))
         .collect::<Vec<_>>();
     for node in &mut initial_nodes {
         node.start().expect("start pre-transition BFT V2 worker");
@@ -47,7 +55,6 @@ fn late_validator_installs_from_historical_confirmation_at_current_tip() {
     assert!(tip_height > SCHEDULED_HEIGHT + 1);
     verify_certificates(&identities[source_index].binding, &history, tip_height);
 
-    let late_index = 5;
     {
         let mut driver = identities[late_index]
             .driver
@@ -70,7 +77,9 @@ fn late_validator_installs_from_historical_confirmation_at_current_tip() {
 
     // Startup replays the driver history, finds the original h+1
     // confirmation, and installs at the later current tip T.
-    let mut late_node = make_node(&identities[late_index], late_index, &addresses, root.path());
+    // Do not pass queued gossip from the offline reservation into the replayer.
+    mesh.fresh(late_index);
+    let mut late_node = mesh.node(&identities[late_index], late_index, root.path());
     late_node
         .start()
         .expect("late validator replays and installs from historical confirmation");
@@ -101,11 +110,16 @@ fn late_validator_installs_from_historical_confirmation_at_current_tip() {
     // Run exactly four validators of the five-member active set. Every one
     // must sign the next QC, proving the late node is now admitted to signing.
     let mut active_nodes = vec![late_node];
-    for index in [0, 1, 4] {
-        let mut node = make_node(&identities[index], index, &addresses, root.path());
+    let restart_indices = [0, 1, 4];
+    for index in restart_indices {
+        mesh.fresh(index);
+    }
+    for index in restart_indices {
+        let mut node = mesh.node(&identities[index], index, root.path());
         node.start().expect("restart active BFT V2 validator");
         active_nodes.push(node);
     }
+    mesh.refresh_live_peers(&mut active_nodes);
     let next_height = tip_height.checked_add(1).expect("bounded test height");
     wait_all_height(
         &active_nodes,
