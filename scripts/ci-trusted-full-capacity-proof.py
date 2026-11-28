@@ -17,7 +17,7 @@ IMAGE = ('ghcr.io/nil-studio/oasis7/ci-rust-full-regression'
 HOME = Path('/home/runner')
 WORKSPACE = HOME / 'work/oasis7/oasis7'
 TEMP = HOME / 'work/_temp'
-STAGES = ('pre-tools', 'pre-pull', 'post-pull', 'post-restore', 'post-provider')
+STAGES = ('pre-tools', 'pre-pull', 'post-pull', 'post-restore', 'post-provider', 'post-reclaim')
 AREAS = {
     'repository-target': WORKSPACE / 'target',
     'cargo-registry': HOME / '.cargo/registry',
