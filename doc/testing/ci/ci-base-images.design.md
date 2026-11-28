@@ -240,3 +240,13 @@ bindgen 安装定义。`agent-browser-lib.sh` 与 `viewer-web-dist-contract.sh`
 漂移，不以定向字符串规范化或更换发布来源规避检查。原 CLI 参数与功能
 合同继续由该 tested SHA 的原 headed 门禁核验；实际镜像输入任一变化、
 缺失或软链仍拒绝镜像，完整 Docker/build 保守比对及三编译器环境保留。
+
+### Storage 诊断探针准入
+
+`diagnostics-probe-admission` 只执行 Bash 内建比较，使用固定 runtime3984
+和 UID/GID1001/init；不 checkout、不安装工具、不访问缓存/API或构件。
+增加的 packages read 仅用于拉取正式镜像，不持久化凭据。原2分钟预算、
+opt-in 和 repository/event/main ref/workflowSHA=sourceSHA 四项拒绝脚本
+保持原样；预检确认实际非root Bash5。它只为后继运输探针做来源准入，
+不执行 Cargo/Storage 矩阵，不产生验收passed或授予新的写权限。镜像拉取
+成本记在该2分钟job内，独立shell夹具不代签自然main准入或Storage验收。

@@ -375,6 +375,58 @@ class Contracts(unittest.TestCase):
         self.assertIn('  build-components:\n    if: inputs.diagnostics_probe != true\n', workflow)
         self.assertIn('  summary:\n    if: always() && inputs.diagnostics_probe != true\n', workflow)
 
+    def assert_probe_admission(self, job):
+        header, steps = job.split('    steps:\n', 1)
+        expected = ("  diagnostics-probe-admission:\n"
+                    "    name: Validate diagnostic probe source\n"
+                    "    if: inputs.diagnostics_probe == true\n"
+                    "    runs-on: ubuntu-24.04\n"
+                    "    timeout-minutes: 2\n"
+                    "    permissions:\n      contents: read\n")
+        if '    container:' in header:
+            expected += ("      packages: read\n"
+                "    container:\n"
+                "      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9\n"
+                "      credentials:\n        username: ${{ github.actor }}\n        password: ${{ github.token }}\n"
+                "      options: --user 1001:1001 --init\n")
+            preflight = ('      - name: Verify the preinstalled admission shell\n'
+                         '        shell: bash\n        run: |\n'
+                         '          test "$EUID" -eq 1001\n'
+                         '          test "${BASH_VERSINFO[0]}" -ge 5\n')
+            self.assertTrue(steps.startswith(preflight))
+            steps = steps.removeprefix(preflight)
+        self.assertEqual(header, expected)
+        guard = ('test "$GITHUB_REPOSITORY" = \'nil-studio/oasis7\'\n'
+                 'test "$GITHUB_EVENT_NAME" = \'workflow_dispatch\'\n'
+                 'test "$GITHUB_REF" = \'refs/heads/main\'\n'
+                 'test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"\n')
+        self.assertEqual(steps.strip(), ('      - name: Reject any source outside the trusted main dispatch\n'
+            '        shell: bash\n        run: |\n' +
+            ''.join('          ' + line + '\n' for line in guard.splitlines())).strip())
+        return guard
+
+    def test_diagnostic_admission_preserves_exact_main_shell_and_readonly_image(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        job = '  diagnostics-probe-admission:\n' + workflow.split('  diagnostics-probe-admission:\n', 1)[1].split('  diagnostics-probe:\n', 1)[0].rstrip() + '\n'
+        script = self.assert_probe_admission(job)
+        trusted = {'GITHUB_REPOSITORY': 'nil-studio/oasis7', 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+                   'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': 'a' * 40, 'GITHUB_WORKFLOW_SHA': 'a' * 40}
+        for change in ({}, {'GITHUB_REPOSITORY': 'other/repo'}, {'GITHUB_EVENT_NAME': 'push'},
+                       {'GITHUB_REF': 'refs/heads/probe'}, {'GITHUB_WORKFLOW_SHA': 'b' * 40}):
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                                    env={'PATH': os.environ['PATH'], **trusted, **change},
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode == 0, not change, change)
+        if '    container:' in job:
+            for broken in (job.replace('ci-runtime@sha256:', 'ci-rust-build@sha256:'),
+                           job.replace('--user 1001:1001 --init', '--user 0:0 --privileged'),
+                           job.replace('packages: read', 'packages: write'),
+                           job.replace('    timeout-minutes: 2', '    timeout-minutes: 3'),
+                           job.replace('    steps:\n', '    env:\n      GH_TOKEN: ${{ github.token }}\n    steps:\n'),
+                           job.replace('test "$GITHUB_REF"', 'true # test "$GITHUB_REF"')):
+                with self.assertRaises(AssertionError):
+                    self.assert_probe_admission(broken)
+
     def test_live_producer_diagnostics_behavioral_contracts(self):
         result = subprocess.run(['node', '--test', str(HERE / 'storage-producer-diagnostics.test.cjs')],
                                 cwd=HERE.parent, capture_output=True, text=True, timeout=15)
