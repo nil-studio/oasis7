@@ -422,7 +422,6 @@ print({m0!r})
         )
 
         for heavy in ('rust-baseline', 'oasis7-test-build-candidate', 'workspace-support-other',
-                      'custody-native-contracts', 'custody-native', 'custody-wasm-production',
                       'distfs', 'node', 'net', 'launcher-web', 'scenario-regression'):
             job = JOBS[heavy]
             self.assertIn('needs: [select, fast-preflight]', job)

@@ -786,7 +786,6 @@ PY
       oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib; run_game_client_cli_contracts ;;
       oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
-      oasis7_custody_worker) echo "+ support profile offboarded: $profile"; complete_targets=true; expand_targets=false ;;
       oasis7_wasm_executor)
         # Run the actual Linux worker binary, process/FD and regex integration
         # tests alongside the library tests. This crate's sole nondefault

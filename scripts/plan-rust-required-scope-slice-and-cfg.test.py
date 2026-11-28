@@ -591,25 +591,11 @@ class ScopeSliceAndDirectSupportGateTests(_ScopeFixtureBase):
                 self.assertFalse(selector.workspace_support_selects_signer_image(
                     dict(mixed_plan, workspace_support_profiles=sorted([*mixed_plan['workspace_support_profiles'], extra]))))
 
-        # Live config (v2, custody offboarded): custody crate -> no custody_execution_version, direct gate v2 emitted, other partition
-        self.git('checkout', '-q', self.base)
-        self.write('crates/oasis7_custody_worker/src/lib.rs', 'pub fn changed() {}\n')
-        custody_head = self.commit()
-        custody_plan = selector.select(self.config, self.base, custody_head, profile='pr-fast')
-        self.assertNotIn('custody_execution_version', custody_plan)
-        self.assertEqual(custody_plan.get('workspace_support_direct_gate_version'), 2)
-        self.assertEqual(custody_plan.get('workspace_support_partitions'), ['other'])
-
-        # Policy v1 compatibility: emits 1 for non-custody other-only, omits for custody-split
+        # Policy v1 compatibility: emits 1 for non-custody other-only
         v1_config = copy.deepcopy(self.config)
         v1_config['workspace_support_direct_gate_version'] = 1
-        v1_config['custody_execution_version'] = 1
-        v1_config['custody_node_shards_version'] = 2
         ctx_v1 = selector.select(v1_config, self.base, ctx_head, profile='pr-fast')
         self.assertEqual(ctx_v1.get('workspace_support_direct_gate_version'), 1)
-        custody_v1 = selector.select(v1_config, self.base, custody_head, profile='pr-fast')
-        self.assertEqual(custody_v1.get('custody_execution_version'), 1)
-        self.assertNotIn('workspace_support_direct_gate_version', custody_v1)
 
 
 if __name__ == '__main__':
