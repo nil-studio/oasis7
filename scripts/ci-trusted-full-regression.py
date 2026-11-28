@@ -20,6 +20,10 @@ MOLD = Path('/opt/oasis7-mold/3.0.0-v1')
 HOST_CARGO = Path('/home/runner/.cargo')
 REPOSITORY = 'nil-studio/oasis7'
 WORKFLOW = f'{REPOSITORY}/.github/workflows/rust.yml@refs/heads/main'
+CARGO_POLICY = (
+    'CARGO_INCREMENTAL', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG',
+    'CARGO_TERM_COLOR', 'CARGO_NET_RETRY', 'CARGO_REGISTRIES_CRATES_IO_PROTOCOL',
+)
 
 
 def trusted_main(env, source):
@@ -89,6 +93,7 @@ def image_command(phase, source, scratch, name, env):
         bind(argv, canonical(npm, directory=True))
         values['npm_config_cache'] = str(npm)
     if phase in ('full', 'governance'):
+        values.update({key: env[key] for key in CARGO_POLICY if key in env})
         cargo_home = scratch / 'cargo'
         cargo_home.mkdir(mode=0o700)
         for subpath in ('registry', 'git'):
@@ -167,6 +172,8 @@ def main():
             parser.error('unknown image command')
         return inside(args.argument)
     trusted_main(os.environ, args.argument)
+    if args.phase in ('full', 'governance') and any(not os.environ.get(key) for key in CARGO_POLICY):
+        raise ValueError('trusted full regression is missing the original Cargo workflow policy')
     canonical(TEMP, directory=True)
     name = 'oasis7-trusted-full-' + uuid.uuid4().hex
     with tempfile.TemporaryDirectory(dir=TEMP, prefix='trusted-full-image-') as temporary:
