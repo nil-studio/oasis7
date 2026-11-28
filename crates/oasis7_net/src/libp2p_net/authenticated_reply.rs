@@ -7,6 +7,27 @@ use std::time::Instant;
 pub(super) struct ReplyGuard {
     owner: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
+    resources: ReplyResources,
+}
+/// Shared only by one inbound stream and its handler/completion. The stream's
+/// codec retains this owner through response encoding, writes and half-close;
+/// an aborted stream cannot release a still-running handler's resources early.
+#[derive(Clone, Default)]
+pub(super) struct ReplyResources(Arc<Mutex<Option<Box<dyn Send + Sync>>>>);
+impl std::fmt::Debug for ReplyResources {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplyResources").finish_non_exhaustive()
+    }
+}
+impl ReplyResources {
+    fn retain(&self, resource: Box<dyn Send + Sync>) -> Result<(), WorldError> {
+        let mut held = self.0.lock().map_err(|_| fail())?;
+        if held.is_some() {
+            return Err(fail());
+        }
+        *held = Some(resource);
+        Ok(())
+    }
 }
 struct State {
     original: Option<NetworkRequestContext>,
@@ -19,9 +40,10 @@ enum Guard {
     While(Arc<AtomicBool>),
 }
 impl ReplyGuard {
-    pub fn new(owner: Arc<AtomicBool>) -> Self {
+    pub fn new(owner: Arc<AtomicBool>, resources: ReplyResources) -> Self {
         Self {
             owner,
+            resources,
             state: Arc::new(Mutex::new(State {
                 original: None,
                 deadline: None,
@@ -53,6 +75,10 @@ impl ReplyGuard {
     }
     pub fn while_true(&self, value: Arc<AtomicBool>) -> Result<(), WorldError> {
         self.add(Guard::While(value))
+    }
+    pub fn retain(&self, resource: Box<dyn Send + Sync>) -> Result<(), WorldError> {
+        self.check()?;
+        self.resources.retain(resource)
     }
     fn add(&self, guard: Guard) -> Result<(), WorldError> {
         let mut s = self.state.lock().map_err(|_| fail())?;
@@ -92,7 +118,7 @@ mod tests {
     use super::*;
     use std::time::Duration;
     fn guard() -> ReplyGuard {
-        let g = ReplyGuard::new(Arc::new(AtomicBool::new(true)));
+        let g = ReplyGuard::new(Arc::new(AtomicBool::new(true)), ReplyResources::default());
         g.initialize(&NetworkRequestContext::new(
             Instant::now() + Duration::from_secs(5),
             Arc::new(AtomicBool::new(false)),

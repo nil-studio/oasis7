@@ -174,10 +174,18 @@ fn authenticated_budget_uses_peer_not_payload_and_is_shared() {
 
 #[test]
 fn authenticated_noise_overload_is_rejected_without_unbounded_workers() {
+    struct Hold(Arc<AtomicUsize>);
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
     let s = server();
     let c = client(&s);
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let released = drops.clone();
     let _registration = s
         .register_authenticated_context_handler_with_admission(
             PROTOCOL,
@@ -185,6 +193,7 @@ fn authenticated_noise_overload_is_rejected_without_unbounded_workers() {
             Box::new(|_, _| Ok(())),
             Box::new(move |ctx, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
+                ctx.retain_reply_resource(Box::new(Hold(released.clone())))?;
                 while !ctx.request_context().is_cancelled() {
                     std::thread::yield_now();
                 }
@@ -222,6 +231,7 @@ fn authenticated_noise_overload_is_rejected_without_unbounded_workers() {
         }
     )));
     assert!(calls.load(Ordering::SeqCst) < 32);
+    wait(|| drops.load(Ordering::SeqCst) == calls.load(Ordering::SeqCst));
 }
 
 #[test]
