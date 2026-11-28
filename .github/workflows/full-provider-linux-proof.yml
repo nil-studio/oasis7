@@ -1,0 +1,179 @@
+name: Canonical Provider same-run transport
+on:
+  pull_request:
+    types: [opened]
+permissions:
+  contents: read
+  actions: read
+  packages: read
+cache-mode: none
+env:
+  SOURCE: c1e087f3852d790c8db00bb4b5fecc55fe0eef89
+  FIXED_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+jobs:
+  provider:
+    if: &owned >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == true &&
+      github.head_ref == 'task/engineering-full-provider-linux-proof' &&
+      github.base_ref == 'task/engineering-full-regression-provider-handoff' &&
+      github.event.pull_request.title == 'Canonical Provider same-run proof c1e087f once'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.pack.outputs.digest }}
+      attempt: ${{ steps.pack.outputs.attempt }}
+      source: ${{ steps.pack.outputs.source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE }}
+          persist-credentials: false
+      - name: Verify the original isolated producer inputs
+        shell: bash
+        run: |
+          test "$GITHUB_WORKSPACE" = /home/runner/work/oasis7/oasis7
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test -z "$(git status --porcelain)"
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -S /var/run/docker.sock
+          test -z "${DOCKER_HOST:-}${DOCKER_CONTEXT:-}${DOCKER_TLS_VERIFY:-}${DOCKER_CERT_PATH:-}"
+      - name: Pull the fixed trusted full image
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=$(mktemp -d "$RUNNER_TEMP/provider-docker.XXXXXX")
+          trap 'rm -rf -- "$config"' EXIT
+          printf '%s\n' "$GHCR_TOKEN" | docker --config "$config" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker --config "$config" pull "$FIXED_IMAGE"
+      - name: Build, verify and seal the original Provider
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          socket=/var/run/docker.sock
+          gid=$(stat -c %g "$socket")
+          scratch=$(mktemp -d "$RUNNER_TEMP/provider.XXXXXX")
+          trap 'rm -rf -- "$scratch"' EXIT
+          mkdir -p target
+          mkdir target/provider-transport
+          docker run --rm --init --pull=never --platform linux/amd64 --user 1001:1001 --group-add "$gid" \
+            --workdir "$GITHUB_WORKSPACE" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=$GITHUB_WORKSPACE" \
+            --mount "type=bind,source=$scratch,target=$scratch" \
+            --mount "type=bind,source=$socket,target=$socket" \
+            --env "HOME=$scratch" --env "TMPDIR=$scratch" --env "CARGO_HOME=$scratch/cargo" \
+            --env "SOURCE_SHA=$SOURCE" --env "ORIGIN_RUN=$GITHUB_RUN_ID" --env "ORIGIN_ATTEMPT=$GITHUB_RUN_ATTEMPT" \
+            --env "WORKSPACE_ID=$(stat -c '%d:%i' "$GITHUB_WORKSPACE")" \
+            --env CARGO_INCREMENTAL=0 --env CARGO_PROFILE_DEV_DEBUG=0 --env CARGO_PROFILE_TEST_DEBUG=0 \
+            "$FIXED_IMAGE" bash -euo pipefail -c '
+              test "$(stat -c "%d:%i" "$PWD")" = "$WORKSPACE_ID"
+              test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+              test "$(id -u):$(id -g)" = 1001:1001
+              test -z "$(git status --porcelain)"
+              python3 .github/actions/setup-linux-mold/setup.py --install-dir "$TMPDIR/mold"
+              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="$TMPDIR/mold/bin/oasis7-mold-gcc"
+              bundle=$(mktemp -d "$PWD/target/provider-build.XXXXXX")
+              trap '\''rm -rf -- "$bundle"'\'' EXIT
+              python3 scripts/ci-test-artifacts.py prepare-provider --repo-root "$PWD" --bundle "$bundle" --output "$bundle/environment.sh"
+              python3 scripts/ci-trusted-full-provider.py pack \
+                --root "$PWD" --bundle "$bundle" --source "$SOURCE_SHA" \
+                --run-id "$ORIGIN_RUN" --attempt "$ORIGIN_ATTEMPT" \
+                --archive target/provider-transport/provider.tar
+            '
+          digest=$(sha256sum target/provider-transport/provider.tar | cut -d ' ' -f1)
+          printf 'digest=%s\nattempt=%s\nsource=%s\n' "$digest" "$GITHUB_RUN_ATTEMPT" "$SOURCE" >>"$GITHUB_OUTPUT"
+      - name: Upload only the sealed Provider handoff
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: provider-handoff-proof-${{ github.run_attempt }}
+          path: target/provider-transport
+          if-no-files-found: error
+          retention-days: 1
+  consumer:
+    if: *owned
+    needs: [provider]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-full-regression@sha256:32f8b8cc2b07729362df6f1bceba09ff4ac1659e4932e41d88a06b3bc5d8d427
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: --user 1001:1001 --init
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE }}
+          persist-credentials: false
+      - name: Require one immutable Artifact ID from the successful need
+        env:
+          NEED_SOURCE: ${{ needs.provider.outputs.source }}
+          NEED_DIGEST: ${{ needs.provider.outputs.digest }}
+          NEED_ATTEMPT: ${{ needs.provider.outputs.attempt }}
+          NEED_ARTIFACT_ID: ${{ needs.provider.outputs.artifact-id }}
+        run: |
+          [[ "$NEED_ARTIFACT_ID" =~ ^[1-9][0-9]{0,18}$ ]]
+          [[ "$NEED_DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$NEED_ATTEMPT" =~ ^[1-9][0-9]{0,8}$ ]]
+          test "$NEED_ATTEMPT" -le "$GITHUB_RUN_ATTEMPT"
+          test "$NEED_SOURCE" = "$SOURCE"
+      - name: Download the exact successful producer artifact ID
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.provider.outputs.artifact-id }}
+          path: target/provider-transport
+          github-token: ${{ github.token }}
+          repository: nil-studio/oasis7
+          run-id: ${{ github.run_id }}
+      - name: Validate exact same-run material without daemon access
+        env:
+          NEED_SOURCE: ${{ needs.provider.outputs.source }}
+          NEED_DIGEST: ${{ needs.provider.outputs.digest }}
+          NEED_ATTEMPT: ${{ needs.provider.outputs.attempt }}
+          NEED_ARTIFACT_ID: ${{ needs.provider.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test "$NEED_SOURCE" = "$SOURCE"
+          test "$(id -u):$(id -g)" = 1001:1001
+          test ! -w /var/run/docker.sock
+          python3 - <<'PY'
+          import importlib, json, os, pathlib, sys
+          sys.path.insert(0, 'scripts')
+          helper=importlib.import_module('ci-trusted-full-provider')
+          root=pathlib.Path.cwd()
+          archive=root/'target/provider-transport/provider.tar'
+          assert sorted(item.name for item in archive.parent.iterdir()) == ['provider.tar']
+          source=os.environ['SOURCE']
+          args=(root,archive,root/'target/provider-transport/checked',source,os.environ['GITHUB_RUN_ID'],
+                os.environ['GITHUB_RUN_ATTEMPT'],os.environ['NEED_ATTEMPT'],
+                os.environ['NEED_ARTIFACT_ID'],os.environ['NEED_DIGEST'])
+          try:
+              helper.trusted_consumer(os.environ,source)
+          except ValueError as error:
+              assert 'exact trusted full regression job' in str(error)
+          else:
+              raise AssertionError('diagnostic event unexpectedly acquired production authority')
+          values=helper.consume(*args)
+          assert set(values) == set(helper.ProviderArtifact.VARIABLES)
+          record=helper.load_json(args[2]/helper.RECORD)
+          checker=args[2]/record['files']['checker']['path']
+          with checker.open('rb') as payload:
+              assert payload.read(4) == b'\x7fELF'
+          assert not (args[2]/'environment.sh').exists()
+          print(json.dumps({'probe_only':True, 'source':source, 'run_id':args[4], 'origin_attempt':args[6],
+                            'artifact_id':args[7], 'sha256':args[8], 'libraries':record['libraries'],
+                            'material':record['files'], 'production_authority':False},sort_keys=True))
+          PY
+          python3 scripts/ci-trusted-full-provider.test.py
