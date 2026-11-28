@@ -115,10 +115,13 @@ impl OriginalPendingProducerV1 {
             PREPARED_PIN_FILE,
             FROZEN_PIN_FILE,
         ] {
-            if fs::symlink_metadata(owner_directory.join(leaf)).is_ok() {
-                return Err("original pending owner has unresolved prior freeze".into());
+            match fs::symlink_metadata(owner_directory.join(leaf)) {
+                Ok(_) => return Err("original pending owner has unresolved prior freeze".into()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.to_string()),
             }
         }
+        reject_orphan_immutable_writes(owner_directory)?;
         Ok(Self {
             owner,
             requests: Vec::new(),
@@ -359,6 +362,38 @@ pub(super) fn cold_read_exact_frozen(
     let exact_bytes = serde_cbor::to_vec(checked.handoff()).map_err(|err| err.to_string())?;
     ensure_exact_file(owner_directory, PREPARED_FILE, &exact_bytes)?;
     Ok(checked.handoff().clone())
+}
+
+/// An interrupted immutable write may have fsynced its private temporary
+/// bytes but died before linking the canonical prepared/owner leaf. That is
+/// an unknown freeze outcome, NOT evidence that no freeze ever started.
+/// Do not let a restarted owner silently re-open admission in that namespace.
+fn reject_orphan_immutable_writes(directory: &Path) -> Result<(), String> {
+    for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        for leaf in [ORIGINAL_FILE, PREPARED_FILE, PREPARED_PIN_FILE, FROZEN_PIN_FILE] {
+            let prefix = format!(".{leaf}.");
+            let Some(rest) = name.strip_prefix(&prefix) else {
+                continue;
+            };
+            let Some(ids) = rest.strip_suffix(".tmp") else {
+                continue;
+            };
+            if let Some((pid, sequence)) = ids.split_once('.')
+                && !pid.is_empty()
+                && !sequence.is_empty()
+                && pid.bytes().all(|byte| byte.is_ascii_digit())
+                && sequence.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return Err("original pending owner has unresolved immutable write".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_owned_directory(directory: &Path) -> Result<(), String> {
@@ -631,6 +666,34 @@ mod tests {
         assert!(!producer.is_frozen());
         assert!(producer.finish_node_freeze(&scratch.0).is_ok());
         assert!(producer.note_accepted_enqueue(identity("new"), vec![1]).is_err());
+        check_crashed_prepared_temporary_write_blocks_new_owner();
+    }
+
+    // Reuse this existing native regression entrypoint. A real writer fsyncs
+    // the temporary file before linking its canonical durable marker. Killing
+    // it at that gap must never make the next open appear freshly accepting.
+    fn check_crashed_prepared_temporary_write_blocks_new_owner() {
+        let scratch = Scratch::new();
+        for (index, leaf) in [
+            ORIGINAL_FILE,
+            PREPARED_FILE,
+            PREPARED_PIN_FILE,
+            FROZEN_PIN_FILE,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let temp = scratch.0.join(format!(".{leaf}.999.{}.tmp", index));
+            let mut write = File::create(&temp).unwrap();
+            write.write_all(b"unresolved original frozen bytes").unwrap();
+            write.sync_all().unwrap();
+            File::open(&scratch.0).unwrap().sync_all().unwrap();
+            assert!(OriginalPendingProducerV1::open(&scratch.0, owner()).is_err());
+            fs::remove_file(temp).unwrap();
+        }
+        // An unrelated temporary artifact is not a pending freeze marker.
+        fs::write(scratch.0.join(".unrelated.999.1.tmp"), b"unrelated").unwrap();
+        assert!(OriginalPendingProducerV1::open(&scratch.0, owner()).is_ok());
     }
 
     #[test]
