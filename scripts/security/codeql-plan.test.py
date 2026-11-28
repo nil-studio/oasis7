@@ -688,6 +688,21 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(plan['selected_units'], ['actions-repo'])
         self.assertIn(path, plan['reasons']['actions-repo'])
 
+    def test_formal_process_suite_inventory_selects_python(self):
+        path = 'scripts/ci-formal-process-suites.json'
+        self.write(path, '{}\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['python-repo'])
+        self.assertIn(path, plan['reasons']['python-repo'])
+
+    def test_formal_process_suite_inventory_does_not_register_neighbor(self):
+        path = 'scripts/ci-formal-process-suites-v2.json'
+        self.write(path, '{}\n')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input: ' + path):
+            self.run_plan()
+
     def test_ci_required_scope_selects_its_python_and_actions_consumers(self):
         path = 'scripts/ci-required-scope.json'
         self.write(path, '{"groups":["baseline"]}\n')

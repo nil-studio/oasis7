@@ -312,6 +312,9 @@ def plan(args):
             # JSON registration; possible Rust consumers are still added below.
             add('actions-repo', path)
             add('python-repo', path)
+        elif path == 'scripts/ci-formal-process-suites.json':
+            # The Formal planner and artifact verifier consume this inventory.
+            add('python-repo', path)
         elif path in CACHE_SDK_METADATA_INPUTS:
             for unit in CACHE_SDK_METADATA_INPUTS[path]:
                 add(unit, path)

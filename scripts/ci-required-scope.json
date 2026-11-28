@@ -1192,6 +1192,8 @@
     "scripts/ci-portable-cache-container-contract.test.py": ["workflow_governance"],
     "scripts/ci-portable-cache-archive.test.py": ["workflow_governance"],
     "scripts/ci-cache-sdk.test.py": ["workflow_governance"],
+    "scripts/ci-trusted-full-regression-cache-roles.mjs": ["workflow_governance"],
+    "scripts/ci-trusted-full-regression-cache-roles.test.mjs": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
@@ -2911,6 +2913,16 @@
         "cargo_tooling_contracts"
       ],
       "reason": "cargo_tools"
+    },
+    {
+      "match": [
+        "scripts/ci-trusted-full-regression-cache-roles.mjs",
+        "scripts/ci-trusted-full-regression-cache-roles.test.mjs"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "trusted_full_regression_cache_geometry"
     },
     {
       "match": [

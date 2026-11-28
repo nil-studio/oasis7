@@ -272,6 +272,21 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
     let query_memory = oasis7_proto::memory_budget::MemoryBudget::new(512 << 20, 0).unwrap();
     let query_work =
         super::super::super::endpoint::FormalArchiveReadWorkV1::new(100_000_000, 1 << 34).unwrap();
+    // The real opt-in signed Query must pay BEFORE its RequestBody/world/grant
+    // cloning, digest/signature CBOR, or TCP connect. A zero Ordinary pool
+    // cannot temporarily allocate even if the network would later succeed.
+    let zero_signing_pool = oasis7_proto::memory_budget::MemoryBudget::new(0, 0).unwrap();
+    let before_refusal = query_work.remaining_steps();
+    let signing_error = client
+        .query_data_bounded(&h(250), &zero_signing_pool, &query_work, &mut || false)
+        .err()
+        .unwrap();
+    assert!(
+        format!("{signing_error:?}").contains("signed Query pre-admission"),
+        "{signing_error:?}"
+    );
+    assert_eq!(zero_signing_pool.used(), 0);
+    assert!(query_work.remaining_steps() < before_refusal);
     let query = client
         .query_data_bounded(
             &fixture.initial.candidate.record.request_digest,
