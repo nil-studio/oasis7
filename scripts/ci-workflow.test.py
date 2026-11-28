@@ -199,7 +199,7 @@ def workspace_support_image_matrix(job):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'custody-native', 'custody-wasm-production', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'rust-architecture', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'custody-native', 'custody-wasm-production', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
         return None
     if name == 'workspace-support-other' and (matrix := workspace_support_image_matrix(job)):
         return matrix
@@ -2138,7 +2138,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             "'oasis7-priority-linux' || 'ubuntu-24.04' }}"
         )
         priority_jobs = {
-            'select', 'baseline', 'rust-baseline',
+            'select', 'baseline', 'rust-baseline', 'rust-architecture',
             'oasis7-test-build-candidate',
             'formal-debug-build', 'formal-endpoint-build', 'formal-test-build',
             'oasis7-required', 'formal-process-tests', 'formal-process',
