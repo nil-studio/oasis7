@@ -610,14 +610,16 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
 ) {
     use super::super::admission_input_live_v2::ProtectedOriginalResponseChargeV2;
     use oasis7_distfs::protected_bft_v3::{
-        BftFirstReserveSnapshotV1, BftFreshCoverageSnapshotV1,
-        BftOriginalRetentionTxnSnapshotV1, BftPrivateRetentionCreationMarkerV1,
-        BftPrivateRetentionHeadV1, BftSignerAcquireOutcomeV3,
+        BftFirstReserveSnapshotV1, BftFreshCoverageSnapshotV1, BftOriginalRetentionTxnSnapshotV1,
+        BftPrivateRetentionCreationMarkerV1, BftPrivateRetentionHeadV1, BftSignerAcquireOutcomeV3,
         BftSignerBackendSnapshotV3, BftSignerBackendV3, BftSignerErrorV3, BftSignerStateV3,
     };
     use std::{
         collections::BTreeMap,
-        sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
     };
 
     struct ProtectedSpy {
@@ -637,28 +639,32 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
             _: u64,
             _: &str,
         ) -> Result<BftSignerAcquireOutcomeV3, BftSignerErrorV3> {
-            Err(BftSignerErrorV3("fixture has no physical lease acquire".into()))
+            Err(BftSignerErrorV3(
+                "fixture has no physical lease acquire".into(),
+            ))
         }
         fn release_lease(
             &mut self,
             _: u64,
             _: &str,
         ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
-            Err(BftSignerErrorV3("fixture cannot release a physical lease".into()))
+            Err(BftSignerErrorV3(
+                "fixture cannot release a physical lease".into(),
+            ))
         }
         fn read_for_lease(
             &mut self,
             _: u64,
             _: &str,
         ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
-            Err(BftSignerErrorV3("fixture has no separate signer snapshot".into()))
+            Err(BftSignerErrorV3(
+                "fixture has no separate signer snapshot".into(),
+            ))
         }
-        fn protected_time_ms(
-            &mut self,
-            _: u64,
-            _: &str,
-        ) -> Result<i64, BftSignerErrorV3> {
-            Err(BftSignerErrorV3("fixture cannot sample protected time".into()))
+        fn protected_time_ms(&mut self, _: u64, _: &str) -> Result<i64, BftSignerErrorV3> {
+            Err(BftSignerErrorV3(
+                "fixture cannot sample protected time".into(),
+            ))
         }
         fn compare_and_swap(
             &mut self,
@@ -760,12 +766,46 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     };
     let charge = ProtectedOriginalResponseChargeV2::new(Box::new(spy), 7, token).unwrap();
     let subject = request.verify_bound_subject(context).unwrap();
-    charge.reserve_encoded_response_and_readback(&subject, 65_540).unwrap();
-    assert_eq!(stored.lock().unwrap().current.current.reserved_response_bytes, 65_540);
+    charge
+        .reserve_encoded_response_and_readback(&subject, 65_540)
+        .unwrap();
+    assert_eq!(
+        stored
+            .lock()
+            .unwrap()
+            .current
+            .current
+            .reserved_response_bytes,
+        65_540
+    );
     lost_commit_reply.store(true, Ordering::SeqCst);
-    assert!(charge.reserve_encoded_response_and_readback(&subject, 80).is_err());
-    assert_eq!(stored.lock().unwrap().current.current.reserved_response_bytes, 65_620);
+    assert!(
+        charge
+            .reserve_encoded_response_and_readback(&subject, 80)
+            .is_err()
+    );
+    assert_eq!(
+        stored
+            .lock()
+            .unwrap()
+            .current
+            .current
+            .reserved_response_bytes,
+        65_620
+    );
     // The uncertain reply must NOT permit a second unbounded debit or release.
-    assert!(charge.reserve_encoded_response_and_readback(&subject, 80).is_err());
-    assert_eq!(stored.lock().unwrap().current.current.reserved_response_bytes, 65_620);
+    assert!(
+        charge
+            .reserve_encoded_response_and_readback(&subject, 80)
+            .is_err()
+    );
+    assert_eq!(
+        stored
+            .lock()
+            .unwrap()
+            .current
+            .current
+            .reserved_response_bytes,
+        65_620
+    );
 }
