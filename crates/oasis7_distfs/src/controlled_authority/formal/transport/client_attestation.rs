@@ -95,7 +95,8 @@ pub(super) fn verify_response_custody(
             fencing::verify_protected_endpoint_signature(attestation, &request, instance, policy)
                 .map_err(super::super::super::endpoint::fencing_error)?;
         if signature != response.signature
-            || attestation.body.resource_binding != response.body.provider.statement.resource_binding
+            || attestation.body.resource_binding
+                != response.body.provider.statement.resource_binding
         {
             return Err(FormalError::FencingUnproven);
         }
@@ -152,7 +153,10 @@ mod paid_policy_tests {
             with_policy_clone(&key, &bindings, Some(&mut ctx), |_| {
                 panic!("cancelled verifier ran")
             });
-        assert_eq!(result.unwrap_err(), invalid("bounded archive read cancelled"));
+        assert_eq!(
+            result.unwrap_err(),
+            invalid("bounded archive read cancelled")
+        );
         assert_eq!(pool.used(), 0);
     }
 }
