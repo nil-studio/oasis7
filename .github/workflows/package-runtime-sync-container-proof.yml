@@ -1,0 +1,185 @@
+name: Package runtime sync complete-container proof
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+  packages: read
+
+cache-mode: read
+
+env:
+  CODE_SHA: 200dd0e52169aed3492d4d4275e3a59f3e7ffaf5
+  CARGO_TERM_COLOR: always
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_TOOLCHAIN: 1.96.0
+  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+  OASIS7_WASM_TARGET: wasm32-unknown-unknown
+  OASIS7_WASM_BUILD_STD: "1"
+  OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+
+jobs:
+  runtime-sync-proof:
+    if: >-
+      github.repository == 'nil-studio/oasis7' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft &&
+      github.head_ref == 'task/engineering-release-runtime-sync-container-proof' &&
+      github.base_ref == 'task/engineering-release-runtime-sync-container' &&
+      github.event.pull_request.base.sha == '200dd0e52169aed3492d4d4275e3a59f3e7ffaf5' &&
+      github.event.pull_request.title == 'Package runtime sync complete-container proof once'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 200dd0e52169aed3492d4d4275e3a59f3e7ffaf5
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify frozen source and only the owned controller addition
+        env:
+          CONTROLLER_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CODE_SHA"
+          [[ "$CONTROLLER_SHA" =~ ^[0-9a-f]{40}$ && "$GITHUB_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$CONTROLLER_SHA" "$GITHUB_WORKFLOW_SHA"
+          test "$(git rev-parse "$CONTROLLER_SHA^1")" = "$CODE_SHA"
+          test "$(git diff --name-only "$CODE_SHA" "$CONTROLLER_SHA")" = .github/workflows/package-runtime-sync-container-proof.yml
+          test -z "$(git status --porcelain)"
+      - name: Prepare the same executing-workflow tools and pinned mold
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/runtime-sync-tools"
+          mkdir -m 700 "$tools"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-sync-container.py" > "$tools/package-release-runtime-sync-container.py"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/ci-test-artifacts.py" > "$tools/ci-test-artifacts.py"
+          python3 .github/actions/setup-linux-mold/setup.py
+      - name: Reject package authority then check actual container capabilities
+        run: |
+          python3 - <<'PY_ENV'
+          import importlib.util, json, os, pathlib, subprocess
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'runtime-sync-tools/package-release-runtime-sync-container.py'
+          spec = importlib.util.spec_from_file_location('sync_environment', path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          assert not module.eligible(os.environ)
+          try:
+              module.preflight(os.environ['CODE_SHA'])
+          except ValueError as error:
+              assert str(error) == 'runtime sync requires the trusted hosted package job and fixed image'
+          else:
+              raise AssertionError('PR must not gain protected package authority')
+          module.environment_preflight(os.environ['CODE_SHA'])
+          before = subprocess.check_output(['docker', 'ps', '-aq', '--no-trunc'], text=True, timeout=15).splitlines()
+          (path.parent / 'containers-before.json').write_text(json.dumps(before))
+          print('environment_preflight_passed=true production_authority=false')
+          PY_ENV
+      - name: Normalize the same pinned toolchains
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Restore only the existing fixed image dependency family
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          shared-key: ci-ordinary-image-714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8
+          save-if: false
+          cache-on-failure: false
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+      - name: Execute the unchanged three complete canonical checks
+        id: checks
+        run: |
+          mkdir -p .tmp/release_gate_runtime_sync
+          run_runtime_sync() {
+            echo "+ ./scripts/sync-m1-builtin-wasm-artifacts.sh --check"
+            ./scripts/sync-m1-builtin-wasm-artifacts.sh --check
+            echo "+ ./scripts/sync-m4-builtin-wasm-artifacts.sh --check"
+            ./scripts/sync-m4-builtin-wasm-artifacts.sh --check
+            echo "+ ./scripts/sync-m5-builtin-wasm-artifacts.sh --check"
+            ./scripts/sync-m5-builtin-wasm-artifacts.sh --check
+          }
+          run_runtime_sync | tee .tmp/release_gate_runtime_sync/runtime-sync-checks.log
+      - name: Record bounded actual identity and cleanup evidence
+        if: always()
+        env:
+          CHECKS_OUTCOME: ${{ steps.checks.outcome }}
+        run: |
+          python3 - <<'PY_RECEIPT'
+          import hashlib, json, os, pathlib, re, stat, subprocess
+          root = pathlib.Path('/home/runner/work/oasis7/oasis7')
+          clean = not subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip()
+          stage = pathlib.Path('runtime-sync-proof-receipt')
+          stage.mkdir(mode=0o700)
+          counts, ids = [], []
+          for family in (1, 4, 5):
+              lines = (root / f'crates/oasis7_runtime/src/world/artifacts/m{family}_builtin_module_ids.txt').read_text().splitlines()
+              assert all(re.fullmatch(r'[a-z0-9_.]+', value) for value in lines)
+              counts.append(len(lines))
+              ids.extend(lines)
+          assert counts == [10, 22, 5] and len(set(ids)) == 37
+          def fingerprint(path):
+              info = path.lstat()
+              assert stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 256 * 1024 * 1024
+              with path.open('rb') as handle:
+                  digest = hashlib.file_digest(handle, 'sha256').hexdigest()
+              return dict(path=str(path.relative_to(root)), bytes=info.st_size, sha256=digest)
+          rows, total = [], 0
+          for name in ids:
+              for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
+                  path = root / '.tmp/builtin-wasm-sync-modules' / (name + suffix)
+                  if not path.exists():
+                      continue
+                  rows.append(fingerprint(path))
+                  if suffix != '.wasm':
+                      data = path.read_bytes()
+                      assert len(data) <= 1024 * 1024
+                      total += len(data)
+                      assert total <= 16 * 1024 * 1024
+                      json.loads(data)
+                      (stage / path.name).write_bytes(data)
+          before_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'runtime-sync-tools/containers-before.json'
+          before = json.loads(before_path.read_text()) if before_path.exists() else None
+          after = subprocess.check_output(['docker', 'ps', '-aq', '--no-trunc'], text=True, timeout=15).splitlines()
+          leaked = sorted(set(after) - set(before or []))
+          binary = root / 'target/debug/sync_builtin_wasm_identity'
+          native = fingerprint(binary) if binary.is_file() else None
+          if native:
+              with binary.open('rb') as handle:
+                  assert handle.read(4) == b'\x7fELF'
+          source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          passed = (os.environ['CHECKS_OUTCOME'] == 'success' and source == os.environ['CODE_SHA']
+                    and len(rows) == 111 and native is not None and before is not None and not leaked and clean)
+          receipt = dict(source=source, image='ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8',
+              checks_outcome=os.environ['CHECKS_OUTCOME'], module_counts=counts, inventory=rows,
+              native_identity_checker=native, new_containers=leaked, tracked_tree_clean=clean,
+              original_checks_passed=passed, production_authority=False, release_passed=False,
+              uid=os.getuid(), gid=os.getgid(), cwd=str(pathlib.Path.cwd()),
+              workflow_sha=os.environ['GITHUB_WORKFLOW_SHA'], run=os.environ['GITHUB_RUN_ID'], attempt=os.environ['GITHUB_RUN_ATTEMPT'])
+          (stage / 'proof.json').write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
+          print(json.dumps({key:receipt[key] for key in ('source','original_checks_passed','production_authority','module_counts','new_containers')}))
+          assert passed, 'all original checks, complete inventory and owned-container cleanup required'
+          PY_RECEIPT
+      - name: Upload the single bounded proof directory
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: package-runtime-sync-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: runtime-sync-proof-receipt
+          if-no-files-found: error
+          retention-days: 2
