@@ -207,7 +207,10 @@ fn original_noise_outer_response_charge_preserves_one_fenced_retention_tuple() {
         .prepare_original_response_charge(7, &hex_hash(4), 50)
         .unwrap();
     assert_eq!(charged.current.current.reserved_response_bytes, 150);
-    assert_eq!(charged.current.current.signer, snapshot.current.current.signer);
+    assert_eq!(
+        charged.current.current.signer,
+        snapshot.current.current.signer
+    );
     assert_eq!(charged.current.reservation, snapshot.current.reservation);
     assert_eq!(charged.original_operations, snapshot.original_operations);
     assert_eq!(
@@ -216,11 +219,31 @@ fn original_noise_outer_response_charge_preserves_one_fenced_retention_tuple() {
             .unwrap(),
         Some(&original)
     );
-    assert!(charged.prepare_original_response_charge(7, &hex_hash(4), 1).is_err());
-    assert!(snapshot.prepare_original_response_charge(7, &hex_hash(4), 51).is_err());
-    assert!(snapshot.prepare_original_response_charge(8, &hex_hash(4), 1).is_err());
-    assert!(snapshot.prepare_original_response_charge(7, &hex_hash(5), 1).is_err());
-    assert!(snapshot.prepare_original_response_charge(7, &hex_hash(4), 0).is_err());
+    assert!(
+        charged
+            .prepare_original_response_charge(7, &hex_hash(4), 1)
+            .is_err()
+    );
+    assert!(
+        snapshot
+            .prepare_original_response_charge(7, &hex_hash(4), 51)
+            .is_err()
+    );
+    assert!(
+        snapshot
+            .prepare_original_response_charge(8, &hex_hash(4), 1)
+            .is_err()
+    );
+    assert!(
+        snapshot
+            .prepare_original_response_charge(7, &hex_hash(5), 1)
+            .is_err()
+    );
+    assert!(
+        snapshot
+            .prepare_original_response_charge(7, &hex_hash(4), 0)
+            .is_err()
+    );
     assert!(
         snapshot
             .prepare_original_response_charge(7, &hex_hash(4), 128 * 1024 + 1)
@@ -228,7 +251,11 @@ fn original_noise_outer_response_charge_preserves_one_fenced_retention_tuple() {
     );
     let mut uncovered = snapshot.clone();
     uncovered.current.current.signer.state.private_retention = None;
-    assert!(uncovered.prepare_original_response_charge(7, &hex_hash(4), 1).is_err());
+    assert!(
+        uncovered
+            .prepare_original_response_charge(7, &hex_hash(4), 1)
+            .is_err()
+    );
 }
 
 fn exact_single_protected_transaction_retains_original_bytes_and_idempotent_result() {
