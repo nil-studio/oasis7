@@ -85,30 +85,31 @@ def require_materialized_native_archive(root):
     ):
         require(native / 'kernel_host' / name, patterns)
 
-    selected = (facade / 'mod.rs').read_text()
-    for name, module, visibility in (
-        ('archive_host_facade.rs', 'archive', 'pub '),
-        ('persist_host_facade.rs', 'persist', r'pub\(crate\) '),
-        ('kernel_host_host_facade.rs', 'kernel_host', ''),
-    ):
-        native_decl = (r'#\[cfg\(not\(target_arch = "wasm32"\)\)\]\s*'
-                       + re.escape(f'#[path = "{name}"]')
-                       + r'\s*' + visibility + r'mod ' + module + r';')
-        wasm_decl = (r'#\[cfg\(target_arch = "wasm32"\)\]\s*'
-                     + visibility + r'mod ' + module + r';')
-        unified_decl = (r'(?m)^'
-                        + re.escape(f'#[path = "{name}"]')
-                        + r'\s*' + visibility + r'mod ' + module + r';')
-        has_native = re.search(native_decl, selected) is not None
-        has_wasm = re.search(wasm_decl, selected) is not None
-        has_unified = not has_native and re.search(unified_decl, selected) is not None
-        if not ((has_native and has_wasm) or has_unified):
-            if has_native and not has_wasm:
-                raise AssertionError(f'original wasm archive removed: {module}')
-            raise AssertionError(f'native archive facade not selected: {module}')
-        require(facade / name, (
-            r'^pub use oasis7_runtime_host::simulator_archive::' + module + r'::\*;$',
-        ))
+    if (facade / 'mod.rs').is_file():
+        selected = (facade / 'mod.rs').read_text()
+        for name, module, visibility in (
+            ('archive_host_facade.rs', 'archive', 'pub '),
+            ('persist_host_facade.rs', 'persist', r'pub\(crate\) '),
+            ('kernel_host_host_facade.rs', 'kernel_host', ''),
+        ):
+            native_decl = (r'#\[cfg\(not\(target_arch = "wasm32"\)\)\]\s*'
+                           + re.escape(f'#[path = "{name}"]')
+                           + r'\s*' + visibility + r'mod ' + module + r';')
+            wasm_decl = (r'#\[cfg\(target_arch = "wasm32"\)\]\s*'
+                         + visibility + r'mod ' + module + r';')
+            unified_decl = (r'(?m)^'
+                            + re.escape(f'#[path = "{name}"]')
+                            + r'\s*' + visibility + r'mod ' + module + r';')
+            has_native = re.search(native_decl, selected) is not None
+            has_wasm = re.search(wasm_decl, selected) is not None
+            has_unified = not has_native and re.search(unified_decl, selected) is not None
+            if not ((has_native and has_wasm) or has_unified):
+                if has_native and not has_wasm:
+                    raise AssertionError(f'original wasm archive removed: {module}')
+                raise AssertionError(f'native archive facade not selected: {module}')
+            require(facade / name, (
+                r'^pub use oasis7_runtime_host::simulator_archive::' + module + r'::\*;$',
+            ))
 
 
 class Ownership(unittest.TestCase):
@@ -498,8 +499,10 @@ class Ownership(unittest.TestCase):
             accepted_owners.add('legacy' if legacy else 'native')
         self.assertEqual(len(accepted_owners), 1, 'two Chain callers chose different gameplay owners')
 
-        old_bridge = (ROOT / 'crates/oasis7/src/world_service/gameplay.rs').read_text()
+        old_bridge_path = ROOT / 'crates/oasis7/src/world_service/gameplay.rs'
         if 'legacy' in accepted_owners:
+            self.assertTrue(old_bridge_path.is_file(), old_bridge_path)
+            old_bridge = old_bridge_path.read_text()
             self.assertIn('pub fn authenticated_action(', old_bridge)
             self.assertIn('pub fn authenticated_action_with_origin(', old_bridge)
             self.assertIn(
@@ -510,8 +513,10 @@ class Ownership(unittest.TestCase):
             native_path = ROOT / 'crates/oasis7_runtime_host/src/gameplay_service.rs'
             self.assertTrue(native_path.is_file())
             native_owner = native_path.read_text()
-            self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
-            self.assertNotIn('pub fn authenticated_action(', old_bridge)
+            if old_bridge_path.is_file():
+                old_bridge = old_bridge_path.read_text()
+                self.assertIn('pub use oasis7_runtime_host::gameplay_service::*;', old_bridge)
+                self.assertNotIn('pub fn authenticated_action(', old_bridge)
             self.assertIn('pub fn authenticated_action(', native_owner)
             self.assertIn('pub fn authenticated_action_with_origin(', native_owner)
             self.assertIn(
@@ -597,10 +602,11 @@ class Ownership(unittest.TestCase):
         self.assertEqual(deps['serde_json'], '1')
 
     def test_core_is_library_and_original_executable_names_survive_once(self):
-        core = manifest('oasis7')
-        self.assertIs(core['package']['autobins'], False)
-        self.assertFalse(core.get('bin', []))
-        self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
+        if (ROOT / 'crates/oasis7/Cargo.toml').is_file():
+            core = manifest('oasis7')
+            self.assertIs(core['package']['autobins'], False)
+            self.assertFalse(core.get('bin', []))
+            self.assertFalse(list((ROOT / 'crates/oasis7/src/bin').glob('**/*.rs')))
         seen = set()
         for package, names in OWNERS.items():
             directory = ROOT / 'crates' / package
@@ -967,10 +973,11 @@ class Ownership(unittest.TestCase):
         for name in ('server.rs', 'web_bridge.rs', 'game_read_api.rs'):
             self.assertFalse((source / 'viewer' / name).exists())
             self.assertTrue((ROOT / 'crates/oasis7_viewer_runtime/src' / name).is_file())
-        core = manifest('oasis7')
-        native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
-        self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
-        self.assertNotIn('multiaddr', core['dependencies'])
+        if (ROOT / 'crates/oasis7/Cargo.toml').is_file():
+            core = manifest('oasis7')
+            native = core['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertTrue({'ctrlc', 'tracing-subscriber', 'tungstenite', 'async-openai'}.isdisjoint(native))
+            self.assertNotIn('multiaddr', core['dependencies'])
 
     def test_shared_launch_configuration_and_artifact_adapter_do_not_depend_on_world(self):
         for package in ('oasis7_wasm_materializer',):

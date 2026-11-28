@@ -837,54 +837,13 @@ def required_packages(plan=None):
     return selected
 
 
-def _s2_legacy_ordinary_contract(plan):
-    """Isolated S2 compatibility shim for plans predating ordinary_execution_contract v1."""
-    risk_targets = plan.get('ordinary_risk_targets')
-    eligible = (
-        isinstance(plan, dict)
-        and type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
-        and plan.get('execution_profile') in ('pr-fast', 'main-fast')
-        and plan.get('test_policy_changed') is False
-        and 'ordinary_full_fast_targets' not in plan
-        and (
-            risk_targets is None
-            or (
-                isinstance(risk_targets, list)
-                and all(
-                    isinstance(t, dict) and t.get('target_kind') == 'test'
-                    and (t.get('package') != 'oasis7_chain_runtime'
-                         or plan.get('scope') not in ('full', 'explicit-full'))
-                    for t in risk_targets
-                )
-            )
-        )
-    )
-    mode = ('inline' if plan.get('ordinary_execution') == 'inline'
-            else ('artifact-v2' if plan.get('ordinary_artifact_partition_version') == 2 else 'artifact-v1'))
-    return {
-        'version': 1,
-        'mode': mode,
-        'supports_universal_v2': bool(plan.get('ordinary_universal_sharding_version') == 1
-                                      and plan.get('ordinary_artifact_partition_version') == 2),
-        'candidate_container_eligible': eligible,
-        'artifact_partitions': list(plan.get('ordinary_artifact_partitions', ())),
-        'partitions': list(plan.get('ordinary_partitions', ['all'])),
-        'logical_harness_aliases': {},
-        'required_wasm_packages': list(plan.get('oasis7_required_wasm_packages', PORTABLE_REQUIRED_PACKAGES)),
-        'required_host_docker_wasm_fixtures': [],
-        'deferred_cases': dict(plan.get('formal_deferred_ordinary_cases') or {}),
-        'delegated_clippy': sorted(f'{p}:{k}:{n}' for p, k, n in DISTFS_CLIPPY_TARGETS)
-                            if plan.get('distfs_clippy_group') == 'rust_baseline' else [],
-    }
-
-
 def resolve_ordinary_execution_contract(plan):
-    """Verify and return materialized ordinary_execution_contract v1 (or S2 shim if absent)."""
+    """Verify and return required materialized ordinary_execution_contract v1 (S5 fail-closed)."""
     if not isinstance(plan, dict):
         raise ValueError('ordinary plan must be a JSON object')
     raw = plan.get('ordinary_execution_contract')
     if raw is None:
-        return _s2_legacy_ordinary_contract(plan)
+        raise ValueError('missing required ordinary_execution_contract v1 (S2 plans are unsupported in S5)')
     if (not isinstance(raw, dict) or type(raw.get('version')) is not int or raw['version'] != 1
             or raw.get('mode') not in ('inline', 'artifact-v1', 'artifact-v2')
             or type(raw.get('candidate_container_eligible')) is not bool
@@ -906,10 +865,14 @@ def required_wasm_packages(plan=None):
     plan = fast_plan(plan)
     if plan is None:
         return list(PORTABLE_REQUIRED_PACKAGES)
-    contract = resolve_ordinary_execution_contract(plan)
-    selected = plan_list(plan, 'oasis7_required_wasm_packages', contract['required_wasm_packages'], nonempty=False)
+    if 'ordinary_execution_contract' in plan:
+        contract = resolve_ordinary_execution_contract(plan)
+        if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
+            return list(contract['required_wasm_packages'])
+        return list(contract['required_wasm_packages'])
+    selected = plan_list(plan, 'oasis7_required_wasm_packages', PORTABLE_REQUIRED_PACKAGES, nonempty=False)
     if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
-        return list(contract['required_wasm_packages']) if 'ordinary_execution_contract' in plan else list(PORTABLE_REQUIRED_PACKAGES)
+        return list(PORTABLE_REQUIRED_PACKAGES)
     return selected
 
 
@@ -2283,7 +2246,23 @@ def ordinary_candidate_image_eligible(plan):
     """Allow the non-root candidate image only when no Docker WASM build can be requested."""
     if not isinstance(plan, dict):
         return False
-    return bool(resolve_ordinary_execution_contract(plan)['candidate_container_eligible'])
+    if 'ordinary_execution_contract' in plan:
+        return bool(resolve_ordinary_execution_contract(plan)['candidate_container_eligible'])
+    if (type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+            or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+            or plan.get('test_policy_changed') is not False
+            or 'ordinary_full_fast_targets' in plan):
+        return False
+    risk_targets = plan.get('ordinary_risk_targets')
+    if risk_targets is None:
+        return True
+    if not isinstance(risk_targets, list):
+        return False
+    return all(
+        isinstance(t, dict) and t.get('target_kind') == 'test'
+        and (t.get('package') != 'oasis7_chain_runtime' or plan.get('scope') not in ('full', 'explicit-full'))
+        for t in risk_targets
+    )
 
 
 def ordinary_candidate_isolation_preflight(socket_path=Path('/var/run/docker.sock')):

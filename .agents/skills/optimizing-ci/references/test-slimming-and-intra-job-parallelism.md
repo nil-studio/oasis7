@@ -105,3 +105,8 @@ TMPDIR=/dev/shm RUSTUP_TOOLCHAIN="$RUST_TC" python3 scripts/ci-formal-process.te
 python3 scripts/check-local.py --profile quick --base-ref origin/main
 git diff --check
 ```
+
+### 控制面解耦与物化执行契约（`#7344`）
+
+- 分片与分区规则由 `scripts/ci_engine/shard_scheduler.py` 结合 `scripts/ci-required-scope.json` 的 `package_capabilities` 在 `select` 阶段一次计算并物化写入 `selection.json`（`ordinary_execution_contract` 与 `workspace_support_execution_contract`，`version: 1`）。
+- 调整工作区包分片、容器准入、重型库别名或 support host 路由时，仅修改 `package_capabilities` 对应 `<pkg>` 条目并通过 `python3 scripts/check-ci-scope-paths.py`（含 57 包同树对齐、L1 AST 零业务标识、候选执行侧零引擎导入与五类端到端路由探针）校验，禁止在 `ci-test-artifacts.py` 或 `ci-tests.sh` 重新引入硬编码包表或 `plan-rust-required-scope.py` 动态导入。

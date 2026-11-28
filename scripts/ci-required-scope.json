@@ -1210,10 +1210,6 @@
     ".github/instructions/pr-review.instructions.md": ["workflow_governance"],
     ".github/pull_request_template.md": ["workflow_governance"],
     ".github/workflows/codeql.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-capacity.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-wasm-context.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-wasm-metadata.yml": ["workflow_governance"],
     ".github/dependabot.yml": ["workflow_governance"],
     ".github/workflows/ci-base-images.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/daily-github-release.yml": ["workflow_governance"],
@@ -2522,6 +2518,15 @@
     },
     {
       "match": [
+        "crates/oasis7/**"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "retired_oasis7_crate_cleanup_registration"
+    },
+    {
+      "match": [
         "scripts/unified-world-code-terminology-scan.sh",
         "scripts/unified-world-code-terminology-scan.test.sh"
       ],
@@ -2775,6 +2780,10 @@
         "scripts/traffic-monitor-*",
         "scripts/traffic_monitor_freshness.py",
         "scripts/p2p-*",
+        "scripts/network-tier-chain-proof-evidence-lane.test.sh",
+        "scripts/network-tier-light-client-continuity-window.test.sh",
+        "scripts/network-tier-manifest-smoke.sh",
+        "scripts/public-testnet-resource-delta-replay-check.py",
         "scripts/provider-remote-https/**",
         "scripts/newapi-bridge-service/*",
         "scripts/game-world-state-sync*",

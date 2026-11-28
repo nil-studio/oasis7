@@ -680,6 +680,14 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unregistered input'):
             self.run_plan()
 
+    def test_retired_oasis7_conformance_dockerfile_selects_actions(self):
+        path = 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile'
+        self.write(path, 'FROM scratch\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['actions-repo'])
+        self.assertIn(path, plan['reasons']['actions-repo'])
+
     def test_ci_required_scope_selects_its_python_and_actions_consumers(self):
         path = 'scripts/ci-required-scope.json'
         self.write(path, '{"groups":["baseline"]}\n')

@@ -328,6 +328,8 @@ def plan(args):
         elif path in ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
                       'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt'):
             add('actions-repo', path)
+        elif path == 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile':
+            add('actions-repo', path)
         elif path in ISSUE_METADATA_INPUTS or path in (
             'scripts/newapi-bridge-service/pricing-rules.example.env',
         ):

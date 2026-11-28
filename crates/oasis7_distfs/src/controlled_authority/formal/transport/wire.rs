@@ -298,6 +298,89 @@ pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
     Ok((request, paid))
 }
 
+// Client-side original-caller paid raw frame and signed DTO decode.
+// Use the same absolute operation deadline; each network attempt is charged
+// before allocation/read, including short reads and Interrupted retries.
+fn read_exact_paid_before_deadline(
+    stream: &mut TcpStream,
+    mut target: &mut [u8],
+    deadline: Instant,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), FormalError> {
+    while !target.is_empty() {
+        work.charge(1, target.len() as u64, cancelled)?;
+        stream
+            .set_read_timeout(Some(remaining(deadline)?))
+            .map_err(io)?;
+        match stream.read(target) {
+            Ok(0) => return Err(io("formal RPC frame ended early")),
+            Ok(n) => target = &mut target[n..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(io(error)),
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn read_paid_before_deadline<T: serde::de::DeserializeOwned>(
+    stream: &mut TcpStream,
+    deadline: Instant,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    layout: oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::CborDataLayoutV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<
+    (
+        oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::PaidCborDataV1<T>,
+        oasis7_proto::memory_budget::ReservedValue<Vec<u8>>,
+    ),
+    FormalError,
+> {
+    use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
+        BoundedCborDataErrorV1, CborDataLimitsV1, decode_closed_cbor_data_v1,
+    };
+    use oasis7_proto::memory_budget::MemoryClass;
+    let mut header = [0u8; 4];
+    read_exact_paid_before_deadline(stream, &mut header, deadline, work, cancelled)?;
+    let len = u32::from_be_bytes(header) as usize;
+    if len == 0 || len > LIMIT {
+        return Err(invalid("formal RPC bounded frame"));
+    }
+    let allocation = len
+        .checked_add(std::mem::size_of::<Vec<u8>>())
+        .and_then(|n| n.checked_add(4096))
+        .ok_or_else(|| invalid("formal RPC paid response allocation"))?;
+    let fee = memory
+        .reserve(allocation, MemoryClass::Ordinary)
+        .map_err(|_| invalid("formal RPC paid response raw admission"))?;
+    let mut bytes = vec![0u8; len];
+    if bytes.capacity() > len + 4096 {
+        return Err(invalid("formal RPC paid response capacity"));
+    }
+    for chunk in bytes.chunks_mut(8192) {
+        read_exact_paid_before_deadline(stream, chunk, deadline, work, cancelled)?;
+    }
+    remaining(deadline)?;
+    let raw = fee.retain(bytes);
+    let decoded = {
+        let mut common = work.bounded_context(memory, cancelled);
+        let limits = CborDataLimitsV1 {
+            max_wire_bytes: LIMIT,
+            max_graph_bytes: LIMIT * 16,
+            max_depth: 128,
+        };
+        decode_closed_cbor_data_v1(raw.as_slice(), layout, &limits, &mut common)
+            .map_err(|error| match error {
+                BoundedCborDataErrorV1::Common(source) => source,
+                other => invalid(other.to_string()),
+            })?
+            .map_err(|refusal| invalid(refusal.message()))?
+    };
+    remaining(deadline)?;
+    Ok((decoded, raw))
+}
+
 pub(super) fn read<T: serde::de::DeserializeOwned>(
     stream: &mut TcpStream,
 ) -> Result<T, FormalError> {
@@ -400,6 +483,64 @@ pub(super) fn connect_and_write_before_deadline<T: Serialize>(
     deadline: Instant,
 ) -> Result<TcpStream, FormalError> {
     connect_and_write_using(address, value, deadline, TcpStream::connect_timeout)
+}
+
+/// Caller-owned signed Request frame encoding and physical TCP output.
+/// The two-pass bounded encoder uses the exact original Ordinary pool/Work,
+/// *before* opening a socket. Its paid wire owner remains alive through every
+/// write and retry under the original absolute deadline. This does not claim
+/// to charge the prior RequestBody construction or the signing operation.
+pub(super) fn connect_and_write_paid_before_deadline<T: Serialize>(
+    address: &SocketAddr,
+    value: &T,
+    deadline: Instant,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<TcpStream, FormalError> {
+    use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
+        BoundedCborDataErrorV1, CborDataLimitsV1, encode_closed_cbor_data_v1,
+    };
+    remaining(deadline)?;
+    let owner = {
+        let mut common = work.bounded_context(memory, cancelled);
+        let limits = CborDataLimitsV1 {
+            max_wire_bytes: LIMIT,
+            max_graph_bytes: LIMIT,
+            max_depth: 128,
+        };
+        match encode_closed_cbor_data_v1(value, &limits, &mut common) {
+            Ok(Ok(owner)) => owner,
+            Ok(Err(refusal)) => return Err(invalid(refusal.message())),
+            Err(BoundedCborDataErrorV1::Common(error)) => return Err(error),
+            Err(error) => return Err(invalid(error.to_string())),
+        }
+    };
+    let bytes: &[u8] = owner.as_ref();
+    let length = u32::try_from(bytes.len()).map_err(|_| invalid("formal RPC bounded frame"))?;
+    if length == 0 || bytes.len() > LIMIT {
+        return Err(invalid("formal RPC bounded frame"));
+    }
+    // The remote first-read timeout begins only after CBOR encode/admission.
+    let mut stream = TcpStream::connect_timeout(address, remaining(deadline)?).map_err(io)?;
+    configure(&stream, remaining(deadline)?)?;
+    let header = length.to_be_bytes();
+    for mut fragment in [&header[..], bytes] {
+        while !fragment.is_empty() {
+            work.charge(1, fragment.len() as u64, cancelled)?;
+            stream
+                .set_write_timeout(Some(remaining(deadline)?))
+                .map_err(io)?;
+            match stream.write(fragment) {
+                Ok(0) => return Err(io("formal paid RPC frame write ended early")),
+                Ok(n) => fragment = &fragment[n..],
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(io(error)),
+            }
+        }
+    }
+    remaining(deadline)?;
+    Ok(stream)
 }
 
 fn connect_and_write_using<T: Serialize>(
@@ -594,6 +735,70 @@ mod deadline_tests {
             "exhaustion must not start a new response frame"
         );
         assert_eq!(memory.used(), 0);
+
+        // Outgoing paid Request uses the original pool and monotonic Work;
+        // signed production Query calls this exact function as well.
+        let request_pool = MemoryBudget::new(1 << 20, 0).unwrap();
+        let request_work =
+            super::super::super::endpoint::FormalArchiveReadWorkV1::new(1000, 4096).unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let _outgoing = connect_and_write_paid_before_deadline(
+            &address,
+            &value,
+            Instant::now() + Duration::from_secs(2),
+            &request_pool,
+            &request_work,
+            &mut || false,
+        )
+        .unwrap();
+        let (mut incoming, _) = listener.accept().unwrap();
+        assert_eq!(read::<Vec<u64>>(&mut incoming).unwrap(), value);
+        assert_eq!(request_pool.used(), 0);
+        assert!(request_work.remaining_read_bytes() < 4096);
+        let zero = MemoryBudget::new(0, 0).unwrap();
+        assert!(
+            connect_and_write_paid_before_deadline(
+                &address,
+                &value,
+                Instant::now() + Duration::from_secs(2),
+                &zero,
+                &request_work,
+                &mut || false,
+            )
+            .is_err()
+        );
+        assert_eq!(zero.used(), 0);
+        let before_cancel = request_work.remaining_steps();
+        assert!(
+            connect_and_write_paid_before_deadline(
+                &address,
+                &value,
+                Instant::now() + Duration::from_secs(2),
+                &request_pool,
+                &request_work,
+                &mut || true,
+            )
+            .is_err()
+        );
+        assert!(request_work.remaining_steps() <= before_cancel);
+        assert_eq!(request_pool.used(), 0);
+        let remaining = request_work.remaining_read_bytes();
+        request_work
+            .consume_read_bytes(remaining, &mut || false)
+            .unwrap();
+        assert!(
+            connect_and_write_paid_before_deadline(
+                &address,
+                &value,
+                Instant::now() + Duration::from_secs(2),
+                &request_pool,
+                &request_work,
+                &mut || false,
+            )
+            .is_err()
+        );
+        assert_eq!(request_pool.used(), 0);
     }
 }
 
