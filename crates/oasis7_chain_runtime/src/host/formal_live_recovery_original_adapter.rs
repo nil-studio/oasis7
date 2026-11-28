@@ -55,10 +55,17 @@ pub(super) fn cold_read_pinned_host_pending(
     })
 }
 
-/// Bind the original cold read to a locally loaded verified Host config and
-/// authority; not an owner incarnation or current recovery permission.
+/// Cold-join the actual shipping owner's Frozen original into the existing
+/// verified Host path. The legacy config-root pending filename is NOT where
+/// the real owner wrote its original: it lives under the exact operation and
+/// incarnation's private `runtime-owner/operations/<digest>/original-pending`.
+/// Require the original stopped/unknown owner receipt, BOTH prepared/Frozen
+/// pins and an independently supplied root/count before re-opening the exact
+/// immutable bytes as a typed native recovery source. This is still not a
+/// protected recovery-plan decision or permission to start a new writer.
 pub(super) fn cold_read_original_for_config(
     config_path: &Path,
+    instance: &super::formal_live_runtime::FormalRuntimeInstanceV1,
     independent_authority_id: &str,
     independent_root: &str,
     independent_count: usize,
@@ -69,19 +76,48 @@ pub(super) fn cold_read_original_for_config(
         .authority()
         .authority_id()
         .map_err(|error| error.to_string())?;
-    if actual_authority != independent_authority_id {
-        return Err("original Host recovery authority differs from verified config".into());
+    let world = &config.anchor.authority().definition().world;
+    if actual_authority != independent_authority_id
+        || instance.authority_id != actual_authority
+        || instance.world_id != world.world_id
+        || instance.chain_id != world.chain_id
+        || instance.config_digest != super::node_lifecycle::local_io::sha256(config_path)?
+    {
+        return Err("original Host recovery owner or verified configuration differs".into());
     }
     super::controlled_live_config::require_private_owned(
         &config.config.writer_directory,
         true,
     )?;
-    cold_read_pinned_host_pending(
-        &config.config.writer_directory,
+    // This existing production owner path checks its exact durable owner
+    // identity/epoch, non-serving status, independent root/count and byte-
+    // identical immutable prepared+final originals. Never trust only a
+    // config-root file or a local self-reported pin.
+    let original = super::formal_live_runtime::cold_read_original_pending_for_owner(
+        config_path,
+        instance,
+        independent_root,
+        independent_count,
+    )?;
+    let operation_id = instance.operation_id.as_str();
+    let operation_digest = super::node_lifecycle::local_io::digest(&operation_id)?;
+    let directory = config
+        .config
+        .writer_directory
+        .join("runtime-owner")
+        .join("operations")
+        .join(operation_digest)
+        .join("original-pending");
+    let read = cold_read_pinned_host_pending(
+        &directory,
         independent_authority_id,
         independent_root,
         independent_count,
-    )
+    )?;
+    if read.pending().handoff() != &original {
+        return Err("original Host recovery owner and cold bytes disagree".into());
+    }
+    Ok(read)
 }
 
 /// Reuse the exact original complete Qualified verifier. A caller must also
