@@ -290,7 +290,10 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
         .unwrap();
     assert!(query_memory.used() > 0);
     drop(query);
-    assert_eq!(query_memory.used(), 0);
+    // The paid Query data owner was released, but the client's advancing
+    // anti-rollback minimum remains charged to this original Ordinary pool.
+    let retained_minimum_bytes = query_memory.used();
+    assert!(retained_minimum_bytes > 0);
     let missing = client
         .query_data_bounded(&h(250), &query_memory, &query_work, &mut || false)
         .unwrap();
@@ -301,17 +304,20 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
     assert!(query_work.remaining_steps() < 100_000_000);
     assert!(query_memory.used() > 0);
     drop(missing);
-    assert_eq!(query_memory.used(), 0);
+    assert_eq!(query_memory.used(), retained_minimum_bytes);
     assert!(
         client
             .query_data_bounded(&h(250), &query_memory, &query_work, &mut || true,)
             .is_err()
     );
-    assert_eq!(query_memory.used(), 0);
+    assert_eq!(query_memory.used(), retained_minimum_bytes);
 
     let restored = client
         .restore_native_current(&fixture.authority, None, None)
         .unwrap();
+    // The next legacy call replaces the minimum with its own legacy cache;
+    // no paid Query reservation remains in the old caller's pool.
+    assert_eq!(query_memory.used(), 0);
     assert_eq!(restored.commit().head(), second_verified.head());
     assert_eq!(restored.proof(), &second);
     assert!(matches!(
