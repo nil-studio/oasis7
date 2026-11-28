@@ -440,8 +440,20 @@ impl BftSignerBackendV3 for Backend {
         let mut slot = self.fresh.as_ref().unwrap().lock().unwrap();
         let actual = slot.original_transaction(&signer)?;
         next.validate()?;
+        if next.original_operations != expected.original_operations {
+            let added: Vec<_> = next
+                .original_operations
+                .iter()
+                .filter(|(id, _)| !expected.original_operations.contains_key(*id))
+                .collect();
+            assert_eq!(added.len(), 1);
+            assert_eq!(
+                expected
+                    .prepare_single_atomic_operation(next.current.clone(), added[0].1.clone())?,
+                *next
+            );
+        }
         if actual != *expected
-            || next.original_operations != expected.original_operations
             || next.current.current.marker != slot.marker
             || next.current.current.original != slot.original
             || next.current.current.signer.lease_generation != signer.lease_generation
@@ -548,13 +560,40 @@ fn native_service_expected(
     service: BftSignerServiceV3,
     expect_error: bool,
 ) -> (RemoteBftSignerProviderV3, thread::JoinHandle<()>) {
+    native_service_recorded(binding, service, expect_error, Arc::default())
+}
+
+struct RecordedStream(std::net::TcpStream, Arc<Mutex<Vec<u8>>>);
+impl std::io::Read for RecordedStream {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        let count = std::io::Read::read(&mut self.0, bytes)?;
+        self.1.lock().unwrap().extend_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+}
+impl std::io::Write for RecordedStream {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        std::io::Write::write(&mut self.0, bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        std::io::Write::flush(&mut self.0)
+    }
+}
+
+fn native_service_recorded(
+    binding: &BftSignerBindingV3,
+    service: BftSignerServiceV3,
+    expect_error: bool,
+    captured: Arc<Mutex<Vec<u8>>>,
+) -> (RemoteBftSignerProviderV3, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address: SocketAddr = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
+        let (stream, _) = listener.accept().unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(20)))
             .unwrap();
+        let mut stream = RecordedStream(stream, captured);
         assert_eq!(service.serve_connection(&mut stream).is_err(), expect_error);
     });
     let client = RemoteBftSignerProviderV3::new(
