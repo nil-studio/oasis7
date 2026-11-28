@@ -985,6 +985,20 @@ if helper_path.exists():
                        GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF='refs/heads/main',
                        GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/mainnet-packages.yml@refs/heads/main')
             assert helper.selected(good, env)
+            from unittest.mock import patch
+            with patch.dict(os.environ, env | {'GITHUB_JOB': 'release_gate_runtime_sync'}, clear=True), \
+                    patch.object(helper, 'environment_preflight') as component:
+                helper.preflight(good)
+                component.assert_called_once_with(good)
+            with patch.dict(os.environ, env | {'GITHUB_EVENT_NAME': 'pull_request'}, clear=True), \
+                    patch.object(helper, 'environment_preflight') as component:
+                try:
+                    helper.preflight(good)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError('component proof must not grant main package authority')
+                component.assert_not_called()
             for changes in ({'GITHUB_REPOSITORY': 'other/oasis7'}, {'RUNNER_ENVIRONMENT': 'self-hosted'},
                             {'GITHUB_EVENT_NAME': 'pull_request'}, {'GITHUB_WORKFLOW_SHA': '0' * 40},
                             {'GITHUB_REF': 'refs/heads/test'}, {'RUNNER_ARCH': 'ARM64'}):

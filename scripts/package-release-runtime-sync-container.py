@@ -70,10 +70,16 @@ def selected(source, env):
 
 def preflight(source):
     if (not selected(source, os.environ)
-            or os.environ.get('GITHUB_JOB') != 'release_gate_runtime_sync'
-            or 'OASIS7_WASM_BUILD_IN_CONTAINER' in os.environ
-            or (os.getuid(), os.getgid()) != (0, 0)):
+            or os.environ.get('GITHUB_JOB') != 'release_gate_runtime_sync'):
         raise ValueError('runtime sync requires the trusted hosted package job and fixed image')
+    environment_preflight(source)
+
+
+def environment_preflight(source):
+    """Check capabilities; this component check does not grant package authority."""
+    if (not compatible(source) or 'OASIS7_WASM_BUILD_IN_CONTAINER' in os.environ
+            or (os.getuid(), os.getgid()) != (0, 0)):
+        raise ValueError('runtime sync requires the fixed trusted-root compiler environment')
     workspace = Path(os.environ['GITHUB_WORKSPACE'])
     if not workspace.samefile(CHECKOUT) or git('rev-parse', 'HEAD').decode().strip() != source:
         raise ValueError('runtime sync requires the exact physical planned checkout')
