@@ -28,6 +28,9 @@ pub struct RemoteFormalEndpoint {
     minimum: FormalHeadRefV1,
     last_checkpoint: Option<fencing::EndpointCheckpointBindingV1>,
     last_native_context: Option<VerifiedNativeRpcContextV1>,
+    // Only the original caller-paid Query path retains an authenticated
+    // minimum across calls. This fee follows the minimum for its lifetime.
+    last_paid_minimum_fee: Option<oasis7_proto::memory_budget::MemoryReservation>,
     archive_read_grant: Option<SignedArchiveReadGrantV1>,
     #[cfg(test)]
     last_native_restore_source_reads: usize,
@@ -97,6 +100,7 @@ impl RemoteFormalEndpoint {
             minimum,
             last_checkpoint: None,
             last_native_context: None,
+            last_paid_minimum_fee: None,
             archive_read_grant,
             #[cfg(test)]
             last_native_restore_source_reads: 0,
@@ -157,7 +161,8 @@ impl RemoteFormalEndpoint {
         let mut stream =
             wire::connect_and_write_before_deadline(&self.address, &request, deadline)?;
         let response: Response = wire::read_before_deadline(&mut stream, deadline)?;
-        let pending = self.verify_authenticated_response(&response, &request, &digest, deadline)?;
+        let pending =
+            self.verify_authenticated_response(&response, &request, &digest, deadline, None)?;
         Ok((response.body, pending))
     }
 
@@ -169,6 +174,7 @@ impl RemoteFormalEndpoint {
         request: &Request,
         digest: &str,
         deadline: Instant,
+        paid_minimum_fee: Option<oasis7_proto::memory_budget::MemoryReservation>,
     ) -> Result<bool, FormalError> {
         verify(
             RESPONSE_DOMAIN,
@@ -223,12 +229,31 @@ impl RemoteFormalEndpoint {
         {
             return Err(invalid("formal RPC provider/head checkpoint mismatch"));
         }
-        let native_context =
-            native_context::context_after_authenticated_call(body, &self.authority, self.role)?;
+        // The old RPC legitimately caches a native restore promotion context.
+        // A paid Query is data-only: caching these full response-derived copies
+        // would leave uncharged heap after its original paid owner is dropped.
+        // It must not create or retain such a privileged native context.
+        let native_context = if paid_minimum_fee.is_none() {
+            Some(native_context::context_after_authenticated_call(
+                body,
+                &self.authority,
+                self.role,
+            )?)
+        } else {
+            None
+        };
         self.remaining_timeout(deadline)?;
-        self.last_native_context = Some(native_context);
-        self.last_checkpoint = Some(body.checkpoint.clone());
+        self.last_native_context = native_context;
+        self.last_checkpoint = if paid_minimum_fee.is_none() {
+            Some(body.checkpoint.clone())
+        } else {
+            None
+        };
+        // A paid Query still advances its anti-rollback minimum. Its caller
+        // reserved the real String clone before verification; retain that fee
+        // in the endpoint until the next authenticated call or endpoint drop.
         self.minimum = body.head.clone();
+        self.last_paid_minimum_fee = paid_minimum_fee;
         Ok(pending)
     }
     fn complete(&mut self, command: Command) -> Result<(), FormalError> {
