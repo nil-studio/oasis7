@@ -62,7 +62,14 @@ impl RemoteFormalEndpoint {
         let deadline = self
             .operation_deadline
             .unwrap_or_else(|| Instant::now() + self.timeout);
-        let mut stream = wire::connect_and_write_before_deadline(&self.address, &signed, deadline)?;
+        let mut stream = wire::connect_and_write_paid_before_deadline(
+            &self.address,
+            &signed,
+            deadline,
+            memory,
+            work,
+            cancelled,
+        )?;
         // Closed Response has one outer body and an optional boxed Query state.
         // A sequence element or map pair is NOT another full Response: applying
         // the whole root size to every CBOR child exponentially over-admits
