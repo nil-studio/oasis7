@@ -278,12 +278,7 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
     let zero_signing_pool = oasis7_proto::memory_budget::MemoryBudget::new(0, 0).unwrap();
     let before_refusal = query_work.remaining_steps();
     let signing_error = client
-        .query_data_bounded(
-            &h(250),
-            &zero_signing_pool,
-            &query_work,
-            &mut || false,
-        )
+        .query_data_bounded(&h(250), &zero_signing_pool, &query_work, &mut || false)
         .err()
         .unwrap();
     assert!(
