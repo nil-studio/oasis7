@@ -179,9 +179,25 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'web-wasm-cache': 22,
             },
         }
+        retiring = {
+            '.github/workflows/pr-fast-preview.yml',
+            '.github/workflows/command-center.yml',
+            '.github/workflows/native-cache-diagnostic.yml',
+            '.github/workflows/wasm-darwin-docker-evidence.yml',
+        }
+        retiring_rust_jobs = {
+            'command-center', 'consensus', 'viewer-performance-report', 'pixel-world-bridge',
+            'codex-agent-config-validation', 'compile-metrics', 'site-quality',
+            'doc-checker-contracts', 'cargo-tooling-contracts', 'windows-rollout',
+            'macos-package-contract',
+        }
         for rel_path, limits in expected_limits.items():
+            if rel_path in retiring and not (ROOT / rel_path).is_file():
+                continue
             jobs = workflow_jobs((ROOT / rel_path).read_text())
             for job_name, max_minutes in limits.items():
+                if rel_path == '.github/workflows/rust.yml' and job_name in retiring_rust_jobs and job_name not in jobs:
+                    continue
                 with self.subTest(workflow=rel_path, job=job_name):
                     self.assertIn(job_name, jobs)
                     match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)

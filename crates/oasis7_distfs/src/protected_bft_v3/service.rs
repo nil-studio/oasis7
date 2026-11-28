@@ -46,6 +46,8 @@ const MAX_SESSION_OPERATIONS_V3: u64 = 65_536;
 pub struct BftSignerServiceV3 {
     fresh_coverage: Option<BftFreshCoverageSupportV1>,
     first_reserve: Option<(Box<dyn BftFirstReserveSourceV1>, std::time::Duration)>,
+    first_reserve_uses_original_envelope: bool,
+    first_reserve_records_original: bool,
     candidate_read_policy: Option<BftCandidateReadPolicyV3>,
     pub(super) binding: BftSignerBindingV3,
     pub(super) provider_key: Box<dyn BftSigningKeyHandleV3>,
@@ -141,7 +143,34 @@ impl BftSignerServiceV3 {
             return Err(invalid("first Reserve requires a finite positive duration"));
         }
         self.first_reserve = Some((support, operation_timeout));
+        self.first_reserve_uses_original_envelope = false;
+        self.first_reserve_records_original = false;
         Ok(self)
+    }
+
+    /// Keep first Reserve and its response spend in the same transaction as
+    /// previously retained original operations. Unsupported backends refuse
+    /// the operation; this configuration never falls back to the legacy CAS.
+    pub fn with_retained_first_reservation(
+        self,
+        support: Box<dyn BftFirstReserveSourceV1>,
+        operation_timeout: std::time::Duration,
+    ) -> Result<Self, BftSignerErrorV3> {
+        let mut service = self.with_first_reservation(support, operation_timeout)?;
+        service.first_reserve_uses_original_envelope = true;
+        Ok(service)
+    }
+
+    /// Retain the authenticated original request and inner receipt together.
+    /// Existing reservations lacking that original record are never backfilled.
+    pub fn with_recorded_first_reservation(
+        self,
+        support: Box<dyn BftFirstReserveSourceV1>,
+        operation_timeout: std::time::Duration,
+    ) -> Result<Self, BftSignerErrorV3> {
+        let mut service = self.with_retained_first_reservation(support, operation_timeout)?;
+        service.first_reserve_records_original = true;
+        Ok(service)
     }
 
     fn open_inner(
@@ -205,6 +234,8 @@ impl BftSignerServiceV3 {
         Ok(Self {
             fresh_coverage,
             first_reserve: None,
+            first_reserve_uses_original_envelope: false,
+            first_reserve_records_original: false,
             candidate_read_policy: None,
             binding,
             provider_key,
@@ -306,7 +337,7 @@ impl BftSignerServiceV3 {
                 "BFT V3 provider is fail-closed after an uncertain operation".to_string(),
             )
         } else {
-            match self.dispatch(&mut runtime, session, &request, &digest) {
+            match self.dispatch(&mut runtime, session, &request, &digest, bytes) {
                 Ok(data) => data,
                 Err(error) => rejected_reply(&runtime, error.0),
             }
@@ -335,6 +366,7 @@ impl BftSignerServiceV3 {
         session: &mut BftSignerSessionV3,
         request: &SignedBftSignerRequestV3,
         request_digest: &str,
+        original_request_bytes: &[u8],
     ) -> Result<ReplyDataV3, BftSignerErrorV3> {
         match &request.body.command {
             BftSignerCommandV3::PrepareAcquire { binding_digest } => {
@@ -376,6 +408,7 @@ impl BftSignerServiceV3 {
                     session,
                     request,
                     request_digest,
+                    original_request_bytes,
                     credential.clone(),
                     &token_digest,
                     snapshot,
@@ -642,6 +675,7 @@ impl BftSignerServiceV3 {
         session: &mut BftSignerSessionV3,
         request: &SignedBftSignerRequestV3,
         request_digest: &str,
+        original_request_bytes: &[u8],
         credential: BftSignerLeaseCredentialV3,
         token_digest: &str,
         snapshot: BftSignerBackendSnapshotV3,
@@ -702,9 +736,13 @@ impl BftSignerServiceV3 {
             ));
         }
         match command {
-            BftSignerCommandV3::ReservePrivateRetentionInput { .. } => {
-                self.reserve_first_original(runtime, snapshot, request, request_digest)
-            }
+            BftSignerCommandV3::ReservePrivateRetentionInput { .. } => self.reserve_first_original(
+                runtime,
+                snapshot,
+                request,
+                request_digest,
+                original_request_bytes,
+            ),
             BftSignerCommandV3::ProvisionPrivateRetention { .. } => {
                 self.provision_fresh_coverage(runtime, snapshot, request, request_digest)
             }

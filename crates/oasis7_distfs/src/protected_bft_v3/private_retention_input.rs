@@ -147,8 +147,8 @@ impl BftPrivateRetentionAdmissionInputV1 {
         self.canonical_with_descriptor().map(|(bytes, _)| bytes)
     }
     /// Count/hash without a full scratch buffer, then encode into exactly
-    /// reserved storage. Encoded + decoded originals fit the existing two-copy
-    /// transport permit; validation never allocates another full encoding.
+    /// reserved storage. The caller must budget both the returned bytes and
+    /// owned input metadata; this helper does not account that residency.
     pub fn canonical_with_descriptor(
         &self,
     ) -> Result<(Vec<u8>, BftPrivateRetentionAdmissionInputRefV1), BftSignerErrorV3> {
@@ -285,10 +285,9 @@ impl LocalBftSuccessorArchiveStoreV1 {
         expected: &BftPrivateRetentionAdmissionInputRefV1,
     ) -> Result<BftPrivateRetentionAdmissionInputV1, BftSignerErrorV3> {
         expected.validate()?;
-        let bytes = self.load_object(&expected.object, BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1)?;
-        let input = BftPrivateRetentionAdmissionInputV1::from_canonical_bytes(&bytes)?;
-        expected.validate_input(&input)?;
-        Ok(input)
+        let (file, _, _) =
+            self.open_object(&expected.object, BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1)?;
+        BftPrivateRetentionAdmissionInputV1::from_canonical_reader(expected, file)
     }
 }
 
@@ -394,6 +393,9 @@ impl std::io::Write for CompareEncoding<'_> {
         Ok(())
     }
 }
+
+#[path = "private_retention_input_reader.rs"]
+mod reader;
 
 #[cfg(test)]
 #[path = "private_retention_input_tests.rs"]

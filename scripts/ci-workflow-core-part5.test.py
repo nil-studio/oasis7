@@ -150,6 +150,8 @@ class WorkflowCorePart5(unittest.TestCase):
 
     def test_viewer_cache_transition_requires_the_entire_known_configuration(self):
         for name in ('viewer-js-required', 'viewer-performance-report'):
+            if name not in JOBS:
+                continue
             actual = JOBS[name]
             kind = viewer_cache_kind(actual)
             if viewer_image_digest(actual):
@@ -258,6 +260,8 @@ class WorkflowCorePart5(unittest.TestCase):
 
         for name, browser in (('viewer-js-required', 'security smoke'),
                               ('viewer-performance-report', 'performance')):
+            if name not in JOBS:
+                continue
             job = JOBS[name]
             self.assertIsNotNone(viewer_image_digest(job))
             self.assertIn("Install pinned " + browser + " browser\n        if: env.VIEWER_IMAGE_COMPATIBLE != 'true'", job)

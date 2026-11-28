@@ -88,6 +88,14 @@ fn private_retention_input_preserves_existing_dependency_object_exact_bound() {
         BftPrivateRetentionAdmissionInputV1::from_canonical_bytes(&bytes).unwrap(),
         input
     );
+    assert_eq!(
+        BftPrivateRetentionAdmissionInputV1::from_canonical_reader(
+            &input.descriptor().unwrap(),
+            std::io::Cursor::new(&bytes),
+        )
+        .unwrap(),
+        input
+    );
     let dependency = input
         .objects
         .iter_mut()
@@ -187,4 +195,156 @@ fn private_retention_cold_archive_demands_exact_source_key_objects_and_first_cha
     );
     std::fs::write(directory.blob(&expected.object), b"corrupted original").unwrap();
     assert!(cold.load_original_admission_input(&expected).is_err());
+}
+
+#[test]
+fn original_stream_cold_read_handles_near_capacity_without_a_raw_vec() {
+    let directory = Scratch::new();
+    let store = directory.store();
+    let mut input = vector();
+    for index in 0..4096u64 {
+        let mut bytes = vec![42; 16 * 1024];
+        bytes[..8].copy_from_slice(&index.to_le_bytes());
+        input.objects.push(BftPrivateRetentionInputObjectV1 {
+            kind: BftPrivateRetentionInputObjectKindV1::Dependency,
+            reference: BftSuccessorWindowArchiveRefV1 {
+                digest: blake3::hash(&bytes).to_hex().to_string(),
+                bytes: bytes.len() as u64,
+            },
+            bytes,
+        });
+    }
+    input
+        .objects
+        .sort_by(|a, b| a.reference.digest.cmp(&b.reference.digest));
+    let extra = BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1
+        - 1024
+        - input.descriptor().unwrap().object.bytes as usize;
+    let original = input
+        .objects
+        .iter_mut()
+        .find(|object| object.kind == BftPrivateRetentionInputObjectKindV1::OriginalData)
+        .unwrap();
+    original.bytes.resize(original.bytes.len() + extra, 255);
+    original.reference.bytes = original.bytes.len() as u64;
+    original.reference.digest = blake3::hash(&original.bytes).to_hex().to_string();
+    input
+        .objects
+        .sort_by(|a, b| a.reference.digest.cmp(&b.reference.digest));
+    let expected = input.descriptor().unwrap();
+    let raw = input.canonical_bytes().unwrap();
+    drop(input);
+    assert!(raw.len() > BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1 - 2048);
+    let stage = store.root().join("original-stream-test-stage");
+    assert_eq!(
+        store.persist_object(&raw, raw.len()).unwrap(),
+        expected.object
+    );
+    std::fs::write(&stage, &raw).unwrap();
+    drop(raw);
+    for raw_on_disk in [false, true] {
+        if raw_on_disk {
+            std::io::copy(
+                &mut std::fs::File::open(&stage).unwrap(),
+                &mut std::fs::File::create(directory.blob(&expected.object)).unwrap(),
+            )
+            .unwrap();
+        }
+        let value = directory
+            .store()
+            .load_original_admission_input(&expected)
+            .unwrap();
+        assert_eq!(value.descriptor().unwrap(), expected);
+        assert_eq!(value.objects.len(), 4098);
+        let owned = value.objects.capacity()
+            * std::mem::size_of::<BftPrivateRetentionInputObjectV1>()
+            + value
+                .objects
+                .iter()
+                .map(|object| object.bytes.capacity() + object.reference.digest.capacity())
+                .sum::<usize>()
+            + [
+                &value.source.binding_digest,
+                &value.source.handoff_digest,
+                &value.source.material_source_digest,
+                &value.key.ledger_origin_digest,
+                &value.key.header_id,
+            ]
+            .iter()
+            .map(|value| value.capacity())
+            .sum::<usize>();
+        // Actual owned input plus conservative token/window space fits; there
+        // is no full original Vec in this cold-read caller or consumer.
+        assert!(owned + 2 * 8 * 1024 * 1024 + 2 * 1024 * 1024 < 132 * 1024 * 1024);
+    }
+}
+
+#[test]
+fn original_stream_requires_an_unchanged_second_pass_and_exact_reference() {
+    use std::io::{self, Read, Seek, SeekFrom};
+    struct Changed {
+        bytes: io::Cursor<Vec<u8>>,
+        rewinds: usize,
+        fault: u8,
+    }
+    impl Read for Changed {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            self.bytes.read(out)
+        }
+    }
+    impl Seek for Changed {
+        fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+            self.rewinds += 1;
+            if self.rewinds == 2 {
+                if self.fault == 1 {
+                    return Err(io::Error::other("second seek failed"));
+                }
+                if self.fault == 0 {
+                    self.bytes.get_mut().pop();
+                } else {
+                    self.bytes.get_mut()[100] ^= 1;
+                }
+            }
+            self.bytes.seek(position)
+        }
+    }
+    let input = vector();
+    let expected = input.descriptor().unwrap();
+    let raw = input.canonical_bytes().unwrap();
+    for fault in [0, 1, 2] {
+        assert!(
+            BftPrivateRetentionAdmissionInputV1::from_canonical_reader(
+                &expected,
+                Changed {
+                    bytes: io::Cursor::new(raw.clone()),
+                    rewinds: 0,
+                    fault
+                },
+            )
+            .is_err()
+        );
+    }
+    for malformed in [
+        raw[..raw.len() - 1].to_vec(),
+        {
+            let mut bytes = raw.clone();
+            bytes.push(0);
+            bytes
+        },
+        oasis7_cas::to_canonical_cbor(&input).unwrap(),
+    ] {
+        assert!(
+            BftPrivateRetentionAdmissionInputV1::from_canonical_reader(
+                &expected,
+                io::Cursor::new(malformed),
+            )
+            .is_err()
+        );
+    }
+    let mut wrong = expected;
+    wrong.object.bytes += 1;
+    assert!(
+        BftPrivateRetentionAdmissionInputV1::from_canonical_reader(&wrong, io::Cursor::new(raw))
+            .is_err()
+    );
 }

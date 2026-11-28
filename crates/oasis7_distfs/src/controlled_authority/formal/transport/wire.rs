@@ -218,6 +218,42 @@ pub(super) fn write_prepaid_frame<T: Serialize>(
     Ok(())
 }
 
+// Preserve the original paid encoder and its owner; bind physical TCP
+// write attempts to the remaining window of the original server RPC.
+struct DeadlineTcpWriter<'a> {
+    stream: &'a mut TcpStream,
+    deadline: Instant,
+}
+
+impl Write for DeadlineTcpWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let timeout = remaining(self.deadline).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, error.to_string())
+        })?;
+        self.stream.set_write_timeout(Some(timeout))?;
+        self.stream.write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stream.flush()
+    }
+}
+
+pub(super) fn write_prepaid_frame_before_deadline<T: Serialize>(
+    stream: &mut TcpStream,
+    value: &T,
+    deadline: Instant,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), FormalError> {
+    remaining(deadline)?;
+    let mut writer = DeadlineTcpWriter { stream, deadline };
+    write_prepaid_frame(&mut writer, value, memory, work, cancelled)?;
+    remaining(deadline)?;
+    Ok(())
+}
+
 fn write_exact_prepaid(
     stream: &mut impl Write,
     mut bytes: &[u8],
@@ -236,41 +272,23 @@ fn write_exact_prepaid(
     Ok(())
 }
 
-/// Explicit server-side admission of the original transport *frame* before
-/// allocating the 64 MiB raw body. This deliberately does not certify the
-/// subsequently decoded Request DTO, its signing, or an accepted GEN result.
-///
-/// One server-owned Ordinary pool and one monotonic Work meter are supplied at
-/// process startup, never minted or reset per RPC. The retained frame fee stays
-/// alive while the caller authenticates and signs its response.
+/// Admit the original transport frame before allocating its bounded raw body.
+/// Both paid client and server decoding use this same physical reader and
+/// retain its fee alongside the typed owner. The supplied pool and Work are
+/// never minted or reset per RPC.
 /// Every physical network read attempt consumes the same original Work.
 /// Short reads and Interrupted retries never evade the step/byte counter.
-fn read_exact_prepaid(
+fn read_prepaid_frame_bytes(
     stream: &mut TcpStream,
-    mut bytes: &mut [u8],
-    work: &super::super::endpoint::FormalArchiveReadWorkV1,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(), FormalError> {
-    while !bytes.is_empty() {
-        work.charge(1, bytes.len() as u64, cancelled)?;
-        match stream.read(bytes) {
-            Ok(0) => return Err(io("formal RPC frame ended early")),
-            Ok(n) => bytes = &mut bytes[n..],
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(io(error)),
-        }
-    }
-    Ok(())
-}
-pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
-    stream: &mut TcpStream,
+    deadline: Instant,
     memory: &oasis7_proto::memory_budget::MemoryBudget,
     work: &super::super::endpoint::FormalArchiveReadWorkV1,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(T, oasis7_proto::memory_budget::ReservedValue<Vec<u8>>), FormalError> {
+) -> Result<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>, FormalError> {
     use oasis7_proto::memory_budget::MemoryClass;
     let mut length = [0u8; 4];
-    read_exact_prepaid(stream, &mut length, work, cancelled)?;
+    read_exact_paid_before_deadline(stream, &mut length, deadline, work, cancelled)?;
+    remaining(deadline)?;
     let length = u32::from_be_bytes(length) as usize;
     if length == 0 || length > LIMIT {
         return Err(invalid("formal RPC bounded frame"));
@@ -289,16 +307,29 @@ pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
         return Err(invalid("formal RPC frame allocation capacity"));
     }
     for chunk in bytes.chunks_mut(8192) {
-        read_exact_prepaid(stream, chunk, work, cancelled)?;
+        read_exact_paid_before_deadline(stream, chunk, deadline, work, cancelled)?;
     }
-    let paid = fee.retain(bytes);
+    remaining(deadline)?;
+    Ok(fee.retain(bytes))
+}
+
+// Scalar frame/deadline fixtures still exercise the production physical reader.
+#[cfg(test)]
+pub(super) fn read_prepaid_frame<T: serde::de::DeserializeOwned>(
+    stream: &mut TcpStream,
+    deadline: Instant,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &super::super::endpoint::FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(T, oasis7_proto::memory_budget::ReservedValue<Vec<u8>>), FormalError> {
+    let paid = read_prepaid_frame_bytes(stream, deadline, memory, work, cancelled)?;
     work.consume_steps(1, cancelled)?;
     let request = serde_cbor::from_slice(paid.as_slice())
         .map_err(|_| invalid("formal RPC admitted frame decode"))?;
+    remaining(deadline)?;
     Ok((request, paid))
 }
 
-// Client-side original-caller paid raw frame and signed DTO decode.
 // Use the same absolute operation deadline; each network attempt is charged
 // before allocation/read, including short reads and Interrupted retries.
 fn read_exact_paid_before_deadline(
@@ -340,29 +371,7 @@ pub(super) fn read_paid_before_deadline<T: serde::de::DeserializeOwned>(
     use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::{
         BoundedCborDataErrorV1, CborDataLimitsV1, decode_closed_cbor_data_v1,
     };
-    use oasis7_proto::memory_budget::MemoryClass;
-    let mut header = [0u8; 4];
-    read_exact_paid_before_deadline(stream, &mut header, deadline, work, cancelled)?;
-    let len = u32::from_be_bytes(header) as usize;
-    if len == 0 || len > LIMIT {
-        return Err(invalid("formal RPC bounded frame"));
-    }
-    let allocation = len
-        .checked_add(std::mem::size_of::<Vec<u8>>())
-        .and_then(|n| n.checked_add(4096))
-        .ok_or_else(|| invalid("formal RPC paid response allocation"))?;
-    let fee = memory
-        .reserve(allocation, MemoryClass::Ordinary)
-        .map_err(|_| invalid("formal RPC paid response raw admission"))?;
-    let mut bytes = vec![0u8; len];
-    if bytes.capacity() > len + 4096 {
-        return Err(invalid("formal RPC paid response capacity"));
-    }
-    for chunk in bytes.chunks_mut(8192) {
-        read_exact_paid_before_deadline(stream, chunk, deadline, work, cancelled)?;
-    }
-    remaining(deadline)?;
-    let raw = fee.retain(bytes);
+    let raw = read_prepaid_frame_bytes(stream, deadline, memory, work, cancelled)?;
     let decoded = {
         let mut common = work.bounded_context(memory, cancelled);
         let limits = CborDataLimitsV1 {
@@ -613,7 +622,7 @@ mod deadline_tests {
         let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
         let before = work.remaining_steps();
         let deadline = Instant::now() - Duration::from_millis(1);
-        let error = read_prepaid_frame::<u64>(&mut inbound, &memory, &work, &mut || {
+        let error = read_prepaid_frame::<u64>(&mut inbound, deadline, &memory, &work, &mut || {
             Instant::now() >= deadline
         })
         .unwrap_err();
@@ -647,15 +656,74 @@ mod deadline_tests {
         let work =
             super::super::super::endpoint::FormalArchiveReadWorkV1::new(1000, 1 << 20).unwrap();
         let deadline = Instant::now() + Duration::from_millis(60);
-        let error =
-            read_prepaid_frame::<serde_cbor::Value>(&mut inbound, &memory, &work, &mut || {
-                Instant::now() >= deadline
-            })
-            .unwrap_err();
-        assert!(error.to_string().contains("cancelled"), "{error:?}");
+        let result = read_prepaid_frame::<serde_cbor::Value>(
+            &mut inbound,
+            deadline,
+            &memory,
+            &work,
+            &mut || Instant::now() >= deadline,
+        );
+        assert!(
+            result.is_err(),
+            "short reads must not extend the RPC window"
+        );
         assert_eq!(memory.used(), 0);
         drop(inbound);
         sender.join().unwrap();
+    }
+
+    #[test]
+    fn formal_rpc_prepaid_server_deadline_caps_stalled_body_read() {
+        use oasis7_proto::memory_budget::MemoryBudget;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut inbound, _) = listener.accept().unwrap();
+        configure(&inbound, Duration::from_secs(4)).unwrap();
+        peer.write_all(&16u32.to_be_bytes()).unwrap();
+        peer.write_all(&[0x50]).unwrap();
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let work = super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
+        let start = Instant::now();
+        let deadline = start + Duration::from_millis(100);
+        let result = read_prepaid_frame::<serde_cbor::Value>(
+            &mut inbound,
+            deadline,
+            &memory,
+            &work,
+            &mut || Instant::now() >= deadline,
+        );
+        assert!(result.is_err());
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(work.remaining_steps() < 99);
+        assert_eq!(memory.used(), 0);
+        drop(peer);
+    }
+
+    #[test]
+    fn formal_rpc_prepaid_server_deadline_caps_blocked_physical_write() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut outbound = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (peer, _) = listener.accept().unwrap();
+        configure(&outbound, Duration::from_secs(4)).unwrap();
+        let start = Instant::now();
+        let mut writer = DeadlineTcpWriter {
+            stream: &mut outbound,
+            deadline: start + Duration::from_millis(200),
+        };
+        // Keep the peer open without reading. The blocked write must use
+        // the remaining deadline, not the original socket timeout.
+        let chunk = [0u8; 8192];
+        let mut failed = false;
+        for _ in 0..8192 {
+            if writer.write_all(&chunk).is_err() {
+                failed = true;
+                break;
+            }
+        }
+        assert!(failed, "the non-reading TCP peer must exhaust the window");
+        assert!(start.elapsed() < Duration::from_secs(2));
+        drop(peer);
     }
 
     fn prepaid_frame_is_charged_before_allocation_and_retained_across_decode() {
@@ -676,8 +744,13 @@ mod deadline_tests {
             let work =
                 super::super::super::endpoint::FormalArchiveReadWorkV1::new(100, 4096).unwrap();
             let original_steps = work.remaining_steps();
-            let result: Result<_, FormalError> =
-                read_prepaid_frame::<u64>(&mut client, &memory, &work, &mut || false);
+            let result: Result<_, FormalError> = read_prepaid_frame::<u64>(
+                &mut client,
+                Instant::now() + Duration::from_secs(2),
+                &memory,
+                &work,
+                &mut || false,
+            );
             if capacity == 0 {
                 assert!(result.unwrap_err().to_string().contains("heap admission"));
                 assert_eq!(memory.used(), 0);
@@ -709,7 +782,13 @@ mod deadline_tests {
             });
             let mut stream = TcpStream::connect(addr).unwrap();
             configure(&stream, Duration::from_secs(2)).unwrap();
-            let result = read_prepaid_frame::<u64>(&mut stream, &memory, &work, &mut || false);
+            let result = read_prepaid_frame::<u64>(
+                &mut stream,
+                Instant::now() + Duration::from_secs(2),
+                &memory,
+                &work,
+                &mut || false,
+            );
             if attempt == 0 {
                 let (value, retained) = result.unwrap();
                 assert_eq!(value, 77);
@@ -773,7 +852,15 @@ mod deadline_tests {
         let (mut peer, _) = listener.accept().unwrap();
         configure(&client, Duration::from_secs(2)).unwrap();
         configure(&peer, Duration::from_secs(2)).unwrap();
-        write_prepaid_frame(&mut peer, &value, &memory, &work, &mut || false).unwrap();
+        write_prepaid_frame_before_deadline(
+            &mut peer,
+            &value,
+            Instant::now() + Duration::from_secs(2),
+            &memory,
+            &work,
+            &mut || false,
+        )
+        .unwrap();
         assert_eq!(read::<Vec<u64>>(&mut client).unwrap(), value);
         assert_eq!(memory.used(), 0);
 

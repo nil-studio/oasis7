@@ -54,12 +54,68 @@ def is_exact_repo_path(value: str) -> bool:
     return top in REPO_TOP_DIRS
 
 
+def _postgres_prerequisite_paths(repo_root: Path, data: dict) -> set[tuple[str, str]]:
+    """Recognize the installed runner before its atomic product-source pair lands.
+
+    This is an existence check, not permission to skip the product test. The
+    planner and policy runner still prove required execution across Git refs.
+    """
+    if 'postgres_test_contract' not in data:
+        return set()
+    try:
+        planner = _load_planner_module(Path(__file__).with_name('plan-rust-required-scope.py'))
+        contract = planner.postgres_test_contract(data)
+        if contract is None:
+            return set()
+        module, source = (contract[key] for key in ('module', 'source'))
+        if any((repo_root / path).exists() for path in (module, source)):
+            return set()
+        target = contract['target']
+        crate = Path('crates') / target['package']
+        manifest = tomllib.loads((repo_root / crate / 'Cargo.toml').read_text())
+        library = manifest.get('lib', {})
+        lib_path = library.get('path', 'src/lib.rs')
+        if (manifest['package']['name'] != target['package']
+                or library.get('name', target['package'].replace('-', '_')) != target['target_name']
+                or library.get('test', True) is not True or library.get('required-features', [])
+                or not isinstance(lib_path, str) or Path(lib_path).is_absolute()
+                or '..' in Path(lib_path).parts or Path(lib_path).as_posix() != lib_path
+                or not (repo_root / crate / lib_path).is_file()):
+            return set()
+        lib_dir = crate / Path(lib_path).parent
+        relative = Path(module).relative_to(lib_dir)
+        prefix = '::'.join(relative.with_suffix('').parts) + '::tests::'
+        if (source != module[:-3] + '/tests.rs' or module == (crate / lib_path).as_posix()
+                or not (repo_root / module).parent.is_dir()
+                or not contract['case'].startswith(prefix)
+                or '::' in contract['case'][len(prefix):]):
+            return set()
+        runner_test = 'scripts/ci-postgres.test.py'
+        resources = (contract['runner'], runner_test, 'scripts/ci_process_runner.py')
+        for path in resources:
+            registration = data.get('python_control_contracts', {}).get(path, {})
+            tests = registration.get('tests')
+            if (not (repo_root / path).is_file()
+                    or data.get('scoped_control_paths', {}).get(path) != ['workflow_governance']
+                    or registration.get('group') != 'workflow_governance'
+                    or not isinstance(tests, list) or not tests
+                    or any(not isinstance(test, str) or not test.endswith('.test.py') or not is_exact_repo_path(test)
+                           or '..' in Path(test).parts or Path(test).as_posix() != test
+                           or not (repo_root / test).is_file() for test in tests)
+                    or (path in resources[:2] and runner_test not in tests)):
+                return set()
+        return {('postgres_test_contract', 'module'), ('postgres_test_contract', 'source')}
+    except (KeyError, TypeError, ValueError, OSError):
+        return set()
+
+
 def find_missing_scope_paths(repo_root: Path, scope_file: Path | None = None) -> list[tuple[str, str]]:
     scope_path = scope_file or (repo_root / "scripts/ci-required-scope.json")
     data = json.loads(scope_path.read_text(encoding="utf-8"))
     missing: list[tuple[str, str]] = []
+    prerequisites = _postgres_prerequisite_paths(repo_root, data)
 
-    def walk(obj: object, trail: str) -> None:
+    def walk(obj: object, trail: str, location: tuple = ()) -> None:
         if isinstance(obj, dict):
             for key, val in obj.items():
                 if key in SKIP_OBJECT_KEYS:
@@ -67,13 +123,16 @@ def find_missing_scope_paths(repo_root: Path, scope_file: Path | None = None) ->
                 if isinstance(key, str) and is_exact_repo_path(key):
                     if not (repo_root / key).exists():
                         missing.append((f"{trail}.{key} (key)", key))
-                walk(val, f"{trail}.{key}" if trail else str(key))
+                walk(val, f"{trail}.{key}" if trail else str(key), (*location, key))
         elif isinstance(obj, list):
             for idx, item in enumerate(obj):
-                walk(item, f"{trail}[{idx}]")
+                walk(item, f"{trail}[{idx}]", (*location, idx))
         elif isinstance(obj, str):
-            if is_exact_repo_path(obj) and not (repo_root / obj).exists():
-                missing.append((trail, obj))
+            if is_exact_repo_path(obj):
+                product_source = location in {('postgres_test_contract', 'module'), ('postgres_test_contract', 'source')}
+                absent = not (repo_root / obj).is_file() if product_source else not (repo_root / obj).exists()
+                if absent and location not in prerequisites:
+                    missing.append((trail, obj))
 
     walk(data, "")
     return missing
@@ -606,8 +665,43 @@ def check_candidate_executors_zero_engine_imports(repo_root: Path) -> list[str]:
     return errors
 
 
+AST_WORKSPACE_PACKAGE_LITERAL_CEILINGS: dict[str, int] = {
+    "scripts/plan-rust-required-scope.py": 58,
+    "scripts/ci-test-artifacts.py": 58,
+}
+
+
+def collect_workspace_package_names(repo_root: Path) -> set[str]:
+    """Collect active Cargo [package].name values across crates/ and tools/."""
+    names: set[str] = set()
+    for base_name in ("crates", "tools"):
+        base_dir = repo_root / base_name
+        if not base_dir.is_dir():
+            continue
+        for manifest in base_dir.rglob("Cargo.toml"):
+            if "target" in manifest.parts or "third_party" in manifest.parts:
+                continue
+            try:
+                parsed = tomllib.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError, UnicodeError):
+                continue
+            pkg = parsed.get("package")
+            if isinstance(pkg, dict) and isinstance(pkg.get("name"), str) and pkg["name"] != "oasis7":
+                names.add(pkg["name"])
+    return names
+
+
+def count_ast_package_literals(source: str, filename: str, package_names: set[str]) -> int:
+    """Count AST string constants matching active workspace Cargo package names."""
+    tree = ast.parse(source, filename=filename)
+    return sum(
+        1 for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in package_names
+    )
+
+
 def check_executor_hardcoded_package_ratchet(repo_root: Path) -> list[str]:
-    """S5 ratchet: enforce 0 transitional S2 shims and 0 hardcoded support tuples in executors."""
+    """S5 ratchet: enforce 0 transitional S2 shims and quantitative AST package-literal ceilings."""
     errors: list[str] = []
     checks = (
         ("scripts/ci-tests.sh", ("_S2_FALLBACK_SUPPORT", "_S2_FALLBACK_HOST", "_s2_legacy_support_contract",
@@ -623,6 +717,22 @@ def check_executor_hardcoded_package_ratchet(repo_root: Path) -> list[str]:
         for token in forbidden_tokens:
             if token in text:
                 errors.append(f"{rel}: S5 ratchet violation: forbidden transitional/hardcoded token {token!r}")
+    pkg_names = collect_workspace_package_names(repo_root)
+    if pkg_names:
+        for rel, ceiling in AST_WORKSPACE_PACKAGE_LITERAL_CEILINGS.items():
+            path = repo_root / rel
+            if not path.is_file():
+                continue
+            try:
+                actual = count_ast_package_literals(path.read_text(encoding="utf-8"), rel, pkg_names)
+            except SyntaxError as exc:
+                errors.append(f"{rel}: syntax error during AST package-literal ratchet: {exc}")
+                continue
+            if actual > ceiling:
+                errors.append(
+                    f"{rel}: AST workspace-package-literal count {actual} exceeds ratchet ceiling {ceiling}; "
+                    f"declare package capabilities in scripts/ci-required-scope.json instead of hardcoding package names"
+                )
     return errors
 
 

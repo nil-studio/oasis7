@@ -186,6 +186,31 @@ impl LocalBftSuccessorArchiveStoreV1 {
         reference: &BftSuccessorWindowArchiveRefV1,
         maximum: usize,
     ) -> Result<Vec<u8>, BftSignerErrorV3> {
+        let (file, size, encoded_limit) = self.open_object(reference, maximum)?;
+        // Read a fresh descriptor, bypassing CAS's decoded range cache. A
+        // cached correct object cannot prove that today's disk publication
+        // will survive the checkpoint/minimum transaction or a cold reopen.
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(size)
+            .map_err(|_| invalid("successor archive read allocation"))?;
+        decode_local_blob_into(
+            HashAlgorithm::Blake3,
+            &reference.digest,
+            file.take(encoded_limit),
+            &mut bytes,
+            size,
+        )
+        .map_err(cas_error)?;
+        reference.validate_bytes(&bytes)?;
+        Ok(bytes)
+    }
+
+    pub(super) fn open_object(
+        &self,
+        reference: &BftSuccessorWindowArchiveRefV1,
+        maximum: usize,
+    ) -> Result<(File, usize, u64), BftSignerErrorV3> {
         validate_object_limit(maximum)?;
         reference.validate()?;
         let size = usize::try_from(reference.bytes)
@@ -206,20 +231,7 @@ impl LocalBftSuccessorArchiveStoreV1 {
         if file.metadata().map_err(io_error)?.len() > encoded_limit {
             return Err(invalid("successor archive encoded length bound"));
         }
-        // Read a fresh descriptor, bypassing CAS's decoded range cache. A
-        // cached correct object cannot prove that today's disk publication
-        // will survive the checkpoint/minimum transaction or a cold reopen.
-        let mut bytes = Vec::new();
-        decode_local_blob_into(
-            HashAlgorithm::Blake3,
-            &reference.digest,
-            file.take(encoded_limit),
-            &mut bytes,
-            size,
-        )
-        .map_err(cas_error)?;
-        reference.validate_bytes(&bytes)?;
-        Ok(bytes)
+        Ok((file, size, encoded_limit))
     }
 }
 
