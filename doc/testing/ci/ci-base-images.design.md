@@ -307,10 +307,17 @@ SOURCEPLAN与BUILDINFO绑定和最终softprops动作/文件清单。业务shell�
 
 ### ECS OSS publisher SDK leaf
 
-ECS `publish-preview` 的 OSS SDK 运行时采用独立 `ecs-oss-publisher` leaf，继承已发布 API runtime 的完整 digest；不改既有 Dockerfile/build.sh，避免改变 Release Web 的镜像材料身份。此供应链前置不接生产作业。统一 CI Base Images 增加唯一目标及独立发布组，保留原 12 个目标的构建、全部 OS 扫描、同 run 归档和可信发布，原 40 分钟构建及 10 分钟发布预算不变。
+ECS `publish-preview` 的 OSS SDK 运行时采用独立 `ecs-oss-publisher` leaf，继承已发布 API runtime 的完整 digest；不改既有 Dockerfile/build.sh，避免改变 Release Web 的镜像材料身份。供应链和消费者分别交付，消费者只有在取得正式 digest 与实际能力证据后接线。统一 CI Base Images 增加唯一目标及独立发布组，保留原 12 个目标的构建、全部 OS 扫描、同 run 归档和可信发布，原 40 分钟构建及 10 分钟发布预算不变。
 
 `docker/ci-base/ecs-oss/artifacts.json` 固定 Python3.12/Linux amd64 的 15 个 SDK 发行物（包括 `oss2==2.19.1`、`crcmod==1.7`）和三个构建工具的完整版本、官方 PyPI URL、字节数及 SHA256。下载阶段逐项校验；其后的 wheel 构建和安装以 `RUN --network=none`、`--no-index --no-deps --no-build-isolation` 执行，不允许 PEP517 另取未锁工具。最终层只复制 SDK 专用只读 venv，不包含编译器、构建工具或 pip。
 
 私有父镜像仅由新目标使用只读 packages token 登录拉取；其余目标的 token 为空且不进入该登录分支。临时 Docker 客户端配置不进入上下文或 Docker ARG，构建前清除 token 环境。实际受控 fork PR #7509（head `eng-cc/oasis7-ci-validation`、base `nil-studio/oasis7`）以原 fork 的 Contents/Packages read token 成功拉取固定 ba7 父并离线验证 Node24/Python3.12/GH2.105；本地匿名或个人 token 的拒绝不作为 fork 兼容性的依据。正式 leaf 发布后仍须复核该模型下的 leaf 读取。
 
 非 root、无网络 smoke 验证全部 SDK 版本、真实 crcmod C 扩展和 CRC 已知向量、显式虚假 STS 凭据的纯本地签名；禁止构造 live `OssStore`，不访问 OSS、IMDS，不申请 OIDC。后续消费者 PR 只有取得正式 digest 后才接线，保留原资格、10 分钟、环境审批、短期凭据动作与 immutable/channel-last CAS；真实合法发布仍由原授权运行验收，供应链 smoke 不代签发布。
+
+
+ECS `publish-preview` 使用正式 `ghcr.io/nil-studio/oasis7/ci-ecs-oss-publisher@sha256:524d6cd5cbeb5190ade258a4f4e6ae0c63dc6839fa84b6700f58f99884ae99a4`（可信 source cdb2bfea、run46135901013，13构建/5发布组全部通过）。UID/GID1001与init、显式Bash、最小packagesread用于固定镜像拉取；原contents/actions read与id-token write、环境审批和串行发布锁保持。作业内不再安装Python依赖。
+
+原可信checkout后、下载和获取短期凭据前，预检实际main/workflowSHA/HEAD、venv路径/只读性、Node24/GH2.105、SDK版本及真实C扩展启用状态。原fresh/retained/rollback参数、下载材料和immutable/channel-last发布命令逐字保留。测试以独立原job快照校验完整序列及安全负例，不靠任意前缀裁剪放宽。
+
+正式leaf已通过真实fork PR #7531/run46136758480 的只读拉取：固定OCI revision与digest，network-none UID1001下15SDK版本、显式假STS本地签名、C扩展直接导入/实际启用和CRC向量通过。该证明不调用OSS/OIDC或发布，实际受保护的ECS业务发布仍由原合法运行验收。
