@@ -64,6 +64,8 @@ mod full_node_storage_tests;
 mod healthy_fault_tests;
 #[path = "formal_live_healthy_operation_process_tests.rs"]
 mod healthy_operation_tests;
+#[path = "formal_live_original_pending_process_tests.rs"]
+mod original_pending_process_tests;
 #[path = "formal_live_runtime_identity_tests.rs"]
 mod identity_runtime_tests;
 #[path = "formal_live_protected_long_history_tests.rs"]
@@ -127,6 +129,7 @@ fn protected_endpoint_children_submit_qualify_restart_and_read_from_external_pin
     run_on_fixture_stack(false).unwrap();
     // Keep both complete scenarios under the trusted ignored-test runner.
     protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session();
+    original_pending_process_tests::run().unwrap();
 }
 
 #[test]
@@ -727,6 +730,11 @@ fn run_protected_runtime_fixture(
         config
     };
 
+    if let Some(phase @ ("original_pending_prepared" | "original_pending_frozen")) = crash_phase {
+        return original_pending_process_tests::exercise(
+            phase, &root, &runtime_config_path, &owner_request, owner_client_config(),
+        );
+    }
     if let Some(scenario) = effect_scenario {
         return scenario.exercise(effect_tests::EffectCaseContext {
             root: &root,

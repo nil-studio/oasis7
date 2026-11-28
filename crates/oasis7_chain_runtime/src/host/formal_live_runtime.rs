@@ -505,6 +505,8 @@ impl FormalLiveRuntime {
 
         let _bootstrap = timing.stage("publication_and_node_bootstrap");
         let published = Arc::new(PublishedReadState::default());
+        #[cfg(all(test, unix))]
+        original_pending_owner::process_boundary::install(&published)?;
         let (effect_delivery, sink): (
             _,
             Arc<dyn super::execution_bridge::formal_node_hook::FormalPublicationSink>,
