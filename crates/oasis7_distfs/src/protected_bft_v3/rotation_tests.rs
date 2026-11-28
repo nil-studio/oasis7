@@ -176,6 +176,14 @@ struct FreshSlot {
     mismatched_readback: bool,
     lose_commit_acknowledgement: bool,
     activation_signs: Arc<AtomicUsize>,
+    original_envelope: Option<OriginalEnvelope>,
+}
+#[derive(Default)]
+struct OriginalEnvelope {
+    operations: BTreeMap<String, BftRetainedOriginalOperationV1>,
+    commits: usize,
+    lose_ack: bool,
+    mismatch_readback: bool,
 }
 impl FreshSlot {
     fn with_signer(&self, signer: &BftSignerBackendSnapshotV3) -> BftFreshCoverageSnapshotV1 {
@@ -185,6 +193,22 @@ impl FreshSlot {
             original: self.original.clone(),
             reserved_response_bytes: self.reserved_response_bytes,
         }
+    }
+    fn original_transaction(
+        &self,
+        signer: &BftSignerBackendSnapshotV3,
+    ) -> Result<BftOriginalRetentionTxnSnapshotV1, BftSignerErrorV3> {
+        let envelope = self
+            .original_envelope
+            .as_ref()
+            .ok_or_else(|| invalid("test original envelope unsupported"))?;
+        Ok(BftOriginalRetentionTxnSnapshotV1 {
+            current: BftFirstReserveSnapshotV1 {
+                current: self.with_signer(signer),
+                reservation: self.reservation.clone(),
+            },
+            original_operations: envelope.operations.clone(),
+        })
     }
 }
 impl Backend {
@@ -324,6 +348,10 @@ impl BftSignerBackendV3 for Backend {
             .ok_or_else(|| invalid("test original reserve namespace absent"))?
             .lock()
             .unwrap();
+        assert!(
+            slot.original_envelope.is_none(),
+            "legacy read bypassed envelope"
+        );
         Ok(BftFirstReserveSnapshotV1 {
             current: slot.with_signer(&signer),
             reservation: slot.reservation.clone(),
@@ -342,6 +370,10 @@ impl BftSignerBackendV3 for Backend {
             .ok_or_else(|| invalid("test original reserve namespace absent"))?
             .lock()
             .unwrap();
+        assert!(
+            slot.original_envelope.is_none(),
+            "legacy CAS bypassed envelope"
+        );
         if slot.with_signer(&signer) != expected.current
             || slot.reservation != expected.reservation
             || next.current.marker != slot.marker
@@ -370,6 +402,78 @@ impl BftSignerBackendV3 for Backend {
         *signer = next.current.signer.clone();
         slot.reservation = next.reservation.clone();
         slot.reserved_response_bytes = next.current.reserved_response_bytes;
+        Ok(())
+    }
+
+    fn read_original_operation_envelope_for_lease(
+        &mut self,
+        generation: u64,
+        token: &str,
+    ) -> Result<BftOriginalRetentionTxnSnapshotV1, BftSignerErrorV3> {
+        let signer = self.snapshot.lock().unwrap();
+        Self::check(&signer, generation, token)?;
+        let slot = self.fresh.as_ref().unwrap().lock().unwrap();
+        let mut observed = slot.original_transaction(&signer)?;
+        let envelope = slot.original_envelope.as_ref().unwrap();
+        if envelope.mismatch_readback && envelope.commits > 0 {
+            // A valid but different historical byte string must also poison
+            // the writer, even when the entire FirstReserve tuple matches.
+            let old = observed.original_operations.values_mut().next().unwrap();
+            old.signed_receipt_bytes.reverse();
+            old.original_receipt_digest =
+                BftRetainedOriginalOperationV1::receipt_digest_from_original_bytes(
+                    &old.signed_receipt_bytes,
+                );
+            observed.validate()?;
+        }
+        Ok(observed)
+    }
+
+    fn compare_and_commit_original_operation_envelope(
+        &mut self,
+        expected: &BftOriginalRetentionTxnSnapshotV1,
+        next: &BftOriginalRetentionTxnSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        // The signer lock protects the COMPLETE comparison and replacement;
+        // never implement this with a legacy CAS followed by a sidecar write.
+        let mut signer = self.snapshot.lock().unwrap();
+        let mut slot = self.fresh.as_ref().unwrap().lock().unwrap();
+        let actual = slot.original_transaction(&signer)?;
+        next.validate()?;
+        if actual != *expected
+            || next.original_operations != expected.original_operations
+            || next.current.current.marker != slot.marker
+            || next.current.current.original != slot.original
+            || next.current.current.signer.lease_generation != signer.lease_generation
+            || next.current.current.signer.lease_token_digest != signer.lease_token_digest
+            || next.current.current.signer.protected_time_floor_ms != signer.protected_time_floor_ms
+            || next.current.current.reserved_response_bytes <= slot.reserved_response_bytes
+            || next.current.reservation.is_none()
+            || slot.reservation.as_ref().is_some_and(|original| {
+                next.current.reservation.as_ref() != Some(original)
+                    || next.current.current.signer.state != signer.state
+            })
+        {
+            return Err(invalid("test complete original transaction differs"));
+        }
+        if slot.reservation.is_none() {
+            assert_eq!(
+                slot.reservation_hold
+                    .as_ref()
+                    .unwrap()
+                    .load(Ordering::SeqCst),
+                1
+            );
+        }
+        *signer = next.current.current.signer.clone();
+        slot.reservation = next.current.reservation.clone();
+        slot.reserved_response_bytes = next.current.current.reserved_response_bytes;
+        let envelope = slot.original_envelope.as_mut().unwrap();
+        envelope.operations = next.original_operations.clone();
+        envelope.commits += 1;
+        if envelope.lose_ack {
+            return Err(invalid("test original transaction acknowledgement lost"));
+        }
         Ok(())
     }
 
