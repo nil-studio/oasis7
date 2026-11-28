@@ -66,6 +66,8 @@ DEPENDENCY_PLATFORMS = {
     'ci-formal-debug-deps-trusted-v1': frozenset({('Linux', 'x64')}),
     'ci-formal-endpoint-deps-trusted-v1': frozenset({('Linux', 'x64')}),
     'release-packages-web-wasm-trusted-v3': frozenset({('Linux', 'x64')}),
+    'ci-rust-release-web-f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59':
+        frozenset({('Linux', 'x64')}),
     'oasis7-package-native-Linux-native-packaging-trusted-v2': frozenset({('Linux', 'x64')}),
     'oasis7-package-native-linux-x64-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42':
         frozenset({('Linux', 'x64')}),
