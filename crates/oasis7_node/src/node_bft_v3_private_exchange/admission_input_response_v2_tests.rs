@@ -791,6 +791,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     });
     let token = "da".repeat(32);
     let snapshot = BftOriginalRetentionTxnSnapshotV1 {
+        current_retention: None,
         current: BftFirstReserveSnapshotV1 {
             current: BftFreshCoverageSnapshotV1 {
                 signer: BftSignerBackendSnapshotV3 {
