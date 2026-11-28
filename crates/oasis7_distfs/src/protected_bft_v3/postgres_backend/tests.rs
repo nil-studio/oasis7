@@ -316,7 +316,227 @@ fn pg_real_sql_and_native_signer_preserve_lease_and_unknown_commit() {
     stored.signer_mut().lease_generation = 3;
     let cold_bytes: Vec<u8> = admin.query_one(READ, &[&"retained"]).unwrap().get(1);
     assert_eq!(cold_bytes, stored.encode().unwrap());
+    pg_native_retention(&mut admin, &binding);
+    pg_ready_transaction(&mut admin);
 }
+fn insert_envelope(
+    admin: &mut Client,
+    name: &str,
+    envelope: &BftOriginalRetentionTxnSnapshotV1,
+) {
+    let signer = &envelope.current.current.signer;
+    let bytes = PostgresBftSignerBackendV3::provisioned_bytes(
+        name,
+        signer.clone(),
+        Some(envelope.clone()),
+    ).unwrap();
+    admin.execute(
+        "INSERT INTO oasis7_bft_v3_namespaces VALUES ($1, $2, $3)",
+        &[&name, &signer.state.binding_digest, &bytes],
+    ).unwrap();
+}
+
+fn pg_ready_transaction(admin: &mut Client) {
+    let (before, after) = first_ready::pg_ready_envelopes();
+    let signer = &before.current.current.signer;
+    let digest = &signer.state.binding_digest;
+    let generation = signer.lease_generation;
+    let token = &signer.lease_token_digest;
+    for name in ["ready-normal", "ready-lost", "ready-disconnect"] {
+        insert_envelope(admin, name, &before);
+        let mut writer = backend(name, digest);
+        assert_eq!(
+            writer.read_original_operation_envelope_for_lease(generation, token).unwrap(),
+            before
+        );
+        match name {
+            "ready-lost" => writer.after_commit = Some(lost_reply),
+            "ready-disconnect" => writer.after_commit = Some(terminate_connection),
+            _ => {}
+        }
+        let result = writer.compare_and_commit_original_operation_envelope(&before, &after);
+        assert_eq!(result.is_ok(), name == "ready-normal");
+        if name != "ready-normal" {
+            assert!(writer.read_for_lease(generation, token).is_err());
+        }
+        let mut cold = backend(name, digest);
+        assert_eq!(
+            cold.read_original_operation_envelope_for_lease(generation, token).unwrap(),
+            after
+        );
+        let stored = codec::Stored::new(name, after.current.current.signer.clone(), Some(after.clone())).unwrap();
+        let bytes: Vec<u8> = admin.query_one(READ, &[&name]).unwrap().get(1);
+        assert_eq!(bytes, stored.encode().unwrap());
+        // A legacy projection may charge a response but must retain all
+        // historical signed bytes and the current Ready selection unchanged.
+        let legacy = cold.read_first_reserve_for_lease(generation, token).unwrap();
+        let mut charged = legacy.clone();
+        charged.current.reserved_response_bytes += 17;
+        cold.compare_and_commit_first_reserve(&legacy, &charged).unwrap();
+        let mut charged_whole = after.clone();
+        charged_whole.current = charged;
+        assert_eq!(cold.read_original_operation_envelope_for_lease(generation, token).unwrap(), charged_whole);
+        // The actual Noise charge primitive consumes the same whole namespace.
+        let next = charged_whole.prepare_original_response_charge(generation, token, 33).unwrap();
+        cold.compare_and_commit_original_operation_envelope(&charged_whole, &next).unwrap();
+        assert_eq!(cold.read_original_operation_envelope_for_lease(generation, token).unwrap(), next);
+        cold.release_lease(generation, token).unwrap();
+        let mut reopened = backend(name, digest);
+        let new_token = hash(98);
+        let BftSignerAcquireOutcomeV3::Acquired(new_signer) = reopened.acquire_lease(
+            digest, generation + 1, &new_token,
+        ).unwrap() else { panic!("cold lease did not acquire") };
+        let mut recovered = next.clone();
+        recovered.current.current.signer = new_signer;
+        assert_eq!(reopened.read_original_operation_envelope_for_lease(generation + 2, &new_token).unwrap(), recovered);
+        assert!(backend(name, digest).read_original_operation_envelope_for_lease(generation, token).is_err());
+        let mut downgraded = recovered.clone();
+        downgraded.current_retention = None;
+        assert!(backend(name, digest).compare_and_commit_original_operation_envelope(&recovered, &downgraded).is_err());
+        let mut rollback = recovered.clone();
+        rollback.current.current.reserved_response_bytes -= 1;
+        assert!(backend(name, digest).compare_and_commit_original_operation_envelope(&recovered, &rollback).is_err());
+        let mut altered = recovered.clone();
+        let operation = altered.original_operations.values_mut().next().unwrap();
+        operation.signed_request_bytes.push(5);
+        operation.original_request_digest = Original::request_digest_from_original_bytes(&operation.signed_request_bytes);
+        altered.current.current.reserved_response_bytes += 1;
+        assert!(backend(name, digest).compare_and_commit_original_operation_envelope(&recovered, &altered).is_err());
+        let mut stale = recovered.clone();
+        stale.current.current.signer.protected_time_floor_ms += 1;
+        assert!(backend(name, digest).compare_and_commit_original_operation_envelope(&stale, &recovered).is_err());
+        assert_eq!(reopened.read_original_operation_envelope_for_lease(generation + 2, &new_token).unwrap(), recovered);
+    }
+}
+
+struct FreshSource(BftPrivateRetentionCreationMarkerV1);
+impl BftFreshSourceVerifierV1 for FreshSource {
+    fn verify_original_runtime_source(
+        &self, binding: &BftSignerBindingV3, marker: &BftPrivateRetentionCreationMarkerV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        if &self.0 != marker || binding.digest()? != marker.source.binding_digest {
+            return Err(invalid("PG test source differs"));
+        }
+        Ok(())
+    }
+}
+struct ReserveSource(Arc<BftPrivateRetentionAdmissionInputV1>);
+fn pg_price() -> BftFirstReservationPriceV1 {
+    BftFirstReservationPriceV1 {
+        publication_bytes: 512,
+        private_pin_bytes: 17,
+        original_selection_bytes: 22,
+        retained_h_dependencies: Default::default(),
+    }
+}
+impl BftFirstReserveSourceV1 for ReserveSource {
+    fn read_authorized_original(
+        &self, reference: &BftPrivateRetentionAdmissionInputRefV1, _: std::time::Instant,
+    ) -> Result<BftAuthorizedOriginalReserveInputV1, BftSignerErrorV3> {
+        if self.0.descriptor()? != *reference {
+            return Err(invalid("PG test input reference differs"));
+        }
+        Ok(BftAuthorizedOriginalReserveInputV1 {
+            input: self.0.clone(),
+            transport_hold: Box::new(()),
+        })
+    }
+    fn verify_actual_first_price(
+        &self, _: &BftSignerBindingV3, _: &BftPrivateRetentionCreationMarkerV1,
+        _: &BftSignerStateV3, input: &BftPrivateRetentionAdmissionInputV1, _: std::time::Instant,
+    ) -> Result<BftFirstReservationPriceV1, BftSignerErrorV3> {
+        if self.0.as_ref() != input {
+            return Err(invalid("PG test original input differs"));
+        }
+        Ok(pg_price())
+    }
+}
+fn pg_native_retention(admin: &mut Client, binding: &BftSignerBindingV3) {
+    let digest = binding.digest().unwrap();
+    let sample = retained(binding);
+    let marker = sample.current.current.marker.clone();
+    let role = BftPrivateRetentionAttestorV1 {
+        schema_version: 1,
+        provider_public_key: public(33),
+        source: marker.source.clone(),
+        creation_marker_digest: marker.digest().unwrap(),
+        coverage_start_height: marker.initial_height,
+        allow_authenticated_successor_origins: false,
+    };
+    let mut input = (*sample.current.reservation.unwrap().input).clone();
+    input.publication_reservation_bytes = pg_price().required_input_bytes(&input).unwrap();
+    let input = Arc::new(input);
+    let initial = BftOriginalRetentionTxnSnapshotV1 {
+        current: BftFirstReserveSnapshotV1 {
+            current: BftFreshCoverageSnapshotV1 {
+                signer: initial(binding),
+                marker: marker.clone(),
+                original: None,
+                reserved_response_bytes: 0,
+            },
+            reservation: None,
+        },
+        current_retention: None,
+        original_operations: BTreeMap::new(),
+    };
+    for recorded in [false, true] {
+        let name = if recorded { "pg-recorded" } else { "pg-legacy" };
+        insert_envelope(admin, name, &initial);
+        let service = BftSignerServiceV3::open_with_fresh_coverage(
+            binding.clone(),
+            Box::new(Key(33)),
+            vec![Box::new(Key(31)), Box::new(Key(32))],
+            Box::new(backend(name, &digest)),
+            BftFreshCoverageSupportV1 {
+                attestor: role.clone(),
+                marker: marker.clone(),
+                verifier: Box::new(FreshSource(marker.clone())),
+            },
+        ).unwrap();
+        let source = Box::new(ReserveSource(input.clone()));
+        let timeout = Duration::from_secs(20);
+        let service = if recorded {
+            service.with_recorded_first_reservation(source, timeout)
+        } else {
+            service.with_first_reservation(source, timeout)
+        }.unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(timeout)).unwrap();
+            service.serve_connection(&mut stream).unwrap();
+        });
+        let provider = RemoteBftSignerProviderV3::new(
+            address, timeout, binding.clone(), key(34),
+            BftSignerTrustV3 {
+                schema_version: 3,
+                provider_public_key: public(33),
+                binding_digest: digest.clone(),
+            },
+        ).unwrap();
+        let mut lease = provider.acquire(binding).unwrap();
+        let activation = lease.provision_private_retention(&role, &marker).unwrap();
+        let ledger = lease.reserve_first_private_retention(&role, &marker, &activation, &input).unwrap();
+        let checkpoint = lease.checkpoint().unwrap();
+        assert_eq!(checkpoint.state.revision, 2);
+        assert_eq!(lease.reserve_first_private_retention(&role, &marker, &activation, &input).unwrap(), ledger);
+        drop(lease);
+        server.join().unwrap();
+        let mut cold = backend(name, &digest);
+        let token = hash(96);
+        let BftSignerAcquireOutcomeV3::Acquired(signer) = cold.acquire_lease(&digest, checkpoint.lease_generation + 1, &token).unwrap()
+            else { panic!("PG cold lease did not acquire") };
+        let envelope = cold.read_original_operation_envelope_for_lease(signer.lease_generation, &token).unwrap();
+        assert_eq!(envelope.current.current.original, Some(activation));
+        let original = envelope.current.reservation.unwrap();
+        assert_eq!(original.ledger, ledger);
+        assert_eq!(original.input, input);
+        assert_eq!(envelope.original_operations.len(), usize::from(recorded));
+        assert!(envelope.current.current.reserved_response_bytes > 0);
+    }
+}
+
 fn lost_reply(_: &mut Client) -> Result<(), BftSignerErrorV3> {
     // Real SQL COMMIT succeeded; intentionally drop confirmation at test boundary.
     Err(invalid("test: lost successful commit confirmation"))
