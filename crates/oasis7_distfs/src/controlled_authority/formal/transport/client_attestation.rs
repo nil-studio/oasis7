@@ -25,7 +25,10 @@ fn prepay_policy_clone_graph(
                         .and_then(|b| n.checked_add(b))
                 })
                 .ok_or_else(|| invalid("formal RPC policy clone size overflow"))?,
-            |n, s| n.checked_add(s.len()).ok_or_else(|| invalid("formal RPC policy clone size overflow")),
+            |n, s| {
+                n.checked_add(s.len())
+                    .ok_or_else(|| invalid("formal RPC policy clone size overflow"))
+            },
         )?;
     let both = one
         .checked_mul(2)
@@ -78,16 +81,20 @@ mod paid_policy_tests {
         assert_eq!(pool.used(), 0);
         let too_small = MemoryBudget::new(bytes - 1, 0).unwrap();
         let error = prepay_policy_clone_graph(
-            &key, &bindings,
+            &key,
+            &bindings,
             &mut FormalBoundedContextV1::new(&too_small, &work, &mut || false),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert_eq!(error, invalid("formal RPC policy clone admission"));
         assert_eq!(too_small.used(), 0);
         assert_eq!(
             prepay_policy_clone_graph(
-                &key, &bindings,
+                &key,
+                &bindings,
                 &mut FormalBoundedContextV1::new(&pool, &work, &mut || true),
-            ).unwrap_err(),
+            )
+            .unwrap_err(),
             invalid("bounded archive read cancelled")
         );
         assert_eq!(pool.used(), 0);
