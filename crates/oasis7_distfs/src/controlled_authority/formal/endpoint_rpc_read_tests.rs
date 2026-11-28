@@ -662,6 +662,12 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
     server.finish().unwrap();
+    // Join before inspecting worker observations: each Query pays its first
+    // real walk; the following guarded Head remains for the response slice.
+    assert_eq!(
+        &server.diagnostics.minimum_reads.lock().unwrap()[..3],
+        &[1, 1, 0]
+    );
     drop(primary_oracle);
     drop(replica_oracle);
 }
