@@ -146,8 +146,13 @@ impl FormalEndpointServer {
             Option<oasis7_proto::memory_budget::ReservedValue<Vec<u8>>>,
         ) = match self.frame_admission.as_ref() {
             Some((memory, work)) => {
-                let (value, owner) =
-                    wire::read_prepaid_frame(stream, memory, work, &mut cancelled)?;
+                let (value, owner) = wire::read_prepaid_frame(
+                    stream,
+                    request_deadline,
+                    memory,
+                    work,
+                    &mut cancelled,
+                )?;
                 (value, Some(owner))
             }
             None => (wire::read(stream)?, None),
@@ -245,9 +250,14 @@ impl FormalEndpointServer {
             }
         };
         match self.frame_admission.as_ref() {
-            Some((memory, work)) => {
-                wire::write_prepaid_frame(stream, &response, memory, work, &mut cancelled)
-            }
+            Some((memory, work)) => wire::write_prepaid_frame_before_deadline(
+                stream,
+                &response,
+                request_deadline,
+                memory,
+                work,
+                &mut cancelled,
+            ),
             None => wire::write(stream, &response),
         }
     }
