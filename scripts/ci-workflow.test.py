@@ -199,7 +199,7 @@ def workspace_support_image_matrix(job):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'custody-native', 'custody-wasm-production', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'rust-architecture', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'custody-native', 'custody-wasm-production', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
         return None
     if name == 'workspace-support-other' and (matrix := workspace_support_image_matrix(job)):
         return matrix
@@ -2121,6 +2121,125 @@ class WorkerToolCache(unittest.TestCase):
                         self.assertEqual('reached-build' in result.stdout, code == 0)
 
 
+class RustArchitectureSplitTests(unittest.TestCase):
+    def test_split_jobs_share_the_selected_route_and_compiler_inputs(self):
+        baseline, architecture = (JOBS[name] for name in ('rust-baseline', 'rust-architecture'))
+        for key in ('needs', 'if', 'runs-on', 'timeout-minutes', 'permissions', 'container'):
+            pattern = rf'^    {key}:.*?(?=^    [a-z-]+:|\Z)'
+            self.assertEqual(re.search(pattern, baseline, re.M | re.S)[0],
+                             re.search(pattern, architecture, re.M | re.S)[0])
+        name = 'Record Rust architecture execution context'
+        self.assertEqual(workflow_step_script(baseline, name), workflow_step_script(architecture, name))
+        self.assertIn('--rust-baseline-phase checks', baseline)
+        self.assertIn('ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3',
+                      architecture)
+        self.assertIn('save-if: false', architecture)
+        script = workflow_step_script(architecture, 'Execute selected architecture profiles')
+        self.assertIn('cargo fetch --locked', script)
+        self.assertIn('cargo-dev-architecture.py --plan-file "$RUNNER_TEMP/selection.json"', script)
+        self.assertNotIn('--graphs-only', script)
+
+    def test_architecture_job_only_emits_receipt_for_complete_report(self):
+        script = workflow_step_script(JOBS['rust-architecture'], 'Execute selected architecture profiles')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'python3').symlink_to(sys.executable)
+            cargo = root / 'cargo'
+            cargo.write_text('#!/bin/sh\n[ "$*" = "fetch --locked" ]\n')
+            cargo.chmod(0o755)
+            (root / 'scripts').mkdir()
+            (root / 'scripts' / 'cargo-dev-architecture.py').write_text(
+                'import os, sys\n'
+                'assert sys.argv[1:] == ["--plan-file", os.environ["RUNNER_TEMP"] + "/selection.json"]\n'
+                'print(os.environ["ARCHITECTURE_FIXTURE"])\n', encoding='utf-8')
+            plan = b'{"architecture":{"mode":"full"}}'
+            (root / 'selection.json').write_bytes(plan)
+            context = dict(tree='c' * 40, plan=hashlib.sha256(plan).hexdigest())
+            evidence = dict(source_sha='a' * 40, tested_head='b' * 40, tested_tree=context['tree'],
+                            tracked_changes=False, selection={'mode': 'full'})
+            timings = dict(graph_profiles=79, build_profiles=79, deferred_build_profiles=0)
+            report = dict(evidence=evidence, timings=timings, results=[{'status': 'pass'}])
+            out = root / 'output'
+            for fixture, accepted in (
+                    (report, True),
+                    (report | {'timings': timings | {'build_profiles': 78}}, False),
+                    (report | {'evidence': evidence | {'selection': {'mode': 'targeted'}}}, False),
+                    (report | {'evidence': evidence | {'tested_tree': 'e' * 40}}, False),
+                    (report | {'results': [{'status': 'coverage_gap'}]}, False)):
+                out.unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-c', script], cwd=root,
+                    env=dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                             RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(out), SOURCE_SHA='a' * 40,
+                             TESTED_SHA='b' * 40, ARCHITECTURE_CONTEXT=json.dumps(context),
+                             ARCHITECTURE_FIXTURE=json.dumps(fixture)), text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual(out.exists(), accepted)
+
+    def test_gate_checks_required_context_before_legacy_needs_validator(self):
+        script = workflow_step_script(JOBS['required-gate'], 'Validate Rust architecture handoff')
+        self.assertIn('NEEDS: ${{ steps.rust-architecture-handoff.outputs.legacy-needs }}', JOBS['required-gate'])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'python3').symlink_to(sys.executable)
+            output = root / 'output'
+            for scope, groups in (('full', ['baseline']), ('targeted', ['baseline', 'rust_baseline']),
+                                  ('targeted', ['baseline'])):
+                selected = scope == 'full' or 'rust_baseline' in groups
+                plan = json.dumps(dict(scope=scope, groups=groups)).encode()
+                (root / 'selection.json').write_bytes(plan)
+                context = dict(schema=1, run='416', attempt='1', source='a' * 40, tested='b' * 40,
+                               tree='c' * 40, plan=hashlib.sha256(plan).hexdigest(), environment='d' * 64)
+                result = 'success' if selected else 'skipped'
+                base = {'select': {'outputs': {'source_sha': context['source'],
+                                               'tested_sha': context['tested']}},
+                        'rust-baseline': {'result': result, 'outputs': {'architecture-context': json.dumps(context)}},
+                        'rust-architecture': {'result': result, 'outputs': {
+                            'architecture-context': json.dumps(context),
+                            'architecture-report': 'e' * 64, 'architecture-tree': context['tree'],
+                        }}}
+                variants = [('valid', {}, None, True)]
+                if selected:
+                    variants += [
+                        ('failed', {}, 'failure', False),
+                        ('cancelled', {}, 'cancelled', False),
+                        ('skipped', {}, 'skipped', False),
+                        ('wrong-revision', {'tested': 'f' * 40}, None, False),
+                        ('wrong-source', {'source': 'f' * 40}, None, False),
+                        ('wrong-run', {'run': '415'}, None, False),
+                        ('future-attempt', {'attempt': '3'}, None, False),
+                        ('wrong-tree', {'tree': 'f' * 40}, None, False),
+                        ('wrong-plan', {'plan': 'f' * 64}, None, False),
+                        ('wrong-env', {'environment': 'f' * 64}, None, False),
+                        ('missing-report', {}, None, False),
+                        ('missing-job', {}, None, False),
+                    ]
+                else:
+                    variants += [('unexpected-run', {}, 'success', False)]
+                for case, overrides, status, accepted in variants:
+                    with self.subTest(scope=scope, groups=groups, case=case):
+                        output.unlink(missing_ok=True)
+                        needs = json.loads(json.dumps(base))
+                        job = needs['rust-architecture']
+                        job['outputs']['architecture-context'] = json.dumps(context | overrides)
+                        if status is not None:
+                            job['result'] = status
+                        if case == 'missing-report':
+                            del job['outputs']['architecture-report']
+                        if case == 'missing-job':
+                            del needs['rust-architecture']
+                        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                            env=dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                                     RUNNER_TEMP=str(root), GITHUB_RUN_ID='416',
+                                     GITHUB_RUN_ATTEMPT='2', NEEDS=json.dumps(needs), GITHUB_OUTPUT=str(output)),
+                            text=True, capture_output=True)
+                        self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                        self.assertEqual(output.exists(), accepted)
+                        if accepted:
+                            downstream = json.loads(output.read_text().removeprefix('legacy-needs='))
+                            self.assertEqual(downstream, {key: value for key, value in needs.items()
+                                                          if key != 'rust-architecture'})
+
+
 class PriorityRunnerRoutingContractTests(unittest.TestCase):
     def test_ci_priority_label_routes_same_repo_pr_required_jobs_only(self):
         expected_expr = (
@@ -2130,7 +2249,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             "'oasis7-priority-linux' || 'ubuntu-24.04' }}"
         )
         priority_jobs = {
-            'select', 'baseline', 'rust-baseline',
+            'select', 'baseline', 'rust-baseline', 'rust-architecture',
             'oasis7-test-build-candidate',
             'formal-debug-build', 'formal-endpoint-build', 'formal-test-build',
             'oasis7-required', 'formal-process-tests', 'formal-process',

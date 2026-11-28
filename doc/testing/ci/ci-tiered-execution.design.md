@@ -513,6 +513,12 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 <a id="ci-cache-budget-validation"></a>
 [容量治理回归](../../../scripts/ci-cache-maintenance.test.py)覆盖保存未确认后的补偿、多页 API 完整性重读、同兼容组两代/压力下一代、Release 平台/架构分组、严格源码祖先退休、current 与稳定恢复锚点、族/ref/version 归属、活动访问保护、两次计划交集、身份变化、歧义和未知项保留、后页失败零删除、部分删除及幂等；[容量准入回归](../../../scripts/ci-cache-policy.test.py)回放高压库存、workspace 和依赖上传先后以及 full 的轮换空间。[workflow 接线回归](../../../scripts/ci-workflow.test.py)核对无新保存仍执行可信补偿维护、候选无删除权限、固定维护并发及必要 CI 结果不变。[发布缓存回归](../../../scripts/package-workflow-cache-reuse-contract.test.sh)核对实际工具链/环境 hash 与 writer/reader 对应关系。真实 hosted 保存、删除后库存和冷热构建收益分别由实际运行记录证明。
 
+### Rust 基线的架构检查
+
+普通 required 流程中，`rust-architecture` 与 `rust-baseline` 使用相同选择、固定容器、只读缓存及 runner 路由，各有 32 分钟上限。架构作业按原可信计划执行常规完整或定向的依赖检查与 Cargo 检查。原基线仍执行格式、安全、卫生、Clippy、所选 WASM 检查和独立锁文件检查。显式本地及完整分层入口继续执行原组合。
+
+汇总先根据受校验的选择确认两作业状态，并核对回执的运行号、来源、实测提交、树、计划摘要和编译环境。失败、缺失或选中作业被跳过会阻止 required gate。失败项重跑可使用同一运行、较早尝试的成功结果，要求原选择和执行身份仍匹配。旧版可信结果验证器继续核对它认识的原依赖。
+
 <a id="ci-install-apt-design"></a>
 ## 6. apt 的有界安装
 

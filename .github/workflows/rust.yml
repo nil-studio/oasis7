@@ -1306,6 +1306,8 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 32
+    outputs:
+      architecture-context: ${{ steps.architecture-context.outputs.context }}
     permissions:
       contents: read
       packages: read
@@ -1319,24 +1321,30 @@ jobs:
         shell: bash
     steps:
       - *linux-mold-tools-checkout
-      - name: Configure mold for Linux host linking
+      - &rust-baseline-mold
+        name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - &rust-baseline-checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Trust the checked-out workspace path in the job container
+      - &rust-baseline-safe-directory
+        name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &rust-baseline-selection
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - &rust-baseline-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Verify the preinstalled Rust toolchains
+      - &rust-baseline-toolchains
+        name: Verify the preinstalled Rust toolchains
         run: |
           set -euo pipefail
           rustc +"$RUST_TOOLCHAIN" -vV
@@ -1345,16 +1353,52 @@ jobs:
           cargo +"$RUST_TOOLCHAIN" fmt --version
           rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
           rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
-      - name: Stabilize Rust cache toolchains
+      - &rust-baseline-normalize-cache-toolchains
+        name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &rust-baseline-restore
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
           shared-key: ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
+      - &rust-architecture-context
+        name: Record Rust architecture execution context
+        id: architecture-context
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+        run: |
+          python3 -I - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          def output(*args):
+              return subprocess.check_output(args, text=True).strip()
+          def sha(data):
+              return hashlib.sha256(data).hexdigest()
+          env = os.environ
+          if output('git', 'rev-parse', 'HEAD') != env['TESTED_SHA']:
+              raise ValueError('Rust architecture checkout differs from the selected tested SHA')
+          plan = Path(env['RUNNER_TEMP'], 'selection.json').read_bytes()
+          keys = ('CARGO_INCREMENTAL', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG',
+                  'CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS', 'RUST_TOOLCHAIN',
+                  'OASIS7_WASM_TOOLCHAIN', 'OASIS7_WASM_TARGET', 'OASIS7_WASM_BUILD_STD',
+                  'OASIS7_WASM_BUILD_STD_COMPONENTS', 'CC', 'CFLAGS', 'CXX', 'CMAKE')
+          linker = Path(env['CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER'])
+          environment = dict(values={key: env.get(key) for key in keys},
+                             rustc=output('rustc', '-vV'), cargo=output('cargo', '-vV'),
+                             linker=sha(linker.read_bytes()),
+                             mold=output(str(linker.parent / 'mold'), '--version'))
+          context = dict(schema=1, run=env['GITHUB_RUN_ID'], attempt=env['GITHUB_RUN_ATTEMPT'],
+                         source=env['SOURCE_SHA'], tested=env['TESTED_SHA'],
+                         tree=output('git', 'rev-parse', 'HEAD^{tree}'), plan=sha(plan),
+                         environment=sha(json.dumps(environment, sort_keys=True).encode()))
+          with Path(env['GITHUB_OUTPUT']).open('a', encoding='utf-8') as file:
+              file.write('context=' + json.dumps(context, separators=(',', ':')) + '\n')
+          PY
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2
         with:
           tool: cargo-deny@0.19.9
@@ -1366,7 +1410,91 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
           OASIS7_SKIP_RUSTFMT: ${{ github.event_name == 'pull_request' && needs.fast-preflight.result == 'success' && fromJSON(needs.select.outputs.plan).scope != 'full' && '1' || '0' }}
-        run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --plan "$RUNNER_TEMP/selection.json" --repo-root "$GITHUB_WORKSPACE"
+        run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --rust-baseline-phase checks --plan "$RUNNER_TEMP/selection.json" --repo-root "$GITHUB_WORKSPACE"
+
+  rust-architecture:
+    needs: [select, fast-preflight]
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.fast-preflight.result == 'success' || needs.fast-preflight.result == 'skipped') &&
+      (needs.select.outputs.run_rust_baseline == 'true' ||
+       fromJSON(needs.select.outputs.plan).scope == 'full')
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
+    timeout-minutes: 32
+    outputs:
+      architecture-context: ${{ steps.architecture-context.outputs.context }}
+      architecture-report: ${{ steps.architecture-checks.outputs.report_sha }}
+      architecture-tree: ${{ steps.architecture-checks.outputs.report_tree }}
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - *linux-mold-tools-checkout
+      - *rust-baseline-mold
+      - *rust-baseline-checkout
+      - *rust-baseline-safe-directory
+      - *rust-baseline-selection
+      - *rust-baseline-python
+      - *rust-baseline-toolchains
+      - *rust-baseline-normalize-cache-toolchains
+      - *rust-baseline-restore
+      - *rust-architecture-context
+      - name: Execute selected architecture profiles
+        id: architecture-checks
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          ARCHITECTURE_CONTEXT: ${{ steps.architecture-context.outputs.context }}
+        run: |
+          set -euo pipefail
+          report="$(mktemp "$RUNNER_TEMP/architecture.XXXXXX")"
+          trap 'rm -f -- "$report"' EXIT
+          env -u RUSTC_WRAPPER cargo fetch --locked
+          if python3 scripts/cargo-dev-architecture.py --plan-file "$RUNNER_TEMP/selection.json" >"$report"; then
+            cat "$report"
+          else
+            cat "$report"
+            exit 1
+          fi
+          python3 -I - "$report" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          report = Path(sys.argv[1]).read_bytes()
+          data = json.loads(report)
+          env = os.environ
+          context = json.loads(env['ARCHITECTURE_CONTEXT'])
+          plan_bytes = Path(env['RUNNER_TEMP'], 'selection.json').read_bytes()
+          plan = json.loads(plan_bytes)
+          if hashlib.sha256(plan_bytes).hexdigest() != context['plan']:
+              raise ValueError('Rust architecture plan changed during execution')
+          evidence, timings = data['evidence'], data['timings']
+          if (evidence['source_sha'] != env['SOURCE_SHA']
+                  or evidence['tested_head'] != env['TESTED_SHA']
+                  or evidence['tested_tree'] != context['tree'] or evidence['tracked_changes']):
+              raise ValueError('Rust architecture report does not match the selected input')
+          if (timings['graph_profiles'] <= 0 or not data['results']
+                  or any(result['status'] not in ('pass', 'not_required', 'deferred_to_full')
+                         for result in data['results'])):
+              raise ValueError('Rust architecture report has incomplete coverage')
+          if (plan.get('architecture', {}).get('mode', 'full') == 'full'
+                  and evidence['selection']['mode'] != 'full'):
+              raise ValueError('Rust architecture report narrowed the full plan')
+          if (evidence['selection']['mode'] == 'full'
+                  and (timings['graph_profiles'] != timings['build_profiles']
+                       or timings['deferred_build_profiles'])):
+              raise ValueError('Rust architecture full profile build coverage is incomplete')
+          with Path(env['GITHUB_OUTPUT']).open('a', encoding='utf-8') as file:
+              file.write('report_sha=' + hashlib.sha256(report).hexdigest() + '\n')
+              file.write('report_tree=' + evidence['tested_tree'] + '\n')
+          PY
 
   cache-bootstrap-maintenance:
     cache-mode: none
@@ -4624,7 +4752,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    needs: [select, baseline, rust-baseline, oasis7-required, formal-process, distfs, node, net, viewer-js-required, launcher-web, workspace-support, workspace-support-other, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, fleet-health]
+    needs: [select, baseline, rust-baseline, rust-architecture, oasis7-required, formal-process, distfs, node, net, viewer-js-required, launcher-web, workspace-support, workspace-support-other, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, fleet-health]
     steps:
       - name: Require successful scope planning
         env:
@@ -4773,9 +4901,50 @@ jobs:
           if actual_identity != identities:
               raise ValueError('complete selection disagrees with independently selected identity')
           PY
-      - name: Validate all expected results
+      - name: Validate Rust architecture handoff
+        id: rust-architecture-handoff
         env:
           NEEDS: ${{ toJSON(needs) }}
+        run: |
+          env -u PYTHONPATH python3 -P - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          temp = Path(os.environ['RUNNER_TEMP'])
+          plan_bytes = (temp / 'selection.json').read_bytes()
+          plan = json.loads(plan_bytes)
+          needs = json.loads(os.environ['NEEDS'])
+          architecture = needs.pop('rust-architecture')
+          baseline = needs['rust-baseline']
+          selected = plan['scope'] == 'full' or 'rust_baseline' in plan['groups']
+          expected_result = 'success' if selected else 'skipped'
+          if architecture['result'] != expected_result or baseline['result'] != expected_result:
+              raise ValueError('Rust architecture and baseline jobs did not both return the selected result')
+          if selected:
+              expected = dict(schema=1, run=os.environ['GITHUB_RUN_ID'],
+                              source=needs['select']['outputs']['source_sha'],
+                              tested=needs['select']['outputs']['tested_sha'],
+                              plan=hashlib.sha256(plan_bytes).hexdigest())
+              contexts = []
+              for job in (baseline, architecture):
+                  context = json.loads(job['outputs']['architecture-context'])
+                  attempt, tree, environment = (context.pop(key) for key in ('attempt', 'tree', 'environment'))
+                  if (type(context.get('schema')) is not int or context != expected
+                          or not re.fullmatch('[1-9][0-9]{0,15}', attempt)
+                          or int(attempt) > int(os.environ['GITHUB_RUN_ATTEMPT'])
+                          or not re.fullmatch('[0-9a-f]{40}', tree)
+                          or not re.fullmatch('[0-9a-f]{64}', environment)):
+                      raise ValueError('Rust architecture execution context does not match selection')
+                  contexts.append((tree, environment))
+              outputs = architecture['outputs']
+              if (contexts[0] != contexts[1] or outputs['architecture-tree'] != contexts[0][0]
+                      or not re.fullmatch('[0-9a-f]{64}', outputs['architecture-report'])):
+                  raise ValueError('Rust architecture report does not match the baseline execution context')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as file:
+              file.write('legacy-needs=' + json.dumps(needs, separators=(',', ':')) + '\n')
+          PY
+      - name: Validate all expected results
+        env:
+          NEEDS: ${{ steps.rust-architecture-handoff.outputs.legacy-needs }}
         run: |
           env -u PYTHONPATH python3 -P - <<'PY'
           import importlib.util, os, runpy, sys
