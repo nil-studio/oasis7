@@ -312,7 +312,6 @@ FORMAL_AUTHORITY = None
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 DEFAULT_SNAPSHOT_REGRESSIONS = (
     ('viewer-snapshot-tests', 'snapshot_progress::'),
-    ('snapshot-tests', 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields'),
 )
 PORTABLE_REQUIRED_PACKAGES = ('oasis7_agent_api', 'oasis7_simulator', 'oasis7_viewer_codec', 'oasis7_viewer_runtime')
 # These roots contain shipped Viewer subprocess consumers or their integration

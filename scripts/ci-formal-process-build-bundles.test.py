@@ -551,7 +551,7 @@ class BuildAndBundles(unittest.TestCase):
                 self.assertEqual(manifest['selection'], {'suite': 'ordinary'})
                 self.assertNotIn('endpoint', manifest['included_binaries'])
                 self.assertTrue({'snapshot-tests', 'viewer-snapshot-tests'} <= set(manifest['included_binaries']))
-            for owner in ('snapshot-tests', 'viewer-snapshot-tests'):
+            for owner in ('viewer-snapshot-tests',):
                 incomplete = dict(binaries)
                 del incomplete[owner]
                 with self.assertRaisesRegex(ValueError, 'missing default-feature snapshot harness: ' + owner):

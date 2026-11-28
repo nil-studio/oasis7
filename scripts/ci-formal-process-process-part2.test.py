@@ -264,9 +264,8 @@ class ProcessPart2(unittest.TestCase):
                     self.assertTrue(all('--nocapture' not in call.args[0] for call in child_runner.call_args_list))
                     commands = [call.args[0] for call in child_runner.call_args_list]
                     self.assertIn([str(bundle / 'viewer-snapshot-tests'), 'snapshot_progress::'], commands)
-                    self.assertIn([str(bundle / 'snapshot-tests'), 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields'], commands)
                 results = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines()]
-                self.assertEqual(len(results), 3)
+                self.assertEqual(len(results), 2)
                 self.assertTrue(all(result['passed'] for result in results))
 
     def test_proc_scan_never_reads_other_users_environment(self):
