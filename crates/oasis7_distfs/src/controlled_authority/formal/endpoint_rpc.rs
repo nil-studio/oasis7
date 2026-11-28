@@ -1,11 +1,10 @@
-use super::super::transport::{Command, RESPONSE_DOMAIN, Response, ResponseBody, Value};
-use super::*;
-use oasis7_formal_protocol::controlled_authority::formal::{
-    bounded_context::FormalBoundedContextV1, context_wire::encode_paid,
+use super::super::transport::{
+    Command, RESPONSE_DIGEST_DOMAIN, RESPONSE_DOMAIN, Response, ResponseBody, Value,
+    paid_response_digest,
 };
+use super::*;
+use oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1;
 use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
-
-const RESPONSE_DIGEST_DOMAIN: &str = "oasis7.formal.endpoint.rpc.response_body.v1";
 
 pub(crate) struct RpcResponseOwner {
     // Drop the serialized fields before their source/copy reservations.
@@ -50,42 +49,6 @@ fn paid_checkpoint_copy(
             _copy_fee: copy_fee,
         },
     ))
-}
-
-fn paid_response_digest(
-    body: &ResponseBody,
-    ctx: &mut FormalBoundedContextV1<'_>,
-) -> Result<ReservedValue<String>, FormalError> {
-    let payload = encode_paid(
-        body,
-        64 << 20,
-        ctx,
-        "formal encoding exceeds byte bound",
-        "formal RPC response body encoding",
-    )?;
-    ctx.consume_steps(1)?;
-    // Admit the digest while its input payload is still live in the same pool.
-    let fee = ctx
-        .memory()
-        .reserve(64 + std::mem::size_of::<String>(), MemoryClass::Ordinary)
-        .map_err(|_| invalid("formal RPC response digest admission"))?;
-    let mut hash = blake3::Hasher::new();
-    for part in [
-        &(RESPONSE_DIGEST_DOMAIN.len() as u64).to_be_bytes()[..],
-        RESPONSE_DIGEST_DOMAIN.as_bytes(),
-        payload.as_slice(),
-    ] {
-        for chunk in part.chunks(8192) {
-            ctx.charge(1, chunk.len() as u64)?;
-            hash.update(chunk);
-        }
-    }
-    ctx.charge(1, 64)?;
-    let digest = hash.finalize().to_hex().to_string();
-    if digest.capacity() != 64 {
-        return Err(invalid("formal RPC response digest capacity"));
-    }
-    Ok(fee.retain(digest))
 }
 
 pub(crate) fn verify_formal_rpc_checkpoint(
