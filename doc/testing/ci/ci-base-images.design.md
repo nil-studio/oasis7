@@ -263,3 +263,17 @@ artifact名；仅增packages read拉取正式镜像，不扩大站点部署授�
 迁移实测只用受审隔离host/image两lane、pages read、enablement:false和
 独立artifact名，核原site的内容、相对路径和mode。不得在该测试调用
 部署动作、索取OIDC或启用Pages；只读A/B运输不代签真实生产部署。
+
+### Release 资格完成后的发布环境
+
+Release `publish-release` 使用正式api-runtime ba7c、UID/GID1001/init和原
+Bash语义；只增packages read拉取镜像，保contents write、原10分钟、上游
+资格、两个产物下载、七文件SHA256、tag逐层解注释/精确SHA、三平台
+SOURCEPLAN与BUILDINFO绑定和最终softprops动作/文件清单。业务shell仅
+使用gh/jq/GNU coreutils；action各自使用runner Node24，镜像自身的
+/usr/local/bin/node也以绝对路径实测，不借action Node冒认工具闭包。
+
+只读验证复用同一历史成功run/source的七个真实exact产物，核ZIP摘要及
+原metadata格式后执行原checksum/tag检查；缺字段原逻辑应拒绝，不生成
+或升级receipt。受控错误source用例不授资格，不调用softprops、OIDC或
+发布。ECS依赖oss2/STS的供应链预制是独立后批，不在此作业现场pip安装。
