@@ -331,6 +331,13 @@ def plan(args):
         elif path in ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
                       'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt'):
             add('actions-repo', path)
+        elif path in ('docker/ci-base/ecs-oss/Dockerfile', 'docker/ci-base/ecs-oss/build.sh'):
+            add('actions-repo', path)
+        elif path == 'docker/ci-base/ecs-oss/artifacts.json':
+            # Exact lock consumed by the leaf build and its Python downloader
+            # and capability smoke. Adjacent JSON stays unregistered.
+            add('actions-repo', path)
+            add('python-repo', path)
         elif path == 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile':
             add('actions-repo', path)
         elif path in ISSUE_METADATA_INPUTS or path in (
