@@ -17,10 +17,12 @@ mod luna_key;
 #[cfg(feature = "protected-bft-luna-key")]
 pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
+mod postgres_backend;
 mod private_retention_alternatives;
 mod private_retention_input;
 mod private_retention_input_authorization;
 mod private_retention_operation;
+pub use postgres_backend::{POSTGRES_BFT_SCHEMA_V1, PostgresBftSignerBackendV3};
 mod rotation;
 mod service;
 mod state;

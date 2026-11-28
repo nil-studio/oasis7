@@ -27,6 +27,7 @@ hex = "0.4"
 zstd = { version = "0.14.3", default-features = false }
 ed25519-dalek = "3"
 cryptoki = { version = "0.12.1", optional = true }
+postgres = "0.19.14"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
