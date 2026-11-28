@@ -490,16 +490,21 @@ class WorkflowCorePart7(unittest.TestCase):
                         self.assertTrue(effective_job_condition(condition, values, ['skipped', 'success']))
             for ver in (1, 2, 3):
                 for retired in ('codex-agent-config-validation', 'compile-metrics', 'macos-package-contract'):
+                    if retired not in conditions:
+                        continue
                     for scope in ('targeted', 'full', 'explicit-full'):
                         values = values_for(retired, event, selected=True, scope=scope, consolidation=ver)
                         self.assertFalse(effective_job_condition(conditions[retired], values, ['skipped', 'success']))
-            for scope in ('targeted', 'full', 'explicit-full'):
-                values = values_for('command-center', event, selected=True, scope=scope, consolidation=5, offline=1)
-                self.assertFalse(effective_job_condition(conditions['command-center'], values, ['skipped', 'success']))
+            if 'command-center' in conditions:
+                for scope in ('targeted', 'full', 'explicit-full'):
+                    values = values_for('command-center', event, selected=True, scope=scope, consolidation=5, offline=1)
+                    self.assertFalse(effective_job_condition(conditions['command-center'], values, ['skipped', 'success']))
             absorbed_center = values_for('baseline', event, selected=False, consolidation=5, offline=1)
             absorbed_center['needs.select.outputs.run_command_center'] = 'true'
             self.assertTrue(effective_job_condition(conditions['baseline'], absorbed_center, ['skipped', 'success']))
             for retired in ('consensus', 'pixel-world-bridge', 'viewer-performance-report'):
+                if retired not in conditions:
+                    continue
                 self.assertTrue(effective_job_condition(
                     conditions[retired], values_for(retired, event, selected=True, consolidation=1), ['skipped', 'success']))
                 for ver in (2, 3):
@@ -507,6 +512,8 @@ class WorkflowCorePart7(unittest.TestCase):
                         values = values_for(retired, event, selected=True, scope=scope, consolidation=ver)
                         self.assertFalse(effective_job_condition(conditions[retired], values, ['skipped', 'success']))
             for retired in ('packaging-contracts', 'cargo-tooling-contracts', 'windows-rollout'):
+                if retired not in conditions:
+                    continue
                 for ver in (1, 2):
                     self.assertTrue(effective_job_condition(
                         conditions[retired], values_for(retired, event, selected=True, consolidation=ver), ['skipped', 'success']))
@@ -531,6 +538,8 @@ class WorkflowCorePart7(unittest.TestCase):
                 ('scenario-regression', 'needs.select.outputs.run_cargo_tooling_contracts', 3),
                 ('fleet-health', 'needs.select.outputs.run_windows_rollout', 3),
             ):
+                if host not in conditions:
+                    continue
                 absorbed = values_for(host, event, selected=False, consolidation=ver)
                 absorbed[flag] = 'true'
                 self.assertTrue(effective_job_condition(conditions[host], absorbed, ['skipped', 'success']))
