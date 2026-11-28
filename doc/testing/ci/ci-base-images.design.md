@@ -129,6 +129,33 @@ moving their writers. Candidate full regression retains its current
 runner until its canonical build can use an isolated Docker boundary.
 
 
+#### 可信全量测试的宿主缓存兼容
+
+四个角色保留原宿主路径、SDK 归档成员和版本。归档安装工作目录固定为
+`/home/runner/work/oasis7/oasis7`，Linux X64 使用原 `zstd-without-long` 与
+`enableCrossOsArchive=false`。容器内路径或解包后的内容摘要不能替代 SDK
+版本输入。
+
+| 角色 | 原始缓存路径 | 键与保存条件 |
+| --- | --- | --- |
+| npm | `/home/runner/.npm` | 原 setup-node 对 Viewer lockfile 的 `glob.hashFiles` 结果，保留 `node-cache-Linux-x64-npm-`；原主键精确命中时跳过 post 保存 |
+| Trunk | `/home/runner/work/_temp/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz` | 原 Linux/X64、固定版本和安装脚本的 GitHub `hashFiles`；安装仍核 SHA 和实际工具版本 |
+| wasm-bindgen | `/home/runner/.cache/oasis7/wasm-bindgen-cli/<lock-version>` | 原 Rust、锁定 CLI 版本和两个工具定义文件的 GitHub `hashFiles`；原可信 main、未精确命中、准备成功后保存 |
+| sentinel | `/home/runner/work/_temp/cache-permission-sentinel` | 原固定 `oasis7-cache-permission-sentinel-trusted-v2`，只写入明确的可信 main 见证 |
+
+离线角色模块消费实际 metadata 提供的摘要和原主键，拒绝替换根及降级
+匹配；它不会计算 setup-node 的 lock 文件摘要或授权保存。后续接线要求
+以实际运行的原 metadata 生成器锁定这些值，再用 SDK V2 解包前检查逐角色
+限制成员类型、后缀和字节上限。每个真实 post 保存仍需绑定该 job、source、
+ref、原动作结果、实际归档大小和仓库预算，拒绝不能触发预约。离线 tar
+夹具不证明缓存 API、实际历史版本命中或正常 main 保存。
+
+完整容器入口需预置当前 Rust 稳定版和锁定夜间版、WASM targets/rust-src、
+Node22/npm、当前 mold、clang/LLVM、固定 cargo-deny、能执行原 venv 合同的
+Python，以及 Trunk 与 wasm-bindgen 的原版本校验。Provider 如从原可信
+宿主构建阶段交接，应同 run 锁定真实 source、canonical recipe、构件清单
+及 SHA，容器使用原 checker 验证后才接收；候选不获得该宿主权限。
+
 ### 有限归档 Adapter 的消费边界
 
 有限入口位于 `.github/actions/portable-cache-transport/`，直接导入上述固定 SDK，不另行安装依赖或打包自有逻辑。它只接受原 `worker-build` 与三种 `browser-archive` component，由原 metadata helper 派生 key、root、条目与字节上限；调用者不能指定 cwd、raw paths 或 fallback keys。SDK 使用固定宿主 canonical 工作根，保留原归档相对成员和缓存版本，不改 `GITHUB_*`。执行前核对实际 checkout HEAD、工作区和动作目录 inode、可信 main workflow/job、V2/read-write 模式与 UID/GID；save 仍依赖原 helper 的 REST/库存/20 GB 准入及测量结果，不新增授权路径。

@@ -2007,6 +2007,40 @@ class PythonControlContracts(unittest.TestCase):
         self.assertIn('scripts/ci-cache-policy.test.py',
                       plan['python_control_tests']['workflow_governance'])
 
+    def test_dark_full_cache_roles_use_the_trusted_exact_control_paths(self):
+        config = self.trusted()
+        paths = ('scripts/ci-trusted-full-regression-cache-roles.mjs',
+                 'scripts/ci-trusted-full-regression-cache-roles.test.mjs')
+        old = json.loads(json.dumps(config))
+        for path in paths:
+            del old['scoped_control_paths'][path]
+            self.write(path, 'export {};\n')
+        self.write('scripts/ci-cache-sdk.test.py', '# SDK executes its Node fixture\n')
+        head = self.commit()
+        plan = selector.select(old, self.base, head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'full')
+        for path in paths:
+            self.assertIn('shared build or CI control changed: ' + path, plan['reasons'])
+        plan = selector.select(config, self.base, head, profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+        for path in paths:
+            self.assertIn('scoped CI control changed: ' + path, plan['reasons'])
+        self.assertIn('scripts/ci-cache-sdk.test.py', plan['python_control_tests']['workflow_governance'])
+
+        for path in ('scripts/ci-trusted-full-regression-cache-roles-other.mjs',
+                     '.github/workflows/rust.yml', 'scripts/ci-trusted-full-regression.py',
+                     'scripts/ci-rust-cache-admission.py'):
+            with self.subTest(path=path):
+                changed = self.change(path)
+                prior = selector.select(old, head, changed)
+                current = selector.select(config, head, changed)
+                for field in ('scope', 'groups', 'reasons'):
+                    self.assertEqual(current[field], prior[field])
+                if path.endswith('.mjs') or path == '.github/workflows/rust.yml':
+                    self.assertEqual(current['scope'], 'full')
+                head = changed
+
     def test_unknown_control_and_shared_build_inputs_keep_full_coverage(self):
         config = self.trusted()
         for path in ('scripts/ci-new-unregistered.py', 'scripts/ci-tests.sh',

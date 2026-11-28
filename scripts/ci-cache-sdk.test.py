@@ -59,7 +59,9 @@ class CacheSdkTests(unittest.TestCase):
             environment = {'PATH': os.environ['PATH'], 'HOME': temporary,
                            'TMPDIR': temporary, 'LANG': 'C.UTF-8',
                            'CACHE_SDK_FIXTURE_PYTHON': sys.executable}
-            result = run(['node', '--test', str(ACTION / 'sdk.test.cjs')], ROOT,
+            suites = [str(ACTION / 'sdk.test.cjs'),
+                      str(ROOT / 'scripts/ci-trusted-full-regression-cache-roles.test.mjs')]
+            result = run(['node', '--test', *suites], ROOT,
                          environment, 'ci-tools', 'cache-sdk-loopback',
                          Path(temporary) / 'processes.jsonl', timeout_seconds=120)
             self.assertTrue(result['passed'], result)
