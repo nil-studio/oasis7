@@ -1247,6 +1247,14 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             'full-regression', 'candidate-full-regression',
             *(group.replace('_', '-') for group in CONFIG['groups']),
         } - {job for job in retired_zombie_jobs if job not in JOBS}
+        if 'rust-architecture' in JOBS or '--rust-baseline-phase checks' in JOBS['rust-baseline']:
+            self.assertIn('rust-architecture', JOBS)
+            self.assertIn('--rust-baseline-phase checks', JOBS['rust-baseline'])
+            self.assertIn('${{ steps.rust-architecture-handoff.outputs.legacy-needs }}', gate)
+            receipt = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', gate, re.M | re.S)
+                           if 'name: Validate Rust architecture handoff\n' in step)
+            self.assertNotRegex(receipt, r'(?m)^        (?:if|continue-on-error):')
+            expected.add('rust-architecture')
         self.assertEqual(set(dependencies), expected)
         self.assertEqual(len(dependencies), len(set(dependencies)))
         self.assertIn('always()', gate)
