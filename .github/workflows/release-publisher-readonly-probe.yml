@@ -10,9 +10,9 @@ permissions:
   packages: read
 jobs:
   host:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref
-      == 'task/engineering-release-publisher-readonly-probe' && github.base_ref ==
-      'task/engineering-release-publisher-image' && github.event.pull_request.draft
+    if: github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name
+      == github.repository && github.head_ref == 'task/engineering-release-publisher-readonly-probe'
+      && github.base_ref == 'task/engineering-release-publisher-image' && github.event.pull_request.draft
       && github.event.pull_request.title == 'Release publisher readonly replay 20261128-v1'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -179,13 +179,17 @@ jobs:
       run: |
         set -euo pipefail
         export PLANNED_SHA=0000000000000000000000000000000000000000
-        if bash proof/original-tag.sh > proof/wrong-source.log 2>&1; then
+        set +e
+        bash -x proof/original-tag.sh > proof/wrong-source.log 2>&1
+        rc=$?
+        set -e
+        if test "$rc" -ne 1; then
           echo 'wrong planned source accepted' >&2
           exit 1
         fi
+        tail -1 proof/wrong-source.log > proof/negative.txt
+        test "$(cat proof/negative.txt)" = '+ test 3d8b22af93f214e4cbe945c2880a57c92f52d804 = 0000000000000000000000000000000000000000'
         rm proof/wrong-source.log
-        printf 'wrong source rejected by original tag assertion
-        ' > proof/negative.txt
     - name: Verify actual historic files and checksum
       run: |
         set -euo pipefail
@@ -194,12 +198,12 @@ jobs:
         from pathlib import Path
         import hashlib,json
         p=Path('output/release/assets')
-        expected_names={'oasis7-linux-x64.deb','oasis7-macos-x64.dmg','oasis7-windows-x64.exe','oasis7-linux-x64-ops-tools.tar.gz','oasis7-macos-x64-ops-tools.tar.gz','oasis7-windows-x64-ops-tools.tar.gz','oasis7-viewer-web-delivery.tar.gz','oasis7-checksums.txt'}|{f'{platform}-{kind}' for platform in ['linux-x64','macos-x64','windows-x64'] for kind in ['3d8b22af93f214e4cbe945c2880a57c92f52d804PLAN.json','BUILDINFO']}
+        expected_names={'oasis7-linux-x64.deb','oasis7-macos-x64.dmg','oasis7-windows-x64.exe','oasis7-linux-x64-ops-tools.tar.gz','oasis7-macos-x64-ops-tools.tar.gz','oasis7-windows-x64-ops-tools.tar.gz','oasis7-viewer-web-delivery.tar.gz','oasis7-checksums.txt'}|{f'{platform}-{kind}' for platform in ['linux-x64','macos-x64','windows-x64'] for kind in ['SOURCEPLAN.json','BUILDINFO']}
         assert {x.name for x in p.iterdir()}==expected_names
         assert all(x.is_file() and not x.is_symlink() for x in p.iterdir())
         assert hashlib.sha256((p/'oasis7-checksums.txt').read_bytes()).hexdigest()=='e81bcbdf8722e3957cc15dea565d3e37459a1d0f315ae9d8535e77beaa10aa30'
         for platform in ['linux-x64','macos-x64','windows-x64']:
-            raw=(p/f'{platform}-3d8b22af93f214e4cbe945c2880a57c92f52d804PLAN.json').read_bytes()
+            raw=(p/f'{platform}-SOURCEPLAN.json').read_bytes()
             assert hashlib.sha256(raw).hexdigest()=='2481df4b193573592e4d66c7ece2ef8c7dce9c691d1712c4117a8e647501422c'
             assert json.loads(raw)['checkoutSha']=='3d8b22af93f214e4cbe945c2880a57c92f52d804'
             expected_buildinfo={'linux-x64':'495ec35c7a122f6f1dc8d202f348f4a320937c8989763ce50f5e8ac660b7b0dd','macos-x64':'d2072ec163f262db215b60900579f10da737b6b9551aa531036b85f7d0c0530c','windows-x64':'4cdae34c75b06ac4bd9f7f174f03bc74bf9eea35b8bbd18c1e2c304e9c906afb'}
@@ -215,9 +219,9 @@ jobs:
         if-no-files-found: error
         retention-days: 2
   image:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref
-      == 'task/engineering-release-publisher-readonly-probe' && github.base_ref ==
-      'task/engineering-release-publisher-image' && github.event.pull_request.draft
+    if: github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name
+      == github.repository && github.head_ref == 'task/engineering-release-publisher-readonly-probe'
+      && github.base_ref == 'task/engineering-release-publisher-image' && github.event.pull_request.draft
       && github.event.pull_request.title == 'Release publisher readonly replay 20261128-v1'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -394,13 +398,17 @@ jobs:
       run: |
         set -euo pipefail
         export PLANNED_SHA=0000000000000000000000000000000000000000
-        if bash proof/original-tag.sh > proof/wrong-source.log 2>&1; then
+        set +e
+        bash -x proof/original-tag.sh > proof/wrong-source.log 2>&1
+        rc=$?
+        set -e
+        if test "$rc" -ne 1; then
           echo 'wrong planned source accepted' >&2
           exit 1
         fi
+        tail -1 proof/wrong-source.log > proof/negative.txt
+        test "$(cat proof/negative.txt)" = '+ test 3d8b22af93f214e4cbe945c2880a57c92f52d804 = 0000000000000000000000000000000000000000'
         rm proof/wrong-source.log
-        printf 'wrong source rejected by original tag assertion
-        ' > proof/negative.txt
     - name: Verify actual historic files and checksum
       run: |
         set -euo pipefail
@@ -409,12 +417,12 @@ jobs:
         from pathlib import Path
         import hashlib,json
         p=Path('output/release/assets')
-        expected_names={'oasis7-linux-x64.deb','oasis7-macos-x64.dmg','oasis7-windows-x64.exe','oasis7-linux-x64-ops-tools.tar.gz','oasis7-macos-x64-ops-tools.tar.gz','oasis7-windows-x64-ops-tools.tar.gz','oasis7-viewer-web-delivery.tar.gz','oasis7-checksums.txt'}|{f'{platform}-{kind}' for platform in ['linux-x64','macos-x64','windows-x64'] for kind in ['3d8b22af93f214e4cbe945c2880a57c92f52d804PLAN.json','BUILDINFO']}
+        expected_names={'oasis7-linux-x64.deb','oasis7-macos-x64.dmg','oasis7-windows-x64.exe','oasis7-linux-x64-ops-tools.tar.gz','oasis7-macos-x64-ops-tools.tar.gz','oasis7-windows-x64-ops-tools.tar.gz','oasis7-viewer-web-delivery.tar.gz','oasis7-checksums.txt'}|{f'{platform}-{kind}' for platform in ['linux-x64','macos-x64','windows-x64'] for kind in ['SOURCEPLAN.json','BUILDINFO']}
         assert {x.name for x in p.iterdir()}==expected_names
         assert all(x.is_file() and not x.is_symlink() for x in p.iterdir())
         assert hashlib.sha256((p/'oasis7-checksums.txt').read_bytes()).hexdigest()=='e81bcbdf8722e3957cc15dea565d3e37459a1d0f315ae9d8535e77beaa10aa30'
         for platform in ['linux-x64','macos-x64','windows-x64']:
-            raw=(p/f'{platform}-3d8b22af93f214e4cbe945c2880a57c92f52d804PLAN.json').read_bytes()
+            raw=(p/f'{platform}-SOURCEPLAN.json').read_bytes()
             assert hashlib.sha256(raw).hexdigest()=='2481df4b193573592e4d66c7ece2ef8c7dce9c691d1712c4117a8e647501422c'
             assert json.loads(raw)['checkoutSha']=='3d8b22af93f214e4cbe945c2880a57c92f52d804'
             expected_buildinfo={'linux-x64':'495ec35c7a122f6f1dc8d202f348f4a320937c8989763ce50f5e8ac660b7b0dd','macos-x64':'d2072ec163f262db215b60900579f10da737b6b9551aa531036b85f7d0c0530c','windows-x64':'4cdae34c75b06ac4bd9f7f174f03bc74bf9eea35b8bbd18c1e2c304e9c906afb'}
