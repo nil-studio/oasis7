@@ -921,6 +921,11 @@ def sync_container_contract(workflow):
     cache = steps.index('      - uses: Swatinem/rust-cache@')
     gate = steps.index('      - name: Run runtime sync release gate\n')
     assert tools < source < preflight < cache < gate
+    protected_tools = steps[tools:source]
+    assert protected_tools.count('safe.directory') == 2
+    assert 'git config --global --add safe.directory "$GITHUB_WORKSPACE"' in protected_tools
+    assert 'git config --global --add safe.directory /home/runner/work/oasis7/oasis7' in protected_tools
+    assert protected_tools.index("stat -c '%d:%i'") < protected_tools.index('git config --global') < protected_tools.index('git show ')
     assert steps.count('preflight "$EXPECTED_SHA"') == 1
     assert 'Select runtime sync image' not in steps and 'GHCR_TOKEN:' not in steps
     assert '        if: ${{ !job.container.id }}\n        uses: ./.github/actions/setup-linux-mold' in steps
@@ -946,6 +951,7 @@ for workflow in (release, mainnet):
         workflow.replace('          save-if: false', '          save-if: true'),
         workflow.replace('sync-m5-builtin-wasm-artifacts.sh --check', 'sync-m5-builtin-wasm-artifacts.sh'),
         workflow.replace('      volumes:\n', '      options: --privileged\n      volumes:\n'),
+        workflow.replace('safe.directory "$GITHUB_WORKSPACE"', 'safe.directory "*"'),
     ):
         try:
             sync_container_contract(changed)

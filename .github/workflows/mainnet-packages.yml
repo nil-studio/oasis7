@@ -360,6 +360,10 @@ jobs:
         if: job.container.id
         run: |
           set -euo pipefail
+          test "$(id -u):$(id -g)" = 0:0
+          test "$(stat -c '%d:%i' "$GITHUB_WORKSPACE")" = "$(stat -c '%d:%i' /home/runner/work/oasis7/oasis7)"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /home/runner/work/oasis7/oasis7
           tools="$RUNNER_TEMP/runtime-sync-tools"
           mkdir -m 700 "$tools"
           git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-sync-container.py" > "$tools/package-release-runtime-sync-container.py"
