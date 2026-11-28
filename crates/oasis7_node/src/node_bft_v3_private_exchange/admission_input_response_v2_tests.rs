@@ -608,7 +608,12 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     request: &AdmissionBatchRequestV2,
     context: &super::super::admission_input_request_v2::AdmissionInputBoundContextV2,
 ) {
-    use super::super::admission_input_live_v2::ProtectedOriginalResponseChargeV2;
+    use super::super::admission_input_live_v2::{
+        ProtectedOriginalAdmissionAuthorityV2, ProtectedOriginalAdmissionContextV2,
+        ProtectedOriginalAdmissionPartsV2, ProtectedOriginalAdmissionRetainedAuthorityV2,
+        ProtectedOriginalAdmissionSourceV2, ProtectedOriginalResponseChargeV2,
+    };
+    use super::super::admission_input_request_v2::VerifiedAdmissionBatchSubjectV2;
     use oasis7_distfs::protected_bft_v3::{
         BftFirstReserveSnapshotV1, BftFreshCoverageSnapshotV1, BftOriginalRetentionTxnSnapshotV1,
         BftPrivateRetentionCreationMarkerV1, BftPrivateRetentionHeadV1, BftSignerAcquireOutcomeV3,
@@ -618,8 +623,9 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
         collections::BTreeMap,
         sync::{
             Arc, Mutex,
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicU64, Ordering},
         },
+        time::{Duration, Instant},
     };
 
     struct ProtectedSpy {
@@ -708,6 +714,40 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
         }
     }
 
+    // The live adapter is deliberately source-only here; no second reserve
+    // method or fallback cost ledger may be supplied by its issuer fixture.
+    struct SourceSpy {
+        bound: super::super::admission_input_request_v2::AdmissionInputBoundContextV2,
+    }
+    impl ProtectedOriginalAdmissionSourceV2 for SourceSpy {
+        fn current_context(
+            &self,
+            request: &AdmissionBatchRequestV2,
+        ) -> Result<ProtectedOriginalAdmissionContextV2, String> {
+            request.verify_bound_subject(&self.bound)?;
+            Ok(ProtectedOriginalAdmissionContextV2 {
+                bound: self.bound.clone(),
+                original_attempt_deadline: Instant::now() + Duration::from_secs(30),
+                current_generation: Arc::new(AtomicU64::new(7)),
+                expected_generation: 7,
+                reply_permitted: Arc::new(AtomicBool::new(true)),
+            })
+        }
+        fn read_authorized_parts(
+            &self,
+            subject: &VerifiedAdmissionBatchSubjectV2,
+            _deadline: Instant,
+        ) -> Result<ProtectedOriginalAdmissionPartsV2, String> {
+            let parts = subject.read().ranges()?.iter().map(|part| {
+                vec![0x21; part.length as usize]
+            }).collect();
+            Ok(ProtectedOriginalAdmissionPartsV2 {
+                parts,
+                transport_hold: Box::new(()), // test-only, NOT protected memory.
+            })
+        }
+    }
+
     let reference = &request.read.reference;
     let mut signer_state: BftSignerStateV3 = serde_json::from_value(serde_json::json!({
         "schema_version": 3,
@@ -765,8 +805,20 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
         lost_commit_reply: Arc::clone(&lost_commit_reply),
     };
     let charge = ProtectedOriginalResponseChargeV2::new(Box::new(spy), 7, token).unwrap();
+    let authority = ProtectedOriginalAdmissionRetainedAuthorityV2::new(
+        Arc::new(SourceSpy {
+            bound: context.clone(),
+        }),
+        charge,
+    );
     let subject = request.verify_bound_subject(context).unwrap();
-    charge
+    let verified_context = authority.current_context(request).unwrap();
+    assert_eq!(verified_context.bound.schedule_digest, context.schedule_digest);
+    let source_parts = authority
+        .read_authorized_parts(&subject, Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(source_parts.parts.len(), 3);
+    authority
         .reserve_encoded_response_and_readback(&subject, 65_540)
         .unwrap();
     assert_eq!(
@@ -780,7 +832,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     );
     lost_commit_reply.store(true, Ordering::SeqCst);
     assert!(
-        charge
+        authority
             .reserve_encoded_response_and_readback(&subject, 80)
             .is_err()
     );
@@ -795,7 +847,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     );
     // The uncertain reply must NOT permit a second unbounded debit or release.
     assert!(
-        charge
+        authority
             .reserve_encoded_response_and_readback(&subject, 80)
             .is_err()
     );
