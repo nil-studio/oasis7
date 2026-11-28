@@ -1210,8 +1210,6 @@
     ".github/instructions/pr-review.instructions.md": ["workflow_governance"],
     ".github/pull_request_template.md": ["workflow_governance"],
     ".github/workflows/codeql.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-wasm-metadata.yml": ["workflow_governance"],
     ".github/dependabot.yml": ["workflow_governance"],
     ".github/workflows/ci-base-images.yml": ["workflow_governance", "packaging_contracts"],
     ".github/workflows/daily-github-release.yml": ["workflow_governance"],
