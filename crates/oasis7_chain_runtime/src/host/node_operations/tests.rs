@@ -224,6 +224,25 @@ fn operation_cli_tail_help_and_strict_options() {
     assert!(super::run(["plan", "--help"].into_iter()).is_ok());
     assert!(super::run(["resume", "--store", "--id", "x"].into_iter()).is_err());
     assert!(super::run(["validator-replace"].into_iter()).is_err());
+    // The same shipping original-verify entrypoint must still reject caller-
+    // invented roots and malformed external pins before any owner/Host read.
+    assert!(
+        super::run(
+            [
+                "formal-original-verify",
+                "--config",
+                "/unavailable/formal.json",
+                "--owner-snapshot",
+                "/unavailable/owner.json",
+                "--root",
+                "noncanonical-original-root",
+                "--count",
+                "1",
+            ]
+            .into_iter(),
+        )
+        .is_err()
+    );
 }
 
 #[cfg(feature = "test_tier_full")]
