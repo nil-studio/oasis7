@@ -1,0 +1,181 @@
+name: Formal native owner inventory probe
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-formal-native-owners-probe-base]
+    paths: [.github/workflows/formal-native-owners-probe.yml]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+env:
+  SOURCE_SHA: d9d423bc01955ade64684af043a53104a272d9a7
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_NET_RETRY: '10'
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  RUST_TOOLCHAIN: '1.96.0'
+  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+  OASIS7_WASM_TARGET: wasm32-unknown-unknown
+  OASIS7_WASM_BUILD_STD: '1'
+  OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+jobs:
+  component:
+    if: >-
+      github.repository == 'nil-studio/oasis7' && github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.base_ref == 'codex/engineering-formal-native-owners-probe-base' &&
+      github.event.pull_request.base.sha == 'd9d423bc01955ade64684af043a53104a272d9a7' &&
+      github.head_ref == 'codex/engineering-formal-native-owners-probe'
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [formal-debug, formal-endpoint]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    container: &formal-image
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - &formal-checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - &formal-prepare
+        id: prepare
+        name: Verify the actual image and tested checkout
+        run: |
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = 1001:1001
+          test -z "${DOCKER_HOST:-}"
+          test ! -w /var/run/docker.sock
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(pwd -P)" = "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          rustc +"$RUST_TOOLCHAIN" -vV
+          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
+          python3 -I -c 'import sys; assert sys.version_info[:2] == (3,12)'
+          pkg-config --modversion x11 xi xcursor xrandr xinerama alsa libudev
+          printf 'temp=%s\n' "$(realpath -- "$RUNNER_TEMP")" >> "$GITHUB_OUTPUT"
+      - &formal-mold
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ steps.prepare.outputs.temp }}/formal-owner-mold
+      - id: build
+        name: Compile and archive the original locked component
+        env:
+          ROLE: ${{ matrix.role }}
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/$ROLE"
+          python3 scripts/ci-test-artifacts.py build --scope "$ROLE" \
+            --formal-config "$GITHUB_WORKSPACE/scripts/ci-formal-process-suites.json" --bundle "$bundle"
+          archive="$RUNNER_TEMP/$ROLE.tar.gz"
+          tar -C "$bundle" -czf "$archive" .
+          printf 'archive=%s\n' "$(realpath -- "$archive")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostic-${{ matrix.role }}
+          path: ${{ steps.build.outputs.archive }}
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+  merge:
+    needs: component
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container: *formal-image
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - *formal-checkout
+      - *formal-prepare
+      - *formal-mold
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: diagnostic-formal-debug
+          path: ${{ steps.prepare.outputs.temp }}/debug-input
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: diagnostic-formal-endpoint
+          path: ${{ steps.prepare.outputs.temp }}/endpoint-input
+      - id: inventory
+        name: Merge real components and verify all five packed inventory manifests
+        run: |
+          set -euo pipefail
+          for role in debug endpoint; do
+            mkdir "$RUNNER_TEMP/$role"
+            tar -xzf "$RUNNER_TEMP/$role-input/formal-$role.tar.gz" -C "$RUNNER_TEMP/$role"
+          done
+          authority="$GITHUB_WORKSPACE/scripts/ci-formal-process-suites.json"
+          python3 scripts/ci-test-artifacts.py merge-formal --debug-bundle "$RUNNER_TEMP/debug" \
+            --endpoint-bundle "$RUNNER_TEMP/endpoint" --bundle "$RUNNER_TEMP/merged" --formal-config "$authority"
+          python3 scripts/ci-test-artifacts.py pack --bundle "$RUNNER_TEMP/merged" \
+            --formal-config "$authority" --split-formal --output "$RUNNER_TEMP/packed"
+          python3 - "$authority" <<'PY'
+          import hashlib, json, os, pathlib, tarfile, sys
+
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          assert workspace.resolve() == workspace
+          load = lambda path: json.loads(path.read_bytes())
+          config = load(pathlib.Path(sys.argv[1]))
+          merged = load(root / "merged/manifest.json")
+          exact = sum(len(entries) for entries in config['suites'].values())
+          auxiliary = sum(len(entries) for entries in config['auxiliary_entries'].values())
+          shell = sum(len(entries) for entries in config['shell_tests'].values())
+          assert (exact, auxiliary, shell) == (29, 7, 2)
+          for path, scope in ((root / "debug/manifest.json", "formal-debug"),
+                              (root / "endpoint/manifest.json", "formal-endpoint")):
+              component = load(path)
+              assert (component['scope'], component['checkout'], component['source_sha'],
+                      component['producer_run_id'], component['producer_attempt']) == (
+                          scope, str(workspace), os.environ['SOURCE_SHA'], os.environ['GITHUB_RUN_ID'],
+                          os.environ['GITHUB_RUN_ATTEMPT'])
+              assert merged['components'][scope]['manifest_sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
+          assert "oasis7-lib-tests" not in merged["binaries"]
+          assert merged["binaries"]["runtime-tests"]["package"] == "oasis7_chain_runtime"
+          assert merged["binaries"]["distfs-tests"]["package"] == "oasis7_distfs"
+          for name, expected in config['suites'].items():
+              assert all(case in merged['suites'][name] for case in expected), name
+          for binary, expected in config['auxiliary_entries'].items():
+              assert set(expected) <= set(merged['binaries'][binary]['tests']), binary
+          for suite, scripts in config['shell_tests'].items():
+              assert all({'script': script} in merged['suites'][suite] for script in scripts), suite
+          shards = {}
+          for archive in sorted((root / 'packed').glob('*.tar.gz')):
+              shard = archive.name.removesuffix('.tar.gz')
+              with tarfile.open(archive) as packaged:
+                  manifest = json.load(packaged.extractfile('manifest.json'))
+                  assert manifest['selection'] == {'shard': shard}
+                  assert manifest['components'] == merged['components']
+                  assert manifest['source_sha'] == os.environ['SOURCE_SHA']
+                  assert manifest['checkout'] == str(workspace)
+              shards[shard] = len(manifest['binaries'])
+          assert set(shards) == {'runtime-protocol','world-history','healthy-set','storage-recovery','lifecycle-cli'}
+          proof = dict(source=os.environ['SOURCE_SHA'], run=os.environ['GITHUB_RUN_ID'],
+                       attempt=os.environ['GITHUB_RUN_ATTEMPT'], checkout=str(workspace), roles=merged['components'],
+                       exact=exact, auxiliary=auxiliary, shell=shell, suites={name:len(entries) for name,entries in merged['suites'].items()},
+                       shards=shards, complete_business_execution=False)
+          print(json.dumps(proof, sort_keys=True))
+          (root / 'formal-native-owner-inventory.json').write_text(json.dumps(proof, indent=2) + '\n')
+          PY
+          printf 'report=%s\n' "$(realpath -- "$RUNNER_TEMP/formal-native-owner-inventory.json")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formal-native-owner-inventory
+          path: ${{ steps.inventory.outputs.report }}
+          retention-days: 2
+          if-no-files-found: error
