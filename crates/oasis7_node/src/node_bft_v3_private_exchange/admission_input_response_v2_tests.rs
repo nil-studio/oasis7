@@ -599,4 +599,213 @@ fn real_original_admission_noise_is_bound_and_charged() {
         .is_err()
     );
     assert_eq!(authority.reads.load(Ordering::SeqCst), reads_after_success);
+    check_one_protected_original_response_cas_and_uncertain_commit(&request, &authority.bound);
+}
+
+// Called from the existing selected two-peer Noise test. This in-memory spy
+// represents ONLY the backend interface transaction, never HSM/DB custody.
+fn check_one_protected_original_response_cas_and_uncertain_commit(
+    request: &AdmissionBatchRequestV2,
+    context: &super::super::admission_input_request_v2::AdmissionInputBoundContextV2,
+) {
+    use super::super::admission_input_live_v2::ProtectedOriginalResponseChargeV2;
+    use oasis7_distfs::protected_bft_v3::{
+        BftFirstReserveSnapshotV1, BftFreshCoverageSnapshotV1, BftOriginalRetentionTxnSnapshotV1,
+        BftPrivateRetentionCreationMarkerV1, BftPrivateRetentionHeadV1, BftSignerAcquireOutcomeV3,
+        BftSignerBackendSnapshotV3, BftSignerBackendV3, BftSignerErrorV3, BftSignerStateV3,
+    };
+    use std::{
+        collections::BTreeMap,
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+
+    struct ProtectedSpy {
+        state: Arc<Mutex<BftOriginalRetentionTxnSnapshotV1>>,
+        lost_commit_reply: Arc<AtomicBool>,
+    }
+    impl BftSignerBackendV3 for ProtectedSpy {
+        fn load_provisioned(
+            &mut self,
+            _: &str,
+        ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+            Err(BftSignerErrorV3("fixture does not provision signer".into()))
+        }
+        fn acquire_lease(
+            &mut self,
+            _: &str,
+            _: u64,
+            _: &str,
+        ) -> Result<BftSignerAcquireOutcomeV3, BftSignerErrorV3> {
+            Err(BftSignerErrorV3(
+                "fixture has no physical lease acquire".into(),
+            ))
+        }
+        fn release_lease(
+            &mut self,
+            _: u64,
+            _: &str,
+        ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+            Err(BftSignerErrorV3(
+                "fixture cannot release a physical lease".into(),
+            ))
+        }
+        fn read_for_lease(
+            &mut self,
+            _: u64,
+            _: &str,
+        ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+            Err(BftSignerErrorV3(
+                "fixture has no separate signer snapshot".into(),
+            ))
+        }
+        fn protected_time_ms(&mut self, _: u64, _: &str) -> Result<i64, BftSignerErrorV3> {
+            Err(BftSignerErrorV3(
+                "fixture cannot sample protected time".into(),
+            ))
+        }
+        fn compare_and_swap(
+            &mut self,
+            _: u64,
+            _: &str,
+            _: u64,
+            _: &str,
+            _: Option<i64>,
+            _: BftSignerStateV3,
+        ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
+            Err(BftSignerErrorV3("separate State CAS forbidden".into()))
+        }
+        fn read_original_operation_envelope_for_lease(
+            &mut self,
+            generation: u64,
+            token_digest: &str,
+        ) -> Result<BftOriginalRetentionTxnSnapshotV1, BftSignerErrorV3> {
+            let snapshot = self.state.lock().unwrap().clone();
+            if snapshot.current.current.signer.lease_generation != generation
+                || snapshot.current.current.signer.lease_token_digest != token_digest
+            {
+                return Err(BftSignerErrorV3("stale original backend lease".into()));
+            }
+            Ok(snapshot)
+        }
+        fn compare_and_commit_original_operation_envelope(
+            &mut self,
+            expected: &BftOriginalRetentionTxnSnapshotV1,
+            next: &BftOriginalRetentionTxnSnapshotV1,
+        ) -> Result<(), BftSignerErrorV3> {
+            let mut state = self.state.lock().unwrap();
+            if *state != *expected {
+                return Err(BftSignerErrorV3("stale protected full tuple".into()));
+            }
+            *state = next.clone();
+            // A persisted commit with a lost acknowledgement remains charged.
+            if self.lost_commit_reply.swap(false, Ordering::SeqCst) {
+                return Err(BftSignerErrorV3("unknown protected commit response".into()));
+            }
+            Ok(())
+        }
+    }
+
+    let reference = &request.read.reference;
+    let mut signer_state: BftSignerStateV3 = serde_json::from_value(serde_json::json!({
+        "schema_version": 3,
+        "binding_digest": reference.source.binding_digest,
+        "revision": 1,
+        "history": [],
+        "journal": null,
+        "completed_journals": [],
+        "pending_driver_apply": null,
+        "applied_installs": [],
+        "state_digest": "ca".repeat(32),
+    }))
+    .unwrap();
+    signer_state.private_retention = Some(BftPrivateRetentionHeadV1 {
+        schema_version: 2,
+        source: reference.source.clone(),
+        capability_digest: "cd".repeat(32),
+        sequence: 1,
+        map_digest: "ce".repeat(32),
+        map_byte_hash: "cf".repeat(32),
+        entry_count: 0,
+        previous_receipt_digest: None,
+        retained_material_bytes: Some(128 * 1024 * 1024),
+    });
+    let token = "da".repeat(32);
+    let snapshot = BftOriginalRetentionTxnSnapshotV1 {
+        current: BftFirstReserveSnapshotV1 {
+            current: BftFreshCoverageSnapshotV1 {
+                signer: BftSignerBackendSnapshotV3 {
+                    state: signer_state,
+                    lease_generation: 7,
+                    lease_token_digest: token.clone(),
+                    protected_time_floor_ms: 123,
+                },
+                marker: BftPrivateRetentionCreationMarkerV1 {
+                    schema_version: 1,
+                    creation_identity: "d0".repeat(32),
+                    source: reference.source.clone(),
+                    ledger_origin_digest: reference.key.ledger_origin_digest.clone(),
+                    activation_digest: "d1".repeat(32),
+                    initial_state_digest: "d2".repeat(32),
+                    initial_height: reference.key.height,
+                },
+                original: None,
+                reserved_response_bytes: 0,
+            },
+            reservation: None,
+        },
+        original_operations: BTreeMap::new(),
+    };
+    let stored = Arc::new(Mutex::new(snapshot));
+    let lost_commit_reply = Arc::new(AtomicBool::new(false));
+    let spy = ProtectedSpy {
+        state: Arc::clone(&stored),
+        lost_commit_reply: Arc::clone(&lost_commit_reply),
+    };
+    let charge = ProtectedOriginalResponseChargeV2::new(Box::new(spy), 7, token).unwrap();
+    let subject = request.verify_bound_subject(context).unwrap();
+    charge
+        .reserve_encoded_response_and_readback(&subject, 65_540)
+        .unwrap();
+    assert_eq!(
+        stored
+            .lock()
+            .unwrap()
+            .current
+            .current
+            .reserved_response_bytes,
+        65_540
+    );
+    lost_commit_reply.store(true, Ordering::SeqCst);
+    assert!(
+        charge
+            .reserve_encoded_response_and_readback(&subject, 80)
+            .is_err()
+    );
+    assert_eq!(
+        stored
+            .lock()
+            .unwrap()
+            .current
+            .current
+            .reserved_response_bytes,
+        65_620
+    );
+    // The uncertain reply must NOT permit a second unbounded debit or release.
+    assert!(
+        charge
+            .reserve_encoded_response_and_readback(&subject, 80)
+            .is_err()
+    );
+    assert_eq!(
+        stored
+            .lock()
+            .unwrap()
+            .current
+            .current
+            .reserved_response_bytes,
+        65_620
+    );
 }

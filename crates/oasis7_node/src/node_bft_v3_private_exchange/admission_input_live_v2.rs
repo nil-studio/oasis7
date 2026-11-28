@@ -11,6 +11,7 @@ use super::admission_input_response_v2::{
     RESPONSE_DOMAIN,
 };
 use libp2p::request_response::Codec as _;
+use oasis7_distfs::protected_bft_v3::BftSignerBackendV3;
 use oasis7_net::{
     AuthenticatedHandlerRegistration, AuthenticatedPeerRequestContext, Libp2pNetwork, WorldError,
 };
@@ -18,7 +19,7 @@ use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 use std::{
     collections::BTreeSet,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
@@ -66,6 +67,107 @@ pub trait ProtectedOriginalAdmissionAuthorityV2: Send + Sync {
         subject: &VerifiedAdmissionBatchSubjectV2,
         exact_outer_bytes: u64,
     ) -> Result<(), String>;
+}
+
+/// Whole-tuple, nonrefundable outer Noise response charging over a REAL
+/// independently protected backend selected by the owner. There is no local
+/// counter, cache-only readback, extra WAL, or legacy Fresh-only CAS fallback.
+/// The injected backend must enforce a single writer, exact leased token,
+/// monotonic protected time and one atomic Fresh/FirstReserve/original-ops CAS.
+/// An unknown commit/readback poisons this adapter until the owner explicitly
+/// cold-recovers under a new externally fenced lease.
+pub struct ProtectedOriginalResponseChargeV2 {
+    backend: Mutex<Box<dyn BftSignerBackendV3>>,
+    lease_generation: u64,
+    lease_token_digest: String,
+    poisoned: AtomicBool,
+}
+
+impl ProtectedOriginalResponseChargeV2 {
+    pub fn new(
+        backend: Box<dyn BftSignerBackendV3>,
+        lease_generation: u64,
+        lease_token_digest: String,
+    ) -> Result<Self, String> {
+        if lease_generation == 0
+            || lease_token_digest.len() != 64
+            || !lease_token_digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("original response requires an exact protected lease".into());
+        }
+        Ok(Self {
+            backend: Mutex::new(backend),
+            lease_generation,
+            lease_token_digest,
+            poisoned: AtomicBool::new(false),
+        })
+    }
+
+    /// Called only after verified Noise subject, protected current context,
+    /// exact source read and full outer NetworkResponse encoding. This method
+    /// charges the *same original retention namespace* once before release.
+    /// Error or uncertain commit never means the charge can be refunded.
+    pub fn reserve_encoded_response_and_readback(
+        &self,
+        subject: &VerifiedAdmissionBatchSubjectV2,
+        exact_outer_bytes: u64,
+    ) -> Result<(), String> {
+        if self.poisoned.load(Ordering::Acquire) {
+            return Err("protected original response charge requires cold recovery".into());
+        }
+        let mut backend = self
+            .backend
+            .lock()
+            .map_err(|_| "protected original response backend lock poisoned")?;
+        if self.poisoned.load(Ordering::Acquire) {
+            return Err("protected original response charge requires cold recovery".into());
+        }
+        let result = (|| {
+            let expected = backend
+                .read_original_operation_envelope_for_lease(
+                    self.lease_generation,
+                    &self.lease_token_digest,
+                )
+                .map_err(|error| error.to_string())?;
+            let reference = &subject.read().reference;
+            let marker = &expected.current.current.marker;
+            if reference.source != marker.source
+                || reference.key.ledger_origin_digest != marker.ledger_origin_digest
+                || reference.key.height != marker.initial_height
+            {
+                return Err("original response differs from protected H source".into());
+            }
+            let next = expected
+                .prepare_original_response_charge(
+                    self.lease_generation,
+                    &self.lease_token_digest,
+                    exact_outer_bytes,
+                )
+                .map_err(|error| error.to_string())?;
+            backend
+                .compare_and_commit_original_operation_envelope(&expected, &next)
+                .map_err(|error| error.to_string())?;
+            let actual = backend
+                .read_original_operation_envelope_for_lease(
+                    self.lease_generation,
+                    &self.lease_token_digest,
+                )
+                .map_err(|error| error.to_string())?;
+            if actual != next {
+                return Err("original response whole-tuple CAS readback uncertain".into());
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            // Even a byte/revision mismatch cannot be assumed refundable.
+            // The active owner must cold-reopen exact backend state before any
+            // further release; never retry an ambiguous debit internally.
+            self.poisoned.store(true, Ordering::Release);
+        }
+        result
+    }
 }
 
 /// Registered ONLY by an explicitly configured protected service. Merely
