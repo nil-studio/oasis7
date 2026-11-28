@@ -1161,271 +1161,14 @@ def default_feature_closure(manifest, *, initial=None):
 
 
 def rust_literal_path(value):
-    """Decode exact unescaped/raw path literals; escaped paths stay uncertain."""
-    plain = re.fullmatch(r'"([^"\\]+)"', value)
-    raw = re.fullmatch(r'r(#+)"(.*)"\1', value)
-    if value.startswith('r"') and value.endswith('"'):
-        return value[2:-1]
-    return plain.group(1) if plain else raw.group(2) if raw else None
-
-
-_RUST_WS_RE = re.compile(r'\s+')
-_RUST_BLOCK_COMMENT_STEP_RE = re.compile(r'/\*|\*/')
-_RUST_RAW_STRING_RE = re.compile(r'(?:br|cr|r)(#*)"')
-_RUST_STRING_BODY_RE = re.compile(r'(?:[^"\\]|\\.)*"', re.DOTALL)
-_RUST_IDENT_RE = re.compile(r'(?:r#)?(?:[^\W\d]|_)\w*')
-_RUST_LITERAL_SUFFIX_RE = re.compile(r'(?:[^\W\d]|_)\w*')
-_RUST_NUMBER_RE = re.compile(r'[0-9][0-9_]*(?:\.[0-9_]+)?(?:[eE][+-]?[0-9_]+)?')
-_RUST_CHAR_RE = re.compile(r"(?:b)?'(?:[^'\\\r\n]|\\(?:[nrt0\\'\"]|x[0-9a-fA-F]{2}|u\{[0-9a-fA-F_]+\}))'")
-_RUST_PLAIN_STRING_TOKEN_RE = re.compile(r'(?:b|c)?"([^"\\\r\n]*)"')
+    """Decode exact unescaped/raw path literals via sibling ci_engine."""
+    return _load_sibling_ci_engine().rust_literal_path(value)
 
 
 def rust_source_inputs(source, return_tokens=False, with_module_paths=False, with_module_safety=False):
-    """Read literal tokens and real include calls without expanding candidate macros.
-
-    Rust fixture strings are a single token, not another source file. Unknown
-    real expressions stay unresolved; comments (including nested blocks), strings
-    and character literals must never hide a later real call.
-    """
-    tokens = []
-    position = 0
-    source_len = len(source)
-    ws_match = _RUST_WS_RE.match
-    block_step_search = _RUST_BLOCK_COMMENT_STEP_RE.search
-    raw_string_match = _RUST_RAW_STRING_RE.match
-    string_body_match = _RUST_STRING_BODY_RE.match
-    ident_match = _RUST_IDENT_RE.match
-    suffix_match = _RUST_LITERAL_SUFFIX_RE.match
-    number_match = _RUST_NUMBER_RE.match
-    char_match = _RUST_CHAR_RE.match
-    tokens_append = tokens.append
-
-    def append_literal(kind, start, end):
-        # Literal suffixes are part of the token, even in arbitrary macro input.
-        # For example, discard!("example"include_str!(...)) contains no include.
-        if end < source_len:
-            c_end = source[end]
-            if c_end == '_' or ('a' <= c_end <= 'z') or ('A' <= c_end <= 'Z') or not c_end.isascii():
-                suffix = suffix_match(source, end)
-                if suffix:
-                    end = suffix.end()
-                    if end < source_len and not source[end].isascii():
-                        while end < source_len and ('_' + source[end]).isidentifier():
-                            end += 1
-                    kind = 'suffixed_literal'
-        tokens_append((kind, source[start:end], start))
-        return end
-
-    while position < source_len:
-        ws = ws_match(source, position)
-        if ws:
-            position = ws.end()
-            if position >= source_len:
-                break
-        start = position
-        ch = source[position]
-        if ch == '/':
-            if source.startswith('//', position):
-                end = source.find('\n', position + 2)
-                position = source_len if end < 0 else end + 1
-                continue
-            if source.startswith('/*', position):
-                depth = 1
-                position += 2
-                while depth:
-                    step = block_step_search(source, position)
-                    if step is None:
-                        raise ValueError('unterminated Rust block comment')
-                    depth += 1 if step.group(0) == '/*' else -1
-                    position = step.end()
-                continue
-            tokens_append(('punctuation', ch, position))
-            position += 1
-            continue
-        if ch in ('"', "'", 'b', 'c', 'r'):
-            if ch in ('r', 'b', 'c'):
-                raw = raw_string_match(source, position)
-                if raw:
-                    closing_delim = '"' + raw.group(1)
-                    end = source.find(closing_delim, raw.end())
-                    if end < 0:
-                        raise ValueError('unterminated Rust raw string')
-                    position = append_literal('string', start, end + len(closing_delim))
-                    continue
-            if ch == '"' or (ch in ('b', 'c') and position + 1 < source_len and source[position + 1] == '"'):
-                quote = position if ch == '"' else position + 1
-                body = string_body_match(source, quote + 1)
-                if body is None:
-                    raise ValueError('unterminated Rust string')
-                position = append_literal('string', start, body.end())
-                continue
-            if ch == "'" or (ch == 'b' and position + 1 < source_len and source[position + 1] == "'"):
-                char = char_match(source, position)
-                if char:
-                    position = append_literal('character', start, char.end())
-                    continue
-                if ch == "'":
-                    # A lifetime's apostrophe is punctuation, not a greedy quoted string.
-                    tokens_append(('punctuation', ch, position))
-                    position += 1
-                    continue
-        if '0' <= ch <= '9':
-            number = number_match(source, position)
-            position = append_literal('number', start, number.end())
-            continue
-        if ch == '_' or ('a' <= ch <= 'z') or ('A' <= ch <= 'Z') or not ch.isascii():
-            name = ident_match(source, position)
-            if name:
-                position = name.end()
-                # Python's \w omits combining marks accepted in Rust identifiers.
-                # Do not split a longer identifier into a false include macro.
-                if position < source_len and not source[position].isascii():
-                    while position < source_len and ('_' + source[position]).isidentifier():
-                        position += 1
-                tokens_append(('identifier', source[start:position], start))
-                continue
-        tokens_append(('punctuation', ch, position))
-        position += 1
-
-    closing = {}
-    stack = []
-    pairs = {')': '(', ']': '[', '}': '{'}
-    for index, (kind, value, _) in enumerate(tokens):
-        if kind != 'punctuation':
-            continue
-        if value in ('(', '[', '{'):
-            stack.append(index)
-        elif value in pairs:
-            if not stack or tokens[stack[-1]][1] != pairs[value]:
-                raise ValueError('unbalanced Rust token delimiters')
-            closing[stack.pop()] = index
-    if stack:
-        raise ValueError('unclosed Rust token delimiter')
-    if return_tokens:
-        return tokens, closing
-
-    # Decode only forms whose Rust path value is exact. Escapes and other
-    # expressions remain conservative instead of using Python/JSON semantics.
-    plain_literal = re.compile(r'"([^"\\\r\n]*)"')
-    literals, literal_tokens = [], []
-    calls = []
-    for index, (kind, value, start) in enumerate(tokens):
-        if kind == 'string':
-            previous = len(literals)
-            literal = _RUST_PLAIN_STRING_TOKEN_RE.fullmatch(value)
-            raw = raw_string_match(value)
-            if literal:
-                literals.append(literal.group(1))
-            elif raw:
-                literals.append(value[raw.end():-(len(raw.group(1)) + 1)])
-            if with_module_safety and len(literals) != previous:
-                literal_tokens.append((index, literals[-1]))
-        name = value.removeprefix('r#')
-        if (kind != 'identifier' or name not in ('include', 'include_str', 'include_bytes')
-                or index + 1 >= len(tokens) or tokens[index + 1][1] != '!'):
-            continue
-        end = closing.get(index + 2)
-        call = {'macro': name, 'kind': 'unknown', 'path': None,
-                'line': source.count('\n', 0, start) + 1}
-        call['expression'] = source[start:tokens[end][2] + 1] if end is not None else value + '!'
-        # Keep canonical std/core builtins; a foreign macro with the same name
-        # has no builtin/OUT_DIR authority. A field's single colon is not a path.
-        cursor = index - 1
-        namespace = []
-        while cursor > 0 and tokens[cursor - 1][1] == tokens[cursor][1] == ':':
-            cursor -= 2
-            if cursor < 0 or tokens[cursor][0] != 'identifier':
-                break
-            namespace.append(tokens[cursor][1].removeprefix('r#'))
-            cursor -= 1
-        qualified = ((index > 1 and tokens[index - 2][1] == tokens[index - 1][1] == ':'
-                      and namespace not in (['std'], ['core']))
-                     or (cursor >= 0 and tokens[cursor][1] == '$'))
-        if end is not None and not qualified:
-            arguments = tokens[index + 3:end]
-            if arguments and arguments[-1][1] == ',':
-                arguments = arguments[:-1]
-            expression = ''.join(token[1] for token in arguments)
-            literal = plain_literal.fullmatch(expression) if len(arguments) == 1 else None
-            concatenated = re.fullmatch(
-                r'concat!\(env!\("(CARGO_MANIFEST_DIR|OUT_DIR)",?\),"([^"\\\r\n]+)",?\)',
-                expression)
-            if literal:
-                call.update(kind='literal', path=literal.group(1))
-            elif concatenated:
-                call.update(kind='manifest' if concatenated.group(1) == 'CARGO_MANIFEST_DIR' else 'generated',
-                            path=concatenated.group(2))
-        calls.append(call)
-    if with_module_paths:
-        uncertain_module_paths = False
-        for index, (_, token, _) in enumerate(tokens[:-1]):
-            if token != '#' or index + 1 not in closing or tokens[index + 1][1] != '[':
-                continue
-            values = tuple(value.removeprefix('r#') if kind == 'identifier' else value
-                           for kind, value, _ in tokens[index + 2:closing[index + 1]])
-            # Inline #[path] changes the directory of descendant modules. Keep
-            # its unresolved edges even when every literal is individually exact.
-            cursor = closing[index + 1] + 1
-            while cursor < len(tokens) and tokens[cursor][1] not in ('mod', '{', '}', ';'):
-                if tokens[cursor][1] == '#' and cursor + 1 in closing:
-                    cursor = closing[cursor + 1] + 1
-                else:
-                    cursor += 1
-            inline_path = (values and values[0] == 'path' and cursor + 2 < len(tokens)
-                           and tokens[cursor][1] == 'mod' and tokens[cursor + 2][1] == '{')
-            if values and (values[0] == 'path' and (len(values) != 3 or values[1] != '='
-                                                  or rust_literal_path(values[2]) is None)
-                           or values[0] == 'cfg_attr' and 'path' in values or inline_path):
-                uncertain_module_paths = True
-        if with_module_safety:
-            # A static test mount cannot hide another mount generated by a
-            # macro (including mod $name or a forwarded item). This inventory
-            # only gates the new private-test contract, not legacy selection.
-            macro_ranges = [(start, end) for start, end in closing.items()
-                            if (start and tokens[start - 1][1] == '!')
-                            or (start > 1 and tokens[start - 2][1] == '!'
-                                and tokens[start - 1][0] == 'identifier')]
-            opaque_modules = any(
-                index + 2 >= len(tokens) or tokens[index + 1][0] != 'identifier'
-                or tokens[index + 2][1] not in (';', '{')
-                or any(start < index < end for start, end in macro_ranges)
-                for index, (kind, token, _) in enumerate(tokens)
-                if kind == 'identifier' and token == 'mod')
-            include_names = {'include', 'include_str', 'include_bytes'}
-            for index, (kind, token, _) in enumerate(tokens):
-                # Macro aliases/re-exports and forwarded builtin names retain
-                # their file-reading semantics without a literal include! call.
-                if token == 'use':
-                    end = index + 1
-                    while end < len(tokens) and tokens[end][1] != ';':
-                        end += 1
-                    opaque_modules |= any(value.removeprefix('r#') in include_names
-                                          for kind, value, _ in tokens[index + 1:end] if kind == 'identifier')
-                opaque_modules |= (kind == 'identifier' and token.removeprefix('r#') in include_names
-                                   and (index + 1 >= len(tokens) or tokens[index + 1][1] != '!')
-                                   and any(start < index < end for start, end in macro_ranges))
-                opaque_modules |= (token == '$' and index + 2 < len(tokens)
-                                   and tokens[index + 1][0] == 'identifier' and tokens[index + 2][1] == '!')
-                opaque_modules |= kind == 'identifier' and token == 'macro'
-                # Rust normalizes identifiers, but paths retain their bytes.
-                # Do not infer a second module's directory from non-NFC text.
-                opaque_modules |= (kind == 'identifier' and not token.isascii()
-                                   and unicodedata.normalize('NFC', token) != token)
-            data_literals = []
-            for index, literal in literal_tokens:
-                # These exact token positions are executable source mounts,
-                # not byte readers. The same string elsewhere remains data.
-                path_attribute = (index >= 4 and index + 1 < len(tokens)
-                                  and [value for _, value, _ in tokens[index - 4:index]] == ['#', '[', 'path', '=']
-                                  and tokens[index + 1][1] == ']')
-                source_include = (index >= 3 and index + 1 < len(tokens)
-                                  and [value for _, value, _ in tokens[index - 3:index]] == ['include', '!', '(']
-                                  and tokens[index + 1][1] in (',', ')'))
-                if not path_attribute and not source_include:
-                    data_literals.append(literal)
-            return literals, calls, uncertain_module_paths, opaque_modules, tuple(data_literals)
-        return literals, calls, uncertain_module_paths
-    return literals, calls
+    """Read literal tokens and real include calls via sibling ci_engine."""
+    return _load_sibling_ci_engine().scan_rust_source_inputs(
+        source, return_tokens=return_tokens, with_module_paths=with_module_paths, with_module_safety=with_module_safety)
 
 
 class GitSourceCache:
@@ -4475,33 +4218,32 @@ COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native
 COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 60000
 
 
-def targeted_ordinary_artifact_partitions(plan):
-    if (plan.get('ordinary_dynamic_partition_version') == ORDINARY_DYNAMIC_PARTITION_VERSION
-            and plan.get('scope') == 'targeted'
-            and plan.get('test_policy_changed') is False
-            and isinstance(plan.get('ordinary_harness_costs'), dict)
-            and isinstance(plan.get('oasis7_required_packages'), list)):
-        selected = set(plan['oasis7_required_packages'])
-        if not {'oasis7', 'oasis7_world_state'}.intersection(selected):
-            non_runtime_ms = sum(
-                row['elapsed_ms'] for row in plan['ordinary_harness_costs']['harnesses']
-                if row['package'] in selected
-                and not (row['package'] == 'oasis7_chain_runtime'
-                         and row['target_kind'] == 'lib'
-                         and row['target_name'] == 'oasis7_chain_runtime'
-                         and row['variant'] == 'required'
-                         and row['mode'] == 'batch')
-            )
-            if non_runtime_ms <= COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS:
-                return list(COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS)
-    return list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS)
+def targeted_ordinary_artifact_partitions(plan, config=None):
+    engine = _load_sibling_ci_engine()
+    caps = (config or {}).get('package_capabilities') if isinstance((config or {}).get('package_capabilities'), dict) else None
+    compact_excl = (engine.derive_compact_excluded_packages(caps) | frozenset({'oasis7'})
+                    if caps is not None else frozenset({'oasis7', 'oasis7_world_state'}))
+    anchors = engine.derive_universal_v2_anchors(caps) if caps is not None else frozenset({'oasis7_chain_runtime'})
+    dynamic = (plan.get('ordinary_dynamic_partition_version') == ORDINARY_DYNAMIC_PARTITION_VERSION
+               and plan.get('scope') == 'targeted' and plan.get('test_policy_changed') is False
+               and isinstance(plan.get('ordinary_harness_costs'), dict)
+               and isinstance(plan.get('oasis7_required_packages'), list))
+    if not dynamic:
+        return list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS)
+    return list(engine.compute_artifact_partitions(
+        plan['oasis7_required_packages'], compact_excluded_packages=compact_excl, anchor_packages=anchors,
+        harnesses=plan['ordinary_harness_costs'].get('harnesses', ()), dynamic_enabled=True,
+        compact_budget_ms=COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS,
+    ))
 
 
 def _ordinary_packages_support_universal_v2(config, packages):
-    if 'oasis7_chain_runtime' in packages:
-        return True
-    harnesses = config.get('ordinary_harness_costs', {}).get('harnesses', ())
-    return sum(1 for row in harnesses if row['package'] in packages) >= 4
+    engine = _load_sibling_ci_engine()
+    caps = config.get('package_capabilities') if isinstance(config.get('package_capabilities'), dict) else None
+    anchors = engine.derive_universal_v2_anchors(caps) if caps is not None else frozenset({'oasis7_chain_runtime'})
+    return engine.supports_universal_v2(
+        set(packages), anchor_packages=anchors, harnesses=config.get('ordinary_harness_costs', {}).get('harnesses', ()),
+    )
 
 
 def _ordinary_runtime_full_requires_host_docker(plan):
@@ -4716,10 +4458,10 @@ def complete_ordinary_partitions(config, plan):
                     and tested_source_supports_capability(plan, 'ordinary_dynamic_partition_version',
                                                           ORDINARY_DYNAMIC_PARTITION_VERSION)):
                 candidate_partitions = targeted_ordinary_artifact_partitions(
-                    plan | {'ordinary_dynamic_partition_version': ORDINARY_DYNAMIC_PARTITION_VERSION})
+                    plan | {'ordinary_dynamic_partition_version': ORDINARY_DYNAMIC_PARTITION_VERSION}, config)
                 if candidate_partitions != list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS):
                     plan['ordinary_dynamic_partition_version'] = ORDINARY_DYNAMIC_PARTITION_VERSION
-            plan['ordinary_partitions'] = targeted_ordinary_artifact_partitions(plan)
+            plan['ordinary_partitions'] = targeted_ordinary_artifact_partitions(plan, config)
         elif plan['scope'] in ('full', 'explicit-full') or targeted_policy:
             plan.update(ordinary_artifact_partition_version=1,
                         ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
@@ -4959,9 +4701,7 @@ def materialize_execution_contracts(config, plan):
         if set(support_map) != set(SUPPORT_PROFILES):
             raise ValueError('package_capabilities support_profile mismatch with SUPPORT_PROFILES')
         dedicated_inline = frozenset(p for p, e in caps.items() if e.get('inline_dedicated_partition'))
-        logical_aliases = {p: e['splittable_lib_harness']['logical_alias']
-                           for p, e in sorted(caps.items()) if e.get('splittable_lib_harness')}
-        compact_excl = frozenset(p for p, e in caps.items() if e.get('compact_non_runtime_excluded'))
+        logical_aliases = engine.derive_logical_harness_aliases(caps)
     else:
         engine_eligible = (
             type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
@@ -4976,7 +4716,6 @@ def materialize_execution_contracts(config, plan):
                        for p in SUPPORT_PROFILES}
         dedicated_inline = ORDINARY_PARTITION_PACKAGES
         logical_aliases = {}
-        compact_excl = frozenset()
 
     mode = ('inline' if plan.get('ordinary_execution') == 'inline'
             else ('artifact-v2' if plan.get('ordinary_artifact_partition_version') == 2 else 'artifact-v1'))
@@ -4993,10 +4732,12 @@ def materialize_execution_contracts(config, plan):
         partitions = ['all']
     if 'ordinary_artifact_partitions' in plan:
         art_partitions = list(plan['ordinary_artifact_partitions'])
-    elif engine is not None and selected_ord:
-        art_partitions = list(engine.compute_artifact_partitions(
-            selected_ord, splittable_aliases=logical_aliases,
-            compact_excluded_packages=compact_excl, supports_universal_v2=supports_v2))
+    elif selected_ord and mode in ('artifact-v1', 'artifact-v2'):
+        eff_plan = (plan | {'ordinary_harness_costs': config['ordinary_harness_costs']}
+                    if 'ordinary_harness_costs' not in plan and isinstance(config.get('ordinary_harness_costs'), dict)
+                    else plan)
+        base_parts = ORDINARY_ARTIFACT_PARTITIONS if mode == 'artifact-v1' else targeted_ordinary_artifact_partitions(eff_plan, config)
+        art_partitions = [p for p in base_parts if p != 'controls' or plan.get('ordinary_controls_in_rust_baseline_version') != 1]
     else:
         art_partitions = []
     req_fixtures = sorted({

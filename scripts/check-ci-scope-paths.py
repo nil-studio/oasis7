@@ -448,11 +448,13 @@ def check_ci_fast_path_health(
             ("heavy-lib-split", {
                 "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
                 "test_policy_changed": False, "ordinary_artifact_partition_version": 2,
-                "ordinary_universal_sharding_version": 1,
-                "oasis7_required_packages": ["oasis7_runtime", "oasis7_world_state"],
+                "ordinary_universal_sharding_version": 1, "ordinary_dynamic_partition_version": 1,
+                "ordinary_controls_in_rust_baseline_version": 1,
+                "oasis7_required_packages": ["oasis7_chain_runtime", "oasis7_world_state"],
                 "oasis7_required_wasm_packages": [], "workspace_support_profiles": [],
             }, lambda c: c["mode"] == "artifact-v2" and c["supports_universal_v2"] is True
-                         and "runtime-tests:even" in c["artifact_partitions"] and "runtime-tests:odd" in c["artifact_partitions"]),
+                         and c["artifact_partitions"] == ["native-0", "native-1", "native-2", "native-3"]
+                         and c["logical_harness_aliases"].get("oasis7_chain_runtime") == "runtime-tests"),
             ("host-docker-risk-fallback", {
                 "scope": "full", "execution_profile": "pr-fast", "fast_plan_version": 1,
                 "test_policy_changed": False,
