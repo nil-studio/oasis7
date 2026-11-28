@@ -1,7 +1,7 @@
 //! Exact original P/R pending material for the *existing* formal Host configuration.
 //! Cold-reading this does not freeze a current Node owner, install a recovery,
 //! prove protected custody, sign an issuer plan or grant new admission.
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use oasis7_distfs::controlled_authority::formal::{
     FormalQualifiedCommitProofV1, VerifiedFormalCommitV1, VerifiedRecovery,
@@ -99,15 +99,10 @@ pub(super) fn cold_read_original_for_config(
         independent_root,
         independent_count,
     )?;
-    let operation_id = instance.operation_id.as_str();
-    let operation_digest = super::node_lifecycle::local_io::digest(&operation_id)?;
-    let directory = config
-        .config
-        .writer_directory
-        .join("runtime-owner")
-        .join("operations")
-        .join(operation_digest)
-        .join("original-pending");
+    let directory = original_owner_pending_directory(
+        &config.config.writer_directory,
+        &instance.operation_id,
+    )?;
     let read = cold_read_pinned_host_pending(
         &directory,
         independent_authority_id,
@@ -118,6 +113,21 @@ pub(super) fn cold_read_original_for_config(
         return Err("original Host recovery owner and cold bytes disagree".into());
     }
     Ok(read)
+}
+
+/// The shipping owner's actual operation path, never a caller-controlled
+/// descriptor or old config-root flat pending file. The owner guard above
+/// additionally validates the exact operation/incarnation before this read.
+fn original_owner_pending_directory(
+    writer_directory: &Path,
+    operation_id: &str,
+) -> Result<PathBuf, String> {
+    let operation_digest = super::node_lifecycle::local_io::digest(&operation_id)?;
+    Ok(writer_directory
+        .join("runtime-owner")
+        .join("operations")
+        .join(operation_digest)
+        .join("original-pending"))
 }
 
 /// Reuse the exact original complete Qualified verifier. A caller must also
@@ -215,5 +225,57 @@ mod tests {
             cold_read_pinned_host_pending(scratch.path(), "original-authority", &root, 1)
                 .unwrap();
         assert_eq!(reopened.pending().handoff(), &original);
+        check_actual_owner_frozen_directory_preserves_same_signed_original();
+    }
+
+    // Reuse the existing selected native test: the real owner writes its
+    // durable Freeze inside a per-operation private directory, *not* the
+    // Host writer's flat root. Prepared alone must never be recovered.
+    fn check_actual_owner_frozen_directory_preserves_same_signed_original() {
+        use super::super::formal_live_original_pending_producer::{
+            OriginalPendingOwnerV1, OriginalPendingProducerV1,
+        };
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = Scratch::new();
+        let operation_id = "owner-original-operation";
+        let directory = original_owner_pending_directory(scratch.path(), operation_id).unwrap();
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let owner = OriginalPendingOwnerV1 {
+            authority_id: "original-authority".into(),
+            operation_id: operation_id.into(),
+            request_digest: "original-request-digest".into(),
+            config_digest: "original-config-digest".into(),
+            incarnation: "original-owner-incarnation".into(),
+        };
+        let mut writer = OriginalPendingProducerV1::open(&directory, owner).unwrap();
+        let original_bytes = vec![0x31, 0, 255, 0x41];
+        writer
+            .note_accepted_enqueue(
+                LocalRequestIdentity {
+                    verified_subject: "original-subject".into(),
+                    operation_domain: "submit".into(),
+                    nonce_scope: "original-nonce".into(),
+                    request_id: "real-original".into(),
+                },
+                original_bytes.clone(),
+            )
+            .unwrap();
+        let pin = writer.begin_freeze(&directory).unwrap();
+        assert!(
+            cold_read_pinned_host_pending(&directory, "original-authority", &pin.root, 1).is_err()
+        );
+        writer.finish_node_freeze(&directory).unwrap();
+        for _ in 0..2 {
+            let recovered =
+                cold_read_pinned_host_pending(&directory, "original-authority", &pin.root, 1)
+                    .unwrap();
+            assert_eq!(recovered.pending().handoff().requests.len(), 1);
+            assert_eq!(recovered.pending().handoff().requests[0].signed_request, original_bytes);
+        }
+        assert!(
+            cold_read_pinned_host_pending(&directory, "original-authority", &pin.root, 0).is_err()
+        );
     }
 }
