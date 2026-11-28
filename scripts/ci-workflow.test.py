@@ -866,6 +866,13 @@ class Workflow(unittest.TestCase):
         launcher = runpy.run_path(str(ROOT / 'scripts/ci-trusted-full-regression.py'))
         command = launcher['image_command']
         revision = 'a' * 40
+        policy_keys = ('CARGO_INCREMENTAL', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG',
+                       'CARGO_TERM_COLOR', 'CARGO_NET_RETRY', 'CARGO_REGISTRIES_CRATES_IO_PROTOCOL')
+        workflow_env = RAW_WORKFLOW.split('\njobs:\n', 1)[0]
+        policy = {key: re.search(rf'^  {key}: (.+)$', workflow_env, re.M)[1].strip('"')
+                  for key in policy_keys}
+        secrets = dict(GH_TOKEN='fixture-secret', ACTIONS_RUNTIME_TOKEN='fixture-runtime-token',
+                       CARGO_REGISTRIES_CRATES_IO_TOKEN='fixture-registry-token')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             paths = {name: root / name for name in ('scratch', 'workspace', 'mold', 'cargo')}
@@ -875,7 +882,13 @@ class Workflow(unittest.TestCase):
                                                    'HOST_CARGO': paths['cargo'], 'head': lambda _: revision}), \
                     patch('shutil.which', return_value=None):
                 argv = command('governance', revision, paths['scratch'], 'owned-full-regression',
-                               {'OASIS7_PRODUCT_DOC_HEAD': revision, 'OASIS7_PRODUCT_DOC_BASE': 'b' * 40})
+                               {**policy, **secrets,
+                                'OASIS7_PRODUCT_DOC_HEAD': revision, 'OASIS7_PRODUCT_DOC_BASE': 'b' * 40})
+            forwarded = dict(argv[index + 1].split('=', 1)
+                             for index, entry in enumerate(argv) if entry == '--env')
+            self.assertEqual({key: forwarded.get(key) for key in policy}, policy)
+            self.assertTrue(forwarded.keys().isdisjoint(secrets))
+            self.assertEqual(forwarded['CARGO_HOME'], str(paths['scratch'] / 'cargo'))
             for relative in ('cargo', 'cargo/registry', 'cargo/git'):
                 target = paths['scratch'] / relative
                 self.assertEqual(target.stat().st_uid, os.getuid())
