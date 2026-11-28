@@ -1,5 +1,6 @@
 use super::super::coordinator::FormalDurabilityEndpoint;
 use super::*;
+use oasis7_proto::memory_budget::MemoryReservation;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -18,6 +19,35 @@ mod native_context;
 #[path = "client_native_history.rs"]
 mod native_history;
 pub(crate) use native_context::VerifiedNativeRpcContextV1;
+// The digest is already the canonical 64-byte hex value produced by the
+// shared paid encoder. Admit the bounded domain preimage and original
+// Ed25519 hex/key/signature workspace while that digest is still retained.
+fn verify_paid_response_signature(
+    digest: &str,
+    signature: &str,
+    key: &str,
+    ctx: &mut FormalBoundedContextV1<'_>,
+) -> Result<(), FormalError> {
+    ctx.consume_steps(1)?;
+    let _phase = ctx
+        .memory()
+        .reserve(
+            4096 + 96
+                + 2 * std::mem::size_of::<Vec<u8>>()
+                + std::mem::size_of::<ed25519_dalek::VerifyingKey>()
+                + std::mem::size_of::<ed25519_dalek::Signature>(),
+            MemoryClass::Ordinary,
+        )
+        .map_err(|_| invalid("formal RPC response signature admission"))?;
+    verify_with_preimage(
+        signature,
+        key,
+        || bytes(RESPONSE_DOMAIN, &digest),
+        |n| ctx.charge(1, n as u64),
+    )?;
+    ctx.consume_steps(1)
+}
+
 pub struct RemoteFormalEndpoint {
     address: SocketAddr,
     timeout: Duration,
@@ -174,18 +204,40 @@ impl RemoteFormalEndpoint {
         request: &Request,
         digest: &str,
         deadline: Instant,
-        paid_minimum_fee: Option<oasis7_proto::memory_budget::MemoryReservation>,
+        paid: Option<(MemoryReservation, &mut FormalBoundedContextV1<'_>)>,
     ) -> Result<bool, FormalError> {
-        verify(
-            RESPONSE_DOMAIN,
-            &hash(
-                "oasis7.formal.endpoint.rpc.response_body.v1",
-                &response.body,
-            )?,
-            &response.signature,
-            &self.instance().endpoint_public_key,
+        let paid_digest;
+        let legacy_digest;
+        let (paid_minimum_fee, response_digest) = match paid {
+            Some((fee, ctx)) => {
+                paid_digest = paid_response_digest(&response.body, ctx)?;
+                verify_paid_response_signature(
+                    paid_digest.as_str(),
+                    &response.signature,
+                    &self.instance().endpoint_public_key,
+                    ctx,
+                )?;
+                (Some(fee), paid_digest.as_str())
+            }
+            None => {
+                legacy_digest = hash(RESPONSE_DIGEST_DOMAIN, &response.body)?;
+                verify(
+                    RESPONSE_DOMAIN,
+                    &legacy_digest,
+                    &response.signature,
+                    &self.instance().endpoint_public_key,
+                )?;
+                (None, legacy_digest.as_str())
+            }
+        };
+        // Custody must verify precisely the same immutable response preimage.
+        // The caller-paid digest owner remains live across both checks.
+        attestation::verify_response_custody(
+            response,
+            &self.authority,
+            self.role,
+            response_digest,
         )?;
-        attestation::verify_response_custody(response, &self.authority, self.role)?;
         let body = &response.body;
         if body.schema_version != 1
             || body.request_digest != digest
@@ -545,3 +597,66 @@ impl FormalDurabilityEndpoint for RemoteFormalEndpoint {
 
 #[path = "client_committed_history.rs"]
 mod committed_history;
+
+#[cfg(test)]
+mod response_signature_tests {
+    use super::*;
+    use oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1;
+    use oasis7_proto::memory_budget::MemoryBudget;
+
+    #[test]
+    fn paid_response_signature_preserves_original_verdict_and_budget() {
+        let digest = "ab".repeat(32);
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let public = hex::encode(key.verifying_key().to_bytes());
+        let signature = hex::encode(
+            key.sign(&bytes(RESPONSE_DOMAIN, &digest).unwrap())
+                .to_bytes(),
+        );
+        let wrong = hex::encode(key.sign(b"not the response preimage").to_bytes());
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let empty = MemoryBudget::new(0, 0).unwrap();
+        let work = FormalBoundedWorkV1::new(1000, 1 << 20).unwrap();
+        let mut stop = || false;
+        let mut ctx = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+        let before = (work.remaining_steps(), work.remaining_read_bytes());
+        verify_paid_response_signature(&digest, &signature, &public, &mut ctx).unwrap();
+        assert_eq!(memory.used(), 0);
+        assert!(work.remaining_steps() < before.0);
+        assert!(work.remaining_read_bytes() < before.1);
+        let before = (work.remaining_steps(), work.remaining_read_bytes());
+        assert!(matches!(
+            verify_paid_response_signature(&digest, &wrong, &public, &mut ctx),
+            Err(FormalError::Invalid(reason)) if reason == "formal signature verification"
+        ));
+        assert_eq!(memory.used(), 0);
+        assert!(work.remaining_steps() < before.0);
+        assert!(work.remaining_read_bytes() < before.1);
+        assert!(matches!(
+            verify_paid_response_signature(
+                &digest,
+                &signature,
+                &public,
+                &mut FormalBoundedContextV1::new(&empty, &work, &mut || false),
+            ),
+            Err(FormalError::Invalid(reason)) if reason == "formal RPC response signature admission"
+        ));
+        assert_eq!(empty.used(), 0);
+        assert!(matches!(
+            verify_paid_response_signature(
+                &digest,
+                &signature,
+                &public,
+                &mut FormalBoundedContextV1::new(&memory, &work, &mut || true),
+            ),
+            Err(FormalError::Invalid(reason)) if reason == "bounded archive read cancelled"
+        ));
+        assert_eq!(memory.used(), 0);
+        ctx.consume_steps(work.remaining_steps()).unwrap();
+        assert!(matches!(
+            verify_paid_response_signature(&digest, &signature, &public, &mut ctx),
+            Err(FormalError::Invalid(reason)) if reason == "bounded archive read steps"
+        ));
+        assert_eq!(memory.used(), 0);
+    }
+}
