@@ -774,6 +774,65 @@ mod durable_set_seal_tests;
 mod durable_set_install_tests;
 
 #[test]
+fn prepaid_signed_rpc_server_preserves_wrong_request_signature_rejection() {
+    use super::super::super::transport::{
+        Command, FormalEndpointServer, FormalRpcFrameAdmissionLimitsV1, REQUEST_DOMAIN, Request,
+        RequestBody,
+    };
+    let fixture = Fixture::new();
+    let (endpoint, _oracle) = native_rpc_endpoint(&fixture);
+    let body = RequestBody {
+        schema_version: 1,
+        world: fixture.authority.definition().world.clone(),
+        authority_id: fixture.authority.authority_id().unwrap(),
+        instance_digest: fixture
+            .authority
+            .definition()
+            .primary
+            .instance
+            .digest()
+            .unwrap(),
+        challenge: h(51),
+        minimum: fixture.authority.definition().world.genesis_head().unwrap(),
+        command: Command::Query(h(250)),
+        archive_read_grant: None,
+    };
+    let request = Request {
+        signature: signed(
+            crate::controlled_authority::formal::crypto::bytes(REQUEST_DOMAIN, &body).unwrap(),
+            5, // Original pinned writer is key(4); no alternate key is accepted.
+        ),
+        body,
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let mut server = FormalEndpointServer::new_with_frame_admission(
+            endpoint,
+            Duration::from_secs(3),
+            Some(FormalRpcFrameAdmissionLimitsV1 {
+                ordinary_bytes: 128 << 20,
+                work_steps: 100_000_000,
+                work_bytes: 1 << 34,
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            server.serve_one(&listener).unwrap_err(),
+            FormalError::Invalid("formal signature verification".into())
+        );
+    });
+    let bytes = serde_cbor::to_vec(&request).unwrap();
+    let mut stream = TcpStream::connect(address).unwrap();
+    stream
+        .write_all(&(bytes.len() as u32).to_be_bytes())
+        .unwrap();
+    stream.write_all(&bytes).unwrap();
+    drop(stream);
+    server.join().unwrap();
+}
+
+#[test]
 fn signed_rpc_server_rejects_request_dto_when_raw_frame_alone_fits() {
     use super::super::super::transport::{
         FormalEndpointServer, FormalRpcFrameAdmissionLimitsV1, RemoteFormalEndpoint,
