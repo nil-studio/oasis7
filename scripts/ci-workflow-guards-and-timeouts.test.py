@@ -263,7 +263,6 @@ class DependabotCoverageGuardTests(unittest.TestCase):
         '/tools/wasm_build_suite/templates/minimal_module': 'zero-dependency minimal template',
         '/vendor/if-watch-3.2.2': 'vendored crate patched by root Cargo.toml',
         '/vendor/libp2p-quic-0.15.0': 'vendored crate patched by root Cargo.toml',
-        '/vendor/libp2p-swarm-0.49.0': 'vendored crate patched by root Cargo.toml',
     }
     EXCLUDED_DOCKER_DIRECTORIES = {
         '/docker/ci-base': 'UBUNTU_BASE ARG is workflow-supplied with no Dockerfile default',
