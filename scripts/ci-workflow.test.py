@@ -1639,21 +1639,14 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
         expected = {'viewer-js-required','viewer-performance-report','site-quality','workspace-support-legacy',
-                    'workspace-support-other','custody-native','custody-node','full-regression','candidate-full-regression'}
+                    'workspace-support-other','full-regression','candidate-full-regression'}
         expected = {name for name in expected if name in JOBS or name not in ('viewer-performance-report', 'site-quality')}
-        custody_wasm = JOBS['custody-wasm-production']
-        if rust_image_cache_namespace('custody-wasm-production', custody_wasm):
-            self.assertIn('export PATH=/opt/oasis7-node22/bin:$PATH', custody_wasm)
-            self.assertIn('process.version.startsWith("v22.")', custody_wasm)
-            self.assertIn('npm --version', custody_wasm)
-        else:
-            expected.add('custody-wasm-production')
         self.assertEqual(node_jobs, expected)
         if 'launcher-web' in JOBS:
             self.assertNotIn('oasis7_viewer', JOBS['launcher-web'])
         if 'site-quality' in JOBS:
             self.assertIn("node-version: '24'", JOBS['site-quality'])
-        for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node'}:
+        for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other'}:
             self.assertIn('cache: npm',JOBS[name])
             self.assertIn('cache-dependency-path: crates/oasis7_viewer/package-lock.json',JOBS[name])
             if name == 'full-regression' and 'scripts/ci-trusted-full-regression.py npm' in JOBS[name]:
@@ -2076,29 +2069,6 @@ class WorkerToolCache(unittest.TestCase):
         writer = cache_jobs['worker-build-cache']
         worker_tool_cache_writer(writer)
         expected_key = re.search(r'^          key: (worker-build-cli-v1-.*)$', writer, re.M)[1]
-        for name in ('custody-native', 'custody-wasm-production'):
-            job = JOBS[name]
-            steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
-            tool_steps = [step for step in steps if 'ci-worker-build.py' in step or 'id: worker-tool-cache' in step]
-            self.assertEqual(len(tool_steps), 3)
-            for step in tool_steps:
-                self.assertIn("if: env.CUSTODY_COMPONENT != 'native'", step)
-                self.assertNotIn('continue-on-error', step)
-            restore = next(step for step in tool_steps if 'id: worker-tool-cache' in step)
-            self.assertIn('key: ' + expected_key, restore)
-            self.assertNotIn('restore-keys:', restore)
-            self.assertNotIn('actions/cache/save@', job)
-            self.assertNotIn('GH_TOKEN:', job)
-        wasm = JOBS['custody-wasm-production']
-        if rust_image_cache_namespace('custody-wasm-production', wasm):
-            full = JOBS['full-regression']
-            bindgen_key = re.search(r'^          key: (wasm-bindgen-cli-v1-.*)$', full, re.M)[1]
-            self.assertIn(bindgen_key.replace('steps.bindgen-meta.outputs', 'steps.custody-bindgen-meta.outputs'), wasm)
-            self.assertEqual(wasm.count('WASM_BINDGEN_BIN: ${{ steps.custody-bindgen.outputs.bin }}'), 2)
-            self.assertIn('XDG_CACHE_HOME: /.cache', wasm)
-            self.assertIn('check --root "$restored"', wasm)
-            self.assertIn('check --root "$runtime_root"', wasm)
-            self.assertIn('test ! -e "$runtime_root"\n            test ! -L "$runtime_root"', wasm)
         self.assertEqual(CONFIG['python_control_contracts']['scripts/ci-worker-build.py']['group'], 'workflow_governance')
         self.assertIn('scripts/ci-worker-build.test.py', CONFIG['python_control_contracts']['scripts/ci-worker-build.py']['tests'])
         self.assertIn('scripts/ci-worker-build.test.py', CONFIG['workflow_governance_python_tests'])
@@ -2122,8 +2092,7 @@ class WorkerToolCache(unittest.TestCase):
 
     def test_prepare_hit_miss_and_real_failure_propagation(self):
         writer = portable_cache_host_layout(workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache'], 'worker')
-        for name, job in [('writer', writer), ('legacy', JOBS['workspace-support-legacy']),
-                          ('production', JOBS['custody-wasm-production'])]:
+        for name, job in [('writer', writer), ('legacy', JOBS['workspace-support-legacy'])]:
             step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                         if 'name: Prepare verified Worker build tool' in step)
             self.assertIn('timeout-minutes: 11', step)
@@ -2168,9 +2137,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             'consensus', 'distfs', 'node', 'net',
             'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
             'workspace-support-other',
-            'custody-native-contracts', 'custody-native',
-            'custody-wasm-production',
-            'custody-node', 'workspace-support',
+            'workspace-support',
             'scenario-regression',
             'workflow-governance', 'codex-agent-config-validation',
             'compile-metrics', 'site-quality', 'doc-checker-contracts',

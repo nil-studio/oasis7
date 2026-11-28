@@ -440,9 +440,9 @@ run() {
         # The frozen shell reads the current support-profile inventory, including
         # the Worker and Domain Types roots. Three fixture behaviors retain two
         # provider filters with one compile context: 35 full plus eight legacy calls.
-        self.assertEqual(len(calls), 41)
+        self.assertEqual(len(calls), 40)
         contexts = {compile_context(call) for call in calls}
-        self.assertEqual(len(contexts), 40)
+        self.assertEqual(len(contexts), 39)
         self.assertIn(('test', ('oasis7_dev_test_worker',), (('--all-targets', ''),),
                        True, (), 'default', '1'), contexts)
         return calls
@@ -528,8 +528,8 @@ run() {
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 50)
-                self.assertIn('cache_build_complete variants=50 verification=false', result.stdout)
+                self.assertEqual(len(named), 49)
+                self.assertIn('cache_build_complete variants=49 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
                                   if not name.startswith('fast-')}, expected)
                 self.assertEqual(compile_context(named['fixture-world']), fixture_world)
@@ -610,7 +610,7 @@ cd "$repo_root"
                                       '-D', 'clippy::suspicious'])
 
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 49, 50):
+        for number in (1, 27, 29, 32, 40, 41, 49):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()
@@ -665,7 +665,7 @@ cd "$repo_root"
         result = self.build()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
-        self.assertEqual(len(named), 50)
+        self.assertEqual(len(named), 49)
         self.assert_fast_inventory(named, config)
         self.assertFalse(self.behaviors.exists())
 

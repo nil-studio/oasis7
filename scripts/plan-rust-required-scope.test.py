@@ -2102,8 +2102,6 @@ class PythonControlContracts(unittest.TestCase):
         config = self.trusted()
         cases = {
             'scripts/ci_process_runner.py': {'workflow_governance'},
-            'scripts/ci-custody-platform.py': {'workflow_governance'},
-            'scripts/ci-custody-platform.test.py': {'workflow_governance'},
             'scripts/ci-worker-build.py': {'workflow_governance'},
             'scripts/ci-worker-build.test.py': {'workflow_governance'},
             'scripts/doc_content_warnings.py': {'doc_checker_contracts'},
@@ -2126,7 +2124,6 @@ class PythonControlContracts(unittest.TestCase):
                     self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
                     self.assertEqual(plan['python_control_paths'], [path])
                     self.assertEqual(plan['python_control_tests'], {'workflow_governance': [
-                        'scripts/ci-custody-platform.test.py',
                         'scripts/ci-formal-process.test.py',
                         'scripts/ci-local-check.test.py',
                         'scripts/ci-storage-acceptance.test.py',

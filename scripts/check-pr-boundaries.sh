@@ -113,7 +113,7 @@ crate_to_ring() {
       echo 1
       ;;
     oasis7_world_state|oasis7_world_projection|oasis7_world_service|\
-    oasis7_chain_runtime|oasis7_custody_worker|oasis7_dev_test_worker|\
+    oasis7_chain_runtime|oasis7_dev_test_worker|\
     oasis7_hosted_access|oasis7_provider_local_bridge)
       echo 2
       ;;

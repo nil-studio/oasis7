@@ -165,8 +165,6 @@ def validate_candidate_graph(workflow, config):
     expected -= {job for job in retired_zombie_jobs if job not in jobs}
     if config.get('workspace_support_direct_gate_version') in (1, 2):
         expected.add('workspace-support-other')
-    if config.get('workspace_support_direct_gate_version') == 2:
-        expected.update(('custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-node'))
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
@@ -200,14 +198,10 @@ def validate_candidate_graph(workflow, config):
         job = jobs[job_name]
         if group == 'workspace_support':
             summary = jobs['workspace-support']
-            expected_support = ['select', 'workspace-support-legacy', 'workspace-support-other',
-                                'custody-native-contracts', 'custody-native',
-                                'custody-wasm-production', 'custody-node']
+            expected_support = ['select', 'workspace-support-legacy', 'workspace-support-other']
             dependencies = re.search(r'    needs: \[(.*)\]', summary).group(1).split(', ')
-            if (dependencies != expected_support or 'always()' not in summary
-                    or 'ci-custody-platform.py validate' not in summary
-                    or 'pattern: custody-node-${{ github.run_id }}-*' not in summary):
-                raise ValueError('support summary must validate every selected producer and complete Node inventory')
+            if dependencies != expected_support or 'always()' not in summary:
+                raise ValueError('support summary must retain select, legacy, and other dependencies')
             legacy = jobs['workspace-support-legacy']
             header = legacy.split('    steps:', 1)[0]
             if ('fail-fast: false' not in header or 'max-parallel: 2' not in header
@@ -221,75 +215,6 @@ def validate_candidate_graph(workflow, config):
                                  and 'workspace_support_direct_gate_version != 2' not in header)))
                     or '--support-partition "$SUPPORT_PARTITION"' not in legacy):
                 raise ValueError('support legacy must retain every trusted partition and old BASE fallback')
-            node = jobs['custody-node']
-            validate_workerd_capture(node, summary)
-            if ('fail-fast: false' not in node or 'max-parallel: 4' not in node
-                    or 'custody_node_shards' not in node or 'exclude:' in node or 'include:' in node
-                    or 'ci-custody-platform.py restore' not in node or 'ci-custody-platform.py run' not in node
-                    or 'if: matrix.shard == 0' not in node or 'npm run test:types' not in node
-                    or 'needs: [select, custody-native, custody-wasm-production]' not in node
-                    or 'name: ${{ needs.custody-wasm-production.outputs.approval_artifact }}' not in node):
-                raise ValueError('custody must run the complete trusted file shards and TypeScript consumer')
-            proof = jobs['custody-native-contracts']
-            if ('    needs: [select, fast-preflight]\n' not in proof or 'custody_execution_version == 1' not in proof
-                    or 'verify.sh --stage native-contracts' not in proof
-                    or 'RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}' not in proof
-                    or 'custody-native-contracts' in node):
-                raise ValueError('native proof must remain required without blocking artifact consumers')
-            if config.get('custody_policy_tests_version') == 1:
-                policy_step = next((step for step in re.findall(r'^      - .*?(?=^      - |\Z)', proof, re.M | re.S)
-                                    if 'name: Execute complete custody policy targets' in step), '')
-                if ('if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1' not in policy_step
-                        or 'ci-custody-platform.py policy-tests --plan "$RUNNER_TEMP/selection.json"' not in policy_step
-                        or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in policy_step
-                        or any('OASIS7_SUPPORT_' + key.upper() + ': ${{ needs.select.outputs.' + key + ' }}' not in policy_step
-                               for key in ('source_sha', 'tested_sha', 'policy_sha'))
-                        or 'name: ${{ needs.select.outputs.selection_artifact }}' not in proof
-                        or 'path: ${{ runner.temp }}' not in proof):
-                    raise ValueError('custody policy changes must execute the complete native target expansion')
-            wasm_step = next((step for step in re.findall(r'^      - .*?(?=^      - |\Z)', proof, re.M | re.S)
-                              if 'name: Execute complete custody WASM compile proofs' in step), '')
-            if ('if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1' not in wasm_step
-                    or 'CUSTODY_COMPONENT: wasm-contracts' not in wasm_step
-                    or 'ci-custody-platform.py stage' not in wasm_step
-                    or 'verify.sh --stage "$stage"' not in wasm_step
-                    or 'run_worker_wasm_compile_profiles' not in wasm_step
-                    or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in wasm_step
-                    or 'actions/upload-artifact' in proof
-                    or 'custody-wasm-contracts' in jobs
-                    or 'custody-wasm-approval' in jobs):
-                raise ValueError('WASM proof must preserve selected compile checks without blocking Node consumers')
-            for component in ('native', 'wasm-production'):
-                producer = jobs['custody-' + component]
-                if ('    needs: [select, fast-preflight]' not in producer
-                        or 'custody_execution_version == 1' not in producer
-                        or 'CUSTODY_COMPONENT: ' + component not in producer
-                        or 'verify.sh --stage "$stage"' not in producer
-                        or 'ci-custody-platform.py stage' not in producer
-                        or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in producer
-                        or 'run_worker_wasm_compile_profiles' not in producer
-                        or 'ci-custody-platform.py pack' not in producer):
-                    raise ValueError('custody producer must preserve every verification stage')
-                uploads = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', producer, re.M | re.S)
-                           if 'uses: actions/upload-artifact@' in step]
-                expected_bundles = ([('steps.bundle.outputs.artifact', 'custody-bundle')]
-                                    if component == 'native'
-                                    else [('steps.bundle.outputs.artifact', 'custody-bundle'),
-                                          ('steps.approval-bundle.outputs.artifact', 'custody-approval-bundle')])
-                if component == 'wasm-production' and (
-                        producer.count('CUSTODY_COMPONENT: wasm-approval') != 2
-                        or 'approval_artifact: ${{ steps.approval-bundle.outputs.artifact }}' not in producer):
-                    raise ValueError('custody WASM producer must build and pack both production and approval components')
-                if len(uploads) != len(expected_bundles):
-                    raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
-                for upload, (artifact_expr, bundle_dir) in zip(uploads, expected_bundles):
-                    if (f'\n          name: ${{{{ {artifact_expr} }}}}\n' not in upload
-                            or f'\n          path: ${{{{ runner.temp }}}}/{bundle_dir}\n' not in upload
-                            or '\n          include-hidden-files: true\n' not in upload
-                            or '\n          compression-level: 0\n' not in upload
-                            or '\n          if-no-files-found: error\n' not in upload
-                            or '\n          retention-days: 7\n' not in upload):
-                        raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
             if ('    needs: [select, fast-preflight]' not in jobs['workspace-support-other']
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
                     or (config.get('workspace_support_direct_gate_version') in (1, 2)
@@ -297,10 +222,8 @@ def validate_candidate_graph(workflow, config):
                              or (config.get('workspace_support_direct_gate_version') == 2
                                  and 'workspace_support_direct_gate_version == 2' not in jobs['workspace-support-other'])))):
                 raise ValueError('other support must remain independent of custody builds')
-            if (config.get('workspace_support_direct_gate_version') == 2
-                    and ('workspace_support_direct_gate_version != 2' not in summary
-                         or 'ci-custody-platform.py" validate' not in jobs['required-gate'])):
-                raise ValueError('direct gate v2 must bypass support summary and validate custody in required-gate')
+            if config.get('workspace_support_direct_gate_version') == 2 and 'workspace_support_direct_gate_version != 2' not in summary:
+                raise ValueError('direct gate v2 must bypass support summary')
             continue
         if group == 'formal_process':
             if ('always()' not in job or 'ci-formal-plan.py" --selected' not in job

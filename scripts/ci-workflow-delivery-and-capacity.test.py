@@ -291,11 +291,6 @@ printf 'unexpected-after-tests
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         self.assertIn('support_capacity_snapshot "profile-before:$profile"', driver)
         self.assertIn('support_capacity_snapshot "profile-after:$profile"', driver)
-        custody = (ROOT / 'crates/oasis7_custody_worker/scripts/verify.sh').read_text()
-        native = 'env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend'
-        self.assertLess(custody.index('support_capacity_snapshot custody-wasm-complete'), custody.index(native))
-        self.assertIn('support_capacity_snapshot custody-native-complete', custody)
-        self.assertIn('support_capacity_snapshot custody-platform-complete', custody)
 
 
 class AptWorkflow(unittest.TestCase):
@@ -308,8 +303,8 @@ class AptWorkflow(unittest.TestCase):
                    'formal-endpoint-build-trusted', 'formal-test-build',
                    'formal-test-build-trusted', 'oasis7-required', 'formal-process-tests',
                    'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
-                   'launcher-web', 'workspace-support-legacy', 'workspace-support-other', 'custody-native',
-                   'custody-wasm-production', 'custody-node', 'scenario-regression'}
+                   'launcher-web', 'workspace-support-legacy', 'workspace-support-other',
+                   'scenario-regression'}
 
     def apt_steps(self):
         workflows = {'rust': WORKFLOW,
@@ -329,7 +324,7 @@ class AptWorkflow(unittest.TestCase):
                     for name in self.NATIVE_JOBS
                     if name in JOBS or name not in ('viewer-performance-report', 'pixel-world-bridge')}
         for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression', 'launcher-web',
-                     'custody-native', 'custody-wasm-production', 'workspace-support-other'):
+                     'workspace-support-other'):
             if name == 'pixel-world-bridge' and name not in JOBS:
                 continue
             if rust_image_cache_namespace(name, JOBS[name]):
@@ -343,11 +338,6 @@ class AptWorkflow(unittest.TestCase):
             self.assertIn('pkg-config --exists', ordinary)
             self.assertLessEqual(set(self.NATIVE), set((ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()))
             del expected['rust', 'oasis7-test-build-trusted', 'Install native libraries']
-        custody = ('rust', 'custody-node', 'Install native libraries')
-        if re.search(r'^    container:', JOBS['custody-node'], re.M):
-            del expected[custody]
-        else:
-            expected[custody] = ['gdb', 'gcc', *self.NATIVE]
         preview = JOBS['pr-fast-preview']
         if '    container:' in preview:
             self.assertIn("matrix.group == 'net' && 'ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@", preview)

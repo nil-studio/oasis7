@@ -1,6 +1,0 @@
-/node_modules/
-/build/
-/.wrangler/
-/deploy/*/.wrangler/
-/artifacts/
-/.role-build-lock/

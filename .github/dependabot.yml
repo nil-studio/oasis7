@@ -25,7 +25,6 @@ updates:
     directories:
       - "/crates/oasis7_viewer"
       - "/crates/oasis7_agent_api/protocol_conformance"
-      - "/crates/oasis7_custody_worker"
       - "/crates/oasis7_dev_test_worker"
       - "/scripts/ci-browser-tools"
       - "/tools/oasis7-command-center/ui"
