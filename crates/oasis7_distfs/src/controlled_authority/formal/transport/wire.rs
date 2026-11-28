@@ -757,41 +757,47 @@ mod deadline_tests {
         assert_eq!(request_pool.used(), 0);
         assert!(request_work.remaining_read_bytes() < 4096);
         let zero = MemoryBudget::new(0, 0).unwrap();
-        assert!(connect_and_write_paid_before_deadline(
-            &address,
-            &value,
-            Instant::now() + Duration::from_secs(2),
-            &zero,
-            &request_work,
-            &mut || false,
-        )
-        .is_err());
+        assert!(
+            connect_and_write_paid_before_deadline(
+                &address,
+                &value,
+                Instant::now() + Duration::from_secs(2),
+                &zero,
+                &request_work,
+                &mut || false,
+            )
+            .is_err()
+        );
         assert_eq!(zero.used(), 0);
         let before_cancel = request_work.remaining_steps();
-        assert!(connect_and_write_paid_before_deadline(
-            &address,
-            &value,
-            Instant::now() + Duration::from_secs(2),
-            &request_pool,
-            &request_work,
-            &mut || true,
-        )
-        .is_err());
+        assert!(
+            connect_and_write_paid_before_deadline(
+                &address,
+                &value,
+                Instant::now() + Duration::from_secs(2),
+                &request_pool,
+                &request_work,
+                &mut || true,
+            )
+            .is_err()
+        );
         assert!(request_work.remaining_steps() <= before_cancel);
         assert_eq!(request_pool.used(), 0);
         let remaining = request_work.remaining_read_bytes();
         request_work
             .consume_read_bytes(remaining, &mut || false)
             .unwrap();
-        assert!(connect_and_write_paid_before_deadline(
-            &address,
-            &value,
-            Instant::now() + Duration::from_secs(2),
-            &request_pool,
-            &request_work,
-            &mut || false,
-        )
-        .is_err());
+        assert!(
+            connect_and_write_paid_before_deadline(
+                &address,
+                &value,
+                Instant::now() + Duration::from_secs(2),
+                &request_pool,
+                &request_work,
+                &mut || false,
+            )
+            .is_err()
+        );
         assert_eq!(request_pool.used(), 0);
     }
 }
