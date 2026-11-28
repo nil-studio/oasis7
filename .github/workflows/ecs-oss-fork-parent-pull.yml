@@ -35,10 +35,10 @@ jobs:
           unset GHCR_TOKEN
           docker pull "$image"
           docker image inspect --format '{{json .RepoDigests}}' "$image" | python3 -c 'import json,sys; assert "ghcr.io/nil-studio/oasis7/ci-api-runtime@sha256:ba7c763f7b634b672c6dccef1384bce4daf7abd44a65d613696a748891e3c0ed" in json.load(sys.stdin)'
-          docker run --rm --pull never --network none --user 1001:1001 --env HOME=/tmp "$image" bash -euo pipefail -c '
-            test "$(id -u):$(id -g)" = 1001:1001
-            /usr/local/bin/node -e '''require("node:assert/strict").equal(process.versions.node.split(".")[0], "24")'''
-            python3 -c '''import sys; assert sys.version_info[:2] == (3, 12)'''
-            gh --version | grep -E "^gh version 2[.]105[.]0( |$)"
-          '
+          docker run --rm -i --pull never --network none --user 1001:1001 --env HOME=/tmp "$image" bash -euo pipefail <<'SMOKE'
+          test "$(id -u):$(id -g)" = 1001:1001
+          /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node.split(".")[0], "24")'
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          gh --version | grep -E '^gh version 2[.]105[.]0( |$)'
+          SMOKE
           printf 'actual_fork_token_parent_pull=passed digest=ba7c763f7b634b672c6dccef1384bce4daf7abd44a65d613696a748891e3c0ed network_none_tools=passed no_build=true no_publish=true\n'
