@@ -199,7 +199,7 @@ class DiagnosticRegistrationPreview(unittest.TestCase):
     def test_pure_addition_runs_diagnostics_without_product_benchmark(self):
         with tempfile.TemporaryDirectory() as directory:
             repo, base = self.fixture(directory)
-            source = self.add(repo, {'.github/workflows/codeql-rust-capacity.yml': '# scoped diagnostic\n',
+            source = self.add(repo, {'.github/workflows/codeql.yml': '# scoped diagnostic\n',
                                      'doc/diagnostic.md': 'diagnostic documentation\n'})
             output, enabled = Path(directory) / 'selection.json', Path(directory) / 'outputs.txt'
             with contextlib.redirect_stdout(io.StringIO()), patch.object(

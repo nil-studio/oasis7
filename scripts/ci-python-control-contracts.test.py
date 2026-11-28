@@ -988,9 +988,9 @@ class GovernanceOwnership(unittest.TestCase):
         self.assertEqual(ok_parallel.returncode, 0, ok_parallel.stderr)
         lines = trace_file.read_text().splitlines()
         self.assertEqual(lines[0], 'telemetry')
-        self.assertIn('python3 ./scripts/security/test_codeql_rust_resolver.py', lines)
+        self.assertIn('python3 ./scripts/security/codeql-plan.test.py', lines)
         self.assertIn('python3 ./scripts/safe-git-archive.test.py', lines)
-        self.assertEqual(len(lines), 38)
+        self.assertEqual(len(lines), 16)
 
         bad_jobs = subprocess.run(
             ['bash', '--noprofile', '--norc', '-c', harness, 'gov-pool',

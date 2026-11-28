@@ -325,13 +325,6 @@ class SelectionPart6(unittest.TestCase):
             '.github/instructions/pr-review.instructions.md',
             '.github/pull_request_template.md',
             '.github/workflows/codeql.yml',
-            '.github/workflows/codeql-rust-capacity.yml',
-            '.github/workflows/codeql-rust-cargo-check.yml',
-            '.github/workflows/codeql-rust-native-diagnostic.yml',
-            '.github/workflows/codeql-rust-cfg-diagnostic.yml',
-            '.github/workflows/codeql-rust-wasm-context.yml',
-            '.github/workflows/codeql-rust-wasm-metadata.yml',
-            '.github/workflows/codeql-platform-observation.yml',
         )
         for path in paths:
             self.write(path, '# original control\n')
@@ -344,41 +337,10 @@ class SelectionPart6(unittest.TestCase):
                 self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
                 self.base = self.git('rev-parse', 'HEAD')
 
-    def test_scoped_codeql_diagnostics_keep_contracts_and_require_trusted_registration(self):
-        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        driver = (HERE / 'ci-tests.sh').read_text().split(
-            'run_workflow_governance_operational_contract_tests() {\n', 1)[1].split('\n}', 1)[0]
-        for name in ('codeql-rust-wasm-context', 'codeql-rust-wasm-metadata',
-                     'codeql-platform-observation'):
-            with self.subTest(diagnostic=name):
-                workflow = f'.github/workflows/{name}.yml'
-                contract = f'scripts/security/{name}.test.py'
-                paths = (workflow, f'scripts/security/{name}.py', contract,
-                         'doc/testing/ci/codeql-integration.design.md',
-                         'doc/testing/ci/codeql-operations.md')
-                for path in paths:
-                    self.write(path, '# original diagnostic input\n')
-                self.base = self.commit()
-                for path in paths:
-                    self.write(path, '# changed diagnostic input\n')
-                head = self.commit()
-                plan = selector.select(self.config, self.base, head, profile='pr-fast')
-                self.assertEqual(plan['scope'], 'targeted')
-                self.assertEqual(plan['groups'], ['baseline', 'workflow_governance'])
-                self.assertEqual(plan['affected_packages'], [])
-                self.assertEqual(plan['oasis7_required_packages'], [])
-                self.assertIn(f'  run python3 ./{contract}\n', driver + '\n')
-
-                old_policy = copy.deepcopy(self.config)
-                old_policy['scoped_control_paths'].pop(workflow, None)
-                self.assertEqual(selector.select(old_policy, self.base, head,
-                                                 profile='pr-fast')['scope'], 'full')
-                self.base = head
-
-    def test_wasm_context_scope_keeps_rust_consumers_shared_controls_and_rename_endpoints(self):
+    def test_codeql_workflow_scope_keeps_rust_consumers_shared_controls_and_rename_endpoints(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         self.config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
-        workflow = '.github/workflows/codeql-rust-wasm-context.yml'
+        workflow = '.github/workflows/codeql.yml'
         self.write(workflow, '# diagnostic\n')
         self.base = self.commit()
         self.write(workflow, '# diagnostic and product change\n')
@@ -402,7 +364,7 @@ class SelectionPart6(unittest.TestCase):
         self.assertIn('shared build or CI control changed: Cargo.lock', plan['reasons'])
 
         self.base = self.git('rev-parse', 'HEAD')
-        renamed = '.github/workflows/codeql-rust-wasm-context-copy.yml'
+        renamed = '.github/workflows/codeql-copy.yml'
         self.git('mv', workflow, renamed)
         plan = self.plan()
         self.assertEqual(plan['scope'], 'full')
