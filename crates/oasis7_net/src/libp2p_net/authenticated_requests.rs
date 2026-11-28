@@ -156,6 +156,40 @@ pub(super) fn rejected(message: &str) -> WorldError {
     }
 }
 impl Libp2pNetwork {
+    /// Opt-in application memory ownership through queue, codec and consumption.
+    /// The absolute caller bound also applies without a shared-resource profile.
+    pub fn request_authenticated_held_to_peer_before(
+        &self,
+        protocol: &str,
+        payload: &[u8],
+        peer: libp2p::PeerId,
+        deadline: Instant,
+    ) -> Result<super::HeldBytes, WorldError> {
+        if !reserved(protocol)
+            || protocol.len() > 128
+            || payload.len() > AUTHENTICATED_REQUEST_MAX_BYTES
+        {
+            return Err(rejected("authenticated held request namespace/byte bound"));
+        }
+        let deadline = tokio::time::Instant::from_std(deadline);
+        super::request_deadline::check_dispatch_deadline(Some(deadline))?;
+        let memory = self.memory_pool.rpc()?;
+        let bytes = self.request_to_peer_local(
+            protocol,
+            payload,
+            peer,
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+            super::request_deadline::OutboundContext {
+                deadline: Some(deadline),
+                exchange: None,
+                memory: Some(memory),
+            },
+        )?;
+        check_reply(bytes.as_slice())?;
+        super::request_deadline::check_dispatch_deadline(Some(deadline))?;
+        Ok(bytes)
+    }
+
     /// Dedicated authenticated protocols return typed bounded errors; the
     /// legacy generic request API intentionally continues returning raw bytes.
     pub fn request_authenticated_to_peer_with_timeout(
@@ -277,13 +311,17 @@ struct ExactError {
     retryable: bool,
 }
 fn decode_reply(bytes: Vec<u8>) -> Result<Vec<u8>, WorldError> {
+    check_reply(&bytes)?;
+    Ok(bytes)
+}
+fn check_reply(bytes: &[u8]) -> Result<(), WorldError> {
     if bytes.len() > AUTHENTICATED_RESPONSE_MAX_BYTES {
         return Err(rejected("authenticated response byte bound"));
     }
     // No Vec/map field is allocated from a declared count; serde reads the
     // three fixed fields from this bounded slice. Exact canonical re-encoding
     // and deny_unknown_fields distinguish an error from a domain-tagged ACK.
-    if let Ok(error) = serde_cbor::from_slice::<ExactError>(&bytes)
+    if let Ok(error) = serde_cbor::from_slice::<ExactError>(bytes)
         && crate::util::to_canonical_cbor(&error).is_ok_and(|canonical| canonical == bytes)
     {
         return Err(WorldError::NetworkRequestFailed {
@@ -292,7 +330,7 @@ fn decode_reply(bytes: Vec<u8>) -> Result<Vec<u8>, WorldError> {
             retryable: error.retryable,
         });
     }
-    Ok(bytes)
+    Ok(())
 }
 #[cfg(test)]
 mod reply_tests {

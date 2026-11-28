@@ -52,7 +52,7 @@ pub(super) enum CommandOutcome {
 
 pub(super) struct PendingResponse {
     pub protocol: String,
-    pub response: CommandResponseSender<Vec<u8>>,
+    pub response: CommandResponseSender<super::HeldBytes>,
 }
 
 pub(super) struct CommandContext<'a> {
@@ -88,15 +88,14 @@ pub(super) enum Command {
         payload: Vec<u8>,
         providers: Vec<String>,
         deadline: Option<tokio::time::Instant>,
-        response: CommandResponseSender<Vec<u8>>,
+        response: CommandResponseSender<super::HeldBytes>,
     },
     RequestToPeer {
         protocol: String,
         payload: Vec<u8>,
         peer: PeerId,
-        deadline: Option<tokio::time::Instant>,
-        exchange: Option<Arc<super::encoded_exchange::Exchange>>,
-        response: CommandResponseSender<Vec<u8>>,
+        context: super::request_deadline::OutboundContext,
+        response: CommandResponseSender<super::HeldBytes>,
     },
     RegisterAuthenticatedHandler {
         protocol: String,
@@ -720,7 +719,7 @@ pub(super) fn handle_command(
                         let result = super::request_deadline::dispatch_local_handler(
                             handler, &payload, deadline,
                         );
-                        let _ = response.send(result);
+                        let _ = response.send(result.map(super::HeldBytes::unheld));
                     } else {
                         let _ = response.send(Err(WorldError::NetworkProtocolUnavailable {
                             protocol: protocol.clone(),
@@ -809,8 +808,7 @@ pub(super) fn handle_command(
             protocol,
             payload,
             peer,
-            deadline,
-            exchange,
+            context,
             response,
         }) => {
             if !request_peer_is_connected_or_active(
@@ -829,7 +827,7 @@ pub(super) fn handle_command(
                 ))));
                 return CommandOutcome::Continue;
             }
-            if let Some(exchange) = &exchange
+            if let Some(exchange) = &context.exchange
                 && let Err(error) = exchange.admit()
             {
                 let error = super::outbound_failure::request_failure_world_error(
@@ -846,8 +844,7 @@ pub(super) fn handle_command(
             let request_id = swarm.behaviour_mut().send_rr_request_with_exchange(
                 &peer,
                 NetworkRequest { protocol, payload },
-                deadline,
-                exchange,
+                context,
             );
             pending.insert(
                 request_id,

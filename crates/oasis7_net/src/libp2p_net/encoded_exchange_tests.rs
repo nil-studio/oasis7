@@ -372,6 +372,7 @@ async fn write_local(
                 deadline,
                 exchange: Some(exchange),
                 response_resources: Default::default(),
+                memory: None,
             },
         )
         .await

@@ -26,7 +26,9 @@ pub(super) fn reject_expired_command(command: Option<&Command>) -> bool {
             deadline, response, ..
         }
         | Command::RequestToPeer {
-            deadline, response, ..
+            context: OutboundContext { deadline, .. },
+            response,
+            ..
         },
     ) = command
     else {
@@ -71,11 +73,19 @@ pub(super) fn dispatch_local_handler(
 }
 
 #[derive(Debug)]
+pub(super) struct OutboundContext {
+    pub(super) deadline: Option<Instant>,
+    pub(super) exchange: Option<Arc<super::encoded_exchange::Exchange>>,
+    pub(super) memory: Option<Arc<super::memory_hold::RpcHold>>,
+}
+
+#[derive(Debug)]
 pub(super) struct LocalRequest {
     pub(super) message: NetworkRequest,
     pub(super) deadline: Option<Instant>,
     pub(super) exchange: Option<Arc<super::encoded_exchange::Exchange>>,
     pub(super) response_resources: super::authenticated_reply::ReplyResources,
+    pub(super) memory: Option<Arc<super::memory_hold::RpcHold>>,
 }
 
 pub(super) fn deadline_in(timeout: Duration) -> Instant {
@@ -118,6 +128,7 @@ pub(super) struct RequestCodec {
     // only when that instance writes an outbound application request.
     outbound_deadline: Option<Instant>,
     outbound_exchange: Option<Arc<super::encoded_exchange::Exchange>>,
+    outbound_memory: Option<Arc<super::memory_hold::RpcHold>>,
     // Inbound libp2p owns this codec until write_response AND stream.close
     // finish, or its stream future is cancelled. Never reset on callback return.
     inbound_response_resources: Option<super::authenticated_reply::ReplyResources>,
@@ -131,6 +142,7 @@ impl Clone for RequestCodec {
             inner: self.inner.clone(),
             outbound_deadline: None,
             outbound_exchange: None,
+            outbound_memory: None,
             inbound_response_resources: None,
         }
     }
@@ -160,7 +172,7 @@ pub(super) fn prepare_encoded_request(
 impl Codec for RequestCodec {
     type Protocol = StreamProtocol;
     type Request = LocalRequest;
-    type Response = NetworkResponse;
+    type Response = super::HeldBytes;
 
     async fn read_request<T>(
         &mut self,
@@ -178,6 +190,7 @@ impl Codec for RequestCodec {
             deadline: None,
             exchange: None,
             response_resources,
+            memory: None,
         })
     }
 
@@ -185,10 +198,23 @@ impl Codec for RequestCodec {
         &mut self,
         protocol: &Self::Protocol,
         io: &mut T,
-    ) -> io::Result<NetworkResponse>
+    ) -> io::Result<super::HeldBytes>
     where
         T: AsyncRead + Unpin + Send,
     {
+        let mut inner = self.inner.clone();
+        if self.outbound_memory.is_some() {
+            inner = inner
+                .set_response_size_maximum(super::memory_hold::RPC_RESPONSE_ENCODED_MAX as u64 + 1);
+        }
+        let mut bounded = super::memory_hold::ResponseReader {
+            inner: io,
+            remaining: self
+                .outbound_memory
+                .as_ref()
+                .map(|_| super::memory_hold::RPC_RESPONSE_ENCODED_MAX),
+        };
+        let io = &mut bounded;
         if let Some(exchange) = &self.outbound_exchange {
             let exchange = Arc::clone(exchange);
             let original = Instant::from_std(exchange.deadline());
@@ -201,7 +227,7 @@ impl Codec for RequestCodec {
                     Arc::clone(&exchange),
                     deadline.into_std(),
                 );
-                before_deadline(deadline, self.inner.read_response(protocol, &mut metered)).await
+                before_deadline(deadline, inner.read_response(protocol, &mut metered)).await
             };
             // All read futures and their reservation guards have stopped. The
             // caller's synchronous timeout does not run this cleanup early.
@@ -212,13 +238,14 @@ impl Codec for RequestCodec {
             if Instant::now() >= deadline {
                 return Err(elapsed());
             }
-            return Ok(response);
+            return self.hold_response(response);
         }
-        let read = self.inner.read_response(protocol, io);
-        match self.outbound_deadline {
+        let read = inner.read_response(protocol, io);
+        let response = match self.outbound_deadline {
             Some(deadline) => before_deadline(deadline, read).await,
             None => read.await,
-        }
+        }?;
+        self.hold_response(response)
     }
 
     async fn write_request<T>(
@@ -231,6 +258,7 @@ impl Codec for RequestCodec {
         T: AsyncWrite + Unpin + Send,
     {
         self.outbound_deadline = request.deadline;
+        self.outbound_memory = request.memory;
         if let Some(exchange) = request.exchange {
             self.outbound_exchange = Some(Arc::clone(&exchange));
             exchange.check_active()?;
@@ -283,12 +311,36 @@ impl Codec for RequestCodec {
         &mut self,
         protocol: &Self::Protocol,
         io: &mut T,
-        response: NetworkResponse,
+        response: super::HeldBytes,
     ) -> io::Result<()>
     where
         T: AsyncWrite + Unpin + Send,
     {
-        self.inner.write_response(protocol, io, response).await
+        let payload = response
+            .into_unheld()
+            .map_err(|_| io::Error::other("held response requires its resource owner"))?;
+        self.inner
+            .write_response(protocol, io, NetworkResponse { payload })
+            .await
+    }
+}
+
+impl RequestCodec {
+    fn hold_response(&self, response: NetworkResponse) -> io::Result<super::HeldBytes> {
+        if self.outbound_memory.is_some()
+            && self.outbound_deadline.is_some_and(|d| Instant::now() >= d)
+        {
+            return Err(elapsed());
+        }
+        if self.outbound_memory.is_some()
+            && response.payload.len() > super::AUTHENTICATED_RESPONSE_MAX_BYTES
+        {
+            return Err(io::Error::other("held response payload bound"));
+        }
+        Ok(super::HeldBytes {
+            payload: response.payload,
+            memory: self.outbound_memory.clone(),
+        })
     }
 }
 
@@ -331,6 +383,7 @@ mod tests {
                                 deadline,
                                 exchange: None,
                                 response_resources: Default::default(),
+                                memory: None,
                             },
                         )
                         .await
@@ -372,9 +425,9 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct PartialWriter {
-        bytes: usize,
-        close_calls: u32,
+    pub(super) struct PartialWriter {
+        pub(super) bytes: usize,
+        pub(super) close_calls: u32,
     }
 
     impl AsyncWrite for PartialWriter {
@@ -416,6 +469,7 @@ mod tests {
                             deadline: Some(deadline_in(Duration::from_millis(30))),
                             exchange: None,
                             response_resources: Default::default(),
+                            memory: None,
                         },
                     )
                     .await
@@ -466,11 +520,11 @@ mod tests {
         (codec, guard, drops)
     }
 
-    struct ResponseWriter {
-        bytes: Vec<u8>,
-        drops: Arc<std::sync::atomic::AtomicUsize>,
-        close_ready: bool,
-        fail: bool,
+    pub(super) struct ResponseWriter {
+        pub(super) bytes: Vec<u8>,
+        pub(super) drops: Arc<std::sync::atomic::AtomicUsize>,
+        pub(super) close_ready: bool,
+        pub(super) fail: bool,
     }
     impl AsyncWrite for ResponseWriter {
         fn poll_write(
@@ -529,7 +583,11 @@ mod tests {
             fail: false,
         };
         codec
-            .write_response(&protocol, &mut writer, response)
+            .write_response(
+                &protocol,
+                &mut writer,
+                super::super::HeldBytes::unheld(response.payload),
+            )
             .now_or_never()
             .unwrap()
             .unwrap();
@@ -561,7 +619,7 @@ mod tests {
                 .write_response(
                     &protocol,
                     &mut writer,
-                    NetworkResponse { payload: vec![42] }
+                    super::super::HeldBytes::unheld(vec![42])
                 )
                 .now_or_never()
                 .unwrap()
@@ -579,9 +637,7 @@ mod tests {
                 .write_response(
                     &protocol,
                     &mut writer,
-                    NetworkResponse {
-                        payload: vec![42; 4096]
-                    }
+                    super::super::HeldBytes::unheld(vec![42; 4096])
                 )
                 .now_or_never()
                 .is_none()
@@ -609,9 +665,7 @@ mod tests {
                     codec.write_response(
                         &StreamProtocol::new("/test/response-hold"),
                         &mut writer,
-                        NetworkResponse {
-                            payload: vec![42; 4096],
-                        },
+                        super::super::HeldBytes::unheld(vec![42; 4096]),
                     ),
                 )
                 .await
@@ -625,3 +679,7 @@ mod tests {
             });
     }
 }
+
+#[cfg(test)]
+#[path = "memory_hold_tests.rs"]
+mod memory_hold_tests;

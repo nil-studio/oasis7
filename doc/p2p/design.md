@@ -240,6 +240,30 @@ Committed private history uses the existing StateSync or FullReadOnly root grant
 
 Acceptance must include distinct driver/CAS instances with nonempty candidates, multiple values at one parent, exact original retries, local-selection recovery and cold reopen; missing metadata/pins, conflicts, capacity and incompatible readers must fail closed. Fixed-set multi-Node software acceptance must use actual Worlds and private ledgers, native signer TCP, authenticated Noise peer delivery and the real signed-history permission gate, while identifying simulated witness/clock/backend components. Full partition/heal, weighted adversarial quorum, long catch-up, h/h+1/h+2 installation and independent physical failure-domain evidence remain required before closing #4975.
 
+#### des-p2p-private-transport-memory-v1
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39。私有 candidate 与 Original admission input 的并发运输额度属于同一实际 `Libp2pNetwork` owner；inbound、outbound **分别132MiB**，跨 Network clone、协议和 peer 共用同方向，不建立每调用私池或永久全局 owner map。它是可释放的同时占用，不是消耗后不退款的 transfer/wire 费用账，也不授予读权。
+
+`retain_transport_memory(direction, bytes)` 返回不透明 RAII hold，消费者在分配材料前预留并持到最后实际使用者结束。`transport_memory_usage()` 观察各方向当前预留量。每一次 opt-in authenticated held RPC 独立预留 inbound 2MiB、outbound 1MiB；operation 的大材料另占同一个方向池。旧超时或取消的流仍存活时，新 retry 不能共借原 RPC 额度。所有 permit 只能因最后 owner 结束而归还，不能刷新窗口或复用一次预留给多个同时存活的交换。
+
+请求 hold 随 Command、LocalRequest 和实际 stream codec 流转；返回的 `HeldBytes` 经 libp2p Event、completion channel 到 caller，持有原 reservation。返回、队列拒绝、异常、取消和 shutdown 均按真实所有权释放；payload 的存储先释放，再归还 permit。公开入口只借用字节；旧 Vec 出口只接受没有 hold 的响应，意外收到 held 响应则拒绝。每 stream codec Clone 清空局部 hold。服务端既有 reply resource 的 callback、worker、发送和 stream close 共同寿命保持。
+
+新 held API 在复制 protocol/payload 和编码前检查专用 namespace、protocol≤128B、应用帧≤64KiB、原绝对 deadline，并取得两方向额度；配置没有 shared-resource timeout 时仍保留新 caller deadline。排队、首次 IO、部分进度、重试及返回前验证不能重置该期限。旧公开 API、旧 timeout 配置、线编码及费用行为保持；此接口默认未接 Node 业务。
+
+应用 CBOR 接缝的固定实现依据为 libp2p `2cb3c043`、cbor4ii1.2.3、serde_core1.0.229、futures-util0.3.34。held response 的外层编码上限为131200B（2×64KiB+128壳），无分配 reader 探测多一字节并在 typed 解码前拒绝超限；原业务帧额度不扩大。峰值按 capacity 与 realloc 旧块共存计算：
+
+| 同时存活的接收缓冲 | 保守上界（字节） |
+| --- | ---: |
+| 外层 read_to_end Vec | 262144 |
+| 恶意 payload array hint 的 cautious Vec | 1048576 |
+| 一个 indefinite 字段名 scratch 的旧、新块 | 3×(131200+16384)=442752 |
+| 固定 decoder、错误和控制壳 | 8192 |
+| 合计 | 1761664，低于2097152 |
+
+raw 自身的393216B增长瞬态发生在 typed 前；payload 仅为 `Vec<u8>` array，bytestring 当场拒绝，重复 payload 在第二次分配前拒绝；unknown value 只 skip、depth≤256，不构建对象树。字段名一次一份，当前 DTO 未拒绝未知字段，不生成携大字段名的错误。改变这些依赖、DTO或并行解码方式须重新核算。发送侧 caller/Command 各64KiB加编码新262144、旧131072共524288B，另计8192控制壳后低于1MiB预留。
+
+这是应用运输输入的堆对象责任，不是 allocator RSS、World 状态或整个 Noise/Yamux 连接的内存声明。后继须使两真实 receiver 的大材料和原 deadline 消费同一池，并闭合 Runtime 重复副本、sender candidate cache/Original 的 outbound 共池以及共享RR在首次decode前的 inbound envelope预留；本接口和小型Noise验收不证明这些路径或完整双向132MiB已完成。
+
 #### des-p2p-bft-round-lock-v1
 
 规范算法为 Buchman、Kwon、Milosevic [The latest gossip on BFT consensus, v3，Algorithm 1](https://arxiv.org/abs/1807.04938v3)；其 `n` 按 voting power 计。固定高度内 Byzantine power 须小于 `W/3`；安全性不依赖及时到达，活性依赖最终同步和可用的足额正确节点。proposer 选择采用 [CometBFT weighted round-robin 规范](https://github.com/cometbft/cometbft/blob/709fd12b4b18cf1442d43c5d34009392c7d674ed/spec/consensus/proposer-selection.md)的优先级更新、归一化与成员变更规则；oasis7 将相同优先级的 tie-break 固定为 consensus 公钥原始字节升序。优先级属于确定性持久状态，每个 `height/round` 只有一个合法 proposer。slot 仅 pacing，不替代 round。初始化、一次触发规则、nil、未来 round 跳转和三类 timeout 完整按算法实现，不混入旧 prototype 的同高替换或其他共识的解锁规则；采用的参考规范内容随协议版本冻结，上游文档变化不自动改变已激活规则。

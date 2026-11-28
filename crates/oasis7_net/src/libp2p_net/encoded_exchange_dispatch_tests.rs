@@ -41,6 +41,7 @@ fn prepared_bytes_are_single_use_and_unadmitted_codec_cannot_send() {
                 deadline: None,
                 exchange: Some(Arc::clone(&exchange)),
                 response_resources: Default::default(),
+                memory: None,
             };
             let first = codec.write_request(&protocol, &mut io, request()).await;
             assert_eq!(first.is_ok(), admitted);
@@ -159,8 +160,11 @@ fn actual_no_address_and_refused_tcp_dials_spend_original_exchange_count() {
                 let request = swarm.behaviour_mut().send_rr_request_with_exchange(
                     &peer,
                     message(),
-                    None,
-                    Some(exchange),
+                    crate::libp2p_net::request_deadline::OutboundContext {
+                        deadline: None,
+                        exchange: Some(exchange),
+                        memory: None,
+                    },
                 );
                 let mut saw_transport_failure = false;
                 let mut saw_request_failure = false;

@@ -419,7 +419,7 @@ impl Libp2pNetwork {
                                                             pending_response.protocol.as_str(),
                                                             response.payload.as_slice(),
                                                         )
-                                                        .map(|()| response.payload);
+                                                        .map(|()| response);
                                                         let _ = pending_response.response.send(result);
                                                     }
                                                 }
@@ -1178,6 +1178,7 @@ impl Libp2pNetwork {
             peer_record_receiver,
             discovery_clock,
             resource_budget,
+            memory_pool: Arc::new(super::memory_hold::MemoryPool::default()),
             _shutdown_guard: Arc::new(drop_support::ShutdownGuard::new(command_tx)),
         })
     }
