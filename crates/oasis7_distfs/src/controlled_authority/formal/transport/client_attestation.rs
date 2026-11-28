@@ -12,29 +12,27 @@ fn prepay_policy_clone_graph(
     ctx: &mut FormalBoundedContextV1<'_>,
 ) -> Result<MemoryReservation, FormalError> {
     ctx.consume_steps(1)?;
-    let one = bindings
-        .iter()
-        .try_fold(
-            std::mem::size_of::<Vec<String>>()
-                .checked_add(provider_public_key.len())
-                .and_then(|n| n.checked_add(std::mem::size_of::<String>()))
-                .and_then(|n| {
-                    bindings
-                        .len()
-                        .checked_mul(std::mem::size_of::<String>())
-                        .and_then(|b| n.checked_add(b))
-                })
-                .ok_or_else(|| invalid("formal RPC policy clone size overflow"))?,
-            |n, s| {
-                n.checked_add(s.len())
-                    .ok_or_else(|| invalid("formal RPC policy clone size overflow"))
-            },
-        )?;
+    let one = bindings.iter().try_fold(
+        std::mem::size_of::<Vec<String>>()
+            .checked_add(provider_public_key.len())
+            .and_then(|n| n.checked_add(std::mem::size_of::<String>()))
+            .and_then(|n| {
+                bindings
+                    .len()
+                    .checked_mul(std::mem::size_of::<String>())
+                    .and_then(|b| n.checked_add(b))
+            })
+            .ok_or_else(|| invalid("formal RPC policy clone size overflow"))?,
+        |n, s| {
+            n.checked_add(s.len())
+                .ok_or_else(|| invalid("formal RPC policy clone size overflow"))
+        },
+    )?;
     let both = one
         .checked_mul(2)
         .ok_or_else(|| invalid("formal RPC policy clone size overflow"))?;
-    let work_bytes = u64::try_from(both)
-        .map_err(|_| invalid("formal RPC policy clone work overflow"))?;
+    let work_bytes =
+        u64::try_from(both).map_err(|_| invalid("formal RPC policy clone work overflow"))?;
     ctx.charge(1, work_bytes)?;
     ctx.memory()
         .reserve(both, MemoryClass::Ordinary)
