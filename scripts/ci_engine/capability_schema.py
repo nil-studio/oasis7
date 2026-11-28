@@ -39,6 +39,7 @@ def validate_package_capabilities_static(
     if any(not isinstance(k, str) or not k for k in keys) or keys != sorted(keys):
         raise ValueError("package_capabilities keys must be non-empty strings in strict ASCII lexicographic order")
     seen_profiles: set[str] = set()
+    seen_proof_groups: set[str] = set()
     for pkg, raw in capabilities.items():
         if not isinstance(raw, Mapping) or (set(raw.keys()) - ALLOWED_CAPABILITY_KEYS):
             raise ValueError(f"{pkg}: invalid capability object or unknown keys")
@@ -57,7 +58,7 @@ def validate_package_capabilities_static(
         support = raw.get("support_profile")
         if support is not None:
             if (not isinstance(support, Mapping) or set(support.keys()) != ALLOWED_SUPPORT_KEYS
-                    or not isinstance(support["profile_id"], str) or not support["profile_id"]
+                    or support["profile_id"] != pkg
                     or support["profile_id"] in seen_profiles or support["partition"] not in ALLOWED_SUPPORT_PARTITIONS
                     or type(support["requires_host_runner"]) is not bool):
                 raise ValueError(f"{pkg}.support_profile invalid")
@@ -79,8 +80,11 @@ def validate_package_capabilities_static(
         if proof is not None:
             if (not isinstance(proof, Mapping) or set(proof.keys()) != {"group"}
                     or not isinstance(proof["group"], str) or not proof["group"]
-                    or (known_groups is not None and proof["group"] not in known_groups)):
+                    or proof["group"] in seen_proof_groups
+                    or (known_groups is not None and proof["group"] not in known_groups)
+                    or (package_groups is not None and proof["group"] not in (package_groups.get(pkg) or ()))):
                 raise ValueError(f"{pkg}.group_library_proof invalid")
+            seen_proof_groups.add(proof["group"])
         pcfg = raw.get("platform_cfg_assumptions")
         if pcfg is not None:
             if not isinstance(pcfg, Mapping) or not set(pcfg.keys()) <= ALLOWED_PLATFORM_CFG_KEYS:
@@ -129,6 +133,14 @@ def derive_support_profiles(capabilities: Mapping[str, Mapping[str, object]]) ->
             for pkg, entry in capabilities.items() if isinstance(sp := entry.get("support_profile"), Mapping)}
 
 
+def derive_support_host_profiles(capabilities: Mapping[str, Mapping[str, object]]) -> frozenset[str]:
+    return frozenset(pid for pid, spec in derive_support_profiles(capabilities).items() if spec.get("requires_host_runner"))
+
+
+def derive_inline_dedicated_packages(capabilities: Mapping[str, Mapping[str, object]]) -> frozenset[str]:
+    return frozenset(pkg for pkg, entry in capabilities.items() if entry.get("inline_dedicated_partition"))
+
+
 def derive_compact_excluded_packages(capabilities: Mapping[str, Mapping[str, object]]) -> frozenset[str]:
     return frozenset(pkg for pkg, entry in capabilities.items() if entry.get("compact_non_runtime_excluded"))
 
@@ -141,6 +153,16 @@ def derive_logical_harness_aliases(capabilities: Mapping[str, Mapping[str, objec
 def derive_universal_v2_anchors(capabilities: Mapping[str, Mapping[str, object]]) -> frozenset[str]:
     return frozenset(pkg for pkg, entry in capabilities.items()
                      if isinstance(sp := entry.get("splittable_lib_harness"), Mapping) and sp.get("universal_v2_anchor"))
+
+
+def derive_fixture_owner_packages(capabilities: Mapping[str, Mapping[str, object]], fixture_name: str) -> frozenset[str]:
+    return frozenset(pkg for pkg, entry in capabilities.items()
+                     if fixture_name in (entry.get("host_docker_wasm_fixtures") or ()))
+
+
+def derive_group_library_map(capabilities: Mapping[str, Mapping[str, object]]) -> dict[str, str]:
+    return {str(gp["group"]): pkg for pkg, entry in capabilities.items()
+            if isinstance(gp := entry.get("group_library_proof"), Mapping)}
 
 
 def reconcile_cross_version_members(

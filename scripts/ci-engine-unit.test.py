@@ -122,6 +122,17 @@ class CapabilitySchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_package_capabilities_static({"a_pkg": {"ordinary_package": False}})
         with self.assertRaises(ValueError):
+            validate_package_capabilities_static({
+                "a_pkg": {"ordinary_package": False, "support_profile": {
+                    "profile_id": "other_id", "partition": "other", "requires_host_runner": False,
+                    "extra_features": [], "wasm_compile_feature_sets": []}},
+            })
+        with self.assertRaises(ValueError):
+            validate_package_capabilities_static({
+                "a_pkg": {"ordinary_package": True, "group_library_proof": {"group": "g1"}},
+                "b_pkg": {"ordinary_package": True, "group_library_proof": {"group": "g1"}},
+            }, known_groups={"g1"}, package_groups={"a_pkg": ["g1"], "b_pkg": ["g1"]})
+        with self.assertRaises(ValueError):
             validate_package_capabilities_against_workspace(self._sample(), {"alpha_pkg"})
 
 
