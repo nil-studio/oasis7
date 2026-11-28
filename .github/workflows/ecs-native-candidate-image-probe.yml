@@ -1,0 +1,113 @@
+name: ECS native candidate image probe
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-ecs-native-candidate-probe-base]
+    paths: [.github/workflows/ecs-native-candidate-image-probe.yml]
+permissions:
+  contents: read
+  packages: read
+cache-mode: none
+jobs:
+  probe:
+    if: >-
+      github.repository == 'nil-studio/oasis7' && github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/engineering-ecs-native-candidate-probe' &&
+      github.base_ref == 'codex/engineering-ecs-native-candidate-probe-base'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE: 346530667ed3c26f60337d4064ebe63efb5519b5
+      RUST_TOOLCHAIN: '1.96.0'
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      RUST_ECS_NATIVE_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+      ECS_NATIVE_DEPENDENCY_NAMESPACE: oasis7-ecs-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE }}
+          persist-credentials: false
+      - id: native-environment
+        name: Execute exact candidate socket and environment guards
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test -z "$(git status --porcelain)"
+          python3 - <<'PY'
+          import os, pathlib, re, shlex, subprocess, textwrap
+          workflow = pathlib.Path(".github/workflows/ecs-packages.yml").read_text()
+          env = dict(os.environ, GITHUB_SHA=os.environ["SOURCE"])
+          for name in ("Reject Docker daemon access in candidate native build",
+                       "Verify preinstalled Rust build environment"):
+              step = re.findall(r"(?m)^      - name: " + re.escape(name) + r"\n((?:        .*\n)+)", workflow)
+              assert len(step) == 1, name
+              shell = textwrap.dedent(step[0].split("        run: |\n", 1)[1])
+              assert "$" + "{{" not in shell
+              subprocess.run(["bash", "-e", "-o", "pipefail", "-c", shell], env=env, check=True)
+              if name.startswith("Reject"):
+                  assert subprocess.run(["bash", "-c", shell],
+                                        env=env | {"DOCKER_HOST": "tcp://localhost:1"}).returncode == 1
+          command, = re.findall(r"(?m)^        run: (python3 scripts/ci-rust-cache-toolchains\.py[^\n]+)$", workflow)
+          assert shlex.split(command)[-2:] == ["$RUST_TOOLCHAIN", "$OASIS7_WASM_TOOLCHAIN"]
+          before = subprocess.check_output(["rustup", "toolchain", "list"])
+          subprocess.run(["bash", "-e", "-c", command], check=True)
+          assert subprocess.check_output(["rustup", "toolchain", "list"]) == before
+          PY
+      - uses: ./.github/actions/setup-linux-mold
+        id: mold
+        with:
+          install-dir: ${{ steps.native-environment.outputs.mold }}
+      - id: evidence
+        name: Link a real ELF, compute the cache identity, and stage timing fixtures
+        env:
+          LINKER: ${{ steps.mold.outputs.linker }}
+        run: |
+          set -euo pipefail
+          scratch=$(mktemp -d "$RUNNER_TEMP/ecs-native-probe.XXXXXX")
+          printf 'int main(void) { return 0; }\n' > "$scratch/probe.c"
+          flags=$(pkg-config --cflags --libs x11 xi xcursor xrandr xinerama alsa libudev)
+          read -r -a pkg_flags <<< "$flags"
+          "${LINKER:?}" "$scratch/probe.c" -o "$scratch/probe" "${pkg_flags[@]}"
+          "$scratch/probe"
+          readelf -h "$scratch/probe" | grep 'Advanced Micro Devices X86-64'
+          readelf -p .comment "$scratch/probe" | grep 'mold'
+          mkdir -p target/cargo-timings "$RUNNER_TEMP/ecs-reports"
+          /usr/bin/time -v -o "$RUNNER_TEMP/ecs-reports/ecs-time.txt" "$scratch/probe"
+          printf 'local timing fixture\n' > target/cargo-timings/probe.txt
+          printf '{"diagnostic_fixture":true}\n' > "$RUNNER_TEMP/ecs-units.json"
+          python3 scripts/ci-ecs-cache.py identity > "$RUNNER_TEMP/ecs-cache-identity.json"
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess, textwrap
+          workflow = pathlib.Path(".github/workflows/ecs-packages.yml").read_text()
+          stage, = re.findall(r"(?m)^      - id: image-timings\n((?:        .*\n)+)", workflow)
+          shell = textwrap.dedent(stage.split("        run: |\n", 1)[1])
+          assert "$" + "{{" not in shell
+          subprocess.run(["bash", "-e", "-o", "pipefail", "-c", shell], check=True)
+          metadata = pathlib.Path(os.environ["RUNNER_TEMP"]) / "ecs-cache-identity.json"
+          payload = metadata.read_text()
+          import json
+          key = json.loads(payload)["key"]
+          assert re.fullmatch(r"ecs-workspace-v2-[0-9a-f]{64}-" + os.environ["SOURCE"], key), key
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"]).read_text().splitlines()
+          staged, = [pathlib.Path(line[5:]) for line in output if line.startswith("path=")]
+          from hashlib import sha256
+          for path in sorted(staged.rglob("*")):
+              if path.is_file():
+                  print(sha256(path.read_bytes()).hexdigest(), path.relative_to(staged))
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostic-ecs-native-candidate-timings
+          path: ${{ steps.evidence.outputs.path }}
+          if-no-files-found: error
