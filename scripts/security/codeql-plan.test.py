@@ -712,6 +712,28 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unregistered input'):
             self.run_plan()
 
+    def test_dependabot_configuration_selects_its_python_coverage_consumer(self):
+        self.write('.github/dependabot.yml', 'version: 2\nupdates: []\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['python-repo'])
+        self.assertIn('.github/dependabot.yml', plan['reasons']['python-repo'])
+
+    def test_dependabot_registration_rejects_neighbors_and_rename_both_ends(self):
+        for path in ('.github/dependabot-extra.yml', '.github/nested/dependabot.yml',
+                     '.github/dependabot.yml.extra'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write(path, 'fixture\n'); self.commit()
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'unregistered input'):
+                self.run_plan()
+        self.write('.github/dependabot.yml', 'version: 2\nupdates: []\n'); self.commit()
+        for old, new in (('.github/dependabot.yml', '.github/unowned.yml'),
+                         ('.github/unowned.yml', '.github/dependabot.yml')):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.git('mv', old, new); self.commit()
+            with self.subTest(old=old), self.assertRaisesRegex(ValueError, 'unregistered input'):
+                self.run_plan()
+
     def test_retired_oasis7_conformance_dockerfile_selects_actions(self):
         path = 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile'
         self.write(path, 'FROM scratch\n')

@@ -95,6 +95,52 @@ fn independent_reopen_keeps_exact_original_bytes_and_duplicate_publication() {
 }
 
 #[test]
+fn near_capacity_original_cas_readback_keeps_exact_buffer_capacity() {
+    let root = Scratch::new();
+    let mut original = vec![33; 66 * 1024 * 1024 - 17];
+    for compressible in [true, false] {
+        if !compressible {
+            let mut state = 0x3141_5926_5358_9793u64;
+            for chunk in original.chunks_mut(8) {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                chunk.copy_from_slice(&state.to_le_bytes()[..chunk.len()]);
+            }
+        }
+        let reference = root
+            .store()
+            .persist_object(&original, original.len())
+            .unwrap();
+        let path = root.blob(&reference);
+        assert_eq!(
+            fs::metadata(&path).unwrap().len() < original.len() as u64,
+            compressible
+        );
+        let reopened = root.store();
+        let reread = reopened.load_object(&reference, original.len()).unwrap();
+        assert_eq!(reread, original);
+        assert_eq!(
+            reread.capacity(),
+            original.len(),
+            "cold read must not grow to 128 MiB"
+        );
+        drop(reread);
+        assert_eq!(
+            reopened.persist_object(&original, original.len()).unwrap(),
+            reference
+        );
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let truncated = file.metadata().unwrap().len() - 1;
+        file.set_len(truncated).unwrap();
+        drop(file);
+        assert!(reopened.load_object(&reference, original.len()).is_err());
+        assert!(reopened.persist_object(&original, original.len()).is_err());
+        assert_eq!(fs::metadata(&path).unwrap().len(), truncated);
+    }
+}
+
+#[test]
 fn corrupt_existing_hash_path_is_not_accepted_or_silently_repaired_by_put() {
     let root = Scratch::new();
     let original = b"exact original public bytes";

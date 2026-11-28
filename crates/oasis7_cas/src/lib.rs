@@ -9,7 +9,7 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use zstd::stream::{decode_all as zstd_decode_all, encode_all as zstd_encode_all};
+use zstd::stream::decode_all as zstd_decode_all;
 const BLOBS_DIR: &str = "blobs";
 const PINS_FILE: &str = "pins.json";
 const PIN_SCOPES_DIR: &str = "pin_scopes";

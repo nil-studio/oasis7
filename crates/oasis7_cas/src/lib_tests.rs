@@ -310,6 +310,9 @@ fn cas_does_not_misdecode_raw_blob_that_looks_like_compressed_payload() {
 
     assert_eq!(store.get(&hash).expect("get"), bytes);
     assert_eq!(store.get_verified(&hash).expect("verified get"), bytes);
+    store
+        .put(&hash, &bytes)
+        .expect("same raw magic-prefixed original");
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -767,4 +770,79 @@ fn duplicate_put_accepts_verified_compressed_and_raw_blobs() {
         assert_eq!(store.get_verified(&hash).expect("verified read"), original);
     }
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn near_capacity_disk_encoding_has_one_bounded_scratch_or_borrows_original() {
+    use std::borrow::Cow;
+    let store = LocalCasStore::new(temp_dir("bounded-encoding"));
+    let mut original = vec![42; 66 * 1024 * 1024 - 17];
+    for compressible in [true, false] {
+        if !compressible {
+            let mut state = 0x2718_2818_2845_9045u64;
+            for chunk in original.chunks_mut(8) {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                chunk.copy_from_slice(&state.to_le_bytes()[..chunk.len()]);
+            }
+        }
+        let hash = store.hash_hex(&original);
+        let disk = store.maybe_encode_blob_for_disk(&hash, &original).unwrap();
+        match &disk {
+            Cow::Owned(encoded) => {
+                assert!(compressible);
+                assert!(encoded.len() < original.len());
+                assert!(encoded.capacity() <= original.len());
+                assert!(encoded.starts_with(COMPRESSED_BLOB_MAGIC));
+            }
+            Cow::Borrowed(encoded) => {
+                assert!(!compressible);
+                assert_eq!(encoded.as_ptr(), original.as_ptr());
+            }
+        }
+        let receipt = decode_local_blob_into(
+            HashAlgorithm::Blake3,
+            &hash,
+            disk.as_ref(),
+            std::io::sink(),
+            original.len(),
+        )
+        .unwrap();
+        assert_eq!(receipt.decoded_bytes, original.len());
+        assert_eq!(receipt.content_hash, hash);
+    }
+}
+
+#[test]
+fn duplicate_put_streams_both_hashes_and_rejects_damaged_encoded_headers() {
+    for algorithm in [HashAlgorithm::Blake3, HashAlgorithm::Sha256] {
+        let dir = temp_dir("stream-verified-duplicate");
+        let store = LocalCasStore::new_with_hash_algorithm(&dir, algorithm);
+        let original = vec![77; 256 * 1024 + 3];
+        let hash = store.put_bytes(&original).unwrap();
+        let path = store.blob_path(&hash).unwrap();
+        let encoded = fs::read(&path).unwrap();
+        assert!(encoded.starts_with(COMPRESSED_BLOB_MAGIC));
+        store.put(&hash, &original).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), encoded);
+        for malformed in [
+            encoded[..encoded.len() - 1].to_vec(),
+            {
+                let mut b = encoded.clone();
+                b[8..16].copy_from_slice(&(original.len() as u64 + 1).to_le_bytes());
+                b
+            },
+            {
+                let mut b = encoded.clone();
+                b[16] ^= 1;
+                b
+            },
+        ] {
+            fs::write(&path, &malformed).unwrap();
+            assert!(store.put(&hash, &original).is_err());
+            assert_eq!(fs::read(&path).unwrap(), malformed);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

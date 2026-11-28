@@ -340,6 +340,10 @@ def plan(args):
             add('python-repo', path)
         elif path == 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile':
             add('actions-repo', path)
+        elif path == '.github/dependabot.yml':
+            # GitHub dependency-update data, also parsed by the Python coverage
+            # guard. It is not executable Actions YAML.
+            add('python-repo', path)
         elif path in ISSUE_METADATA_INPUTS or path in (
             'scripts/newapi-bridge-service/pricing-rules.example.env',
         ):
