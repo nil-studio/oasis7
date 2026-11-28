@@ -3,7 +3,7 @@ use crate::controlled_authority::formal::transport::Value;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
     FormalBoundedContextV1 as Context, FormalBoundedWorkV1 as Work,
 };
-use oasis7_proto::memory_budget::MemoryBudget;
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 use std::{cell::Cell, mem::size_of};
 
 fn with_checkpoint_endpoint(
@@ -76,26 +76,49 @@ fn checkpoint_copy_refusal_precedes_signing_and_success_retains_both_allocations
     with_checkpoint_endpoint(|fixture, endpoint, acquisitions, signatures| {
         let original = endpoint.store.checkpoint_bytes().unwrap();
         let fee = original.len() + size_of::<Vec<u8>>();
-        let work = Work::new(1_000_000, 1 << 30).unwrap();
-        for limit in [2 * fee - 1, 1 << 20] {
+        let minimum = fixture.authority.definition().world.genesis_head().unwrap();
+        let work = ReadWork::new(1_000_000, 1 << 30).unwrap();
+        let probe = MemoryBudget::new(1 << 20, 0).unwrap();
+        let empty = endpoint
+            .store
+            .minimum_witness_bounded(&minimum, &probe, &work, &mut || false)
+            .unwrap();
+        assert!(empty.is_empty());
+        let ancestry_fee = empty.reserved_bytes() + size_of::<Vec<Vec<u8>>>();
+        drop(empty);
+        assert_eq!(probe.used(), 0);
+        let retained = ancestry_fee + 2 * fee;
+        for limit in [retained - 1, 1 << 20] {
             let memory = MemoryBudget::new(limit, 0).unwrap();
             let mut stop = || false;
-            let mut ctx = Context::new(&memory, &work, &mut stop);
-            // The one-byte-short pool admits the actual HOT original first.
-            let raw = endpoint.store.checkpoint_bytes_bounded(&mut ctx).unwrap();
+            let empty = endpoint
+                .store
+                .minimum_witness_bounded(&minimum, &memory, &work, &mut stop)
+                .unwrap();
+            let copy_pressure = memory
+                .reserve(size_of::<Vec<Vec<u8>>>(), MemoryClass::Ordinary)
+                .unwrap();
+            // Keep A+B pressure so the extra ancestry allowance cannot mask HOT admission.
+            let raw = endpoint
+                .store
+                .checkpoint_bytes_bounded(&mut work.bounded_context(&memory, &mut stop))
+                .unwrap();
             assert_eq!(raw.reserved_bytes(), fee);
             drop(raw);
+            drop(copy_pressure);
+            drop(empty);
+            assert_eq!(memory.used(), 0);
             acquisitions.store(0, Ordering::SeqCst);
             signatures.store(0, Ordering::SeqCst);
             let result = endpoint.sign_formal_rpc_response(
                 h(21),
                 h(22),
-                fixture.authority.definition().world.genesis_head().unwrap(),
+                minimum.clone(),
                 Ok(Value::Complete),
-                Some(&mut ctx),
+                Some(RpcReadBudget::new(&memory, &work, &mut stop)),
             );
             assert_eq!(acquisitions.load(Ordering::SeqCst), 1);
-            if limit == 2 * fee - 1 {
+            if limit == retained - 1 {
                 let error = result
                     .err()
                     .expect("original plus copy must be admitted together");
@@ -106,11 +129,16 @@ fn checkpoint_copy_refusal_precedes_signing_and_success_retains_both_allocations
                 assert_eq!(owner.response().body.checkpoint_bytes, original);
                 assert!(owner.response().protected_signature.is_some());
                 assert_eq!(signatures.load(Ordering::SeqCst), 1);
-                assert_eq!(memory.used(), 2 * fee);
+                assert_eq!(memory.used(), retained);
                 drop(owner);
             }
             assert_eq!(memory.used(), 0);
-            assert!(!work.is_child_active());
+            assert!(
+                !work
+                    .bounded_context(&memory, &mut stop)
+                    .work()
+                    .is_child_active()
+            );
         }
     });
 }

@@ -33,9 +33,9 @@ impl FormalEndpointServer {
     }
     /// Both normal/recovery and healthy activation call this once at startup.
     /// Optional mode admits raw request/response frames, typed Request decoding
-    /// and Request authentication, pre-dispatch minimum history, and Response
-    /// checkpoint bytes/digest. Response ancestry, remaining signing, guard
-    /// state and GEN proof are separate.
+    /// and Request authentication, pre-dispatch/guarded/Response minimum walks,
+    /// checkpoint bytes/digest, and retained ancestry wire copies. Other command
+    /// payloads, remaining signing, guard state and GEN proof are separate.
     pub fn new_with_frame_admission(
         endpoint: FileFormalEndpoint,
         timeout: Duration,
@@ -242,16 +242,16 @@ impl FormalEndpointServer {
             | Command::ArchiveChunk { .. }
             | Command::ArchiveObject(_)
             | Command::BusinessIndexPath { .. } => {
-                let mut context = self
+                let budget = self
                     .frame_admission
                     .as_ref()
-                    .map(|(memory, work)| work.bounded_context(memory, &mut cancelled));
+                    .map(|(memory, work)| RpcReadBudget::new(memory, work, &mut cancelled));
                 self.endpoint.sign_formal_rpc_read_response(
                     request_digest,
                     body.challenge.clone(),
                     body.minimum.clone(),
                     &body.command,
-                    context.as_mut(),
+                    budget,
                 )?
             }
             _ => {
@@ -291,16 +291,16 @@ impl FormalEndpointServer {
                     // No paid-mode fallback to the old unbounded query.
                     _ => self.execute(body.command.clone()),
                 };
-                let mut context = self
+                let budget = self
                     .frame_admission
                     .as_ref()
-                    .map(|(memory, work)| work.bounded_context(memory, &mut cancelled));
+                    .map(|(memory, work)| RpcReadBudget::new(memory, work, &mut cancelled));
                 self.endpoint.sign_formal_rpc_response(
                     request_digest,
                     body.challenge.clone(),
                     body.minimum.clone(),
                     result,
-                    context.as_mut(),
+                    budget,
                 )?
             }
         };
