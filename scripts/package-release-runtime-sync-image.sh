@@ -1,18 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if (( $# == 0 )); then
-  mode=sync
-  select=false
-else
-  [[ $# == 1 ]] || exit 2
-  case "$1" in
-    --select) mode=sync; select=true ;;
-    --core) mode=core; select=false ;;
-    --select-core) mode=core; select=true ;;
-    *) echo 'invalid package runtime image mode' >&2; exit 2 ;;
-  esac
-fi
+# Runtime sync now runs directly in its selected job container. The remaining
+# host launcher is only the independent runtime-core compatibility lane.
+[[ $# == 1 ]] || exit 2
+case "$1" in
+  --core) mode=core; select=false ;;
+  --select-core) mode=core; select=true ;;
+  *) echo 'invalid package runtime image mode' >&2; exit 2 ;;
+esac
 workspace=/home/runner/work/oasis7/oasis7
 socket=/var/run/docker.sock
 
@@ -89,9 +85,7 @@ if [[ "$mode" == core ]]; then
     --env OASIS7_PRODUCT_DOC_BASE --env OASIS7_PRODUCT_DOC_HEAD
     --env GITHUB_ACTIONS --env GITHUB_WORKSPACE --env RUNNER_OS --env RUNNER_ENVIRONMENT
     --env RUNNER_TEMP=/oasis7-runtime-sync --env TMPDIR=/oasis7-runtime-sync)
-else
-  image='ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8'
-  mode_options=(--env CARGO_TARGET_DIR=/oasis7-runtime-sync/target)
+
 fi
 
 # Credentials remain in the runner-owned configuration used for the single pull.
@@ -156,5 +150,5 @@ time "${daemon[@]}" pull "$image"
       export PATH="$HOME/doc-venv/bin:$PATH"
       exec ./scripts/ci-tests.sh full-core
     fi
-    exec bash --noprofile --norc -e -o pipefail -s
+    exit 2
   ' runtime-image "$mode"

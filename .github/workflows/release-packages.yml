@@ -51,6 +51,7 @@ jobs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
       webImageCompatible: ${{ steps.source.outputs.webImageCompatible }}
       soakImage: ${{ steps.soak-image.outputs.compatible }}
+      runtimeSyncImage: ${{ steps.sync-container.outputs.compatible }}
       version: ${{ steps.source.outputs.version }}
       resolvedRef: ${{ steps.source.outputs.resolvedRef }}
       sourcePlan: ${{ steps.source.outputs.sourcePlan }}
@@ -80,6 +81,11 @@ jobs:
         env:
           SOURCE_SHA: ${{ steps.source.outputs.checkoutSha }}
         run: python3 scripts/package-release-soak-image.py "$SOURCE_SHA"
+      - name: Decide runtime sync container compatibility for the verified source
+        id: sync-container
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.checkoutSha }}
+        run: python3 scripts/package-release-runtime-sync-container.py select "$SOURCE_SHA"
 
   cache-bootstrap-maintenance:
     needs: plan
@@ -337,6 +343,16 @@ jobs:
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
       OASIS7_WASM_BUILD_STD: "1"
       OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+    container:
+      image: ${{ needs.plan.outputs.runtimeSyncImage == 'true' && 'ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8' || '' }}
+      volumes:
+        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -346,7 +362,21 @@ jobs:
           persist-credentials: false
           sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
+        if: ${{ !job.container.id }}
         uses: ./.github/actions/setup-linux-mold
+      - name: Save executing workflow tools before the planned source checkout
+        if: job.container.id
+        run: |
+          set -euo pipefail
+          test "$(id -u):$(id -g)" = 0:0
+          test "$(stat -c '%d:%i' "$GITHUB_WORKSPACE")" = "$(stat -c '%d:%i' /home/runner/work/oasis7/oasis7)"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory /home/runner/work/oasis7/oasis7
+          tools="$RUNNER_TEMP/runtime-sync-tools"
+          mkdir -m 700 "$tools"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-sync-container.py" > "$tools/package-release-runtime-sync-container.py"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/ci-test-artifacts.py" > "$tools/ci-test-artifacts.py"
+          python3 .github/actions/setup-linux-mold/setup.py
       # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -357,17 +387,13 @@ jobs:
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - name: Select runtime sync image for the verified source
-        id: sync-image
-        shell: bash
+      - name: Verify the planned runtime sync job container
+        if: job.container.id
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
-        run: |
-          launcher="$RUNNER_TEMP/oasis7-runtime-sync-image.sh"
-          git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-sync-image.sh" >"$launcher"
-          bash "$launcher" --select
+        run: python3 "$RUNNER_TEMP/runtime-sync-tools/package-release-runtime-sync-container.py" preflight "$EXPECTED_SHA"
       - name: Install pinned Rust toolchain
-        if: steps.sync-image.outputs.enabled == 'false'
+        if: ${{ !job.container.id }}
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
@@ -375,28 +401,24 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
-        if: steps.sync-image.outputs.enabled == 'false'
+        if: ${{ !job.container.id }}
         run: |
           sudo apt-get update
           sudo apt-get install -y             jq             pkg-config             libwayland-dev             wayland-protocols             libxkbcommon-dev             libx11-dev             libxi-dev             libxcursor-dev             libxrandr-dev             libxinerama-dev             libasound2-dev             libudev-dev
       - name: Normalize Rust cache toolchains
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.sync-image.outputs.enabled == 'false'
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.sync-image.outputs.enabled == 'false'
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v4
+          shared-key: ${{ job.container.id && 'ci-ordinary-image-714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8' || 'ci-shared-native-trusted-v4' }}
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Run runtime sync release gate
         shell: bash
-        env:
-          USE_IMAGE: ${{ steps.sync-image.outputs.enabled }}
-          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
-          GHCR_TOKEN: ${{ steps.sync-image.outputs.enabled == 'true' && github.token || '' }}
         run: |
           mkdir -p .tmp/release_gate_runtime_sync
           run_runtime_sync() {
@@ -407,15 +429,7 @@ jobs:
             echo "+ ./scripts/sync-m5-builtin-wasm-artifacts.sh --check"
             ./scripts/sync-m5-builtin-wasm-artifacts.sh --check
           }
-          if [[ "$USE_IMAGE" == true ]]; then
-            {
-              declare -f run_runtime_sync
-              echo run_runtime_sync
-            } | bash "$RUNNER_TEMP/oasis7-runtime-sync-image.sh" |
-              tee .tmp/release_gate_runtime_sync/runtime-sync-checks.log
-          else
-            run_runtime_sync | tee .tmp/release_gate_runtime_sync/runtime-sync-checks.log
-          fi
+          run_runtime_sync | tee .tmp/release_gate_runtime_sync/runtime-sync-checks.log
       - name: Upload runtime sync gate summary
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -321,3 +321,15 @@ ECS `publish-preview` 使用正式 `ghcr.io/nil-studio/oasis7/ci-ecs-oss-publish
 原可信checkout后、下载和获取短期凭据前，预检实际main/workflowSHA/HEAD、venv路径/只读性、Node24/GH2.105、SDK版本及真实C扩展启用状态。原fresh/retained/rollback参数、下载材料和immutable/channel-last发布命令逐字保留。测试以独立原job快照校验完整序列及安全负例，不靠任意前缀裁剪放宽。
 
 正式leaf已通过真实fork PR #7531/run46136758480 的只读拉取：固定OCI revision与digest，network-none UID1001下15SDK版本、显式假STS本地签名、C扩展直接导入/实际启用和CRC向量通过。该证明不调用OSS/OIDC或发布，实际受保护的ECS业务发布仍由原合法运行验收。
+
+## Release/Mainnet runtime-sync 完整 job container
+
+Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；实施见 #7554。
+
+两条 runtime-sync gate 在可信 plan 已冻结且验证完整CI的产品SHA后，以该Git对象中的常规 `rust-toolchain.toml` 与三个同步入口判定固定714 ordinary-builder兼容性。工具链不符、缺失、软链或旧式 `rust-toolchain` 时，保原宿主安装与只读v4缓存，不把历史tag余项算作已迁。
+
+兼容分支整个job进入固定digest，沿既有trusted writer默认root的Docker权限边界。只额外绑定原canonical checkout别名，不新增socket挂载、privileged、hostPID或环境变量伪装；验证两个workspace别名同device/inode、实际planned HEAD、Ubuntu24.04、完整Rust/nightly目标和rust-src，以及真实默认daemon/API/Buildx driver。执行workflow的两个Python工具在产品checkout前保存且执行时按workflowGit blob再验，不能执行历史产品版本的预检。BASH_ENV只切换到真实canonical目录，不改GITHUB_*。
+
+mold使用原固定setup.py和原SHA/真实链接smoke直接准备，不再从镜像分支读写旧mold辅助archive；宿主分支原mold action不变。只读依赖cache使用现有714完整digest族和完整Rust/WASM环境hash，不新增writer/warm或容量额度，也不冒用旧host v4命中。实际paths/version/命中与冷准备耗时按正式日志分别记录。
+
+原35分钟、三个M1/M4/M5 `--check`、pipefail、报告根和artifact身份全部保留，镜像内不重新安装编译器或系统库。原mixed launcher的sync模式退役；同文件独立runtime-core模式保持。受控短验证只运行这三个canonical检查并核真实收据/源码/清理，不执行发布、core/support或额外缓存预热。

@@ -248,7 +248,7 @@ def declared_env(body: str, indent: int) -> dict[str, str]:
     return values(match[1], indent + 2) if match else {}
 
 
-def cache_identity(workflow: str, name: str, non_linux: bool = False, image_web: bool = False) -> dict:
+def cache_identity(workflow: str, name: str, non_linux: bool = False, image_web: bool = False, image_sync: bool = False) -> dict:
     """Compare inputs used by the pinned action, including its implicit defaults.
 
     This establishes configuration compatibility for the same source and runner
@@ -269,6 +269,17 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False, image_web:
     assert len(matches) == 1, (name, "expected one selected Rust cache")
     cache = matches[0]
     inputs = values(cache[2], 10)
+    sync_digest = '714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8'
+    if name == 'release_gate_runtime_sync' and '    container:' in body:
+        key = "${{ job.container.id && 'ci-ordinary-image-" + sync_digest + "' || 'ci-shared-native-trusted-v4' }}"
+        assert inputs['shared-key'] == key
+        assert ("image: ${{ needs.plan.outputs.runtimeSyncImage == 'true' && "
+                "'ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:" + sync_digest + "' || '' }}") in body
+        assert 'preflight "$EXPECTED_SHA"' in body[:cache.start()]
+        assert inputs['save-if'] == inputs['cache-on-failure'] == 'false'
+        inputs['shared-key'] = 'ci-ordinary-image-' + sync_digest if image_sync else 'ci-shared-native-trusted-v4'
+    else:
+        assert not image_sync
     env = declared_env(workflow.split("\njobs:\n", 1)[0], 0)
     env.update(declared_env(body.split("    steps:", 1)[0], 4))
     env.update(declared_env(cache[2], 8))
@@ -473,6 +484,9 @@ native_gates = ("release_gate_runtime_core", "release_gate_runtime_support",
                 "release_gate_runtime_sync", "release_gate_soak")
 for name in native_gates:
     assert cache_identity(release, name)["shared-key"] == "ci-shared-native-trusted-v4", name
+for workflow in (release, mainnet):
+    if '    container:' in job_body(workflow, 'release_gate_runtime_sync'):
+        assert cache_identity(workflow, 'release_gate_runtime_sync', image_sync=True)['shared-key'].startswith('ci-ordinary-image-714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8')
 for wf_label, wf_text, allow_candidate in (
     ("testnet-packages.yml", testnet, True),
     ("mainnet-packages.yml", mainnet, False),
@@ -821,7 +835,7 @@ for workflow in (release, mainnet):
             assert "git rev-parse --verify 'HEAD^{commit}'" in body
 
 launcher = root / "scripts/package-release-runtime-sync-image.sh"
-if any("Select runtime sync image" in workflow for workflow in (release, mainnet)):
+if any("Select runtime sync image" in workflow or "Select runtime core image" in workflow for workflow in (release, mainnet)):
     with tempfile.TemporaryDirectory() as directory:
         checkout = Path(directory)
         subprocess.run(["git", "init", "-q", str(checkout)], check=True)
@@ -846,17 +860,19 @@ if any("Select runtime sync image" in workflow for workflow in (release, mainnet
                            env=env | overrides, check=True)
             assert output.read_text() == f"enabled={expected}\n", overrides
 
-        select("true")
-        tag = "refs/tags/2026-11-26_v1"
-        push = dict(GITHUB_EVENT_NAME="push", GITHUB_REF=tag,
-                    GITHUB_WORKFLOW_REF=f"nil-studio/oasis7/.github/workflows/release-packages.yml@{tag}")
-        select("true", **push)
-        select("false", **(push | {"EXPECTED_SHA": "0" * 40}))
-        select("false", GITHUB_REPOSITORY="example/oasis7")
-        select("false", RUNNER_ENVIRONMENT="self-hosted")
-        select("false", GITHUB_REF="refs/heads/candidate")
-        select("false", GITHUB_EVENT_NAME="pull_request")
-        select("false", GITHUB_WORKFLOW_SHA="0" * 40)
+        legacy_sync = any("Select runtime sync image" in workflow for workflow in (release, mainnet))
+        if legacy_sync:
+            select("true")
+            tag = "refs/tags/2026-11-26_v1"
+            push = dict(GITHUB_EVENT_NAME="push", GITHUB_REF=tag,
+                        GITHUB_WORKFLOW_REF=f"nil-studio/oasis7/.github/workflows/release-packages.yml@{tag}")
+            select("true", **push)
+            select("false", **(push | {"EXPECTED_SHA": "0" * 40}))
+            select("false", GITHUB_REPOSITORY="example/oasis7")
+            select("false", RUNNER_ENVIRONMENT="self-hosted")
+            select("false", GITHUB_REF="refs/heads/candidate")
+            select("false", GITHUB_EVENT_NAME="pull_request")
+            select("false", GITHUB_WORKFLOW_SHA="0" * 40)
         if any("Select runtime core image" in workflow for workflow in (release, mainnet)):
             core_job = {"GITHUB_JOB": "release_gate_runtime_core"}
             select("false", "--select-core", **core_job)
@@ -873,9 +889,135 @@ if any("Select runtime sync image" in workflow for workflow in (release, mainnet
             select("true", "--select-core", **core_job, **current)
             select("false", "--select-core", **core_job, **(current | {"EXPECTED_SHA": source}))
             select("false", "--select-core", **core_job, **(current | {"GITHUB_EVENT_NAME": "pull_request"}))
-            select("false", "--select", **core_job, **current)
+            result = subprocess.run(["bash", str(launcher), "--select"], cwd=checkout, env=env | core_job | current, capture_output=True)
+            assert result.returncode != 0
         toolchain.write_text(toolchain.read_text().replace("1.96.0", "1.92.0"))
-        select("false")
+        if legacy_sync:
+            select("false")
+        else:
+            select("false", "--select-core", **core_job, **current)
+
+# The whole sync job now executes in the fixed image; old toolchains still take
+# the original host path. Validate preflight order before any source execution.
+sync_pin = '714b3f428097659c56639b37083269f04a67f1dcbde56cdcef501a7b18d3c7a8'
+
+def sync_container_contract(workflow):
+    body = job_body(workflow, 'release_gate_runtime_sync')
+    if '    container:' not in body:
+        return False
+    header, steps = body.split('    steps:\n', 1)
+    assert '    timeout-minutes: 35\n' in header and '    runs-on: ubuntu-24.04\n' in header
+    assert '    permissions:\n      contents: read\n      packages: read\n' in header
+    assert ('    container:\n      image: ${{ needs.plan.outputs.runtimeSyncImage == \'true\' && '
+            "'ghcr.io/nil-studio/oasis7/ci-rust-ordinary-builder@sha256:" + sync_pin + "' || '' }}\n"
+            '      volumes:\n        - /home/runner/work/oasis7/oasis7:/home/runner/work/oasis7/oasis7\n'
+            '      credentials:\n        username: ${{ github.actor }}\n        password: ${{ github.token }}\n') in header
+    assert not any(value in header for value in ('privileged', 'docker.sock', '--user', '--group-add'))
+    assert '      runtimeSyncImage: ${{ steps.sync-container.outputs.compatible }}\n' in job_body(workflow, 'plan')
+    assert 'run: python3 scripts/package-release-runtime-sync-container.py select "$SOURCE_SHA"' in job_body(workflow, 'plan')
+    tools = steps.index('      - name: Save executing workflow tools before the planned source checkout\n')
+    source = steps.index('          ref: ${{ needs.plan.outputs.checkoutSha }}\n')
+    preflight = steps.index('      - name: Verify the planned runtime sync job container\n')
+    cache = steps.index('      - uses: Swatinem/rust-cache@')
+    gate = steps.index('      - name: Run runtime sync release gate\n')
+    assert tools < source < preflight < cache < gate
+    protected_tools = steps[tools:source]
+    assert protected_tools.count('safe.directory') == 2
+    assert 'git config --global --add safe.directory "$GITHUB_WORKSPACE"' in protected_tools
+    assert 'git config --global --add safe.directory /home/runner/work/oasis7/oasis7' in protected_tools
+    assert protected_tools.index("stat -c '%d:%i'") < protected_tools.index('git config --global') < protected_tools.index('git show ')
+    assert steps.count('preflight "$EXPECTED_SHA"') == 1
+    assert 'Select runtime sync image' not in steps and 'GHCR_TOKEN:' not in steps
+    assert '        if: ${{ !job.container.id }}\n        uses: ./.github/actions/setup-linux-mold' in steps
+    for title in ('Install pinned Rust toolchain', 'Install Linux system dependencies'):
+        assert '      - name: ' + title + '\n        if: ${{ !job.container.id }}\n' in steps
+    assert steps.count('save-if: false') == steps.count('cache-on-failure: false') == 1
+    gate_script = steps[gate:].split('        run: |\n', 1)[1].split('      - name:', 1)[0]
+    for module in (1, 4, 5):
+        command = f'./scripts/sync-m{module}-builtin-wasm-artifacts.sh --check'
+        assert gate_script.count(command) == 2  # Original command and echo.
+    assert gate_script.index('sync-m1-') < gate_script.index('sync-m4-') < gate_script.index('sync-m5-')
+    assert 'run_runtime_sync | tee .tmp/release_gate_runtime_sync/runtime-sync-checks.log' in gate_script
+    return True
+
+for workflow in (release, mainnet):
+    if not sync_container_contract(workflow):
+        continue
+    for changed in (
+        workflow.replace(sync_pin, '0' * 64),
+        workflow.replace('timeout-minutes: 35', 'timeout-minutes: 36'),
+        workflow.replace('contents: read\n      packages: read\n', 'contents: write\n      packages: read\n'),
+        workflow.replace('        if: ${{ !job.container.id }}\n        run: |', '        run: |'),
+        workflow.replace('          save-if: false', '          save-if: true'),
+        workflow.replace('sync-m5-builtin-wasm-artifacts.sh --check', 'sync-m5-builtin-wasm-artifacts.sh'),
+        workflow.replace('      volumes:\n', '      options: --privileged\n      volumes:\n'),
+        workflow.replace('safe.directory "$GITHUB_WORKSPACE"', 'safe.directory "*"'),
+    ):
+        try:
+            sync_container_contract(changed)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('runtime sync container mutation was accepted')
+
+# Real Git object routing: no synthetic toolchain receipt, symlink or historical
+# worktree edits can substitute for the planned object.
+helper_path = root / 'scripts/package-release-runtime-sync-container.py'
+if helper_path.exists():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('sync_container', helper_path)
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    with tempfile.TemporaryDirectory() as directory:
+        checkout = Path(directory)
+        subprocess.run(['git', 'init', '-q', str(checkout)], check=True)
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(checkout)
+            (checkout / 'rust-toolchain.toml').write_bytes((root / 'rust-toolchain.toml').read_bytes())
+            for module in (1, 4, 5):
+                path = checkout / f'scripts/sync-m{module}-builtin-wasm-artifacts.sh'
+                path.parent.mkdir(exist_ok=True)
+                path.write_text('#!/bin/bash\nexit 0\n')
+                path.chmod(0o755)
+            def commit():
+                subprocess.run(['git', 'add', '-A'], check=True)
+                subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=f@example.invalid',
+                                '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'], check=True)
+                return helper.git('rev-parse', 'HEAD').decode().strip()
+            good = commit()
+            env = dict(GITHUB_REPOSITORY='nil-studio/oasis7', RUNNER_ENVIRONMENT='github-hosted',
+                       RUNNER_OS='Linux', RUNNER_ARCH='X64', GITHUB_SHA=good, GITHUB_WORKFLOW_SHA=good,
+                       GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF='refs/heads/main',
+                       GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/mainnet-packages.yml@refs/heads/main')
+            assert helper.selected(good, env)
+            from unittest.mock import patch
+            with patch.dict(os.environ, env | {'GITHUB_JOB': 'release_gate_runtime_sync'}, clear=True), \
+                    patch.object(helper, 'environment_preflight') as component:
+                helper.preflight(good)
+                component.assert_called_once_with(good)
+            with patch.dict(os.environ, env | {'GITHUB_EVENT_NAME': 'pull_request'}, clear=True), \
+                    patch.object(helper, 'environment_preflight') as component:
+                try:
+                    helper.preflight(good)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError('component proof must not grant main package authority')
+                component.assert_not_called()
+            for changes in ({'GITHUB_REPOSITORY': 'other/oasis7'}, {'RUNNER_ENVIRONMENT': 'self-hosted'},
+                            {'GITHUB_EVENT_NAME': 'pull_request'}, {'GITHUB_WORKFLOW_SHA': '0' * 40},
+                            {'GITHUB_REF': 'refs/heads/test'}, {'RUNNER_ARCH': 'ARM64'}):
+                assert not helper.selected(good, env | changes)
+            (checkout / 'rust-toolchain.toml').write_text('[toolchain]\nchannel="1.92.0"\n')
+            old = commit()
+            assert not helper.compatible(old) and helper.compatible(good)
+            (checkout / 'rust-toolchain.toml').unlink()
+            (checkout / 'rust-toolchain.toml').symlink_to('other')
+            assert not helper.compatible(commit())
+            assert not helper.compatible('0' * 40) and not helper.compatible('--help')
+        finally:
+            os.chdir(old_cwd)
 
 print("ok: compatible cache readers share exclusive writers, old sources stay cold, and gate failures propagate")
 
