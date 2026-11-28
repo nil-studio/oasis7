@@ -1,5 +1,5 @@
 ---
-name: Release publisher readonly replay
+name: Release publisher host readonly replay
 'on':
   pull_request:
     types:
@@ -11,9 +11,9 @@ permissions:
 jobs:
   host:
     if: github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name
-      == github.repository && github.head_ref == 'task/engineering-release-publisher-readonly-probe'
+      == github.repository && github.head_ref == 'codex/release-publisher-host-readonly-replay'
       && github.base_ref == 'task/engineering-release-publisher-image' && github.event.pull_request.draft
-      && github.event.pull_request.title == 'Release publisher readonly replay 20261128-v1'
+      && github.event.pull_request.title == 'Release publisher readonly replay 20261128-host-v2'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     cache-mode: none
@@ -34,15 +34,15 @@ jobs:
         TITLE: "${{ github.event.pull_request.title }}"
       run: |
         set -euo pipefail
-         test "$CONTROLLER_REF" = task/engineering-release-publisher-readonly-probe
+         test "$CONTROLLER_REF" = codex/release-publisher-host-readonly-replay
          test "$BASE_REF" = task/engineering-release-publisher-image
-         test "$TITLE" = 'Release publisher readonly replay 20261128-v1'
+         test "$TITLE" = 'Release publisher readonly replay 20261128-host-v2'
          test "$(git rev-parse HEAD)" = 'dfd5386ce52e43f64ced97f9f62ab01760d557d1'
          git fetch --no-tags origin "$CONTROLLER_SHA"
          test "$(git diff --name-only 'dfd5386ce52e43f64ced97f9f62ab01760d557d1' "$CONTROLLER_SHA")" = '.github/workflows/release-publisher-readonly-probe.yml'
          mkdir -p output/release/assets proof
          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
-         node -e 'require("node:assert/strict").equal(process.versions.node.split(".")[0],"24")'
+         node -p process.version
          gh --version | head -1
     - name: Verify original artifact identities
       env:
@@ -218,228 +218,3 @@ jobs:
         path: proof
         if-no-files-found: error
         retention-days: 2
-  image:
-    if: github.repository == 'nil-studio/oasis7' && github.event.pull_request.head.repo.full_name
-      == github.repository && github.head_ref == 'task/engineering-release-publisher-readonly-probe'
-      && github.base_ref == 'task/engineering-release-publisher-image' && github.event.pull_request.draft
-      && github.event.pull_request.title == 'Release publisher readonly replay 20261128-v1'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    cache-mode: none
-    defaults:
-      run:
-        shell: bash
-    steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      with:
-        ref: dfd5386ce52e43f64ced97f9f62ab01760d557d1
-        fetch-depth: 0
-        persist-credentials: false
-    - name: Verify frozen readonly scope
-      env:
-        CONTROLLER_SHA: "${{ github.event.pull_request.head.sha }}"
-        CONTROLLER_REF: "${{ github.event.pull_request.head.ref }}"
-        BASE_REF: "${{ github.base_ref }}"
-        TITLE: "${{ github.event.pull_request.title }}"
-      run: |
-        set -euo pipefail
-         test "$CONTROLLER_REF" = task/engineering-release-publisher-readonly-probe
-         test "$BASE_REF" = task/engineering-release-publisher-image
-         test "$TITLE" = 'Release publisher readonly replay 20261128-v1'
-         test "$(git rev-parse HEAD)" = 'dfd5386ce52e43f64ced97f9f62ab01760d557d1'
-         git fetch --no-tags origin "$CONTROLLER_SHA"
-         test "$(git diff --name-only 'dfd5386ce52e43f64ced97f9f62ab01760d557d1' "$CONTROLLER_SHA")" = '.github/workflows/release-publisher-readonly-probe.yml'
-         mkdir -p output/release/assets proof
-         test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
-         /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node.split(".")[0],"24")'
-         gh --version | head -1
-    - name: Verify the preinstalled publisher tools
-      run: |
-        set -euo pipefail
-        test "$(id -u):$(id -g)" = 1001:1001
-        test "$(command -v gh)" = /usr/local/bin/gh
-        test ! -w /usr/local/bin/gh
-        gh --version | grep -E '^gh version 2[.]105[.]0( |$)'
-        /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node.split(".")[0], "24")'
-        jq -ne '{sha:"ok"} | .sha == "ok"' >/dev/null
-        sha256sum --version | grep -F 'sha256sum (GNU coreutils)'
-    - name: Verify original artifact identities
-      env:
-        GH_TOKEN: "${{ github.token }}"
-      run: |
-        set -euo pipefail
-        python3 - <<'PYCHECK'
-        import json,os,subprocess
-        expected={11946541615: {'name': 'release-asset-macos-x64', 'size_in_bytes': 104206039, 'digest': 'sha256:002e60166a015f7b2acc7f776db39e8f9ad08e126c8f15a6a25a7b5c04dc1228'}, 11946256741: {'name': 'release-asset-macos-x64-ops-tools', 'size_in_bytes': 40752464, 'digest': 'sha256:acde1e3dfb6a82891e338c78cc4f69b6c5fcf7ca03028283818403ebf460178a'}, 11944577260: {'name': 'release-asset-windows-x64', 'size_in_bytes': 69783190, 'digest': 'sha256:0582748edd909e645db718b6cb4bc62fb73d2418644f01128073cbb2721d8047'}, 11943877567: {'name': 'release-asset-windows-x64-ops-tools', 'size_in_bytes': 46159561, 'digest': 'sha256:a9a57b1a6f995daaf1d97b847b6cbfabea273702ba94d64f3a8fedc0a35c389b'}, 11942975095: {'name': 'release-asset-linux-x64', 'size_in_bytes': 72808379, 'digest': 'sha256:3bfb4b2f94256922c9ff6f2e0d1ae32dd390f667e5991b23bc2fd5c53348e91a'}, 11942560161: {'name': 'release-asset-linux-x64-ops-tools', 'size_in_bytes': 41881510, 'digest': 'sha256:5fad4b03eb9f00d81ae39b2d7f28ed30cec4322807bc37ec445b316bc5950088'}, 11938932269: {'name': 'release-viewer-web-delivery', 'size_in_bytes': 12513944, 'digest': 'sha256:f9eccd2f129ce6f7d3efbadf4cf4734ae885b06a9f861db9eff678bdfb6bf122'}}
-        run=json.loads(subprocess.check_output(['gh','api','repos/nil-studio/oasis7/actions/runs/38659287921'],text=True))
-        assert run['run_attempt']==1 and run['conclusion']=='success' and run['head_sha']=='3d8b22af93f214e4cbe945c2880a57c92f52d804'
-        rows=[]
-        for raw,fields in expected.items():
-            aid=int(raw)
-            actual=json.loads(subprocess.check_output(['gh','api',f'repos/nil-studio/oasis7/actions/artifacts/{aid}'],text=True))
-            assert all(actual[k]==v for k,v in fields.items()),(aid,actual)
-            assert actual['expired'] is False
-            assert actual['workflow_run']['id']==38659287921
-            assert actual['workflow_run']['head_sha']=='3d8b22af93f214e4cbe945c2880a57c92f52d804'
-            rows.append({'id':aid,**fields})
-        json.dump(rows,open('proof/artifact-identities.json','w'),sort_keys=True)
-        PYCHECK
-    - name: Download exact original 11946541615
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-      with:
-        artifact-ids: '11946541615'
-        run-id: 38659287921
-        github-token: "${{ github.token }}"
-        path: output/release/assets
-        merge-multiple: true
-    - name: Download exact original 11946256741
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-      with:
-        artifact-ids: '11946256741'
-        run-id: 38659287921
-        github-token: "${{ github.token }}"
-        path: output/release/assets
-        merge-multiple: true
-    - name: Download exact original 11944577260
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-      with:
-        artifact-ids: '11944577260'
-        run-id: 38659287921
-        github-token: "${{ github.token }}"
-        path: output/release/assets
-        merge-multiple: true
-    - name: Download exact original 11943877567
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-      with:
-        artifact-ids: '11943877567'
-        run-id: 38659287921
-        github-token: "${{ github.token }}"
-        path: output/release/assets
-        merge-multiple: true
-    - name: Download exact original 11942975095
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-      with:
-        artifact-ids: '11942975095'
-        run-id: 38659287921
-        github-token: "${{ github.token }}"
-        path: output/release/assets
-        merge-multiple: true
-    - name: Download exact original 11942560161
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-      with:
-        artifact-ids: '11942560161'
-        run-id: 38659287921
-        github-token: "${{ github.token }}"
-        path: output/release/assets
-        merge-multiple: true
-    - name: Download exact original 11938932269
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-      with:
-        artifact-ids: '11938932269'
-        run-id: 38659287921
-        github-token: "${{ github.token }}"
-        path: output/release/assets
-        merge-multiple: true
-    - name: Original checksum script
-      run: |
-        cd output/release/assets
-        ls -l
-        for file in \
-          oasis7-linux-x64.deb \
-          oasis7-macos-x64.dmg \
-          oasis7-windows-x64.exe \
-          oasis7-viewer-web-delivery.tar.gz
-        do
-          [[ -f "${file}" ]] || { echo "error: missing release asset ${file}" >&2; exit 1; }
-        done
-        sha256sum \
-          oasis7-linux-x64.deb \
-          oasis7-macos-x64.dmg \
-          oasis7-windows-x64.exe \
-          oasis7-linux-x64-ops-tools.tar.gz \
-          oasis7-macos-x64-ops-tools.tar.gz \
-          oasis7-windows-x64-ops-tools.tar.gz \
-          oasis7-viewer-web-delivery.tar.gz \
-          > oasis7-checksums.txt
-    - name: Original tag and sidecar script
-      env:
-        PLANNED_REF: refs/tags/2026-10-15_v1
-        PLANNED_SHA: 3d8b22af93f214e4cbe945c2880a57c92f52d804
-        GH_TOKEN: "${{ github.token }}"
-      run: |
-        set -euo pipefail
-        tag="${PLANNED_REF#refs/tags/}"
-        record="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")"
-        object="$(jq -r '.object.sha' <<< "$record")"
-        kind="$(jq -r '.object.type' <<< "$record")"
-        while [[ "$kind" == tag ]]; do
-          record="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object")"
-          object="$(jq -r '.object.sha' <<< "$record")"
-          kind="$(jq -r '.object.type' <<< "$record")"
-        done
-        test "$kind" = commit
-        test "$object" = "$PLANNED_SHA"
-        for platform in linux-x64 macos-x64 windows-x64; do
-          jq -e --arg sha "$PLANNED_SHA" '.checkoutSha == $sha' "output/release/assets/$platform-SOURCEPLAN.json" >/dev/null
-          grep -Fqx "commit=$PLANNED_SHA" "output/release/assets/$platform-BUILDINFO"
-        done
-        printf 'value=%s\n' "$tag" >> "$GITHUB_OUTPUT"
-    - name: Prepare exact negative oracle
-      run: |
-        set -euo pipefail
-        python3 - <<'PYSCRIPT'
-        from pathlib import Path
-        Path('proof/original-tag.sh').write_text('set -euo pipefail\ntag="${PLANNED_REF#refs/tags/}"\nrecord="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")"\nobject="$(jq -r \'.object.sha\' <<< "$record")"\nkind="$(jq -r \'.object.type\' <<< "$record")"\nwhile [[ "$kind" == tag ]]; do\n  record="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object")"\n  object="$(jq -r \'.object.sha\' <<< "$record")"\n  kind="$(jq -r \'.object.type\' <<< "$record")"\ndone\ntest "$kind" = commit\ntest "$object" = "$PLANNED_SHA"\nfor platform in linux-x64 macos-x64 windows-x64; do\n  jq -e --arg sha "$PLANNED_SHA" \'.checkoutSha == $sha\' "output/release/assets/$platform-SOURCEPLAN.json" >/dev/null\n  grep -Fqx "commit=$PLANNED_SHA" "output/release/assets/$platform-BUILDINFO"\ndone\nprintf \'value=%s\\n\' "$tag" >> "$GITHUB_OUTPUT"\n')
-        PYSCRIPT
-    - name: Reject wrong planned source
-      env:
-        PLANNED_REF: refs/tags/2026-10-15_v1
-        GH_TOKEN: "${{ github.token }}"
-      run: |
-        set -euo pipefail
-        export PLANNED_SHA=0000000000000000000000000000000000000000
-        set +e
-        bash -x proof/original-tag.sh > proof/wrong-source.log 2>&1
-        rc=$?
-        set -e
-        if test "$rc" -ne 1; then
-          echo 'wrong planned source accepted' >&2
-          exit 1
-        fi
-        tail -1 proof/wrong-source.log > proof/negative.txt
-        test "$(cat proof/negative.txt)" = '+ test 3d8b22af93f214e4cbe945c2880a57c92f52d804 = 0000000000000000000000000000000000000000'
-        rm proof/wrong-source.log
-    - name: Verify actual historic files and checksum
-      run: |
-        set -euo pipefail
-        sha256sum output/release/assets/* | sort > proof/files.sha256
-        python3 - <<'PYCHECK'
-        from pathlib import Path
-        import hashlib,json
-        p=Path('output/release/assets')
-        expected_names={'oasis7-linux-x64.deb','oasis7-macos-x64.dmg','oasis7-windows-x64.exe','oasis7-linux-x64-ops-tools.tar.gz','oasis7-macos-x64-ops-tools.tar.gz','oasis7-windows-x64-ops-tools.tar.gz','oasis7-viewer-web-delivery.tar.gz','oasis7-checksums.txt'}|{f'{platform}-{kind}' for platform in ['linux-x64','macos-x64','windows-x64'] for kind in ['SOURCEPLAN.json','BUILDINFO']}
-        assert {x.name for x in p.iterdir()}==expected_names
-        assert all(x.is_file() and not x.is_symlink() for x in p.iterdir())
-        assert hashlib.sha256((p/'oasis7-checksums.txt').read_bytes()).hexdigest()=='e81bcbdf8722e3957cc15dea565d3e37459a1d0f315ae9d8535e77beaa10aa30'
-        for platform in ['linux-x64','macos-x64','windows-x64']:
-            raw=(p/f'{platform}-SOURCEPLAN.json').read_bytes()
-            assert hashlib.sha256(raw).hexdigest()=='2481df4b193573592e4d66c7ece2ef8c7dce9c691d1712c4117a8e647501422c'
-            assert json.loads(raw)['checkoutSha']=='3d8b22af93f214e4cbe945c2880a57c92f52d804'
-            expected_buildinfo={'linux-x64':'495ec35c7a122f6f1dc8d202f348f4a320937c8989763ce50f5e8ac660b7b0dd','macos-x64':'d2072ec163f262db215b60900579f10da737b6b9551aa531036b85f7d0c0530c','windows-x64':'4cdae34c75b06ac4bd9f7f174f03bc74bf9eea35b8bbd18c1e2c304e9c906afb'}
-            assert hashlib.sha256((p/f'{platform}-BUILDINFO').read_bytes()).hexdigest()==expected_buildinfo[platform]
-        json.dump({'source':'3d8b22af93f214e4cbe945c2880a57c92f52d804','original_checksum_passed':True,'original_tag_and_sidecars_passed':True,'files':14,'historical_metadata_unchanged':True,'published':False,'production_qualification':False},open('proof/receipt.json','w'),sort_keys=True)
-        PYCHECK
-    - name: Remove script before isolated receipt upload
-      run: rm proof/original-tag.sh
-    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-      with:
-        name: release-publisher-readonly-image
-        path: proof
-        if-no-files-found: error
-        retention-days: 2
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-api-runtime@sha256:ba7c763f7b634b672c6dccef1384bce4daf7abd44a65d613696a748891e3c0ed
-      credentials:
-        username: "${{ github.actor }}"
-        password: "${{ github.token }}"
-      options: "--user 1001:1001 --init"
