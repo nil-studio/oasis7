@@ -156,6 +156,13 @@ def validate_candidate_graph(workflow, config):
     gate = jobs['required-gate']
     dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
+    retired_zombie_jobs = {
+        'command-center', 'consensus', 'viewer-performance-report', 'pixel-world-bridge',
+        'codex-agent-config-validation', 'compile-metrics', 'site-quality',
+        'doc-checker-contracts', 'cargo-tooling-contracts', 'windows-rollout',
+        'macos-package-contract',
+    }
+    expected -= {job for job in retired_zombie_jobs if job not in jobs}
     if config.get('workspace_support_direct_gate_version') in (1, 2):
         expected.add('workspace-support-other')
     if config.get('workspace_support_direct_gate_version') == 2:

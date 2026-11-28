@@ -888,7 +888,7 @@ jobs:
           retention-days: 14
 
   pr-fast-preview-plan:
-    if: github.event_name == 'pull_request' && github.event.action != 'labeled' && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
+    if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci-fast-preview') && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
