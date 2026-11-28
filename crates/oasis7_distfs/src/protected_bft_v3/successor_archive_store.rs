@@ -210,6 +210,9 @@ impl LocalBftSuccessorArchiveStoreV1 {
         // cached correct object cannot prove that today's disk publication
         // will survive the checkpoint/minimum transaction or a cold reopen.
         let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(size)
+            .map_err(|_| invalid("successor archive read allocation"))?;
         decode_local_blob_into(
             HashAlgorithm::Blake3,
             &reference.digest,
