@@ -2147,6 +2147,35 @@ class RustArchitectureSplitTests(unittest.TestCase):
         self.assertIn('cargo-dev-architecture.py --plan-file "$RUNNER_TEMP/selection.json"', script)
         self.assertNotIn('--graphs-only', script)
 
+    def test_driver_still_runs_combined_baseline_without_explicit_split(self):
+        script = r"""
+source "$1"
+run() { printf 'run %s\n' "$*"; }
+run_cargo() { printf 'cargo %s\n' "$*"; }
+run_rustsec_advisory_check() { echo advisories; }
+run_oasis7_required_clippy_for_group() { echo "clippy $1"; }
+run_standalone_tool_lockfiles_checks() { echo lockfiles; }
+tier=full
+OASIS7_SKIP_RUSTFMT=0
+run_rust_baseline
+rust_baseline_phase=checks
+run_rust_baseline
+"""
+        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script,
+                                 'baseline', str(ROOT / 'scripts/ci-tests.sh')],
+                                text=True, capture_output=True, check=True)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines.count('run python3 ./scripts/cargo-dev-architecture.py'), 1)
+        remaining = [line for line in lines if 'cargo-dev-architecture.py' not in line]
+        half = len(remaining) // 2
+        self.assertEqual(remaining[:half], remaining[half:])
+        self.assertIn('clippy rust_baseline', remaining[:half])
+        result = subprocess.run(['bash', str(ROOT / 'scripts/ci-tests.sh'),
+                                 'required', '--group', 'rust_baseline', '--rust-baseline-phase', 'checks'],
+                                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--rust-baseline-phase requires required --group rust_baseline --plan', result.stderr)
+
     def test_architecture_job_only_emits_receipt_for_complete_report(self):
         script = workflow_step_script(JOBS['rust-architecture'], 'Execute selected architecture profiles')
         with tempfile.TemporaryDirectory() as temporary:
