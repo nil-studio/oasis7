@@ -4,7 +4,7 @@ use crate::libp2p_net::{
     wire_bytes::Libp2pWireByteCounters,
 };
 use libp2p::request_response::{Event, Message};
-use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
+use oasis7_proto::distributed_net::NetworkRequest;
 
 pub(super) fn swarm_with_byte_window(
     key: &Keypair,
@@ -71,9 +71,7 @@ pub(super) async fn verify_nested_request(
                     .request_response
                     .send_response(
                         channel,
-                        NetworkResponse {
-                            payload: request.message.payload,
-                        },
+                        crate::libp2p_net::HeldBytes::unheld(request.message.payload),
                     )
                     .unwrap();
             }

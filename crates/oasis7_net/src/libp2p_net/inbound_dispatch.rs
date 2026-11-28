@@ -2,12 +2,12 @@ use super::peer_record_cache::PeerRecordCache;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use super::HeldBytes;
 use libp2p::identity::Keypair;
 use libp2p::request_response;
 use libp2p::swarm::Swarm;
 use libp2p::{Multiaddr, PeerId};
 use oasis7_proto::distributed_dht::PeerRecord;
-use oasis7_proto::distributed_net::NetworkResponse;
 
 use crate::error::WorldError;
 
@@ -83,7 +83,7 @@ pub(super) fn admit_inbound_handler(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn dispatch_inbound_request(
     request: super::request_deadline::LocalRequest,
-    channel: request_response::ResponseChannel<NetworkResponse>,
+    channel: request_response::ResponseChannel<HeldBytes>,
     peer: PeerId,
     handlers: &HashMap<String, HandlerRegistration>,
     response_workers: &ResponseWorkers,
