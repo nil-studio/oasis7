@@ -624,8 +624,9 @@ def validate_ordinary_partitions(plan):
         and not {'fast_execution_version', 'ordinary_partition_version',
                  'ordinary_fast_targets', 'ordinary_full_fast_targets'}.intersection(plan)
         and isinstance(plan.get('oasis7_required_packages'), list)
+        and ('oasis7_runtime_host' in plan['oasis7_required_packages'] or 'oasis7' in plan['oasis7_required_packages'])
         and all(package in plan['oasis7_required_packages'] for package in (
-            'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+            'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
     )
     if 'ordinary_controls_in_rust_baseline_version' in plan or 'ordinary_wasm_group' in plan:
         if (type(plan.get('ordinary_controls_in_rust_baseline_version')) is not int
@@ -826,6 +827,8 @@ def required_packages(plan=None):
                 or len(value) != len(set(value))):
             raise ValueError('invalid execution selection: oasis7_required_packages')
         return inventory
+    if 'oasis7' not in inventory and isinstance(plan.get('oasis7_required_packages'), list) and 'oasis7' in plan['oasis7_required_packages']:
+        plan = dict(plan, oasis7_required_packages=[pkg for pkg in plan['oasis7_required_packages'] if pkg != 'oasis7'])
     selected = plan_list(plan, 'oasis7_required_packages', inventory)
     if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
         return inventory
@@ -1466,7 +1469,8 @@ def build_variants(scope, plan=None, ordinary_partition=None):
     if scope == 'all' and ordinary_risk_targets(plan):
         raise ValueError('ordinary risk contracts require ordinary build scope')
     required_features = ['test_tier_required']
-    required_package_args = [arg for package in load_oasis7_required_packages() for arg in ('-p', package)]
+    required_pkgs = load_oasis7_required_packages()
+    required_package_args = [arg for package in required_pkgs for arg in ('-p', package)]
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
         ('viewer', ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live', '--features', 'test_tier_required'], required_features),
@@ -1474,7 +1478,7 @@ def build_variants(scope, plan=None, ordinary_partition=None):
         ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime', '--features', 'test_tier_required'], required_features),
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
-        ('snapshot-tests', ['test', '-p', 'oasis7', '--lib', '--no-run'], []),
+        *( [('snapshot-tests', ['test', '-p', 'oasis7', '--lib', '--no-run'], [])] if 'oasis7' in required_pkgs else [] ),
         ('viewer-snapshot-tests', ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'], []),
     ]
     if scope == 'all':
