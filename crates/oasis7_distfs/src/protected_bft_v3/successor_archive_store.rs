@@ -2,6 +2,7 @@
 //! Storage is not authority: the provider must verify the returned state from
 //! its admitted H and protected predecessor before adopting a checkpoint.
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path};
@@ -13,6 +14,8 @@ use oasis7_cas::{
 use super::binding::{BftSignerErrorV3, invalid};
 use super::crypto::{BFT_SIGNER_MAX_FRAME_BYTES_V3, decode_bounded, encode_bounded};
 use super::state::BftSignerStateV3;
+
+const SUCCESSOR_ARCHIVE_PIN_SCOPE: &str = "successor-archive-v1";
 fn hash(value: &str) -> Result<(), BftSignerErrorV3> {
     if value.len() != 64
         || !value
@@ -144,26 +147,71 @@ impl LocalBftSuccessorArchiveStoreV1 {
             bytes: u64::try_from(bytes.len())
                 .map_err(|_| invalid("successor archive length overflow"))?,
         };
+        // One bounded CAS retention shard per immutable object. Do not read or
+        // rewrite global pins.json: it may have arbitrarily many historical pins.
+        let expected_pins = BTreeSet::from([reference.digest.clone()]);
+        let pin_path = self
+            .store
+            .pin_scope_shard_path(SUCCESSOR_ARCHIVE_PIN_SCOPE, &reference.digest)
+            .map_err(cas_error)?;
+        reject_link_components(&pin_path)?;
+        // Refuse a malformed, oversized, aliased, or unexpected existing pin
+        // carrier. Never overwrite it to make a damaged receipt appear valid.
+        match fs::symlink_metadata(&pin_path) {
+            Ok(_) => self
+                .store
+                .verify_pin_scope_shard(
+                    SUCCESSOR_ARCHIVE_PIN_SCOPE,
+                    &reference.digest,
+                    &expected_pins,
+                )
+                .map_err(cas_error)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(io_error(error)),
+        }
+        let pin_dir = pin_path
+            .parent()
+            .ok_or_else(|| invalid("successor archive pin directory"))?;
+        directories.push(pin_dir.to_path_buf());
+        directories.push(
+            pin_dir
+                .parent()
+                .ok_or_else(|| invalid("successor archive pin scope root"))?
+                .to_path_buf(),
+        );
         self.store
             .put(&reference.digest, bytes)
             .map_err(cas_error)?;
-        // Prune may win between these individually locked CAS operations.
-        // Pin checks existence under the retention lock, so this fails before
-        // returning a reference. Retrying the same bytes is idempotent.
-        self.store.pin(&reference.digest).map_err(cas_error)?;
+        // Prune may win between the CAS put and the separately retention-locked
+        // shard publication; the shard API rechecks existence under its lock.
+        reject_link_components(&pin_path)?;
+        self.store
+            .replace_pin_scope_shard(
+                SUCCESSOR_ARCHIVE_PIN_SCOPE,
+                &reference.digest,
+                &expected_pins,
+            )
+            .map_err(cas_error)?;
         sync_regular_file(
             &self
                 .store
                 .blobs_dir()
                 .join(format!("{}.blob", reference.digest)),
         )?;
-        sync_regular_file(self.store.pins_path())?;
+        sync_regular_file(&pin_path)?;
         for directory in directories {
             if !fs::symlink_metadata(&directory).map_err(io_error)?.is_dir() {
                 return Err(invalid("successor archive directory publication changed"));
             }
             sync_directory(&directory)?;
         }
+        self.store
+            .verify_pin_scope_shard(
+                SUCCESSOR_ARCHIVE_PIN_SCOPE,
+                &reference.digest,
+                &expected_pins,
+            )
+            .map_err(cas_error)?;
         // CAS put may encounter an existing object. It is not a successful
         // checkpoint preparation unless a fresh bounded reread is exact.
         self.verify_object_bytes(&reference, bytes, maximum)?;
