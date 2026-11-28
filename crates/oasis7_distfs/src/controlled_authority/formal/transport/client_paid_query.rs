@@ -62,7 +62,14 @@ impl RemoteFormalEndpoint {
         let deadline = self
             .operation_deadline
             .unwrap_or_else(|| Instant::now() + self.timeout);
-        let mut stream = wire::connect_and_write_before_deadline(&self.address, &signed, deadline)?;
+        let mut stream = wire::connect_and_write_paid_before_deadline(
+            &self.address,
+            &signed,
+            deadline,
+            memory,
+            work,
+            cancelled,
+        )?;
         // The signed Query carries exactly one boxed FormalRequestStateV1;
         // that complete fixed-size root is included above. Its thousands of
         // CBOR array elements are repeated small headers, String/Vec payload
