@@ -118,9 +118,19 @@ fn private_retention_cold_archive_demands_exact_source_key_objects_and_first_cha
             .is_err()
     );
     assert!(store.load_original_admission_input(&expected).is_err());
-    store
-        .persist_original_admission_input(&expected, &input)
-        .unwrap();
+    let raw = input.canonical_bytes().unwrap();
+    let mut wrong_raw = raw.clone();
+    wrong_raw.push(0);
+    assert!(store.persist_original_admission_input_raw(&expected, &wrong_raw).is_err());
+    assert!(store.load_original_admission_input(&expected).is_err());
+    let mut wrong_descriptor = expected.clone();
+    wrong_descriptor.admission_digest = "fe".repeat(32);
+    assert!(store.persist_original_admission_input_raw(&wrong_descriptor, &raw).is_err());
+    assert!(store.load_original_admission_input(&expected).is_err());
+    store.persist_original_admission_input_raw(&expected, &raw).unwrap();
+    // Both existing decoded API and new exact-wire API are idempotent for the
+    // same signed original; no new receipt or independent lease is created.
+    store.persist_original_admission_input(&expected, &input).unwrap();
     drop(store);
 
     let cold = directory.store();
