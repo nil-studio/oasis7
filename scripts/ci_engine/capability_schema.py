@@ -129,6 +129,20 @@ def derive_support_profiles(capabilities: Mapping[str, Mapping[str, object]]) ->
             for pkg, entry in capabilities.items() if isinstance(sp := entry.get("support_profile"), Mapping)}
 
 
+def derive_compact_excluded_packages(capabilities: Mapping[str, Mapping[str, object]]) -> frozenset[str]:
+    return frozenset(pkg for pkg, entry in capabilities.items() if entry.get("compact_non_runtime_excluded"))
+
+
+def derive_logical_harness_aliases(capabilities: Mapping[str, Mapping[str, object]]) -> dict[str, str]:
+    return {pkg: str(sp["logical_alias"]) for pkg, entry in sorted(capabilities.items())
+            if isinstance(sp := entry.get("splittable_lib_harness"), Mapping)}
+
+
+def derive_universal_v2_anchors(capabilities: Mapping[str, Mapping[str, object]]) -> frozenset[str]:
+    return frozenset(pkg for pkg, entry in capabilities.items()
+                     if isinstance(sp := entry.get("splittable_lib_harness"), Mapping) and sp.get("universal_v2_anchor"))
+
+
 def reconcile_cross_version_members(
     policy_capabilities: Mapping[str, Mapping[str, object]], candidate_members: Set[str],
 ) -> dict[str, tuple[str, ...]]:
