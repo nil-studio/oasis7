@@ -1,6 +1,10 @@
 //! Exact-owner optional original pending preparation and frozen read route.
 use super::*;
 
+#[cfg(all(test, unix))]
+#[path = "formal_live_original_pending_process_boundary.rs"]
+pub(super) mod process_boundary;
+
 impl FormalLiveRuntime {
     pub(crate) fn freeze_original_pending(
         &mut self,
@@ -30,6 +34,12 @@ impl FormalLiveRuntime {
             .map_err(|_| "original pending producer lock poisoned")?
             .begin_freeze(&directory)?;
         drop(admission);
+        #[cfg(all(test, unix))]
+        process_boundary::stop_at(
+            "prepared",
+            &prepared,
+            self.runtime.lock().map_err(|_| "Node observation lock poisoned")?.snapshot().running,
+        )?;
 
         self.stop(deadline.saturating_duration_since(std::time::Instant::now()))?;
         let frozen = producer
@@ -39,6 +49,12 @@ impl FormalLiveRuntime {
         if frozen != prepared {
             return Err("original pending owner Frozen pin changed after real Node stop".into());
         }
+        #[cfg(all(test, unix))]
+        process_boundary::stop_at(
+            "frozen",
+            &frozen,
+            self.runtime.lock().map_err(|_| "Node observation lock poisoned")?.snapshot().running,
+        )?;
         Ok(frozen)
     }
 }
