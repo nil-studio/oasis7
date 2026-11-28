@@ -32,7 +32,7 @@ PR 爆炸半径按 `crates/*` 划分为四个相邻架构环（Cargo 细粒度�
 
 - **L0（协议、底层原语与网络共识）：** `oasis7_proto`, `oasis7_node`, `oasis7_net`, `oasis7_consensus`, `oasis7_distfs`（及底层原语/存储密码学支撑：`oasis7_domain_types`, `oasis7_formal_protocol`, `oasis7_cas`, `oasis7_context`, `oasis7_custody_core`, `oasis7_local_signer`, `oasis7_secure_envelope`, `oasis7_signer_protocol`, `oasis7_observability`）
 - **L1（世界模拟、运行时与 WASM 扩展）：** `oasis7`, `oasis7_simulator`, `oasis7_runtime`, `oasis7_wasm_build`, `oasis7_wasm_sdk`, `oasis7_wasm_executor`, `oasis7_wasm_router`（及同环 WASM/宿主支撑：`oasis7_wasm_abi`, `oasis7_wasm_materializer`, `oasis7_wasm_store`, `oasis7_builtin_wasm_modules`, `oasis7_executable_image`, `oasis7_runtime_host`）
-- **L2（世界状态、投影与服务门面）：** `oasis7_world_state`, `oasis7_world_projection`, `oasis7_world_service`（及服务/桥接/Worker：`oasis7_chain_runtime`, `oasis7_custody_worker`, `oasis7_dev_test_worker`, `oasis7_hosted_access`, `oasis7_letai_credit_adapter`, `oasis7_newapi_bridge_service`, `oasis7_provider_local_bridge`）
+- **L2（世界状态、投影与服务门面）：** `oasis7_world_state`, `oasis7_world_projection`, `oasis7_world_service`（及服务/桥接/Worker：`oasis7_chain_runtime`, `oasis7_dev_test_worker`, `oasis7_hosted_access`, `oasis7_provider_local_bridge`）
 - **L3（Agent、客户端、启动器与 Viewer）：** `oasis7_agent_api`, `oasis7_agent_harness`, `oasis7_model_provider`, `oasis7_client_api`, `oasis7_game_client`, `oasis7_viewer_runtime`, `oasis7_viewer`（及客户端/工具/渲染桥接：`oasis7_viewer_codec`, `oasis7_browser_game_client`, `oasis7_client_cli`, `oasis7_client_storage`, `oasis7_launcher_backend`, `oasis7_ops_tools`, `oasis7_protocol_tools`, `oasis7_provider_tools`, `pixel_world_bridge`）
 
 **硬性跨度与防越界约束：**

@@ -6,7 +6,9 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path};
 
-use oasis7_cas::{BlobStore, HashAlgorithm, LocalCasStore, decode_local_blob_into};
+use oasis7_cas::{
+    BlobStore, HashAlgorithm, LocalCasStore, decode_local_blob_into, decode_local_blob_with,
+};
 
 use super::binding::{BftSignerErrorV3, invalid};
 use super::crypto::{BFT_SIGNER_MAX_FRAME_BYTES_V3, decode_bounded, encode_bounded};
@@ -164,12 +166,39 @@ impl LocalBftSuccessorArchiveStoreV1 {
         }
         // CAS put may encounter an existing object. It is not a successful
         // checkpoint preparation unless a fresh bounded reread is exact.
-        if self.load_object(&reference, maximum)? != bytes {
-            return Err(invalid(
-                "successor archive reread differs from original material",
-            ));
-        }
+        self.verify_object_bytes(&reference, bytes, maximum)?;
         Ok(reference)
+    }
+
+    fn verify_object_bytes(
+        &self,
+        reference: &BftSuccessorWindowArchiveRefV1,
+        original: &[u8],
+        maximum: usize,
+    ) -> Result<(), BftSignerErrorV3> {
+        let (file, size, encoded_limit) = self.open_object(reference, maximum)?;
+        if size != original.len() {
+            return Err(invalid("successor archive reread length mismatch"));
+        }
+        decode_local_blob_with(
+            HashAlgorithm::Blake3,
+            &reference.digest,
+            file.take(encoded_limit),
+            size,
+            Some(23),
+            |reader| {
+                let mut buffer = [0; 16 * 1024];
+                for chunk in original.chunks(buffer.len()) {
+                    reader.read_exact(&mut buffer[..chunk.len()])?;
+                    if &buffer[..chunk.len()] != chunk {
+                        return Err(std::io::Error::other("archive reread bytes changed"));
+                    }
+                }
+                Ok(())
+            },
+        )
+        .map_err(cas_error)?;
+        Ok(())
     }
 
     fn load_bytes(
@@ -186,6 +215,31 @@ impl LocalBftSuccessorArchiveStoreV1 {
         reference: &BftSuccessorWindowArchiveRefV1,
         maximum: usize,
     ) -> Result<Vec<u8>, BftSignerErrorV3> {
+        let (file, size, encoded_limit) = self.open_object(reference, maximum)?;
+        // Read a fresh descriptor, bypassing CAS's decoded range cache. A
+        // cached correct object cannot prove that today's disk publication
+        // will survive the checkpoint/minimum transaction or a cold reopen.
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(size)
+            .map_err(|_| invalid("successor archive read allocation"))?;
+        decode_local_blob_into(
+            HashAlgorithm::Blake3,
+            &reference.digest,
+            file.take(encoded_limit),
+            &mut bytes,
+            size,
+        )
+        .map_err(cas_error)?;
+        reference.validate_bytes(&bytes)?;
+        Ok(bytes)
+    }
+
+    pub(super) fn open_object(
+        &self,
+        reference: &BftSuccessorWindowArchiveRefV1,
+        maximum: usize,
+    ) -> Result<(File, usize, u64), BftSignerErrorV3> {
         validate_object_limit(maximum)?;
         reference.validate()?;
         let size = usize::try_from(reference.bytes)
@@ -206,20 +260,7 @@ impl LocalBftSuccessorArchiveStoreV1 {
         if file.metadata().map_err(io_error)?.len() > encoded_limit {
             return Err(invalid("successor archive encoded length bound"));
         }
-        // Read a fresh descriptor, bypassing CAS's decoded range cache. A
-        // cached correct object cannot prove that today's disk publication
-        // will survive the checkpoint/minimum transaction or a cold reopen.
-        let mut bytes = Vec::new();
-        decode_local_blob_into(
-            HashAlgorithm::Blake3,
-            &reference.digest,
-            file.take(encoded_limit),
-            &mut bytes,
-            size,
-        )
-        .map_err(cas_error)?;
-        reference.validate_bytes(&bytes)?;
-        Ok(bytes)
+        Ok((file, size, encoded_limit))
     }
 }
 

@@ -15,15 +15,16 @@ use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, Swarm};
 use libp2p::{Multiaddr, PeerId, StreamProtocol, Transport as _};
 
+use super::HeldBytes;
 use oasis7_proto::distributed::RR_PROTOCOL_PREFIX;
-use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
+use oasis7_proto::distributed_net::NetworkRequest;
 
 use super::connection_budget::ConnectionBudget;
 use super::peer_record_admission::{PeerRecordAdmissionBudget, SharedPeerRecordAdmissionBudget};
 use super::peer_record_dial_gate::DiscoveryDialPolicy;
 use super::peer_record_protocol_dial::{ProtocolDialBehaviour, ProtocolDialOrigins};
 use super::peer_record_store::PeerRecordStore;
-use super::request_deadline::{LocalRequest, RequestCodec, deadline_in};
+use super::request_deadline::{LocalRequest, OutboundContext, RequestCodec, deadline_in};
 use super::transport_admission::TransportAdmissionGate;
 use super::wire_bytes::{InstrumentedStreamMuxer, SharedLibp2pWireByteCounters};
 
@@ -88,22 +89,39 @@ impl Behaviour {
         message: NetworkRequest,
         caller_deadline: Option<tokio::time::Instant>,
     ) -> request_response::OutboundRequestId {
-        self.send_rr_request_with_exchange(peer, message, caller_deadline, None)
+        self.send_rr_request_with_exchange(
+            peer,
+            message,
+            OutboundContext {
+                deadline: caller_deadline,
+                exchange: None,
+                memory: None,
+            },
+        )
     }
 
     pub(super) fn send_rr_request_with_exchange(
         &mut self,
         peer: &PeerId,
         message: NetworkRequest,
-        caller_deadline: Option<tokio::time::Instant>,
-        exchange: Option<std::sync::Arc<super::encoded_exchange::Exchange>>,
+        context: OutboundContext,
     ) -> request_response::OutboundRequestId {
+        let OutboundContext {
+            deadline: caller_deadline,
+            exchange,
+            memory,
+        } = context;
         // Legacy keeps its existing on-wire protocol timers. The command's
         // caller bound has already been applied to waiting and dispatch.
         let deadline = self.request_timeout.map(|timeout| {
             let configured = deadline_in(timeout);
             caller_deadline.map_or(configured, |caller| configured.min(caller))
         });
+        let deadline = if memory.is_some() {
+            caller_deadline.map(|original| deadline.map_or(original, |bound| bound.min(original)))
+        } else {
+            deadline
+        };
         let deadline = exchange.as_ref().map_or(deadline, |exchange| {
             let original = tokio::time::Instant::from_std(exchange.deadline());
             Some(deadline.map_or(original, |configured| configured.min(original)))
@@ -114,6 +132,8 @@ impl Behaviour {
                 message,
                 deadline,
                 exchange,
+                response_resources: Default::default(),
+                memory,
             },
         )
     }
@@ -265,7 +285,7 @@ impl NetworkBehaviour for Behaviour {
 #[derive(Debug)]
 pub(super) enum BehaviourEvent {
     Gossipsub(gossipsub::Event),
-    RequestResponse(request_response::Event<LocalRequest, NetworkResponse>),
+    RequestResponse(request_response::Event<LocalRequest, HeldBytes>),
     Kademlia(kad::Event),
     Autonat(autonat::Event),
     RelayClient(relay::client::Event),
@@ -280,8 +300,8 @@ impl From<gossipsub::Event> for BehaviourEvent {
     }
 }
 
-impl From<request_response::Event<LocalRequest, NetworkResponse>> for BehaviourEvent {
-    fn from(event: request_response::Event<LocalRequest, NetworkResponse>) -> Self {
+impl From<request_response::Event<LocalRequest, HeldBytes>> for BehaviourEvent {
+    fn from(event: request_response::Event<LocalRequest, HeldBytes>) -> Self {
         BehaviourEvent::RequestResponse(event)
     }
 }

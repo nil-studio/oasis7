@@ -1,6 +1,7 @@
 //! Test-only RPC ownership. An assertion failure must not detach a server from
 //! the storage/provider lifetime that it is still using.
 use super::*;
+use crate::controlled_authority::formal::endpoint::store::paid_minimum_read_count;
 use std::{collections::VecDeque, fmt::Debug, net::TcpListener, time::Instant};
 pub(super) const RPC_TIMEOUT: Duration = Duration::from_secs(3);
 const DIAGNOSTIC_LIMIT: usize = 32;
@@ -8,6 +9,7 @@ const DIAGNOSTIC_LIMIT: usize = 32;
 pub(super) struct Diagnostics {
     events: Mutex<VecDeque<String>>,
     pub(super) errors: Mutex<Vec<FormalError>>,
+    pub(super) minimum_reads: Mutex<Vec<usize>>,
     pub(super) joined: AtomicBool,
 }
 impl Diagnostics {
@@ -83,7 +85,13 @@ impl OwnedRpcServer {
                 while !server_stop.load(Ordering::Acquire) {
                     let started = Instant::now();
                     captured.record("server serve_one begin".into());
+                    let before = paid_minimum_read_count();
                     let result = server.serve_one(&listener);
+                    let mut reads = captured.minimum_reads.lock().unwrap();
+                    if reads.len() < DIAGNOSTIC_LIMIT {
+                        reads.push(paid_minimum_read_count() - before);
+                    }
+                    drop(reads);
                     captured.record(format!(
                         "server serve_one elapsed_us={} result={result:?}",
                         started.elapsed().as_micros()

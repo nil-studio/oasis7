@@ -32,6 +32,102 @@ fn client(s: &Libp2pNetwork) -> Libp2pNetwork {
     wait(|| n.connected_peers().contains(&s.peer_id()));
     n
 }
+
+#[test]
+fn held_noise_consumers_share_both_directions_and_keep_original_deadline() {
+    use super::super::memory_hold::{RPC_INBOUND_BYTES, RPC_OUTBOUND_BYTES};
+    use crate::{TRANSPORT_MEMORY_DIRECTION_BYTES as LIMIT, TransportMemoryDirection::*};
+    let s = server();
+    let c = client(&s);
+    let peer = s.peer_id();
+    let protocols = [
+        "/oasis7/bft/private-candidate/2.0.0",
+        "/oasis7/bft/admission-input/2.0.0",
+    ];
+    let _registrations: Vec<_> = protocols
+        .iter()
+        .map(|protocol| {
+            s.register_authenticated_context_handler_with_admission(
+                protocol,
+                16,
+                Box::new(|_, _| Ok(())),
+                Box::new(|_, bytes| {
+                    if bytes == b"slow" {
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    Ok(bytes.to_vec())
+                }),
+            )
+            .unwrap()
+        })
+        .collect();
+    let clone = c.clone();
+    assert!(clone.retain_transport_memory(Inbound, usize::MAX).is_err());
+    assert!(clone.retain_transport_memory(Inbound, LIMIT + 1).is_err());
+    let full_in = c.retain_transport_memory(Inbound, LIMIT).unwrap();
+    let full_out = clone.retain_transport_memory(Outbound, LIMIT).unwrap();
+    assert_eq!(c.transport_memory_usage(), [LIMIT, LIMIT]);
+    assert!(clone.retain_transport_memory(Inbound, 1).is_err());
+    drop((full_in, full_out));
+    let material = c
+        .retain_transport_memory(Inbound, LIMIT - RPC_INBOUND_BYTES)
+        .unwrap();
+    let outbound = clone
+        .retain_transport_memory(Outbound, LIMIT - RPC_OUTBOUND_BYTES)
+        .unwrap();
+    let fetch = |protocol, bytes: &[u8]| {
+        clone.request_authenticated_held_to_peer_before(
+            protocol,
+            bytes,
+            peer,
+            Instant::now() + Duration::from_secs(2),
+        )
+    };
+    let candidate = fetch(protocols[0], b"candidate").unwrap();
+    assert_eq!(candidate.as_slice(), b"candidate");
+    assert_eq!(c.transport_memory_usage(), [LIMIT, LIMIT]);
+    assert!(fetch(protocols[1], b"original").is_err());
+    drop(candidate);
+    wait(|| c.transport_memory_usage() == [LIMIT - RPC_INBOUND_BYTES, LIMIT - RPC_OUTBOUND_BYTES]);
+    let original = fetch(protocols[1], b"original").unwrap();
+    assert_eq!(original.as_slice(), b"original");
+    drop((original, material, outbound));
+    wait(|| c.transport_memory_usage() == [0, 0]);
+    assert!(fetch(protocols[0], &vec![0; 64 * 1024 + 1]).is_err());
+    assert!(fetch(&"x".repeat(129), b"bad").is_err());
+    assert!(
+        c.request_authenticated_held_to_peer_before(protocols[0], b"expired", peer, Instant::now())
+            .is_err()
+    );
+    assert_eq!(c.transport_memory_usage(), [0, 0]);
+    // Both networks use legacy resource_budget=None; the new absolute bound must still reach IO.
+    assert!(
+        c.request_authenticated_held_to_peer_before(
+            protocols[0],
+            b"slow",
+            peer,
+            Instant::now() + Duration::from_millis(20)
+        )
+        .is_err()
+    );
+    wait(|| c.transport_memory_usage() == [0, 0]);
+    let mut closed = c.clone();
+    let (tx, rx) = futures::channel::mpsc::channel(1);
+    closed.command_tx = tx;
+    drop(rx);
+    assert!(
+        closed
+            .request_authenticated_held_to_peer_before(
+                protocols[0],
+                b"closed",
+                peer,
+                Instant::now() + Duration::from_secs(1)
+            )
+            .is_err()
+    );
+    assert_eq!(c.transport_memory_usage(), [0, 0]);
+}
+
 #[test]
 fn authenticated_noise_context_is_remote_peer_and_original_cancellation() {
     let s = server();
@@ -174,10 +270,18 @@ fn authenticated_budget_uses_peer_not_payload_and_is_shared() {
 
 #[test]
 fn authenticated_noise_overload_is_rejected_without_unbounded_workers() {
+    struct Hold(Arc<AtomicUsize>);
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
     let s = server();
     let c = client(&s);
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let released = drops.clone();
     let _registration = s
         .register_authenticated_context_handler_with_admission(
             PROTOCOL,
@@ -185,6 +289,7 @@ fn authenticated_noise_overload_is_rejected_without_unbounded_workers() {
             Box::new(|_, _| Ok(())),
             Box::new(move |ctx, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
+                ctx.retain_reply_resource(Box::new(Hold(released.clone())))?;
                 while !ctx.request_context().is_cancelled() {
                     std::thread::yield_now();
                 }
@@ -222,6 +327,7 @@ fn authenticated_noise_overload_is_rejected_without_unbounded_workers() {
         }
     )));
     assert!(calls.load(Ordering::SeqCst) < 32);
+    wait(|| drops.load(Ordering::SeqCst) == calls.load(Ordering::SeqCst));
 }
 
 #[test]

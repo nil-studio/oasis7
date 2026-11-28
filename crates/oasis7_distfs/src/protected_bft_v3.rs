@@ -17,10 +17,13 @@ mod luna_key;
 #[cfg(feature = "protected-bft-luna-key")]
 pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod postgres_backend;
 mod private_retention_alternatives;
 mod private_retention_input;
 mod private_retention_input_authorization;
 mod private_retention_operation;
+mod private_retention_ready;
 mod rotation;
 mod service;
 mod state;
@@ -86,6 +89,11 @@ pub use successor_manifest::{
 pub use private_retention_alternatives::BftOriginalAlternativesInventoryV1;
 pub use private_retention_operation::{
     BftOriginalRetentionTxnSnapshotV1, BftRetainedOriginalOperationV1,
+};
+pub use private_retention_ready::{
+    BftCurrentRetentionV1, BftPrivateRetentionSelectionCommitmentV1,
+    BftPrivateRetentionSelectionIndexV1, BftPrivateRetentionSelectionKindV1,
+    BftPrivateRetentionSelectionOperationV1, BftPrivateRetentionSelectionV1,
 };
 
 pub use admission_input_stream::BftAdmissionInputV2StreamStage;

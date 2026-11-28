@@ -37,8 +37,9 @@ pub struct ProtectedOriginalAdmissionContextV2 {
 }
 
 /// The hold remains alive throughout binary encoding, protected byte-spend CAS
-/// and exact readback. It is not a claim that an arbitrary local buffer is safe
-/// to release without the authority's independent source verification.
+/// and exact readback, then through the actual Net response write/close. This
+/// does not authorize releasing a local buffer without the authority's
+/// independent source verification.
 pub struct ProtectedOriginalAdmissionPartsV2 {
     pub parts: Vec<Vec<u8>>,
     pub transport_hold: Box<dyn Send + Sync>,
@@ -170,6 +171,71 @@ impl ProtectedOriginalResponseChargeV2 {
     }
 }
 
+/// A separately authenticated material/issuer source. Unlike the broad
+/// responder trait, it CANNOT implement a hidden second response-spend ledger:
+/// the sole charge path is the same fenced original-retention backend below.
+/// Implementations must independently verify current lease, issuer/grant,
+/// source possession and protected time before returning original material.
+pub trait ProtectedOriginalAdmissionSourceV2: Send + Sync {
+    fn current_context(
+        &self,
+        request: &AdmissionBatchRequestV2,
+    ) -> Result<ProtectedOriginalAdmissionContextV2, String>;
+
+    fn read_authorized_parts(
+        &self,
+        subject: &VerifiedAdmissionBatchSubjectV2,
+        deadline: Instant,
+    ) -> Result<ProtectedOriginalAdmissionPartsV2, String>;
+}
+
+/// The actual registered Noise responder uses BOTH independent gates: its
+/// material/issuer source and the original full-tuple response-spend CAS.
+/// Never allow a separate memory counter, generic State CAS, second WAL or
+/// successful fallback when the protected backend is unprovisioned.
+pub struct ProtectedOriginalAdmissionRetainedAuthorityV2 {
+    source: Arc<dyn ProtectedOriginalAdmissionSourceV2>,
+    response_charge: ProtectedOriginalResponseChargeV2,
+}
+
+impl ProtectedOriginalAdmissionRetainedAuthorityV2 {
+    pub fn new(
+        source: Arc<dyn ProtectedOriginalAdmissionSourceV2>,
+        response_charge: ProtectedOriginalResponseChargeV2,
+    ) -> Self {
+        Self {
+            source,
+            response_charge,
+        }
+    }
+}
+
+impl ProtectedOriginalAdmissionAuthorityV2 for ProtectedOriginalAdmissionRetainedAuthorityV2 {
+    fn current_context(
+        &self,
+        request: &AdmissionBatchRequestV2,
+    ) -> Result<ProtectedOriginalAdmissionContextV2, String> {
+        self.source.current_context(request)
+    }
+
+    fn read_authorized_parts(
+        &self,
+        subject: &VerifiedAdmissionBatchSubjectV2,
+        deadline: Instant,
+    ) -> Result<ProtectedOriginalAdmissionPartsV2, String> {
+        self.source.read_authorized_parts(subject, deadline)
+    }
+
+    fn reserve_encoded_response_and_readback(
+        &self,
+        subject: &VerifiedAdmissionBatchSubjectV2,
+        exact_outer_bytes: u64,
+    ) -> Result<(), String> {
+        self.response_charge
+            .reserve_encoded_response_and_readback(subject, exact_outer_bytes)
+    }
+}
+
 /// Registered ONLY by an explicitly configured protected service. Merely
 /// constructing an ordinary Node cannot register an original-input responder.
 pub struct NodeBftOriginalAdmissionNoiseV2 {
@@ -177,6 +243,27 @@ pub struct NodeBftOriginalAdmissionNoiseV2 {
 }
 
 impl NodeBftOriginalAdmissionNoiseV2 {
+    /// Explicit production combination: the same independently protected
+    /// current source + one full original-retention transaction backend.
+    /// A missing backend primitive fails closed at actual response charging;
+    /// construction never creates or resets the protected namespace.
+    pub fn new_with_retained_charge(
+        network: Arc<Libp2pNetwork>,
+        peer_ids: Vec<String>,
+        source: Arc<dyn ProtectedOriginalAdmissionSourceV2>,
+        backend: Box<dyn BftSignerBackendV3>,
+        lease_generation: u64,
+        lease_token_digest: String,
+    ) -> Result<Self, String> {
+        let response_charge =
+            ProtectedOriginalResponseChargeV2::new(backend, lease_generation, lease_token_digest)?;
+        let authority = Arc::new(ProtectedOriginalAdmissionRetainedAuthorityV2::new(
+            source,
+            response_charge,
+        ));
+        Self::new(network, peer_ids, authority)
+    }
+
     pub fn new(
         network: Arc<Libp2pNetwork>,
         peer_ids: Vec<String>,
@@ -323,6 +410,8 @@ fn handle(
     {
         return Err("original admission authority changed before reply".into());
     }
-    let _hold_until_verified_charge = original.transport_hold;
+    transport
+        .retain_reply_resource(original.transport_hold)
+        .map_err(|_| "original admission response hold handoff rejected")?;
     Ok(encoded)
 }

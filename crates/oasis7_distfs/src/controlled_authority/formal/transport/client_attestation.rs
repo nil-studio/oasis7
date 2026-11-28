@@ -5,6 +5,7 @@ pub(super) fn verify_response_custody(
     response: &Response,
     authority: &VerifiedAuthorityV1,
     role: EndpointRole,
+    response_digest: &str,
 ) -> Result<(), FormalError> {
     let instance = match role {
         EndpointRole::Primary => &authority.definition().primary.instance,
@@ -22,13 +23,7 @@ pub(super) fn verify_response_custody(
         checkpoint: response.body.checkpoint.clone(),
         challenge: attestation.body.challenge.clone(),
         purpose: fencing::ProtectedEndpointSignaturePurposeV1::RpcResponse,
-        preimage: bytes(
-            RESPONSE_DOMAIN,
-            &hash(
-                "oasis7.formal.endpoint.rpc.response_body.v1",
-                &response.body,
-            )?,
-        )?,
+        preimage: bytes(RESPONSE_DOMAIN, &response_digest)?,
     };
     let signature = fencing::verify_protected_endpoint_signature(
         attestation,

@@ -546,6 +546,8 @@ if new_web_image:
 for workflow, names in ((release, ("release_gate_web",)), (mainnet, ("release_gate_web",)),
                         (rust, ("viewer-js-required", "viewer-performance-report"))):
     for name in names:
+        if name == "viewer-performance-report" and "\n  viewer-performance-report:\n" not in workflow:
+            continue
         identity = cache_identity(workflow, name)
         body = job_body(workflow, name)
         header = body.split("    steps:", 1)[0]

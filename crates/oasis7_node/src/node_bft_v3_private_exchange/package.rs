@@ -1,6 +1,9 @@
-use super::wire::{MAX_PACKAGE, encode, scan};
+use super::wire::{MAX_PACKAGE, encode};
 use super::*;
 use serde::de::{self, SeqAccess, Visitor};
+#[path = "package_reader.rs"]
+mod reader;
+pub(super) use reader::staged as decode_staged;
 const DOMAIN: &str = "oasis7.bft.private-candidate.package.v1";
 #[derive(Serialize)]
 struct Out<'a> {
@@ -92,6 +95,9 @@ fn nodes<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<InNode>, D::Error
     d.deserialize_seq(Nodes)
 }
 pub(super) fn validate(p: &NodeBftPrivateCandidatePackageV3) -> Result<(), String> {
+    // Binding owns a clone. Reject malformed public material by reference first.
+    p.candidate.public_value.header.validate()?;
+    p.candidate.public_value.execution_commitment.validate()?;
     oasis7_consensus::formal_bft_payload_v3::ValidatedBftPrivatePayloadV3::decode(
         p.candidate.public_value.validate_binding()?,
         &p.candidate.actions_cbor,
@@ -137,11 +143,9 @@ pub(super) fn decode_package(b: &[u8]) -> Result<NodeBftPrivateCandidatePackageV
     if b.len() > MAX_PACKAGE {
         return Err("private package capacity".into());
     }
-    scan(b, true)?;
-    let p: In = serde_cbor::from_slice(b).map_err(|_| "private package decode")?;
-    if p.domain != DOMAIN || p.schema_version != 1 || encode(&p)? != b {
-        return Err("private package canonical domain/schema".into());
-    }
+    reader::slice(b)
+}
+fn finish(p: In) -> Result<NodeBftPrivateCandidatePackageV3, String> {
     let p = NodeBftPrivateCandidatePackageV3 {
         candidate: crate::NodeBftPrivateCandidateV3 {
             public_value: p.public_value,

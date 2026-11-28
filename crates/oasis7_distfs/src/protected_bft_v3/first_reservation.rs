@@ -33,6 +33,7 @@ enum Fact {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum Lifecycle {
     ReservedPending,
+    Ready,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +52,20 @@ pub struct BftPrivateRetentionMapV1 {
     coverage_start_height: u64,
     previous_seal_receipt_digest: Option<String>,
     entries: [BftPrivateRetentionEntryV1; 1],
+}
+impl BftPrivateRetentionMapV1 {
+    pub(super) fn require_reserved(&self) -> Result<(), BftSignerErrorV3> {
+        if self.entries[0].lifecycle != Lifecycle::ReservedPending {
+            return Err(invalid("first Ready requires original ReservedPending"));
+        }
+        Ok(())
+    }
+    pub(super) fn first_ready(&self) -> Result<Self, BftSignerErrorV3> {
+        self.require_reserved()?;
+        let mut next = self.clone();
+        next.entries[0].lifecycle = Lifecycle::Ready;
+        Ok(next)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,7 +185,7 @@ pub(super) fn original_activation_state(
     Ok(after)
 }
 
-fn reserve_body(
+pub(super) fn reserve_body(
     before: &BftSignerStateV3,
     activation: &BftPrivateRetentionActivationV1,
     reference: &BftPrivateRetentionAdmissionInputRefV1,
@@ -274,10 +289,38 @@ pub(super) fn prepare_first_reservation(
     generation: u64,
     key: &dyn BftSigningKeyHandleV3,
 ) -> Result<(BftFirstReservedOriginalV1, BftSignerStateV3), BftSignerErrorV3> {
+    prepare_first_reservation_checked(
+        before,
+        activation,
+        reference,
+        input,
+        generation,
+        key,
+        |_, _| Ok(()),
+    )
+}
+
+pub(super) fn prepare_first_reservation_checked(
+    before: &BftSignerStateV3,
+    activation: &BftPrivateRetentionActivationV1,
+    reference: &BftPrivateRetentionAdmissionInputRefV1,
+    input: Arc<BftPrivateRetentionAdmissionInputV1>,
+    generation: u64,
+    key: &dyn BftSigningKeyHandleV3,
+    preflight: impl FnOnce(
+        &BftFirstReservedOriginalV1,
+        &BftSignerStateV3,
+    ) -> Result<(), BftSignerErrorV3>,
+) -> Result<(BftFirstReservedOriginalV1, BftSignerStateV3), BftSignerErrorV3> {
     let (mut ledger, after) = reserve_body(before, activation, reference, &input, generation)?;
     check_namespace_budget(&ledger.receipt.body, 0)?;
-    ledger.receipt.signature_hex = sign_preimage(key, RECEIPT_DOMAIN, &ledger.receipt.body)?;
-    Ok((BftFirstReservedOriginalV1 { ledger, input }, after))
+    // Only a bounded, unsigned sizing candidate. It never reaches the backend.
+    ledger.receipt.signature_hex = "0".repeat(128);
+    let mut original = BftFirstReservedOriginalV1 { ledger, input };
+    preflight(&original, &after)?;
+    original.ledger.receipt.signature_hex =
+        sign_preimage(key, RECEIPT_DOMAIN, &original.ledger.receipt.body)?;
+    Ok((original, after))
 }
 
 pub(super) fn verify_first_reservation(

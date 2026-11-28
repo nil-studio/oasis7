@@ -58,7 +58,7 @@ fn exercise_tcp_refresh(deny_cooldown: bool) {
                             &HashMap::new(), Some(&template), &b_key, &listening, &reachability, true,
                             &PeerRecordCache::default()).unwrap();
                         b.behaviour_mut().request_response.send_response(channel,
-                            oasis7_proto::distributed_net::NetworkResponse { payload }).unwrap();
+                            crate::libp2p_net::HeldBytes::unheld(payload)).unwrap();
                     }
                     _ => {}
                 },

@@ -1,6 +1,11 @@
 use super::wire::*;
 use super::*;
-use std::{sync::mpsc, thread, time::Duration};
+use std::{
+    io::{Seek, Write},
+    sync::mpsc,
+    thread,
+    time::Duration,
+};
 pub(super) struct ClientCore {
     pub network: Arc<Libp2pNetwork>,
     pub binding: BftSignerBindingV3,
@@ -246,10 +251,8 @@ pub(super) fn fetch(
     if total > MAX_PACKAGE {
         return Err("private package capacity".into());
     }
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(total)
-        .map_err(|_| "private fetch allocation")?;
+    let mut stage =
+        super::staging::PrivateStage::new(total, deadline).map_err(|_| "private fetch staging")?;
     for index in 0..manifest.total_chunks {
         // Shared Net admission is authoritative. Pacing and all retries consume
         // the one original absolute deadline; no chunk gets a fresh operation.
@@ -274,19 +277,21 @@ pub(super) fn fetch(
         let chunk = hex::decode(reply.chunk_hex.as_ref().ok_or("private chunk missing")?)
             .map_err(|_| "private chunk hex")?;
         let (offset, len) = manifest.operation().chunk_range(index)?;
-        if offset != bytes.len() as u64
+        if offset
+            != stage
+                .stream_position()
+                .map_err(|_| "private staging position")?
             || chunk.len() != len as usize
             || hex::encode(&chunk) != reply.chunk_hex.unwrap_or_default()
         {
             return Err("private chunk exact range/encoding".into());
         }
-        bytes.extend_from_slice(&chunk);
+        stage
+            .write_all(&chunk)
+            .map_err(|_| "private staging write")?;
     }
     live(core, cancel, deadline)?;
-    if bytes.len() != total || super::package::package_digest(&bytes) != manifest.package_digest {
-        return Err("private package original digest/length mismatch".into());
-    }
-    let package = super::package::decode_package(&bytes)?;
+    let package = super::package::decode_staged(stage, &manifest)?;
     if package.candidate.public_value != request.value {
         return Err("private package differs from exact requested public value".into());
     }

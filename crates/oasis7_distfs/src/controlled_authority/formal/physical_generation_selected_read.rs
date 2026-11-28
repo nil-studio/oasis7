@@ -63,6 +63,24 @@ fn read_metadata(
             return Err(invalid("physical registered owner/write mode"));
         }
     }
+    let bytes = read_opened_exact_bounded_v1(&mut file, length, memory, work, cancelled)?;
+    let after = file.metadata().map_err(io)?;
+    paths::metadata(&after, false)?;
+    if after.len() != metadata.len() {
+        return Err(invalid("bounded generation metadata changed"));
+    }
+    work.step(cancelled)?;
+    Ok(PaidMetadata(bytes))
+}
+/// Only the opened reader mechanism is shared. Callers retain their own path,
+/// permissions, size and final metadata policies; this grants no namespace right.
+pub(crate) fn read_opened_exact_bounded_v1<R: Read, C: FnMut() -> bool>(
+    file: &mut R,
+    length: usize,
+    memory: &MemoryBudget,
+    work: &mut GenerationSelectedReadWorkV1,
+    cancelled: &mut C,
+) -> Result<ReservedValue<Vec<u8>>, FormalError> {
     let paid = length
         .checked_add(std::mem::size_of::<Vec<u8>>())
         .ok_or_else(|| invalid("bounded generation metadata layout"))?;
@@ -99,13 +117,7 @@ fn read_metadata(
             Err(e) => return Err(io(e)),
         }
     }
-    let after = file.metadata().map_err(io)?;
-    paths::metadata(&after, false)?;
-    if after.len() != metadata.len() {
-        return Err(invalid("bounded generation metadata changed"));
-    }
-    work.step(cancelled)?;
-    Ok(PaidMetadata(fee.retain(bytes)))
+    Ok(fee.retain(bytes))
 }
 pub(crate) fn with_selected_path_bounded_v1<T, C: FnMut() -> bool>(
     path: &Path,

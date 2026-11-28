@@ -47,9 +47,9 @@ engineering 维护者拥有共性配置与检查工具；crate owner 确认 feat
 
 | 对象 | 当前实现与依据 | 目标状态 | 差距 |
 | --- | --- | --- | --- |
-| Workspace | [根 manifest](../../../Cargo.toml) 集中共性依赖、`workspace.package` / `workspace.lints`，首批 6 个成员显式继承；[工具链](../../../rust-toolchain.toml) 固定为 `1.96.0` | 可继承的共性与显式成员差异 | 其余成员尚未迁移；每批仍须等价检查，不修改 resolver/profiles/patch |
+| Workspace | [根 manifest](../../../Cargo.toml) 集中共性依赖、`workspace.package` / `workspace.lints`，当前活跃 53 个 workspace 成员（`crates/oasis7` 兼容伞包已于 `#7440` / `#6152` 从 `workspace.members` 退役）；[工具链](../../../rust-toolchain.toml) 固定为 `1.96.0` | 可继承的共性与显式成员差异 | 其余成员按需迁移；每批仍须等价检查，不修改 resolver/profiles/patch |
 | Lint | [ci-tests.sh](../../../scripts/ci-tests.sh) 使用 `-D warnings`、`-D clippy::correctness`、`-D clippy::suspicious` | 相同规则定义可在本地消费，CI 强度继续明确 | 首批继承保持 correctness=deny、suspicious=warn 的本地级别；CI 继续升级，普通 clippy 不等于所有 CI 组合 |
-| 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Cargo 检查器](../../../scripts/cargo-dev-architecture.py)按[当前配置](../../../scripts/cargo-dev-architecture.json)核对声明/闭包及编译；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh)保留原范围 | 有作用域的规则、声明与解析闭包检查 | 规则/profile 集合以配置为准，包含后续 custody 边界；现有 Cargo 图不能表达同一 crate 内的错误决策依赖，不证明未登记组合 |
+| 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Cargo 检查器](../../../scripts/cargo-dev-architecture.py)按[当前配置](../../../scripts/cargo-dev-architecture.json)核对声明/闭包及编译（含 `oasis7` 伞包退役禁止边）；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh)保留原范围 | 有作用域的规则、声明与解析闭包检查 | 规则/profile 集合以配置为准，包含后续 custody 边界与已锁定的 `oasis7` 禁止边；现有 Cargo 图不能表达同一 crate 内的错误决策依赖，不证明未登记组合 |
 | 错误事实 | [FormalReadError](../../../crates/oasis7_world_service/src/formal_read_error.rs)已有拒绝/未就绪/历史缺失/内部/完整性分类；[Node 分类](../../../crates/oasis7_node/src/network_error_classification.rs)已有 typed facts，[legacy adapter](../../../crates/oasis7_node/src/network_error_legacy.rs)保留旧文本解释 | 保护已完成的类别传播，源级约束只补可定位的内部缺口 | 已有[typed failure 回归](../../../crates/oasis7_node/src/network_bridge_typed_failure_tests.rs)；本文新增的源级规则与接线尚未实施，不将文本兼容字段列为待删除债务 |
 | HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 5、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首版已从此 profile 生成 TS/JSON Schema，真实 handler fixtures 与 TS consumer 校验 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
 | Rust wire 与测试 | [game.rs](../../../crates/oasis7_agent_api/src/game.rs)、[World Service wire](../../../crates/oasis7_client_api/src/world_service_wire.rs)、[Viewer](../../../crates/oasis7_proto/src/viewer.rs) 分别拥有合同；已有编码/签名测试 | 明确登记根类型和消费者，未来按需生成共享 components | 现有 DTO 不自动代表 HTTP 能力；仅 signed-read bootstrap 已有生成闭环，其他 profile 未登记 |
@@ -111,20 +111,20 @@ Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；承接 [REQ-RUST-002](
 | `protocol_tools` | Client API、Proto、签名/HTTP；**dev → oasis7_runtime(default-features=false,test_tier_required) 与 oasis7_world_service(default-features=false,features=[])** | normal/build 不包含 Runtime/Wasmtime | [协议工具边界](../../world-runtime/design.md#1-设计定位)；dev 只承载真实 Runtime 签名互操作，不放行生产 |
 | `provider_local_bridge` | Agent API、Client API、**Simulator 动作/事件 DTO**、Observability、LetAI adapter、WASM ABI | 不依赖主 `oasis7` 宿主，不转发 Wasmtime/libp2p/Viewer 宿主 features | [Provider 边界](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001)；default features 为空，不套用到实际执行 World 的 `provider_tools` |
 
-Service → Runtime/Projection/Game Client/Client Storage 是合法组合；主 `oasis7` 是宿主和兼容 facade。`client_cli` 中执行本地世界或解析权威 Simulator 配置的入口保留显式世界依赖；其**生产默认**不含 Wasmtime/libp2p 的要求不能被扩大为整个 package 禁止 Runtime/Simulator。以上是职责允许关系，不是待清理债务。
+Service → Runtime/Projection/Game Client/Client Storage 是合法组合；原主 `oasis7` 宿主与兼容 facade 职责已归位至 `oasis7_runtime_host` 与 `oasis7_world_service`，伞包已于 `#7440` 从 `workspace.members` 退役。`client_cli` 中执行本地世界或解析权威 Simulator 配置的入口保留显式世界依赖；其**生产默认**不含 Wasmtime/libp2p 的要求不能被扩大为整个 package 禁止 Runtime/Simulator。以上是职责允许关系，不是待清理债务。
 
 测试闭包的 kind 由各专业 owner 明确：Game Client、State、Client Launcher、Protocol Tools 包含 dev（后者仅精确互操作首边允许）；Harness、Projection、Runtime、Launcher Backend、Provider Local Bridge 的禁令限 normal/build。所有测试 profile 的构建及编译影响选择仍包含实际 dev 输入。
 
 规则配置中的例外必须精确到 root、边/kind、target/features、用途和依据；稳定允许关系与临时迁移例外分别表达。临时例外另写复核/移除触发条件，同一 PR 按现有评审处理，不能使用 `allow_all_dev` 或通配全部路径豁免。原专业合同变化时同步改规则与正反例，不能仅为清除报错放松合同。
 
 <a id="workspace-layering-topology"></a>
-#### 4.3.1 Workspace 五层依赖拓扑参考与净室治理（Target，Refs #6025）
+#### 4.3.1 Workspace 五层依赖拓扑参考与净室治理（Current，Refs #6025 / #6152）
 
-为给全仓 55 个唯一 workspace 成员提供清晰的宏观依赖视图与长期净室规则，本节补充 L0–L4 五层单向依赖参考拓扑（`L4 -> L3 -> L2 -> L1 -> L0`）。该表用于架构导航与增量收敛，**不替代**上文 `§4.2`–`§4.3` 的 `package × kind × target/features` 方向矩阵与 `scripts/cargo-dev-architecture.json` 可执行规则；同层内部的禁止关系（如 `oasis7_runtime` 不得依赖 `oasis7_simulator`、`oasis7_world_projection`、`oasis7_node`、`oasis7_distfs`，以及 `oasis7_game_client` 不得依赖 `oasis7_world_state`/`oasis7_runtime`）继续由方向矩阵与原专业合同裁定。
+为给全仓 53 个活跃 workspace 成员（`crates/oasis7` 历史兼容伞包已于 `#7440` 从 `workspace.members` 退役）提供清晰的宏观依赖视图与长期净室规则，本节记录 L0–L4 五层单向依赖拓扑（`L4 -> L3 -> L2 -> L1 -> L0`）。该表用于架构导航与增量收敛，**不替代**上文 `§4.2`–`§4.3` 的 `package × kind × target/features` 方向矩阵与 `scripts/cargo-dev-architecture.json` 可执行规则；同层内部的禁止关系（如 `oasis7_runtime` 不得依赖 `oasis7_simulator`、`oasis7_world_projection`、`oasis7_node`、`oasis7_distfs`，以及 `oasis7_game_client` 不得依赖 `oasis7_world_state`/`oasis7_runtime`）继续由方向矩阵与原专业合同裁定。
 
 ```mermaid
 flowchart TB
-    %% 实线箭头表示主要 Cargo normal/build 依赖方向，虚线表示目标演进方向；
+    %% 实线箭头表示主要 Cargo normal/build 依赖方向，虚线表示兼容重导出；
     %% 同层及细粒度禁止关系继续以 §4.3 方向矩阵与 scripts/cargo-dev-architecture.json 为准。
     subgraph L4["L4 · Surface Apps, Viewers, Launchers & Tooling"]
         L4_VIEW["oasis7_viewer_runtime / oasis7_viewer_codec"]
@@ -133,13 +133,13 @@ flowchart TB
         L4_TOOL["tools/scenario_test_runner / wasm_build_suite / wasm_module_observe"]
     end
 
-    subgraph L3["L3 · Service Facades, Bridges, Workers & Agent Harness"]
+    subgraph L3["L3 · Service Facades, Runtime Host, Bridges, Workers & Agent Harness"]
         L3_SVC["oasis7_world_service / oasis7_chain_runtime"]
+        L3_HOST["oasis7_runtime_host"]
         L3_HARN["oasis7_agent_harness"]
         L3_PROV["oasis7_provider_local_bridge"]
-        L3_MOD["oasis7_model_provider / oasis7_newapi_bridge_service"]
-        L3_WORK["oasis7_custody_worker / oasis7_dev_test_worker"]
-        L3_UMB["oasis7 (兼容伞包 · 退役中)"]
+        L3_MOD["oasis7_model_provider"]
+        L3_WORK["oasis7_dev_test_worker"]
     end
 
     subgraph L2["L2 · Authoritative State, Execution, Simulation & P2P Node"]
@@ -160,18 +160,23 @@ flowchart TB
     subgraph L0["L0 · Domain Primitives, Wire Contracts & Leaf Utilities"]
         L0_API["oasis7_agent_api / oasis7_client_api / oasis7_formal_protocol"]
         L0_PURE["零 I/O 协议与原语: oasis7_proto / oasis7_wasm_abi / oasis7_wasm_sdk / secure_envelope / signer_protocol / ..."]
-        L0_LEAF["无内部依赖的带能力叶子库: oasis7_wasm_build / oasis7_letai_credit_adapter / oasis7_hosted_access / pixel_world_bridge / ..."]
+        L0_LEAF["无内部依赖的带能力叶子库: oasis7_wasm_build / oasis7_hosted_access / pixel_world_bridge / ..."]
         L0_DOM["oasis7_domain_types (严格零 I/O 纯值子集)"]
     end
 
     L4_VIEW --> L3_SVC
-    L4_VIEW --> L3_UMB
+    L4_VIEW --> L3_HOST
     L4_LNCH --> L3_HARN
     L4_LNCH --> L3_MOD
     L4_LNCH --> L1_CLI
-    L4_CLI --> L3_UMB
+    L4_CLI --> L3_SVC
+    L4_CLI --> L3_HOST
     L4_TOOL --> L2_SIM
 
+    L3_HOST --> L3_SVC
+    L3_HOST --> L2_RT
+    L3_HOST --> L2_SIM
+    L3_HOST --> L3_HARN
     L3_SVC --> L2_RT
     L3_SVC --> L2_PROJ
     L3_SVC --> L2_P2P
@@ -180,7 +185,6 @@ flowchart TB
     L3_PROV --> L2_SIM
     L3_MOD --> L0_API
     L3_WORK --> L1_STORE
-    L3_UMB -. "按职责拆分退役" .-> L3_SVC
 
     L2_RT --> L2_STATE
     L2_RT --> L1_WASM
@@ -204,17 +208,17 @@ flowchart TB
 
 | 架构层级 | 层级定位 | 归属 Crate / Tool 清单 | 依赖边界与 I/O 能力说明 |
 | --- | --- | --- | --- |
-| **L0** | **Domain Primitives, Pure Wire Contracts & Leaf Utilities（领域原语、纯协议合同与无内部依赖底层库）** | **纯零 I/O 原语与协议合同**：`oasis7_domain_types`（严格零 I/O 纯值子集）、`oasis7_proto`、`oasis7_wasm_abi`、`oasis7_wasm_sdk`、`oasis7_secure_envelope`、`oasis7_signer_protocol`、`oasis7_agent_api`、`oasis7_client_api`、`oasis7_formal_protocol`；<br>**无内部 workspace 依赖的带能力叶子库**：`oasis7_observability`、`oasis7_executable_image`、`oasis7_hosted_access`（文件系统 replay ledger）、`pixel_world_bridge`（Canvas DOM / Bevy 窗口与渲染循环）、`oasis7_wasm_build`（文件系统/构建进程）、`oasis7_letai_credit_adapter`（HTTP 客户端） | 拓扑上均不依赖任何 `L1`–`L4` 成员，但**拓扑层号与 I/O 能力分开约束**：严格零 I/O 纯度仅要求于 `oasis7_domain_types` 与真正的纯协议子集；带文件系统、进程、HTTP 或 DOM/渲染能力的叶子库保留在 L0 拓扑位，不得被 `oasis7_domain_types` 或纯协议包反向引入。#6185 已将首批共享纯值与算法（`world_resource`、`world_entity`、`world_geometry`、`formal_projection`）放入 `oasis7_domain_types`；`oasis7_agent_api` / `oasis7_client_api` 保留 `pub use` 兼容路径，API 专属合同不随这一批纯值迁移。 |
+| **L0** | **Domain Primitives, Pure Wire Contracts & Leaf Utilities（领域原语、纯协议合同与无内部依赖底层库）** | **纯零 I/O 原语与协议合同**：`oasis7_domain_types`（严格零 I/O 纯值子集）、`oasis7_proto`、`oasis7_wasm_abi`、`oasis7_wasm_sdk`、`oasis7_secure_envelope`、`oasis7_signer_protocol`、`oasis7_agent_api`、`oasis7_client_api`、`oasis7_formal_protocol`；<br>**无内部 workspace 依赖的带能力叶子库**：`oasis7_observability`、`oasis7_executable_image`、`oasis7_hosted_access`（文件系统 replay ledger）、`pixel_world_bridge`（Canvas DOM / Bevy 窗口与渲染循环）、`oasis7_wasm_build`（文件系统/构建进程） | 拓扑上均不依赖任何 `L1`–`L4` 成员，但**拓扑层号与 I/O 能力分开约束**：严格零 I/O 纯度仅要求于 `oasis7_domain_types` 与真正的纯协议子集；带文件系统、进程、HTTP 或 DOM/渲染能力的叶子库保留在 L0 拓扑位，不得被 `oasis7_domain_types` 或纯协议包反向引入。#6185 已将首批共享纯值与算法（`world_resource`、`world_entity`、`world_geometry`、`formal_projection`）放入 `oasis7_domain_types`；`oasis7_agent_api` / `oasis7_client_api` 保留 `pub use` 兼容路径，API 专属合同不随这一批纯值迁移。 |
 | **L1** | **Substrate, Storage, Crypto, WASM & Client Core（底座、存储、加密、沙箱与客户端验证核层）** | `oasis7_cas`、`oasis7_context`、`oasis7_local_signer`、`oasis7_client_storage`、`oasis7_custody_core`、`oasis7_wasm_store`、`oasis7_wasm_executor`、`oasis7_wasm_router`、`oasis7_wasm_materializer`、`oasis7_consensus`、`oasis7_game_client`、`oasis7_browser_game_client` | 仅可依赖 `L0` 及同层合法底座组件；提供内容寻址、签名/密钥封装、WASM 沙箱与工件拉取、共识内核及独立客户端读模型/验证核心，不反向依赖 `L2` 世界状态或执行引擎。 |
 | **L2** | **Authoritative State, Execution, Simulation & P2P Node（权威状态、执行、仿真与节点层）** | `oasis7_world_state`、`oasis7_world_projection`、`oasis7_runtime`、`oasis7_simulator`、`oasis7_distfs`、`oasis7_net`、`oasis7_node` | 仅可依赖 `L0`–`L1` 及同层允许边（例如 `world_projection -> world_state`、`runtime -> world_state`、`node -> net -> distfs -> world_state`）；同层禁止边沿用 `§4.3` 方向矩阵与 [Runtime 实现边界](../../world-runtime/design.md#实现边界与共享值所有权)。 |
-| **L3** | **Service Facades, Bridges, Workers & Agent Harness（服务门面、桥接、工作节点与驱动层）** | `oasis7_world_service`、`oasis7_chain_runtime`、`oasis7`（历史兼容伞包，退役中）、`oasis7_agent_harness`、`oasis7_model_provider`、`oasis7_provider_local_bridge`、`oasis7_newapi_bridge_service`、`oasis7_custody_worker`、`oasis7_dev_test_worker` | 组装受权服务用例、链运行宿主、模型提供方桥接与 Agent harness；严禁绕过 `L2` 准入门禁直接修改权威状态或伪造恢复凭据。 |
-| **L4** | **Surface Apps, Viewers, Launchers & CLI/Tooling（终端宿主、视图、启动器与工具层）** | `oasis7_viewer_codec`、`oasis7_viewer_runtime`、`oasis7_launcher_backend`、`oasis7_client_cli`、`oasis7_ops_tools`、`oasis7_protocol_tools`、`oasis7_provider_tools`、`tools/scenario_test_runner`、`tools/wasm_build_suite`、`tools/wasm_module_observe` | 进程入口与运维/测试工具；可执行包之间不跨包借用源码，轻量入口（`oasis7_launcher_backend`、`oasis7_protocol_tools`、`oasis7_client_cli` 生产默认）继续遵循 `§4.3` 边界。 |
+| **L3** | **Service Facades, Runtime Host, Bridges, Workers & Agent Harness（服务门面、运行时宿主、桥接、工作节点与驱动层）** | `oasis7_world_service`、`oasis7_chain_runtime`、`oasis7_runtime_host`（承接原 `runtime_host`、`harness_authority`、`runner`、`feedback` 等宿主实现）、`oasis7_agent_harness`、`oasis7_model_provider`、`oasis7_provider_local_bridge`、`oasis7_dev_test_worker`（历史兼容伞包 `oasis7` 已于 `#7440` / `#6152` 从 `workspace.members` 退役） | 组装受权服务用例、链运行宿主、运行时宿主、模型提供方桥接与 Agent harness；严禁绕过 `L2` 准入门禁直接修改权威状态或伪造恢复凭据。 |
+| **L4** | **Surface Apps, Viewers, Launchers & CLI/Tooling（终端宿主、视图、启动器与工具层）** | `oasis7_viewer_codec`、`oasis7_viewer_runtime`、`oasis7_launcher_backend`、`oasis7_client_cli`、`oasis7_ops_tools`、`oasis7_protocol_tools`、`oasis7_provider_tools`、`tools/scenario_test_runner`、`tools/wasm_build_suite`、`tools/wasm_module_observe` | 进程入口与运维/测试工具；可执行包之间不跨包借用源码，轻量入口（`oasis7_launcher_backend`、`oasis7_protocol_tools`、`oasis7_client_cli` 生产默认）继续遵循 `§4.3` 边界，并已在 `scripts/cargo-dev-architecture.json` 锁定对 `oasis7` 伞包的禁止边。 |
 
-配套的长期净室与模块演进约束（当前为目标规范，随对应代码实现任务逐项落地与验收）：
+配套的长期净室与模块演进约束（其中 `crates/oasis7` 伞包退役与 `L0`–`L4` 禁止边门禁已随 `#6025` / `#6152` / `#7440` 落地）：
 
-1. **根 `Cargo.toml` 净室与第三方补丁归口**：`workspace.members` 必须保持条目唯一；根目录原有的 `vendor-*` 第三方 patch 目录已全部退役，仅保留的受管补丁与纯 manifest 兼容夹具统一归口于 `vendor/`（`vendor/if-watch-3.2.2`、`vendor/libp2p-quic-0.15.0` 及 Rust 源码与上游字节一致、仅在 `Cargo.toml` 解绑 `wasm-bindgen-futures` 版本锁的 `vendor/libp2p-swarm-0.49.0`；原 `vendor-libp2p-rendezvous-0.18.1` 与 `libp2p-swarm` 连接准入源码补丁已内收至 `oasis7_net`），不违背 `third_party/` 只读规则，并由 `scripts/libp2p-security-source.test.py` 校验 provenance 与根目录零 `vendor-*` 残留；轻量 bridge crate（如 `oasis7_provider_local_bridge`、`oasis7_letai_credit_adapter`）仅在可证明不向无关消费者传播重依赖的前提下评估按 Cargo `features` 收敛。
+1. **根 `Cargo.toml` 净室与第三方补丁归口**：`workspace.members` 必须保持条目唯一；根目录原有的 `vendor-*` 第三方 patch 目录已全部退役，仅保留的受管补丁与纯 manifest 兼容夹具统一归口于 `vendor/`（`vendor/if-watch-3.2.2`、`vendor/libp2p-quic-0.15.0` 及 Rust 源码与上游字节一致、仅在 `Cargo.toml` 解绑 `wasm-bindgen-futures` 版本锁的 `vendor/libp2p-swarm-0.49.0`；原 `vendor-libp2p-rendezvous-0.18.1` 与 `libp2p-swarm` 连接准入源码补丁已内收至 `oasis7_net`），不违背 `third_party/` 只读规则，并由 `scripts/libp2p-security-source.test.py` 校验 provenance 与根目录零 `vendor-*` 残留；轻量 bridge crate（如 `oasis7_provider_local_bridge`）仅在可证明不向无关消费者传播重依赖的前提下评估按 Cargo `features` 收敛。
 2. **语义化限界上下文拆分守卫**：配合 `scripts/check-rust-file-size.sh` 与 [1200 行专题](rust-1200-line-root-cause-governance-2026-03-29.prd.md)，禁止通过新建 `*_part2.rs`、`split_part` 或跨文件 `include!` 做机械行数切割；内核大文件按业务限界上下文拆分。
-3. **`crates/oasis7` 兼容伞包退役门禁**：`crates/oasis7` 不再拥有可执行目标，严禁新增业务实现、场景定义或跨组件集成测试；现存源码与 `crates/oasis7/tests/` 按 [world-runtime 退役矩阵](../../world-runtime/design.md#crates-oasis7-retirement-matrix) 逐步归位至真实 owner crate，以收敛 `scripts/plan-rust-required-scope.py` 的变更波及面。
+3. **`crates/oasis7` 兼容伞包退役门禁（已完成，#7440）**：`crates/oasis7` 已从根 `Cargo.toml` `workspace.members`、`Cargo.lock` 与 `scripts/ci-required-scope.json` 正式退役移除，且 `L3` / `L4` 原消费者对 `oasis7` 的禁止边已在 `scripts/cargo-dev-architecture.json` 锁定；禁止向 `crates/oasis7` 新增业务实现、可执行目标或回归引用（历史迁移归位见 [world-runtime 退役矩阵](../../world-runtime/design-architecture-and-migration.md#crates-oasis7-retirement-matrix)）。
 
 <a id="protocol-authority"></a>
 ### 4.4 协议权威与首个实施切片

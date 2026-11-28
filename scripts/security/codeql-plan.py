@@ -312,6 +312,9 @@ def plan(args):
             # JSON registration; possible Rust consumers are still added below.
             add('actions-repo', path)
             add('python-repo', path)
+        elif path == 'scripts/ci-formal-process-suites.json':
+            # The Formal planner and artifact verifier consume this inventory.
+            add('python-repo', path)
         elif path in CACHE_SDK_METADATA_INPUTS:
             for unit in CACHE_SDK_METADATA_INPUTS[path]:
                 add(unit, path)
@@ -328,11 +331,20 @@ def plan(args):
         elif path in ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
                       'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt'):
             add('actions-repo', path)
+        elif path in ('docker/ci-base/ecs-oss/Dockerfile', 'docker/ci-base/ecs-oss/build.sh'):
+            add('actions-repo', path)
+        elif path == 'docker/ci-base/ecs-oss/artifacts.json':
+            # Exact lock consumed by the leaf build and its Python downloader
+            # and capability smoke. Adjacent JSON stays unregistered.
+            add('actions-repo', path)
+            add('python-repo', path)
         elif path == 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile':
             add('actions-repo', path)
-        elif path in ISSUE_METADATA_INPUTS or path in (
-            'scripts/newapi-bridge-service/pricing-rules.example.env',
-        ):
+        elif path == '.github/dependabot.yml':
+            # GitHub dependency-update data, also parsed by the Python coverage
+            # guard. It is not executable Actions YAML.
+            add('python-repo', path)
+        elif path in ISSUE_METADATA_INPUTS:
             # GitHub renders these as form data or static service templates, not executable Actions YAML.
             pass
         elif path in WASM_CANDIDATE_INPUTS:

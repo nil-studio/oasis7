@@ -20,13 +20,16 @@ oasis7_world_state = { path = "../oasis7_world_state", default-features = false 
 oasis7_wasm_build = { version = "0.1.0", path = "../oasis7_wasm_build", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_cbor = { package = "serde_cbor_2", version = "0.13" }
+serde_cbor = { package = "serde_cbor_2", version = "0.13", features = ["unsealed_read_write"] }
 blake3 = "1"
 sha2 = "0.11"
 hex = "0.4"
 zstd = { version = "0.14.3", default-features = false }
 ed25519-dalek = "3"
 cryptoki = { version = "0.12.1", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+postgres = "0.19.14"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

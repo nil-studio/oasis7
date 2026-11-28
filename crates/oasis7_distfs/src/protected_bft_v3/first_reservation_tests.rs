@@ -1,6 +1,29 @@
 //! Native TCP command + software transaction fixture. Reader/price fixture
 //! pins explicit H values and material; real Node issuer and backend separate.
 use super::*;
+use crate::protected_bft_v3::{
+    crypto::{decode_bounded, encode_bounded},
+    wire::{BftSignerCommandV3, SignedBftSignerRequestV3},
+};
+
+fn last_reserve_frame(captured: &Arc<Mutex<Vec<u8>>>) -> Vec<u8> {
+    let bytes = captured.lock().unwrap();
+    let mut rest = bytes.as_slice();
+    let mut original = None;
+    while !rest.is_empty() {
+        let length = u32::from_be_bytes(rest[..4].try_into().unwrap()) as usize;
+        let frame = &rest[4..4 + length];
+        let request: SignedBftSignerRequestV3 = decode_bounded(frame, bytes.len()).unwrap();
+        if matches!(
+            request.body.command,
+            BftSignerCommandV3::ReservePrivateRetentionInput { .. }
+        ) {
+            original = Some(frame.to_vec());
+        }
+        rest = &rest[4 + length..];
+    }
+    original.unwrap()
+}
 
 struct Source {
     allowed: Vec<Arc<BftPrivateRetentionAdmissionInputV1>>,
@@ -98,6 +121,23 @@ fn original_input(
 
 #[test]
 fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
+    for scenario in [
+        "legacy",
+        "envelope",
+        "lost-ack",
+        "mismatched-original",
+        "recorded",
+        "recorded-lost-ack",
+        "recorded-mismatched-original",
+    ] {
+        first_reserve_and_cold_retry(scenario);
+    }
+}
+
+fn first_reserve_and_cold_retry(scenario: &str) {
+    let use_envelope = scenario != "legacy";
+    let recorded = scenario.starts_with("recorded");
+    let uncertain = scenario.contains("lost-ack") || scenario.contains("mismatched-original");
     let binding = binding();
     let (marker, role) = configured_source(&binding);
     let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
@@ -115,6 +155,7 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
         mismatched_readback: false,
         lose_commit_acknowledgement: false,
         activation_signs: Arc::new(AtomicUsize::new(0)),
+        original_envelope: None,
     }));
     let (original, retained) = original_input(&marker);
     let mut repriced = original.clone();
@@ -135,6 +176,16 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
             hold: hold.clone(),
         })
     };
+    let configure = |service: BftSignerServiceV3, allowed| {
+        if recorded {
+            service.with_recorded_first_reservation(with_reader(allowed), Duration::from_secs(20))
+        } else if use_envelope {
+            service.with_retained_first_reservation(with_reader(allowed), Duration::from_secs(20))
+        } else {
+            service.with_first_reservation(with_reader(allowed), Duration::from_secs(20))
+        }
+        .unwrap()
+    };
 
     let unsupported = service(&binding, &snapshot, &slot, &marker, &role, true).unwrap();
     let (provider, server) = native_service(&binding, unsupported);
@@ -150,14 +201,71 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
     drop(lease);
     server.join().unwrap();
 
-    let writer = service(&binding, &snapshot, &slot, &marker, &role, false)
+    // Opting in on a legacy-only backend must fail before reading originals,
+    // charging a response or falling back to the old transaction primitive.
+    if use_envelope {
+        let unsupported = configure(
+            service(&binding, &snapshot, &slot, &marker, &role, false).unwrap(),
+            vec![original.clone()],
+        );
+        let (provider, server) = native_service(&binding, unsupported);
+        let mut lease = provider.acquire(&binding).unwrap();
+        let spend = slot.lock().unwrap().reserved_response_bytes;
+        assert!(
+            lease
+                .reserve_first_private_retention(&role, &marker, &activation, &original)
+                .unwrap_err()
+                .to_string()
+                .contains("envelope unsupported")
+        );
+        assert_eq!(slot.lock().unwrap().reserved_response_bytes, spend);
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        drop(lease);
+        server.join().unwrap();
+        // Opaque historical bytes stand for an already verified operation;
+        // this fixture tests preservation, not original signature admission.
+        let request = b"original request\0\xff".to_vec();
+        let receipt = b" original receipt\n\xfe".to_vec();
+        let operation = BftRetainedOriginalOperationV1 {
+            schema_version: 1,
+            operation_id: "historical-raw".into(),
+            source: marker.source.clone(),
+            ledger_origin_digest: marker.ledger_origin_digest.clone(),
+            original_request_digest:
+                BftRetainedOriginalOperationV1::request_digest_from_original_bytes(&request),
+            signed_request_bytes: request,
+            before_revision: 0,
+            before_state_digest: marker.initial_state_digest.clone(),
+            after_revision: covered.revision,
+            after_state_digest: covered.state_digest.clone(),
+            original_lease_generation: activation.receipt.body.original_lease_generation,
+            original_lease_token_digest: hash(90),
+            input_refs: vec![original.descriptor().unwrap()],
+            original_receipt_digest:
+                BftRetainedOriginalOperationV1::receipt_digest_from_original_bytes(&receipt),
+            signed_receipt_bytes: receipt,
+            cumulative_reserved_response_bytes: 1,
+        };
+        slot.lock().unwrap().original_envelope = Some(OriginalEnvelope {
+            operations: [(operation.operation_id.clone(), operation)].into(),
+            lose_ack: scenario.contains("lost-ack"),
+            mismatch_readback: scenario.contains("mismatched-original"),
+            ..Default::default()
+        });
+    }
+    let historical = slot
+        .lock()
         .unwrap()
-        .with_first_reservation(
-            with_reader(vec![original.clone(), repriced.clone()]),
-            Duration::from_secs(20),
-        )
-        .unwrap();
-    let (provider, server) = native_service(&binding, writer);
+        .original_envelope
+        .as_ref()
+        .map(|e| e.operations.clone());
+    let writer = configure(
+        service(&binding, &snapshot, &slot, &marker, &role, false).unwrap(),
+        vec![original.clone(), repriced.clone()],
+    );
+    let captured = Arc::default();
+    let (provider, server) =
+        native_service_recorded(&binding, writer, uncertain, Arc::clone(&captured));
     let mut lease = provider.acquire(&binding).unwrap();
     assert!(
         lease
@@ -175,11 +283,76 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
     );
     assert!(slot.lock().unwrap().reservation.is_none());
     assert_eq!(lease.checkpoint().unwrap().state, covered);
-    let reserved = lease
-        .reserve_first_private_retention(&role, &marker, &activation, &original)
-        .unwrap();
+    if scenario == "recorded" {
+        for rejection in ["index full", "namespace budget"] {
+            let old_spend = slot.lock().unwrap().reserved_response_bytes;
+            {
+                let mut persisted = slot.lock().unwrap();
+                if rejection == "index full" {
+                    let operations = &mut persisted.original_envelope.as_mut().unwrap().operations;
+                    let seed = operations.values().next().unwrap().clone();
+                    *operations = (0..4096)
+                        .map(|i| {
+                            let mut record = seed.clone();
+                            record.operation_id = format!("historical-{i}");
+                            (record.operation_id.clone(), record)
+                        })
+                        .collect();
+                } else {
+                    persisted.reserved_response_bytes = BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1
+                        - activation
+                            .receipt
+                            .body
+                            .head
+                            .retained_material_bytes
+                            .unwrap();
+                }
+            }
+            assert!(
+                lease
+                    .reserve_first_private_retention(&role, &marker, &activation, &original)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(rejection)
+            );
+            let mut persisted = slot.lock().unwrap();
+            assert_eq!(persisted.activation_signs.load(Ordering::SeqCst), 1);
+            assert!(persisted.reservation.is_none());
+            assert_eq!(persisted.original_envelope.as_ref().unwrap().commits, 0);
+            assert_eq!(snapshot.lock().unwrap().state, covered);
+            assert_eq!(hold.load(Ordering::SeqCst), 0);
+            persisted.original_envelope.as_mut().unwrap().operations = historical.clone().unwrap();
+            persisted.reserved_response_bytes = old_spend;
+        }
+    }
+    let answer = lease.reserve_first_private_retention(&role, &marker, &activation, &original);
+    let first_request = last_reserve_frame(&captured);
+    let reserved = slot
+        .lock()
+        .unwrap()
+        .reservation
+        .as_ref()
+        .unwrap()
+        .ledger
+        .clone();
+    if uncertain {
+        assert!(
+            answer
+                .unwrap_err()
+                .to_string()
+                .contains("commit/readback uncertain")
+        );
+        assert!(lease.checkpoint().is_err());
+        assert!(
+            lease
+                .reserve_first_private_retention(&role, &marker, &activation, &original)
+                .is_err()
+        );
+    } else {
+        assert_eq!(answer.unwrap(), reserved);
+    }
     let receipt_generation = reserved.receipt.body.original_lease_generation;
-    let state = lease.checkpoint().unwrap().state;
+    let state = snapshot.lock().unwrap().state.clone();
     assert_eq!(state.revision, 2);
     assert_eq!(
         state.private_retention.as_ref(),
@@ -195,15 +368,109 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
     assert_eq!(reservation.input, original);
     assert_eq!(reservation.ledger, reserved);
     assert_eq!(hold.load(Ordering::SeqCst), 0);
+    let persisted_operations = slot
+        .lock()
+        .unwrap()
+        .original_envelope
+        .as_ref()
+        .map(|envelope| envelope.operations.clone());
+    if let Some(expected) = &historical {
+        let persisted = slot.lock().unwrap();
+        let envelope = persisted.original_envelope.as_ref().unwrap();
+        for (id, old) in expected {
+            assert_eq!(envelope.operations.get(id), Some(old));
+        }
+        assert_eq!(
+            envelope.operations.len(),
+            expected.len() + usize::from(recorded)
+        );
+        if recorded {
+            let id = format!("first-reserve:{}", reserved.receipt.body.operation_digest);
+            let operation = envelope.operations.get(&id).unwrap();
+            assert_eq!(operation.signed_request_bytes, first_request);
+            assert_eq!(
+                operation.signed_receipt_bytes,
+                encode_bounded(&reserved.receipt, 16384).unwrap()
+            );
+            assert_eq!(operation.original_lease_generation, receipt_generation);
+            assert_eq!(
+                operation.original_lease_token_digest,
+                snapshot.lock().unwrap().lease_token_digest
+            );
+            assert_eq!(operation.before_state_digest, covered.state_digest);
+            assert_eq!(operation.after_state_digest, state.state_digest);
+            assert_eq!(operation.cumulative_reserved_response_bytes, original_spend);
+            assert!(encode_bounded(&(&reserved.receipt, &id, operation), 16384 - 256).is_ok());
+        }
+        assert_eq!(envelope.commits, 1);
+    }
     assert!(lease.start_height_timer(2).is_err());
     drop(lease);
     server.join().unwrap();
 
-    let reader = service(&binding, &snapshot, &slot, &marker, &role, false)
-        .unwrap()
-        .with_first_reservation(with_reader(Vec::new()), Duration::from_secs(20))
+    if uncertain {
+        let fenced = snapshot.lock().unwrap().clone();
+        assert!(!fenced.lease_token_digest.is_empty());
+        let reader = configure(
+            service(&binding, &snapshot, &slot, &marker, &role, false).unwrap(),
+            Vec::new(),
+        );
+        let (provider, server) = native_service(&binding, reader);
+        assert!(provider.acquire(&binding).is_err());
+        server.join().unwrap();
+        assert_eq!(*snapshot.lock().unwrap(), fenced);
+        // An independent test backend fences the departed old writer. A
+        // production service must never clear an uncertain owner by itself.
+        Backend {
+            binding: binding.digest().unwrap(),
+            snapshot: snapshot.clone(),
+            fresh: Some(slot.clone()),
+        }
+        .release_lease(fenced.lease_generation, &fenced.lease_token_digest)
         .unwrap();
-    let (provider, server) = native_service(&binding, reader);
+        let mut persisted = slot.lock().unwrap();
+        let envelope = persisted.original_envelope.as_mut().unwrap();
+        envelope.lose_ack = false;
+        envelope.mismatch_readback = false;
+    }
+    if scenario == "envelope" {
+        let strict = service(&binding, &snapshot, &slot, &marker, &role, false)
+            .unwrap()
+            .with_recorded_first_reservation(with_reader(Vec::new()), Duration::from_secs(20))
+            .unwrap();
+        let (provider, server) = native_service(&binding, strict);
+        let mut lease = provider.acquire(&binding).unwrap();
+        assert!(
+            lease
+                .reserve_first_private_retention(&role, &marker, &activation, &original)
+                .unwrap_err()
+                .to_string()
+                .contains("original operation record absent")
+        );
+        assert_eq!(slot.lock().unwrap().reserved_response_bytes, original_spend);
+        assert_eq!(
+            slot.lock().unwrap().activation_signs.load(Ordering::SeqCst),
+            2
+        );
+        assert_eq!(
+            slot.lock()
+                .unwrap()
+                .original_envelope
+                .as_ref()
+                .unwrap()
+                .commits,
+            1
+        );
+        drop(lease);
+        server.join().unwrap();
+    }
+    let reader = configure(
+        service(&binding, &snapshot, &slot, &marker, &role, false).unwrap(),
+        Vec::new(),
+    );
+    let retry_capture = Arc::default();
+    let (provider, server) =
+        native_service_recorded(&binding, reader, false, Arc::clone(&retry_capture));
     let mut lease = provider.acquire(&binding).unwrap();
     assert_eq!(
         lease
@@ -214,12 +481,83 @@ fn native_first_reserve_prices_exact_original_inventory_and_cold_retries() {
     let checkpoint = lease.checkpoint().unwrap();
     assert_eq!(checkpoint.state, state);
     assert!(checkpoint.lease_generation > receipt_generation);
-    assert_eq!(reads.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        if scenario == "recorded" { 5 } else { 3 }
+    );
     assert_eq!(
         slot.lock().unwrap().activation_signs.load(Ordering::SeqCst),
         2
     );
     assert!(slot.lock().unwrap().reserved_response_bytes > original_spend);
+    if let Some(expected) = &persisted_operations {
+        let persisted = slot.lock().unwrap();
+        let envelope = persisted.original_envelope.as_ref().unwrap();
+        assert_eq!(&envelope.operations, expected);
+        assert_eq!(envelope.commits, 2);
+    }
+    if scenario == "recorded" {
+        let id = format!("first-reserve:{}", reserved.receipt.body.operation_digest);
+        let original_record = persisted_operations.as_ref().unwrap()[&id].clone();
+        let retry_raw = last_reserve_frame(&retry_capture);
+        assert_ne!(retry_raw, original_record.signed_request_bytes);
+        let retry_request: SignedBftSignerRequestV3 = decode_bounded(&retry_raw, 2048).unwrap();
+        let old_request: SignedBftSignerRequestV3 =
+            decode_bounded(&original_record.signed_request_bytes, 2048).unwrap();
+        assert_ne!(retry_request.body.challenge, old_request.body.challenge);
+        assert_ne!(retry_request.body.lease, old_request.body.lease);
+        let spend = slot.lock().unwrap().reserved_response_bytes;
+        for tamper in ["missing", "signature", "lease", "receipt", "new-session"] {
+            let mut bad = original_record.clone();
+            match tamper {
+                "signature" => {
+                    let mut request = old_request.clone();
+                    request.requester_signature_hex = "00".repeat(64);
+                    bad.signed_request_bytes = encode_bounded(&request, 2048).unwrap();
+                }
+                "lease" => bad.original_lease_token_digest = hash(99),
+                "receipt" => bad.signed_receipt_bytes[0] ^= 1,
+                "new-session" => bad.signed_request_bytes = retry_raw.clone(),
+                _ => {}
+            }
+            bad.original_request_digest =
+                BftRetainedOriginalOperationV1::request_digest_from_original_bytes(
+                    &bad.signed_request_bytes,
+                );
+            bad.original_receipt_digest =
+                BftRetainedOriginalOperationV1::receipt_digest_from_original_bytes(
+                    &bad.signed_receipt_bytes,
+                );
+            {
+                let mut persisted = slot.lock().unwrap();
+                let operations = &mut persisted.original_envelope.as_mut().unwrap().operations;
+                operations.insert(id.clone(), bad);
+                if tamper == "missing" {
+                    operations.remove(&id);
+                }
+            }
+            let error = lease
+                .reserve_first_private_retention(&role, &marker, &activation, &original)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(match tamper {
+                    "missing" => "original operation record absent",
+                    "signature" => "signature verification failed",
+                    _ => "original authenticated record differs",
+                }),
+                "{tamper}: {error}"
+            );
+            let mut persisted = slot.lock().unwrap();
+            assert_eq!(persisted.reserved_response_bytes, spend);
+            assert_eq!(persisted.activation_signs.load(Ordering::SeqCst), 2);
+            let envelope = persisted.original_envelope.as_mut().unwrap();
+            assert_eq!(envelope.commits, 2);
+            envelope
+                .operations
+                .insert(id.clone(), original_record.clone());
+        }
+    }
     assert!(
         lease
             .reserve_first_private_retention(&role, &marker, &activation, &repriced)

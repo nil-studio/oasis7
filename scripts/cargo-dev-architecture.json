@@ -181,7 +181,7 @@
     },
     {
       "key": "world-state",
-      "upstream": "doc/world-runtime/design.md#\u72b6\u6001\u4e0e\u670d\u52a1\u6295\u5f71\u7684\u7f16\u8bd1\u8fb9\u754c",
+      "upstream": "doc/world-runtime/design.md#状态与服务投影的编译边界",
       "roots": [
         {
           "name": "oasis7_world_state",
@@ -311,7 +311,7 @@
     },
     {
       "key": "world-projection",
-      "upstream": "doc/world-runtime/design.md#\u72b6\u6001\u4e0e\u670d\u52a1\u6295\u5f71\u7684\u7f16\u8bd1\u8fb9\u754c",
+      "upstream": "doc/world-runtime/design.md#状态与服务投影的编译边界",
       "roots": [
         {
           "name": "oasis7_world_projection",
@@ -404,7 +404,7 @@
     },
     {
       "key": "runtime",
-      "upstream": "doc/world-runtime/design.md#\u5b9e\u73b0\u8fb9\u754c\u4e0e\u5171\u4eab\u503c\u6240\u6709\u6743",
+      "upstream": "doc/world-runtime/design.md#实现边界与共享值所有权",
       "roots": [
         {
           "name": "oasis7_runtime",
@@ -526,7 +526,7 @@
     },
     {
       "key": "launcher-backend",
-      "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
+      "upstream": "doc/world-runtime/design.md#1-设计定位",
       "roots": [
         {
           "name": "oasis7_launcher_backend",
@@ -601,7 +601,7 @@
     },
     {
       "key": "protocol-tools",
-      "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
+      "upstream": "doc/world-runtime/design.md#1-设计定位",
       "roots": [
         {
           "name": "oasis7_protocol_tools",
@@ -684,7 +684,7 @@
             "test_tier_required"
           ],
           "purpose": "signed Runtime interoperability",
-          "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
+          "upstream": "doc/world-runtime/design.md#1-设计定位",
           "kind": "dev",
           "target": "host",
           "profiles": [
@@ -707,7 +707,7 @@
           "default_features": false,
           "features": [],
           "purpose": "native consensus payload signature interoperability",
-          "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
+          "upstream": "doc/world-runtime/design.md#1-设计定位",
           "kind": "dev",
           "target": "host",
           "profiles": [
@@ -811,7 +811,7 @@
     },
     {
       "key": "custody-core",
-      "upstream": "crates/oasis7_custody_worker/README.md#cargo-dependency-boundaries",
+      "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology",
       "roots": [
         {
           "name": "oasis7_custody_core",
@@ -872,9 +872,6 @@
           "name": "tokio"
         },
         {
-          "name": "oasis7_custody_worker"
-        },
-        {
           "name": "worker"
         },
         {
@@ -932,150 +929,6 @@
         "host",
         "unit-tests",
         "wasm"
-      ],
-      "test_kinds": [
-        "normal",
-        "build"
-      ]
-    },
-    {
-      "key": "custody-worker",
-      "upstream": "crates/oasis7_custody_worker/README.md#cargo-dependency-boundaries",
-      "roots": [
-        {
-          "name": "oasis7_custody_worker",
-          "source": null,
-          "version": "0.1.0"
-        }
-      ],
-      "forbidden": [
-        {
-          "name": "oasis7_runtime_host"
-        },
-        {
-          "name": "oasis7"
-        },
-        {
-          "name": "oasis7_runtime"
-        },
-        {
-          "name": "oasis7_world_state"
-        },
-        {
-          "name": "oasis7_world_projection"
-        },
-        {
-          "name": "oasis7_world_service"
-        },
-        {
-          "name": "oasis7_simulator"
-        },
-        {
-          "name": "oasis7_viewer"
-        },
-        {
-          "name": "oasis7_viewer_runtime"
-        },
-        {
-          "name": "oasis7_launcher_backend"
-        },
-        {
-          "name": "oasis7_provider_tools"
-        },
-        {
-          "name": "oasis7_provider_local_bridge"
-        },
-        {
-          "name": "oasis7_model_provider"
-        },
-        {
-          "name": "wasmtime"
-        },
-        {
-          "name": "libp2p"
-        },
-        {
-          "name": "reqwest"
-        },
-        {
-          "name": "oasis7_client_storage"
-        },
-        {
-          "name": "oasis7_local_signer"
-        }
-      ],
-      "kinds": [
-        "normal",
-        "build"
-      ],
-      "declaration_kinds": [
-        "normal",
-        "build"
-      ],
-      "profiles": [
-        {
-          "id": "host",
-          "target": "host",
-          "default_features": false,
-          "features": [],
-          "mode": "production"
-        },
-        {
-          "id": "unit-tests",
-          "target": "host",
-          "default_features": false,
-          "features": [],
-          "mode": "test"
-        },
-        {
-          "id": "wasm-identity",
-          "target": "wasm32-unknown-unknown",
-          "default_features": false,
-          "features": [
-            "identity"
-          ],
-          "mode": "production"
-        },
-        {
-          "id": "wasm-owner",
-          "target": "wasm32-unknown-unknown",
-          "default_features": false,
-          "features": [
-            "owner"
-          ],
-          "mode": "production"
-        },
-        {
-          "id": "wasm-executor",
-          "target": "wasm32-unknown-unknown",
-          "default_features": false,
-          "features": [
-            "executor"
-          ],
-          "mode": "production"
-        },
-        {
-          "id": "wasm-recovery-fence",
-          "target": "wasm32-unknown-unknown",
-          "default_features": false,
-          "features": [
-            "recovery-fence"
-          ],
-          "mode": "production"
-        }
-      ],
-      "allows": [
-        "Custody Core and wasm-only Cloudflare Worker adapter",
-        "worker 0.7.5 SDK featureless Tokio synchronization dependency (default-features=false, features=[]); native clients and storage remain forbidden"
-      ],
-      "exceptions": [],
-      "required_profiles": [
-        "host",
-        "unit-tests",
-        "wasm-identity",
-        "wasm-owner",
-        "wasm-executor",
-        "wasm-recovery-fence"
       ],
       "test_kinds": [
         "normal",
@@ -1226,9 +1079,6 @@
           "name": "oasis7_custody_core"
         },
         {
-          "name": "oasis7_custody_worker"
-        },
-        {
           "name": "oasis7_dev_test_worker"
         },
         {
@@ -1247,9 +1097,6 @@
           "name": "oasis7_launcher_backend"
         },
         {
-          "name": "oasis7_letai_credit_adapter"
-        },
-        {
           "name": "oasis7_local_signer"
         },
         {
@@ -1257,9 +1104,6 @@
         },
         {
           "name": "oasis7_net"
-        },
-        {
-          "name": "oasis7_newapi_bridge_service"
         },
         {
           "name": "oasis7_node"
@@ -1424,9 +1268,6 @@
           "name": "oasis7_custody_core"
         },
         {
-          "name": "oasis7_custody_worker"
-        },
-        {
           "name": "oasis7_dev_test_worker"
         },
         {
@@ -1445,9 +1286,6 @@
           "name": "oasis7_launcher_backend"
         },
         {
-          "name": "oasis7_letai_credit_adapter"
-        },
-        {
           "name": "oasis7_local_signer"
         },
         {
@@ -1455,9 +1293,6 @@
         },
         {
           "name": "oasis7_net"
-        },
-        {
-          "name": "oasis7_newapi_bridge_service"
         },
         {
           "name": "oasis7_node"
@@ -1628,9 +1463,6 @@
           "name": "oasis7_custody_core"
         },
         {
-          "name": "oasis7_custody_worker"
-        },
-        {
           "name": "oasis7_dev_test_worker"
         },
         {
@@ -1652,9 +1484,6 @@
           "name": "oasis7_launcher_backend"
         },
         {
-          "name": "oasis7_letai_credit_adapter"
-        },
-        {
           "name": "oasis7_local_signer"
         },
         {
@@ -1662,9 +1491,6 @@
         },
         {
           "name": "oasis7_net"
-        },
-        {
-          "name": "oasis7_newapi_bridge_service"
         },
         {
           "name": "oasis7_node"
@@ -2045,33 +1871,251 @@
           ]
         }
       ],
-      "required_profiles": ["default", "lightweight", "test_tier_required", "test_tier_full"],
-      "test_kinds": ["normal", "build", "dev"]
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "test_tier_required",
+        "test_tier_full"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ]
     },
     {
       "key": "viewer-codec-umbrella-retirement",
       "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology",
-      "roots": [{ "name": "oasis7_viewer_codec", "source": null, "version": "0.1.0" }],
-      "forbidden": [{ "name": "oasis7" }],
-      "kinds": ["normal", "build"],
-      "declaration_kinds": ["normal", "build", "dev"],
-      "profiles": [
-        { "id": "default", "target": "host", "default_features": true, "features": [], "mode": "production" },
-        { "id": "lightweight", "target": "host", "default_features": false, "features": [], "mode": "production" },
-        { "id": "wasm-default", "target": "wasm32-unknown-unknown", "default_features": true, "features": [], "mode": "production" },
-        { "id": "wasm-lightweight", "target": "wasm32-unknown-unknown", "default_features": false, "features": [], "mode": "production" },
-        { "id": "test_tier_required", "target": "host", "default_features": true, "features": ["test_tier_required"], "mode": "test" }
+      "roots": [
+        {
+          "name": "oasis7_viewer_codec",
+          "source": null,
+          "version": "0.1.0"
+        }
       ],
-      "allows": ["Viewer codec calls native L2/L4 owners on both host and wasm32 without oasis7 umbrella"],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-default",
+          "target": "wasm32-unknown-unknown",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-lightweight",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "Viewer codec calls native L2/L4 owners on both host and wasm32 without oasis7 umbrella"
+      ],
       "exceptions": [],
-      "required_profiles": ["default", "lightweight", "wasm-default", "wasm-lightweight", "test_tier_required"],
-      "test_kinds": ["normal", "build", "dev"]
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "wasm-default",
+        "wasm-lightweight",
+        "test_tier_required"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ]
     },
-    { "key": "provider-tools-umbrella-retirement", "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology", "roots": [{ "name": "oasis7_provider_tools", "source": null, "version": "0.1.0" }], "forbidden": [{ "name": "oasis7" }], "kinds": ["normal", "build"], "declaration_kinds": ["normal", "build", "dev"],
-      "profiles": [{ "id": "default", "target": "host", "default_features": true, "features": [], "mode": "production" }, { "id": "lightweight", "target": "host", "default_features": false, "features": [], "mode": "production" }, { "id": "test_tier_required", "target": "host", "default_features": true, "features": ["test_tier_required"], "mode": "test" }, { "id": "test_tier_full", "target": "host", "default_features": true, "features": ["test_tier_full"], "mode": "test" }],
-      "allows": ["Provider tools call native L0-L3 owners without oasis7 umbrella"], "exceptions": [], "required_profiles": ["default", "lightweight", "test_tier_required", "test_tier_full"], "test_kinds": ["normal", "build", "dev"] },
-    { "key": "viewer-runtime-umbrella-retirement", "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology", "roots": [{ "name": "oasis7_viewer_runtime", "source": null, "version": "0.1.0" }], "forbidden": [{ "name": "oasis7" }], "kinds": ["normal", "build"], "declaration_kinds": ["normal", "build", "dev"],
-      "profiles": [{ "id": "default", "target": "host", "default_features": true, "features": [], "mode": "production" }, { "id": "lightweight", "target": "host", "default_features": false, "features": [], "mode": "production" }, { "id": "wasm-default", "target": "wasm32-unknown-unknown", "default_features": true, "features": [], "mode": "production" }, { "id": "wasm-lightweight", "target": "wasm32-unknown-unknown", "default_features": false, "features": [], "mode": "production" }, { "id": "test_tier_required", "target": "host", "default_features": true, "features": ["test_tier_required"], "mode": "test" }],
-      "allows": ["Viewer runtime calls native L1/L2/L4 owners on both host and wasm32 without oasis7 umbrella"], "exceptions": [], "required_profiles": ["default", "lightweight", "wasm-default", "wasm-lightweight", "test_tier_required"], "test_kinds": ["normal", "build", "dev"] }
+    {
+      "key": "provider-tools-umbrella-retirement",
+      "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology",
+      "roots": [
+        {
+          "name": "oasis7_provider_tools",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test_tier_full",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_full"
+          ],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "Provider tools call native L0-L3 owners without oasis7 umbrella"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "test_tier_required",
+        "test_tier_full"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ]
+    },
+    {
+      "key": "viewer-runtime-umbrella-retirement",
+      "upstream": "doc/engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology",
+      "roots": [
+        {
+          "name": "oasis7_viewer_runtime",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-default",
+          "target": "wasm32-unknown-unknown",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-lightweight",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "Viewer runtime calls native L1/L2/L4 owners on both host and wasm32 without oasis7 umbrella"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "wasm-default",
+        "wasm-lightweight",
+        "test_tier_required"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ]
+    }
   ]
 }

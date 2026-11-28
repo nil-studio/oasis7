@@ -61,6 +61,8 @@ mod client;
 mod package;
 #[path = "server.rs"]
 mod server;
+#[path = "staging.rs"]
+mod staging;
 #[path = "wire.rs"]
 mod wire;
 

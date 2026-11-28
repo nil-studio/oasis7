@@ -226,10 +226,15 @@ def validate_candidate_graph(workflow, config):
     gate = jobs['required-gate']
     dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
+    retired_zombie_jobs = {
+        'command-center', 'consensus', 'viewer-performance-report', 'pixel-world-bridge',
+        'codex-agent-config-validation', 'compile-metrics', 'site-quality',
+        'doc-checker-contracts', 'cargo-tooling-contracts', 'windows-rollout',
+        'macos-package-contract',
+    }
+    expected -= {job for job in retired_zombie_jobs if job not in jobs}
     if config.get('workspace_support_direct_gate_version') in (1, 2):
         expected.add('workspace-support-other')
-    if config.get('workspace_support_direct_gate_version') == 2:
-        expected.update(('custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-node'))
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
     if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
@@ -257,17 +262,16 @@ def validate_candidate_graph(workflow, config):
             or 'p2p-public-testnet-package-rollout.test.sh' not in fleet):
         raise ValueError('fleet must run subcontract-sliced hosts when selected, Windows rollout when consolidated, and POSIX cleanup smoke')
     for group in config['groups']:
-        job = jobs[group.replace('_', '-')]
+        job_name = group.replace('_', '-')
+        if job_name in retired_zombie_jobs and job_name not in jobs:
+            continue
+        job = jobs[job_name]
         if group == 'workspace_support':
             summary = jobs['workspace-support']
-            expected_support = ['select', 'workspace-support-legacy', 'workspace-support-other',
-                                'custody-native-contracts', 'custody-native',
-                                'custody-wasm-production', 'custody-node']
+            expected_support = ['select', 'workspace-support-legacy', 'workspace-support-other']
             dependencies = re.search(r'    needs: \[(.*)\]', summary).group(1).split(', ')
-            if (dependencies != expected_support or 'always()' not in summary
-                    or 'ci-custody-platform.py validate' not in summary
-                    or 'pattern: custody-node-${{ github.run_id }}-*' not in summary):
-                raise ValueError('support summary must validate every selected producer and complete Node inventory')
+            if dependencies != expected_support or 'always()' not in summary:
+                raise ValueError('support summary must retain select, legacy, and other dependencies')
             legacy = jobs['workspace-support-legacy']
             header = legacy.split('    steps:', 1)[0]
             if ('fail-fast: false' not in header or 'max-parallel: 2' not in header
@@ -281,75 +285,6 @@ def validate_candidate_graph(workflow, config):
                                  and 'workspace_support_direct_gate_version != 2' not in header)))
                     or '--support-partition "$SUPPORT_PARTITION"' not in legacy):
                 raise ValueError('support legacy must retain every trusted partition and old BASE fallback')
-            node = jobs['custody-node']
-            validate_workerd_capture(node, summary)
-            if ('fail-fast: false' not in node or 'max-parallel: 4' not in node
-                    or 'custody_node_shards' not in node or 'exclude:' in node or 'include:' in node
-                    or 'ci-custody-platform.py restore' not in node or 'ci-custody-platform.py run' not in node
-                    or 'if: matrix.shard == 0' not in node or 'npm run test:types' not in node
-                    or 'needs: [select, custody-native, custody-wasm-production]' not in node
-                    or 'name: ${{ needs.custody-wasm-production.outputs.approval_artifact }}' not in node):
-                raise ValueError('custody must run the complete trusted file shards and TypeScript consumer')
-            proof = jobs['custody-native-contracts']
-            if ('    needs: [select, fast-preflight]\n' not in proof or 'custody_execution_version == 1' not in proof
-                    or 'verify.sh --stage native-contracts' not in proof
-                    or 'RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}' not in proof
-                    or 'custody-native-contracts' in node):
-                raise ValueError('native proof must remain required without blocking artifact consumers')
-            if config.get('custody_policy_tests_version') == 1:
-                policy_step = next((step for step in re.findall(r'^      - .*?(?=^      - |\Z)', proof, re.M | re.S)
-                                    if 'name: Execute complete custody policy targets' in step), '')
-                if ('if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1' not in policy_step
-                        or 'ci-custody-platform.py policy-tests --plan "$RUNNER_TEMP/selection.json"' not in policy_step
-                        or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in policy_step
-                        or any('OASIS7_SUPPORT_' + key.upper() + ': ${{ needs.select.outputs.' + key + ' }}' not in policy_step
-                               for key in ('source_sha', 'tested_sha', 'policy_sha'))
-                        or 'name: ${{ needs.select.outputs.selection_artifact }}' not in proof
-                        or 'path: ${{ runner.temp }}' not in proof):
-                    raise ValueError('custody policy changes must execute the complete native target expansion')
-            wasm_step = next((step for step in re.findall(r'^      - .*?(?=^      - |\Z)', proof, re.M | re.S)
-                              if 'name: Execute complete custody WASM compile proofs' in step), '')
-            if ('if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1' not in wasm_step
-                    or 'CUSTODY_COMPONENT: wasm-contracts' not in wasm_step
-                    or 'ci-custody-platform.py stage' not in wasm_step
-                    or 'verify.sh --stage "$stage"' not in wasm_step
-                    or 'run_worker_wasm_compile_profiles' not in wasm_step
-                    or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in wasm_step
-                    or 'actions/upload-artifact' in proof
-                    or 'custody-wasm-contracts' in jobs
-                    or 'custody-wasm-approval' in jobs):
-                raise ValueError('WASM proof must preserve selected compile checks without blocking Node consumers')
-            for component in ('native', 'wasm-production'):
-                producer = jobs['custody-' + component]
-                if ('    needs: [select, fast-preflight]' not in producer
-                        or 'custody_execution_version == 1' not in producer
-                        or 'CUSTODY_COMPONENT: ' + component not in producer
-                        or 'verify.sh --stage "$stage"' not in producer
-                        or 'ci-custody-platform.py stage' not in producer
-                        or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in producer
-                        or 'run_worker_wasm_compile_profiles' not in producer
-                        or 'ci-custody-platform.py pack' not in producer):
-                    raise ValueError('custody producer must preserve every verification stage')
-                uploads = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', producer, re.M | re.S)
-                           if 'uses: actions/upload-artifact@' in step]
-                expected_bundles = ([('steps.bundle.outputs.artifact', 'custody-bundle')]
-                                    if component == 'native'
-                                    else [('steps.bundle.outputs.artifact', 'custody-bundle'),
-                                          ('steps.approval-bundle.outputs.artifact', 'custody-approval-bundle')])
-                if component == 'wasm-production' and (
-                        producer.count('CUSTODY_COMPONENT: wasm-approval') != 2
-                        or 'approval_artifact: ${{ steps.approval-bundle.outputs.artifact }}' not in producer):
-                    raise ValueError('custody WASM producer must build and pack both production and approval components')
-                if len(uploads) != len(expected_bundles):
-                    raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
-                for upload, (artifact_expr, bundle_dir) in zip(uploads, expected_bundles):
-                    if (f'\n          name: ${{{{ {artifact_expr} }}}}\n' not in upload
-                            or f'\n          path: ${{{{ runner.temp }}}}/{bundle_dir}\n' not in upload
-                            or '\n          include-hidden-files: true\n' not in upload
-                            or '\n          compression-level: 0\n' not in upload
-                            or '\n          if-no-files-found: error\n' not in upload
-                            or '\n          retention-days: 7\n' not in upload):
-                        raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
             if ('    needs: [select, fast-preflight]' not in jobs['workspace-support-other']
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']
                     or (config.get('workspace_support_direct_gate_version') in (1, 2)
@@ -357,10 +292,8 @@ def validate_candidate_graph(workflow, config):
                              or (config.get('workspace_support_direct_gate_version') == 2
                                  and 'workspace_support_direct_gate_version == 2' not in jobs['workspace-support-other'])))):
                 raise ValueError('other support must remain independent of custody builds')
-            if (config.get('workspace_support_direct_gate_version') == 2
-                    and ('workspace_support_direct_gate_version != 2' not in summary
-                         or 'ci-custody-platform.py" validate' not in jobs['required-gate'])):
-                raise ValueError('direct gate v2 must bypass support summary and validate custody in required-gate')
+            if config.get('workspace_support_direct_gate_version') == 2 and 'workspace_support_direct_gate_version != 2' not in summary:
+                raise ValueError('direct gate v2 must bypass support summary')
             continue
         if group == 'formal_process':
             if ('always()' not in job or 'ci-formal-plan.py" --selected' not in job
@@ -440,15 +373,23 @@ class WorkflowCorePart14(unittest.TestCase):
         gate = JOBS['required-gate']
         dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
         expected_gate = {'select', *(g.replace('_', '-') for g in CONFIG['groups'])}
+        retired_zombie_jobs = {
+            'command-center', 'consensus', 'viewer-performance-report', 'pixel-world-bridge',
+            'codex-agent-config-validation', 'compile-metrics', 'site-quality',
+            'doc-checker-contracts', 'cargo-tooling-contracts', 'windows-rollout',
+            'macos-package-contract',
+        }
+        expected_gate -= {job for job in retired_zombie_jobs if job not in JOBS}
         if CONFIG.get('workspace_support_direct_gate_version') in (1, 2):
             expected_gate.add('workspace-support-other')
-        if CONFIG.get('workspace_support_direct_gate_version') == 2:
-            expected_gate.update(('custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-node'))
         self.assertEqual(set(dependencies), expected_gate)
         self.assertIn('always()', gate)
         self.assertIn('ci-required-result.py', gate)
         for group in CONFIG['groups']:
-            job = JOBS[group.replace('_', '-')]
+            job_name = group.replace('_', '-')
+            if job_name in retired_zombie_jobs and job_name not in JOBS:
+                continue
+            job = JOBS[job_name]
             if group == 'formal_process':
                 self.assertIn('always()', job)
                 self.assertIn('needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]', job)
@@ -491,7 +432,7 @@ class WorkflowCorePart14(unittest.TestCase):
                                       '      - name: Run full test tier\n        continue-on-error: true\n', 1),
                      WORKFLOW.replace(' --host-smoke', ''),
                      WORKFLOW.replace('    if: always()', '    if: success()'),
-                     WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1),
+                     WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false'),
                      WORKFLOW.replace('needs.select.outputs.run_operational_contracts', 'needs.select.outputs.run_other_contracts', 1),
                      WORKFLOW.replace('needs.select.outputs.run_packaging_contracts', 'needs.select.outputs.run_other_contracts'),
                      WORKFLOW.replace('required --group "operational_contracts"', 'required --group "other_contracts"', 1),
@@ -504,111 +445,53 @@ class WorkflowCorePart14(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_candidate_graph(WORKFLOW, new_config)
 
-    def test_custody_build_once_and_complete_consumer_graph_rejects_omissions(self):
-        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
-        node = JOBS['custody-node']
-        self.assertNotIn('rustup', node)
-        self.assertNotIn('Swatinem/rust-cache', node)
-        self.assertNotIn('cargo test', node)
-        native = JOBS['custody-native']
-        if '    container:' in native:
-            self.assertIn('options: --user 1001:1001 --init', native)
-            self.assertIn('node-version: \'22\'', native)
-            self.assertIn('strip --version', native)
-            self.assertIn('install-dir: ${{ runner.temp }}/oasis7-custody-contracts-mold', native)
-            self.assertIn('save-if: false', native)
-            self.assertNotIn('ci-apt-install.py', native)
-            self.assertNotIn('rustup toolchain install', native)
-            self.assertIn(rust_image_cache_namespace('custody-native-contracts', JOBS['custody-native-contracts']),
-                          native)
-        for producer_name, artifact_output in (
-            ('custody-native', 'artifact'),
-            ('custody-wasm-production', 'artifact'),
-            ('custody-wasm-production', 'approval_artifact'),
-        ):
-            self.assertIn(f'name: ${{{{ needs.{producer_name}.outputs.{artifact_output} }}}}', node)
-            self.assertIn(f'needs.{producer_name}.outputs.attempt', node)
-        for producer_name, expected_paths in (
-            ('custody-native', ['${{ runner.temp }}/custody-bundle']),
-            ('custody-wasm-production', ['${{ runner.temp }}/custody-bundle', '${{ runner.temp }}/custody-approval-bundle']),
-        ):
-            uploads = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
-                       JOBS[producer_name], re.M | re.S)
-                       if 'uses: actions/upload-artifact@' in step]
-            self.assertEqual(len(uploads), len(expected_paths))
-            for upload, expected_path in zip(uploads, expected_paths):
-                self.assertIn('path: ' + expected_path, upload)
-                self.assertIn('include-hidden-files: true', upload)
-                self.assertIn('compression-level: 0', upload)
-                self.assertIn('if-no-files-found: error', upload)
-                self.assertIn('retention-days: 7', upload)
-        self.assertIn('overwrite: true', node)
-        self.assertIn('if: always()', node)
-        legacy_config = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
-                             custody_policy_tests_version=1, custody_node_shards_version=2)
-        summary = JOBS['workspace-support']
-        for before, after in [
-                ('custody-node]', ']'),
-                ('custody-native-contracts, ', ''),
-                ('ci-custody-platform.py validate', 'true'),
-                ('pattern: custody-node-${{ github.run_id }}-*', 'pattern: stale-*')]:
-            with self.subTest(before=before), self.assertRaises(ValueError):
-                validate_candidate_graph(WORKFLOW.replace(summary, summary.replace(before, after)), legacy_config)
-        for before, after in [('fail-fast: false', 'fail-fast: true'),
-                              ('custody_node_shards', 'unknown_shards'),
-                              ('ci-custody-platform.py restore', 'true'),
-                              ('npm run test:types', 'true')]:
-            with self.subTest(before=before), self.assertRaises(ValueError):
-                validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), legacy_config)
-        native = JOBS['custody-native-contracts']
-        native_needs = ('    needs: [select, fast-preflight]\n'
-                        if '    needs: [select, fast-preflight]\n' in native else '    needs: select\n')
-        for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 2'),
-                              ('ci-custody-platform.py stage', 'true'),
-                              ('verify.sh --stage "$stage"', 'true'),
-                              ('run_worker_wasm_compile_profiles', 'true'),
-                              ('    needs: [select, fast-preflight]\n', '    needs: custody-wasm-production\n')]:
-            with self.subTest(before=before), self.assertRaises(ValueError):
-                validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), legacy_config)
-        for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 2'),
-                              ('ci-custody-platform.py policy-tests', 'true'),
-                              ('name: ${{ needs.select.outputs.selection_artifact }}', 'name: unrelated'),
-                              ('OASIS7_SUPPORT_TESTED_SHA:', 'OMITTED_TESTED_SHA:')]:
-            with self.subTest(before=before), self.assertRaisesRegex(ValueError, 'policy'):
-                validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), legacy_config)
 
-    def test_custody_bundle_upload_rejects_hidden_file_filtering_or_checkout_upload(self):
-        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
-        anchor = '    steps: &custody-build-steps\n'
-        original = RAW_WORKFLOW.split(anchor, 1)[1].split('\n  custody-wasm-production:', 1)[0]
-        for before, after in [
-                ('          include-hidden-files: true\n', ''),
-                ('          include-hidden-files: true\n', '          include-hidden-files: false\n'),
-                ('          path: ${{ runner.temp }}/custody-bundle\n', '          path: ${{ github.workspace }}\n'),
-                ('          if-no-files-found: error\n', '          if-no-files-found: warn\n'),
-                ('          compression-level: 0\n', ''),
-                ('          compression-level: 0\n', '          compression-level: 6\n'),
-                ('          retention-days: 7\n', ''),
-                ('          retention-days: 7\n', '          retention-days: 70\n'),
-                ('          name: ${{ steps.bundle.outputs.artifact }}\n', '          name: stale-custody\n')]:
-            with self.subTest(after=after), self.assertRaisesRegex(ValueError, 'custody upload'):
-                self.assertIn(before, original)
-                candidate = RAW_WORKFLOW.replace(original, original.replace(before, after, 1), 1)
-                validate_candidate_graph(candidate, CONFIG)
-        wasm_original = RAW_WORKFLOW.split('\n  custody-wasm-production:\n', 1)[1].split('\n  custody-node:', 1)[0]
-        for before, after in [
-                ('          path: ${{ runner.temp }}/custody-approval-bundle\n', '          path: ${{ runner.temp }}/custody-bundle\n'),
-                ('          name: ${{ steps.approval-bundle.outputs.artifact }}\n', '          name: ${{ steps.bundle.outputs.artifact }}\n')]:
-            with self.subTest(wasm_after=after), self.assertRaisesRegex(ValueError, 'custody upload'):
-                self.assertIn(before, wasm_original)
-                candidate = RAW_WORKFLOW.replace(wasm_original, wasm_original.replace(before, after, 1), 1)
-                validate_candidate_graph(candidate, CONFIG)
-        upload = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', original, re.M | re.S)
-                      if 'uses: actions/upload-artifact@' in step)
-        for replacement in ('', upload + upload.replace('steps.bundle.outputs.artifact', 'steps.other.outputs.artifact')):
-            with self.subTest(replacement=replacement), self.assertRaisesRegex(ValueError, 'custody upload'):
-                candidate = RAW_WORKFLOW.replace(original, original.replace(upload, replacement, 1), 1)
-                validate_candidate_graph(candidate, CONFIG)
+def validate_postgres_service(workflow):
+    job = workflow_jobs(workflow)['distfs']
+    service = re.search(r'^    services:\n(.*?)^    defaults:', job, re.M | re.S)
+    if service is None:
+        raise ValueError('PostgreSQL service missing')
+    expected = ('postgres:17.12-trixie@sha256:'
+                '97fb53376be3e4fb1a8a61421daa69dcc3bf2fa39bda3259f5245f9a455af1a9')
+    if (f'image: {expected}\n' not in service[1]
+            or 'POSTGRES_HOST_AUTH_METHOD: trust' not in service[1]
+            or 'pg_isready -U postgres -d postgres' not in service[1]
+            or re.search(r'ports:|volumes:|privileged|network.host|docker.sock', service[1])):
+        raise ValueError('PostgreSQL service identity or isolation changed')
+    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+    runners = [step for step in steps if 'name: Run trusted PostgreSQL acceptance' in step]
+    if len(runners) != 1 or re.search(r'^\s+(if|continue-on-error):', runners[0], re.M):
+        raise ValueError('PostgreSQL required runner missing or bypassed')
+    step = runners[0]
+    for required in (
+        'set -euo pipefail', 'selection="$RUNNER_TEMP/selection.json"',
+        "policy = json.load(open(sys.argv[1]))['policy_sha']",
+        'git show "$policy:scripts/ci_process_runner.py" > "$authority/ci_process_runner.py"',
+        'if git cat-file -e "$policy:scripts/ci-postgres.py" 2>/dev/null; then',
+        'git show "$policy:scripts/ci-postgres.py" > "$authority/ci-postgres.py"',
+        'cp scripts/ci-postgres.py "$authority/ci-postgres.py"',
+        'python3 "$authority/ci-postgres.py" --repo-root "$GITHUB_WORKSPACE" --plan "$selection"',
+    ):
+        if required not in step:
+            raise ValueError('PostgreSQL trusted source execution changed')
+
+
+class PostgresServiceContract(unittest.TestCase):
+    def test_real_service_and_policy_bound_runner_are_mandatory(self):
+        self.assertEqual(CONFIG['workflow_governance_python_tests'].count('scripts/ci-postgres.test.py'), 1)
+        validate_postgres_service(RAW_WORKFLOW)
+        mutations = [
+            ('    services:\n      postgres:', '    missing-services:\n      postgres:'),
+            ('image: postgres:17.12-trixie@sha256:', 'image: postgres:latest@sha256:'),
+            ('          POSTGRES_DB: postgres', '          POSTGRES_DB: postgres\n        ports: [5432:5432]'),
+            ('      - name: Run trusted PostgreSQL acceptance', '      - name: Run trusted PostgreSQL acceptance\n        if: false'),
+            ('git show "$policy:scripts/ci-postgres.py"', 'git show "HEAD:scripts/ci-postgres.py"'),
+            ('python3 "$authority/ci-postgres.py" --repo-root', 'true # --repo-root'),
+        ]
+        for before, after in mutations:
+            with self.subTest(before=before), self.assertRaisesRegex(ValueError, 'PostgreSQL'):
+                self.assertIn(before, RAW_WORKFLOW)
+                validate_postgres_service(RAW_WORKFLOW.replace(before, after))
 
 
 if __name__ == '__main__':

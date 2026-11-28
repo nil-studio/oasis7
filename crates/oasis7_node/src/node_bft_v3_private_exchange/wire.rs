@@ -1,6 +1,7 @@
 use super::*;
 use ed25519_dalek::{Signature, VerifyingKey};
 use oasis7_consensus::tendermint_v3::BftPeerContextV3;
+use std::io::{self, Read};
 pub(super) const PROTOCOL: &str = "/oasis7/bft/private-candidate/2.0.0";
 pub(super) const DOMAIN: &str = "oasis7.bft.private-candidate.exchange.v2";
 pub(super) const MAX_FRAME: usize = 64 * 1024;
@@ -226,22 +227,29 @@ pub(super) fn verify_signature(key: &str, payload: &[u8], signature: &str) -> Re
 // No attacker-declared collection or string length reaches serde allocation
 // before these frame/package structural and remaining-byte checks.
 pub(super) fn scan(bytes: &[u8], package: bool) -> Result<(), String> {
-    fn item(b: &[u8], p: &mut usize, d: usize, package: bool) -> Result<(), String> {
+    scan_reader(io::Cursor::new(bytes), bytes.len(), package)
+}
+pub(super) fn scan_reader<R: Read>(reader: R, length: usize, package: bool) -> Result<(), String> {
+    fn item<R: Read>(b: &mut io::Take<R>, d: usize, package: bool) -> Result<(), String> {
         if d > 48 {
             return Err("private CBOR nesting".into());
         }
-        let h = *b.get(*p).ok_or("private CBOR truncated")?;
-        *p += 1;
+        let mut header = [0];
+        b.read_exact(&mut header)
+            .map_err(|_| "private CBOR truncated")?;
+        let h = header[0];
         let major = h >> 5;
         let low = h & 31;
         let n = match low {
             0..=23 => u64::from(low),
             24..=27 => {
                 let width = 1usize << (low - 24);
-                let end = p.checked_add(width).ok_or("private CBOR overflow")?;
-                let bytes = b.get(*p..end).ok_or("private CBOR length")?;
-                *p = end;
-                bytes.iter().fold(0u64, |v, x| (v << 8) | u64::from(*x))
+                let mut bytes = [0; 8];
+                b.read_exact(&mut bytes[..width])
+                    .map_err(|_| "private CBOR length")?;
+                bytes[..width]
+                    .iter()
+                    .fold(0u64, |v, x| (v << 8) | u64::from(*x))
             }
             _ => return Err("private CBOR indefinite".into()),
         };
@@ -256,10 +264,14 @@ pub(super) fn scan(bytes: &[u8], package: bool) -> Result<(), String> {
                 if n > max {
                     return Err("private CBOR string capacity".into());
                 }
-                *p = p
-                    .checked_add(n as usize)
-                    .filter(|v| *v <= b.len())
-                    .ok_or("private CBOR string length")?;
+                // Actually read opaque bytes: seeking could hide truncation.
+                if n > b.limit()
+                    || io::copy(&mut b.by_ref().take(n), &mut io::sink())
+                        .map_err(|_| "private CBOR string read")?
+                        != n
+                {
+                    return Err("private CBOR string length".into());
+                }
             }
             4 | 5 => {
                 let limit = if major == 5 {
@@ -273,11 +285,11 @@ pub(super) fn scan(bytes: &[u8], package: bool) -> Result<(), String> {
                     return Err("private CBOR collection capacity".into());
                 }
                 let count = if major == 5 { n * 2 } else { n };
-                if count > (b.len() - *p) as u64 {
+                if count > b.limit() {
                     return Err("private CBOR declared collection".into());
                 }
                 for _ in 0..count {
-                    item(b, p, d + 1, package)?;
+                    item(b, d + 1, package)?;
                 }
             }
             7 if matches!(low, 20..=22) => {}
@@ -285,9 +297,15 @@ pub(super) fn scan(bytes: &[u8], package: bool) -> Result<(), String> {
         }
         Ok(())
     }
-    let mut p = 0;
-    item(bytes, &mut p, 0, package)?;
-    if p != bytes.len() {
+    let mut bounded = reader.take(length as u64);
+    item(&mut bounded, 0, package)?;
+    if bounded.limit() != 0
+        || bounded
+            .into_inner()
+            .read(&mut [0])
+            .map_err(|_| "private CBOR EOF")?
+            != 0
+    {
         return Err("private CBOR trailing".into());
     }
     Ok(())
@@ -295,4 +313,4 @@ pub(super) fn scan(bytes: &[u8], package: bool) -> Result<(), String> {
 
 #[cfg(test)]
 #[path = "wire_tests.rs"]
-mod tests;
+pub(super) mod tests;

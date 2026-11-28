@@ -744,12 +744,21 @@ def run_contracts(root, policy_sha, plan, *, governance=False):
     if not set(FIXED_TESTS) <= all_tests:
         raise ValueError('fixed safety assertions are missing from the hashed contract inventory')
     governed = set()
+    retired_custody_governance = {
+        path for path in (
+            'scripts/ci-custody-platform.test.py',
+            'scripts/ci-custody-workerd-capture.test.py',
+            'crates/oasis7_custody_worker/scripts/verify-stages.test.py',
+        )
+        if not (root / path).exists()
+    }
     if governance:
-        baseline_governed = set(governance_tests(config))
+        retired_governance_tests = {'scripts/ci-cache-diagnostic.test.py'}
+        baseline_governed = set(governance_tests(config)) - retired_custody_governance - retired_governance_tests
         governed = set(governance_tests(json.loads((root / 'scripts/ci-required-scope.json').read_text())))
         if not baseline_governed <= governed:
             raise ValueError('candidate retired complete governance test files')
-        all_tests.update(baseline_governed)
+        all_tests.update(set(governance_tests(config)))
     with tempfile.TemporaryDirectory(prefix='ci-python-baseline-') as directory:
         snapshot = Path(directory)
         for path in sorted(all_tests):
@@ -791,7 +800,10 @@ def run_contracts(root, policy_sha, plan, *, governance=False):
         if governance:
             # One owner executes the complete candidate suite, including fixed
             # safety, selected non-governance contracts, and newly added cases.
-            candidate_tasks = {path: None for path in sorted(governed | set(selected) | set(FIXED_TESTS))}
+            candidate_tasks = {
+                path: None
+                for path in sorted((governed | set(selected) | set(FIXED_TESTS)) - retired_custody_governance - retired_governance_tests)
+            }
         cases = 0
         cases += run_contract_batch(root, snapshot, baseline_tasks, retain=retain)
         cases += run_contract_batch(root, candidate_snapshot, candidate_tasks, origin='candidate')

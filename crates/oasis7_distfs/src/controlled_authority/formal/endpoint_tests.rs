@@ -1129,6 +1129,27 @@ pub(super) fn with_store_for_bounded_index_fixture<T>(
     run(&mut endpoint.store, &fixture.pdir)
 }
 
+// Real original-protocol commits: minimum 1 needs the skip path 4 -> 2 -> 1.
+// This fixture does not mint an accepted IWS GEN or a serving qualification.
+#[cfg(unix)]
+pub(super) fn with_minimum_history_fixture<T>(
+    run: impl FnOnce(&mut FileFormalEndpoint, &FormalHeadRefV1) -> T,
+) -> T {
+    let fixture = Fixture::new();
+    let mut coordinator = fixture.coordinator();
+    let initial = coordinator.submit(fixture.initial.clone()).unwrap();
+    let mut parent = verify_formal_qualified(&initial, &fixture.authority, None, None).unwrap();
+    let minimum = parent.head();
+    for request in 201..204 {
+        let (input, material) = fixture.frozen(&parent, request);
+        let token = coordinator.freeze(input, material).unwrap();
+        let proof = coordinator.submit(fixture.candidate(&token)).unwrap();
+        parent = verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap();
+    }
+    assert_eq!(parent.head().position, 4);
+    run(coordinator.endpoints_mut().0, &minimum)
+}
+
 #[cfg(unix)]
 #[path = "endpoint_bounded_request_fixture.rs"]
 mod bounded_request_fixture;

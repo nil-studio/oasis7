@@ -441,8 +441,11 @@ fn handle_command_request_to_peer_accepts_active_transport_peer() {
             protocol: "/aw/test/active-transport-request-to-peer/1.0.0".to_string(),
             payload: b"ping".to_vec(),
             peer: active_peer,
-            deadline: None,
-            exchange: None,
+            context: super::super::request_deadline::OutboundContext {
+                deadline: None,
+                exchange: None,
+                memory: None,
+            },
             response: sender,
         }),
         CommandStateRefs {

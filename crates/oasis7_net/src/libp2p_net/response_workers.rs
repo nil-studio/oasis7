@@ -13,8 +13,8 @@ use oasis7_proto::distributed_net::{
     FETCH_BLOB_MAX_RAW_CHUNK_BYTES, fetch_blob_legacy_json_encoded_upper_bound,
 };
 
+use super::HeldBytes;
 use crate::error::WorldError;
-use oasis7_proto::distributed_net::NetworkResponse;
 
 use super::response_budget::{
     FETCH_BLOB_PROTOCOL, FetchBlobResponseBudget, budgeted_response_bytes,
@@ -70,7 +70,7 @@ impl Drop for InFlightReservation {
 }
 
 pub(super) struct CompletedResponse {
-    pub channel: request_response::ResponseChannel<NetworkResponse>,
+    pub channel: request_response::ResponseChannel<HeldBytes>,
     pub protocol: String,
     pub peer: libp2p::PeerId,
     pub queued_at_ms: i64,
@@ -81,7 +81,7 @@ pub(super) struct CompletedResponse {
 }
 
 pub(super) struct Job {
-    channel: request_response::ResponseChannel<NetworkResponse>,
+    channel: request_response::ResponseChannel<HeldBytes>,
     protocol: String,
     peer: libp2p::PeerId,
     payload: Vec<u8>,
@@ -94,7 +94,7 @@ pub(super) struct Job {
 }
 
 pub(super) struct RejectedResponse {
-    pub channel: request_response::ResponseChannel<NetworkResponse>,
+    pub channel: request_response::ResponseChannel<HeldBytes>,
     pub protocol: String,
     pub peer: libp2p::PeerId,
     pub reply: WorldError,
@@ -148,7 +148,7 @@ impl ResponseWorkers {
     )]
     pub(super) fn schedule(
         &self,
-        channel: request_response::ResponseChannel<NetworkResponse>,
+        channel: request_response::ResponseChannel<HeldBytes>,
         protocol: String,
         peer: libp2p::PeerId,
         payload: Vec<u8>,
@@ -272,7 +272,7 @@ impl ResponseWorkers {
     )]
     pub(super) fn send_immediate(
         &self,
-        channel: request_response::ResponseChannel<NetworkResponse>,
+        channel: request_response::ResponseChannel<HeldBytes>,
         protocol: &str,
         peer: libp2p::PeerId,
         reply: Result<Vec<u8>, WorldError>,
@@ -415,10 +415,10 @@ fn response(
     reply: Result<Vec<u8>, WorldError>,
     now_ms: i64,
     _traffic_metrics: &super::SharedLibp2pTrafficMetrics,
-) -> NetworkResponse {
-    NetworkResponse {
-        payload: budgeted_response_bytes(budget, peer, protocol, reply, now_ms),
-    }
+) -> HeldBytes {
+    HeldBytes::unheld(budgeted_response_bytes(
+        budget, peer, protocol, reply, now_ms,
+    ))
 }
 
 /// The libp2p channel can synchronously reject a response when the caller
@@ -431,7 +431,7 @@ fn send_charged_response(
     reply: Result<Vec<u8>, WorldError>,
     now_ms: i64,
     traffic_metrics: &super::SharedLibp2pTrafficMetrics,
-    send: impl FnOnce(NetworkResponse) -> Result<(), NetworkResponse>,
+    send: impl FnOnce(HeldBytes) -> Result<(), HeldBytes>,
 ) -> bool {
     // Only positive successful FetchBlob bytes can mutate the ledger. The
     // bounded 256-peer clone is not needed for ordinary/control/error paths.

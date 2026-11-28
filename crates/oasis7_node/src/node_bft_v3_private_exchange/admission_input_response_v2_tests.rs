@@ -293,12 +293,19 @@ fn real_original_admission_noise_is_bound_and_charged() {
             Ok(self.0.sign(bytes).to_bytes())
         }
     }
+    struct SourceHold(Arc<AtomicUsize>);
+    impl Drop for SourceHold {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
     struct Authority {
         bound: AdmissionInputBoundContextV2,
         bytes: Vec<u8>,
         generation: Arc<AtomicU64>,
         permitted: Arc<AtomicBool>,
         reads: AtomicUsize,
+        holds: Arc<AtomicUsize>,
         charges: AtomicU64,
         deny_charge: AtomicBool,
     }
@@ -337,9 +344,10 @@ fn real_original_admission_noise_is_bound_and_charged() {
                     self.bytes[r.offset as usize..r.offset as usize + r.length as usize].to_vec()
                 })
                 .collect();
+            self.holds.fetch_add(1, Ordering::SeqCst);
             Ok(ProtectedOriginalAdmissionPartsV2 {
                 parts,
-                transport_hold: Box::new(()), // Test fixture, never production custody.
+                transport_hold: Box::new(SourceHold(self.holds.clone())), // Drop probe, not custody.
             })
         }
         fn reserve_encoded_response_and_readback(
@@ -347,6 +355,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
             _: &VerifiedAdmissionBatchSubjectV2,
             outer: u64,
         ) -> Result<(), String> {
+            assert!(self.holds.load(Ordering::SeqCst) > 0);
             if outer == 0 || self.deny_charge.load(Ordering::SeqCst) {
                 return Err("protected original charge/readback refused".into());
             }
@@ -453,6 +462,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
         generation: Arc::new(AtomicU64::new(7)),
         permitted: Arc::new(AtomicBool::new(true)),
         reads: AtomicUsize::new(0),
+        holds: Arc::new(AtomicUsize::new(0)),
         charges: AtomicU64::new(0),
         deny_charge: AtomicBool::new(false),
     });
@@ -489,6 +499,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
     );
     assert_eq!(authority.reads.load(Ordering::SeqCst), 1);
     assert!(authority.charges.load(Ordering::SeqCst) > answer.len() as u64);
+    wait_connected(|| authority.holds.load(Ordering::SeqCst) == 0);
 
     let previous_charge = authority.charges.load(Ordering::SeqCst);
     let mut tampered = request.clone();
@@ -536,6 +547,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
     // not by a manually issued one-off Batch. Keep the *same* issuer grant,
     // nonce and subject identity for Manifest + both exact original batches.
     authority.deny_charge.store(false, Ordering::SeqCst);
+    wait_connected(|| authority.holds.load(Ordering::SeqCst) == 0);
     let staged = super::super::admission_input_client_v2::fetch_original_admission_input_v2(
         &client,
         server.peer_id(),
@@ -583,6 +595,7 @@ fn real_original_admission_noise_is_bound_and_charged() {
         original_input
     );
     let reads_after_success = authority.reads.load(Ordering::SeqCst);
+    wait_connected(|| authority.holds.load(Ordering::SeqCst) == 0);
 
     // Wrong actual peer and wrong grant cannot initiate any part read.
     let mut wrong_peer = request.clone();
@@ -608,7 +621,12 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     request: &AdmissionBatchRequestV2,
     context: &super::super::admission_input_request_v2::AdmissionInputBoundContextV2,
 ) {
-    use super::super::admission_input_live_v2::ProtectedOriginalResponseChargeV2;
+    use super::super::admission_input_live_v2::{
+        ProtectedOriginalAdmissionAuthorityV2, ProtectedOriginalAdmissionContextV2,
+        ProtectedOriginalAdmissionPartsV2, ProtectedOriginalAdmissionRetainedAuthorityV2,
+        ProtectedOriginalAdmissionSourceV2, ProtectedOriginalResponseChargeV2,
+    };
+    use super::super::admission_input_request_v2::VerifiedAdmissionBatchSubjectV2;
     use oasis7_distfs::protected_bft_v3::{
         BftFirstReserveSnapshotV1, BftFreshCoverageSnapshotV1, BftOriginalRetentionTxnSnapshotV1,
         BftPrivateRetentionCreationMarkerV1, BftPrivateRetentionHeadV1, BftSignerAcquireOutcomeV3,
@@ -618,8 +636,9 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
         collections::BTreeMap,
         sync::{
             Arc, Mutex,
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicU64, Ordering},
         },
+        time::{Duration, Instant},
     };
 
     struct ProtectedSpy {
@@ -708,6 +727,43 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
         }
     }
 
+    // The live adapter is deliberately source-only here; no second reserve
+    // method or fallback cost ledger may be supplied by its issuer fixture.
+    struct SourceSpy {
+        bound: super::super::admission_input_request_v2::AdmissionInputBoundContextV2,
+    }
+    impl ProtectedOriginalAdmissionSourceV2 for SourceSpy {
+        fn current_context(
+            &self,
+            request: &AdmissionBatchRequestV2,
+        ) -> Result<ProtectedOriginalAdmissionContextV2, String> {
+            request.verify_bound_subject(&self.bound)?;
+            Ok(ProtectedOriginalAdmissionContextV2 {
+                bound: self.bound.clone(),
+                original_attempt_deadline: Instant::now() + Duration::from_secs(30),
+                current_generation: Arc::new(AtomicU64::new(7)),
+                expected_generation: 7,
+                reply_permitted: Arc::new(AtomicBool::new(true)),
+            })
+        }
+        fn read_authorized_parts(
+            &self,
+            subject: &VerifiedAdmissionBatchSubjectV2,
+            _deadline: Instant,
+        ) -> Result<ProtectedOriginalAdmissionPartsV2, String> {
+            let parts = subject
+                .read()
+                .ranges()?
+                .iter()
+                .map(|part| vec![0x21; part.length as usize])
+                .collect();
+            Ok(ProtectedOriginalAdmissionPartsV2 {
+                parts,
+                transport_hold: Box::new(()), // test-only, NOT protected memory.
+            })
+        }
+    }
+
     let reference = &request.read.reference;
     let mut signer_state: BftSignerStateV3 = serde_json::from_value(serde_json::json!({
         "schema_version": 3,
@@ -722,6 +778,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     }))
     .unwrap();
     signer_state.private_retention = Some(BftPrivateRetentionHeadV1 {
+        selection_commitment: None,
         schema_version: 2,
         source: reference.source.clone(),
         capability_digest: "cd".repeat(32),
@@ -765,8 +822,23 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
         lost_commit_reply: Arc::clone(&lost_commit_reply),
     };
     let charge = ProtectedOriginalResponseChargeV2::new(Box::new(spy), 7, token).unwrap();
+    let authority = ProtectedOriginalAdmissionRetainedAuthorityV2::new(
+        Arc::new(SourceSpy {
+            bound: context.clone(),
+        }),
+        charge,
+    );
     let subject = request.verify_bound_subject(context).unwrap();
-    charge
+    let verified_context = authority.current_context(request).unwrap();
+    assert_eq!(
+        verified_context.bound.schedule_digest,
+        context.schedule_digest
+    );
+    let source_parts = authority
+        .read_authorized_parts(&subject, Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(source_parts.parts.len(), 3);
+    authority
         .reserve_encoded_response_and_readback(&subject, 65_540)
         .unwrap();
     assert_eq!(
@@ -780,7 +852,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     );
     lost_commit_reply.store(true, Ordering::SeqCst);
     assert!(
-        charge
+        authority
             .reserve_encoded_response_and_readback(&subject, 80)
             .is_err()
     );
@@ -795,7 +867,7 @@ fn check_one_protected_original_response_cas_and_uncertain_commit(
     );
     // The uncertain reply must NOT permit a second unbounded debit or release.
     assert!(
-        charge
+        authority
             .reserve_encoded_response_and_readback(&subject, 80)
             .is_err()
     );
