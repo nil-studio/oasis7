@@ -240,6 +240,7 @@ oasis7_cargo_dev() {
 
 FILTERS = {
     'simulator::tests::persist::kernel_loads_tracked_llm_baseline_fixture_state',
+    'simulator_tests::persist::kernel_loads_tracked_llm_baseline_fixture_state',
     'runtime_bridge_continues_governance_from_tracked_baseline_fixture',
     'runtime_bridge_civic_hotspot_preset_seeds_followup_handles',
 }
@@ -272,7 +273,7 @@ def compile_context(call):
         elif option in ('--locked', '--no-run', '--message-format=json') or option in FILTERS:
             pass
         elif option == '--':
-            if words != ['--nocapture']:
+            if words not in (['--nocapture'], ['--exact', '--nocapture']):
                 raise AssertionError('unknown execution-only Cargo arguments: ' + repr(words))
             break
         else:
@@ -476,8 +477,37 @@ run() {
                   for target in config['ordinary_fast_targets'].values()}
         self.assertEqual(sum(name.startswith('fast-') for name in named), len(groups))
 
+    def current_fixture_world_context(self):
+        # The frozen oracle above keeps the old full driver. Only the fixture
+        # moved to another owner; bind its cache vector to the actual smoke.
+        smoke = self.root / 'scripts/llm-baseline-fixture-smoke.sh'
+        shutil.copyfile(ROOT / 'scripts/llm-baseline-fixture-smoke.sh', smoke)
+        self.reset_logs()
+        result = subprocess.run(['bash', str(smoke)], env=self.env, text=True,
+                                capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertEqual(len(calls), 3)
+        self.assertIn(calls[0]['args'], [
+            ['test', '-p', 'oasis7', '--features', 'test_tier_full',
+             'simulator::tests::persist::kernel_loads_tracked_llm_baseline_fixture_state',
+             '--', '--nocapture'],
+            ['test', '-p', 'oasis7_runtime_host', '--lib', '--features', 'test_tier_full',
+             'simulator_tests::persist::kernel_loads_tracked_llm_baseline_fixture_state',
+             '--', '--exact', '--nocapture'],
+        ])
+        for call, case in zip(calls[1:], (
+                'runtime_bridge_continues_governance_from_tracked_baseline_fixture',
+                'runtime_bridge_civic_hotspot_preset_seeds_followup_handles')):
+            self.assertEqual(call['args'], [
+                'test', '-p', 'oasis7_provider_tools', '--bin', 'oasis7_llm_agent_demo',
+                '--features', 'test_tier_full', case, '--', '--nocapture',
+            ])
+        return compile_context(calls[0])
+
     def test_exact_consumer_variants_are_compiled_without_executing_tests(self):
         legacy = {compile_context(call) for call in self.frozen_full_and_legacy_calls()}
+        fixture_world = self.current_fixture_world_context()
         # Preserve the historical driver byte-for-byte. The current complete
         # inventory additionally owns the extracted leaves in all four original
         # whole-package feature/target combinations.
@@ -486,8 +516,10 @@ run() {
         self.assertEqual(len(whole_package), 4)
         expected = {
             (context[0], tuple(p for p in context[1] if p != 'oasis7') if len(context[1]) > 1 else context[1], *context[2:])
-            for context in (legacy - whole_package) if not (context[1] == ('oasis7',) and context[2] == (('--lib', ''),))
-        } | {
+            for context in (legacy - whole_package)
+            if context[1:3] != (('oasis7',), (('--lib', ''),))
+            and context != ('test', ('oasis7',), (), True, ('test_tier_full',), 'default', '1')
+        } | {fixture_world} | {
             (context[0], tuple(sorted(p for p in (*context[1], 'oasis7_executable_image', 'oasis7_runtime_host') if p != 'oasis7')), *context[2:])
             for context in whole_package}
         for verbose in ('0', '1'):
@@ -500,6 +532,7 @@ run() {
                 self.assertIn('cache_build_complete variants=50 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
                                   if not name.startswith('fast-')}, expected)
+                self.assertEqual(compile_context(named['fixture-world']), fixture_world)
                 self.assert_fast_inventory(named, self.config)
                 self.assertEqual(compile_context(named['support-oasis7_dev_test_worker']),
                                  ('test', ('oasis7_dev_test_worker',), (('--all-targets', ''),),
