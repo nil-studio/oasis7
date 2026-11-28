@@ -2525,6 +2525,15 @@
     },
     {
       "match": [
+        "crates/oasis7/**"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "retired_oasis7_crate_cleanup_registration"
+    },
+    {
+      "match": [
         "scripts/unified-world-code-terminology-scan.sh",
         "scripts/unified-world-code-terminology-scan.test.sh"
       ],
