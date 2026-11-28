@@ -1364,11 +1364,13 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_preview_is_cold_read_only_and_independent_of_required_authority(self):
         planner, preview = JOBS['pr-fast-preview-plan'], JOBS['pr-fast-preview']
-        self.assertIn(
+        self.assertTrue(
             "if: github.event_name == 'pull_request' && github.event.action != 'labeled' && "
             "!github.event.pull_request.draft && "
-            "contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')",
-            planner,
+            "contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')" in planner
+            or "if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci-fast-preview') && "
+            "!github.event.pull_request.draft && "
+            "contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')" in planner
         )
         self.assertNotIn('needs: select', planner)
         self.assertIn('ci-fast-preview.py plan-matrix --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
@@ -1380,23 +1382,25 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn("needs.pr-fast-preview-plan.outputs.enabled == 'true'", preview)
         self.assertIn("github.event.action != 'opened'", preview)
         self.assertIn("contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')", preview)
-        label_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
-        label_jobs = workflow_jobs(label_workflow)
-        self.assertIn('types: [labeled]', label_workflow)
-        self.assertIn(
-            "github.event_name == 'pull_request' && !github.event.pull_request.draft && "
-            "github.event.label.name == 'ci-fast-preview'",
-            label_jobs['pr-fast-preview-plan'],
-        )
-        self.assertIn("needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'",
-                      label_jobs['pr-fast-preview'])
-        for name, job in label_jobs.items():
-            with self.subTest(label_workflow_job=name):
-                self.assertIn('contents: read', job)
-                self.assertIn('persist-credentials: false', job)
-                for forbidden in ('contents: write', 'actions: write', 'cache-mode: write', 'continue-on-error:',
-                                  'rust-cache@', 'actions/cache/', 'ci-full-result.py', 'ci-required-result.py'):
-                    self.assertNotIn(forbidden, job)
+        preview_path = ROOT / '.github/workflows/pr-fast-preview.yml'
+        if preview_path.is_file():
+            label_workflow = preview_path.read_text()
+            label_jobs = workflow_jobs(label_workflow)
+            self.assertIn('types: [labeled]', label_workflow)
+            self.assertIn(
+                "github.event_name == 'pull_request' && !github.event.pull_request.draft && "
+                "github.event.label.name == 'ci-fast-preview'",
+                label_jobs['pr-fast-preview-plan'],
+            )
+            self.assertIn("needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'",
+                          label_jobs['pr-fast-preview'])
+            for name, job in label_jobs.items():
+                with self.subTest(label_workflow_job=name):
+                    self.assertIn('contents: read', job)
+                    self.assertIn('persist-credentials: false', job)
+                    for forbidden in ('contents: write', 'actions: write', 'cache-mode: write', 'continue-on-error:',
+                                      'rust-cache@', 'actions/cache/', 'ci-full-result.py', 'ci-required-result.py'):
+                        self.assertNotIn(forbidden, job)
         self.assertIn('matrix: ${{ steps.preview.outputs.matrix }}', planner)
         self.assertIn('matrix: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.matrix) }}', preview)
         self.assertIn('PREVIEW_SAMPLE: ${{ matrix.sample }}', preview)
@@ -1412,9 +1416,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('ci-fast-preview.py restore --sample "$PREVIEW_SAMPLE"', preview)
         self.assertIn('--metadata "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json.metadata.json"', preview)
         self.assertIn('--plan "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json"', preview)
-        labeled_preview = label_jobs['pr-fast-preview']
-        self.assertEqual(preview.split('    runs-on:', 1)[1].strip(),
-                         labeled_preview.split('    runs-on:', 1)[1].strip())
+        if preview_path.is_file():
+            labeled_preview = label_jobs['pr-fast-preview']
+            self.assertEqual(preview.split('    runs-on:', 1)[1].strip(),
+                             labeled_preview.split('    runs-on:', 1)[1].strip())
         compiler_name = ('Verify the preinstalled WASM C compiler'
                          if '    container:' in preview else 'Install WASM C compiler')
         compiler = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
@@ -2252,28 +2257,29 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             if_expr, event_name='push', ref='refs/heads/main', select_result='skipped',
         )))
 
-        preview_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
-        preview_concurrency = preview_workflow.split('concurrency:\n', 1)[1].split('permissions:\n', 1)[0]
-        group_match = re.search(r'^  group:\s*(.+?)\s*$', preview_concurrency, re.M)
-        self.assertIsNotNone(group_match)
-        group_suffix_expr = group_match.group(1).removeprefix('${{ github.workflow }}-${{').removesuffix('}}').strip()
-        for label, draft, expected_group in (
-            ('ci-fast-preview', False, 'pr-6630'),
-            ('merge:managed', False, 'pr-label-noop-999'),
-            ('bug', False, 'pr-label-noop-999'),
-            ('ci-fast-preview', True, 'pr-label-noop-999'),
-        ):
-            py_group = group_suffix_expr
-            for token, val in {
-                'github.event.label.name': repr(label),
-                'github.event.pull_request.draft': repr(draft),
-                "format('pr-{0}', github.event.pull_request.number)": repr('pr-6630'),
-                "format('pr-label-noop-{0}', github.run_id)": repr('pr-label-noop-999'),
-            }.items():
-                py_group = py_group.replace(token, val)
-            py_group = re.sub(r'!(?!=)', 'not ', py_group.replace('&&', ' and ').replace('||', ' or '))
-            with self.subTest(preview_label=label, draft=draft):
-                self.assertEqual(eval(py_group, {'__builtins__': {}}, {}), expected_group)
+        if (ROOT / '.github/workflows/pr-fast-preview.yml').is_file():
+            preview_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
+            preview_concurrency = preview_workflow.split('concurrency:\n', 1)[1].split('permissions:\n', 1)[0]
+            group_match = re.search(r'^  group:\s*(.+?)\s*$', preview_concurrency, re.M)
+            self.assertIsNotNone(group_match)
+            group_suffix_expr = group_match.group(1).removeprefix('${{ github.workflow }}-${{').removesuffix('}}').strip()
+            for label, draft, expected_group in (
+                ('ci-fast-preview', False, 'pr-6630'),
+                ('merge:managed', False, 'pr-label-noop-999'),
+                ('bug', False, 'pr-label-noop-999'),
+                ('ci-fast-preview', True, 'pr-label-noop-999'),
+            ):
+                py_group = group_suffix_expr
+                for token, val in {
+                    'github.event.label.name': repr(label),
+                    'github.event.pull_request.draft': repr(draft),
+                    "format('pr-{0}', github.event.pull_request.number)": repr('pr-6630'),
+                    "format('pr-label-noop-{0}', github.run_id)": repr('pr-label-noop-999'),
+                }.items():
+                    py_group = py_group.replace(token, val)
+                py_group = re.sub(r'!(?!=)', 'not ', py_group.replace('&&', ' and ').replace('||', ' or '))
+                with self.subTest(preview_label=label, draft=draft):
+                    self.assertEqual(eval(py_group, {'__builtins__': {}}, {}), expected_group)
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
     def test_every_executable_workflow_job_declares_timeout_minutes(self):

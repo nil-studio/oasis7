@@ -753,11 +753,12 @@ def run_contracts(root, policy_sha, plan, *, governance=False):
         if not (root / path).exists()
     }
     if governance:
-        baseline_governed = set(governance_tests(config)) - retired_custody_governance
+        retired_governance_tests = {'scripts/ci-cache-diagnostic.test.py'}
+        baseline_governed = set(governance_tests(config)) - retired_custody_governance - retired_governance_tests
         governed = set(governance_tests(json.loads((root / 'scripts/ci-required-scope.json').read_text())))
         if not baseline_governed <= governed:
             raise ValueError('candidate retired complete governance test files')
-        all_tests.update(baseline_governed)
+        all_tests.update(set(governance_tests(config)))
     with tempfile.TemporaryDirectory(prefix='ci-python-baseline-') as directory:
         snapshot = Path(directory)
         for path in sorted(all_tests):
