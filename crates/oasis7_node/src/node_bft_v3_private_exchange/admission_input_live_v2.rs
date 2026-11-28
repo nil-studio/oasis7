@@ -197,6 +197,15 @@ pub struct ProtectedOriginalAdmissionRetainedAuthorityV2 {
     response_charge: ProtectedOriginalResponseChargeV2,
 }
 
+impl ProtectedOriginalAdmissionRetainedAuthorityV2 {
+    pub fn new(
+        source: Arc<dyn ProtectedOriginalAdmissionSourceV2>,
+        response_charge: ProtectedOriginalResponseChargeV2,
+    ) -> Self {
+        Self { source, response_charge }
+    }
+}
+
 impl ProtectedOriginalAdmissionAuthorityV2 for ProtectedOriginalAdmissionRetainedAuthorityV2 {
     fn current_context(
         &self,
@@ -247,10 +256,10 @@ impl NodeBftOriginalAdmissionNoiseV2 {
             lease_generation,
             lease_token_digest,
         )?;
-        let authority = Arc::new(ProtectedOriginalAdmissionRetainedAuthorityV2 {
+        let authority = Arc::new(ProtectedOriginalAdmissionRetainedAuthorityV2::new(
             source,
             response_charge,
-        });
+        ));
         Self::new(network, peer_ids, authority)
     }
 
