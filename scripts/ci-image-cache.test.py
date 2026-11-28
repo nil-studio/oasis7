@@ -148,15 +148,6 @@ class CompileContexts(unittest.TestCase):
             normalized(['cargo', 'clippy', '-p', 'oasis7_net', '--lib']): 1,
         }))
 
-    def test_launcher_warms_the_bin_and_default_features_selected_by_trunk(self):
-        html = (ROOT / 'crates/oasis7_client_launcher/index.html').read_text()
-        self.assertIn('<link data-trunk rel="rust" data-bin="oasis7_client_launcher" />', html)
-        self.assertEqual(html.count('data-trunk rel="rust"'), 1)
-        self.assertFalse((ROOT / 'crates/oasis7_client_launcher/Trunk.toml').exists())
-        self.assertEqual(cache.build_variants(ROOT, 'launcher'), [
-            ('launcher-wasm-release', ['cargo', 'build', '--locked', '-p', 'oasis7_client_launcher',
-             '--bin', 'oasis7_client_launcher', '--release', '--target', 'wasm32-unknown-unknown'], {})])
-
     def test_support_warms_the_selected_image_profile_compile_tuples(self):
         def image_commands(plan):
             return self.consumer_commands([

@@ -248,7 +248,7 @@ def declared_env(body: str, indent: int) -> dict[str, str]:
     return values(match[1], indent + 2) if match else {}
 
 
-def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
+def cache_identity(workflow: str, name: str, non_linux: bool = False, image_web: bool = False) -> dict:
     """Compare inputs used by the pinned action, including its implicit defaults.
 
     This establishes configuration compatibility for the same source and runner
@@ -258,6 +258,12 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
     body = job_body(workflow, name)
     matches = list(re.finditer(r"^      - uses: (Swatinem/rust-cache@[^\n]+)\n(.*?)(?=^      - |\Z)",
                                body, re.M | re.S))
+    if image_web:
+        assert name == "release_gate_web"
+        matches = list(re.finditer(
+            r"^      - name: Restore the matching Release Web image dependency cache\n"
+            r"        if: env[.]RELEASE_WEB_IMAGE_COMPATIBLE == 'true'\n"
+            r"        uses: (Swatinem/rust-cache@[^\n]+)\n(.*?)(?=^      - |\Z)", body, re.M | re.S))
     if non_linux:
         matches = [match for match in matches if "if: runner.os != 'Linux'" in match[2]]
     assert len(matches) == 1, (name, "expected one selected Rust cache")
@@ -306,6 +312,33 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
             assert "pkg-config --exists wayland-client x11 alsa libudev openssl" in before_cache
         default = env["RUST_TOOLCHAIN"]
         toolchains.add(default)
+    web_image = 'ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59'
+    image_lane = (name == 'web-wasm-cache' and '      image: ' + web_image + '\n' in body) or image_web
+    if image_lane:
+        before_cache = body[:cache.start()]
+        if image_web:
+            assert ("image: ${{ needs.plan.outputs.webImageCompatible == 'true' && '" + web_image + "' || '' }}") in body
+            source = '$EXPECTED_WORKFLOW_SHA'
+            assert 'EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}' in before_cache
+            assert 'RUST_RELEASE_WEB_IMAGE' not in body.split('    steps:', 1)[0]
+            assert inputs.get('save-if') == 'false'
+        else:
+            source = '$GITHUB_SHA'
+        assert ('python3 scripts/ci-release-web-image.py --preflight --image-source '
+                'd5319297d754a9c7d4de347a2ce8e1a20ba43591 --source "' + source + '"') in before_cache
+        helper = (root / 'scripts/ci-release-web-image.py').read_text()
+        assert 'run(["rustc", "+" + version, "--version"], rust_env)' in helper
+        assert 'if "wasm32-unknown-unknown" not in targets.splitlines():' in helper
+        assert 'RUSTUP_AUTO_INSTALL="0"' in helper
+        assert env['RUST_RELEASE_WEB_IMAGE'] == web_image
+        assert inputs['shared-key'] == 'ci-rust-release-web-' + web_image.split('@sha256:')[1]
+        assert inputs['add-rust-environment-hash-key'] == 'true'
+        assert inputs['env-vars'] == 'CARGO CC CFLAGS CXX CMAKE RUST'
+        compiler = declared_env((root / '.github/workflows/rust.yml').read_text().split('\njobs:\n', 1)[0], 0)
+        assert env['RUST_TOOLCHAIN'] == compiler['RUST_TOOLCHAIN']
+        toolchains = {env['RUST_TOOLCHAIN'], compiler['OASIS7_WASM_TOOLCHAIN']}
+        default = env['RUST_TOOLCHAIN']
+        image = re.search(r'@sha256:([0-9a-f]{64})$', web_image)
     assert toolchains and default, f"{name}: verify a pinned toolchain before restoring cache"
     runner = values(body, 4)["runs-on"]
     if runner == (
@@ -316,7 +349,7 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
     ):
         runner = "ubuntu-24.04"
     return {
-        "action": cache[1], "runner": runner,
+        "action": cache[1].split(" #", 1)[0], "runner": runner,
         "image": image[1] if image else None,
         "prefix": inputs.get("prefix-key", "v0-rust"),
         "shared-key": inputs.get("shared-key"),
@@ -336,7 +369,6 @@ release = workflow_paths[2].read_text()
 mainnet = workflow_paths[1].read_text()
 rust = (root / ".github/workflows/rust.yml").read_text()
 native_cache = (root / ".github/workflows/rust-cache.yml").read_text()
-bridge = (root / ".github/workflows/newapi-bridge-service-package.yml").read_text()
 ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 
 # Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7.
@@ -346,7 +378,8 @@ repository_budget = '20000000000'
 budget_entries = {
     'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
     'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 4),
-    'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 2),
+    'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES',
+                         1 if 'container: &ecs-native-container' in ecs else 2),
     'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'testnet-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'hosted-login-linux-build.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
@@ -486,11 +519,30 @@ for name in ("release_gate_runtime_core", "release_gate_runtime_support", "relea
         assert "save-if: false" in job_body(release, name)
         assert "    cache-mode: read\n" in job_body(release, name)
 assert cache_identity(mainnet, "package-native", True) == cache_identity(release, "package-native", True)
-assert cache_identity(rust, "newapi-bridge-package") == cache_identity(bridge, "package-linux-x86-64"), \
-    "NewAPI entrypoints must agree on Cargo environment and toolchain/path defaults, not just shared-key"
 
 web_identity = cache_identity(native_cache, "web-wasm-cache")
-assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
+legacy_web_identity = cache_identity(release, "release_gate_web")
+assert legacy_web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
+new_web_image = web_identity["image"] is not None
+assert web_identity["shared-key"] == ('ci-rust-release-web-' + web_identity['image'] if new_web_image
+                                      else 'release-packages-web-wasm-trusted-v3')
+if new_web_image:
+    for workflow in (release, mainnet):
+        assert cache_identity(workflow, 'release_gate_web', image_web=True) == web_identity
+    for workflow, name, selected in ((native_cache, 'web-wasm-cache', False),
+                                      (release, 'release_gate_web', True),
+                                      (mainnet, 'release_gate_web', True)):
+        for broken in (
+                workflow.replace('shared-key: ci-rust-release-web-', 'shared-key: unrelated-'),
+                workflow.replace('env-vars: CARGO CC CFLAGS CXX CMAKE RUST', 'env-vars: CARGO'),
+                workflow.replace('ci-rust-release-web@sha256:', 'ci-rust-build@sha256:'),
+                workflow.replace(' --preflight --image-source ', ' --lookup-only --image-source ')):
+            try:
+                cache_identity(broken, name, image_web=selected)
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError((name, 'image cache drift must be rejected'))
 for workflow, names in ((release, ("release_gate_web",)), (mainnet, ("release_gate_web",)),
                         (rust, ("viewer-js-required", "viewer-performance-report"))):
     for name in names:
@@ -509,8 +561,8 @@ for workflow, names in ((release, ("release_gate_web",)), (mainnet, ("release_ga
             ), (name, "Viewer image cache must use only its digest namespace")
             assert "cache-mode: write" not in header and "\ncache-mode: read\n" in workflow
             assert "actions/cache/save@" not in body and "OASIS7_DEPENDENCY_CACHE_" not in body
-            identity["shared-key"] = web_identity["shared-key"]
-        assert identity == web_identity, (name, "Web cache inputs differ")
+            identity["shared-key"] = legacy_web_identity["shared-key"]
+        assert identity == legacy_web_identity, (name, "historical host Web cache inputs differ")
         assert "save-if: false" in body
 package_readers = [cache_identity(workflow, "build-web-dist") for workflow in (release, mainnet)]
 assert all(reader["image"] for reader in package_readers)
@@ -531,7 +583,7 @@ if testnet_web_identity["image"]:
     assert "    cache-mode: write\n" not in testnet_web_build
     assert testnet_web_identity["shared-key"] != web_identity["shared-key"]
 else:
-    assert testnet_web_identity == web_identity, "Testnet host Web cache inputs differ"
+    assert testnet_web_identity == legacy_web_identity, "Testnet host Web cache inputs differ"
 ecs_web_identity = cache_identity(ecs, "web")
 assert ecs_web_identity["image"], "ECS web requires the digest-scoped image reader"
 assert ecs_web_identity["shared-key"] != web_identity["shared-key"]
@@ -674,18 +726,37 @@ for workflow, names in ((release, (*native_gates, "release_gate_web", "build-web
         guarded = [step for step in steps if normalizer in step or "Swatinem/rust-cache@" in step]
         if workflow == ecs and name == "native":
             assert len(guarded) == 3, "ECS shared native steps require one normalizer and two exclusive cache paths"
-            normal, host, image = guarded
+            normal, candidate, image = guarded
             assert f"if: hashFiles('{normalizer}') != ''" in normal
-            assert "if [[ \"$GITHUB_JOB\" == 'native-trusted' ]]; then" in normal
-            assert 'toolchains+=("$OASIS7_WASM_TOOLCHAIN")' in normal
-            assert f"if: github.job == 'native' && hashFiles('{normalizer}') != ''" in host
-            assert "shared-key: oasis7-ecs-native-linux-ecs-v2" in host and "save-if: false" in host
+            assert f"if: github.job == 'native' && hashFiles('{normalizer}') != ''" in candidate
+            assert "save-if: false" in candidate
+            if 'container: &ecs-native-container' in body:
+                assert '"$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"' in normal
+                assert "shared-key: ${{ env.ECS_NATIVE_DEPENDENCY_NAMESPACE }}" in candidate
+                assert "cache-provider: github" in candidate
+                assert "GH_TOKEN" not in candidate
+            else:
+                assert "if [[ \"$GITHUB_JOB\" == 'native-trusted' ]]; then" in normal
+                assert 'toolchains+=("$OASIS7_WASM_TOOLCHAIN")' in normal
+                assert "shared-key: oasis7-ecs-native-linux-ecs-v2" in candidate
             assert f"if: github.job == 'native-trusted' && hashFiles('{normalizer}') != '' && steps.image-dependency-cache-tools.outputs.guard_ready == 'true'" in image
             assert "NODE_OPTIONS: ${{ steps.image-dependency-cache-tools.outputs.node_options }}" in image
             continue
+        web_image_reader = (name == 'release_gate_web' and '    container:' in body)
+        if web_image_reader:
+            assert len(guarded) == 3, (name, 'one host normalizer and exclusive host/image cache steps')
+            assert "if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'" in guarded[2]
+            assert 'ci-rust-cache-toolchains.py' not in guarded[2]
+            assert 'save-if: false' in guarded[2]
+            cache_identity(workflow, name, image_web=True)
+            guarded = guarded[:2]
         assert len(guarded) == 2, (name, "one normalizer and one cache expected")
         for step in guarded:
             guard = f"if: hashFiles('{normalizer}') != ''"
+            if web_image_reader:
+                guard = f"if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && (hashFiles('{normalizer}') != '')"
+                assert re.search(r"^        " + re.escape(guard) + "$", step, re.M), name
+                continue
             if name == "build-web-dist" and workflow in (release, mainnet):
                 guard += " && steps.source-toolchain.outputs.image_toolchain == 'true'"
                 assert re.search(r"^        " + re.escape(guard) + "$", step, re.M), name
@@ -720,7 +791,12 @@ for workflow in (release, mainnet):
                 path = fixture / "scripts" / filename
                 path.write_text('#!/bin/sh\n[ "${0##*/}" != "$TEST_FAIL_SCRIPT" ] || exit 23\n')
                 path.chmod(0o755)
-            lanes = ("false", "true") if name == "release_gate_runtime_sync" else ("false",)
+            lanes = ("false", "true") if (
+                name == "release_gate_runtime_sync"
+                or name == "release_gate_runtime_core" and "USE_CORE_IMAGE:" in gate
+            ) else ("false",)
+            (fixture / "oasis7-runtime-core-image.sh").write_text(
+                'test "$1" = --core || exit 24\nexec ./scripts/ci-tests.sh full-core\n')
             launcher = fixture / "oasis7-runtime-sync-image.sh"
             launcher.write_text('exec bash --noprofile --norc -e -o pipefail -s\n')
             for lane in lanes:
@@ -728,7 +804,8 @@ for workflow in (release, mainnet):
                     result = subprocess.run(
                         ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
                         cwd=fixture, env=dict(os.environ, TEST_FAIL_SCRIPT=filename,
-                                              USE_IMAGE=lane, RUNNER_TEMP=str(fixture)),
+                                              USE_IMAGE=lane, USE_CORE_IMAGE=lane,
+                                              EXPECTED_SHA="0" * 40, RUNNER_TEMP=str(fixture)),
                         capture_output=True, text=True)
                     assert result.returncode == 23, (name, lane, filename, result.stdout, result.stderr)
                     report = fixture / ".tmp/release_gate_runtime_sync/runtime-sync-checks.log"
@@ -761,9 +838,9 @@ if any("Select runtime sync image" in workflow for workflow in (release, mainnet
                    RUNNER_ENVIRONMENT="github-hosted", RUNNER_OS="Linux", RUNNER_ARCH="X64",
                    GITHUB_OUTPUT=str(output))
 
-        def select(expected, **overrides):
+        def select(expected, mode="--select", **overrides):
             output.write_text("")
-            subprocess.run(["bash", str(launcher), "--select"], cwd=checkout,
+            subprocess.run(["bash", str(launcher), mode], cwd=checkout,
                            env=env | overrides, check=True)
             assert output.read_text() == f"enabled={expected}\n", overrides
 
@@ -778,6 +855,23 @@ if any("Select runtime sync image" in workflow for workflow in (release, mainnet
         select("false", GITHUB_REF="refs/heads/candidate")
         select("false", GITHUB_EVENT_NAME="pull_request")
         select("false", GITHUB_WORKFLOW_SHA="0" * 40)
+        if any("Select runtime core image" in workflow for workflow in (release, mainnet)):
+            core_job = {"GITHUB_JOB": "release_gate_runtime_core"}
+            select("false", "--select-core", **core_job)
+            select("false", "--select-core")
+            driver = checkout / "scripts/ci-tests.sh"
+            driver.parent.mkdir()
+            driver.write_bytes((root / "scripts/ci-tests.sh").read_bytes())
+            subprocess.run(["git", "add", "scripts/ci-tests.sh"], cwd=checkout, check=True)
+            subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                            "-c", "commit.gpgsign=false", "commit", "-qm", "core driver"],
+                           cwd=checkout, check=True)
+            new = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            current = dict(EXPECTED_SHA=new, GITHUB_SHA=new, GITHUB_WORKFLOW_SHA=new)
+            select("true", "--select-core", **core_job, **current)
+            select("false", "--select-core", **core_job, **(current | {"EXPECTED_SHA": source}))
+            select("false", "--select-core", **core_job, **(current | {"GITHUB_EVENT_NAME": "pull_request"}))
+            select("false", "--select", **core_job, **current)
         toolchain.write_text(toolchain.read_text().replace("1.96.0", "1.92.0"))
         select("false")
 

@@ -103,7 +103,6 @@
 | `doc/p2p/token/mainchain-token-allocation-mechanism.prd.md` | `doc/p2p/token/mainchain-token-allocation-mechanism.design.md` | GitHub Issue / GitHub Project |
 | `doc/p2p/token/mainchain-token-ideal-transaction.prd.md` | `doc/p2p/token/mainchain-token-ideal-transaction.design.md` | GitHub Issue / GitHub Project |
 | `doc/p2p/token/mainchain-token-genesis-and-contributor-reward.prd.md` | `doc/p2p/token/mainchain-token-genesis-and-contributor-reward.design.md` | GitHub Issue / GitHub Project |
-| `doc/p2p/token/mainchain-token-newapi-quota-bridge.prd.md` | `doc/p2p/token/mainchain-token-newapi-quota-bridge.design.md` | GitHub Issue / GitHub Project |
 | `doc/p2p/viewer-live/oasis7-viewer-live-decision-mode.prd.md` | `doc/p2p/viewer-live/oasis7-viewer-live-decision-mode.design.md` | GitHub Issue / GitHub Project |
 
 ## 发布说明文档（release，补充材料）
@@ -117,7 +116,6 @@
 - `*.release.md` 为发布补充材料，不参与 PRD/design 配对规则。
 - `doc/p2p/blockchain/formal-network-tiers-testnet-mechanism` 另有执行 companion：`doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.runbook.md`。
 - `doc/p2p/blockchain/formal-network-tiers-testnet-mechanism` 另有 governed bootstrap operator path：`doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`。
-- `doc/p2p/token/mainchain-token-newapi-quota-bridge` 另有执行 companion：`doc/p2p/token/mainchain-token-newapi-quota-bridge.runbook.md`。
 - Observer source 专业权威：DHT 增量专题（`PRD-P2P-MIG-109-001`）已合并进 `observer-sync-source-mode.{prd,design}.md`，原 ID 由继任专题 PRD-ID 保留，任务历史写入 GitHub，源文件已删除。
 - Ideal transaction 专业权威：2026-06-08 理想交易升级三件套已合并进 `mainchain-token-ideal-transaction.{prd,design}.md`；`PRD-P2P-ITX-001/002/003` 由继任专题 PRD-ID 保留，任务历史写入 GitHub，历史过程只从 Git 与 GitHub task evidence 追溯。
 - Observer metrics 专业权威：统计桥接（`PRD-P2P-MIG-106-001`）与策略可观测性（`PRD-P2P-MIG-107-001`）已合并进 `observer-sync-mode-runtime-metrics.{prd,design}.md`，原 ID 由继任专题 PRD-ID 保留，任务历史写入 GitHub，源文件已删除。

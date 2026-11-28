@@ -152,8 +152,8 @@ fn restart_recovers_commit_effect_from_completed_precommit_journal() {
         thread::sleep(Duration::from_millis(5));
     }
 
-    let addresses = reserve_udp_addresses(1);
-    let mut node = make_node(&identity, 0, &addresses, root.path());
+    let mut mesh = socket_handoff::ReservedMesh::new(1);
+    let mut node = mesh.node(&identity, 0, root.path());
     node.start()
         .expect("reopen worker from the durable completed-precommit journal");
     wait_node_height(&node, 1, "replayed precommit quorum commit recovery");
@@ -268,8 +268,8 @@ fn restart_resumes_unreserved_vote_effect_from_durable_proposal_event() {
         );
         thread::sleep(Duration::from_millis(5));
     }
-    let addresses = reserve_udp_addresses(1);
-    let mut node = make_node(&identity, 0, &addresses, root.path());
+    let mut mesh = socket_handoff::ReservedMesh::new(1);
+    let mut node = mesh.node(&identity, 0, root.path());
     node.start()
         .expect("reopen worker from the durable proposal event");
     wait_node_height(&node, 1, "replayed unreserved prevote recovery");

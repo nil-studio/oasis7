@@ -34,7 +34,7 @@
 <a id="init-state-design"></a>
 ## 4. 约束与边界
 - 初始化顺序需保持确定性。
-- 场景能力只在[主矩阵](scenario-files.prd.md#场景测试覆盖矩阵2026-02-06)维护；`twin_region_bootstrap` 与 `asteroid_fragment_bootstrap` 默认设施数为 0，设施正例使用 `power_bootstrap`。
+- 场景能力只在[主矩阵](scenario-files.prd.md)维护；`twin_region_bootstrap` 与 `asteroid_fragment_bootstrap` 默认设施数为 0，设施正例使用 `power_bootstrap`。
 - `initialize_kernel` 保持时间 0；enabled fragment 的已生成 chunk 可追加 `ChunkGenerated(Init)`，不清空合法事件。snapshot 承载全部初始状态，journal 只按[分块生成合同](chunked-fragment-generation.prd.md)承载已声明部分。
 - 初始化产物交给不同消费者时按[入口矩阵](scenario-files.prd.md#场景初始化与消费入口矩阵)验收；named runtime-live 的默认 Agent 与 seed model 投影不能冒充 Simulator 原模型保留。
 - 场景覆盖不得绕过核心一致性校验。
@@ -75,4 +75,4 @@
 | 上游 requirement / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
 | [显式设施](world-initialization.prd.md#init-explicit-facilities) | [设计约束](#init-state-design) | 默认区域/碎片场景设施为 0，power_bootstrap 显式正例，单一矩阵 | 候选版本的[验证入口](../../../crates/oasis7_simulator/src/tests/init.rs)：运行 `twin_region_bootstrap_seeds_regions`、`asteroid_fragment_bootstrap_seeds_fragments_and_resources`、`scenarios_are_stable` 的 PowerBootstrap/plant-1 分支及 `init_seeds_power_facilities`、`init_rejects_facility_with_missing_owner`；检查零设施、显式设施和引用拒绝；Simulator 离线层，固定候选/config/seed，静态核对与实际执行分别记录 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |
-| [时间与初始事件](world-initialization.prd.md#init-time-events) | [设计约束](#init-state-design) | 时间 0 可有 Init 事件，snapshot 与 journal 覆盖范围分开 | 候选版本的[验证入口](../../../crates/oasis7/src/simulator/tests/persist.rs)：`initialize_kernel_records_chunk_generated_init_events` 检查 enabled Init 事件和 manifest/delta 一致；`kernel_persist_and_restore` 与 `restore_rejects_mismatched_journal_len` 检查配对恢复/拒绝。另以 fragment-disabled fixture 核对 time=0 和无 Init chunk 事件（该组合需补定向断言，非已有测试已覆盖）；Simulator 离线层，同候选固定输入，分别保留执行输出 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |
+| [时间与初始事件](world-initialization.prd.md#init-time-events) | [设计约束](#init-state-design) | 时间 0 可有 Init 事件，snapshot 与 journal 覆盖范围分开 | 候选版本的[验证入口](../../../crates/oasis7_runtime_host/src/tests/persist.rs)：`initialize_kernel_records_chunk_generated_init_events` 检查 enabled Init 事件和 manifest/delta 一致；`kernel_persist_and_restore` 与 `restore_rejects_mismatched_journal_len` 检查配对恢复/拒绝。另以 fragment-disabled fixture 核对 time=0 和无 Init chunk 事件（该组合需补定向断言，非已有测试已覆盖）；Simulator 离线层，同候选固定输入，分别保留执行输出 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |

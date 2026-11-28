@@ -456,25 +456,22 @@ class Attempts(unittest.TestCase):
             self.verify()
         self.assertEqual(self.api.downloads, [])
 
-    def diagnostic_attempt(self, name="newapi-bridge-linux-x86-64"):
+    def diagnostic_attempt(self, name="codeql-rust-model-diagnostic"):
         run = dict(self.green, id=43, event="workflow_dispatch", head_sha=B,
                    created_at="2026-10-30T11:00:00Z", run_started_at="2026-10-30T11:00:00Z",
                    updated_at="2026-10-30T11:30:00Z")
         skipped = dict(run_attempt=2, status="completed", conclusion="skipped", started_at=None)
-        other = ("codeql-rust-model-diagnostic" if name == "newapi-bridge-linux-x86-64"
-                 else "newapi-bridge-linux-x86-64")
         jobs = [dict(skipped, id=4300, name="select"),
                 dict(skipped, id=4301, name="explicit-full-gate"),
                 dict(skipped, id=4302, name=name, conclusion="success",
-                     started_at="2026-10-30T11:00:00Z"),
-                dict(skipped, id=4303, name=other)]
+                     started_at="2026-10-30T11:00:00Z")]
         self.api.runs = [self.green, run]
         self.api.jobs[(43, 2)] = jobs
         self.api.downloads.clear()
         return run, jobs
 
     def test_started_known_diagnostic_does_not_block_older_full_result(self):
-        for name in ("newapi-bridge-linux-x86-64", "codeql-rust-model-diagnostic"):
+        for name in ("codeql-rust-model-diagnostic",):
             for status, conclusion in (("in_progress", None), ("completed", "success"),
                                        ("completed", "failure"), ("completed", "cancelled")):
                 with self.subTest(name=name, status=status, conclusion=conclusion):
@@ -486,7 +483,7 @@ class Attempts(unittest.TestCase):
 
     def test_unproven_or_ambiguous_diagnostic_cannot_fall_back_to_old_green(self):
         for kind in ("unknown", "not_started", "queued", "skipped", "missing", "duplicate",
-                     "both_started", "old_diagnostic_attempt", "old_select_attempt", "old_gate_attempt",
+                     "old_diagnostic_attempt", "old_select_attempt", "old_gate_attempt",
                      "missing_select", "duplicate_select", "select_failure", "select_cancelled",
                      "select_in_progress", "missing_gate", "duplicate_gate", "gate_success",
                      "gate_failure", "gate_cancelled", "gate_in_progress"):
@@ -504,8 +501,6 @@ class Attempts(unittest.TestCase):
                     del jobs[2]
                 elif kind == "duplicate":
                     jobs.append(dict(jobs[2], id=4399))
-                elif kind == "both_started":
-                    jobs[3].update(conclusion="success", started_at="2026-10-30T11:00:00Z")
                 elif kind.startswith("old_"):
                     index = {"old_diagnostic_attempt": 2, "old_select_attempt": 0,
                              "old_gate_attempt": 1}[kind]

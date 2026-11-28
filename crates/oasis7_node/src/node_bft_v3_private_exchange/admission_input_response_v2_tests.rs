@@ -272,7 +272,10 @@ fn real_original_admission_noise_is_bound_and_charged() {
         AdmissionInputBoundContextV2, PROTOCOL_V2, VerifiedAdmissionBatchSubjectV2,
     };
     use oasis7_distfs::protected_bft_v3::{
-        BftPrivateRetentionAdmissionReadGrantV1, BftSignerErrorV3, BftSigningKeyHandleV3,
+        BftPrivateRetentionAdmissionInputV1, BftPrivateRetentionAdmissionReadGrantV1,
+        BftPrivateRetentionInputObjectKindV1, BftPrivateRetentionInputObjectV1,
+        BftPrivateRetentionKeyV1, BftPrivateRetentionSourceV1, BftSignerErrorV3,
+        BftSigningKeyHandleV3, BftSuccessorWindowArchiveRefV1, LocalBftSuccessorArchiveStoreV1,
     };
     use oasis7_net::{Libp2pNetwork, Libp2pNetworkConfig};
     use std::sync::{
@@ -359,7 +362,44 @@ fn real_original_admission_noise_is_bound_and_charged() {
         }
     }
 
-    let original = vec![0x5a; 4 * CHUNK as usize + 7];
+    // The real two-peer Noise path now carries the exact canonical BFT input,
+    // rather than only an arbitrary byte stream that cannot enter the CAS.
+    let object = |kind, bytes: Vec<u8>| BftPrivateRetentionInputObjectV1 {
+        kind,
+        reference: BftSuccessorWindowArchiveRefV1 {
+            digest: blake3::hash(&bytes).to_hex().to_string(),
+            bytes: bytes.len() as u64,
+        },
+        bytes,
+    };
+    let mut original_input = BftPrivateRetentionAdmissionInputV1 {
+        schema_version: 1,
+        source: BftPrivateRetentionSourceV1 {
+            binding_digest: "11".repeat(32),
+            handoff_digest: "22".repeat(32),
+            material_source_digest: "33".repeat(32),
+        },
+        key: BftPrivateRetentionKeyV1 {
+            ledger_origin_digest: "44".repeat(32),
+            height: 32,
+            header_id: "55".repeat(32),
+        },
+        publication_reservation_bytes: 4 * CHUNK as u64 + 128,
+        objects: vec![
+            object(
+                BftPrivateRetentionInputObjectKindV1::OriginalData,
+                vec![0x5a; 4 * CHUNK as usize + 7],
+            ),
+            object(
+                BftPrivateRetentionInputObjectKindV1::PublicationMetadata,
+                vec![0x19; 48],
+            ),
+        ],
+    };
+    original_input
+        .objects
+        .sort_by(|a, b| a.reference.digest.cmp(&b.reference.digest));
+    let (original, pinned) = original_input.canonical_with_descriptor().unwrap();
     let server = Arc::new(Libp2pNetwork::new(Libp2pNetworkConfig {
         listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
         request_response_timeout: Duration::from_secs(3),
@@ -385,10 +425,12 @@ fn real_original_admission_noise_is_bound_and_charged() {
         blake3::hash(&original).to_hex().to_string(),
     );
     let unbound_request = request.clone();
+    request.read.reference = pinned.clone();
     request.read.requester_peer_id = client.peer_id().to_string();
     request.read.serving_peer_id = server.peer_id().to_string();
     let issuer = Issuer(ed25519_dalek::SigningKey::from_bytes(&[71; 32]));
     let mut body = request.authorization.grant.body.clone();
+    body.reference = pinned.clone();
     body.requester_peer_id = request.read.requester_peer_id.clone();
     body.serving_peer_id = request.read.serving_peer_id.clone();
     request.authorization.grant =
@@ -505,6 +547,41 @@ fn real_original_admission_noise_is_bound_and_charged() {
     .unwrap();
     assert_eq!(staged, original);
     assert!(authority.charges.load(Ordering::SeqCst) > previous_charge);
+    let archive_root = std::env::temp_dir().join(format!(
+        "o7-original-noise-cas-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    ));
+    std::fs::create_dir(&archive_root).unwrap();
+    struct ArchiveRoot(std::path::PathBuf);
+    impl Drop for ArchiveRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let archive_root = ArchiveRoot(archive_root);
+    let archive = LocalBftSuccessorArchiveStoreV1::new(oasis7_distfs::LocalCasStore::new(
+        archive_root.0.join("cas"),
+    ))
+    .unwrap();
+    let verified_cold =
+        super::super::admission_input_client_v2::fetch_original_admission_input_v2_into_cas(
+            &client,
+            server.peer_id(),
+            &request,
+            &authority.bound,
+            |preimage| Ok(hex::encode(subject.sign(preimage).to_bytes())),
+            &archive,
+        )
+        .unwrap();
+    assert_eq!(verified_cold, original_input);
+    assert_eq!(
+        archive.load_original_admission_input(&pinned).unwrap(),
+        original_input
+    );
     let reads_after_success = authority.reads.load(Ordering::SeqCst);
 
     // Wrong actual peer and wrong grant cannot initiate any part read.

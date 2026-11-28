@@ -2,11 +2,14 @@
 import errno
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
+import tarfile
 import tomllib
 
 
@@ -187,11 +190,93 @@ def capture(root, base, extra=()):
     return dict(summary=summary, files=files, entries=entries, submodules=submodules)
 
 
+def _assert_no_symlinks(path):
+    if path.is_symlink():
+        raise Blocked(f'refusing symlinked trusted policy path: {path}')
+    if path.is_dir():
+        for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+            cur = Path(dirpath)
+            if cur.is_symlink():
+                raise Blocked(f'refusing symlinked trusted policy directory: {cur}')
+            for entry in (*dirnames, *filenames):
+                if (cur / entry).is_symlink():
+                    raise Blocked(f'refusing symlinked trusted policy entry: {cur / entry}')
+
+
+def extract_authority_engine(root, ref, dest):
+    """Safely extract run-ci-authority-python.py and scripts/ci_engine from ref:scripts."""
+    extracted = {}
+    launcher_spec = f'{ref}:scripts/run-ci-authority-python.py'
+    if subprocess.run(
+        ['git', '-C', str(root), 'cat-file', '-e', launcher_spec],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=environment(),
+    ).returncode == 0:
+        data = git(root, 'show', launcher_spec)
+        (dest / 'run-ci-authority-python.py').write_bytes(data)
+        extracted['run-ci-authority-python.py'] = data
+    engine_spec = f'{ref}:scripts/ci_engine'
+    if subprocess.run(
+        ['git', '-C', str(root), 'cat-file', '-e', engine_spec],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=environment(),
+    ).returncode != 0:
+        return extracted
+    listing = git(root, 'ls-tree', '-r', engine_spec).decode('utf-8')
+    for line in listing.splitlines():
+        if not line:
+            continue
+        meta, rel = line.split('\t', 1)
+        mode, obj_type, _ = meta.split(' ', 2)
+        if mode not in ('100644', '100755') or obj_type != 'blob':
+            raise Blocked(f'untrusted ci_engine tree entry at {ref}: {mode} {rel}')
+    archive_bytes = git(root, 'archive', '--format=tar', f'{ref}:scripts', 'ci_engine')
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode='r:') as tar:
+        members = tar.getmembers()
+        for member in members:
+            parts = Path(member.name).parts
+            if (not (member.isfile() or member.isdir())
+                    or not member.name.startswith('ci_engine')
+                    or '..' in parts or Path(member.name).is_absolute()):
+                raise Blocked(f'untrusted ci_engine archive member: {member.name}')
+        tar.extractall(dest, filter='data')
+    engine_dir = dest / 'ci_engine'
+    _assert_no_symlinks(engine_dir)
+    for file_path in sorted(p for p in engine_dir.rglob('*') if p.is_file()):
+        extracted[file_path.relative_to(dest).as_posix()] = file_path.read_bytes()
+    return extracted
+
+
 def referenced_inputs(root, snapshot, planner_path):
     """Use the trusted Rust tokenizer; this adds input bytes, never selection rules."""
-    spec = importlib.util.spec_from_file_location('local_trusted_scope', planner_path)
-    planner = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(planner)
+    planner_file = Path(planner_path)
+    _assert_no_symlinks(planner_file)
+    if planner_file.parent.is_symlink():
+        raise Blocked(f'refusing symlinked trusted policy directory: {planner_file.parent}')
+    sibling_engine = planner_file.parent / 'ci_engine'
+    saved_modules = {}
+    injected_engine = False
+    if sibling_engine.exists() or sibling_engine.is_symlink():
+        _assert_no_symlinks(sibling_engine)
+        init_file = sibling_engine / '__init__.py'
+        if not init_file.is_file():
+            raise Blocked(f'trusted sibling ci_engine missing __init__.py: {sibling_engine}')
+        saved_modules = {k: v for k, v in sys.modules.items() if k == 'ci_engine' or k.startswith('ci_engine.')}
+        for k in list(saved_modules):
+            del sys.modules[k]
+        eng_spec = importlib.util.spec_from_file_location(
+            'ci_engine', init_file, submodule_search_locations=[str(sibling_engine.resolve())])
+        eng_mod = importlib.util.module_from_spec(eng_spec)
+        sys.modules['ci_engine'] = eng_mod
+        eng_spec.loader.exec_module(eng_mod)
+        injected_engine = True
+    try:
+        spec = importlib.util.spec_from_file_location('local_trusted_scope', planner_file)
+        planner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(planner)
+    finally:
+        if injected_engine:
+            for k in [k for k in sys.modules if k == 'ci_engine' or k.startswith('ci_engine.')]:
+                del sys.modules[k]
+            sys.modules.update(saved_modules)
     files = snapshot['files']
     manifests = {}
     for path, (_, data) in files.items():

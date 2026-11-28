@@ -6,7 +6,7 @@ use crate::runtime::{
     classify_cognition_commit_error,
 };
 use crate::simulator::h_v1;
-use oasis7::simulator::DecisionResponseExplanation;
+use oasis7_runtime_host::decision_provider::DecisionResponseExplanation;
 use oasis7_simulator::Action as SimulatorAction;
 
 impl ViewerRuntimeLiveServer {

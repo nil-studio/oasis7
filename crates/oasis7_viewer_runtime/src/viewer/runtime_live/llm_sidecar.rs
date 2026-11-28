@@ -1,5 +1,5 @@
 #[cfg(any(test, feature = "test_tier_required"))]
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};

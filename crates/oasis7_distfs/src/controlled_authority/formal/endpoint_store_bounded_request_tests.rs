@@ -446,6 +446,15 @@ fn public_endpoint_bounded_query_consumes_real_signed_states_in_original_pool() 
         assert_eq!(data.state(), Some(expected), "{stage}");
         assert!(data.uses_budget(&memory));
         assert!(memory.used() > 0, "{stage}");
+        // Real signed five-state source, not a constructed DTO or fixed cap:
+        // admit clone/response workspace *before* any caller copies it.
+        let original = memory.used();
+        let copy_bytes = data.response_copy_workspace().unwrap();
+        assert!(copy_bytes >= 2 * 1024 * 1024, "{stage}");
+        let copy_fee = memory.reserve(copy_bytes, MemoryClass::Ordinary).unwrap();
+        assert!(memory.used() >= original + copy_bytes, "{stage}");
+        drop(copy_fee);
+        assert_eq!(memory.used(), original, "{stage}");
         drop(data);
         assert_eq!(memory.used(), 0, "{stage}");
     });

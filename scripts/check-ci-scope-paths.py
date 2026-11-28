@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import hashlib
 import importlib.util
@@ -406,6 +407,220 @@ def check_ci_fast_path_health(
                 f"production_cfg={prod_cfg}, ignored_risk={ignored_risk}"
             )
 
+    # 4. Same-tree package_capabilities alignment and 5 end-to-end routing probes.
+    if "package_capabilities" in data:
+        engine = selector._load_sibling_ci_engine()
+        root_manifest = repo_root / "Cargo.toml"
+        if engine is not None and root_manifest.is_file():
+            try:
+                root_toml = tomllib.loads(root_manifest.read_text(encoding="utf-8"))
+                ws_members = {}
+                for member in (root_toml.get("workspace") or {}).get("members", ()):
+                    mp = repo_root / member / "Cargo.toml"
+                    if mp.is_file():
+                        parsed = tomllib.loads(mp.read_text(encoding="utf-8"))
+                        pkg_name = (parsed.get("package") or {}).get("name")
+                        if pkg_name:
+                            ws_members[pkg_name] = set((parsed.get("features") or {}).keys())
+                engine.validate_package_capabilities_against_workspace(
+                    data["package_capabilities"], set(ws_members),
+                    package_groups=data.get("package_groups"), known_groups=set(data.get("groups", ())),
+                    package_features=ws_members,
+                )
+            except (OSError, ValueError, KeyError, UnicodeError) as exc:
+                errors.append(f"package_capabilities workspace alignment failed: {exc}")
+        probes = [
+            ("single-pkg-inline", {
+                "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False, "ordinary_execution": "inline",
+                "ordinary_partitions": ["all"], "ordinary_fast_targets": [{"package": "oasis7_runtime"}],
+                "oasis7_required_packages": ["oasis7_runtime"], "oasis7_required_wasm_packages": [],
+                "workspace_support_profiles": [],
+            }, lambda c: c["mode"] == "inline" and c["partitions"] == ["all"] and c["candidate_container_eligible"] is True),
+            ("dual-pkg-inline", {
+                "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False, "ordinary_execution": "inline",
+                "ordinary_partitions": ["oasis7_runtime", "oasis7_world_state"],
+                "ordinary_fast_targets": [{"package": "oasis7_runtime"}, {"package": "oasis7_world_state"}],
+                "oasis7_required_packages": ["oasis7_runtime", "oasis7_world_state"], "oasis7_required_wasm_packages": [],
+                "workspace_support_profiles": [],
+            }, lambda c: c["mode"] == "inline" and c["partitions"] == ["oasis7_runtime", "oasis7_world_state"]),
+            ("heavy-lib-split", {
+                "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False, "ordinary_artifact_partition_version": 2,
+                "ordinary_universal_sharding_version": 1,
+                "oasis7_required_packages": ["oasis7_runtime", "oasis7_world_state"],
+                "oasis7_required_wasm_packages": [], "workspace_support_profiles": [],
+            }, lambda c: c["mode"] == "artifact-v2" and c["supports_universal_v2"] is True
+                         and "runtime-tests:even" in c["artifact_partitions"] and "runtime-tests:odd" in c["artifact_partitions"]),
+            ("host-docker-risk-fallback", {
+                "scope": "full", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False,
+                "ordinary_risk_targets": [{"package": "oasis7_chain_runtime", "target_kind": "test"}],
+                "oasis7_required_packages": ["oasis7_chain_runtime", "oasis7_runtime"],
+                "oasis7_required_wasm_packages": [], "workspace_support_profiles": [],
+            }, lambda c: c["candidate_container_eligible"] is False
+                         and "builtin_test_modules" in c["required_host_docker_wasm_fixtures"]
+                         and "provider_preview_wasm" in c["required_host_docker_wasm_fixtures"]),
+            ("strict-clippy-delegation", {
+                "scope": "targeted", "execution_profile": "pr-fast", "fast_plan_version": 1,
+                "test_policy_changed": False, "ordinary_execution": "inline",
+                "ordinary_partitions": ["oasis7_runtime", "oasis7_world_state"],
+                "ordinary_fast_targets": [{"package": "oasis7_runtime"}, {"package": "oasis7_world_state"}],
+                "distfs_clippy_group": "rust_baseline",
+                "oasis7_required_packages": ["oasis7_runtime", "oasis7_world_state"],
+                "oasis7_required_wasm_packages": [], "workspace_support_profiles": [],
+            }, lambda c: len(c["delegated_clippy"]) == len(selector.DISTFS_CLIPPY_TARGETS) and bool(c["delegated_clippy"])),
+        ]
+        for label, sample_plan, predicate in probes:
+            try:
+                out = selector.materialize_execution_contracts(data, dict(sample_plan))
+                if not predicate(out["ordinary_execution_contract"]):
+                    errors.append(f"routing probe {label!r} failed contract assertion")
+            except Exception as exc:
+                errors.append(f"routing probe {label!r} raised error: {exc}")
+
+    return errors
+
+
+_AUDITED_GENERIC_WORDS = frozenset({
+    "test", "tests", "main", "lib", "core", "cli", "app", "bin", "api",
+    "sdk", "web", "ui", "net", "node", "store", "common", "types", "proto",
+    "utils", "tools", "crates", "build", "check", "bench", "example", "examples",
+})
+
+
+def collect_workspace_forbidden_identifiers(repo_root: Path) -> set[str]:
+    """Dynamically collect all workspace/standalone Cargo package, target, and crate/tool dir names."""
+    forbidden: set[str] = set()
+    for base_name in ("crates", "tools"):
+        base_dir = repo_root / base_name
+        if base_dir.is_dir():
+            for child in base_dir.iterdir():
+                if child.is_dir() and not child.name.startswith("."):
+                    forbidden.add(child.name)
+    manifests: list[Path] = []
+    root_manifest = repo_root / "Cargo.toml"
+    if root_manifest.is_file():
+        manifests.append(root_manifest)
+    for base_name in ("crates", "tools"):
+        base_dir = repo_root / base_name
+        if base_dir.is_dir():
+            for path in base_dir.rglob("Cargo.toml"):
+                if "target" not in path.parts and "third_party" not in path.parts:
+                    manifests.append(path)
+    for manifest in manifests:
+        try:
+            parsed = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            continue
+        pkg = parsed.get("package")
+        if isinstance(pkg, dict) and isinstance(pkg.get("name"), str):
+            forbidden.add(pkg["name"])
+        lib = parsed.get("lib")
+        if isinstance(lib, dict) and isinstance(lib.get("name"), str):
+            forbidden.add(lib["name"])
+        for section in ("bin", "test"):
+            entries = parsed.get(section)
+            if isinstance(entries, list):
+                for entry in entries:
+                    if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+                        forbidden.add(entry["name"])
+    return {name for name in forbidden if len(name) >= 3 and name not in _AUDITED_GENERIC_WORDS}
+
+
+def check_ci_engine_zero_business_identifiers(repo_root: Path) -> list[str]:
+    """AST-scan scripts/ci_engine/**/*.py to enforce zero workspace package/target/dir literals."""
+    engine_dir = repo_root / "scripts/ci_engine"
+    if not engine_dir.is_dir():
+        return []
+    forbidden = collect_workspace_forbidden_identifiers(repo_root)
+    if not forbidden:
+        return []
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_])(?:" + "|".join(re.escape(w) for w in sorted(forbidden, key=len, reverse=True)) + r")(?![A-Za-z0-9_])"
+    )
+    errors: list[str] = []
+    for py_file in sorted(engine_dir.rglob("*.py")):
+        rel = py_file.relative_to(repo_root).as_posix()
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=rel)
+        except SyntaxError as exc:
+            errors.append(f"{rel}: syntax error during AST gate: {exc}")
+            continue
+        for node in ast.walk(tree):
+            candidates: list[tuple[int, str]] = []
+            lineno = getattr(node, "lineno", 0)
+            if isinstance(node, ast.Name):
+                candidates.append((lineno, node.id))
+            elif isinstance(node, ast.Attribute):
+                candidates.append((lineno, node.attr))
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                candidates.append((lineno, node.name))
+            elif isinstance(node, ast.arg):
+                candidates.append((lineno, node.arg))
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                candidates.append((lineno, node.value))
+            for line, text in candidates:
+                for match in pattern.finditer(text):
+                    errors.append(
+                        f"{rel}:{line}: forbidden workspace identifier {match.group(0)!r} in L1 pure engine"
+                    )
+    return errors
+
+
+def check_candidate_executors_zero_engine_imports(repo_root: Path) -> list[str]:
+    """Enforce zero direct or transitive ci_engine/planner imports in ci-test-artifacts.py and ci-tests.sh."""
+    errors: list[str] = []
+
+    def scan_source(label: str, source: str) -> None:
+        try:
+            tree = ast.parse(source, filename=label)
+        except SyntaxError as exc:
+            errors.append(f"{label}: syntax error during executor import gate: {exc}")
+            return
+        for node in ast.walk(tree):
+            line = getattr(node, "lineno", 0)
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "ci_engine" or alias.name.startswith("ci_engine."):
+                        errors.append(f"{label}:{line}: forbidden import {alias.name!r} in candidate executor")
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                if mod == "ci_engine" or mod.startswith("ci_engine."):
+                    errors.append(f"{label}:{line}: forbidden from-import {mod!r} in candidate executor")
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if "ci_engine" in node.value or "plan-rust-required-scope" in node.value:
+                    errors.append(f"{label}:{line}: forbidden planner/engine reference {node.value!r} in candidate executor")
+
+    artifacts_py = repo_root / "scripts/ci-test-artifacts.py"
+    if artifacts_py.is_file():
+        scan_source("scripts/ci-test-artifacts.py", artifacts_py.read_text(encoding="utf-8"))
+    ci_tests_sh = repo_root / "scripts/ci-tests.sh"
+    if ci_tests_sh.is_file():
+        sh_text = ci_tests_sh.read_text(encoding="utf-8")
+        for idx, match in enumerate(re.finditer(r"<<'?PY'?\n(.*?)\nPY\b", sh_text, re.S), 1):
+            scan_source(f"scripts/ci-tests.sh#PY-{idx}", match.group(1))
+    return errors
+
+
+def check_executor_hardcoded_package_ratchet(repo_root: Path) -> list[str]:
+    """S5 ratchet: enforce 0 transitional S2 shims and 0 hardcoded support tuples in executors."""
+    errors: list[str] = []
+    checks = (
+        ("scripts/ci-tests.sh", ("_S2_FALLBACK_SUPPORT", "_S2_FALLBACK_HOST", "_s2_legacy_support_contract",
+                                 "SUPPORT_PROFILES", "WORKSPACE_SUPPORT_HOST_PROFILES")),
+        ("scripts/ci-test-artifacts.py", ("_s2_legacy_ordinary_contract",)),
+        ("scripts/plan-rust-required-scope.py", ("legacy_eligible",)),
+    )
+    for rel, forbidden_tokens in checks:
+        path = repo_root / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            if token in text:
+                errors.append(f"{rel}: S5 ratchet violation: forbidden transitional/hardcoded token {token!r}")
     return errors
 
 
@@ -439,6 +654,26 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {rel_path} (at {loc})", file=sys.stderr)
         return 1
 
+    engine_errors = check_ci_engine_zero_business_identifiers(repo_root)
+    if engine_errors:
+        print(
+            "check-ci-scope-paths: FAIL: scripts/ci_engine contains forbidden workspace identifier(s):",
+            file=sys.stderr,
+        )
+        for err in engine_errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
+
+    executor_errors = check_candidate_executors_zero_engine_imports(repo_root) + check_executor_hardcoded_package_ratchet(repo_root)
+    if executor_errors:
+        print(
+            "check-ci-scope-paths: FAIL: candidate executor import or S5 ratchet violation(s):",
+            file=sys.stderr,
+        )
+        for err in executor_errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
+
     run_fast_canary = not args.skip_fast_paths and (
         args.check_fast_paths
         or (scope_file is None and (repo_root / "scripts/plan-rust-required-scope.py").is_file())
@@ -453,7 +688,7 @@ def main(argv: list[str] | None = None) -> int:
             for err in fast_errors:
                 print(f"  - {err}", file=sys.stderr)
             return 1
-        print("check-ci-scope-paths: OK (0 missing exact paths, fast-path anti-fallback canary passed)")
+        print("check-ci-scope-paths: OK (0 missing exact paths, ci_engine AST gate & fast-path canary passed)")
         return 0
 
     print("check-ci-scope-paths: OK (0 missing exact paths)")

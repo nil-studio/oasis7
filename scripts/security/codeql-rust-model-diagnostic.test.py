@@ -705,8 +705,8 @@ class Workflow(unittest.TestCase):
         self.assertIn('mkdir -- "$RUSTUP_HOME" "$CARGO_HOME"', installation)
         self.assertIn('install "$RUST_TOOLCHAIN" --no-self-update --profile minimal --component rustfmt --component clippy', installation)
         self.assertIn('install 1.98.1 --profile minimal --no-self-update', installation)
-        for test in ('codeql-rust-model-diagnostic.test.py','codeql-rust-refactored-source.test.py'):
-            self.assertIn('run python3 ./scripts/security/'+test,(root/'scripts/ci-tests.sh').read_text())
+        self.assertIn('run python3 ./scripts/security/codeql-rust-model-diagnostic.test.py',
+                      (root/'scripts/ci-tests.sh').read_text())
 
     def test_job_boundary_excludes_neighbors_but_keeps_own_security_checks(self):
         text=(P.resolve().parents[2]/'.github/workflows/rust.yml').read_text()

@@ -1,7 +1,7 @@
 #[cfg(target_arch = "wasm32")]
 use super::super::decision_trace::{is_budget_exhausted_wait, is_trace_only_overflow};
 use super::*;
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 
 impl RuntimeLlmSidecar {
     pub(in crate::viewer::runtime_live) fn next_llm_decision(

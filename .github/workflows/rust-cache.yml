@@ -415,13 +415,11 @@ jobs:
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features test_tier_required --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features wasmtime --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_launcher_backend --bins
-          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_client_launcher --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --bins
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --features test_tier_required --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --target wasm32-unknown-unknown --lib
-          env -u RUSTC_WRAPPER cargo test --locked -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service --no-run
 
   rust-image-component-cache:
     cache-mode: write
@@ -450,7 +448,6 @@ jobs:
               {"profile":"native","family":"rust-image-components","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","namespace":"ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","options":"","mold-dir":""},
               {"profile":"node","family":"rust-image-components","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","namespace":"ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","options":"--user 1001:1001","mold-dir":"oasis7-node-mold"},
               {"profile":"net","family":"rust-image-net","image":"ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6","namespace":"ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6","options":"--user 1001:1001","mold-dir":"oasis7-net-mold"},
-              {"profile":"launcher","family":"rust-image-launcher","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6","namespace":"ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6","options":"","mold-dir":""},
               {"profile":"tooling","family":"rust-image-tooling","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc","namespace":"ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc","options":"","mold-dir":""},
               {"profile":"support","family":"rust-image-support","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2","namespace":"ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2","options":"","mold-dir":""}
             ]')
@@ -525,18 +522,33 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     if: >-
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     timeout-minutes: 22
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: --user 1001:1001 --init
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUST_RELEASE_WEB_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
+      - name: Verify the fixed Release Web image and main source
+        run: python3 scripts/ci-release-web-image.py --preflight --image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591 --source "$GITHUB_SHA"
+      - name: Configure pinned mold without writing the host auxiliary cache
+        run: python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/release-web-mold"
       - name: Verify current main cache source
         shell: bash
         run: |
@@ -544,19 +556,8 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
       - name: Install viewer web dependencies
         run: npm ci --prefix crates/oasis7_viewer
-      - name: Install pinned Rust toolchain
-        run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
-          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
-          rustup default "${RUST_TOOLCHAIN}"
-      - name: Normalize Rust cache toolchains
-        shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - name: Install Web cache admission
         id: dependency-cache-tools
         continue-on-error: true
@@ -567,12 +568,14 @@ jobs:
         env:
           NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
           OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
-          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web
+          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web-image
           OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ github.sha }}
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
         with:
-          shared-key: release-packages-web-wasm-trusted-v3
+          shared-key: ci-rust-release-web-f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST
           save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) }}
           cache-provider: github
           cache-on-failure: false
@@ -595,9 +598,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p output/release/viewer-optional-payload output/release/web-launcher-dist
+          mkdir -p output/release/viewer-optional-payload
           OASIS7_FORCE_VIEWER_SOFTWARE_SAFE_BUILD=1 ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload
-          (
-            cd crates/oasis7_client_launcher
-            env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist
-          )

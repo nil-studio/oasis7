@@ -10,6 +10,7 @@ use super::admission_input_request_v2::{
 use super::admission_input_response_v2::OriginalAdmissionBatchResponseV2;
 use oasis7_distfs::protected_bft_v3::{
     BftAdmissionInputTransferPlanV2, BftAdmissionInputV2StreamStage,
+    BftPrivateRetentionAdmissionInputV1, LocalBftSuccessorArchiveStoreV1,
 };
 use oasis7_net::Libp2pNetwork;
 use std::{
@@ -147,6 +148,78 @@ where
     let deadline = Instant::now()
         .checked_add(ATTEMPT_LIMIT)
         .ok_or("original admission attempt deadline overflow")?;
+    fetch_original_admission_input_v2_before_deadline(
+        network,
+        peer,
+        template,
+        context,
+        &mut sign_subject,
+        sink,
+        deadline,
+    )
+}
+
+/// A real authenticated Noise attempt, followed by canonical original input
+/// validation and immutable CAS exact readback. External protected 4-GiB
+/// transfer budget, independent issuer/custody, buffer holds and real Runtime
+/// acceptance must already be provided by the operator: a local CAS object
+/// does not install or authorize a BFT successor.
+pub fn fetch_original_admission_input_v2_into_cas<F>(
+    network: &Libp2pNetwork,
+    peer: libp2p::PeerId,
+    template: &AdmissionBatchRequestV2,
+    context: &AdmissionInputBoundContextV2,
+    mut sign_subject: F,
+    archive: &LocalBftSuccessorArchiveStoreV1,
+) -> Result<BftPrivateRetentionAdmissionInputV1, String>
+where
+    F: FnMut(&[u8]) -> Result<String, String>,
+{
+    let deadline = Instant::now()
+        .checked_add(ATTEMPT_LIMIT)
+        .ok_or("original admission attempt deadline overflow")?;
+    let bytes = fetch_original_admission_input_v2_before_deadline(
+        network,
+        peer,
+        template,
+        context,
+        &mut sign_subject,
+        Vec::new(),
+        deadline,
+    )?;
+    if Instant::now() >= deadline {
+        return Err("original admission attempt deadline exhausted before CAS".into());
+    }
+    archive
+        .persist_original_admission_input_raw(&template.read.reference, &bytes)
+        .map_err(|error| error.to_string())?;
+    if Instant::now() >= deadline {
+        return Err("original admission attempt deadline exhausted after CAS".into());
+    }
+    // Release the original staging allocation before a separate cold read.
+    drop(bytes);
+    let readback = archive
+        .load_original_admission_input(&template.read.reference)
+        .map_err(|error| error.to_string())?;
+    if Instant::now() >= deadline {
+        return Err("original admission attempt deadline exhausted after readback".into());
+    }
+    Ok(readback)
+}
+
+fn fetch_original_admission_input_v2_before_deadline<W, F>(
+    network: &Libp2pNetwork,
+    peer: libp2p::PeerId,
+    template: &AdmissionBatchRequestV2,
+    context: &AdmissionInputBoundContextV2,
+    sign_subject: &mut F,
+    sink: W,
+    deadline: Instant,
+) -> Result<W, String>
+where
+    W: Write,
+    F: FnMut(&[u8]) -> Result<String, String>,
+{
     template.verify_bound_subject(context)?;
     if template.read.requester_peer_id != network.peer_id().to_string()
         || template.read.serving_peer_id != peer.to_string()
@@ -162,7 +235,7 @@ where
         template,
         AdmissionBatchOperationV2::Manifest,
         context,
-        &mut sign_subject,
+        sign_subject,
     )?;
     let raw_manifest = query(network, peer, &manifest, &mut recent, deadline)?;
     OriginalAdmissionBatchResponseV2::decode_for(&raw_manifest, &manifest)?;
@@ -182,7 +255,7 @@ where
                 part_count,
             },
             context,
-            &mut sign_subject,
+            sign_subject,
         )?;
         let raw_response = query(network, peer, &request, &mut recent, deadline)?;
         OriginalAdmissionBatchResponseV2::decode_and_stage(&raw_response, &request, &mut staging)?;

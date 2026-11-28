@@ -225,7 +225,9 @@ impl World {
 
 impl World {
     pub(super) fn consensus_height_for_tick(&self, tick: WorldTime) -> Result<u64, WorldError> {
-        if let Some(record) = self.read_tick_consensus_at_tick(tick)? {
+        if tick <= self.state.time
+            && let Some(record) = self.read_tick_consensus_at_tick(tick)?
+        {
             return Ok(record.certificate.consensus_height);
         }
         self.tick_consensus_record_count()

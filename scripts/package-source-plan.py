@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Resolve package source once; refs remain data, never shell source."""
 import argparse
+import importlib.util
+from pathlib import Path
 import json
 import os
 import re
@@ -50,12 +52,22 @@ def resolve(requested, release=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--release", action="store_true")
+    parser.add_argument("--release-web-image-source")
     args = parser.parse_args()
     plan = resolve(os.environ["REQUESTED_REF"], args.release)
+    image_compatible = None
+    if args.release_web_image_source:
+        spec = importlib.util.spec_from_file_location("release_web_image", Path(__file__).with_name("ci-release-web-image.py"))
+        image = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(image)
+        image_compatible = all(image.compatible(Path.cwd(), args.release_web_image_source, sha)
+                               for sha in (plan["checkoutSha"], plan["workflowSha"]))
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key in ("checkoutSha", "version", "resolvedRef"):
             output.write(key + "=" + plan[key] + "\n")
         output.write("sourcePlan=" + json.dumps(plan, separators=(",", ":")) + "\n")
+        if image_compatible is not None:
+            output.write("webImageCompatible=" + str(image_compatible).lower() + "\n")
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write("```json\n" + json.dumps(plan, indent=2) + "\n```\n")

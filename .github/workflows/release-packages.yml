@@ -49,6 +49,8 @@ jobs:
         shell: bash
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
+      webImageCompatible: ${{ steps.source.outputs.webImageCompatible }}
+      soakImage: ${{ steps.soak-image.outputs.compatible }}
       version: ${{ steps.source.outputs.version }}
       resolvedRef: ${{ steps.source.outputs.resolvedRef }}
       sourcePlan: ${{ steps.source.outputs.sourcePlan }}
@@ -66,13 +68,18 @@ jobs:
         id: source
         env:
           REQUESTED_REF: ${{ inputs.tag || github.ref }}
-        run: python3 scripts/package-source-plan.py --release
+        run: python3 scripts/package-source-plan.py --release --release-web-image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591
       - name: Require complete CI for the exact package source
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ steps.source.outputs.checkoutSha }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: python3 scripts/ci-full-result.py verify --source "$SOURCE_SHA"
+      - name: Decide soak image compatibility for the verified source
+        id: soak-image
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.checkoutSha }}
+        run: python3 scripts/package-release-soak-image.py "$SOURCE_SHA"
 
   cache-bootstrap-maintenance:
     needs: plan
@@ -115,6 +122,9 @@ jobs:
   release_gate_runtime_core:
     cache-mode: read
     name: release-gate-runtime-core
+    permissions:
+      contents: read
+      packages: read
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -152,9 +162,20 @@ jobs:
           head_oid="$(git rev-parse --verify 'HEAD^{commit}')"
           printf 'OASIS7_PRODUCT_DOC_BASE=%s\n' "$base_oid" >>"$GITHUB_ENV"
           printf 'OASIS7_PRODUCT_DOC_HEAD=%s\n' "$head_oid" >>"$GITHUB_ENV"
+      - name: Select runtime core image for the verified source
+        id: core-image
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+        run: |
+          launcher="$RUNNER_TEMP/oasis7-runtime-core-image.sh"
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/package-release-runtime-sync-image.sh" >"$launcher"
+          bash "$launcher" --select-core
       - name: Install product-document Markdown parser
+        if: steps.core-image.outputs.enabled == 'false'
         run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
       - name: Install pinned Rust toolchain
+        if: steps.core-image.outputs.enabled == 'false'
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
@@ -162,15 +183,16 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
+        if: steps.core-image.outputs.enabled == 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y             jq             netcat-openbsd             pkg-config             libwayland-dev             wayland-protocols             libxkbcommon-dev             libx11-dev             libxi-dev             libxcursor-dev             libxrandr-dev             libxinerama-dev             libasound2-dev             libudev-dev
       - name: Normalize Rust cache toolchains
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.core-image.outputs.enabled == 'false'
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.core-image.outputs.enabled == 'false'
         with:
           shared-key: ci-shared-native-trusted-v4
           save-if: false
@@ -179,9 +201,18 @@ jobs:
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Run runtime core release gate
         shell: bash
+        env:
+          USE_CORE_IMAGE: ${{ steps.core-image.outputs.enabled }}
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          GHCR_TOKEN: ${{ steps.core-image.outputs.enabled == 'true' && github.token || '' }}
         run: |
           mkdir -p .tmp/release_gate_runtime_core
-          ./scripts/ci-tests.sh full-core | tee .tmp/release_gate_runtime_core/ci-tests-full-core.log
+          if [[ "${USE_CORE_IMAGE:-false}" == true ]]; then
+            bash "$RUNNER_TEMP/oasis7-runtime-core-image.sh" --core |
+              tee .tmp/release_gate_runtime_core/ci-tests-full-core.log
+          else
+            ./scripts/ci-tests.sh full-core | tee .tmp/release_gate_runtime_core/ci-tests-full-core.log
+          fi
       - name: Upload runtime core gate summary
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -399,6 +430,20 @@ jobs:
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.plan.outputs.webImageCompatible == 'true' && 'ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59' || '' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+      options: --user 1001:1001 --init
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_WEB_IMAGE_COMPATIBLE: ${{ needs.plan.outputs.webImageCompatible }}
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -406,10 +451,20 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: .github/actions/setup-linux-mold
+          fetch-depth: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true' && '0' || '1' }}
+          sparse-checkout: ${{ env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && '.github/actions/setup-linux-mold' || '' }}
+      - name: Verify the fixed Release Web image from trusted workflow tools
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 scripts/ci-release-web-image.py --preflight --image-source d5319297d754a9c7d4de347a2ce8e1a20ba43591 --source "$EXPECTED_WORKFLOW_SHA"
       - name: Configure mold for Linux host linking
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         uses: ./.github/actions/setup-linux-mold
       # Omitting sparse-checkout disables it and restores the full business source.
+      - name: Configure pinned mold without writing the host auxiliary cache
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'
+        run: python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/release-web-mold"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -420,16 +475,19 @@ jobs:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         with:
           node-version: '22'
       - name: Install viewer web dependencies
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned Rust toolchain
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
           rustup default "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -448,13 +506,24 @@ jobs:
             libasound2-dev \
             libudev-dev
       - name: Normalize Rust cache toolchains
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && (hashFiles('scripts/ci-rust-cache-toolchains.py') != '')
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE != 'true' && (hashFiles('scripts/ci-rust-cache-toolchains.py') != '')
         with:
           shared-key: release-packages-web-wasm-trusted-v3
+          save-if: false
+          cache-on-failure: false
+      - name: Restore the matching Release Web image dependency cache
+        if: env.RELEASE_WEB_IMAGE_COMPATIBLE == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        env:
+          RUST_RELEASE_WEB_IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
+        with:
+          shared-key: ci-rust-release-web-f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST
           save-if: false
           cache-on-failure: false
       - name: Run web strict release gate
@@ -481,9 +550,21 @@ jobs:
   release_gate_soak:
     cache-mode: read
     name: release-gate-soak
+    permissions:
+      contents: read
+      packages: read
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    container:
+      image: ${{ needs.plan.outputs.soakImage == 'true' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42' || '' }}
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -499,17 +580,23 @@ jobs:
           sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ job.container.id && format('{0}/oasis7-release-soak-mold', runner.temp) || '' }}
       # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
           persist-credentials: false
+      - name: Trust the source workspace in the job container
+        if: job.container.id
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Verify planned source HEAD
         shell: bash
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Install pinned Rust toolchain
+        if: ${{ !job.container.id }}
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
@@ -517,6 +604,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
+        if: ${{ !job.container.id }}
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -533,17 +621,33 @@ jobs:
             libasound2-dev \
             libudev-dev
       - name: Normalize Rust cache toolchains
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && !job.container.id
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && !job.container.id
         with:
           shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+      - name: Verify the fixed soak tools and process environment
+        if: job.container.id
+        run: |
+          test "$(id -u):$(id -g)" = 1001:1001
+          [[ "$(< /proc/1/comm)" =~ ^(docker-init|tini)$ ]]
+          test ! -w /var/run/docker.sock
+          (( BASH_VERSINFO[0] >= 4 ))
+          export RUSTUP_AUTO_INSTALL=0
+          test "$(rustc --version | cut -d ' ' -f 2)" = "$RUST_TOOLCHAIN"
+          rustup target list --toolchain "$RUST_TOOLCHAIN" --installed | grep -Fx wasm32-unknown-unknown
+          rustup target list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx "$OASIS7_WASM_TARGET"
+          rustup component list --toolchain "$OASIS7_WASM_TOOLCHAIN" --installed | grep -Fx rust-src
+          pkg-config --exists wayland-client xkbcommon x11 xi xcursor xrandr xinerama alsa libudev
+          jq --version
+          curl --version
+          printf 'RUSTUP_AUTO_INSTALL=0\n' >> "$GITHUB_ENV"
       - name: Prewarm soak runtime binary
         run: env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_chain_runtime
       - name: Run soak release gate
@@ -738,7 +842,7 @@ jobs:
           trunk --version | grep -Fqx "trunk ${TRUNK_VERSION}"
       - name: Build web dists
         run: |
-          mkdir -p output/release/web-dist output/release/web-launcher-dist output/release/viewer-optional-payload
+          mkdir -p output/release/web-dist output/release/viewer-optional-payload
           (
             ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload
             ./scripts/copy-viewer-web-dist.sh \
@@ -749,32 +853,11 @@ jobs:
               --optional-payload-dir output/release/viewer-optional-payload \
               --out-file output/release/oasis7-viewer-web-delivery.tar.gz
           )
-          (
-            cd crates/oasis7_client_launcher
-            # Trunk 0.21.14 locks Cargo builds but its separate metadata command needs an adapter.
-            real_cargo="$(command -v cargo)"
-            cargo_adapter="$(mktemp "$RUNNER_TEMP/oasis7-trunk-cargo.XXXXXX")"
-            trap 'rm -f "$cargo_adapter"' EXIT
-            cat > "$cargo_adapter" <<'CARGO_ADAPTER'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          if [[ "${1:-}" == metadata ]]; then
-            set -- "$@" --locked
-          fi
-          unset CARGO
-          exec "$OASIS7_TRUNK_CARGO" "$@"
-          CARGO_ADAPTER
-            chmod 700 "$cargo_adapter"
-            CARGO="$cargo_adapter" OASIS7_TRUNK_CARGO="$real_cargo" \
-              env -u NO_COLOR trunk build --release --locked --dist ../../output/release/web-launcher-dist
-          )
       - name: Upload web dist artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-web-dists
-          path: |
-            output/release/web-dist
-            output/release/web-launcher-dist
+          path: output/release/web-dist
           if-no-files-found: error
       - name: Upload viewer web delivery
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -987,7 +1070,6 @@ jobs:
             --platform "${{ matrix.platform }}" \
             --target-triple "${{ matrix.target_triple }}" \
             --web-dist output/release/web-dist \
-            --web-launcher-dist output/release/web-launcher-dist \
             --out-dir output/release/assets \
             --profile packaging
       - name: Write BUILDINFO into Linux bundle

@@ -89,7 +89,7 @@ Trace refs: O7-REQ-d27a209c-a703-4443-92d9-acadb9820ed2。
 1. **Phase 1 quote。** 复用[签名 metadata 与校验](../../p2p/token/mainchain-token-ideal-transaction.design.md#itx-signed-metadata)、[实际展示边界](../../p2p/token/mainchain-token-ideal-transaction.design.md#itx-surface)。有效 `max_fee/fee_asset_id` 随签名/显示保留，但不从字段存在推定真实 debit、payer/sponsor 或 priority。缺/错必需字段按原解析器拒绝；[Phase 2 原 gate](../../p2p/token/mainchain-token-ideal-transaction.design.md#itx-phase2-gate)未采用时不编造收费正例，也不放宽其他业务的真实费用。
 2. **原领域费用。** C03/C06/C07/C08/C12/C14 分别从原 policy、真实输入/输出及 payer 算本金、费用、hold、结算/退回；使用旧报价、错资产、受限来源、聚合不足和接收溢出反例。收费 attempt、确定未提交、已提交但回复丢失各按原合同核账，不能统一写“失败零费”，也不能为查询原结果重新调用收费业务。复用 [IL-02](industrial-license-and-royalty-settlement.manual.md#il02-use)、[IL-07](industrial-license-and-royalty-settlement.manual.md#il07-recovery)和 [CSF-05](continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-05-budgets)的独立费用闭包。
 3. **无独立 credit 资产。** 分别输入原服务履行事实、情境声誉投影、运行 quota 和未识别的 `credit` 标签；只采用原 producer 的准确单位/用途。标签、付款额、聊天声明或未识别 schema 不被转换成可转账/可兑回资产；缺 producer 不由测试补造 ledger。
-4. **bridge 正常与异常。** 按[原 operator runbook](../../p2p/token/mainchain-token-newapi-quota-bridge.runbook.md)完成获准测试用户/route、正确金额与 deposit token、确认入账、reconcile、远端核对和原订单结果。重复/过期 route、金额/token 不匹配、缺绑定、query mismatch、timeout 分别按原路径保留 `manual_review` 或原真实状态；原链上入账事实不因服务失败消失，未确认服务不能填为已充值。
+4. **bridge 正常与异常。** 若存在独立外部服务额度桥，核对获准测试用户/route、正确金额与 deposit token、确认入账、reconcile、远端核对和原订单结果。重复/过期 route、金额/token 不匹配、缺绑定、query mismatch、timeout 分别保留 `manual_review` 或原真实状态；原链上入账事实不因服务失败消失，未确认服务不能填为已充值。
 5. **bridge 重启与反向拒绝。** 保留原 `external_order_id`、deposit/route/ledger 身份和状态文件，在远端已处理但本地回包丢失后核原订单；不得换订单重发 credit、删 state 重建、口头标成功或将 `close` 当退款。服务 quota/token_key 不提供 `OC <- quota` 兑回、世界库存、治理/工业资格或 Runtime receipt。实际充值、provider 额度消耗和世界执行分别判定；一侧成功不补另外两侧结果。
 
 使用已授权隔离材料；证据只保安全关联和必要摘要，不保存私钥、raw token_key 或完整敏感 bridge state。
@@ -129,7 +129,7 @@ OC 正常样例重发后仍为 A=30、B=10、nonce=3；同 nonce 改 amount 也�
 
 | 已有接点 | 核对方法及结果层 |
 | --- | --- |
-| Launcher [转账构造/提交](../../../crates/oasis7_client_launcher/src/transfer_entry.rs)、[转账面板](../../../crates/oasis7_client_launcher/src/transfer_window.rs) | 校验输入、签名及 live chain/network 来源；缺 identity 按原 guard 拒绝签名。检查提交、状态、history/accounts 的原关联，不把账户余额或“已提交”显示成 World 资格成功。 |
+| Launcher 原 `crates/oasis7_client_launcher/src/transfer_entry.rs`（转账构造/提交）、`crates/oasis7_client_launcher/src/transfer_window.rs`（转账面板） | 校验输入、签名及 live chain/network 来源；缺 identity 按原 guard 拒绝签名。检查提交、状态、history/accounts 的原关联，不把账户余额或“已提交”显示成 World 资格成功。 |
 | [链 transfer API](../../../crates/oasis7_chain_runtime/src/host/transfer_submit_api.rs) 的 `/v1/chain/transfer/submit`、`status`、`history`、`accounts` | 实际解析/鉴权/preflight 与原 nonce；submit success 只代表交入共识，当前 tracker `confirmed` 来自 committed batch，仍须查原 World 结果。重连/查询不到不能用新 nonce补发原未知转账。 |
 | [Phase 1 原验证定位](../../p2p/token/mainchain-token-ideal-transaction.design.md#itx-validation) | 可复用 expired、非法 asset、签名及 restricted-only balance 等[现有测试源码](../../../crates/oasis7_chain_runtime/src/host/transfer_submit_api_tests.rs)；断言定义、静态阅读和实际运行分别记录。 |
 | Viewer [GR-011 目标读面](../../world-simulator/viewer/viewer-governance-targets-uiux.design.md#t-gov-08-gr-011)与实际世界 consumer | 对照 O/W 各自条件、成本、权限、来源、结果及下一步；目标图稿不证明完整写入口。没有真实 route/producer/原件 lookup 时明确缺项，不造资格兑换或恢复按钮。 |

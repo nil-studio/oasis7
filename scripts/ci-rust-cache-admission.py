@@ -43,8 +43,6 @@ FAMILIES = {
                              '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'rust-image-net': ('ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6',
                       '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
-    'rust-image-launcher': ('ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6',
-                           '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'rust-image-tooling': ('ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
                           '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'rust-image-support': ('ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2',
@@ -55,6 +53,8 @@ FAMILIES = {
     'ecs': ('oasis7-ecs-native-linux-ecs-v2', '.github/workflows/ecs-packages.yml', 'native-trusted'),
     'ecs-image': ('oasis7-ecs-native-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
                   '.github/workflows/ecs-packages.yml', 'native-trusted'),
+    'release-web-image': ('ci-rust-release-web-f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59',
+                          '.github/workflows/rust-cache.yml', 'web-wasm-cache'),
     'release-web': ('release-packages-web-wasm-trusted-v3', '.github/workflows/rust-cache.yml', 'web-wasm-cache'),
     'release-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'release-linux-image': ('oasis7-package-native-linux-x64-packaging-image-68c879968b0a578cbb76874d236998ef1c0b3369e456995ecad7f79ce1f4ba42',
@@ -69,7 +69,7 @@ FAMILIES = {
                             '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
 }
 COMPONENT_IMAGE_FAMILIES = frozenset(('rust-image-components', 'rust-image-net',
-                                    'rust-image-launcher', 'rust-image-tooling', 'rust-image-support'))
+                                    'rust-image-tooling', 'rust-image-support'))
 PLATFORMS = {name: (('Linux', 'X64'),) for name in FAMILIES}
 PLATFORMS['release-windows'] = (('Windows', 'X64'),)
 PLATFORMS['release-macos'] = (('macOS', 'ARM64'), ('macOS', 'X64'))
@@ -145,7 +145,7 @@ def trusted_writer(environment, api):
     namespace, workflow, job = FAMILIES[family]
     sha, event, run_id = (environment.get(name, '') for name in
                          ('GITHUB_SHA', 'GITHUB_EVENT_NAME', 'GITHUB_RUN_ID'))
-    rust_full = family in ('shared-native', 'formal-debug', 'formal-endpoint', 'release-web')
+    rust_full = family in ('shared-native', 'formal-debug', 'formal-endpoint', 'release-web', 'release-web-image')
     component_image = family in COMPONENT_IMAGE_FAMILIES
     ordinary_image = family == 'ordinary-image'
     events = (('push', 'schedule', 'workflow_dispatch') if ordinary_image else
@@ -184,6 +184,11 @@ def trusted_writer(environment, api):
         if (environment.get('ORDINARY_BUILD_IMAGE') != expected_image
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('ordinary dependency upload requires its exact image and GitHub provider')
+    if family == 'release-web-image':
+        expected_image = 'ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:' + namespace.removeprefix('ci-rust-release-web-')
+        if (environment.get('RUST_RELEASE_WEB_IMAGE') != expected_image
+                or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
+            raise AdmissionError('Web dependency upload requires its exact image and GitHub provider')
     if family == 'ecs-image':
         expected_image = 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + namespace.removeprefix('oasis7-ecs-native-image-')
         if (environment.get('RUST_ECS_NATIVE_IMAGE') != expected_image

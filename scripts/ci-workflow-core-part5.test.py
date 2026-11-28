@@ -287,7 +287,17 @@ class WorkflowCorePart5(unittest.TestCase):
                          'permissions:\n      contents: read\n      actions: read'):
             self.assertIn(required, header)
         self.assertNotIn('needs:', header)
-        self.assertNotIn('env:', header)
+        image = '    container:' in header
+        image_ref = 'ghcr.io/nil-studio/oasis7/ci-rust-release-web@sha256:f47cf4a0ce572de9b871475aed4e38c35fc7e6e128dda93a7d96e50480e03c59'
+        if image:
+            self.assertIn('      image: ' + image_ref + '\n', header)
+            self.assertIn('      options: --user 1001:1001 --init\n', header)
+            self.assertNotIn('volumes:', header)
+            self.assertNotIn('privileged', header)
+            self.assertEqual(header.split('    env:\n', 1)[1],
+                             '      RUST_RELEASE_WEB_IMAGE: ' + image_ref + '\n')
+        else:
+            self.assertNotIn('env:', header)
         self.assertNotIn('web-wasm-cache', WORKFLOW)
         self.assertEqual(re.search(r'    if: >-\n(.*?)    runs-on:', writer, re.S)[1],
                          re.search(r'    if: >-\n(.*?)    runs-on:', native, re.S)[1])
@@ -297,20 +307,32 @@ class WorkflowCorePart5(unittest.TestCase):
                              if 'name: Verify current main cache source\n' in step)
         self.assertEqual(source, native_source)
         self.assertEqual(writer.count('uses: actions/checkout@'), 1)
-        self.assertIn('ref: ${{ github.sha }}\n          persist-credentials: false', writer)
+        self.assertIn('ref: ${{ github.sha }}\n' + ('          fetch-depth: 0\n' if image else '') + '          persist-credentials: false', writer)
         self.assertIn('npm ci --prefix crates/oasis7_viewer', writer)
         self.assertNotIn('OASIS7_WASM', writer)
         self.assertNotIn('nightly', writer)
-        self.assertIn('run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"\n', writer)
+        if not image:
+            self.assertIn('run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"\n', writer)
         self.assertEqual(len(rust_cache_steps(writer)), 1)
         cache = rust_cache_steps(writer)[0]
         self.assertNotRegex(cache, re.compile(r'^        if:', re.M))
         self.assertIn('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2\n', cache)
         before_cache = writer[:writer.index(cache)]
-        self.assertEqual(re.findall(r'^          rustup toolchain install (\S+)', before_cache, re.M),
-                         ['"${RUST_TOOLCHAIN}"'])
-        self.assertIn('rustup default "${RUST_TOOLCHAIN}"', before_cache)
-        self.assertIn('rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"', before_cache)
+        if image:
+            preflight = next(step for step in steps if 'name: Verify the fixed Release Web image and main source\n' in step)
+            self.assertEqual(preflight, '      - name: Verify the fixed Release Web image and main source\n'
+                '        run: python3 scripts/ci-release-web-image.py --preflight --image-source '
+                'd5319297d754a9c7d4de347a2ce8e1a20ba43591 --source "$GITHUB_SHA"\n')
+            self.assertEqual(writer.count(preflight), 1)
+            self.assertLess(steps.index(preflight), steps.index(source))
+            self.assertLess(writer.index(preflight), writer.index('npm ci'))
+            self.assertNotIn('rustup toolchain install', writer)
+            self.assertNotIn('ci-rust-cache-toolchains.py', writer)
+        else:
+            self.assertEqual(re.findall(r'^          rustup toolchain install (\S+)', before_cache, re.M),
+                             ['"${RUST_TOOLCHAIN}"'])
+            self.assertIn('rustup default "${RUST_TOOLCHAIN}"', before_cache)
+            self.assertIn('rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"', before_cache)
         install = next(step for step in steps if 'id: dependency-cache-tools\n' in step)
         self.assertIn('run: python3 scripts/ci-rust-cache-admission.py install-release\n', install)
         self.assertIn('continue-on-error: true', install)
@@ -320,14 +342,17 @@ class WorkflowCorePart5(unittest.TestCase):
                          'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ github.sha }}',
                          'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}'):
             self.assertIn(required, cache)
-        self.assertNotIn('env-vars:', cache)
+        if not image:
+            self.assertNotIn('env-vars:', cache)
         save = re.search(r'^          save-if: \$\{\{ (.*) \}\}$', cache, re.M)[1]
         with_body = cache.split('        with:\n', 1)[1]
         inputs = re.findall(r'^          ([\w-]+): (.+)$', with_body, re.M)
         self.assertEqual(len(inputs), len(with_body.strip().splitlines()))
-        expected_inputs = {'shared-key': 'release-packages-web-wasm-trusted-v3',
+        expected_inputs = {'shared-key': ('ci-rust-release-web-' + image_ref.split('@sha256:')[1] if image else 'release-packages-web-wasm-trusted-v3'),
                            'cache-provider': 'github', 'cache-on-failure': 'false',
                            'save-if': '${{ ' + save + ' }}'}
+        if image:
+            expected_inputs.update({'add-rust-environment-hash-key': 'true', 'env-vars': 'CARGO CC CFLAGS CXX CMAKE RUST'})
         if ('add-rust-environment-hash-key', 'true') in inputs:
             expected_inputs['add-rust-environment-hash-key'] = 'true'
         self.assertEqual(len(inputs), len(dict(inputs)))
@@ -339,7 +364,7 @@ class WorkflowCorePart5(unittest.TestCase):
         self.assertEqual(dict(entries), {
             'NODE_OPTIONS': '${{ steps.dependency-cache-tools.outputs.node_options }}',
             'OASIS7_DEPENDENCY_CACHE_PYTHON': '${{ steps.dependency-cache-tools.outputs.python }}',
-            'OASIS7_DEPENDENCY_CACHE_FAMILY': 'release-web',
+            'OASIS7_DEPENDENCY_CACHE_FAMILY': 'release-web-image' if image else 'release-web',
             'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': '${{ github.sha }}',
             'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES': '${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
             'GH_TOKEN': '${{ github.token }}',
@@ -361,26 +386,17 @@ class WorkflowCorePart5(unittest.TestCase):
                                   {'__builtins__': {}}, {}), expected, values)
         self.assertNotIn('NODE_OPTIONS:', workflow.split('\njobs:\n', 1)[0])
         self.assertLess(writer.index(source), writer.index(cache))
-        normalizer = next(step for step in steps if 'python3 scripts/ci-rust-cache-toolchains.py' in step)
-        self.assertNotRegex(normalizer, re.compile(r'^        if:', re.M))
-        self.assertLess(writer.index('rustup default'), writer.index('python3 scripts/ci-rust-cache-toolchains.py'))
-        self.assertLess(writer.index('python3 scripts/ci-rust-cache-toolchains.py'), writer.index(cache))
+        if not image:
+            normalizer = next(step for step in steps if 'python3 scripts/ci-rust-cache-toolchains.py' in step)
+            self.assertNotRegex(normalizer, re.compile(r'^        if:', re.M))
+            self.assertLess(writer.index('rustup default'), writer.index('python3 scripts/ci-rust-cache-toolchains.py'))
+            self.assertLess(writer.index('python3 scripts/ci-rust-cache-toolchains.py'), writer.index(cache))
         self.assertLess(steps.index(install), steps.index(cache))
         completion = next(step for step in steps if 'name: Complete Web WASM cache\n' in step)
         self.assertIn('id: web-cache\n', cache)
         self.assertIn('set -euo pipefail', completion)
         self.assertIn('./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload', completion)
-        self.assertIn('cd crates/oasis7_client_launcher', completion)
-        self.assertIn('env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist', completion)
         self.assertLess(steps.index(cache), steps.index(completion))
-        release_steps = re.findall(r'^      - .*?(?=^      - |\Z)',
-                                   workflow_jobs(release_workflow)['build-web-dist'], re.M | re.S)
-        self.assertEqual(re.search(r'^  TRUNK_VERSION: (.+)$', workflow, re.M)[1],
-                         re.search(r'^  TRUNK_VERSION: (.+)$', release_workflow, re.M)[1])
-        for name in ('Restore pinned Trunk release archive', 'Install verified pinned Trunk', 'Verify pinned trunk'):
-            step = next(step for step in steps if 'name: ' + name + '\n' in step)
-            self.assertEqual(step, next(step for step in release_steps if 'name: ' + name + '\n' in step))
-            self.assertLess(steps.index(step), steps.index(completion))
         self.assertNotIn('uses: actions/cache@', writer)
         self.assertNotIn('uses: actions/cache/save@', writer)
         condition = re.search(r'^        if: (.*)$', completion, re.M)[1]
@@ -406,12 +422,17 @@ class WorkflowCorePart5(unittest.TestCase):
         # The host writer owns toolchain installation after the Release reader
         # moves to a preinstalled compiler. Keep the older layout as a fixture.
         host_web = workflow_jobs(workflow).get('web-wasm-cache', release_web)
+        host_install = ('      - name: Install pinned Rust toolchain\n'
+                        '        run: |\n'
+                        '          rustup toolchain install "${RUST_TOOLCHAIN}" --profile default\n'
+                        '          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"\n'
+                        '          rustup default "${RUST_TOOLCHAIN}"\n')
         header = native.split('    steps:', 1)[0]
         preparation = ''.join((step(native, 'uses: actions/checkout@'),
             step(native, 'name: Verify current main cache source\n'),
             step(release_web, 'uses: actions/setup-node@'),
             step(release_web, 'name: Install viewer web dependencies\n'),
-            step(host_web, 'name: Install pinned Rust toolchain\n')))
+            host_install))
         cache = '''      - name: Normalize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
@@ -468,6 +489,22 @@ class WorkflowCorePart5(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     self.assert_web_cache_writer(assembled(mutation), release)
 
+        actual = workflow_jobs(workflow)['web-wasm-cache']
+        if '    container:' in actual:
+            self.assert_web_cache_writer(workflow, release)
+            guard = step(actual, 'name: Verify the fixed Release Web image and main source\n')
+            for broken in (
+                    actual.replace('ci-rust-release-web@sha256:', 'ci-rust-build@sha256:'),
+                    actual.replace('shared-key: ci-rust-release-web-', 'shared-key: unrelated-'),
+                    actual.replace('FAMILY: release-web-image', 'FAMILY: release-web'),
+                    actual.replace('env-vars: CARGO CC CFLAGS CXX CMAKE RUST', 'env-vars: CARGO'),
+                    actual.replace('          cache-provider: github', '          cache-provider: github\n          cache-targets: false'),
+                    actual.replace(guard, '') + guard,
+                    actual.replace(guard, guard.replace('        run:', '        continue-on-error: true\n        run:')),
+                    actual.replace('RUST_RELEASE_WEB_IMAGE:', 'UNRELATED_IMAGE:')):
+                with self.subTest(image_mutation=broken), self.assertRaises(AssertionError):
+                    self.assert_web_cache_writer(assembled(broken), release)
+
     def test_web_cache_build_runs_both_contexts_and_propagates_each_failure(self):
         workflow, _ = self.shared_cache_workflow()
         writer = workflow_jobs(workflow)['web-wasm-cache']
@@ -500,17 +537,15 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
             for path in (viewer, trunk):
                 path.chmod(0o755)
             trace = root / 'calls'
-            for viewer_exit, trunk_exit, expected_calls in (
-                    (0, 0, ['viewer', 'trunk']), (17, 0, ['viewer']), (0, 23, ['viewer', 'trunk'])):
+            for viewer_exit, expected_calls in ((0, ['viewer']), (17, ['viewer'])):
                 trace.write_text('')
                 environment = dict(os.environ, PATH=str(root / 'bin') + os.pathsep + os.environ['PATH'],
                     NO_COLOR='fixture-value', WEB_CACHE_FIXTURE_ROOT=str(root),
-                    WEB_CACHE_FIXTURE_TRACE=str(trace), WEB_CACHE_FIXTURE_VIEWER_EXIT=str(viewer_exit),
-                    WEB_CACHE_FIXTURE_TRUNK_EXIT=str(trunk_exit))
+                    WEB_CACHE_FIXTURE_TRACE=str(trace), WEB_CACHE_FIXTURE_VIEWER_EXIT=str(viewer_exit))
                 result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script],
                                         cwd=root, env=environment, capture_output=True, text=True, timeout=10)
-                with self.subTest(viewer=viewer_exit, trunk=trunk_exit):
-                    self.assertEqual(result.returncode, viewer_exit or trunk_exit, result.stdout + result.stderr)
+                with self.subTest(viewer=viewer_exit):
+                    self.assertEqual(result.returncode, viewer_exit, result.stdout + result.stderr)
                     self.assertEqual(trace.read_text().splitlines(), expected_calls)
 
 

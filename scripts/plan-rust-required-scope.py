@@ -5,7 +5,9 @@ from bisect import bisect_right
 from contextvars import ContextVar
 import fnmatch
 import hashlib
+import importlib.util
 import json
+import os
 import posixpath
 import re
 import subprocess
@@ -17,6 +19,38 @@ except ModuleNotFoundError:
     raise SystemExit("Python 3.11 or newer is required; use scripts/plan-rust-required-scope.sh to discover it")
 from pathlib import Path
 from types import MappingProxyType
+
+_CACHED_CI_ENGINE = None
+
+
+def _load_sibling_ci_engine():
+    """Bind sibling ci_engine by explicit non-symlink path without searching sys.path."""
+    global _CACHED_CI_ENGINE
+    if _CACHED_CI_ENGINE is not None:
+        return _CACHED_CI_ENGINE
+    self_path = Path(__file__)
+    if self_path.is_symlink() or self_path.parent.is_symlink():
+        raise ValueError('refusing symlinked planner or authority directory')
+    engine_dir = self_path.parent / 'ci_engine'
+    if not engine_dir.exists() and not engine_dir.is_symlink():
+        return None
+    if engine_dir.is_symlink() or not engine_dir.is_dir():
+        raise ValueError('refusing symlinked or invalid sibling ci_engine directory')
+    for dirpath, dirnames, filenames in os.walk(engine_dir, followlinks=False):
+        cur = Path(dirpath)
+        if cur.is_symlink() or any((cur / name).is_symlink() for name in (*dirnames, *filenames)):
+            raise ValueError(f'refusing symlink inside sibling ci_engine: {cur}')
+    init_file = engine_dir / '__init__.py'
+    if not init_file.is_file():
+        raise ValueError(f'sibling ci_engine missing __init__.py: {engine_dir}')
+    pkg_name = '_oasis7_sibling_ci_engine'
+    spec = importlib.util.spec_from_file_location(
+        pkg_name, init_file, submodule_search_locations=[str(engine_dir.resolve())])
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[pkg_name] = module
+    spec.loader.exec_module(module)
+    _CACHED_CI_ENGINE = module
+    return module
 
 PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
 EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
@@ -140,11 +174,11 @@ SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
     'oasis7_client_storage', 'oasis7_domain_types', 'oasis7_signer_protocol',
     'oasis7_custody_core', 'oasis7_custody_worker', 'oasis7_dev_test_worker',
-    'oasis7_local_signer', 'oasis7_launcher_ui', 'oasis7_proto',
+    'oasis7_local_signer', 'oasis7_proto',
     'oasis7_wasm_abi', 'oasis7_wasm_build', 'oasis7_wasm_router',
     'oasis7_wasm_sdk', 'oasis7_wasm_store', 'pixel_world_bridge',
     'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
-    'oasis7_client_launcher', 'wasm_build_suite', 'wasm_module_observe',
+    'wasm_build_suite', 'wasm_module_observe',
 )
 # The distfs group runs these lib harnesses and the registered industry
 # integration target with Cargo defaults on Ubuntu.
@@ -158,7 +192,7 @@ NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
-           'scripts/check-local.py',
+           'scripts/check-local.py', 'scripts/ci_engine/**', 'scripts/run-ci-authority-python.py',
            'scripts/plan-rust-required-scope*', 'scripts/ci_process_runner.py')
 
 
@@ -635,8 +669,6 @@ def _classify_standalone_cargo_path(path):
         'tools/wasm_build_suite/templates/minimal_module/Cargo.lock',
     }:
         return {'rust_baseline', 'cargo_tooling_contracts', 'workspace_support'}, {'wasm_build_suite'}
-    if len(parts) == 4 and parts[:2] == ['tests', 'libp2p-compat'] and parts[2] in {'common', 'candidate', 'legacy'}:
-        return {'rust_baseline', 'cargo_tooling_contracts', 'net'}, set()
     return None
 
 
@@ -1746,6 +1778,16 @@ def validate_config(config):
                 or len(selected) != len(set(selected))):
             raise ValueError('invalid scoped control path or groups')
     validate_python_control_contracts(config)
+    if 'package_capabilities' in config or 'package_capabilities_version' in config:
+        if type(config.get('package_capabilities_version')) is not int or config['package_capabilities_version'] != 1:
+            raise ValueError('invalid package_capabilities_version')
+        engine = _load_sibling_ci_engine()
+        if engine is not None:
+            engine.validate_package_capabilities_static(
+                config.get('package_capabilities'),
+                package_groups=config.get('package_groups'),
+                known_groups=set(groups),
+            )
     for selected in config['package_groups'].values():
         if not selected or not set(selected).issubset(groups):
             raise ValueError('invalid package groups')
@@ -4629,8 +4671,9 @@ def complete_ordinary_partitions(config, plan):
         and not {'fast_execution_version', 'ordinary_partition_version',
                  'ordinary_fast_targets', 'ordinary_full_fast_targets'}.intersection(plan)
         and isinstance(plan.get('oasis7_required_packages'), list)
+        and ('oasis7_runtime_host' in plan['oasis7_required_packages'] or 'oasis7' in plan['oasis7_required_packages'])
         and all(package in plan['oasis7_required_packages'] for package in (
-            'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+            'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
     )
     runtime_full_requires_docker = _ordinary_runtime_full_requires_host_docker(plan)
     universal_v2 = (
@@ -4739,7 +4782,6 @@ def complete_ordinary_partitions(config, plan):
                 and plan.get('fast_plan_version') == FAST_PLAN_VERSION
                 and plan.get('execution_profile') in ('pr-fast', 'main-fast')
                 and plan.get('workspace_support_partitions') == ['other']
-                and 'oasis7_custody_worker' not in plan.get('workspace_support_profiles', ())
                 and (not workspace_support_requires_host(plan)
                      or workspace_support_selects_signer_image(plan))):
             direct_ver = config['workspace_support_direct_gate_version']
@@ -4840,7 +4882,7 @@ def workspace_support_selects_signer_image(plan):
 
 
 def support_partitions(profiles):
-    return sorted({'custody' if profile == 'oasis7_custody_worker' else 'other' for profile in profiles})
+    return ['other'] if profiles else []
 
 
 def fleet_health_subcontracts(config, chosen, affected, path_rules, *, full=False, additions=()):
@@ -4885,6 +4927,119 @@ def fleet_health_subcontracts(config, chosen, affected, path_rules, *, full=Fals
     }
 
 
+def materialize_execution_contracts(config, plan):
+    """Materialize ordinary & workspace_support execution contracts via sibling ci_engine."""
+    engine = _load_sibling_ci_engine()
+    caps = config.get('package_capabilities') if isinstance(config.get('package_capabilities'), dict) else None
+    risk_targets = plan.get('ordinary_risk_targets')
+    if caps is not None and engine is not None:
+        engine_eligible = (
+            type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+            and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+            and plan.get('test_policy_changed') is False
+            and 'ordinary_full_fast_targets' not in plan
+            and (
+                risk_targets is None
+                or (
+                    isinstance(risk_targets, list)
+                    and all(
+                        isinstance(t, dict) and t.get('target_kind') == 'test'
+                        and ('provider_preview_wasm' not in caps.get(t.get('package'), {}).get('host_docker_wasm_fixtures', ())
+                             or plan.get('scope') not in ('full', 'explicit-full'))
+                        for t in risk_targets
+                    )
+                )
+            )
+        )
+        if set(engine.derive_ordinary_packages(caps)) != set(config.get('oasis7_required_packages', ())):
+            raise ValueError('package_capabilities ordinary_package mismatch with oasis7_required_packages')
+        if set(engine.derive_required_wasm_packages(caps)) != set(config.get('oasis7_required_wasm_packages', ())):
+            raise ValueError('package_capabilities required_wasm_build mismatch with oasis7_required_wasm_packages')
+        support_map = engine.derive_support_profiles(caps)
+        if set(support_map) != set(SUPPORT_PROFILES):
+            raise ValueError('package_capabilities support_profile mismatch with SUPPORT_PROFILES')
+        dedicated_inline = frozenset(p for p, e in caps.items() if e.get('inline_dedicated_partition'))
+        logical_aliases = {p: e['splittable_lib_harness']['logical_alias']
+                           for p, e in sorted(caps.items()) if e.get('splittable_lib_harness')}
+        compact_excl = frozenset(p for p, e in caps.items() if e.get('compact_non_runtime_excluded'))
+    else:
+        engine_eligible = (
+            type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+            and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+            and plan.get('test_policy_changed') is False
+            and 'ordinary_full_fast_targets' not in plan
+            and risk_targets is None
+        )
+        support_map = {p: {'package': p, 'profile_id': p, 'partition': 'other',
+                           'requires_host_runner': p in WORKSPACE_SUPPORT_HOST_PROFILES,
+                           'extra_features': [], 'wasm_compile_feature_sets': []}
+                       for p in SUPPORT_PROFILES}
+        dedicated_inline = ORDINARY_PARTITION_PACKAGES
+        logical_aliases = {}
+        compact_excl = frozenset()
+
+    mode = ('inline' if plan.get('ordinary_execution') == 'inline'
+            else ('artifact-v2' if plan.get('ordinary_artifact_partition_version') == 2 else 'artifact-v1'))
+    supports_v2 = bool(plan.get('ordinary_universal_sharding_version') == 1
+                       and plan.get('ordinary_artifact_partition_version') == 2)
+    selected_ord = sorted(plan.get('oasis7_required_packages', ()))
+    if 'ordinary_partitions' in plan:
+        partitions = list(plan['ordinary_partitions'])
+        if caps is not None and engine is not None and mode == 'inline':
+            fast_pkgs = [t['package'] for t in plan.get('ordinary_fast_targets', ()) if isinstance(t, dict) and 'package' in t]
+            if list(engine.compute_inline_partitions(fast_pkgs, dedicated_inline)) != partitions:
+                raise ValueError('ordinary inline partitions mismatch between engine and legacy reference')
+    else:
+        partitions = ['all']
+    if 'ordinary_artifact_partitions' in plan:
+        art_partitions = list(plan['ordinary_artifact_partitions'])
+    elif engine is not None and selected_ord:
+        art_partitions = list(engine.compute_artifact_partitions(
+            selected_ord, splittable_aliases=logical_aliases,
+            compact_excluded_packages=compact_excl, supports_universal_v2=supports_v2))
+    else:
+        art_partitions = []
+    req_fixtures = sorted({
+        fx for pkg in selected_ord
+        for fx in ((caps or {}).get(pkg, {}).get('host_docker_wasm_fixtures') or ())
+    }) if (not engine_eligible or plan.get('scope') in ('full', 'explicit-full') or plan.get('test_policy_changed')) else []
+    delegated_clippy = (
+        sorted(f'{p}:{k}:{n}' for p, k, n in DISTFS_CLIPPY_TARGETS)
+        if plan.get('distfs_clippy_group') == 'rust_baseline' else []
+    )
+    plan['ordinary_execution_contract'] = {
+        'version': 1, 'mode': mode, 'supports_universal_v2': supports_v2,
+        'candidate_container_eligible': engine_eligible, 'artifact_partitions': art_partitions,
+        'partitions': partitions, 'logical_harness_aliases': logical_aliases,
+        'required_wasm_packages': sorted(plan.get('oasis7_required_wasm_packages', ())),
+        'required_host_docker_wasm_fixtures': req_fixtures,
+        'deferred_cases': dict(sorted((plan.get('formal_deferred_ordinary_cases') or {}).items())),
+        'delegated_clippy': delegated_clippy,
+    }
+
+    selected_support = sorted(plan.get('workspace_support_profiles', ()))
+    if engine is not None and selected_support and set(selected_support) <= set(support_map):
+        sp_part = engine.compute_support_partitions(selected_support, support_map)
+        if caps is not None and set(sp_part['host_profiles']) != (set(selected_support) & WORKSPACE_SUPPORT_HOST_PROFILES):
+            raise ValueError('workspace_support host_profiles mismatch between engine and legacy reference')
+    else:
+        sp_part = {
+            'partitions': {'custody': [], 'other': list(selected_support)},
+            'host_profiles': [p for p in selected_support if p in WORKSPACE_SUPPORT_HOST_PROFILES],
+            'image_profiles': [p for p in selected_support if p not in WORKSPACE_SUPPORT_HOST_PROFILES],
+        }
+    plan['workspace_support_execution_contract'] = {
+        'version': 1, 'selected_profiles': selected_support,
+        'partitions': sp_part['partitions'], 'host_profiles': sp_part['host_profiles'],
+        'image_profiles': sp_part['image_profiles'],
+        'expanded_targets_by_profile': {p: [] for p in selected_support},
+        'complete_features_by_profile': {p: list(support_map[p]['extra_features']) for p in selected_support if p in support_map},
+        'wasm_compile_checks': {p: list(support_map[p]['wasm_compile_feature_sets'])
+                                for p in selected_support if p in support_map and support_map[p]['wasm_compile_feature_sets']},
+    }
+    return plan
+
+
 def full_plan(config, profile, source_head, test_head=None, policy_ref=None, formal_inventory=None):
     """Expand the trusted full inventory, independently of a commit diff."""
     validate_config(config)
@@ -4924,7 +5079,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         plan['formal_full_profiles_only_version'] = 1
         plan['formal_deferred_ordinary_cases'] = {}
     complete_ordinary_partitions(config, plan)
-    return plan
+    return materialize_execution_contracts(config, plan)
 
 
 def fast_plan(config, plan, base, source, tested, paths, affected, path_affected,
@@ -5092,8 +5247,6 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         if {'rust_baseline', 'oasis7_required'}.issubset(chosen):
             plan['ordinary_clippy_group'] = 'rust_baseline'
         baseline_checks = []
-        if 'oasis7_newapi_bridge_service' in affected:
-            baseline_checks.append('newapi_accounting')
         if any(path.startswith(('tools/', 'crates/oasis7_builtin_wasm_modules/'))
                or path.startswith('scripts/check-standalone-tool-lockfiles') for path in paths):
             baseline_checks.append('standalone_tool_lockfiles')
@@ -5388,7 +5541,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     plan.update(fleet_health_subcontracts(config, chosen, affected, path_rules,
                                           full=conservative, additions=additions))
-    return plan
+    return materialize_execution_contracts(config, plan)
 
 
 def validate_local_inputs(base, source_head, test_head, local_inputs):

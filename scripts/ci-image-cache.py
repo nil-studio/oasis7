@@ -57,11 +57,6 @@ def build_variants(root, profile):
                                    '--target', 'wasm32-unknown-unknown'], wasm)
         cargo('node-wasm', 'check', ['-p', 'oasis7_node', '--features', 'libp2p',
                                     '--target', 'wasm32-unknown-unknown'], wasm)
-    elif profile == 'launcher':
-        # index.html selects this bin with default features; Trunk's --release
-        # build uses the root workspace target and the same stable WASM target.
-        cargo('launcher-wasm-release', 'build', ['-p', 'oasis7_client_launcher',
-              '--bin', 'oasis7_client_launcher', '--release', '--target', 'wasm32-unknown-unknown'])
     elif profile == 'support':
         # Use the image lane's baseline feature contexts. The host-only game
         # client and local signer stay in their existing host cache family.
@@ -76,7 +71,6 @@ def build_variants(root, profile):
         cargo('dev-test-worker-wasm-release', 'build', ['-p', 'oasis7_dev_test_worker', '--release', '--target', 'wasm32-unknown-unknown'])
         cargo('custody-core-test', 'test', ['-p', 'oasis7_custody_core', '--all-targets'])
         cargo('pixel-world-bridge-test', 'test', ['-p', 'pixel_world_bridge', '--lib'])
-        cargo('client-launcher-bin-test', 'test', ['-p', 'oasis7_client_launcher', '--bin', 'oasis7_client_launcher'])
         native('model-provider', ['-p', 'oasis7_model_provider', '--all-targets'])
         cargo('agent-harness-check', 'check', ['-p', 'oasis7_agent_harness', '--all-targets'])
         cargo('agent-harness-test', 'test', ['-p', 'oasis7_agent_harness', '--lib'])

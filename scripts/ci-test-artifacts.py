@@ -312,7 +312,6 @@ FORMAL_AUTHORITY = None
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 DEFAULT_SNAPSHOT_REGRESSIONS = (
     ('viewer-snapshot-tests', 'snapshot_progress::'),
-    ('snapshot-tests', 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields'),
 )
 PORTABLE_REQUIRED_PACKAGES = ('oasis7_agent_api', 'oasis7_simulator', 'oasis7_viewer_codec', 'oasis7_viewer_runtime')
 # These roots contain shipped Viewer subprocess consumers or their integration
@@ -320,7 +319,7 @@ PORTABLE_REQUIRED_PACKAGES = ('oasis7_agent_api', 'oasis7_simulator', 'oasis7_vi
 VIEWER_REQUIRED_CONSUMERS = frozenset(('oasis7', 'oasis7_simulator', 'oasis7_chain_runtime',
                                      'oasis7_launcher_backend', 'oasis7_viewer_runtime'))
 FAST_PROFILES = frozenset(('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'))
-RUST_BASELINE_CHECKS = ('newapi_accounting', 'standalone_tool_lockfiles')
+RUST_BASELINE_CHECKS = ('standalone_tool_lockfiles',)
 ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
 DISTFS_CLIPPY_TARGETS = frozenset((
     ('oasis7_runtime', 'lib', 'oasis7_runtime'),
@@ -624,8 +623,9 @@ def validate_ordinary_partitions(plan):
         and not {'fast_execution_version', 'ordinary_partition_version',
                  'ordinary_fast_targets', 'ordinary_full_fast_targets'}.intersection(plan)
         and isinstance(plan.get('oasis7_required_packages'), list)
+        and ('oasis7_runtime_host' in plan['oasis7_required_packages'] or 'oasis7' in plan['oasis7_required_packages'])
         and all(package in plan['oasis7_required_packages'] for package in (
-            'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+            'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
     )
     if 'ordinary_controls_in_rust_baseline_version' in plan or 'ordinary_wasm_group' in plan:
         if (type(plan.get('ordinary_controls_in_rust_baseline_version')) is not int
@@ -815,18 +815,61 @@ def required_packages(plan=None):
     plan = fast_plan(plan)
     if plan is None:
         return inventory
-    selected = plan_list(plan, 'oasis7_required_packages', inventory)
     if 'oasis7_required' not in plan.get('groups', []):
         raise ValueError('ordinary build is not selected by plan')
+    if (plan.get('test_policy_changed')
+            and (plan.get('scope') in ('full', 'explicit-full')
+                 or plan['execution_profile'] in ('periodic-full', 'candidate-full'))):
+        value = plan.get('oasis7_required_packages')
+        if (not isinstance(value, list) or not value
+                or any(not isinstance(item, str) or not item for item in value)
+                or len(value) != len(set(value))):
+            raise ValueError('invalid execution selection: oasis7_required_packages')
+        return inventory
+    if 'oasis7' not in inventory and isinstance(plan.get('oasis7_required_packages'), list) and 'oasis7' in plan['oasis7_required_packages']:
+        if plan.get('scope') in ('full', 'explicit-full'):
+            plan = dict(plan, oasis7_required_packages=[pkg for pkg in plan['oasis7_required_packages'] if pkg != 'oasis7'])
+        elif plan.get('scope') == 'targeted' and ('fast_test_inventory_version' in plan or plan.get('ordinary_shared_incremental_contract_version') == 1 or (plan.get('test_policy_changed') is True and 'ordinary_artifact_delivery_version' in plan)):
+            inventory = [*inventory, 'oasis7']
+    selected = plan_list(plan, 'oasis7_required_packages', inventory)
     if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
         return inventory
     return selected
+
+
+def resolve_ordinary_execution_contract(plan):
+    """Verify and return required materialized ordinary_execution_contract v1 (S5 fail-closed)."""
+    if not isinstance(plan, dict):
+        raise ValueError('ordinary plan must be a JSON object')
+    raw = plan.get('ordinary_execution_contract')
+    if raw is None:
+        raise ValueError('missing required ordinary_execution_contract v1 (S2 plans are unsupported in S5)')
+    if (not isinstance(raw, dict) or type(raw.get('version')) is not int or raw['version'] != 1
+            or raw.get('mode') not in ('inline', 'artifact-v1', 'artifact-v2')
+            or type(raw.get('candidate_container_eligible')) is not bool
+            or type(raw.get('supports_universal_v2')) is not bool
+            or any(not isinstance(raw.get(k), list) for k in (
+                'artifact_partitions', 'partitions', 'required_wasm_packages',
+                'required_host_docker_wasm_fixtures', 'delegated_clippy'))):
+        raise ValueError('invalid or unsupported ordinary_execution_contract')
+    if 'ordinary_partitions' in plan and list(plan['ordinary_partitions']) != list(raw['partitions']):
+        raise ValueError('ordinary_execution_contract.partitions conflicts with ordinary_partitions')
+    if 'oasis7_required_wasm_packages' in plan and sorted(plan['oasis7_required_wasm_packages']) != sorted(raw['required_wasm_packages']):
+        raise ValueError('ordinary_execution_contract.required_wasm_packages conflicts with top-level field')
+    if (plan.get('ordinary_execution') == 'inline') != (raw['mode'] == 'inline'):
+        raise ValueError('ordinary_execution_contract.mode conflicts with ordinary_execution')
+    return raw
 
 
 def required_wasm_packages(plan=None):
     plan = fast_plan(plan)
     if plan is None:
         return list(PORTABLE_REQUIRED_PACKAGES)
+    if 'ordinary_execution_contract' in plan:
+        contract = resolve_ordinary_execution_contract(plan)
+        if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
+            return list(contract['required_wasm_packages'])
+        return list(contract['required_wasm_packages'])
     selected = plan_list(plan, 'oasis7_required_wasm_packages', PORTABLE_REQUIRED_PACKAGES, nonempty=False)
     if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
         return list(PORTABLE_REQUIRED_PACKAGES)
@@ -1391,7 +1434,8 @@ def build_variants(scope, plan=None, ordinary_partition=None):
     if scope == 'all' and ordinary_risk_targets(plan):
         raise ValueError('ordinary risk contracts require ordinary build scope')
     required_features = ['test_tier_required']
-    required_package_args = [arg for package in load_oasis7_required_packages() for arg in ('-p', package)]
+    required_pkgs = load_oasis7_required_packages()
+    required_package_args = [arg for package in required_pkgs for arg in ('-p', package)]
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
         ('viewer', ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live', '--features', 'test_tier_required'], required_features),
@@ -1399,7 +1443,7 @@ def build_variants(scope, plan=None, ordinary_partition=None):
         ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime', '--features', 'test_tier_required'], required_features),
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
-        ('snapshot-tests', ['test', '-p', 'oasis7', '--lib', '--no-run'], []),
+        *( [('snapshot-tests', ['test', '-p', 'oasis7', '--lib', '--no-run'], [])] if 'oasis7' in required_pkgs else [] ),
         ('viewer-snapshot-tests', ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'], []),
     ]
     if scope == 'all':
@@ -2200,8 +2244,11 @@ def ordinary_docker_preflight():
 
 def ordinary_candidate_image_eligible(plan):
     """Allow the non-root candidate image only when no Docker WASM build can be requested."""
-    if (not isinstance(plan, dict)
-            or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+    if not isinstance(plan, dict):
+        return False
+    if 'ordinary_execution_contract' in plan:
+        return bool(resolve_ordinary_execution_contract(plan)['candidate_container_eligible'])
+    if (type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
             or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
             or plan.get('test_policy_changed') is not False
             or 'ordinary_full_fast_targets' in plan):
@@ -2212,11 +2259,9 @@ def ordinary_candidate_image_eligible(plan):
     if not isinstance(risk_targets, list):
         return False
     return all(
-        isinstance(target, dict)
-        and target.get('target_kind') == 'test'
-        and (target.get('package') != 'oasis7_chain_runtime'
-             or plan.get('scope') not in ('full', 'explicit-full'))
-        for target in risk_targets
+        isinstance(t, dict) and t.get('target_kind') == 'test'
+        and (t.get('package') != 'oasis7_chain_runtime' or plan.get('scope') not in ('full', 'explicit-full'))
+        for t in risk_targets
     )
 
 

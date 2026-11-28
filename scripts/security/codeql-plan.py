@@ -283,6 +283,8 @@ def plan(args):
             all_units('scan configuration: ' + path)
         elif name == '.gitattributes':
             all_units('Git checkout attributes: ' + path)
+        elif path == '.gitmodules':
+            all_units('Git submodule manifest: ' + path)
         elif path in VENDOR_RUST_METADATA_INPUTS:
             # Metadata travels with these fixed Rust dependencies; do not treat
             # neighboring unclassified files as registered or excluded.
@@ -326,8 +328,12 @@ def plan(args):
         elif path in ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
                       'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt'):
             add('actions-repo', path)
-        elif path in ISSUE_METADATA_INPUTS:
-            # GitHub renders these as form data, not executable Actions YAML.
+        elif path == 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile':
+            add('actions-repo', path)
+        elif path in ISSUE_METADATA_INPUTS or path in (
+            'scripts/newapi-bridge-service/pricing-rules.example.env',
+        ):
+            # GitHub renders these as form data or static service templates, not executable Actions YAML.
             pass
         elif path in WASM_CANDIDATE_INPUTS:
             add('python-repo', path)

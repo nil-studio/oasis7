@@ -138,6 +138,14 @@ class WorkflowCorePart13(unittest.TestCase):
         for name in ('plan-rust-required-scope.py', 'ci-required-scope.json', 'ci-required-result.py',
                      'ci-formal-plan.py', 'ci-formal-process-suites.json', 'ci-python-control-contracts.py'):
             (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+        if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
+            (repo / 'scripts/run-ci-authority-python.py').write_bytes(
+                (ROOT / 'scripts/run-ci-authority-python.py').read_bytes())
+        if (ROOT / 'scripts/ci_engine').is_dir():
+            for ef in sorted((ROOT / 'scripts/ci_engine').rglob('*.py')):
+                dst = repo / ef.relative_to(ROOT)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(ef.read_bytes())
         if policy_config is not None:
             (repo / 'scripts/ci-required-scope.json').write_text(json.dumps(policy_config))
         (repo / 'scripts/ci-full-result.py').write_text('# producer is not executed by selection\n')
@@ -222,13 +230,13 @@ class WorkflowCorePart13(unittest.TestCase):
                         self.assertEqual(profiles, ['support'])
                         self.assertEqual(rows, [row for row in full_rows if row['profile'] == 'support'])
                     else:
-                        self.assertEqual(profiles, ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+                        self.assertEqual(profiles, ['native', 'node', 'net', 'tooling', 'support'])
                         full_rows = rows
                 return
             self.assertNotIn('image-support', workflow.split('jobs:', 1)[0])
             self.assertIn('matrix:\n        include:\n', writer)
             self.assertEqual(re.findall(r'^          - profile: ([a-z]+)$', writer, re.M),
-                             ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+                             ['native', 'node', 'net', 'tooling', 'support'])
             return
         predicate = lambda job: ' '.join(job.split('    if: >-\n', 1)[1].split('\n    ', 1)[0].split())
         self.assertEqual(predicate(planner), predicate(writer))
@@ -330,8 +338,10 @@ class WorkflowCorePart13(unittest.TestCase):
                                                       JOBS['custody-native-contracts'], re.M | re.S)
                           if 'name: Execute complete custody WASM compile proofs\n' in step)
         step_condition = re.search(r'^        if: (.+)$', proof_step, re.M)[1]
+        legacy_capable = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
+                              custody_policy_tests_version=1, custody_node_shards_version=2)
         for version in ('new', 'old-custody', 'legacy'):
-            policy = dict(CONFIG)
+            policy = dict(legacy_capable)
             if version != 'new':
                 del policy['custody_compile_proof_version']
                 del policy['custody_policy_tests_version']
@@ -352,14 +362,17 @@ class WorkflowCorePart13(unittest.TestCase):
                 self.assertEqual(step_runs, version == 'new')
 
     def test_current_workflow_preserves_the_fixed_historical_custody_source_protocol(self):
-        old = {key: value for key, value in CONFIG.items()
+        legacy_capable = dict(CONFIG, custody_execution_version=1, custody_compile_proof_version=1,
+                              custody_policy_tests_version=1, custody_node_shards_version=2)
+        legacy_capable.pop('workspace_support_direct_gate_version', None)
+        old = {key: value for key, value in legacy_capable.items()
                if key not in ('custody_compile_proof_version', 'custody_policy_tests_version')}
         for event in ('workflow_dispatch', 'pull_request', 'push'):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
                 result, outputs, plan, policy, source = self.run_selection(
                     directory, event=event, source_ref='candidate' if event == 'workflow_dispatch' else '',
                     candidate=event != 'workflow_dispatch', ref='refs/heads/main' if event == 'push' else None,
-                    candidate_config=old)
+                    policy_config=legacy_capable, candidate_config=old)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertNotEqual(source, policy)
                 self.assertEqual(plan['custody_execution_version'], 1)
@@ -469,10 +482,18 @@ class WorkflowCorePart13(unittest.TestCase):
         ecs_jobs = workflow_jobs(ecs_text)
         cache_workflow, shared_writer = self.shared_cache_workflow()
         dual_ecs = 'OASIS7_DEPENDENCY_CACHE_FAMILY: ecs-image\n' in ecs_jobs['native-trusted']
-        lanes = [
-            (shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
-            (ecs_jobs['native'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'),
-        ]
+        lanes = [(shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES')]
+        candidate = ecs_jobs['native']
+        if 'container: &ecs-native-container' in candidate:
+            self.assertIn('cache-mode: read', candidate)
+            restore, = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', candidate, re.M | re.S)
+                        if 'uses: Swatinem/rust-cache@' in step and "if: github.job == 'native' &&" in step]
+            self.assertIn('uses: Swatinem/rust-cache@' + revision[1], restore)
+            self.assertIn('save-if: false', restore)
+            self.assertIn('cache-on-failure: false', restore)
+            self.assertNotIn('GH_TOKEN:', restore)
+        else:
+            lanes.append((candidate, 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
         if not dual_ecs:
             lanes.append((ecs_jobs['native-trusted'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
         else:
@@ -608,7 +629,6 @@ class WorkflowCorePart13(unittest.TestCase):
                           (ROOT / 'scripts/ci-trusted-full-regression.py').read_text())
         else:
             self.assertIn('./scripts/ci-tests.sh full', JOBS['full-regression'])
-        self.assertIn('package-newapi-bridge-service.sh', JOBS['newapi-bridge-package'])
         report = JOBS['viewer-performance-report']
         self.assertIn('rustup default', report)
         self.assertIn('rustup target add wasm32-unknown-unknown', report)

@@ -233,6 +233,29 @@ impl BftPrivateRetentionAdmissionInputRefV1 {
 }
 
 impl LocalBftSuccessorArchiveStoreV1 {
+    /// Publish the *exact* staged Noise original, never a decoded/re-encoded
+    /// replacement. Validate the canonical bytes and both signed descriptor
+    /// hashes before the CAS write. Drop decoded material before the durable
+    /// byte-accurate CAS reread, avoiding three simultaneous 66-MiB copies.
+    /// This is an immutable local source object, NOT a protected transfer
+    /// budget, current issuer permission or active Runtime admission.
+    pub fn persist_original_admission_input_raw(
+        &self,
+        expected: &BftPrivateRetentionAdmissionInputRefV1,
+        original_bytes: &[u8],
+    ) -> Result<(), BftSignerErrorV3> {
+        expected.validate()?;
+        let decoded = BftPrivateRetentionAdmissionInputV1::from_canonical_bytes(original_bytes)?;
+        expected.validate_input(&decoded)?;
+        drop(decoded);
+        if self.persist_object(original_bytes, BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1)?
+            != expected.object
+        {
+            return Err(invalid("original admission raw CAS reference changed"));
+        }
+        Ok(())
+    }
+
     /// Persist the exact original pinned by the caller. Source, first charge and
     /// original object identities must agree before the store publishes a pin.
     /// Callers must obtain the reference through their own authenticated path.

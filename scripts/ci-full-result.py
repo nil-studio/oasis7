@@ -195,6 +195,20 @@ def definition_digest(root, revision):
     # immutable revision as the runner and scope. Never load candidate Python.
     for path in sorted(contract_tests.difference(contents)):
         contents[path] = read(path)
+    # Bind trusted authority launcher and pure engine modules when present at
+    # this revision; older commits without them keep their historical digest.
+    launcher_path = "scripts/run-ci-authority-python.py"
+    if subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", f"{revision}:{launcher_path}"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0:
+        contents[launcher_path] = read(launcher_path)
+    engine_tree = subprocess.check_output(
+        ["git", "-C", str(root), "ls-tree", "-r", "--name-only", revision, "--", "scripts/ci_engine"],
+        stderr=subprocess.PIPE,
+    ).decode("utf-8").splitlines()
+    for path in sorted(p for p in engine_tree if p and p not in contents):
+        contents[path] = read(path)
     digest = hashlib.sha256()
     for path, content in contents.items():
         digest.update(path.encode() + b"\0" + hashlib.sha256(content).digest())
@@ -878,7 +892,7 @@ def selected_source_for_attempt(api, run, artifacts, workflow_id=None):
             for name in ("select", "explicit-full-gate")
         )
         diagnostic = [job for job in current if job.get("name") in
-                      {"newapi-bridge-linux-x86-64", "codeql-rust-model-diagnostic"}
+                      {"codeql-rust-model-diagnostic"}
                       and job.get("started_at") and job.get("status") in {"in_progress", "completed"}
                       and job.get("conclusion") != "skipped"]
         return "" if skipped and len(diagnostic) == 1 else None

@@ -182,6 +182,8 @@ mod scheduling;
 mod snapshot;
 mod step;
 pub(crate) mod step_staged_clock;
+pub(crate) mod step_staged_driver;
+pub(crate) mod step_staged_shared;
 pub(crate) mod task_terminal_v2;
 mod tick_consensus;
 mod tick_consensus_state_root;

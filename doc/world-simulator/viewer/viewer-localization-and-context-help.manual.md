@@ -95,7 +95,7 @@ npm --prefix crates/oasis7_viewer run test:ui -- \
 <a id="lh-candidate"></a>
 ## 5. LH-CANDIDATE：实际采用与运行准备
 
-只在相关内容已经采用、任务授权且环境具备时运行后续章节。沿 [S6 浏览器闭环手册](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md)选择已有 execution lane、就绪检查、采样和 cleanup；缺构建/WASM/metadata、身份、权限或启动条件时记录 blocker，不用另一 lane 冒充本次环境。LetAI 专属 hold 继续沿 [Viewer 手册](viewer-manual.manual.md#本地真实-llm-游戏测试)，本手册不恢复其排期。
+只在相关内容已经采用、任务授权且环境具备时运行后续章节。沿 [S6 浏览器闭环手册](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md)选择已有 execution lane、就绪检查、采样和 cleanup；缺构建/WASM/metadata、身份、权限或启动条件时记录 blocker，不用另一 lane 冒充本次环境。
 
 在原 PR/运行记录固定 source/tested tree、bundle、采用 H/G 修订、入口、world、主体、原请求可见范围、locale、viewport、文字缩放、输入方式、实际字体与 lane。沿 [S6 页面采样](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md#3-打开页面并采样)记录操作前、动作、等待/故障、恢复与最终页面；`__AW_TEST__` 只读取诊断，正式操作从可见 UI 完成。只关闭本任务拥有的会话。
 

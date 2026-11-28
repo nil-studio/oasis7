@@ -60,13 +60,42 @@ class _ScopeFixtureBase(unittest.TestCase):
 class CustodyExecutionPlans(_ScopeFixtureBase):
     def setUp(self):
         super().setUp()
-        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.live_config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.config = self.live_config | {
+            'custody_execution_version': 1,
+            'custody_compile_proof_version': 1,
+            'custody_policy_tests_version': 1,
+            'custody_node_shards_version': 2,
+        }
         for package in ('oasis7_custody_worker', 'oasis7_proto'):
             self.write(f'crates/{package}/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n'
                        '[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
             self.write(f'crates/{package}/src/lib.rs', '')
         self.write('scripts/ci-required-scope.json', json.dumps(self.config))
         self.base = self.commit()
+
+    def test_live_config_offboards_custody_in_fast_and_full_profiles(self):
+        for key in ('custody_execution_version', 'custody_compile_proof_version',
+                    'custody_policy_tests_version', 'custody_node_shards_version'):
+            self.assertNotIn(key, self.live_config)
+        self.assertNotIn('oasis7_custody_worker', self.live_config.get('workspace_support_profile_paths', {}))
+        self.write('scripts/ci-required-scope.json', json.dumps(self.live_config))
+        base = self.commit()
+        self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// offboarded worker case\n')
+        head = self.commit()
+        for profile in ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                plan = (selector.full_plan(self.live_config, profile, head) if profile.endswith('-full')
+                        else selector.select(self.live_config, base, head, profile=profile))
+                self.assertIn('workspace_support', plan['groups'])
+                self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
+                self.assertEqual(plan['workspace_support_partitions'], ['other'])
+                self.assertNotIn('custody_execution_version', plan)
+                self.assertNotIn('custody_node_shards', plan)
+                self.assertNotIn('custody_compile_proof_version', plan)
+                self.assertNotIn('custody_policy_tests_version', plan)
+                if not profile.endswith('-full'):
+                    self.assertEqual(plan.get('workspace_support_direct_gate_version'), 2)
 
     def test_policy_migration_partitions_preserve_the_complete_legacy_plan(self):
         config = self.config | {'custody_policy_tests_version': 1}
@@ -90,6 +119,7 @@ class CustodyExecutionPlans(_ScopeFixtureBase):
                               'custody_compile_proof_version', 'custody_policy_tests_version',
                               'workspace_support_direct_gate_version'):
                     after.pop(field, None)
+                before.pop('workspace_support_direct_gate_version', None)
                 self.assertEqual(after, before)
 
     def test_policy_partition_requires_trusted_and_fixed_tested_capabilities(self):
@@ -148,7 +178,7 @@ class CustodyExecutionPlans(_ScopeFixtureBase):
                         else selector.select(self.config, self.base, head, profile=profile))
                 self.assertIn('workspace_support', plan['groups'])
                 self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
-                self.assertIn('custody', plan['workspace_support_partitions'])
+                self.assertEqual(plan['workspace_support_partitions'], ['other'])
                 self.assertEqual(plan['custody_execution_version'], 1)
                 self.assertEqual(plan['custody_node_shards'], [0, 1, 2])
                 self.assertEqual(plan['custody_compile_proof_version'], 1)
@@ -179,7 +209,7 @@ class CustodyExecutionPlans(_ScopeFixtureBase):
                     self.write('scripts/ci-required-scope.json', json.dumps(self.config))
                     head = self.commit()
                 plan = selector.select(old, self.base, head, profile='pr-fast')
-                self.assertIn('custody', plan['workspace_support_partitions'])
+                self.assertEqual(plan['workspace_support_partitions'], ['other'])
                 self.assertNotIn('custody_execution_version', plan)
                 self.assertNotIn('custody_node_shards', plan)
                 self.assertNotIn('custody_compile_proof_version', plan)
@@ -278,7 +308,7 @@ class CustodyExecutionPlans(_ScopeFixtureBase):
         plan = selector.select(old, self.base, self.commit(), profile='pr-fast')
         self.assertIs(plan['test_policy_changed'], True)
         self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
-        self.assertIn('custody', plan['workspace_support_partitions'])
+        self.assertEqual(plan['workspace_support_partitions'], ['other'])
         self.assertNotIn('custody_execution_version', plan)
         self.assertNotIn('custody_node_shards', plan)
         self.assertNotIn('custody_compile_proof_version', plan)
@@ -342,7 +372,7 @@ class AdditiveGovernanceRegistrations(_ScopeFixtureBase):
 
     def test_addition_keeps_existing_tests_and_trusted_diagnostic_companions(self):
         self.candidate()
-        self.write('.github/workflows/codeql-rust-capacity.yml', '# already scoped diagnostic workflow\n')
+        self.write('.github/workflows/codeql.yml', '# already scoped diagnostic workflow\n')
         self.write('doc/readme.md', 'diagnostic documentation\n')
         plan = self.select(self.commit())
         self.assertEqual(plan['scope'], 'targeted')

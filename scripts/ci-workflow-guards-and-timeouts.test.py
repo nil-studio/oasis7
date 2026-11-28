@@ -110,7 +110,6 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'launcher-web': 10,
                 'viewer-js-required': 14,
                 'viewer-performance-report': 15,
-                'newapi-bridge-package': 10,
             },
             '.github/workflows/pr-boundary-gate.yml': {
                 'boundary-check': 3,
@@ -128,11 +127,6 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             '.github/workflows/command-center.yml': {
                 'desktop': 16,
             },
-            '.github/workflows/compile-metrics.yml': {
-                'compile-metrics': 45,
-                'compile-metrics-linux': 25,
-                'summarize': 5,
-            },
             '.github/workflows/daily-github-release.yml': {
                 'create-release': 5,
             },
@@ -147,9 +141,6 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'build-metrics': 150,
                 'package': 20,
                 'publish-preview': 10,
-            },
-            '.github/workflows/newapi-bridge-service-package.yml': {
-                'package-linux-x86-64': 10,
             },
             '.github/workflows/hosted-login-linux-build.yml': {
                 'build-linux-x86-64': 30,
@@ -254,9 +245,7 @@ class DependabotCoverageGuardTests(unittest.TestCase):
         '/.github/actions/cache-sdk': 'vendored fixed actions/cache 55cc SDK closure; update patch/provenance together',
     }
     EXCLUDED_CARGO_DIRECTORIES = {
-        '/tests/libp2p-compat/candidate': 'compatibility test fixture',
-        '/tests/libp2p-compat/common': 'compatibility test fixture',
-        '/tests/libp2p-compat/legacy': 'compatibility test fixture',
+        '/crates/oasis7': 'retired umbrella crate removed from workspace members (#6152); pending physical deletion',
         '/tools/wasm_build_suite/templates/minimal_module': 'zero-dependency minimal template',
         '/vendor/if-watch-3.2.2': 'vendored crate patched by root Cargo.toml',
         '/vendor/libp2p-quic-0.15.0': 'vendored crate patched by root Cargo.toml',

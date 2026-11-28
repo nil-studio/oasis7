@@ -133,14 +133,15 @@ after(()=>{assert.equal(completed,2);record('finish');});
                         workspace_support_profiles=['oasis7_custody_worker', 'oasis7_context'],
                         workspace_support_partition_version=1,
                         workspace_support_partitions=['custody', 'other'])
-        output = []
-        for partition in ('custody', 'other'):
-            result = self.invoke('plan:' + json.dumps(selected), environment={'support_partition': partition})
-            self.assertEqual(result.returncode, 0, result.stderr)
-            profiles = [line for line in result.stdout.splitlines() if line.startswith('+ support profile: ')]
-            self.assertEqual(len(profiles), 1)
-            output.extend(profiles)
-        self.assertCountEqual(output, ['+ support profile: oasis7_custody_worker', '+ support profile: oasis7_context'])
+        custody = self.invoke('plan:' + json.dumps(selected), environment={'support_partition': 'custody'})
+        self.assertEqual(custody.returncode, 0, custody.stderr)
+        self.assertEqual([line for line in custody.stdout.splitlines() if line.startswith('+ support profile: ')], [])
+        other = self.invoke('plan:' + json.dumps(selected), environment={'support_partition': 'other'})
+        self.assertEqual(other.returncode, 0, other.stderr)
+        self.assertCountEqual(
+            [line for line in other.stdout.splitlines() if line.startswith('+ support profile: ')],
+            ['+ support profile: oasis7_custody_worker', '+ support profile: oasis7_context'],
+        )
         for change in ({'workspace_support_partition_version': True}, {'workspace_support_partitions': ['custody']},
                        {'workspace_support_partitions': ['custody', 'custody']}, {'workspace_support_partitions': ['all']}):
             with self.subTest(change=change):
@@ -161,7 +162,8 @@ after(()=>{assert.equal(completed,2);record('finish');});
                     workspace_support_partition_version=1,
                     workspace_support_partitions=['custody', 'other'])
         planned = 'plan:' + json.dumps(plan)
-        for mode, profiles in [('host', ['oasis7_game_client', 'oasis7_local_signer']), ('image', ['oasis7_context'])]:
+        for mode, profiles in [('host', ['oasis7_game_client', 'oasis7_local_signer']),
+                               ('image', ['oasis7_context', 'oasis7_custody_worker'])]:
             with self.subTest(mode=mode):
                 result = self.invoke(planned, environment={'support_partition': 'other',
                                                           'support_execution': mode})
@@ -185,14 +187,28 @@ after(()=>{assert.equal(completed,2);record('finish');});
                         workspace_support_profiles=['oasis7_context'],
                         workspace_support_partition_version=1,
                         workspace_support_partitions=['other'],
+                        workspace_support_execution_contract={
+                            'version': 1, 'selected_profiles': ['oasis7_context'],
+                            'partitions': {'custody': [], 'other': ['oasis7_context']},
+                            'host_profiles': [], 'image_profiles': ['oasis7_context'],
+                            'expanded_targets_by_profile': {}, 'complete_features_by_profile': {},
+                            'wasm_compile_checks': {},
+                        },
                         reasons=["quoted ' \" \\\n$(touch transport-must-not-execute)\nPY\n" * 4000])
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             scripts = root / 'scripts'
             scripts.mkdir()
-            for name in ('plan-rust-required-scope.py', 'find-python-with-module.sh',
+            for name in ('plan-rust-required-scope.py', 'ci-required-scope.json', 'find-python-with-module.sh',
                          'viewer-dependency-preflight.sh'):
                 shutil.copyfile(ROOT / 'scripts' / name, scripts / name)
+            if (ROOT / 'scripts/run-ci-authority-python.py').is_file():
+                shutil.copyfile(ROOT / 'scripts/run-ci-authority-python.py', scripts / 'run-ci-authority-python.py')
+            if (ROOT / 'scripts/ci_engine').is_dir():
+                for ef in sorted((ROOT / 'scripts/ci_engine').rglob('*.py')):
+                    dst = root / ef.relative_to(ROOT)
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(ef, dst)
             # Keep the complete production CLI and dispatcher; record only the
             # expensive Cargo boundary after parsing has selected the real path.
             marker = '  run_group "$group"\n'
@@ -292,58 +308,15 @@ echo 'loaded definitions only'
 
     def test_owner_setup_protocol_inputs_retain_actual_custody_world_coverage(self):
         config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
-        paths = set(config['workspace_support_profile_paths']['oasis7_custody_worker'])
-        required = [
-            'crates/oasis7_agent_api/src/game/goal.rs',
-            'crates/oasis7_agent_api/src/game/task.rs',
-            'crates/oasis7_agent_api/src/game/goal_prepare.rs',
-            'crates/oasis7_agent_api/src/game/goal_publish.rs',
-            'crates/oasis7_agent_api/src/game/executor.rs',
-            'crates/oasis7_client_api/src/world_service/entry_control.rs',
-            'crates/oasis7_client_api/src/world_service/private_goal_read.rs',
-            'crates/oasis7_client_api/src/world_service/owner_setup_observation.rs',
-            'crates/oasis7_client_api/src/world_service_wire.rs',
-            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/entry_owner_control.rs',
-            'crates/oasis7_chain_runtime/src/host/world_service_private_goal.rs',
-        ]
-        for path in required:
-            with self.subTest(path=path):
-                self.assertIn(path, paths)
+        self.assertNotIn('oasis7_custody_worker', config['workspace_support_profile_paths'])
 
     def test_participant_protocol_inputs_retain_actual_custody_world_coverage(self):
         config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
-        paths = set(config['workspace_support_profile_paths']['oasis7_custody_worker'])
-        required = [
-            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry.rs',
-            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/participant_entry_tests.rs',
-            'crates/oasis7_client_api/src/world_service.rs',
-            'crates/oasis7_client_api/src/world_service/authority.rs',
-            'crates/oasis7_client_api/src/world_service/private_goal.rs',
-            'crates/oasis7_client_api/src/world_service/participant_discovery.rs',
-            'crates/oasis7_client_api/src/world_service/participant_policy_original.rs',
-            'crates/oasis7_client_api/src/world_service_correlation.rs',
-            'crates/oasis7_chain_runtime/src/host/world_service_participant_api.rs',
-            'crates/oasis7_chain_runtime/src/host/world_service_participant_owner_control.rs',
-            'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_http.rs',
-            'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_http_fixture.rs',
-            'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_governance.rs',
-            'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/participant_transport.rs',
-        ]
-        for path in required:
-            with self.subTest(path=path):
-                self.assertIn(path, paths)
+        self.assertNotIn('oasis7_custody_worker', config['workspace_support_profile_paths'])
 
     def test_native_custody_protocol_inputs_retain_real_platform_coverage(self):
         config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
-        paths = set(config['workspace_support_profile_paths']['oasis7_custody_worker'])
-        prefix = 'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/'
-        for name in ('custody_managed_binding.rs', 'custody_managed_binding_tests.rs',
-                     'custody_owner_pin.rs', 'custody_owner_pin_tests.rs',
-                     'native_managed_operation.rs', 'native_managed_operation_tests.rs',
-                     'native_key.rs', 'native_key_complete.rs', 'native_key_tests.rs',
-                     'machine_registration.rs', 'machine_registration_tests.rs'):
-            with self.subTest(path=name):
-                self.assertIn(prefix + name, paths)
+        self.assertNotIn('oasis7_custody_worker', config['workspace_support_profile_paths'])
 
     def invoke(self, profiles, fail=False, fail_protocol=False, fail_expanded=False, cwd=None,
                real_cargo=False, real_worker_compile=False, environment=None,
@@ -512,45 +485,29 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
     def test_custody_worker_runs_platform_proof_in_isolation(self):
         result = self.invoke(json.dumps(['oasis7_custody_worker']))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('contract bash crates/oasis7_custody_worker/scripts/verify.sh --platform', result.stdout)
+        self.assertIn('support profile offboarded: oasis7_custody_worker', result.stdout)
+        self.assertIn('support profile completed: oasis7_custody_worker', result.stdout)
+        self.assertNotIn('verify.sh', result.stdout)
         self.assertNotIn('cargo ', result.stdout)
         self.assertNotIn('full-inventory', result.stdout)
 
     def test_selected_worker_profile_runs_real_compile_helper_and_propagates_failure(self):
-        profiles = ('identity', 'owner', 'executor', 'recovery-fence',
-                    'owner,approval-harness', 'identity,native-runtime-harness')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            manifest = root / 'crates/oasis7_custody_worker/Cargo.toml'
-            manifest.parent.mkdir(parents=True)
-            names = sorted({name for profile in profiles for name in profile.split(',')})
-            # Closed command-capture fixture, not actual Worker compile evidence.
-            manifest.write_text('[features]\ndefault = []\n'
-                                + ''.join(name + ' = []\n' for name in names))
             binary = root / 'bin'
             binary.mkdir()
             capture = root / 'worker-compile-argv'
             cargo = binary / 'cargo'
-            cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\nexit "$WORKER_COMPILE_RESULT"\n')
+            cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\nexit 42\n')
             cargo.chmod(0o755)
             environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
-                               WORKER_COMPILE_CAPTURE=str(capture), WORKER_COMPILE_RESULT='0')
+                               WORKER_COMPILE_CAPTURE=str(capture))
             result = self.invoke('["oasis7_custody_worker"]', real_worker_compile=True,
                                  cwd=root, environment=environment)
             self.assertEqual(result.returncode, 0, result.stderr)
-            expected = ['check -p oasis7_custody_worker --target wasm32-unknown-unknown '
-                        '--no-default-features --features ' + profile + ' --locked'
-                        for profile in profiles]
-            self.assertEqual(capture.read_text().splitlines(), expected)
+            self.assertFalse(capture.exists())
+            self.assertIn('support profile offboarded: oasis7_custody_worker', result.stdout)
             self.assertIn('support profile completed: oasis7_custody_worker', result.stdout)
-            capture.unlink()
-            environment['WORKER_COMPILE_RESULT'] = '42'
-            failed = self.invoke('["oasis7_custody_worker"]', real_worker_compile=True,
-                                 cwd=root, environment=environment)
-            self.assertNotEqual(failed.returncode, 0)
-            self.assertIn('exit status 42', failed.stderr)
-            self.assertNotIn('support profile completed', failed.stdout)
-            self.assertEqual(capture.read_text().splitlines(), expected[:1])
 
     def test_dev_test_worker_runs_actual_platform_and_propagates_failure(self):
         result = self.invoke(json.dumps(['oasis7_dev_test_worker']))
@@ -568,8 +525,10 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
 
     def test_custody_platform_failure_stops_profile_completion(self):
         result = self.invoke(json.dumps(['oasis7_custody_worker']), fail_protocol=True)
-        self.assertEqual(result.returncode, 19, result.stderr)
-        self.assertNotIn('support profile completed', result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('support profile offboarded: oasis7_custody_worker', result.stdout)
+        self.assertIn('support profile completed: oasis7_custody_worker', result.stdout)
+        self.assertNotIn('verify.sh', result.stdout)
 
     def test_harness_isolated_and_strict(self):
         result = self.invoke(json.dumps(['oasis7_agent_harness']))
@@ -739,7 +698,7 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         # in it, not merely agree with their own inventory constant.
         self.assertEqual(set(module.SUPPORT_PROFILES),
                          set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_custody_worker', 'oasis7_dev_test_worker'})
-        self.assertIn('run bash crates/oasis7_custody_worker/scripts/verify.sh --platform', legacy)
+        self.assertNotIn('oasis7_custody_worker', legacy)
         self.assertIn('run_dev_test_worker_checks', legacy)
         # The Linux worker's executable and process/FD/regex integration tests
         # must run in the old full-inventory path, not just library tests.
@@ -754,8 +713,7 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         for command in ['oasis7_wasm_executor --features wasmtime --all-targets --locked',
                         'oasis7_context --all-targets --locked',
                         'oasis7_secure_envelope --all-targets --locked',
-                        'oasis7_local_signer --test context_cli --locked',
-                        'oasis7_client_launcher --bin oasis7_client_launcher']:
+                        'oasis7_local_signer --test context_cli --locked']:
             self.assertIn(command, result.stdout)
 
     def test_old_trusted_plan_cannot_narrow_support(self):
@@ -959,6 +917,79 @@ run_group viewer_js_required
                 result, events = self.viewer_fixture(directory, local_entry=True, **options)
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(set(['visual', 'browser', 'smoke']) & {role for role, _ in events})
+
+
+class MaterializedDualContractAndZeroEngineImportTests(unittest.TestCase):
+    def test_executors_run_without_ci_engine_or_planner_across_s2_and_s4_matrix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / 'scripts'
+            scripts.mkdir()
+            for name in ('ci-test-artifacts.py', 'ci-required-scope.json',
+                         'find-python-with-module.sh', 'viewer-dependency-preflight.sh'):
+                shutil.copyfile(ROOT / 'scripts' / name, scripts / name)
+            # Physically omit scripts/ci_engine/ and scripts/plan-rust-required-scope.py.
+            self.assertFalse((scripts / 'ci_engine').exists())
+            self.assertFalse((scripts / 'plan-rust-required-scope.py').exists())
+            marker = '  run_group "$group"\n'
+            driver = DRIVER.replace(marker, '  run_cargo() { printf "cargo %s\\n" "$*"; }\n  run_cargo_clippy() { :; }\n' + marker)
+            (scripts / 'ci-tests.sh').write_text(driver, encoding='utf-8')
+
+            # 1. Test ci-test-artifacts.py S2 -> S5 fail-closed rejection and S5 direct contract read.
+            import importlib.util
+            spec = importlib.util.spec_from_file_location('sandbox_artifacts', scripts / 'ci-test-artifacts.py')
+            art = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(art)
+            s2_plan = {'groups': ['oasis7_required'], 'scope': 'targeted', 'execution_profile': 'pr-fast',
+                       'fast_plan_version': 1, 'check_inventory_version': 1,
+                       'source_sha': 'a' * 40, 'tested_sha': 'a' * 40, 'policy_sha': 'a' * 40,
+                       'test_policy_changed': False, 'oasis7_required_wasm_packages': ['oasis7_agent_api']}
+            with self.assertRaisesRegex(ValueError, 'missing required ordinary_execution_contract v1'):
+                art.resolve_ordinary_execution_contract(s2_plan)
+            s5_plan = dict(s2_plan, ordinary_execution_contract={
+                'version': 1, 'mode': 'artifact-v2', 'supports_universal_v2': True,
+                'candidate_container_eligible': False, 'artifact_partitions': ['compact'],
+                'partitions': ['all'], 'logical_harness_aliases': {},
+                'required_wasm_packages': ['oasis7_agent_api'], 'required_host_docker_wasm_fixtures': [],
+                'deferred_cases': {}, 'delegated_clippy': [],
+            })
+            self.assertFalse(art.ordinary_candidate_image_eligible(s5_plan))
+            self.assertEqual(art.required_wasm_packages(s5_plan), ['oasis7_agent_api'])
+            with self.assertRaises(ValueError):
+                art.resolve_ordinary_execution_contract(dict(s2_plan, ordinary_execution_contract={'version': 99}))
+            with self.assertRaises(ValueError):
+                art.resolve_ordinary_execution_contract(dict(s5_plan, ordinary_execution='inline'))
+
+            # 2. Test ci-tests.sh --support-plan-file: S2 -> S5 fail-closed rejected; S5 -> S5 succeeds without planner/ci_engine.
+            s2_support = {'groups': ['workspace_support'], 'scope': 'targeted',
+                          'workspace_support_profile_version': 1,
+                          'workspace_support_profiles': ['oasis7_proto', 'oasis7_game_client'],
+                          'workspace_support_partition_version': 1, 'workspace_support_partitions': ['other']}
+            s2_pf = root / 'S2_S5.json'
+            s2_pf.write_text(json.dumps(s2_support), encoding='utf-8')
+            s2_res = subprocess.run(
+                ['bash', str(scripts / 'ci-tests.sh'), 'required', '--group', 'workspace_support',
+                 '--support-plan-file', str(s2_pf), '--support-partition', 'other', '--support-execution', 'image'],
+                cwd=root, text=True, capture_output=True)
+            self.assertNotEqual(s2_res.returncode, 0, 'S2 plan without workspace_support_execution_contract must fail-closed in S5')
+            self.assertIn('missing required workspace_support_execution_contract v1', s2_res.stderr)
+
+            s5_support = dict(s2_support, workspace_support_execution_contract={
+                'version': 1, 'selected_profiles': ['oasis7_game_client', 'oasis7_proto'],
+                'partitions': {'custody': [], 'other': ['oasis7_game_client', 'oasis7_proto']},
+                'host_profiles': ['oasis7_game_client'], 'image_profiles': ['oasis7_proto'],
+                'expanded_targets_by_profile': {}, 'complete_features_by_profile': {},
+                'wasm_compile_checks': {},
+            })
+            s5_pf = root / 'S5_S5.json'
+            s5_pf.write_text(json.dumps(s5_support), encoding='utf-8')
+            s5_res = subprocess.run(
+                ['bash', str(scripts / 'ci-tests.sh'), 'required', '--group', 'workspace_support',
+                 '--support-plan-file', str(s5_pf), '--support-partition', 'other', '--support-execution', 'image'],
+                cwd=root, text=True, capture_output=True)
+            self.assertEqual(s5_res.returncode, 0, f'S5->S5: {s5_res.stdout}{s5_res.stderr}')
+            self.assertIn('+ support profile: oasis7_proto', s5_res.stdout)
+            self.assertNotIn('+ support profile: oasis7_game_client', s5_res.stdout)
 
 
 if __name__ == '__main__':

@@ -82,7 +82,7 @@ OPS_DIR="$TMP_DIR/ops"
 
 test -s "$OPS_DIR/SHA256SUMS"
 (cd "$OPS_DIR" && shasum -a 256 -c SHA256SUMS >/dev/null)
-test -x "$BUNDLE_DIR/oasis7 Client Launcher.app/Contents/MacOS/oasis7-client-launcher"
+test -x "$BUNDLE_DIR/run-game.sh"
 
 # Exercise the actual native -> archive -> assembly path, including ops tools.
 git -C "$FIXTURE_ROOT" init -q

@@ -3,6 +3,8 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import json
+import sys
 import tempfile
 spec = importlib.util.spec_from_file_location("source_plan", Path(__file__).with_name("package-source-plan.py"))
 plan = importlib.util.module_from_spec(spec)
@@ -38,6 +40,20 @@ with tempfile.TemporaryDirectory() as temporary:
             try: plan.resolve(bad, True)
             except ValueError: pass
             else: raise AssertionError(bad)
+        # Image routing is separate from the immutable source/qualification plan.
+        cli_env = dict(os.environ, REQUESTED_REF="v1.2.3", GITHUB_SHA=sha,
+                       GITHUB_WORKFLOW_SHA=sha, GITHUB_REPOSITORY="nil-studio/oasis7")
+        outputs = []
+        for image_args in ([], ["--release-web-image-source", sha]):
+            output = root / ("image-output" if image_args else "legacy-output")
+            subprocess.run([sys.executable, plan.__file__, "--release", *image_args],
+                           env=cli_env | {"GITHUB_OUTPUT": str(output)}, check=True)
+            outputs.append(dict(line.split("=", 1) for line in output.read_text().splitlines()))
+        assert outputs[0]["sourcePlan"] == outputs[1]["sourcePlan"]
+        assert outputs[0]["checkoutSha"] == outputs[1]["checkoutSha"] == sha
+        assert "webImageCompatible" not in outputs[0]
+        assert outputs[1]["webImageCompatible"] == "false"  # Historic tree lacks the image tool inputs.
+        assert json.loads(outputs[1]["sourcePlan"])["resolvedRef"] == "refs/tags/v1.2.3"
         git("checkout", "-q", "--orphan", "outside-protected-history")
         git("-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "outside")
         git("tag", "v9.9.9")
@@ -272,7 +288,7 @@ if fixed_installer:
     assert "timeout-minutes: 90" in installer
     assert "name: Install pinned Rust toolchain\n        if: runner.os != 'Linux'" in installer
     assert "sudo apt-get" not in installer
-    assert "--native-binaries" in installer and "--web-dist" in installer and "--web-launcher-dist" in installer
+    assert "--native-binaries" in installer and "--web-dist" in installer
     assert "volumes:" not in installer and "actions: write" not in installer
 
 for name, body, migrated in (
@@ -298,3 +314,58 @@ for name, body, migrated in (
         assert subprocess.run(["sha256sum", "-c", "SHA256SUMS"], cwd=bundle,
                               capture_output=True).returncode != 0
     print(f"ok: {name} Linux checksum shell preserves bytes and rejects tampered payload")
+
+
+soak_selector = repo / "scripts/package-release-soak-image.py"
+if soak_selector.is_file():
+    with tempfile.TemporaryDirectory() as directory:
+        checkout = Path(directory)
+        def soak_git(*args):
+            return subprocess.check_output(["git", *args], cwd=checkout, text=True).strip()
+
+        def commit_fixture():
+            soak_git("add", "rust-toolchain.toml", "scripts")
+            soak_git("-c", "user.name=Fixture", "-c", "user.email=test@example.test",
+                     "-c", "commit.gpgsign=false", "commit", "-qm", "source")
+            return soak_git("rev-parse", "HEAD")
+
+        soak_git("init", "-q")
+        (checkout / "scripts").mkdir()
+        toolchain = checkout / "rust-toolchain.toml"
+        toolchain.write_bytes((repo / toolchain.name).read_bytes())
+        for name in ("release-gate.sh", "p2p-longrun-soak.sh", "s10-five-node-game-soak.sh"):
+            path = checkout / "scripts" / name
+            path.write_text("#!/usr/bin/env bash\n")
+            path.chmod(0o755)
+        modern = commit_fixture()
+        toolchain.write_text(toolchain.read_text().replace("1.96.0", "1.92.0"))
+        historical = commit_fixture()
+        output = checkout / "github-output"
+        env = dict(os.environ, GITHUB_REPOSITORY="nil-studio/oasis7", GITHUB_JOB="plan",
+                   GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_REF="refs/heads/main",
+                   GITHUB_WORKFLOW_REF="nil-studio/oasis7/.github/workflows/mainnet-packages.yml@refs/heads/main",
+                   GITHUB_SHA=historical, GITHUB_WORKFLOW_SHA=historical, GITHUB_OUTPUT=str(output))
+
+        def soak_result(source, expected, **overrides):
+            output.write_text("")
+            subprocess.run([sys.executable, str(soak_selector), source], cwd=checkout,
+                           env=env | overrides, check=True)
+            assert output.read_text() == f"compatible={expected}\n", (source, overrides)
+
+        soak_result(modern, "true")
+        soak_result(historical, "false")
+        soak_result(modern, "false", GITHUB_REF="refs/heads/codex/untrusted")
+        soak_result(modern, "false", GITHUB_REPOSITORY="fork/oasis7")
+        soak_result(modern, "false", GITHUB_WORKFLOW_SHA=modern)
+        soak_result("not-a-sha", "false")
+        ref = "refs/tags/v2.0.0"
+        tagged = dict(
+            GITHUB_REF=ref, GITHUB_EVENT_NAME="push", GITHUB_SHA=modern, GITHUB_WORKFLOW_SHA=modern,
+            GITHUB_WORKFLOW_REF=f"nil-studio/oasis7/.github/workflows/release-packages.yml@{ref}")
+        soak_result(modern, "true", **tagged)
+        soak_result(historical, "false", **tagged)
+        (checkout / "scripts/s10-five-node-game-soak.sh").chmod(0o644)
+        toolchain.write_bytes((repo / toolchain.name).read_bytes())
+        missing_executable = commit_fixture()
+        soak_result(missing_executable, "false")
+    print("ok: soak image selects the verified Git object and rejects unsafe or incompatible sources")

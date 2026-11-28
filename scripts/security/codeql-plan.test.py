@@ -680,6 +680,14 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unregistered input'):
             self.run_plan()
 
+    def test_retired_oasis7_conformance_dockerfile_selects_actions(self):
+        path = 'crates/oasis7/scripts/world-service-conformance-runtime.Dockerfile'
+        self.write(path, 'FROM scratch\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['actions-repo'])
+        self.assertIn(path, plan['reasons']['actions-repo'])
+
     def test_ci_required_scope_selects_its_python_and_actions_consumers(self):
         path = 'scripts/ci-required-scope.json'
         self.write(path, '{"groups":["baseline"]}\n')
@@ -809,6 +817,15 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(len(result['selected_units']), 4)
                 for unit, _ in planner.UNITS:
                     self.assertIn('Git checkout attributes: ' + path, result['reasons'][unit])
+
+    def test_gitmodules_preserves_all_language_consumers(self):
+        self.base = self.git('rev-parse', 'HEAD')
+        self.write('.gitmodules', '[submodule "third_party/rust-skills"]\n\tpath = third_party/rust-skills\n')
+        self.commit()
+        result = self.run_plan()
+        self.assertEqual(len(result['selected_units']), 4)
+        for unit, _ in planner.UNITS:
+            self.assertIn('Git submodule manifest: .gitmodules', result['reasons'][unit])
 
     def test_CQ_T07_T08_all_manifest_inventory_and_delete(self):
         self.write('standalone/Cargo.toml', '[package]\nname="standalone"\nversion="0.1.0"\n')

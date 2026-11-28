@@ -190,15 +190,17 @@ class SelectionPart5(unittest.TestCase):
     def test_native_custody_inputs_add_only_actual_worker_platform_profile(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         backend, worker = 'oasis7_launcher_backend', 'oasis7_custody_worker'
+        self.assertNotIn(worker, config['workspace_support_profile_paths'])
         for package in (backend, worker):
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
         base = self.commit()
         graph = ({p: (f'crates/{p}', {}) for p in (backend, worker)},
                  {backend: set(), worker: set()}, {})
-        paths = [path for path in config['workspace_support_profile_paths'][worker]
-                 if path.startswith(f'crates/{backend}/')]
-        self.assertIn('crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs', paths)
+        paths = [
+            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs',
+            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/world.rs',
+        ]
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for path in paths:
                 with self.subTest(path=path):
@@ -206,23 +208,10 @@ class SelectionPart5(unittest.TestCase):
                     head = self.commit()
                     plan = selector.select(config, base, head)
                     self.assertEqual(plan['scope'], 'targeted')
-                    self.assertIn('workspace_support', plan['groups'])
-                    self.assertEqual(plan['workspace_support_profiles'], [worker])
-                    self.assertTrue({'node', 'wasm_target', 'system_deps'}.issubset(plan['resources']))
+                    self.assertNotIn(worker, plan['workspace_support_profiles'])
+                    self.assertNotIn('workspace_support', plan['groups'])
                     self.assertIn(backend, plan['architecture']['packages'])
                     base = head
-            self.write('crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/world.rs', '// unrelated identity world feature')
-            head = self.commit()
-            plan = selector.select(config, base, head)
-            self.assertNotIn(worker, plan['workspace_support_profiles'])
-            self.assertNotIn('workspace_support', plan['groups'])
-            base = head
-            self.git('mv', paths[0], paths[0] + '.retired')
-            head = self.commit()
-            self.assertEqual(selector.select(config, base, head)['workspace_support_profiles'], [worker])
-            base = head
-            Path(paths[1]).unlink()
-            self.assertEqual(selector.select(config, base, self.commit())['workspace_support_profiles'], [worker])
 
     @staticmethod
     def owner_setup_inputs():
@@ -243,6 +232,7 @@ class SelectionPart5(unittest.TestCase):
     def test_owner_setup_inputs_select_worker_profile_with_real_package_ownership(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         worker = 'oasis7_custody_worker'
+        self.assertNotIn(worker, config['workspace_support_profile_paths'])
         paths = self.owner_setup_inputs()
         packages = {path.split('/')[1] for path in paths} | {worker}
         for package in packages:
@@ -256,20 +246,20 @@ class SelectionPart5(unittest.TestCase):
                     head = self.commit()
                     plan = selector.select(config, base, head)
                     self.assertEqual(plan['scope'], 'targeted')
-                    self.assertIn(worker, plan['workspace_support_profiles'])
+                    self.assertNotIn(worker, plan['workspace_support_profiles'])
                     self.assertIn(path.split('/')[1], plan['architecture']['packages'])
-                    self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
                     base = head
             self.git('mv', paths[0], paths[0] + '.retired')
             head = self.commit()
-            self.assertIn(worker, selector.select(config, base, head)['workspace_support_profiles'])
+            self.assertNotIn(worker, selector.select(config, base, head)['workspace_support_profiles'])
             base = head
             Path(paths[1]).unlink()
-            self.assertIn(worker, selector.select(config, base, self.commit())['workspace_support_profiles'])
+            self.assertNotIn(worker, selector.select(config, base, self.commit())['workspace_support_profiles'])
 
     def test_participant_sdk_and_world_inputs_add_actual_worker_platform_profile(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         worker = 'oasis7_custody_worker'
+        self.assertNotIn(worker, config['workspace_support_profile_paths'])
         packages = ('oasis7_client_api', 'oasis7_chain_runtime', worker)
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
@@ -277,10 +267,10 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         graph = ({p: (f'crates/{p}', {}) for p in packages},
                  {p: set() for p in packages}, {})
-        paths = [path for path in config['workspace_support_profile_paths'][worker]
-                 if path.startswith(('crates/oasis7_client_api/', 'crates/oasis7_chain_runtime/'))
-                 and path not in self.owner_setup_inputs()]
-        self.assertEqual(len(paths), 12)
+        paths = [
+            'crates/oasis7_client_api/src/world_service/participant_entry.rs',
+            'crates/oasis7_chain_runtime/src/host/world_service_session.rs',
+        ]
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for path in paths:
                 with self.subTest(path=path):
@@ -288,16 +278,9 @@ class SelectionPart5(unittest.TestCase):
                     head = self.commit()
                     plan = selector.select(config, base, head)
                     self.assertEqual(plan['scope'], 'targeted')
-                    self.assertIn(worker, plan['workspace_support_profiles'])
+                    self.assertNotIn(worker, plan['workspace_support_profiles'])
                     self.assertIn(path.split('/')[1], plan['architecture']['packages'])
-                    self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
                     base = head
-            self.git('mv', paths[0], paths[0] + '.retired')
-            head = self.commit()
-            self.assertIn(worker, selector.select(config, base, head)['workspace_support_profiles'])
-            base = head
-            Path(paths[1]).unlink()
-            self.assertIn(worker, selector.select(config, base, self.commit())['workspace_support_profiles'])
 
     def test_domain_types_selects_its_own_support_profile(self):
         package = 'oasis7_domain_types'
@@ -353,7 +336,7 @@ class SelectionPart5(unittest.TestCase):
 
     def test_agent_api_and_harness_route_through_support_and_oasis7_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7', 'oasis7_chain_runtime')
+        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_world_service', 'oasis7_chain_runtime')
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
@@ -361,9 +344,9 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         manifests = {name: (f'crates/{name}', {}) for name in packages}
         reverse = {
-            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7'},
-            'oasis7_agent_harness': {'oasis7'},
-            'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7_world_service'},
+            'oasis7_agent_harness': {'oasis7_world_service'},
+            'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
         }
         graph = (manifests, reverse, {})
         expected = {'baseline', 'rust_baseline', 'workspace_support',
@@ -433,7 +416,7 @@ class SelectionPart5(unittest.TestCase):
 
     def test_game_client_routes_through_support_and_server_consumer(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        packages = ('oasis7_client_api', 'oasis7_game_client', 'oasis7', 'oasis7_chain_runtime')
+        packages = ('oasis7_client_api', 'oasis7_game_client', 'oasis7_world_service', 'oasis7_chain_runtime')
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
@@ -441,8 +424,8 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         manifests = {name: (f'crates/{name}', {}) for name in packages}
         graph = (manifests, {
-            'oasis7_client_api': {'oasis7_game_client', 'oasis7'},
-            'oasis7_game_client': {'oasis7'}, 'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+            'oasis7_client_api': {'oasis7_game_client', 'oasis7_world_service'},
+            'oasis7_game_client': {'oasis7_world_service'}, 'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
         }, {})
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for package in ('oasis7_client_api', 'oasis7_game_client'):
@@ -460,7 +443,7 @@ class SelectionPart5(unittest.TestCase):
 
     def test_provider_tests_are_local_and_library_changes_reach_server_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        packages = ('oasis7_agent_harness', 'oasis7_model_provider', 'oasis7', 'oasis7_chain_runtime')
+        packages = ('oasis7_agent_harness', 'oasis7_model_provider', 'oasis7_world_service', 'oasis7_chain_runtime')
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
@@ -469,8 +452,8 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         manifests = {name: (f'crates/{name}', {}) for name in packages}
         graph = (manifests, {
-            'oasis7_agent_harness': {'oasis7_model_provider', 'oasis7'},
-            'oasis7_model_provider': {'oasis7'}, 'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+            'oasis7_agent_harness': {'oasis7_model_provider', 'oasis7_world_service'},
+            'oasis7_model_provider': {'oasis7_world_service'}, 'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
         }, {})
         with patch.object(selector, 'cargo_graph', return_value=graph):
             for package, path in [('oasis7_model_provider', 'tests/transport.rs'),
@@ -491,7 +474,7 @@ class SelectionPart5(unittest.TestCase):
 
     def test_deleted_agent_harness_source_uses_base_consumer_graph(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7', 'oasis7_chain_runtime')
+        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_world_service', 'oasis7_chain_runtime')
         for package in packages:
             self.write(f'crates/{package}/Cargo.toml',
                        f'[package]\nname="{package}"\nversion="0.1.0"\n')
@@ -499,12 +482,12 @@ class SelectionPart5(unittest.TestCase):
         base = self.commit()
         old_manifests = {name: (f'crates/{name}', {}) for name in packages}
         old_reverse = {
-            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7'},
-            'oasis7_agent_harness': {'oasis7'},
-            'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7_world_service'},
+            'oasis7_agent_harness': {'oasis7_world_service'},
+            'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
         }
-        new_manifests = {'oasis7': ('crates/oasis7', {}), 'oasis7_chain_runtime': ('crates/oasis7_chain_runtime', {})}
-        new_reverse = {'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set()}
+        new_manifests = {'oasis7_world_service': ('crates/oasis7_world_service', {}), 'oasis7_chain_runtime': ('crates/oasis7_chain_runtime', {})}
+        new_reverse = {'oasis7_world_service': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set()}
         Path('crates/oasis7_agent_harness/src/lib.rs').unlink()
         head = self.commit()
 

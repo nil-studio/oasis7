@@ -1,6 +1,6 @@
 use super::super::decision_trace::{is_budget_exhausted_wait, is_trace_only_overflow};
 use super::*;
-use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
+use oasis7_runtime_host::runner::RuntimeRunnerHostExt;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::simulator::{AsyncAgentTurnOutcome, AsyncTurnLifecycle};

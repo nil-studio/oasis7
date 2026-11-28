@@ -420,6 +420,26 @@ impl DurableFullSyncIssuerV3 {
         self.commit_v3(witness, &state, prepared, observation, record)
     }
 
+    /// Serve a management-only original revocation result from the CURRENT
+    /// independently witnessed V3 history, never a cached local phase/ACK.
+    /// The caller must separately authenticate management access and provide
+    /// the original protected fence receipts; this does not issue a cutoff.
+    /// The full exact lease set is rebuilt on every query, including cold open.
+    pub fn read_revocation_status(
+        &mut self,
+        revoke_record_digest: &str,
+        protected_inventory: &FullSyncRevocationInventoryV1,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<FullSyncRevocationSummaryV1, FormalError> {
+        let state = self.synchronize_v3(witness)?;
+        if protected_inventory.revocation_record_digest != revoke_record_digest {
+            return Err(FormalError::Conflict(
+                "V3 revocation query differs from original request".into(),
+            ));
+        }
+        protected_inventory.summary_verified(&state)
+    }
+
     /// Issues a provider lease only through the shared V3 event CAS. The exact
     /// pending signed time observation is reused after any uncertain response.
     pub fn issue_lease(

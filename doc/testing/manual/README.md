@@ -22,7 +22,6 @@
 - 想核对研究章程的预工作同意、贡献来源、份额与许可交接：读 [R&D 归因及转让验收手册](rd-charter-attribution-and-share-transfer-acceptance.manual.md)，区分历史贡献、使用权、未付权益和已付历史。
 - 想核对冲突、地点建设权、损失恢复与软赛季的完整因果：读[冲突与连续性验收手册](chartered-conflict-recovery-and-soft-season-acceptance.manual.md)，独立核授权、持续占有、真实交割、各类损坏的恢复投入、有限收回救济和历史保留；现有战争实现与目标协议分别取证。
 - 想核对外部 Runtime 私有上下文未接续后的告知与重规划：读[私有上下文恢复场景](external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery)，原模型调用、世界操作、当前任务与私有会话分别取证。
-- 想让本地入口接入 formal `public_testnet` world state，或排查 LetAI 配置、代理继承、模型选择、quota 与受控 auto-topup：读 [`local-public-testnet-letai-test-environment-2026-06-23.manual.md`](local-public-testnet-letai-test-environment-2026-06-23.manual.md)。
 - 想在受治理 deployment truth 下只物化一台已擦除 validator host、保持服务 disabled/inactive 并输出 public receipt：先读 blockchain ops authority [`../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`](../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md)，再按 [`public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md`](public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md) 执行其 narrow subprocedure。
 - 想用截图加模型视觉评审替代 routine 人工 review：读 [`model-visual-review-sop-2026-05-29.manual.md`](model-visual-review-sop-2026-05-29.manual.md)，并使用 [`../templates/model-visual-review-card-template.md`](../templates/model-visual-review-card-template.md)。
 
@@ -52,7 +51,6 @@
 | 预工作 R&D 归因、固定分配与整槽转让 | `rd-charter-attribution-and-share-transfer-acceptance.manual.md` | 现实知识产权裁判、自动贡献评分、已实现或完整 CR-003 证明 |
 | 受区域规则约束的冲突、tenure、恢复与软赛季 | [冲突与连续性验收](chartered-conflict-recovery-and-soft-season-acceptance.manual.md) | native War 或普通物流代签占领/安全提取、免费复原、全局重置或未经实际执行的放行证明 |
 | 外部 Runtime 私有上下文告知与可信重规划 | [adapter-private-context-recovery](external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery) | 私有记忆无损迁移、模型理解、世界成果或一个 driver 代签另一个 |
-| 本地入口接入 formal public testnet | `local-public-testnet-letai-test-environment-2026-06-23.manual.md` | 纯 local-only LetAI playtest |
 | 已擦除 validator host 的 no-start 物化 | `doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`，再进入 `public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md` | topology 审批、服务启用、网络 readiness 或 release claim |
 | 截图的模型视觉评审 | `model-visual-review-sop-2026-05-29.manual.md` | runtime / security / release 放行结论 |
 

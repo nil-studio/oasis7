@@ -119,7 +119,7 @@
 
 世界资源消耗、WASM Data/Electricity、合同执行成本、许可、levy、物流、补偿等仍分别来自原合法政策和实际 writer；不得把链 quote 当缴清这些费用。每项保留 payer、原单位、source、policy/version、hold/actual/refund 与 receipt，不净成一个无来源的 OC 总价。无适用费权、无准确预算或可用来源时按原业务拒绝，不以本设计补一条零费规则。机会成本包括原锁定/占用、时间与已确认消耗；未来产出和未完成返还不是现有资金。
 
-[operator-managed quota bridge](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#bridge-recovery-state) 是已有单向服务业务。只有原已支持 scope、真实链输入与稳定 order 才能触发服务 topup；`credited` 和 `reconciled` 分开。topup 成功后 query、项目或上下文恢复失败，保留原成功；unknown 查原订单，不能删除重建 order/身份或重发一次充值。额度不进入 World 库存、治理权、投票 weight、claim starter 或市场信誉；额度/服务消耗也没有 OC 赎回出口。该边界不改变原桥的价格、服务认证、限额和运维 authority。
+operator-managed 单向服务额度桥属于独立外部服务边界，其 `credited` 和 `reconciled` 分开，topup 成功后 query、项目或上下文恢复失败保留原成功，unknown 查原订单而不重发一次充值。额度不进入 World 库存、治理权、投票 weight、claim starter 或市场信誉；额度/服务消耗也没有 OC 赎回出口。该边界不改变原桥的价格、服务认证、限额和运维 authority。
 
 ## 7. 原请求、版本与持久化
 
