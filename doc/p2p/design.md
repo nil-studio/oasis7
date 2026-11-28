@@ -322,7 +322,38 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-0bb14512-622e-4
 - **跨实例确定性 Fencing**：新进程经 `acquire_lease` 在独立事务存储面原子递增 `lease_generation` 后，旧进程持旧 generation/token 发起的 `read_for_lease`、CAS 提交、时间推进或延迟 `release_lease` 必须被存储面确定性拒绝；即便旧进程仍持有未关闭的 KMS/HSM 会话句柄，在每次对外释放签名前或提交状态时也因事务面 fencing 失败而无法更新受保护记录或把冲突决定记入权威状态（签名调用须排在租约预约/状态锁定之后，确保被 fenced 的旧实例无法为新冲突槽取得签名）。
 - **跨面中断一致性**：不可变对象写入或 KMS/HSM 签名与强一致事务提交分属两步时，必须遵循“先持久绑定精确预约意图（reservation intent）→ 执行确定性不可导出签名/对象核验 → 原子 CAS 持久化结果与回执 → 精确读回后对外释放”的顺序；任意中间接缝中断在冷重开时仅能沿已持久预约重算/续办同一原件或保持 `unknown` 停签，绝不生成替代状态或冲突签名。
 
-状态边界：本节固定当前 V3 接口的合规组合落地合同；仓库当前仅有 `LunaBftSigningKeyV3` 密钥句柄与一次性测试 namespace 的后端契约一致性诊断（`#6809`），具名组合式 adapter、启动配置及隔离环境下的真实冷重开/回滚/fencing 验收仍待 `#5518` 实施验证。
+**原件保留事务与首个 Ready/Selection 兼容。**
+
+本决定沿用本节的受保护事务、租约与签名边界，并承接[长期恢复与容量合同](#des-p2p-full-sync-checkpoint-capacity-v1)。恢复连续性、完整原件和容量拒绝分别沿用该节已有 O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；不创建新的读权、签写资格或预算。
+
+同一 protected namespace 使用一个完整保留事务，同时保存当前可推进状态与不可变历史原件。`BftOriginalRetentionTxnSnapshotV1` 的字段分工如下；不能把历史首次状态原地改写成当前 Ready 状态。
+
+| 内容 | 位置及兼容规则 |
+| --- | --- |
+| 当前 signer State、lease generation/token、保护 floor | `current.current.signer`，只按已验证的当前状态转换推进。 |
+| 原 Fresh creation marker、activation map/receipt | `current.current.marker/original`，保持原创建身份、原 map 与签名原件。 |
+| 首笔 Reserve 的原 ledger、Input 与首次 receipt/价格 | `current.reservation`，保持不可变；Ready 不覆盖该记录。 |
+| 当前保留 ledger 与受保护选择索引 | 独立 `current_retention`，与当前 State、历史索引及累计费用一同原子提交。 |
+| 原操作身份与原结果 | `original_operations`，保留原认证 request、signed receipt 的原字节，原 before/after revision/digest、原 lease generation/token 和当时累计费用；已有项不可改写。 |
+| 累计响应费用 | `current.current.reserved_response_bytes`，与保留物料承诺共用原 namespace，单调且不退款。 |
+
+**两条版本轴独立。** PostgreSQL **Stored schema 1 → schema 2** 描述持久 envelope 的演进；retention **Head2 → Head3** 描述受签名 head 的选择承诺，二者不能互相代替。Stored schema 1 保留原 State/FirstReserve 规范编码及字段集合，不序列化新增 `current_retention`。携带该当前保留状态时使用 Stored schema 2，并要求完整、非空的对应字段；缺失、`null`、未知字段、未知版本、version/body 错配及丢弃当前保留状态的降级写回均拒绝。升级仅随合法保留事务完成，仍使用原同一行及同一 `SERIALIZABLE` 事务，不另建 WAL、历史表或费用账。旧 Fresh/FirstReserve 接口若仍允许更新，必须无损保留 `original_operations` 与 `current_retention`；无法表达完整元组时明确拒绝。
+
+历史原件按各自原版本独立验签、验原 bytes、原请求身份和原 before/after 关系；当前操作另核当前 lease、完整 State/checkpoint 和 expected envelope。新 challenge 或新 lease 不成为历史原操作身份，也不能使历史 receipt 推进或回退当前 checkpoint。已提交的 map、Input、Data、原签名 receipt 和首次价格不得通过重新编码或重新签发完成兼容；保持原字节不表示新 reader 自动接受此前不支持的历史版本。
+
+首个 Fresh 原件从 ReservedPending 进入 Ready 前，独立 Runtime verifier 必须从原 H 验证实际重放结果、原 Input/Data/metadata、publication plan、完整 WAL、确切 pins 和完整依赖闭包。首次 Reserve 的价格验证器或空 inventory 不能替代此验证。Local9 的 Ready 与首次 OriginalLocal Selection 在同一原子操作中提交当前 ledger、选择索引、当前 State、首次原 receipt、完整原操作记录和累计费用，并对整个结果 exact readback；不能先提交 Ready，再另开事务补选择。Received10 可以取得其真实材料的 Ready 事实，但不能仅凭 kind、到达顺序、caller 的 `RetainedLocal` 或本地 selection 文件取得 OriginalLocal 资格。
+
+携带受保护选择的当前 head 使用 Head3，并要求完整 `selection_commitment`；Head2 继续省略该字段，携新 commitment 的 Head2 或缺 commitment 的 Head3 均拒绝。Head3、OriginalLocal Ready、选择事件及选择索引分别沿用 `oasis7.bft.private-retention.head.v3`、`oasis7.bft.private-retention.original-local-ready.v1`、`oasis7.bft.private-retention.selection.v1`、`oasis7.bft.private-retention.selection-index.v1` 域；receipt 仍以原 `oasis7.bft.private-retention.v1.head-receipt` 域签完整 body。选择绑定原 source/namespace、高度、Ready key/fact/InputRef、完整先前选择摘要、单调序号、原 operation 与 expected State/head。每高度只允许空选择到首次选择，以及同 key、同原操作的精确重试；不同 key 替换、借新 lease 改选、旧 Ready 无原选择时自动补签均拒绝。
+
+Ready/Selection 新产生的 State 及写入瞬间所需 State 上界、map、选择索引、receipt、完整原操作记录和索引元数据，必须在 inner 签名前按原有界编码公式完整计入。原 request/receipt 的重复持久副本同样计价；已耗用的首次 Reserve 16 KiB 不能再当空白额度使用。原 Input 与 publication promise 不重复收费，已有 held→actual 不退款；保留物料、archive 物料及累计响应费用继续受同一 4 GiB 上限约束。预检占位仅用于纯编码计长，不得进入签名、CAS 或响应。
+
+提交与释放只走一次 whole-envelope CAS 及完整 exact readback。丢 ACK、未知提交或任何读回差异均 poison 当前 writer；独立 fencing 后，只能核对和续办同一原请求、原 receipt 与累计费用，不改 operation、不重签、不重 Reserve，也不退款或重置预算。已有 Reserve 缺原操作索引、材料缺损、source/role 不匹配、选择冲突或状态不连续时明确拒绝。跨 HSM 与状态事务的持久签名意图仍须满足本节的跨面中断一致性合同，软件事务或测试签名器不能替代该义务。
+
+本决定首先约束首个 Fresh 原件的软件事务与实际消费者；默认旧构造器不因此获得 Ready/Selection 能力。多候选及全部 alternatives、Received 成为本地候选时的显式首次选择、完整选择操作链与 Seal2、全部 T+1 Some、跨窗原结果及实际 Runtime carry 仍须各自完成。后续 Seal 必须保留原选择链、首次价格和全部原件，不能由 live/sealed union、当前 anchor 或新扫描追认；历史无选择不能补签，有选择历史不能降为无选择的 Seal。本设计及其纯类型实现不表示这些后继能力或独立保护资格已经验收。
+
+**具名实现组合与支持状态。** 当前实现选型为 Thales Luna Network HSM 7 / PKCS#11 `CKM_EDDSA` 不可导出 Ed25519 key、独立 PostgreSQL `SERIALIZABLE` 原 namespace 事务，以及按本节对象边界独立配置的不可变 BLAKE3/长度 CAS。数据库服务端时钟沿本节既有合同提供，先核连续性与实际样本不早于持久 floor，再单调推进；不能用取极大掩盖已观察到的回退，也不另加外部签名 UTC 服务作为接口前提。实际设备/client/数据库/对象端版本、原 namespace、隔离与时间连续性须由具体部署证明，目标型号和 SQL 原子性不构成这些证明。
+
+已实现的 Luna key handle、Fresh/首笔 Reserve 与原 operation/响应费用的软件事务能力可复用；具体 PostgreSQL adapter、Ready/Selection、生产 factory、HSM 持久签名意图及隔离环境的冷重开/回滚/fencing 仍须按各自消费者完成实现和验收。PostgreSQL adapter 使用显式配置的 native 连接，不让数据库依赖进入 WASM；其状态/lease 软件片不自动获得受保护时间或生产资格。当前实现与验收记录由 [#5516](https://github.com/nil-studio/oasis7/issues/5516) 和 [#5518](https://github.com/nil-studio/oasis7/issues/5518) 承接，原完整后继窗口和保护义务保持。
 
 #### des-p2p-bft-validator-transition-v1
 
