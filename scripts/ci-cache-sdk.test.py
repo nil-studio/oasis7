@@ -60,7 +60,8 @@ class CacheSdkTests(unittest.TestCase):
                            'TMPDIR': temporary, 'LANG': 'C.UTF-8',
                            'CACHE_SDK_FIXTURE_PYTHON': sys.executable}
             suites = [str(ACTION / 'sdk.test.cjs'),
-                      str(ROOT / 'scripts/ci-trusted-full-regression-cache-roles.test.mjs')]
+                      str(ROOT / 'scripts/ci-trusted-full-regression-cache-roles.test.mjs'),
+                      str(ROOT / 'scripts/ci-trusted-full-regression-cache-transport.test.mjs')]
             result = run(['node', '--test', *suites], ROOT,
                          environment, 'ci-tools', 'cache-sdk-loopback',
                          Path(temporary) / 'processes.jsonl', timeout_seconds=120)
