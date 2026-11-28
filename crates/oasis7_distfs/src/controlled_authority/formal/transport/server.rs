@@ -33,8 +33,8 @@ impl FormalEndpointServer {
     }
     /// Both normal/recovery and healthy activation call this once at startup.
     /// Optional mode admits raw request/response frames, typed Request decoding
-    /// and Request authentication. Response construction/signing and GEN proof
-    /// remain separate.
+    /// and Request authentication, plus the ResponseBody signature digest.
+    /// Response construction/remaining signing and GEN proof remain separate.
     pub fn new_with_frame_admission(
         endpoint: FileFormalEndpoint,
         timeout: Duration,
@@ -240,12 +240,19 @@ impl FormalEndpointServer {
             Command::Head
             | Command::ArchiveChunk { .. }
             | Command::ArchiveObject(_)
-            | Command::BusinessIndexPath { .. } => self.endpoint.sign_formal_rpc_read_response(
-                request_digest,
-                body.challenge.clone(),
-                body.minimum.clone(),
-                &body.command,
-            )?,
+            | Command::BusinessIndexPath { .. } => {
+                let mut context = self
+                    .frame_admission
+                    .as_ref()
+                    .map(|(memory, work)| work.bounded_context(memory, &mut cancelled));
+                self.endpoint.sign_formal_rpc_read_response(
+                    request_digest,
+                    body.challenge.clone(),
+                    body.minimum.clone(),
+                    &body.command,
+                    context.as_mut(),
+                )?
+            }
             _ => {
                 self.endpoint.verify_minimum(&body.minimum)?;
                 let result = match (&body.command, self.frame_admission.as_ref()) {
@@ -275,11 +282,16 @@ impl FormalEndpointServer {
                     // No paid-mode fallback to the old unbounded query.
                     _ => self.execute(body.command.clone()),
                 };
+                let mut context = self
+                    .frame_admission
+                    .as_ref()
+                    .map(|(memory, work)| work.bounded_context(memory, &mut cancelled));
                 self.endpoint.sign_formal_rpc_response(
                     request_digest,
                     body.challenge.clone(),
                     body.minimum.clone(),
                     result,
+                    context.as_mut(),
                 )?
             }
         };

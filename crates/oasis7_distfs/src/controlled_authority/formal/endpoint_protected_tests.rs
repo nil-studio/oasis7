@@ -132,6 +132,7 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
             h(234),
             first.head(),
             Ok(super::super::super::transport::Value::Complete),
+            None,
         )
         .unwrap();
     assert!(
